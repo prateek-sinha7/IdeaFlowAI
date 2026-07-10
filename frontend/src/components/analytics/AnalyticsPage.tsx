@@ -1,22 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import {
   ArrowLeft, Zap, DollarSign, Activity, Layers,
-  RefreshCw, CheckCircle2, XCircle, Clock3,
+  RefreshCw, CheckCircle2, XCircle, Clock3, Cpu,
 } from "lucide-react";
-import { getToken, getWorkflows, getPreferences } from "@/lib/api";
-import type { WorkflowRun } from "@/types/index";
+import { getToken, getAnalyticsSummary, getPreferences } from "@/lib/api";
+import type { AnalyticsSummary } from "@/lib/api";
+import { BarChart } from "./charts/BarChart";
+import { DonutChart } from "./charts/DonutChart";
 
 interface AnalyticsPageProps {
   onBack: () => void;
 }
 
+// Range enum — sent verbatim to the server (38-01 allow-list). Changing it
+// re-queries the endpoint (SC-1 server recompute), never re-filters in memory.
 type DateFilter = "today" | "3d" | "7d" | "30d" | "90d" | "all";
 type PipelineFilter = "all" | "user_stories" | "ppt" | "prototype" | "app_builder" | "custom";
 
-// ─── Model metadata ───────────────────────────────────────────────────────────
+// ─── Model metadata (DISPLAY-ONLY lookup — SC-001, no control flow) ───────────
 const MODEL_META: Record<string, { name: string; short: string; inputRate: string; outputRate: string; context: string }> = {
   "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  { name: "Claude Haiku 4.5",  short: "Haiku 4.5",   inputRate: "$0.25 / 1M",  outputRate: "$1.25 / 1M",  context: "200K" },
   "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { name: "Claude Sonnet 4.5", short: "Sonnet 4.5",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M", context: "200K" },
@@ -26,19 +30,9 @@ const MODEL_META: Record<string, { name: string; short: string; inputRate: strin
 };
 const DEFAULT_MODEL_ID = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
-/** Infer the model ID for a run that has no stored model_id, using cost-per-token ratio. */
-function inferModelId(run: WorkflowRun): string {
-  if (run.tokenUsage?.model_id) return run.tokenUsage.model_id;
-  if (run.modelId) return run.modelId;
-  if (run.tokenUsage && run.tokenUsage.total_tokens > 0) {
-    const cpt = run.tokenUsage.estimated_cost_usd / run.tokenUsage.total_tokens;
-    if (cpt < 0.000003) return "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
-    if (cpt < 0.00002)  return "eu.anthropic.claude-sonnet-4-5-20250929-v1:0";
-    return "eu.anthropic.claude-opus-4-5-20251101-v1:0";
-  }
-  return DEFAULT_MODEL_ID;
-}
-
+// DISPLAY-ONLY pipeline label map (SC-001/INV-1): the server rolls up on the
+// generic `type` column; this maps a type string → a friendly label, and normalises
+// the od_/revision variants onto their base label. No workflow-name control flow.
 const PIPELINE_LABELS: Record<string, string> = {
   user_stories: "User Stories", user_stories_revision: "User Stories",
   ppt: "Presentation", ppt_revision: "Presentation",
@@ -50,19 +44,9 @@ const PIPELINE_LABELS: Record<string, string> = {
   dotnet_to_azure: ".NET Migration",
 };
 
-// Palette: each pipeline type gets a distinct navy-family shade
-const PIPELINE_PALETTE: Record<string, { bar: string; badge: string; text: string }> = {
-  "User Stories":      { bar: "#1B2A4A", badge: "bg-[#E8EDF5] text-[#1B2A4A]", text: "#1B2A4A" },
-  "Presentation":      { bar: "#2E4A7A", badge: "bg-[#EAF0FB] text-[#2E4A7A]", text: "#2E4A7A" },
-  "Prototype":         { bar: "#3D6B9E", badge: "bg-[#EBF3FB] text-[#3D6B9E]", text: "#3D6B9E" },
-  "App Builder":       { bar: "#5B8DB8", badge: "bg-[#EDF4FA] text-[#5B8DB8]", text: "#5B8DB8" },
-  "Custom":            { bar: "#8AAEC8", badge: "bg-[#F0F5F9] text-[#8AAEC8]", text: "#8AAEC8" },
-  "Mulesoft Migration":{ bar: "#6B7280", badge: "bg-gray-100 text-gray-600",    text: "#6B7280" },
-  ".NET Migration":    { bar: "#9CA3AF", badge: "bg-gray-100 text-gray-500",    text: "#9CA3AF" },
-};
-
-function getPalette(label: string) {
-  return PIPELINE_PALETTE[label] ?? { bar: "#1B2A4A", badge: "bg-[#E8EDF5] text-[#1B2A4A]", text: "#1B2A4A" };
+/** Normalise od_/revision type variants onto their base type (display grouping). */
+function normalizeType(type: string): string {
+  return type.replace("od_ppt", "ppt").replace("od_prototype", "prototype").replace("_revision", "");
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -80,55 +64,6 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// ─── Timezone-safe helpers (module-level — no stale closure risk) ─────────────
-function toLocalDateKey(dateInput: Date | string): string {
-  const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
-  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
-}
-function localDaysAgo(n: number): string {
-  const d = new Date(); d.setDate(d.getDate() - n); return toLocalDateKey(d);
-}
-function localMidnightMsAgo(n: number): number {
-  const d = new Date(); d.setDate(d.getDate() - n); d.setHours(0, 0, 0, 0); return d.getTime();
-}
-
-// ─── Bar chart ────────────────────────────────────────────────────────────────
-function BarChart({ data, color = "#1B2A4A" }: {
-  data: { label: string; value: number; runs?: number }[];
-  color?: string;
-}) {
-  if (!data.length) return null;
-  const hasTokens = data.some(d => d.value > 0);
-  const display = hasTokens ? data : data.map(d => ({ ...d, value: d.runs ?? 0 }));
-  const max = Math.max(...display.map(d => d.value), 1);
-
-  return (
-    <div className="flex items-end gap-[3px] h-20 w-full">
-      {display.map((d, i) => {
-        const pct = (d.value / max) * 100;
-        const tip = hasTokens
-          ? `${d.label}: ${formatTokens(d.value)} tokens`
-          : `${d.label}: ${d.value} run${d.value !== 1 ? "s" : ""}`;
-        return (
-          <div key={i} className="flex-1 flex flex-col justify-end group relative h-full">
-            <motion.div
-              initial={{ height: 0 }}
-              animate={{ height: `${Math.max(pct, d.value > 0 ? 6 : 0)}%` }}
-              transition={{ duration: 0.5, delay: i * 0.02, ease: "easeOut" }}
-              className="w-full rounded-t-[3px] cursor-pointer"
-              style={{ background: color, opacity: d.value > 0 ? 0.75 + (i / display.length) * 0.25 : 0.12 }}
-            />
-            <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[9px] px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
-              {tip}
-              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── Animated counter ─────────────────────────────────────────────────────────
 function AnimatedNumber({ value, format }: { value: number; format: (n: number) => string }) {
   const [display, setDisplay] = useState(0);
@@ -139,18 +74,16 @@ function AnimatedNumber({ value, format }: { value: number; format: (n: number) 
   useEffect(() => {
     if (!mounted) return;
     if (value === 0) { setDisplay(0); return; }
-    let start = 0;
     const duration = 700;
-    const steps = 30;
-    const increment = value / steps;
-    let count = 0;
-    const timer = setInterval(() => {
-      count++;
-      start += increment;
-      if (count >= steps) { setDisplay(value); clearInterval(timer); }
-      else setDisplay(Math.floor(start));
-    }, duration / steps);
-    return () => clearInterval(timer);
+    const startTs = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min((now - startTs) / duration, 1);
+      setDisplay(t >= 1 ? value : Math.floor(value * t));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [value, mounted]);
 
   return <>{format(mounted ? display : value)}</>;
@@ -165,138 +98,134 @@ function StatCard({ icon: Icon, label, value, rawValue, sub, format }: {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white rounded-2xl border border-gray-100 px-5 py-4 hover:shadow-md transition-shadow"
+      className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow"
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">{label}</span>
-        <div className="h-7 w-7 rounded-lg bg-[#E8EDF5] flex items-center justify-center">
-          <Icon className="h-3.5 w-3.5 text-[#1B2A4A]" />
+        <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-widest">{label}</span>
+        <div className="h-7 w-7 rounded-lg bg-brand-fill flex items-center justify-center">
+          <Icon className="h-3.5 w-3.5 text-brand" />
         </div>
       </div>
-      <p className="text-[24px] font-bold text-gray-900 leading-none tracking-tight">
+      <p className="text-[24px] font-bold text-ink-900 leading-none tracking-tight">
         {rawValue !== undefined && format
           ? <AnimatedNumber value={rawValue} format={format} />
           : value}
       </p>
-      {sub && <p className="text-[10px] text-gray-400 mt-1.5">{sub}</p>}
+      {sub && <p className="text-[10px] text-ink-400 mt-1.5">{sub}</p>}
     </motion.div>
   );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
-  const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>("30d");
   const [pipelineFilter, setPipelineFilter] = useState<PipelineFilter>("all");
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [preferredModelId, setPreferredModelId] = useState<string | null>(null);
 
+  // SC-1 server recompute: the summary is re-queried whenever `dateFilter`
+  // changes — the server re-aggregates the owner's rows for the new range
+  // (HomeLaunchGrid fetch-shell idiom: cancelled guard + getToken + loading/
+  // error/finally). No in-memory reduce of raw runs.
+  useEffect(() => {
+    let cancelled = false;
+    const token = getToken();
+    if (!token) {
+      setError("Not authenticated.");
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    getAnalyticsSummary(token, dateFilter)
+      .then((data) => {
+        if (cancelled) return;
+        setSummary(data);
+        setError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e?.message ?? "Failed to load analytics.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [dateFilter]);
+
+  // Preferred model (for the "new runs will use…" note) — fetched once.
   useEffect(() => {
     const token = getToken();
     if (!token) return;
-    setLoading(true);
-    Promise.all([
-      getWorkflows(token, { limit: 500 }),
-      getPreferences(token).catch(() => null),
-    ])
-      .then(([wf, prefs]) => {
-        setRuns(wf);
-        if (prefs) setPreferredModelId(prefs.preferred_model);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    getPreferences(token)
+      .then((p) => { if (!cancelled) setPreferredModelId(p.preferred_model); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
-  const filteredRuns = useMemo(() => {
-    const cutoff: Record<DateFilter, number> = {
-      "today": localMidnightMsAgo(0),
-      "3d":    localMidnightMsAgo(2),
-      "7d":    localMidnightMsAgo(6),
-      "30d":   localMidnightMsAgo(29),
-      "90d":   localMidnightMsAgo(89),
-      "all":   0,
-    };
-    return runs.filter(r => {
-      if (new Date(r.createdAt).getTime() < cutoff[dateFilter]) return false;
-      if (pipelineFilter !== "all") {
-        // Normalise od_ppt → ppt, od_prototype → prototype before comparing
-        const baseType = r.type
-          .replace("od_ppt", "ppt")
-          .replace("od_prototype", "prototype")
-          .replace("_revision", "");
-        if (baseType !== pipelineFilter) return false;
-      }
-      if (modelFilter !== "all") {
-        if (inferModelId(r) !== modelFilter) return false;
-      }
-      return true;
-    });
-  }, [runs, dateFilter, pipelineFilter, modelFilter]);
+  // ── Derived display data — bound to the endpoint payload (KPI math ported,
+  //    not re-derived). pipeline/model filters narrow the already-fetched
+  //    rollup arrays client-side (sanctioned — only the DATE filter refetches).
+  const kpis = summary?.kpis;
+  const tokenTotals = summary?.token_totals;
+  const spend = summary?.spend ?? 0;
 
-  // Derive the set of models that appear in the full run history (for the dropdown)
-  const availableModelIds = useMemo(() => {
-    const seen = new Set<string>();
-    for (const r of runs) {
-      if (r.status === "completed") seen.add(inferModelId(r));
-    }
-    return Array.from(seen).sort();
-  }, [runs]);
+  const totalTokens = tokenTotals?.total ?? 0;
+  const inputTokens = tokenTotals?.input ?? 0;
+  const outputTokens = tokenTotals?.output ?? 0;
+  const completedCount = kpis?.completed ?? 0;
+  const failedCount = kpis?.failed ?? 0;
+  const totalCount = kpis?.total ?? 0;
+  const successRate = kpis ? Math.round(kpis.success_rate * 100) : 0;
+  const avgTokens = completedCount > 0 ? Math.round(totalTokens / completedCount) : 0;
 
-  const completedRuns = useMemo(() => filteredRuns.filter(r => r.status === "completed"), [filteredRuns]);
-  const failedRuns    = useMemo(() => filteredRuns.filter(r => r.status === "failed"), [filteredRuns]);
+  const availableModelIds = (summary?.models ?? [])
+    .map((m) => m.model_id)
+    .sort();
 
-  const tokenStats = useMemo(() => {
-    let totalInput = 0, totalOutput = 0, totalCost = 0;
-    for (const r of completedRuns) {
-      if (r.tokenUsage) {
-        totalInput  += r.tokenUsage.total_input_tokens;
-        totalOutput += r.tokenUsage.total_output_tokens;
-        totalCost   += r.tokenUsage.estimated_cost_usd;
-      }
-    }
-    return { totalInput, totalOutput, total: totalInput + totalOutput, totalCost };
-  }, [completedRuns]);
+  const dailyData = (summary?.daily ?? []).map((d) => ({
+    label: formatDate(d.date),
+    value: d.total_tokens,
+    runs: d.total,
+  }));
+  const dailyHasTokens = dailyData.some((d) => d.value > 0);
+  const dailyEmpty = dailyData.every((d) => d.value === 0 && d.runs === 0);
 
-  const avgTokens = completedRuns.length > 0 ? Math.round(tokenStats.total / completedRuns.length) : 0;
-  const successRate = filteredRuns.length > 0
-    ? Math.round((completedRuns.length / filteredRuns.length) * 100) : 0;
+  const pipelineRows = (summary?.pipelines ?? [])
+    .filter((p) => pipelineFilter === "all" || normalizeType(p.type) === pipelineFilter)
+    .map((p) => ({
+      label: PIPELINE_LABELS[normalizeType(p.type)] ?? normalizeType(p.type),
+      runs: p.count,
+      tokens: p.total_tokens,
+      cost: p.cost,
+    }))
+    .sort((a, b) => (b.tokens !== a.tokens ? b.tokens - a.tokens : b.runs - a.runs));
+  const pipelineHasTokens = pipelineRows.some((p) => p.tokens > 0);
+  const pipelineMax = pipelineHasTokens
+    ? Math.max(...pipelineRows.map((p) => p.tokens), 1)
+    : Math.max(...pipelineRows.map((p) => p.runs), 1);
 
-  const pipelineBreakdown = useMemo(() => {
-    const map: Record<string, { runs: number; tokens: number; cost: number }> = {};
-    for (const r of completedRuns) {
-      // Normalise od_ppt → ppt, od_prototype → prototype before label lookup
-      const normType = r.type
-        .replace("od_ppt", "ppt")
-        .replace("od_prototype", "prototype")
-        .replace("_revision", "");
-      const label = PIPELINE_LABELS[normType] || normType;
-      if (!map[label]) map[label] = { runs: 0, tokens: 0, cost: 0 };
-      map[label].runs++;
-      if (r.tokenUsage) { map[label].tokens += r.tokenUsage.total_tokens; map[label].cost += r.tokenUsage.estimated_cost_usd; }
-    }
-    return Object.entries(map).map(([label, v]) => ({ label, ...v }))
-      .sort((a, b) => b.tokens !== a.tokens ? b.tokens - a.tokens : b.runs - a.runs);
-  }, [completedRuns]);
+  const modelRows = (summary?.models ?? [])
+    .filter((m) => modelFilter === "all" || m.model_id === modelFilter)
+    .map((m) => ({
+      id: m.model_id,
+      name: MODEL_META[m.model_id]?.short ?? m.model_id,
+      runs: m.count,
+      tokens: m.total_tokens,
+      cost: m.cost,
+    }))
+    .sort((a, b) => b.tokens - a.tokens);
+  const modelMax = Math.max(...modelRows.map((m) => m.tokens), 1);
 
-  const dailyUsage = useMemo(() => {
-    const chartDays = dateFilter === "today" ? 1 : dateFilter === "3d" ? 3 : 14;
-    const days: Record<string, { tokens: number; runs: number }> = {};
-    for (let i = chartDays - 1; i >= 0; i--) days[localDaysAgo(i)] = { tokens: 0, runs: 0 };
-    for (const r of completedRuns) {
-      const key = toLocalDateKey(r.createdAt);
-      if (key in days) {
-        days[key].runs++;
-        if (r.tokenUsage) days[key].tokens += r.tokenUsage.total_tokens;
-      }
-    }
-    return Object.entries(days).map(([dk, v]) => ({
-      label: new Date(`${dk}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      value: v.tokens, runs: v.runs,
-    }));
-  }, [completedRuns, dateFilter]);
-
-  const recentRuns = completedRuns.slice(0, 6);
+  const activeModelId = modelFilter !== "all"
+    ? modelFilter
+    : (modelRows[0]?.id ?? DEFAULT_MODEL_ID);
+  const meta = MODEL_META[activeModelId] ?? MODEL_META[DEFAULT_MODEL_ID];
+  const preferenceLabel = preferredModelId ? (MODEL_META[preferredModelId]?.name ?? null) : null;
+  const showPreferenceNote = preferenceLabel && preferenceLabel !== meta.name && modelFilter === "all";
 
   const DATE_LABELS: Record<DateFilter, string> = {
     today: "Today", "3d": "Last 3 days", "7d": "Last 7 days",
@@ -304,36 +233,36 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   };
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto" style={{ background: "#F4F5F7" }}>
+    <div className="h-full flex flex-col overflow-y-auto bg-surface-paper">
 
       {/* ── Header ── */}
-      <div className="px-6 pt-5 pb-4 border-b border-gray-100 bg-white flex-shrink-0">
+      <div className="px-6 pt-5 pb-4 border-b border-line-border bg-surface-white flex-shrink-0">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <button onClick={onBack} className="h-8 w-8 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors">
-              <ArrowLeft className="h-4 w-4 text-gray-500" />
+            <button onClick={onBack} className="h-8 w-8 rounded-lg hover:bg-surface-warm flex items-center justify-center transition-colors">
+              <ArrowLeft className="h-4 w-4 text-ink-500" />
             </button>
             <div>
-              <h1 className="text-[17px] font-semibold text-gray-900 leading-tight">Analytics</h1>
-              <p className="text-[11px] text-gray-400 mt-0.5">Token usage · Cost · Pipeline performance</p>
+              <h1 className="text-[17px] font-semibold text-ink-900 leading-tight">Analytics</h1>
+              <p className="text-[11px] text-ink-400 mt-0.5">Token usage · Cost · Pipeline performance</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Date pills */}
-            <div className="flex items-center gap-0.5 bg-gray-100 rounded-xl p-0.5">
+            {/* Date pills — each selection re-queries the server (SC-1). */}
+            <div className="flex items-center gap-0.5 bg-surface-warm rounded-xl p-0.5">
               {(["today", "3d", "7d", "30d", "90d", "all"] as DateFilter[]).map(f => (
                 <button key={f} onClick={() => setDateFilter(f)}
                   className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${
-                    dateFilter === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                    dateFilter === f ? "bg-surface-white text-ink-900 shadow-sm" : "text-ink-500 hover:text-ink-700"
                   }`}>
                   {f === "all" ? "All" : f === "today" ? "Today" : f}
                 </button>
               ))}
             </div>
-            {/* Pipeline select */}
+            {/* Pipeline select — narrows the fetched rollup arrays client-side. */}
             <select value={pipelineFilter} onChange={e => setPipelineFilter(e.target.value as PipelineFilter)}
-              className="text-[11px] border border-gray-200 rounded-xl px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:border-[#1B2A4A] transition-colors">
+              className="text-[11px] border border-line-border rounded-xl px-3 py-1.5 bg-surface-white text-ink-700 focus:outline-none focus:border-brand transition-colors">
               <option value="all">All pipelines</option>
               <option value="user_stories">User Stories</option>
               <option value="ppt">Presentation</option>
@@ -341,10 +270,10 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               <option value="app_builder">App Builder</option>
               <option value="custom">Custom</option>
             </select>
-            {/* Model select — only shown when multiple models exist in history */}
+            {/* Model select — only shown when multiple models appear in the range. */}
             {availableModelIds.length > 1 && (
               <select value={modelFilter} onChange={e => setModelFilter(e.target.value)}
-                className="text-[11px] border border-gray-200 rounded-xl px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:border-[#1B2A4A] transition-colors">
+                className="text-[11px] border border-line-border rounded-xl px-3 py-1.5 bg-surface-white text-ink-700 focus:outline-none focus:border-brand transition-colors">
                 <option value="all">All models</option>
                 {availableModelIds.map(id => (
                   <option key={id} value={id}>
@@ -360,8 +289,15 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
-            <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
-            <p className="text-[11px] text-gray-400">Loading analytics…</p>
+            <RefreshCw className="h-5 w-5 animate-spin text-ink-300" />
+            <p className="text-[11px] text-ink-400">Loading analytics…</p>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <XCircle className="h-5 w-5 text-status-failed" />
+            <p className="text-[11px] text-ink-500">{error}</p>
           </div>
         </div>
       ) : (
@@ -369,54 +305,57 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
 
           {/* ── KPI row ── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <StatCard icon={Zap}        label="Total Tokens"  value={formatTokens(tokenStats.total)}
-              rawValue={tokenStats.total} format={formatTokens}
-              sub={`${formatTokens(tokenStats.totalInput)} in · ${formatTokens(tokenStats.totalOutput)} out`} />
-            <StatCard icon={DollarSign} label="Est. Cost"     value={formatCost(tokenStats.totalCost)}
-              sub={`across ${completedRuns.length} completed runs`} />
+            <StatCard icon={Zap}        label="Total Tokens"  value={formatTokens(totalTokens)}
+              rawValue={totalTokens} format={formatTokens}
+              sub={`${formatTokens(inputTokens)} in · ${formatTokens(outputTokens)} out`} />
+            <StatCard icon={DollarSign} label="Est. Cost"     value={formatCost(spend)}
+              sub={`across ${completedCount} completed runs`} />
             <StatCard icon={Activity}   label="Avg / Run"     value={formatTokens(avgTokens)}
               rawValue={avgTokens} format={formatTokens}
               sub="tokens per pipeline" />
-            <StatCard icon={Layers}     label="Total Runs"    value={String(filteredRuns.length)}
-              rawValue={filteredRuns.length} format={n => String(n)}
-              sub={`${completedRuns.length} completed · ${failedRuns.length} failed`} />
+            <StatCard icon={Layers}     label="Total Runs"    value={String(totalCount)}
+              rawValue={totalCount} format={n => String(n)}
+              sub={`${completedCount} completed · ${failedCount} failed`} />
           </div>
 
           {/* ── Activity chart + Success rate ── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
 
-            {/* Chart — takes 2/3 */}
-            <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 px-5 py-4 hover:shadow-md transition-shadow">
+            {/* Daily activity — extracted BarChart (INV-3), 2/3 width */}
+            <div className="lg:col-span-2 bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <p className="text-[13px] font-semibold text-gray-900">Daily Activity</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">{DATE_LABELS[dateFilter]}</p>
+                  <p className="text-[13px] font-semibold text-ink-900">Daily Activity</p>
+                  <p className="text-[10px] text-ink-400 mt-0.5">{DATE_LABELS[dateFilter]}</p>
                 </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                  <span className="h-2 w-2 rounded-sm inline-block" style={{ background: "#1B2A4A" }} />
-                  {dailyUsage.some(d => d.value > 0) ? "Tokens" : "Runs"}
+                <div className="flex items-center gap-1.5 text-[10px] text-ink-400">
+                  <span className="h-2 w-2 rounded-sm inline-block" style={{ background: "var(--brand)" }} />
+                  {dailyHasTokens ? "Tokens" : "Runs"}
                 </div>
               </div>
 
-              {dailyUsage.every(d => d.value === 0 && (d.runs ?? 0) === 0) ? (
+              {dailyEmpty ? (
                 <div className="h-20 flex flex-col items-center justify-center gap-1">
-                  <Activity className="h-5 w-5 text-gray-200" />
-                  <p className="text-[11px] text-gray-400">No activity in this period</p>
+                  <Activity className="h-5 w-5 text-ink-300" />
+                  <p className="text-[11px] text-ink-400">No activity in this period</p>
                 </div>
               ) : (
                 <>
-                  <BarChart data={dailyUsage} color="#1B2A4A" />
+                  <BarChart
+                    data={dailyData}
+                    ariaLabel={`Daily ${dailyHasTokens ? "token usage" : "run counts"} for ${DATE_LABELS[dateFilter]}`}
+                  />
                   <div className="flex mt-2">
-                    {dailyUsage.map((d, i) => (
+                    {dailyData.map((d, i) => (
                       <div key={i} className="flex-1 text-center">
-                        {(dailyUsage.length <= 3 || i % Math.ceil(dailyUsage.length / 5) === 0) && (
-                          <span className="text-[8px] text-gray-400">{d.label}</span>
+                        {(dailyData.length <= 3 || i % Math.ceil(dailyData.length / 5) === 0) && (
+                          <span className="text-[8px] text-ink-400">{d.label}</span>
                         )}
                       </div>
                     ))}
                   </div>
-                  {!dailyUsage.some(d => d.value > 0) && (
-                    <p className="text-[9px] text-gray-400 mt-1 text-center italic">
+                  {!dailyHasTokens && (
+                    <p className="text-[9px] text-ink-400 mt-1 text-center italic">
                       Showing run counts — token data available for new runs
                     </p>
                   )}
@@ -424,86 +363,69 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               )}
             </div>
 
-            {/* Success rate donut — 1/3 */}
-            <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 flex flex-col items-center justify-center hover:shadow-md transition-shadow">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest mb-4">Success Rate</p>
-              {/* SVG donut */}
-              <div className="relative">
-                <svg width="88" height="88" viewBox="0 0 88 88">
-                  <circle cx="44" cy="44" r="36" fill="none" stroke="#F3F4F6" strokeWidth="10" />
-                  <motion.circle
-                    cx="44" cy="44" r="36" fill="none"
-                    stroke="#1B2A4A"
-                    strokeWidth="10" strokeLinecap="round"
-                    strokeDasharray={`${2 * Math.PI * 36}`}
-                    initial={{ strokeDashoffset: 2 * Math.PI * 36 }}
-                    animate={{ strokeDashoffset: 2 * Math.PI * 36 * (1 - successRate / 100) }}
-                    transition={{ duration: 1, ease: "easeOut" }}
-                    transform="rotate(-90 44 44)"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-[20px] font-bold text-gray-900">{successRate}%</span>
-                </div>
-              </div>
+            {/* Success rate — extracted DonutChart (INV-3), 1/3 width */}
+            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 flex flex-col items-center justify-center hover:shadow-md transition-shadow">
+              <p className="text-[11px] font-semibold text-ink-500 uppercase tracking-widest mb-4">Success Rate</p>
+              <DonutChart
+                percent={successRate}
+                status="done"
+                ariaLabel={`Success rate ${successRate} percent — ${completedCount} completed of ${totalCount}`}
+              >
+                <span className="text-[20px] font-bold text-ink-900">{successRate}%</span>
+              </DonutChart>
               <div className="mt-4 space-y-1.5 w-full">
                 <div className="flex items-center justify-between text-[10px]">
-                  <span className="flex items-center gap-1.5 text-gray-500">
-                    <CheckCircle2 className="h-3 w-3 text-gray-400" /> Completed
+                  <span className="flex items-center gap-1.5 text-ink-500">
+                    <CheckCircle2 className="h-3 w-3 text-status-done" /> Completed
                   </span>
-                  <span className="font-semibold text-gray-800">{completedRuns.length}</span>
+                  <span className="font-semibold text-ink-800">{completedCount}</span>
                 </div>
                 <div className="flex items-center justify-between text-[10px]">
-                  <span className="flex items-center gap-1.5 text-gray-500">
-                    <XCircle className="h-3 w-3 text-gray-400" /> Failed
+                  <span className="flex items-center gap-1.5 text-ink-500">
+                    <XCircle className="h-3 w-3 text-status-failed" /> Failed
                   </span>
-                  <span className="font-semibold text-gray-800">{failedRuns.length}</span>
+                  <span className="font-semibold text-ink-800">{failedCount}</span>
                 </div>
                 <div className="flex items-center justify-between text-[10px]">
-                  <span className="flex items-center gap-1.5 text-gray-500">
-                    <Clock3 className="h-3 w-3 text-gray-400" /> Total
+                  <span className="flex items-center gap-1.5 text-ink-500">
+                    <Clock3 className="h-3 w-3 text-ink-400" /> Total
                   </span>
-                  <span className="font-semibold text-gray-800">{filteredRuns.length}</span>
+                  <span className="font-semibold text-ink-800">{totalCount}</span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ── Pipeline breakdown + Recent runs ── */}
+          {/* ── Pipeline breakdown + Model breakdown ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
 
-            {/* Pipeline breakdown */}
-            <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 hover:shadow-md transition-shadow">
-              <p className="text-[13px] font-semibold text-gray-900 mb-4">By Pipeline Type</p>
-              {pipelineBreakdown.length === 0 ? (
-                <p className="text-[11px] text-gray-400 py-6 text-center">No data for this period</p>
+            {/* By Pipeline Type — bound to pipelines[] rollup */}
+            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
+              <p className="text-[13px] font-semibold text-ink-900 mb-4">By Pipeline Type</p>
+              {pipelineRows.length === 0 ? (
+                <p className="text-[11px] text-ink-400 py-6 text-center">No data for this period</p>
               ) : (
                 <div className="space-y-3.5">
-                  {pipelineBreakdown.map((p, i) => {
-                    const palette = getPalette(p.label);
-                    const hasTokens = pipelineBreakdown.some(x => x.tokens > 0);
-                    const maxVal = hasTokens
-                      ? Math.max(...pipelineBreakdown.map(x => x.tokens), 1)
-                      : Math.max(...pipelineBreakdown.map(x => x.runs), 1);
-                    const barVal = hasTokens ? p.tokens : p.runs;
-                    const pct = Math.max(Math.round((barVal / maxVal) * 100), barVal > 0 ? 3 : 0);
+                  {pipelineRows.map((p, i) => {
+                    const barVal = pipelineHasTokens ? p.tokens : p.runs;
+                    const pct = Math.max(Math.round((barVal / pipelineMax) * 100), barVal > 0 ? 3 : 0);
                     return (
                       <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}>
                         <div className="flex items-center justify-between mb-1.5">
                           <div className="flex items-center gap-2">
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${palette.badge}`}>{p.label}</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-brand-fill text-brand">{p.label}</span>
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                          <div className="flex items-center gap-2 text-[10px] text-ink-500">
                             <span className="font-medium">{p.runs} run{p.runs !== 1 ? "s" : ""}</span>
-                            {p.tokens > 0 && <><span className="text-gray-300">·</span><span className="font-semibold text-gray-700">{formatTokens(p.tokens)}</span><span className="text-gray-400">{formatCost(p.cost)}</span></>}
+                            {p.tokens > 0 && <><span className="text-ink-300">·</span><span className="font-semibold text-ink-700">{formatTokens(p.tokens)}</span><span className="text-ink-400">{formatCost(p.cost)}</span></>}
                           </div>
                         </div>
-                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-1.5 bg-line-faint-row rounded-full overflow-hidden">
                           <motion.div className="h-full rounded-full"
                             initial={{ width: 0 }}
                             animate={{ width: `${pct}%` }}
                             transition={{ duration: 0.6, delay: i * 0.05, ease: "easeOut" }}
-                            style={{ background: palette.bar }}
+                            style={{ background: "var(--brand)" }}
                           />
                         </div>
                       </motion.div>
@@ -513,45 +435,35 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               )}
             </div>
 
-            {/* Recent runs — compact list */}
-            <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 hover:shadow-md transition-shadow">
-              <p className="text-[13px] font-semibold text-gray-900 mb-4">Recent Runs</p>
-              {recentRuns.length === 0 ? (
-                <p className="text-[11px] text-gray-400 py-6 text-center">No completed runs yet</p>
+            {/* By Model — bound to models[] rollup */}
+            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
+              <p className="text-[13px] font-semibold text-ink-900 mb-4">By Model</p>
+              {modelRows.length === 0 ? (
+                <p className="text-[11px] text-ink-400 py-6 text-center">No model usage yet</p>
               ) : (
-                <div className="space-y-0">
-                  {recentRuns.map((r, i) => {
-                    const normType = r.type
-                      .replace("od_ppt", "ppt")
-                      .replace("od_prototype", "prototype")
-                      .replace("_revision", "");
-                    const label = PIPELINE_LABELS[normType] || normType;
-                    const palette = getPalette(label);
+                <div className="space-y-3.5">
+                  {modelRows.map((m, i) => {
+                    const pct = Math.max(Math.round((m.tokens / modelMax) * 100), m.tokens > 0 ? 3 : 0);
                     return (
-                      <motion.div key={r.id}
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}
-                        className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0"
-                      >
-                        {/* Color dot */}
-                        <div className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: palette.bar }} />
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] font-medium text-gray-800 truncate leading-tight">{r.title}</p>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className="text-[9px] text-gray-400">{label}</span>
-                            <span className="text-gray-200 text-[9px]">·</span>
-                            <span className="text-[9px] text-gray-400">{formatDate(r.createdAt)}</span>
+                      <motion.div key={m.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <Cpu className="h-3 w-3 text-brand" />
+                            <span className="text-[10px] font-semibold text-ink-800">{m.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-ink-500">
+                            <span className="font-medium">{m.runs} run{m.runs !== 1 ? "s" : ""}</span>
+                            {m.tokens > 0 && <><span className="text-ink-300">·</span><span className="font-semibold text-ink-700">{formatTokens(m.tokens)}</span><span className="text-ink-400">{formatCost(m.cost)}</span></>}
                           </div>
                         </div>
-                        {/* Token badge */}
-                        {r.tokenUsage && r.tokenUsage.total_tokens > 0 ? (
-                          <div className="flex-shrink-0 text-right">
-                            <p className="text-[11px] font-semibold text-gray-800">{formatTokens(r.tokenUsage.total_tokens)}</p>
-                            <p className="text-[9px] text-gray-400">{formatCost(r.tokenUsage.estimated_cost_usd)}</p>
-                          </div>
-                        ) : (
-                          <span className="text-[9px] text-gray-300 flex-shrink-0">—</span>
-                        )}
+                        <div className="h-1.5 bg-line-faint-row rounded-full overflow-hidden">
+                          <motion.div className="h-full rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: 0.6, delay: i * 0.05, ease: "easeOut" }}
+                            style={{ background: "var(--brand-on-dark)" }}
+                          />
+                        </div>
                       </motion.div>
                     );
                   })}
@@ -563,45 +475,46 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
           {/* ── Token ratio + Model info ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
 
-            {/* Input vs Output ratio */}
-            <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 hover:shadow-md transition-shadow">
+            {/* Input vs Output ratio — bound to token_totals */}
+            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-[13px] font-semibold text-gray-900">Token Breakdown</p>
-                {tokenStats.total > 0 && (
-                  <span className="text-[10px] text-gray-400">
-                    {Math.round((tokenStats.totalInput / tokenStats.total) * 100)}% in ·{" "}
-                    {Math.round((tokenStats.totalOutput / tokenStats.total) * 100)}% out
+                <p className="text-[13px] font-semibold text-ink-900">Token Breakdown</p>
+                {totalTokens > 0 && (
+                  <span className="text-[10px] text-ink-400">
+                    {Math.round((inputTokens / totalTokens) * 100)}% in ·{" "}
+                    {Math.round((outputTokens / totalTokens) * 100)}% out
                   </span>
                 )}
               </div>
-              {tokenStats.total === 0 ? (
-                <p className="text-[11px] text-gray-400 py-3 text-center">No token data yet</p>
+              {totalTokens === 0 ? (
+                <p className="text-[11px] text-ink-400 py-3 text-center">No token data yet</p>
               ) : (
                 <>
-                  <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden flex mb-3">
-                    <motion.div className="h-full bg-[#1B2A4A] rounded-l-full"
+                  <div className="h-2.5 bg-line-faint-row rounded-full overflow-hidden flex mb-3">
+                    <motion.div className="h-full bg-brand rounded-l-full"
                       initial={{ width: 0 }}
-                      animate={{ width: `${(tokenStats.totalInput / tokenStats.total) * 100}%` }}
+                      animate={{ width: `${(inputTokens / totalTokens) * 100}%` }}
                       transition={{ duration: 0.8, ease: "easeOut" }}
                     />
-                    <motion.div className="h-full bg-[#8AAEC8] rounded-r-full"
+                    <motion.div className="h-full rounded-r-full"
+                      style={{ background: "var(--brand-on-dark)" }}
                       initial={{ width: 0 }}
-                      animate={{ width: `${(tokenStats.totalOutput / tokenStats.total) * 100}%` }}
+                      animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
                       transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
                     />
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { label: "Input", value: tokenStats.totalInput, color: "#1B2A4A" },
-                      { label: "Output", value: tokenStats.totalOutput, color: "#8AAEC8" },
-                      { label: "Total", value: tokenStats.total, color: "#374151" },
+                      { label: "Input", value: inputTokens, color: "var(--brand)" },
+                      { label: "Output", value: outputTokens, color: "var(--brand-on-dark)" },
+                      { label: "Total", value: totalTokens, color: "var(--ink-700)" },
                     ].map(item => (
-                      <div key={item.label} className="bg-gray-50 rounded-xl px-3 py-2.5">
+                      <div key={item.label} className="bg-surface-warm rounded-xl px-3 py-2.5">
                         <div className="flex items-center gap-1.5 mb-1">
                           <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
-                          <span className="text-[9px] text-gray-400 font-medium">{item.label}</span>
+                          <span className="text-[9px] text-ink-400 font-medium">{item.label}</span>
                         </div>
-                        <p className="text-[13px] font-bold text-gray-800">{formatTokens(item.value)}</p>
+                        <p className="text-[13px] font-bold text-ink-800">{formatTokens(item.value)}</p>
                       </div>
                     ))}
                   </div>
@@ -609,67 +522,33 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               )}
             </div>
 
-            {/* Model info */}
-            <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 hover:shadow-md transition-shadow">
-              <p className="text-[13px] font-semibold text-gray-900 mb-3">Model Details</p>
-              {(() => {
-                // If a model filter is active, show that model's details directly
-                let activeModelId: string | null = modelFilter !== "all" ? modelFilter : null;
-
-                // Otherwise infer from run data (stored model_id → cost-per-token → default)
-                if (!activeModelId) {
-                  activeModelId = completedRuns
-                    .find(r => r.tokenUsage?.model_id)?.tokenUsage?.model_id
-                    ?? completedRuns.find(r => r.modelId)?.modelId
-                    ?? null;
-
-                  if (!activeModelId) {
-                    const runsWithData = completedRuns.filter(r => r.tokenUsage && r.tokenUsage.total_tokens > 0);
-                    if (runsWithData.length > 0) {
-                      const totalTokens = runsWithData.reduce((s, r) => s + (r.tokenUsage?.total_tokens ?? 0), 0);
-                      const totalCost = runsWithData.reduce((s, r) => s + (r.tokenUsage?.estimated_cost_usd ?? 0), 0);
-                      const avgCostPerToken = totalTokens > 0 ? totalCost / totalTokens : 0;
-                      if (avgCostPerToken < 0.000003) activeModelId = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
-                      else if (avgCostPerToken < 0.00002) activeModelId = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0";
-                      else activeModelId = "eu.anthropic.claude-opus-4-5-20251101-v1:0";
-                    }
-                  }
-                }
-
-                const displayModelId = activeModelId ?? DEFAULT_MODEL_ID;
-                const meta = MODEL_META[displayModelId] ?? MODEL_META[DEFAULT_MODEL_ID];
-                const preferenceLabel = preferredModelId ? (MODEL_META[preferredModelId]?.name ?? null) : null;
-                const showPreferenceNote = preferenceLabel && preferenceLabel !== meta.name && modelFilter === "all";
-
-                return (
-                  <>
-                    <div className="space-y-2.5">
-                      {[
-                        { label: "Model",          value: meta.name },
-                        { label: "Input rate",     value: `${meta.inputRate} tokens` },
-                        { label: "Output rate",    value: `${meta.outputRate} tokens` },
-                        { label: "Context window", value: `${meta.context} tokens` },
-                      ].map(item => (
-                        <div key={item.label} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                          <span className="text-[11px] text-gray-500">{item.label}</span>
-                          <span className="text-[11px] font-semibold text-gray-800">{item.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {showPreferenceNote && (
-                      <div className="mt-3 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
-                        <p className="text-[10px] text-amber-700">
-                          New runs will use <span className="font-semibold">{preferenceLabel}</span>
-                        </p>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-              {tokenStats.totalCost > 0 && (
-                <div className="mt-3 bg-[#E8EDF5] border border-[#D0DAF0] rounded-xl px-3 py-2.5 flex items-center justify-between">
-                  <span className="text-[10px] text-[#1B2A4A] font-medium">Total spend ({DATE_LABELS[dateFilter]})</span>
-                  <span className="text-[13px] font-bold text-[#1B2A4A]">{formatCost(tokenStats.totalCost)}</span>
+            {/* Model info — display-only meta for the active model */}
+            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
+              <p className="text-[13px] font-semibold text-ink-900 mb-3">Model Details</p>
+              <div className="space-y-2.5">
+                {[
+                  { label: "Model",          value: meta.name },
+                  { label: "Input rate",     value: `${meta.inputRate} tokens` },
+                  { label: "Output rate",    value: `${meta.outputRate} tokens` },
+                  { label: "Context window", value: `${meta.context} tokens` },
+                ].map(item => (
+                  <div key={item.label} className="flex items-center justify-between py-1.5 border-b border-line-faint-row last:border-0">
+                    <span className="text-[11px] text-ink-500">{item.label}</span>
+                    <span className="text-[11px] font-semibold text-ink-800">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+              {showPreferenceNote && (
+                <div className="mt-3 rounded-lg bg-[var(--status-amber-fill)] border border-[var(--status-amber-border)] px-3 py-2">
+                  <p className="text-[10px] text-[var(--status-amber)]">
+                    New runs will use <span className="font-semibold">{preferenceLabel}</span>
+                  </p>
+                </div>
+              )}
+              {spend > 0 && (
+                <div className="mt-3 bg-brand-fill border border-brand-border rounded-xl px-3 py-2.5 flex items-center justify-between">
+                  <span className="text-[10px] text-brand font-medium">Total spend ({DATE_LABELS[dateFilter]})</span>
+                  <span className="text-[13px] font-bold text-brand">{formatCost(spend)}</span>
                 </div>
               )}
             </div>

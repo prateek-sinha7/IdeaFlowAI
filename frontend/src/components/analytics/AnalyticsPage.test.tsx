@@ -106,8 +106,10 @@ describe("AnalyticsPage — server recompute (SC-1)", () => {
     await waitFor(() =>
       expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
     );
-    // The first payload's spend is rendered.
-    await waitFor(() => expect(screen.getByText("$1.230")).toBeInTheDocument());
+    // The first payload's spend is rendered (appears in the KPI tile + spend chip).
+    await waitFor(() =>
+      expect(screen.getAllByText("$1.230").length).toBeGreaterThan(0),
+    );
 
     await user.click(screen.getByRole("button", { name: "7d" }));
 
@@ -116,7 +118,9 @@ describe("AnalyticsPage — server recompute (SC-1)", () => {
       expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "7d"),
     );
     // A number re-renders from the SECOND payload.
-    await waitFor(() => expect(screen.getByText("$4.560")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getAllByText("$4.560").length).toBeGreaterThan(0),
+    );
   });
 
   it("renders the charts with role='img' (a11y via the 38-02 primitives)", async () => {
