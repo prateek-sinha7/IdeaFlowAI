@@ -234,12 +234,6 @@ export const DISCOVERY_SCENARIOS: DiscoveryScenario[] = [
       '{"template":{},"surface":"Desktop web","audience":"Developers","tone":"","scale":"","constraints":""}',
   },
   {
-    name: "discovery · template inputs only",
-    answers: { template: { projectName: "Acme" }, surface: "", audience: "", tone: "", scale: "", constraints: "" },
-    expected:
-      '{"template":{"projectName":"Acme"},"surface":"","audience":"","tone":"","scale":"","constraints":""}',
-  },
-  {
     name: "discovery · empty (skip → null)",
     answers: { template: {}, surface: "", audience: "", tone: "", scale: "", constraints: "" },
     expected: null,

@@ -23,13 +23,6 @@ export interface PrototypeTemplate {
   has_preview: boolean;
 }
 
-export interface PrototypeTemplateDetail extends PrototypeTemplate {
-  design_system: Record<string, unknown>;
-  inputs: unknown;
-  outputs: Record<string, unknown>;
-  body: string;
-}
-
 export interface DesignSystemListItem {
   id: string;
   name: string;
@@ -59,16 +52,6 @@ async function authFetch<T>(token: string, path: string): Promise<T> {
 
 export function listPrototypeTemplates(token: string): Promise<PrototypeTemplate[]> {
   return authFetch<PrototypeTemplate[]>(token, "/api/prototype/templates");
-}
-
-export function getPrototypeTemplate(
-  token: string,
-  id: string,
-): Promise<PrototypeTemplateDetail> {
-  return authFetch<PrototypeTemplateDetail>(
-    token,
-    `/api/prototype/templates/${encodeURIComponent(id)}`,
-  );
 }
 
 export function listDesignSystems(token: string): Promise<DesignSystemListItem[]> {
