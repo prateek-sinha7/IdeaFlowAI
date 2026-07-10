@@ -309,6 +309,24 @@ describe("LaunchWizard — ported behaviors", () => {
     expect(screen.getByText(/Continuing from your/i)).toBeInTheDocument();
   });
 
+  it("WR-07: chaining launch composes finalBrief=contextBlock and threads sourceRunId", async () => {
+    const user = userEvent.setup();
+    sessionStorage.setItem("chain.from", "user_stories");
+    sessionStorage.setItem("chain.context_block", "PRIOR CONTEXT");
+    sessionStorage.setItem("chain.source_run_id", "run-42");
+    render(<LaunchWizard initialMode="prototype" />);
+    // Brief editor hidden when chaining — the topic comes from the prior run.
+    await waitFor(() => expect(screen.queryByLabelText("Brief")).not.toBeInTheDocument());
+    // A prototype still needs a design system; pick one, then click Continue.
+    await user.click(await screen.findByTestId("pick-ds"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const draft = JSON.parse(sessionStorage.getItem("prototype.draft")!);
+    expect(draft.brief).toBe("PRIOR CONTEXT"); // isChaining && contextBlock → finalBrief = contextBlock
+    expect(draft.sourceRunId).toBe("run-42"); // pulled from chain.source_run_id
+    expect(sessionStorage.getItem("od_prototype.pending")).toBe("true");
+  });
+
   it("a11y: the brief and back control expose accessible names", async () => {
     render(<LaunchWizard initialMode="prototype" />);
     expect(await screen.findByLabelText("Brief")).toBeInTheDocument();
