@@ -1,52 +1,52 @@
 ---
 phase: 37-configure-unification-composer-wizard-b3
-verified: 2026-07-09T07:04:15Z
+verified: 2026-07-10T02:12:00Z
 status: passed
-score: 3/3 roadmap success-criteria verified (23/23 plan truths verified)
+score: 3/3 roadmap success-criteria verified (23 base plan truths + 8 37-07 unification truths verified)
 overrides_applied: 0
 re_verification:
-  previous_status: none
-  note: initial verification (no prior VERIFICATION.md)
-warnings:
-  - item: "FIXME debt marker at backend/app/api/launch_context.py:96"
-    detail: >-
-      FIXME(D-15/C v1) references 'RESEARCH Open Question 2' (a documented,
-      intentional deferral of generic loader-profile *declaration*) rather than a
-      tracker-ID (issue/PR/#/DEF-*). It is auditable (RESEARCH.md Open Question 2 +
-      assumption A1 + 37-01-SUMMARY) and byte-preserving-verified (goldens clean:
-      only the three audited manifests declare opendesign). Phase goal is fully
-      achieved; not treated as a phase-goal blocker. Recommend formalizing via the
-      override below OR converting the marker to a tracked DEF-* id.
-    suggested_override:
-      must_have: "No FIXME/TBD/XXX debt markers without a tracker-ID reference in touched source"
-      reason: >-
-        Intentional, documented deferral of generic loader-profile declaration
-        (RESEARCH Open Question 2 / assumption A1). The current base-family loader
-        mapping is byte-preserving — proven by the 5 characterization goldens
-        staying git-clean with SNAPSHOT_UPDATE unset — because only prototype,
-        od_ppt and od_ppt_revision declare context_providers:[opendesign].
-      accepted_by: "<pending>"
-      accepted_at: "<pending>"
+  previous_status: passed
+  previous_score: 3/3 (23/23 plan truths)
+  previous_head: df679823
+  current_head: 6167b302
+  scope: >-
+    RE-VERIFY after the 37-07 unified-launch rebuild + the 6 review fixes
+    (7a84f6bc..HEAD). Prior pass (df679823) was BEFORE 37-07; that pass carried one
+    open WARNING (WR-01/02 unmounted surfaces via ISS-046) and a FIXME debt-marker
+    WARNING. This pass confirms those are now closed in code.
+  gaps_closed:
+    - "WR-01: WizardStepper new-build was mounted nowhere → now the unified LaunchWizard is mounted live at /workflow/create?mode=… and the old route-split pages are DELETED (no orphan imports)"
+    - "WR-02: WorkflowDialog was mounted nowhere → now reachable via the SURF-03 inspect affordance on every catalog row (HomeLaunchGrid.tsx:226/243)"
+    - "WR-03: Save-to-catalogue persisted a stale model_overrides seed → dropped; Save now emits liveSelections only (selections[id].model single source of truth)"
+    - "WR-04: ConfigureScreen opendesign gate diverged from the backend seam for bare prototype → now mirrors it via OD_ALIAS_BASE_PIPELINES (ConfigureScreen.tsx:55)"
+    - "IN-01: discovery answers dropped at launch hand-off → now threaded into ComposedLaunchCommand.discovery (ConfigureScreen.tsx:68-71)"
+    - "IN-02: step-counter mismatch (X of 2 vs 3 of 3) → reconciled to 'Step 1 of 1' in the standalone discovery page"
+    - "FIXME debt-marker WARNING (launch_context.py:96) → now references tracker-ID ISS-046 (.planning/ISSUES-REGISTER.md); debt-marker gate satisfied"
+  gaps_remaining: []
+  regressions: []
 deferred:
-  - truth: "Mocked-Playwright e2e for the Configure/Composer/Wizard/Drawer flows"
-    addressed_in: "Phase 34 (Live Pass & Closure) / milestone-end live pass"
-    evidence: "Offline webServer timeout; live confirmation deferred per plan verification notes + defer-live-verification disposition"
-  - truth: "Live run-launch of a NON-prototype deliverable declaring template/DS through the declared-signal seam"
+  - truth: "Live /dashboard auto-fire of the unified /workflow/create page (end-to-end pipeline launch)"
     addressed_in: "Phase 34 (Live Pass & Closure)"
-    evidence: "Needs live Bedrock + server; 37-01-SUMMARY LIVE-DEFERRED note. Offline parity proven by test_rest_run_launch.py (17 passed) + goldens byte-identical"
+    evidence: "Launch contract offline-proven BYTE-IDENTICAL to the retired flow per mode (launchDraft.parity 12/12 + LaunchWizard 13/13) + dashboard consumer reads the same keys unchanged; live Bedrock/server confirmation deferred per milestone live-verification policy"
+  - truth: "Mocked-Playwright e2e for the unified launch / composer / wizard / drawer flows"
+    addressed_in: "Phase 34 / milestone-end live pass"
+    evidence: "Offline webServer timeout; e2e specs (ts-b.selection/ts-v/ts-z) realigned to /workflow/create but run live-only"
+  - truth: "~10 pre-existing vitest failures (ReviewGatesSection ×3, HomeLaunchGrid Phase-21 ×5, AgentProgressPanel ×1, IdeaInputPage ×1)"
+    addressed_in: "ISS-045 (out of 37-07 scope)"
+    evidence: "Confirmed red at base + 37-07 did NOT touch the Phase-21 saved-workflow code the 5 HomeLaunchGrid tests exercise (diff is inspect-affordance + repoint only); zero 37-07 regressions"
   - truth: "Workflow visibility/team-sharing, pre-run cost/duration, discovery page-selection"
     addressed_in: "Declared OUT this phase (ND-12)"
-    evidence: "ROADMAP notes deferred backend; DiscoveryAnswers carries no pages field (verified); Save wires owner-only createUserWorkflow"
+    evidence: "Owner-only createUserWorkflow; DiscoveryAnswers carries no pages field"
 ---
 
-# Phase 37: Configure Unification + Composer/Wizard [B3] — Verification Report
+# Phase 37: Configure Unification + Composer/Wizard [B3] — Verification Report (RE-VERIFY, incl. 37-07)
 
-**Phase Goal:** One generic per-run setup surface for every deliverable type; the agent drawer and workflow dialog give capabilities a real home.
-**Verified:** 2026-07-09T07:04:15Z (branch `feat/ui-2`, HEAD `df679823`)
+**Phase Goal:** One generic per-run setup surface for every deliverable type; the agent drawer and workflow dialog give capabilities a real home — and (37-07) BOTH flagship launch flows (prototype + ppt) unified into ONE mode-keyed, live-mounted `LaunchWizard`.
+**Verified:** 2026-07-10T02:12:00Z (branch `feat/ui-2`, HEAD `6167b302`)
 **Status:** passed
-**Re-verification:** No — initial verification
+**Re-verification:** Yes — after the 37-07 unified-launch rebuild + the 6 review fixes (prior pass at `df679823` was pre-37-07)
 
-All success criteria and invariant gates were independently RE-RUN against the code (SUMMARY claims not trusted). The load-bearing 37-01 D-15/C seam gate passes with byte-identical goldens; the ND-7 corrective fix `df679823` is confirmed surface-only.
+All success criteria and invariant gates were INDEPENDENTLY RE-RUN against the code (SUMMARY claims not trusted). The previously-unmounted surfaces (WizardStepper→LaunchWizard, WorkflowDialog) are now REACHABLE, the old route-split pages are DELETED with no orphan imports, and the ⭐ launch-contract parity gate proves the unified page's hand-off is BYTE-IDENTICAL to the retired flow PER MODE. The 5 backend characterization goldens re-run byte-identical (37-07 is FE-only).
 
 ## Goal Achievement
 
@@ -54,114 +54,97 @@ All success criteria and invariant gates were independently RE-RUN against the c
 
 | # | Truth (SC) | Status | Evidence |
 |---|-----------|--------|----------|
-| SC-1 | Configure screen: Describe + Templates + Design System + Review Gates + Workflow Settings for ANY deliverable (declared run inputs, not prototype-only) | ✓ VERIFIED | `ConfigureScreen.tsx` — 5 accordions at lines 249/265/274/285/288; Templates+DS gated on `detail.context_providers.includes("opendesign")` (l.112, same signal as backend seam); generic `ComposedLaunchCommand{template_id,design_system_id,agent_ids,selections}` (l.50-58); mounted at `configure/page.tsx:43` |
-| SC-2 | Agent drawer (Overview/Skills/Hooks/Config) live on real data; Workflow dialog surfaces declared capabilities/context/compaction with `user_allowed` gating | ✓ VERIFIED | 4-tab inspector `AgentsPopup.tsx:517-518` reusing `SkillsHooksTab`+`AgentPromptSection`; `WorkflowDialog.tsx` aggregates declared capabilities (l.99), context_providers (l.126), compactions (l.118-122), locks on registry `user_allowed` reflection (l.216) |
-| SC-3 | Draft-run persistence per ND-1 (client-side only) | ✓ VERIFIED | `draft.ts` single keyed blob `STORAGE_KEY="configure.draft"` via `sessionStorage.setItem/getItem/removeItem`; save/read/clear wired in `ConfigureScreen.tsx:208/134/228`; NO DB table, NO migration in phase diff |
+| SC-1 | One generic Configure/launch surface for every deliverable type; the unified `LaunchWizard` is REACHABLE | ✓ VERIFIED | Unified `LaunchWizard.tsx` mounted at `app/workflow/create/page.tsx:37` (`?mode=prototype\|ppt`); ALL entry points repoint to `/workflow/create?mode=…` (CreationHub, HomeLaunchGrid l.106/110, DashboardLayout l.858/879, workflowChaining l.41/53, discovery back-links); old route-split pages DELETED (`prototype/templates` −765, `ppt/templates` −730); grep = NO orphan non-comment/non-api imports. ConfigureScreen also generic (declared-signal gating, `ComposedLaunchCommand`). |
+| SC-2 | Agent drawer (4-tab, ND-7 surface-only) + `WorkflowDialog` reachable | ✓ VERIFIED | 4-tab inspector (prior pass, `AgentsPopup.tsx`); WorkflowDialog NOW mounted — `HomeLaunchGrid.tsx:33` import, `:226` inspect onClick (aria-label "Inspect … details"), `:243` `<WorkflowDialog>` mount; WR-02 CLOSED |
+| SC-3 | Draft-run persistence per ND-1 (client-side only) | ✓ VERIFIED | `draft.ts` single-keyed `sessionStorage` blob (unchanged; 37-07 only touched its doc comment); NO DB table / NO migration in phase diff |
 
 **Score: 3/3 roadmap success criteria verified.**
 
-### Plan-level truths (merged from PLAN frontmatter)
+### 37-07 unification truths (the rebuild)
 
-| Plan | Truth | Status | Evidence |
+| # | Truth | Status | Evidence |
 |---|---|---|---|
-| 37-01 | D-15/C: run-launch keys od_context on DECLARED `context_providers:[opendesign]`, not pipeline-name literals | ✓ VERIFIED | `launch_context.py:85` `declared_opendesign`; name-branch grep returns NONE in both boundaries |
-| 37-01 | INV-3: 5 characterization goldens byte-identical | ✓ VERIFIED | 10 tests pass (SNAPSHOT_UPDATE unset); `git status --porcelain golden/` = 0 lines; no dirty tracked files |
-| 37-01 | INV-5: opt-in is manifest data (context_providers), no new DSL/key | ✓ VERIFIED | 3 manifests declare `context_providers:[opendesign]`; compiled `.context_providers` peeked at seam |
-| 37-01 | INV-13: engine `od_context=` contract unchanged, boundary-only | ✓ VERIFIED | Phase diff touches only `launch_context.py`(new)+`run_commands.py`+`websocket.py`+test — no `execution_engine/`, no runner |
-| 37-01 | Launch-parity: od_prototype/od_ppt + od_ppt_revision (WS non-fatal) produce same dict via seam | ✓ VERIFIED | `test_rest_run_launch.py` 17 passed; od_ppt_revision characterization + parity green |
-| 37-02 | Configure Templates/DS accordions gated on same declared signal | ✓ VERIFIED | `ConfigureScreen.tsx:112,263` |
-| 37-02 | Generic per-run setup for any deliverable; launch composes generic LaunchCommand | ✓ VERIFIED | `ComposedLaunchCommand` (l.50-58) |
-| 37-02 | ND-1: save-draft client-side sessionStorage only | ✓ VERIFIED | `draft.ts` sessionStorage; no migration |
-| 37-02 | Token gate: retired palette 0 on new files | ✓ VERIFIED | grep 0 on configure/page.tsx, ConfigureScreen.tsx, draft.ts |
-| 37-03 | REUSE composer: live `/api/capabilities`, AdvancedExpander, user-workflows CRUD, SkillsHooksTab | ✓ VERIFIED | `getCapabilities as fetchCapabilities` (l.17); createUserWorkflow (l.1789) |
-| 37-03 | COUPLED_GATE='validation' preserved | ✓ VERIFIED | `AgentsPopup.tsx:1390` + auto-attach l.1504 |
-| 37-03 | Retry stays INT from RETRY_OPTIONS=[1,2,3] | ✓ VERIFIED | `AgentsPopup.tsx:1394` `[1, 2, 3]` |
-| 37-03 | Capability + user_allowed gating read live registry, not hardcoded list | ✓ VERIFIED | `user_allowed` reads at l.1232; render whole registry payload l.1125 |
-| 37-03 | ND-12: visibility/team-sharing DECLARED OUT (owner-only Save) | ✓ VERIFIED | createUserWorkflow owner-scoped; no visibility field |
-| 37-03 | AgentModelPicker dead code, NOT re-mounted (INV-3 dual-impl) | ✓ VERIFIED | No non-test import/`<AgentModelPicker`; guard-test asserts absence |
-| 37-04 | NEW unified Template->DS->Discovery stepper + Web/Deck toggle | ✓ VERIFIED | `WizardStepper.tsx` STEPS incl discovery (l.74); generic `mode` toggle (l.24,34) |
-| 37-04 | REUSE step bodies: Web->TemplateGallery, Deck->PPTTemplateGallery | ✓ VERIFIED | imports l.5-6; props forwarded verbatim |
-| 37-04 | Token gate: templates + ppt/templates reskinned to 0 retired | ✓ VERIFIED | grep 0 on both template pages |
-| 37-04 | Stepper keyed on generic prop + step-3 discovery slot | ✓ VERIFIED | `discoverySlot?: ReactNode` (l.61) |
-| 37-05 | LOCK-F/ND-8: DS picker shows real ~14 from live registry, no hardcoded 5 | ✓ VERIFIED | Count follows `systems` prop; reskin test asserts 14 |
-| 37-05 | RESTRUCTURE chip-list -> swatch band-card grid; onSelect wiring preserved | ✓ VERIFIED | `DesignSystemBandCard` grid l.403-406; onSelect/onSelectCustom preserved |
-| 37-05 | Orphaned DiscoveryForm wired as step 3 (INV-3 no dup) | ✓ VERIFIED | `discovery/page.tsx` reuses DiscoveryForm as wizard step 3 |
-| 37-05 | ND-12: discovery page-selection DECLARED OUT (no pages field) | ✓ VERIFIED | no `pages` field in DiscoveryAnswers |
-| 37-06 | ND-7: Config tab SURFACE-only, persistence deferred (no durable override storage) | ✓ VERIFIED | `surfaceOnly` omits Edit/Save/Revert (l.335,360); PUT/DELETE unreachable |
-| 37-06 | 4-tab inspector reads real data, reuses AgentPromptSection+SkillsHooksTab | ✓ VERIFIED | l.517-518 tabs; reuse confirmed |
-| 37-06 | Workflow dialog user_allowed = registry reflection, not code branch | ✓ VERIFIED | `WorkflowDialog.tsx:216` |
-| 37-06 | Token gate: drawer Config + Workflow dialog retired palette 0 | ✓ VERIFIED | grep 0 on AgentsPopup.tsx, WorkflowDialog.tsx |
+| U-1 | Both flows rebuilt into ONE mode-keyed page, mounted live | ✓ VERIFIED | `LaunchWizard.tsx` (829 LOC) hosts WizardStepper chrome + brief/gates/composer/save/launch; mounted at `/workflow/create` |
+| U-2 | SC-001: keyed on generic `mode` value, no per-workflow-name branch | ✓ VERIFIED | `MODE_CONFIG: Record<LaunchMode, …>` data table (l.77); filter `pipeline_type === MODE_CONFIG[mode].agentPipeline` (l.114); mode is the deliverable-family (Web/Deck toggle), not a workflow name |
+| U-3 | ⭐ Launch-contract BYTE-IDENTICAL per mode | ✓ VERIFIED | `launchDraft.parity.test.ts` 12/12 + `LaunchWizard.test.tsx` 13/13 = 25 passed; goldens verified faithful to the retired `handleContinue` key-order (git 7a84f6bc, both modes) |
+| U-4 | Parity fixtures cover the actual dashboard-consumer contract | ✓ VERIFIED | dashboard/page.tsx reads `prototype.draft`/`od_prototype.pending`/`prototype.discovery` (l.216-225,952-984) + `ppt.draft`/`od_ppt.pending` (l.252-1056) — exactly the keys `buildLaunchDraft`/`MODE_KEYS`/`buildDiscoveryValue` write |
+| U-5 | INV-12 no dual impl: serialization extracted, old pages deleted | ✓ VERIFIED | `buildLaunchDraft`/`buildDiscoveryValue` sole impl in `launchDraft.ts`; 2 route-split pages + render-oracle test DELETED; no orphan imports |
+| U-6 | ppt `designSystemId = dsRequired ? id : null` rule preserved | ✓ VERIFIED | `LaunchWizard.tsx:420,459` applies it before `buildLaunchDraft`; golden `ppt · ds not required` = `designSystemId:null`; matches old `ppt/templates` l.299 |
+| U-7 | Reuse preserved: AgentsPopup composer (COUPLED_GATE/RETRY/user_allowed/ND-7), AgentModelPicker NOT mounted | ✓ VERIFIED | AgentsPopup reused unchanged; no non-comment `<AgentModelPicker` mount anywhere |
+| U-8 | Token gate + LOCK-B: 0 retired palette added, no transport touch | ✓ VERIFIED | retired-palette grep 0 on all touched files; 37-07 diff is FE-only (goldens git-clean) |
 
-### Required Artifacts
+### Plan-level truths (base phase — regression re-check, all still VERIFIED)
 
-| Artifact | Expected | Status | Details |
-|---|---|---|---|
-| `backend/app/api/launch_context.py` | Declared-signal od_context seam | ✓ VERIFIED | `resolve_launch_od_context` present, substantive (121 lines), wired at both boundaries |
-| `backend/tests/unit/test_rest_run_launch.py` | od_context parity cases | ✓ VERIFIED | 17 passed |
-| `frontend/src/components/workflow/ConfigureScreen.tsx` | Generic accordions gated on declared signal | ✓ VERIFIED | context_providers gating |
-| `frontend/src/lib/draft.ts` | Client-side sessionStorage draft | ✓ VERIFIED | single blob save/read/clear |
-| `frontend/src/components/workflow/AgentsPopup.tsx` | Reskinned composer + 4-tab drawer + surface-only Config | ✓ VERIFIED | COUPLED_GATE/retry-int/live registry/surfaceOnly |
-| `frontend/src/components/workflow/WorkflowDialog.tsx` | Declared caps/context/compaction + user_allowed | ✓ VERIFIED | aggregation + registry reflection |
-| `frontend/src/components/workflow/WizardStepper.tsx` | Unified stepper + Web/Deck toggle | ✓ VERIFIED | generic mode toggle + slots |
-| `frontend/src/components/workflow/prototype/DesignSystemPicker.tsx` | Band-card grid over real registry | ✓ VERIFIED | DesignSystemBandCard grid |
+All 23 base plan-level truths from the prior pass remain VERIFIED (see prior report). Regression-checked here: the D-15/C declared-signal seam (`launch_context.py`), the 5 goldens byte-identity, COUPLED_GATE/RETRY_OPTIONS/live `/api/capabilities`/`user_allowed`, ND-7 surface-only, and the token gate all still hold. 37-07 is FE-only and touched none of the backend seam.
+
+### Review-fix closures (ISS-046)
+
+| Fix | Status | Evidence |
+|---|---|---|
+| WR-01 WizardStepper unmounted | ✓ CLOSED | Unified LaunchWizard mounted at `/workflow/create`; old pages retired (INV-3) |
+| WR-02 WorkflowDialog unmounted | ✓ CLOSED | Inspect affordance `HomeLaunchGrid.tsx:226/243` |
+| WR-03 stale model_overrides on Save | ✓ CLOSED | `AgentsPopup.tsx:1798` — save emits `liveSelections` only; no `model_overrides` key |
+| WR-04 FE gate diverges from seam | ✓ CLOSED | `ConfigureScreen.tsx:55` `OD_ALIAS_BASE_PIPELINES` mirrors backend `_OD_ALIAS_BASE.values()` |
+| IN-01 discovery dropped at launch | ✓ CLOSED | `ComposedLaunchCommand.discovery` (`ConfigureScreen.tsx:68-71`) |
+| IN-02 step-counter mismatch | ✓ CLOSED | discovery page now "Step 1 of 1" (l.156) |
+| FIXME debt marker (launch_context.py:96) | ✓ CLOSED | Now `FIXME(ISS-046 / …)` — tracker-ID referenced; debt-marker gate satisfied |
 
 ### Key Link Verification
 
 | From | To | Via | Status |
 |---|---|---|---|
-| `run_commands.py::_resolve_launch_agents` | `launch_context.resolve_launch_od_context` | REST declared-signal od_context | ✓ WIRED (l.961) |
-| `websocket.py::_handle_workflow_execution` | `launch_context.resolve_launch_od_context` | WS declared-signal od_context | ✓ WIRED (l.1723,1730) |
-| `ConfigureScreen.tsx` | `getWorkflowDetail` context_providers | declared-signal gate for Templates/DS | ✓ WIRED |
-| `ConfigureScreen.tsx` | `draft.ts` | save/read/clear sessionStorage blob | ✓ WIRED |
-| `AgentsPopup.tsx` (palette) | `GET /api/capabilities` | live registry + user_allowed | ✓ WIRED |
-| `AgentsPopup.tsx` (Save) | `createUserWorkflow` | owner-scoped CRUD | ✓ WIRED (l.1789) |
-| `WorkflowDialog.tsx` | `getWorkflowDetail` + `/api/capabilities` | declared caps/context/compaction + user_allowed | ✓ WIRED |
-| Agent-drawer Config tab | `AgentPromptSection surfaceOnly` | PUT/DELETE override path UNREACHABLE (ND-7) | ✓ WIRED (single mount l.569) |
+| `app/workflow/create/page.tsx` | `LaunchWizard` | mounted route, `?mode=` generic param | ✓ WIRED (l.37) |
+| entry points (Hub/Grid/DashboardLayout/chaining/discovery) | `/workflow/create?mode=…` | repointed navigation | ✓ WIRED |
+| `LaunchWizard` | `buildLaunchDraft`/`buildDiscoveryValue` | sessionStorage hand-off | ✓ WIRED |
+| `buildLaunchDraft` output | `dashboard/page.tsx` consumer | `*.draft`/`*.pending`/`prototype.discovery` keys | ✓ WIRED (byte-identical) |
+| `HomeLaunchGrid` inspect row | `WorkflowDialog` | `setInspectId(row.id)` → mount | ✓ WIRED (l.226/243) |
+| `AgentsPopup` Save | `createUserWorkflow` (liveSelections) | owner-scoped CRUD, no model_overrides | ✓ WIRED (l.1791) |
 
-### Invariant / Gate Evidence (independently re-run)
+### Invariant / Gate Evidence (independently re-run at HEAD 6167b302)
 
 | Gate | Command | Result | Status |
 |---|---|---|---|
-| INV-3 goldens byte-identical | `pytest` 5 characterization files, SNAPSHOT_UPDATE unset → `git status golden/` | 10 passed; 0 dirty golden files; 0 dirty tracked files | ✓ PASS |
-| SC-001 name-branch deleted | grep `pipeline_type=="od_prototype"/"od_ppt"` in launch boundaries | none (exit 1) | ✓ PASS |
-| 37-01 seam/parity | `pytest tests/unit/test_rest_run_launch.py` | 17 passed | ✓ PASS |
-| INV-13 no engine/runner edit | `git diff --name-only` phase range \| grep engine/runner | NONE | ✓ PASS |
-| Additive migrations only | `git diff --name-only` \| grep migration/alembic | NONE (client-side draft = no table) | ✓ PASS |
-| 3 opendesign manifests intact | grep `context_providers` in prototype/od_ppt/od_ppt_revision | all 3 declare opendesign | ✓ PASS |
+| ⭐ Launch-contract parity (byte-identical per mode) | `vitest run launchDraft.parity + LaunchWizard.test` | 25 passed (12 parity + 13 wizard) | ✓ PASS |
+| Parity fixtures = old-flow oracle | git-history diff of retired `handleContinue` key order vs `buildLaunchDraft` (both modes) | identical order + optional-spread guards | ✓ PASS |
+| Parity fixtures = dashboard consumer contract | grep dashboard reads vs `MODE_KEYS`/`DISCOVERY_KEY` | exact key match | ✓ PASS |
+| INV-3 goldens byte-identical | `python3.11 -m pytest` 5 characterization files, SNAPSHOT_UPDATE unset → `git status golden/` | 10 passed; 0 dirty golden files; tree clean | ✓ PASS |
+| Old route-split pages deleted (no dual impl) | `ls` deleted dirs + grep orphan imports | dirs gone; no non-comment/non-api imports | ✓ PASS |
+| SC-001 mode-keyed, no per-name branch | grep per-workflow-name branch in LaunchWizard | none (MODE_CONFIG data table) | ✓ PASS |
+| AgentModelPicker not mounted | grep non-comment `<AgentModelPicker` | none | ✓ PASS |
 | import-linter | `/opt/homebrew/bin/lint-imports` | 4 kept, 0 broken | ✓ PASS |
-| Token gate (retired palette) | grep `#1B2A4A\|#2563eb\|#f5f5f0\|Inter\|Fraunces\|JetBrains` per touched FE file | 0 on all 11 source files | ✓ PASS |
-| FE unit tests | `vitest run` 9 touched test files | 57 passed | ✓ PASS |
-| tsc identity | `npx tsc --noEmit` | exit 0 | ✓ PASS |
-| ND-7 surface-only spy | AgentDrawer.test.tsx mutator spies | `not.toHaveBeenCalled` (l.171-172) | ✓ PASS |
-| AgentModelPicker not mounted | grep import/`<AgentModelPicker` non-test | none | ✓ PASS |
+| Token gate (retired palette) | grep `#1B2A4A\|#2563eb\|#f5f5f0\|Inter\|Fraunces\|JetBrains` per touched FE file | 0 on all 12 files | ✓ PASS |
+| tsc identity | `npx tsc --noEmit` | 0 errors | ✓ PASS |
+| 37-07 touched FE tests | `vitest run` 6 touched/new test files | 38 passed | ✓ PASS |
+| Full vitest (regression baseline) | `vitest run` | 557 passed / 10 failed (all pre-existing ISS-045; 0 new) | ✓ PASS (no regressions) |
+| INV-13 / LOCK-B no transport/engine edit | 37-07 diff = FE-only | no backend touch; goldens clean | ✓ PASS |
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |---|---|---|---|---|
-| `backend/app/api/launch_context.py` | 96 | `FIXME(D-15/C v1)` referencing "RESEARCH Open Question 2" (not a tracker-ID) | ⚠️ WARNING | Intentional, documented deferral of *generic loader-profile declaration*. Auditable (RESEARCH Open Question 2 + assumption A1 + 37-01-SUMMARY) and byte-preserving-verified (goldens clean; only 3 audited manifests declare opendesign). Does NOT block the phase goal. Recommend formalizing (override below, or convert to DEF-* id). |
+| `backend/app/api/launch_context.py` | 96 | `FIXME(ISS-046 / D-15/C v1)` | ℹ️ INFO | Now references tracker-ID ISS-046 → debt-marker gate SATISFIED (prior WARNING resolved). Byte-preserving (goldens clean). |
 
-No TODO/HACK/PLACEHOLDER/empty-return stubs in touched source. Draft/state initial-empty values in FE are overwritten by fetch/session reads (not stubs).
+No TODO/HACK/PLACEHOLDER/empty-return stubs in touched source. FE initial-empty state overwritten by fetch/session reads (not stubs).
 
 ### Human Verification Required
 
-None blocking. All live/visual confirmation is DEFERRED to the Phase 34 live pass (see `deferred` frontmatter) per the defer-live-verification disposition and the plans' explicit LIVE-DEFERRED notes. Offline parity for the seam is proven by byte-identical goldens + the parity suite.
+None blocking. Live end-to-end `/workflow/create` → dashboard → pipeline launch is DEFERRED to the Phase 34 live pass (see `deferred`). The launch contract is offline-proven byte-identical to the retired flow per mode, and the dashboard consumer reads the identical keys unchanged, so the auto-fire is offline-proven at the contract level.
 
 ### Deferred Items (not gaps)
 
 | # | Item | Addressed In | Evidence |
 |---|---|---|---|
-| 1 | Mocked-Playwright e2e (Configure/Composer/Wizard/Drawer) | Phase 34 / milestone-end live | Offline webServer timeout |
-| 2 | Live run-launch of a non-prototype deliverable declaring template/DS | Phase 34 | Needs live Bedrock; offline parity proven (17 tests + goldens) |
-| 3 | Visibility/sharing, pre-run cost/duration, discovery page-selection | Declared OUT (ND-12) | Owner-only Save; no pages field; ROADMAP deferred-backend note |
+| 1 | Live /dashboard auto-fire of the unified page | Phase 34 | Contract byte-identical offline (25 tests) + consumer keys unchanged |
+| 2 | Mocked-Playwright e2e | Phase 34 / milestone-end | Offline webServer timeout; specs realigned to /workflow/create |
+| 3 | ~10 pre-existing vitest failures | ISS-045 (out of scope) | Red at base; 37-07 did not touch the Phase-21 code the 5 HomeLaunchGrid tests exercise; 0 new regressions |
+| 4 | Visibility/sharing, cost/duration, discovery page-selection | Declared OUT (ND-12) | Owner-only Save; no pages field |
 
 ### Gaps Summary
 
-No gaps. All 3 roadmap success criteria and all 23 plan-level truths are VERIFIED against code. The load-bearing 37-01 D-15/C seam gate passes decisively: the `pipeline_type=="od_prototype"/"od_ppt"` od_context name-branch is DELETED from both launch boundaries and replaced by the declared `context_providers:[opendesign]` seam; the 5 characterization goldens re-run byte-identical (git-clean, SNAPSHOT_UPDATE unset); no engine/runner edit; no migration; import-linter 4/0. The ND-7 corrective fix `df679823` is confirmed: the Agent-drawer Config tab is surface-only (`surfaceOnly` omits Edit/Save/Revert; a single AgentPromptSection mount; a spy test asserts `saveAgentPromptOverride`/`deleteAgentPromptOverride` are never called).
-
-One WARNING: an in-code `FIXME` marks the intentional deferral of generic loader-profile *declaration* (RESEARCH Open Question 2). It is documented and byte-preserving-verified, so it does not block the phase goal, but under a strict reading of the debt-marker gate it should be formalized — either accept the suggested override or convert it to a tracked DEF-* id.
+No gaps. All 3 roadmap success criteria hold, and the 37-07 rebuild is sound: the previously-unmounted surfaces are now REACHABLE (WR-01 LaunchWizard mounted at `/workflow/create`, WR-02 WorkflowDialog via the catalog inspect affordance), the old route-split pages are DELETED with no orphan imports (INV-12 no dual impl), and the ⭐ launch-contract parity gate is GREEN — `buildLaunchDraft`/`buildDiscoveryValue` reproduce the retired flow's sessionStorage hand-off BYTE-IDENTICAL per mode (prototype + ppt), verified faithful both to the old `handleContinue` (git history) and to the live dashboard consumer's read keys. INV-3 holds decisively: the 5 backend characterization goldens re-run byte-identical (git-clean, SNAPSHOT_UPDATE unset), 37-07 being FE-only. SC-001, reuse preservation (COUPLED_GATE/RETRY_OPTIONS/`/api/capabilities`/`user_allowed`, AgentModelPicker not mounted, ND-7 surface-only), token gate (0 retired), tsc (0 errors), and import-linter (4/0) all pass. The prior pass's lone WARNINGs are now closed: the unmounted surfaces are wired (tracked+resolved under ISS-046) and the FIXME debt marker references a tracker-ID (ISS-046). The 10 full-suite vitest failures are pre-existing (ISS-045), confirmed unrelated to 37-07 — zero regressions introduced.
 
 ---
 
-_Verified: 2026-07-09T07:04:15Z_
+_Verified: 2026-07-10T02:12:00Z_
 _Verifier: Claude (gsd-verifier)_
+_Re-verification: after 37-07 unified-launch rebuild (7a84f6bc..6167b302)_
