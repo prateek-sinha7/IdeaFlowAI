@@ -122,16 +122,18 @@ export function ConfigureScreen({ workflowId, onLaunch }: ConfigureScreenProps) 
   }, [workflowId]);
 
   // Gate on the DECLARED opendesign signal (SC-001), minus the ONE legacy
-  // carve-out the run-launch seam also excludes: a bare base whose OD flavor is a
-  // dedicated `od_` alias (bare `prototype`) declares opendesign but is rejected
-  // downstream (od_context=None → 13-06 guard). Mirroring launch_context.py:91
-  // keeps the gate aligned with backend eligibility exactly — the primary key is
-  // still the declared provider, the exclusion is the seam's documented alias shim.
+  // carve-out the run-launch seam also excludes: a base whose OD flavor is a
+  // dedicated `od_` alias (`prototype`) declares opendesign but is rejected
+  // downstream (od_context=None → 13-06 guard). The seam keys on the RESOLVED base
+  // pipeline_type (`pipeline_type in _OD_ALIAS_BASE.values()`, launch_context.py:91),
+  // so mirror it on the resolved base — `detail.id` is `compiled.id` from
+  // getWorkflowDetail — NOT the input workflow id, so a custom workflow resolving to
+  // `prototype` is carved out too (IN-06). Primary key is still the declared provider.
   const acceptsTemplateDs = useMemo(
     () =>
       (detail?.context_providers ?? []).includes(OPENDESIGN_PROVIDER) &&
-      !OD_ALIAS_BASE_PIPELINES.has(workflowId),
-    [detail, workflowId],
+      !OD_ALIAS_BASE_PIPELINES.has(detail?.id ?? ""),
+    [detail],
   );
 
   // Load the live template/DS registries only when this deliverable declares the

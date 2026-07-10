@@ -58,9 +58,9 @@ vi.mock("./ReviewGatesSection", () => ({
   ReviewGatesSection: () => <div data-testid="stub-review-gates" />,
 }));
 
-function detail(contextProviders: string[]): WorkflowDetail {
+function detail(contextProviders: string[], id = "any-deliverable"): WorkflowDetail {
   return {
-    id: "any-deliverable",
+    id,
     name: "Any Deliverable",
     description: "",
     planner: "deep_planner",
@@ -120,11 +120,26 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
     // the `od_prototype` alias — a bare-prototype launch returns od_context=None
     // and the backend 13-06 guard rejects it (launch_context.py:92). The gate must
     // exclude it exactly as the seam does, or the user picks a template the run drops.
-    mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"]));
+    // The backend returns compiled.id ("prototype") as the resolved base for this id.
+    mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"], "prototype"));
     render(<ConfigureScreen workflowId="prototype" />);
 
     expect(await screen.findByTestId("accordion-describe")).toBeInTheDocument();
     expect(screen.getByTestId("accordion-gates")).toBeInTheDocument();
+    expect(screen.queryByTestId("accordion-templates")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("accordion-designsystem")).not.toBeInTheDocument();
+  });
+
+  it("IN-06: HIDES template/DS when the RESOLVED base is `prototype` even if workflowId is a custom id", async () => {
+    // The backend seam excludes on the resolved base pipeline_type (compiled.id ==
+    // detail.id), NOT the input workflow id. A custom workflow whose resolved base
+    // is `prototype` must be carved out too, or the gate diverges from the seam the
+    // moment such a deliverable reaches Configure (it would offer a template the
+    // bare-prototype launch then drops). Gating on detail.id keeps them aligned.
+    mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"], "prototype"));
+    render(<ConfigureScreen workflowId="my-custom-proto" />);
+
+    expect(await screen.findByTestId("accordion-describe")).toBeInTheDocument();
     expect(screen.queryByTestId("accordion-templates")).not.toBeInTheDocument();
     expect(screen.queryByTestId("accordion-designsystem")).not.toBeInTheDocument();
   });
