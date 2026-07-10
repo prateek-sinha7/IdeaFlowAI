@@ -122,10 +122,13 @@ export interface LaunchWizardProps {
 
 export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const router = useRouter();
-  const cfg = MODE_CONFIG[initialMode];
 
   const [authChecked, setAuthChecked] = useState(false);
   const [mode, setMode] = useState<LaunchMode>(initialMode);
+  // Chrome (title/eyebrow/brief label/placeholder/save-modal title) MUST track the
+  // LIVE mode, not the immutable initialMode — the Web/Deck toggle switches families
+  // in-page, and freezing chrome to initialMode mislabels a deck as a prototype.
+  const cfg = MODE_CONFIG[mode];
 
   // ── Template registries (both families fetched so the toggle just swaps). ──
   const [webTemplates, setWebTemplates] = useState<PrototypeTemplate[]>([]);

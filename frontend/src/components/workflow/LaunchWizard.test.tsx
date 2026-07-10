@@ -89,8 +89,11 @@ vi.mock("@/components/workflow/AgentsPopup", () => ({
   ),
 }));
 vi.mock("@/components/catalog/NameWorkflowModal", () => ({
-  NameWorkflowModal: ({ onSave }: { onSave: (n: string, d: string) => void }) => (
-    <button data-testid="confirm-save" onClick={() => onSave("My WF", "desc")}>save</button>
+  NameWorkflowModal: ({ title, onSave }: { title: string; onSave: (n: string, d: string) => void }) => (
+    <div data-testid="save-modal">
+      <p data-testid="save-modal-title">{title}</p>
+      <button data-testid="confirm-save" onClick={() => onSave("My WF", "desc")}>save</button>
+    </div>
   ),
 }));
 
@@ -180,6 +183,25 @@ describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
     expect(sessionStorage.getItem("ppt.draft")).toBe(golden("ppt · base (ds required)").draftJson);
     expect(sessionStorage.getItem("od_ppt.pending")).toBe("true");
     expect(sessionStorage.getItem("prototype.draft")).toBeNull();
+  });
+
+  it("WR-05: page chrome (header title + brief label + save-modal title) follows the LIVE mode after toggle", async () => {
+    const user = userEvent.setup();
+    render(<LaunchWizard initialMode="prototype" />);
+    // Prototype chrome initially.
+    expect(await screen.findByRole("heading", { name: "Configure your prototype" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Describe what you're building" })).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("toggle-deck"));
+    // Chrome must flip to the ppt copy — before the fix `cfg` was frozen to the
+    // immutable initialMode, so the page read "prototype" while building a deck.
+    expect(screen.getByRole("heading", { name: "Configure your presentation" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Describe your presentation" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Configure your prototype" })).not.toBeInTheDocument();
+
+    // The save-modal title tracks the live mode too (persisted-artifact honesty).
+    await user.click(screen.getByRole("button", { name: "Save workflow" }));
+    expect(screen.getByTestId("save-modal-title")).toHaveTextContent("Save presentation workflow");
   });
 });
 
