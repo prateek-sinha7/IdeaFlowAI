@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Check, FileText, TrendingUp, Upload, X } from "lucide-react";
 import { getTemplatePreviewUrl, getTemplateThumbnailUrl, type PrototypeTemplate } from "@/lib/prototype-api";
 import { TemplateDetailModal } from "./TemplateDetailModal";
@@ -406,72 +406,6 @@ function NoPreviewPlaceholder({ template }: { template: PrototypeTemplate }) {
   );
 }
 
-// ── Concurrency gate — limits simultaneous thumbnail/iframe loads ──────────
-// Browsers cap HTTP/1.1 connections per origin (6 in Chrome). When the gallery
-// renders many cards at once, all thumbnails fire simultaneously and excess
-// requests queue or get 429'd. This semaphore ensures at most MAX_CONCURRENT
-// loads are in flight; the rest wait in a FIFO queue and start as slots free.
-
-const MAX_CONCURRENT_LOADS = 4;
-let _activeLoads = 0;
-const _waitQueue: Array<() => void> = [];
-
-function _acquireSlot(): Promise<void> {
-  if (_activeLoads < MAX_CONCURRENT_LOADS) {
-    _activeLoads++;
-    return Promise.resolve();
-  }
-  return new Promise<void>((resolve) => _waitQueue.push(resolve));
-}
-
-function _releaseSlot(): void {
-  const next = _waitQueue.shift();
-  if (next) {
-    // Hand the slot directly to the next waiter (activeLoads stays the same).
-    next();
-  } else {
-    _activeLoads--;
-  }
-}
-
-/**
- * Hook that gates mounting of the thumbnail/iframe behind the concurrency
- * semaphore. Returns `slotReady` (safe to start loading) and `releaseSlot`
- * (call once the load completes or errors).
- */
-function useLoadSlot(visible: boolean): { slotReady: boolean; releaseSlot: () => void } {
-  const [slotReady, setSlotReady] = useState(false);
-  const releasedRef = useRef(false);
-
-  useEffect(() => {
-    if (!visible) return;
-    let cancelled = false;
-    _acquireSlot().then(() => {
-      if (!cancelled) setSlotReady(true);
-      else _releaseSlot(); // component unmounted while waiting
-    });
-    return () => { cancelled = true; };
-  }, [visible]);
-
-  const releaseSlot = useCallback(() => {
-    if (releasedRef.current) return;
-    releasedRef.current = true;
-    _releaseSlot();
-  }, []);
-
-  // Release on unmount if the load never finished (e.g. user scrolls away)
-  useEffect(() => {
-    return () => {
-      if (slotReady && !releasedRef.current) {
-        releasedRef.current = true;
-        _releaseSlot();
-      }
-    };
-  }, [slotReady]);
-
-  return { slotReady, releaseSlot };
-}
-
 // ── Compact card ──────────────────────────────────────────────────────────
 
 interface CompactCardProps {
@@ -480,16 +414,23 @@ interface CompactCardProps {
   onOpenDetail: (id: string) => void;
 }
 
+// A thumbnail 429 is transient (per-origin connection burst when the grid
+// paints), so retry once after a short delay before degrading to the heavier
+// live iframe. One retry is enough to clear a momentary rate-limit spike
+// without letting a genuinely-missing thumbnail stall the card.
+const MAX_THUMBNAIL_RETRIES = 1;
+const THUMBNAIL_RETRY_DELAY_MS = 800;
+
 function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardProps) {
   const cardRef = useRef<HTMLButtonElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const [shouldMount, setShouldMount] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   // The backend `has_thumbnail` flag can be stale or the file can 404/429 at
-  // request time. On <img> error, fall through to the live-iframe fallback.
+  // request time. On <img> error, retry once then fall through to the
+  // live-iframe fallback.
   const [thumbnailError, setThumbnailError] = useState(false);
-
-  // Gate: card must be visible AND have a concurrency slot before loading.
-  const { slotReady: shouldMount, releaseSlot } = useLoadSlot(isVisible);
+  const [thumbnailRetry, setThumbnailRetry] = useState(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const node = cardRef.current;
@@ -497,7 +438,7 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
-          setIsVisible(true);
+          setShouldMount(true);
           observer.disconnect();
         }
       },
@@ -507,17 +448,21 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
     return () => observer.disconnect();
   }, []);
 
+  // Cancel any pending thumbnail retry if the card unmounts mid-backoff.
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, []);
+
   const previewUrl = template.has_preview ? getTemplatePreviewUrl(template.id) : null;
   // Only use the thumbnail while it hasn't errored (404 / 429 / load failure).
+  // After a transient failure we append a `retry` query param to force the
+  // browser to re-request rather than reuse the failed/cached response.
   const thumbnailUrl =
-    template.has_thumbnail && !thumbnailError ? getTemplateThumbnailUrl(template.id) : null;
-
-  // If a slot was acquired but there's nothing to load, free it immediately.
-  useEffect(() => {
-    if (shouldMount && !thumbnailUrl && !previewUrl) {
-      releaseSlot();
-    }
-  }, [shouldMount, thumbnailUrl, previewUrl, releaseSlot]);
+    template.has_thumbnail && !thumbnailError
+      ? `${getTemplateThumbnailUrl(template.id)}${thumbnailRetry > 0 ? `?retry=${thumbnailRetry}` : ""}`
+      : null;
 
   return (
     <button
@@ -552,12 +497,23 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
               src={thumbnailUrl}
               alt={template.name}
               loading="lazy"
-              onLoad={() => { setPreviewLoaded(true); releaseSlot(); }}
+              onLoad={() => setPreviewLoaded(true)}
               onError={() => {
-                // Thumbnail missing / 429 / network error — degrade to iframe below.
-                // Don't release the slot here: the iframe fallback reuses it.
-                setThumbnailError(true);
-                setPreviewLoaded(false);
+                if (thumbnailRetry < MAX_THUMBNAIL_RETRIES) {
+                  // Likely a transient 429 from the request burst — retry once
+                  // after a short delay (bumps the `retry` query param to force
+                  // a fresh request) before degrading to the iframe.
+                  if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+                  retryTimerRef.current = setTimeout(() => {
+                    setPreviewLoaded(false);
+                    setThumbnailRetry((n) => n + 1);
+                  }, THUMBNAIL_RETRY_DELAY_MS);
+                } else {
+                  // Still failing after the retry — degrade to iframe below.
+                  setThumbnailError(true);
+                  setShouldMount(true);
+                  setPreviewLoaded(false);
+                }
               }}
               className="h-full w-full object-cover object-top"
               style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 200ms ease-out" }}
@@ -577,7 +533,7 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
               title={template.name}
               sandbox="allow-scripts"
               loading="lazy"
-              onLoad={() => { setPreviewLoaded(true); releaseSlot(); }}
+              onLoad={() => setPreviewLoaded(true)}
               style={{
                 width: "1280px",
                 height: "720px",
