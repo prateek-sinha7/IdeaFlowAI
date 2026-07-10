@@ -1,8 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { getToken } from "@/lib/api";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { LaunchWizard } from "@/components/workflow/LaunchWizard";
 import type { LaunchMode } from "@/lib/launchDraft";
 
@@ -14,24 +13,10 @@ import type { LaunchMode } from "@/lib/launchDraft";
  * switches it live.
  */
 function CreateRoute() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const [authChecked, setAuthChecked] = useState(false);
-
-  useEffect(() => {
-    const token = getToken();
-    if (!token) { router.replace("/login"); return; }
-    setAuthChecked(true);
-  }, [router]);
-
-  if (!authChecked) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface-paper">
-        <div className="text-[13px] text-ink-400">Loading…</div>
-      </div>
-    );
-  }
-
+  // Auth is owned by LaunchWizard (it also picks up the chain hand-off), so the
+  // wrapper only resolves the deliverable family from the route param. IN-07: the
+  // duplicate getToken/redirect + loading gate here was a redundant second gate.
   // Default to prototype; only the two deliverable families are valid modes.
   const mode: LaunchMode = searchParams.get("mode") === "ppt" ? "ppt" : "prototype";
   return <LaunchWizard initialMode={mode} />;
