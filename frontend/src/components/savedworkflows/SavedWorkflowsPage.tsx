@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   AlertCircle, MoreHorizontal, Pencil, Copy, Trash2,
   Play, Workflow, Clock, Cpu,
-  Search, Calendar,
+  Search,
 } from "lucide-react";
 import {
   getUserWorkflows, createUserWorkflow, renameUserWorkflow,
@@ -53,13 +53,6 @@ function formatRelativeDate(iso?: string | null): string {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
   if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
-function formatFullDate(iso?: string | null): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (isNaN(date.getTime())) return "";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
