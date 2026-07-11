@@ -8,7 +8,7 @@
  * RIGHT, per `{surface}__{state}` tag. Images are inlined as base64 data-URIs so
  * the file is a single portable artifact a reviewer can open anywhere.
  *
- * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-T) as
+ * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-V) as
  * "expected — ignore" so a reviewer never mistakes a registered divergence for a
  * fidelity gap. There is deliberately NO automated pixel-diff: ND-D (our live
  * data never equals the mock's hardcoded values) would make a pixel compare
@@ -58,6 +58,8 @@ const ND = [
   ["ND-R", "Audit filter row — no severity buttons", "39-04: the mock's Audit filter row is the category-group set (All / Governance / Security / Activity) + a 'Blocked / denied only' toggle + a search box — it has NO standalone severity filter. We adopt the mock's row exactly and RETIRE the prior CRITICAL/HIGH/MEDIUM/LOW filter buttons; severity stays visible as a per-row chip and the blocked-only toggle covers the 'show me the problems' need (INV-12 — no dual filter row)"],
   ["ND-S", "Audit attribution — elided owner/workspace", "the mock hardcodes Run f3a1c9…e42 · Owner ak@hexaware.com · Workspace default · Started/Duration. The three owner-scoped audit fetches do NOT carry owner/workspace/started/duration, so we render the live Run id (truncated) + Started/Duration DERIVED from the row timestamps, and ELIDE owner/workspace rather than fabricate them (ND-D / T-39-04-01). A later wave may thread a live runMeta prop"],
   ["ND-T", "Audit static UI copy + derived coverage + no PDF", "the coverage chips are DERIVED one-per-fine-category-present (not the mock's fixed 7-word list); the violet 'What is this?' explainer is static per-category UI copy (a genuine affordance, not run data); and the Export menu's 'Compliance report' option is DISABLED — CSV/JSON only, no signed PDF path (ND-6)"],
+  ["ND-U", "Failed-run keeps the four-tab row", "39-05: the mock's failed run omits Preview + adds per-tab counts + defaults to Audit; we keep ONE uniform tab model (Preview·Steps·Files·Audit, no counts, default Preview) across settled/live/failed — a state-dependent tab set is behavior, not styling (user ruling 2026-07-11); a failed run's Preview still shows DegradedRunAffordance"],
+  ["ND-V", "Self-chromed renderers keep their own frame", "39-06: the mock frames every deliverable in ONE browser chrome, but our prototype/app_builder renderers bring their own frame — wrapping doubled it. Per the user's Option-B ruling (2026-07-11) self-chromed types render in their own frame with the 'Renders as' switch above; plain deliverables keep our chrome. No renderer edits (ND-G intact)"],
 ];
 
 const surfaceArg = process.argv.includes("--surface")
@@ -145,7 +147,7 @@ async function main() {
   <h1>Run-Screen Fidelity Gallery${surfaceArg ? ` — <code>${esc(surfaceArg)}</code>` : ""}</h1>
   <p>Mock (left) vs current (right), per <code>{surface}__{state}</code>. Human review only — no pixel-diff (ND-D live data ≠ mock values).</p>
   <details class="nd" open>
-    <summary>Intended divergences — expected, ignore (ND-A..ND-T)</summary>
+    <summary>Intended divergences — expected, ignore (ND-A..ND-V)</summary>
     <table>${ndRows}</table>
   </details>
 </header>

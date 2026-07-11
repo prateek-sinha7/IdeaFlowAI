@@ -704,7 +704,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }, [genericDeliverable?.content, genericDeliverable?.mimetype, activeContent, renderType]);
 
-  // ─── ND-J (Option B ruling 2026-07-11) — self-chromed renderers ──────────────
+  // ─── ND-V (Option B ruling 2026-07-11) — self-chromed renderers ──────────────
   // prototype (its own dots + prototype.preview URL + Tweaks/Source/Open) and
   // app_builder (AppBuilderIDEPreview — a full FileTree + editor IDE) bring their
   // OWN frame; wrapping them in our PreviewChrome browser frame doubled it. Skip
@@ -976,7 +976,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 // rendererOverride dispatch (ND-D live typed set); renderDeliverable()
                 // still applies the override, so the pills drive the SAME dispatch.
                 //
-                // ND-J (Option B ruling 2026-07-11): a SELF-CHROMED renderer
+                // ND-V (Option B ruling 2026-07-11): a SELF-CHROMED renderer
                 // (prototype = its own dots/URL/Source/Tweaks/Open; app_builder = a
                 // full IDE) brings its OWN frame, so wrapping it in our browser chrome
                 // doubled it. For those two EFFECTIVE types we skip our chrome (the

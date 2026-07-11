@@ -3476,3 +3476,42 @@ INV-3 gates stayed armed throughout: no golden/snapshot files were re-baselined 
 - **Two pre-existing test reds, confirmed NOT caused by Phase 38, left untouched per negative-space discipline.** `HomeLaunchGrid.test.tsx`'s "Phase 21 — Your workflows + kebab" suite (5 tests; that feature moved to `SavedWorkflowsPage` in an earlier phase) is a duplicate of ISS-045, resolved separately by a Phase-36-tagged cleanup commit (`d0054959`). `ReviewGatesSection.test.tsx` (3 tests; stale `PIPELINE_CATEGORIES` counts after `prototype-analyze` became a 3rd gate agent) was reconciled incidentally by the same post-close polish-sweep commit that fixed MD-1/MD-2 (`4d683ffa`: prototype=4/all=54 → 5/55 + the uncheck-all-gates test), bringing that suite to 19/19.
 
 ---
+
+## Phase 39 — Run Screen Mock Fidelity [B5]
+
+**Folder:** `.planning/phases/39-run-screen-mock-fidelity-b5/` (milestone **v2.0**, branch `feat/ui-2`).  ·  **Status:** Complete (2026-07-12) — `39-VERIFICATION.md` verdict **PASS-WITH-CONCERNS**, 8/8 must-haves verified; the single concern **W-1** (an ND-register numbering collision) is **RESOLVED 2026-07-12** by renumbering the two closeout divergences to **ND-U** (failed-run four-tab) / **ND-V** (self-chromed) and adding both to the canonical gallery caption — a bookkeeping fix, not a defect.  ·  **Plans:** 7/7 (39-07 built the fidelity harness + shared MockApi stubs FIRST; 39-01 lane → 39-02 Steps → 39-03 Files → 39-04 Audit → 39-05 run header → 39-06 preview chrome, each with a per-surface human fidelity sign-off), plus a post-plan closeout that resolved two adjudicated failed-state rulings and the e2e debt.  ·  **Plan-id → `CHAT-AND-UI-CONVERGENCE-PLAN.md` (milestone v2.0 POR):** B5.
+
+**One-line outcome:** The run/execution screen was re-aligned pixel-as-is to the VelocityAI mocks across every surface (conversation lane, Steps drilldown, Files, Audit, run header, preview) — ~90% presentation over a backend trace + FE state that already carried the data (SC-001/ND-D: our LIVE data never clones the mock's hardcoded values). This phase inverted **D-15** (fidelity over reuse) for this screen **EXCEPT** the deliverable renderers, which stay REUSED not rebuilt (**ND-G**). Zero backend / `useRunChat` / `useRunStream` change; additive-optional FE props only; no dual implementation survived (`LiveVersionChip` + the tab-bar `RendererSwitcher` deleted — INV-3/INV-12, no shadow).
+
+### Where the code lives (as-built)
+
+- **Conversation lane (39-01):** `frontend/src/components/run/RunChatLane.tsx`, `LaneRunHeader.tsx`, `ChatPanel.tsx`, `MessageBubble.tsx`, `ChatAttachments.tsx`.
+- **Steps tab (39-02):** `AgentThinkingTab.tsx`, `StepsOverviewSpine.tsx`, `AgentDetailPanel.tsx`, `TaskDetailPanel.tsx`.
+- **Files tab (39-03):** `FilesTab.tsx`.
+- **Audit tab (39-04):** `AuditTab.tsx`.
+- **Run header + preview (39-05 / 39-06):** `RunHeader.tsx`, `PreviewChrome.tsx` (+ the extracted `RendersAsSwitch`), `ReadOnlyVersionBanner.tsx`, `PreviewPanel.tsx`.
+- **Additive field surfacing:** `frontend/src/hooks/useWorkflow.ts` + `frontend/src/types/index.ts` (createdAt / deliverableFilename / deliverableVersion + explicit agent durations — data already on the wire, additive-only, no contract break).
+- **Fidelity harness (39-07):** `frontend/e2e/fidelity/*` — the two-sided oracle: shared MockApi route stubs + `capture-mocks` (target/mock shots) + the env-gated (`FIDELITY_CAPTURE=1`) our-side capture + `assemble-gallery.mjs` (the side-by-side base64 gallery every surface checkpoint reviews).
+
+### Key locked decisions / intended-divergence register
+
+- **The canonical ND register lives in `frontend/e2e/fidelity/assemble-gallery.mjs`** — the **ND-A..ND-V** caption is the single source of truth for every intended divergence; the per-surface HUMAN sign-off reads THIS gallery (deliberately NO automated pixel-diff, because ND-D live data ≠ the mock's fixed values would always "fail").
+- **ND-D (SC-001):** all run data is LIVE, never the mock's hardcoded values.
+- **ND-G:** the five deliverable renderers (UserStory / PPT / Prototype / AppBuilder / Markdown) are REUSED, not rebuilt — provably untouched (per-plan diff grep 0). This is the one carve-out where the phase did NOT invert D-15.
+- **ND-H:** Share is a client-only run-deep-link copy in v1 (no endpoint / no network).
+- **ND-U (39-05, user ruling 2026-07-11):** a failed run KEEPS the uniform four-tab row (Preview·Steps·Files·Audit, no counts, default Preview) rather than forking the tab set per outcome — a state-dependent tab set is behavior, not styling.
+- **ND-V (39-06, Option-B ruling 2026-07-11):** self-chromed renderers (prototype / app_builder) render in their OWN frame with the "Renders as" switch above; plain deliverables keep our browser chrome — no renderer edits (ND-G intact).
+
+### Invariants & verification
+
+- **`39-VERIFICATION.md` = PASS-WITH-CONCERNS**, 8/8 must-haves; the sole concern (W-1 ND-register collision) is now RESOLVED (renumbered ND-U/ND-V + gallery updated).
+- **No dual implementation (INV-3/INV-12):** `LiveVersionChip` (231 lines) and the tab-bar `RendererSwitcher` were DELETED as their behavior moved into `RunHeader`'s VersionMenu / the extracted `RendersAsSwitch` — no shadow left behind.
+- **Renderers provably untouched:** the five renderers appear in no plan's files_modified; per-task diff greps returned 0.
+- **Contract stability:** zero backend / `useRunChat` / `useRunStream` change; only additive-optional props were added.
+- **`tsc --noEmit` clean; 81 touched-component vitest pass;** per-surface HUMAN fidelity sign-off via the gallery oracle is the acceptance bar for this phase (screenshot-diff, not prose — the discipline that stopped the drift of 12 prior UI phases).
+
+### Known follow-ups (out of scope → Phase 40 / re-enable)
+
+- **4 remaining mocked-e2e failures are SHELL-surface, deferred to the shell phase (40):** ts-a / ts-b / ts-c (NEW-pills / migration-meta) + ts-e (`user_allowed` filter).
+- **`ts-l` quarantines (honest `test.fixme`):** TS-L-03 ×3 (cost display removed, KAN-83) + TS-L-04 (harness-timing flake; the app is verified correct).
+- **Full mocked suite: 138 passed / 4 failed / 21 skipped** (up from 84 failing at phase start).

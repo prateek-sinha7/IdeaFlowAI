@@ -146,16 +146,16 @@ describe("PreviewPanel — Phase 39 Preview browser chrome", () => {
     expect(chrome).toContainElement(screen.getByTestId("user-story-preview"));
   });
 
-  it("renders a SELF-CHROMED type (prototype) in its OWN frame — no browser chrome — keeping the Renders-as switch (ND-J)", () => {
+  it("renders a SELF-CHROMED type (prototype) in its OWN frame — no browser chrome — keeping the Renders-as switch (ND-V)", () => {
     render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" pipelineState={settledState} />);
-    // ND-J (Option B): prototype brings its own frame → our PreviewChrome is absent.
+    // ND-V (Option B): prototype brings its own frame → our PreviewChrome is absent.
     expect(screen.queryByTestId("preview-chrome")).toBeNull();
     // …but the "Renders as" switch still sits above the renderer.
     expect(screen.getByTestId("renders-as-switch")).toBeInTheDocument();
     expect(screen.getByTestId("proto-preview")).toBeInTheDocument();
   });
 
-  it("renders a SELF-CHROMED type (app_builder IDE) in its OWN frame — no browser chrome (ND-J)", () => {
+  it("renders a SELF-CHROMED type (app_builder IDE) in its OWN frame — no browser chrome (ND-V)", () => {
     render(
       <PreviewPanel
         workflowType="app_builder"

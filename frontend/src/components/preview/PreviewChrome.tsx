@@ -35,7 +35,7 @@ export interface RendererOption {
 // ONE switch implementation with TWO mount points (INV-12 — not cloned markup):
 //   • inside PreviewChrome (beneath the browser top bar) for PLAIN deliverables;
 //   • standalone above a SELF-CHROMED renderer (prototype / app_builder) that
-//     brings its own frame (ND-J, Option B ruling 2026-07-11).
+//     brings its own frame (ND-V, Option B ruling 2026-07-11).
 // The pills reuse the caller's existing rendererOptions/rendererOverride dispatch.
 export function RendersAsSwitch({
   rendererOptions,
@@ -179,7 +179,7 @@ export function PreviewChrome({
             options are the genuinely-available typed renderers for THIS deliverable
             (ND-D) — reskinned from the existing renderer switcher, same dispatch.
             Extracted to RendersAsSwitch so a self-chromed renderer can mount the
-            SAME strip standalone above its own frame (ND-J). */}
+            SAME strip standalone above its own frame (ND-V). */}
         {showSwitch && (
           <RendersAsSwitch
             rendererOptions={rendererOptions!}

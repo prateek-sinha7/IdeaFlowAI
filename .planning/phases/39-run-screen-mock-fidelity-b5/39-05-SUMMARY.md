@@ -16,7 +16,7 @@ provides:
   - The lane Back-to-history + run-metadata wiring through DashboardLayout into both the lane header and the run header
   - LiveVersionChip retired — one version affordance only (INV-12/INV-3)
   - This closeout: the failed badge now NAMES the live failure location (first failed agent) reusing resolveAgentNames — the same signal the lane's failure card uses (ND-D live), resolving the plan's interim generic "Run failed" toward the mock's "Run failed at the <stage>" pattern
-  - Intended-divergence register additions ND-H (Share client-only) + ND-I (failed run keeps the full four-tab row — a single uniform tab model across all states)
+  - Intended-divergence register additions ND-H (Share client-only) + ND-U (failed run keeps the full four-tab row — a single uniform tab model across all states)
 affects: [39-06]
 
 # Tech tracking
@@ -25,7 +25,7 @@ tech-stack:
   patterns:
     - "The run header is a presentational RunHeader fed entirely by PreviewPanel-computed live values (runState/pipelineState/runFamily); NO fetch/endpoint inside the header (ND-H no-network invariant, grep-guarded)"
     - "Failed-badge reason DERIVED from the same live failed-agent signal (resolveAgentNames on pipelineState.failedAgents || degradedFailedAgents || reopenedFailedAgents) the lane's 'What went wrong' card uses — never a second resolver, never the mock's fixed text (INV-12/ND-D)"
-    - "A single uniform tab model (Preview · Steps · Files · Audit, no counts, default Preview) across settled / live / failed — the mock varies the tab SET/COUNTS/DEFAULT per outcome; we keep one model (ND-I)"
+    - "A single uniform tab model (Preview · Steps · Files · Audit, no counts, default Preview) across settled / live / failed — the mock varies the tab SET/COUNTS/DEFAULT per outcome; we keep one model (ND-U)"
 
 key-files:
   created:
@@ -39,7 +39,7 @@ key-decisions:
   - "Version ▾ / Share / Download reuse the EXISTING runFamily derivation + download path (INV-12) — the header lifts the already-computed sortedMembers/activeIdx/handleSelectVersion; no new family fetch, no new endpoint"
   - "Share is client-only in v1 (ND-H): copies the owner-auth-gated run deep link to the clipboard; NO backend endpoint, NO share token, NO migration — a faithful reproduction of the button the mock shows without adding an unauth read surface"
   - "The failed badge names the LIVE failure location (first failed agent via resolveAgentNames) with the middot connector ' · ' (house style, matches the adjacent 'v1 · partial' chip) — never the mock's fixed 'security gate' text (ND-D live/generic); empty → the bare 'Run failed' (regression-free)"
-  - "Failed run keeps the full four-tab row (ND-I): the mock omits Preview + adds per-tab counts + defaults to Audit on a failed run, but a state-dependent tab set is behavior, not styling — the user ruled (2026-07-11) to keep one uniform tab model; a Preview tab on a failed run still shows the failure affordance (DegradedRunAffordance), so no dead surface"
+  - "Failed run keeps the full four-tab row (ND-U): the mock omits Preview + adds per-tab counts + defaults to Audit on a failed run, but a state-dependent tab set is behavior, not styling — the user ruled (2026-07-11) to keep one uniform tab model; a Preview tab on a failed run still shows the failure affordance (DegradedRunAffordance), so no dead surface"
   - "LiveVersionChip retired — its menu internals now live in RunHeader's VersionMenu so there are not two version affordances (INV-3/INV-12)"
 
 patterns-established:
@@ -55,7 +55,7 @@ completed: 2026-07-11
 
 # Phase 39 Plan 05: Run Header — Mock Fidelity Summary
 
-**The mock's right-column run header now sits above the tab bar — a Version ▾ menu (from the existing runFamily), a client-only Share (copy run deep link, ND-H), and a primary Download, plus a live status badge and a status-tinted version chip keyed on the generic runState/pipelineState (SC-001/ND-D) — with the tab order corrected to Preview · Steps · Files · Audit, the Steps review dot while paused, the lane Back-to-history + run-metadata wiring, and LiveVersionChip retired (INV-12). This closeout applied two adjudicated failed-state rulings: the failed run keeps the full four-tab row (ND-I, keep-ours), and the failed badge now NAMES the live failure location — the first failed agent via the same resolveAgentNames signal the lane's failure card uses (ND-D live, a fidelity MATCH toward the mock's "Run failed at the <stage>" pattern).**
+**The mock's right-column run header now sits above the tab bar — a Version ▾ menu (from the existing runFamily), a client-only Share (copy run deep link, ND-H), and a primary Download, plus a live status badge and a status-tinted version chip keyed on the generic runState/pipelineState (SC-001/ND-D) — with the tab order corrected to Preview · Steps · Files · Audit, the Steps review dot while paused, the lane Back-to-history + run-metadata wiring, and LiveVersionChip retired (INV-12). This closeout applied two adjudicated failed-state rulings: the failed run keeps the full four-tab row (ND-U, keep-ours), and the failed badge now NAMES the live failure location — the first failed agent via the same resolveAgentNames signal the lane's failure card uses (ND-D live, a fidelity MATCH toward the mock's "Run failed at the <stage>" pattern).**
 
 ## Performance
 
@@ -94,7 +94,7 @@ Each change was committed atomically (no trailer, on `feat/ui-2`):
 
 Inherits **ND-A..ND-G** (39-01-PLAN) + **ND-H** (39-05-PLAN — Share client-only), and adds:
 
-- **ND-I — Failed run keeps the full four-tab row.** The mock's failed run omits the Preview tab, shows per-tab record counts (Steps 5 · Audit 10 · Files 3), and defaults to Audit. We keep all four tabs (Preview · Steps · Files · Audit), no counts, default Preview — a single uniform tab model across settled/live/failed. Rationale: the mock varies the tab SET/COUNTS/DEFAULT per run outcome; a state-dependent tab set is behavior, not styling, and the user ruled (2026-07-11) to keep the uniform model. A Preview tab on a failed run still shows the failure affordance (DegradedRunAffordance), so no dead surface.
+- **ND-U — Failed run keeps the full four-tab row.** The mock's failed run omits the Preview tab, shows per-tab record counts (Steps 5 · Audit 10 · Files 3), and defaults to Audit. We keep all four tabs (Preview · Steps · Files · Audit), no counts, default Preview — a single uniform tab model across settled/live/failed. Rationale: the mock varies the tab SET/COUNTS/DEFAULT per run outcome; a state-dependent tab set is behavior, not styling, and the user ruled (2026-07-11) to keep the uniform model. A Preview tab on a failed run still shows the failure affordance (DegradedRunAffordance), so no dead surface.
 
 **Not a divergence — a fidelity MATCH:** the failed badge REASON is now **LIVE (ND-D)**. It names the first failed agent (`resolveAgentNames`, the same signal the lane's "What went wrong" card uses), which **resolves** the plan's interim "generic 'Run failed'" wording toward the mock's "Run failed at the <stage>" pattern. It is therefore a fidelity match, not a registered divergence. Connector is " · " (house style — matches the adjacent "v1 · partial" version chip), never the mock's fixed "at the security gate" literal.
 
@@ -102,12 +102,12 @@ Inherits **ND-A..ND-G** (39-01-PLAN) + **ND-H** (39-05-PLAN — Share client-onl
 
 - **Reuse, don't rebuild (INV-12).** Version ▾ / Download reuse the existing `runFamily` derivation + download path; the failed-badge reason reuses `resolveAgentNames` (the lane's failed-agent signal) — no new resolver, no new fetch, no new endpoint.
 - **Share stays client-only (ND-H, D39-2 scope fence).** A copy-link is faithful to the button the mock shows without adding an unauth read surface; a true public share token is out of the visual scope.
-- **Keep one uniform tab model (ND-I).** The user ruled to keep all four tabs / no counts / default Preview across all states rather than fork the tab set per outcome.
+- **Keep one uniform tab model (ND-U).** The user ruled to keep all four tabs / no counts / default Preview across all states rather than fork the tab set per outcome.
 - **Name the live failure location, generically (ND-D).** The failed badge appends the first failed agent name via the shared signal, with the house-style middot — never the mock's fixed "security gate" text.
 
 ## Deviations from Plan
 
-**None** — the header plan executed as written; this closeout applied two post-plan user rulings (2026-07-11): ND-I (keep the four-tab row — no code change, register only) and the failed-badge live reason (a small additive change to RunHeader + PreviewPanel + one test). Both are within the header's scope; no backend / useWorkflow / useRunChat contract touched, no new resolver, no network in the header.
+**None** — the header plan executed as written; this closeout applied two post-plan user rulings (2026-07-11): ND-U (keep the four-tab row — no code change, register only) and the failed-badge live reason (a small additive change to RunHeader + PreviewPanel + one test). Both are within the header's scope; no backend / useWorkflow / useRunChat contract touched, no new resolver, no network in the header.
 
 ## Issues Encountered
 
