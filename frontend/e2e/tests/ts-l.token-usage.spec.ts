@@ -46,6 +46,10 @@ test.describe("TS-L — token usage summary", () => {
       estimatedCostUsd: 0.042,
     });
 
+    // Phase 39: the TokenUsageSummary moved out of the (retired) AgentProgressPanel
+    // into the Steps tab footer (AgentThinkingTab). Open Steps to reach it.
+    await dashboard.openSteps();
+
     // Header label + total (8000 → "8.0K total")
     await expect(dashboard.page.getByText("Token Usage", { exact: true })).toBeVisible();
     await expect(dashboard.page.getByText("8.0K total", { exact: true })).toBeVisible();
@@ -54,7 +58,11 @@ test.describe("TS-L — token usage summary", () => {
     await expect(dashboard.page.getByText("5.0K input", { exact: true })).toBeVisible();
     await expect(dashboard.page.getByText("3.0K output", { exact: true })).toBeVisible();
 
-    // Cost row: model short-name from model_id + cost value
+    // FLAG (KAN-83 restyle — REMOVED behavior, needs reconciliation): the summary
+    // card was reduced to a single compact line (total · input · output). The cost
+    // row + model short-name ("Est. cost (Haiku 4.5)" / "~$0.042") were dropped —
+    // the only surviving `formatCost` lives in ChatTokenWidget, which is NOT mounted
+    // anywhere in the app. These two assertions target removed UI and will FAIL.
     await expect(dashboard.page.getByText("Est. cost (Haiku 4.5)", { exact: true })).toBeVisible();
     await expect(costRow(dashboard)).toContainText("~$0.042");
   });
@@ -66,6 +74,7 @@ test.describe("TS-L — token usage summary", () => {
       finalOutput: "# Product Backlog\n",
       totalTokens: 1_500_000,
     });
+    await dashboard.openSteps(); // summary relocated to the Steps tab footer
     await expect(dashboard.page.getByText("1.5M total", { exact: true })).toBeVisible();
   });
 
@@ -76,9 +85,17 @@ test.describe("TS-L — token usage summary", () => {
       finalOutput: "# Product Backlog\n",
       totalTokens: 950,
     });
+    await dashboard.openSteps(); // summary relocated to the Steps tab footer
     await expect(dashboard.page.getByText("950 total", { exact: true })).toBeVisible();
   });
 
+  // FLAG (KAN-83 restyle — REMOVED behavior, needs reconciliation): the three
+  // TS-L-03 cost-format cases below assert the summary's cost row (em-dash /
+  // "<$0.001" / "~$0.042"). That row was removed when the summary was reduced to
+  // total·input·output; the only `formatCost` implementation now lives in the
+  // UNMOUNTED ChatTokenWidget. openSteps() is added so the failure is clearly
+  // "cost absent from the (relocated) summary" rather than a stale earlier step.
+  // These target genuinely-removed UI and will FAIL until reconciled.
   test("TS-L-03 cost format: zero → em dash", async ({ dashboard, mockWs }) => {
     await runAllAgents(mockWs);
     mockWs.complete({
@@ -87,6 +104,7 @@ test.describe("TS-L — token usage summary", () => {
       totalTokens: 8000, // keep card visible; only the cost is under test
       estimatedCostUsd: 0,
     });
+    await dashboard.openSteps();
     await expect(dashboard.page.getByText("Est. cost (Haiku 4.5)", { exact: true })).toBeVisible();
     await expect(costRow(dashboard)).toContainText("—");
   });
@@ -99,6 +117,7 @@ test.describe("TS-L — token usage summary", () => {
       totalTokens: 8000,
       estimatedCostUsd: 0.0005,
     });
+    await dashboard.openSteps();
     await expect(costRow(dashboard)).toContainText("<$0.001");
   });
 
@@ -110,17 +129,23 @@ test.describe("TS-L — token usage summary", () => {
       totalTokens: 8000,
       estimatedCostUsd: 0.042,
     });
+    await dashboard.openSteps();
     await expect(costRow(dashboard)).toContainText("~$0.042");
   });
 
-  test("TS-L-04 per-agent token pill: DONE card shows 3.1K tokens", async ({ dashboard, mockWs }) => {
+  test("TS-L-04 per-agent token count: DONE agent detail shows 3.1K tok", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
     mockWs.start(agents, { pipelineType: "user_stories" });
-    // Complete the first agent with an explicit per-agent total → AgentTokenPill.
+    // Complete the first agent with an explicit per-agent total.
     mockWs.agentStart(agents[0].id);
     mockWs.agentComplete(agents[0].id, { totalTokens: 3100 });
 
-    await expect(dashboard.doneBadge().first()).toBeVisible();
-    await expect(dashboard.page.getByText("3.1K tokens", { exact: true })).toBeVisible();
+    // Phase 39 retired the AgentProgressPanel's per-agent "3.1K tokens" pill. The
+    // per-agent token count now lives in the Steps L2 detail (AgentDetailPanel),
+    // rendered as "{formatTokenCount} tok" (runStats.ts) once the agent isDone.
+    // Drill in via the Steps spine and assert the new "3.1K tok" format.
+    await dashboard.openSteps();
+    await dashboard.openAgentDetail(agents[0].name); // "Domain Discovery Agent"
+    await expect(dashboard.page.getByText("3.1K tok", { exact: true })).toBeVisible();
   });
 });

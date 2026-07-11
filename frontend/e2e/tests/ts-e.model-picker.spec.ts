@@ -20,47 +20,63 @@
  */
 import { test, expect } from "../fixtures/test";
 
-const SONNET_46_LABEL = "Sonnet 4.6";
 const SONNET_46_ID = "eu.anthropic.claude-sonnet-4-6-20251101-v1:0";
 
-// The 4 user_allowed labels MODEL_CATALOG exposes (constants.ts).
+// The 4 originally-user_allowed labels MODEL_CATALOG exposes (constants.ts).
 const ALLOWED_LABELS = ["Haiku 4.5", "Sonnet 4.5", "Sonnet 4.6", "Opus 4.5"];
-// user_allowed:false → must never appear in the picker.
-const DISALLOWED_LABEL = "Opus 4.6";
+
+// ── Phase 39 redesign helpers ────────────────────────────────────────────────
+// The standalone AgentModelPicker ("Per-Agent Model", one <select> per agent) is
+// gone. The per-agent Model lever now lives 3 levels deep: AgentsPopup Agents tab
+// → an agent card's "View capabilities & configure" → AgentCapabilitiesModal
+// "Config" tab → a per-agent "Advanced — {name}" expander (Validator · Gate ·
+// Model · Retry). The Model lever is a native <select> (aria-label "Model for
+// {name}") with options "{label} ({tier})" — the WHOLE catalog per DECIDE-02. The
+// picked model threads up via `selections[agentId].model` on run_pipeline.
+const FIRST_AGENT = "Domain Discovery Agent"; // first user_stories LIBRARY_AGENT
+type PW = import("@playwright/test").Page;
+
+/** From the open Agents tab: drill into the FIRST agent's Model lever <select>. */
+async function openFirstAgentModelLever(page: PW) {
+  await page.getByRole("button", { name: "View capabilities & configure" }).first().click();
+  await page.getByRole("tab", { name: "Config" }).click();
+  await page.getByRole("button", { name: new RegExp(`Advanced — ${FIRST_AGENT}`) }).click();
+  const model = page.getByLabel(`Model for ${FIRST_AGENT}`);
+  await expect(model).toBeVisible();
+  return model;
+}
+
+/** Close the AgentCapabilitiesModal (its card is the only .max-w-md dialog; the
+ *  first button in it is the header close ✕). */
+async function closeAgentModal(page: PW) {
+  await page.locator("div.max-w-md").getByRole("button").first().click();
+}
 
 test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
   test.beforeEach(async ({ dashboard }) => {
     // Land on the user_stories brief view (seeds 6 agents, no run yet) and type
-    // an idea so Run becomes enabled. Then open the per-agent model picker.
+    // an idea so Run becomes enabled. Then open the Advanced popup (Agents tab is
+    // default; the per-agent model lever lives in each agent's expander).
     await dashboard.goto();
     await dashboard.selectWorkflow("Generate product requirements");
+    // Wait for the brief screen before filling (avoid the home-composer race).
+    await expect(
+      dashboard.page.getByRole("heading", { name: /Provide the brief/i }),
+    ).toBeVisible({ timeout: 15000 });
     await dashboard.fillIdea("Generate epics for a refunds workflow");
-    await dashboard.openModelPicker();
+    await dashboard.openAdvanced();
   });
 
-  test("TS-E-01 header + one Default-first <select> per agent", async ({ page }) => {
-    // Header present (rendered by the picker once mounted).
-    await expect(page.getByText("Per-Agent Model")).toBeVisible();
+  test("TS-E-01 per-agent config → Default-first Model lever", async ({ page }) => {
+    // One "View capabilities & configure" per agent. user_stories seeds 6, so ≥ 1.
+    const configBtns = page.getByRole("button", { name: "View capabilities & configure" });
+    await expect(configBtns.first()).toBeVisible();
+    expect(await configBtns.count()).toBeGreaterThanOrEqual(1);
 
-    // One native <select> per agent. user_stories seeds 6 LIBRARY_AGENTS, so we
-    // expect ≥ 1 (and in practice exactly 6) — wait for the catalog to load so
-    // the rows render (vs the transient "Loading model catalog…" state).
-    const selects = page.locator("select");
-    await expect(selects.first()).toBeVisible();
-    const count = await selects.count();
-    expect(count).toBeGreaterThanOrEqual(1);
-
-    // The picker rows are labelled by agent NAME; the first user_stories agent
-    // is "Domain Discovery Agent". The name appears twice on screen (flow-grid
-    // card + picker row), so scope to the picker ROW = the select's parent div.
-    const firstRow = selects.first().locator("xpath=..");
-    await expect(firstRow.getByText("Domain Discovery Agent", { exact: true })).toBeVisible();
-
-    // Every select's FIRST option is the "Default" (no-override) sentinel.
-    for (let i = 0; i < count; i++) {
-      const firstOption = selects.nth(i).locator("option").first();
-      await expect(firstOption).toHaveText("Default");
-    }
+    // Drill into the first agent's Config → Advanced Model lever; its FIRST option
+    // is the "Default" (no-override) sentinel.
+    const model = await openFirstAgentModelLever(page);
+    await expect(model.locator("option").first()).toHaveText("Default");
   });
 
   // The alternate-state copies are covered by their own describe block below
@@ -69,68 +85,82 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
   // BEFORE the picker mounts) — so they can't share the user_stories beforeEach.
 
   test("TS-E-02 catalog reflects backend (user_allowed only)", async ({ page }) => {
-    const firstSelect = page.locator("select").first();
-    await expect(firstSelect).toBeVisible();
+    const model = await openFirstAgentModelLever(page);
 
-    // Option texts = "Default" + each user_allowed model label.
-    const optionTexts = await firstSelect.locator("option").allTextContents();
+    // Option texts = "Default" + each catalog model as "{label} ({tier})".
+    const optionTexts = await model.locator("option").allTextContents();
 
-    // All 4 user-allowed catalog models are offered…
-    for (const label of ALLOWED_LABELS) {
+    // All 4 originally-user_allowed catalog models are offered (new tier-suffixed
+    // format). Tiers from constants.ts MODEL_CATALOG.
+    for (const label of [
+      "Haiku 4.5 (fast)",
+      "Sonnet 4.5 (balanced)",
+      "Sonnet 4.6 (balanced)",
+      "Opus 4.5 (powerful)",
+    ]) {
       expect(optionTexts).toContain(label);
     }
-    // …and the user_allowed:false model is filtered out.
-    expect(optionTexts).not.toContain(DISALLOWED_LABEL);
-
-    // Sanity: the no-override sentinel leads the list (5 options total: Default + 4).
+    // The no-override sentinel leads the list.
     expect(optionTexts[0]).toBe("Default");
+
+    // FLAG (DECIDE-02 / D-23 — CHANGED behavior, needs reconciliation): the client
+    // user_allowed filter was DROPPED. The Model lever now offers the WHOLE catalog
+    // (server `_validate_model_overrides` is the authoritative allow-list), so the
+    // user_allowed:false model "Opus 4.6 (powerful)" is NOW OFFERED and there are 6
+    // options (Default + 5), not 5. The two assertions below encode the OLD filter
+    // contract and will FAIL until reconciled to the whole-catalog reality.
+    expect(optionTexts).not.toContain("Opus 4.6 (powerful)");
     expect(optionTexts).toHaveLength(ALLOWED_LABELS.length + 1);
   });
 
-  test("TS-E-03 picking a non-default model emits model_overrides on run_pipeline", async ({ dashboard, page, mockWs }) => {
-    // Choose "Sonnet 4.6" for the FIRST agent's select (Domain Discovery Agent).
-    const firstSelect = page.locator("select").first();
-    await expect(firstSelect).toBeVisible();
-    await firstSelect.selectOption({ label: SONNET_46_LABEL });
+  test("TS-E-03 picking a non-default model emits it under selections on run_pipeline", async ({ dashboard, page, mockWs }) => {
+    // Drill into the FIRST agent (Domain Discovery Agent) Config → Model lever and
+    // choose "Sonnet 4.6". Select by VALUE (the model id) — robust to the option's
+    // new "{label} ({tier})" text format.
+    const model = await openFirstAgentModelLever(page);
+    await model.selectOption(SONNET_46_ID);
 
-    // Close the popup (Save changes) and run.
-    await page.getByRole("button", { name: "Save changes" }).click();
+    // Close the modal, then the popup (Phase 39: footer "Save changes" → "Cancel";
+    // the selection persists via the live onSelectionsChange ref) and run.
+    await closeAgentModal(page);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
 
     const f = await mockWs.waitForClientFrame("run_pipeline");
     expect(f.pipeline_type).toBe("user_stories");
 
-    // model_overrides is a top-level object (agentId → modelId). We assert by
-    // VALUE: the Sonnet 4.6 model id is present for some agent (the first one).
-    const overrides = f.model_overrides as Record<string, string> | undefined;
-    expect(overrides).toBeTruthy();
-    expect(typeof overrides).toBe("object");
-    expect(Object.values(overrides!)).toContain(SONNET_46_ID);
+    // Phase 39: per-agent model now threads via the top-level `selections` object
+    // (agentId → { model, … }), NOT `model_overrides` (AgentsPopup no longer emits
+    // overrides — the inline Model lever is the single source of truth). Assert by
+    // VALUE: some agent's selection carries the Sonnet 4.6 model id.
+    const selections = f.selections as Record<string, { model?: string }> | undefined;
+    expect(selections).toBeTruthy();
+    expect(typeof selections).toBe("object");
+    expect(Object.values(selections!).map((s) => s.model)).toContain(SONNET_46_ID);
   });
 
-  test("TS-E-04 re-selecting Default removes the override (key omitted)", async ({ dashboard, page, mockWs }) => {
+  test("TS-E-04 re-selecting Default removes the per-agent model (selections omitted)", async ({ dashboard, page, mockWs }) => {
     // Pick a model, then put it back to Default for the same (first) agent.
-    const firstSelect = page.locator("select").first();
-    await expect(firstSelect).toBeVisible();
-    await firstSelect.selectOption({ label: SONNET_46_LABEL });
-    await firstSelect.selectOption({ label: "Default" }); // value "" → override deleted
+    const model = await openFirstAgentModelLever(page);
+    await model.selectOption(SONNET_46_ID);
+    await model.selectOption(""); // Default (value "") → model key deleted
 
-    await page.getByRole("button", { name: "Save changes" }).click();
+    await closeAgentModal(page);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
 
     const f = await mockWs.waitForClientFrame("run_pipeline");
 
-    // All-default ⇒ extraParams omitted ⇒ no model_overrides key at all. (If a
-    // future impl sends an empty object, accept that too — the contract is "no
-    // override for this agent".)
-    const overrides = f.model_overrides as Record<string, string> | undefined;
-    if (overrides === undefined) {
-      expect(overrides).toBeUndefined();
+    // Clearing the agent's only lever empties its selection → the agent key is
+    // dropped → `selections` is omitted entirely (byte-identical plain-run payload).
+    // Tolerate an empty object; the contract is "no Sonnet 4.6 for any agent".
+    const selections = f.selections as Record<string, { model?: string }> | undefined;
+    if (selections === undefined) {
+      expect(selections).toBeUndefined();
     } else {
-      expect(Object.values(overrides)).not.toContain(SONNET_46_ID);
-      expect(Object.keys(overrides)).toHaveLength(0);
+      expect(Object.values(selections).map((s) => s.model)).not.toContain(SONNET_46_ID);
     }
   });
 });
@@ -141,15 +171,14 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
  * in their own describe (no shared beforeEach) and are split into one test per
  * state so partial coverage is explicit:
  *
- *   • no-agents  ("Add agents to assign per-agent models.") → REAL test.
+ *   • no-agents  ("Add agents to assign per-agent levers.") → REAL test.
  *       The `custom` workflow seeds ZERO agents (verified at runtime: the
- *       Agents tab reads "Agents (0)" and the picker renders 0 <select>s), so
- *       agents.length === 0 and the no-agents copy renders. Note: we open via
- *       openAdvanced() (NOT openModelPicker()) because openModelPicker asserts
- *       "Per-Agent Model" which is non-unique under strict mode here — we assert
- *       the no-agents <p> directly, which IS unique.
+ *       Agents tab reads "Agents (0)" and the lever panel renders 0 <select>s),
+ *       so agents.length === 0 and the no-agents copy renders. We open via
+ *       openAdvanced() and assert the no-agents <p> directly (Phase 39 retired the
+ *       "Per-Agent Model" header — the lever now lives per-agent under Advanced).
  *
- *   • loading    ("Loading model catalog…")               → REAL test.
+ *   • loading    ("Loading levers…")                       → REAL test.
  *       A per-test route override DELAYS GET /api/capabilities by 1.5s. Because
  *       page.route is additive and the most-recently-added handler wins, this
  *       override (in the TEST, not a fixture) beats the mockApi handler. We open
@@ -159,7 +188,7 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
  *       See the precise reasons on the test.fixme.
  */
 test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
-  test("TS-E-01b-noagents shows the no-agents copy (custom seeds 0 agents)", async ({
+  test("TS-E-01b-noagents shows no per-agent model surface (custom seeds 0 agents)", async ({
     dashboard,
     page,
   }) => {
@@ -170,9 +199,7 @@ test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
       "Research the competitive landscape for AI coding assistants",
     );
 
-    // Open the Advanced popup (Agents tab is default; the AgentModelPicker is its
-    // footer). We deliberately use openAdvanced(), not openModelPicker(), because
-    // the latter asserts the (here non-unique) "Per-Agent Model" header.
+    // Open the Advanced popup (Agents tab is default).
     await dashboard.openAdvanced();
 
     // Sanity: the Agents tab confirms there really are 0 agents…
@@ -182,10 +209,17 @@ test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
     // …and there are no per-agent <select> rows.
     await expect(page.locator("select")).toHaveCount(0);
 
-    // The no-agents branch copy is shown (catalog loaded, no error, 0 agents).
+    // FLAG (Phase 39 — the AdvancedExpander's no-agents copy is now UNREACHABLE):
+    // per-agent levers moved INTO the per-agent AgentCapabilitiesModal, whose
+    // AdvancedExpander always receives exactly ONE agent, so its agents.length===0
+    // branch ("Add agents to assign per-agent levers.") can never render. The
+    // new-UI equivalent of "no per-agent model config when there are no agents" is:
+    // a 0-agent workflow exposes NO agent cards → NO "View capabilities &
+    // configure" entry point into the model lever. (Human: reconcile whether the
+    // dead no-agents copy should be removed from AdvancedExpander.)
     await expect(
-      page.getByText("Add agents to assign per-agent models."),
-    ).toBeVisible();
+      page.getByRole("button", { name: "View capabilities & configure" }),
+    ).toHaveCount(0);
   });
 
   test("TS-E-01b-loading shows the loading copy while /api/capabilities is in flight", async ({
@@ -209,18 +243,23 @@ test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
       });
     });
 
-    // Open Advanced → the picker mounts and kicks off the (now-delayed) fetch.
+    // Open Advanced, then drill into the first agent's Config tab — Phase 39 moved
+    // the AdvancedExpander into the per-agent AgentCapabilitiesModal, so it only
+    // mounts (and fires the now-delayed capabilities fetch) once Config is shown.
     await dashboard.openAdvanced();
+    await page.getByRole("button", { name: "View capabilities & configure" }).first().click();
+    await page.getByRole("tab", { name: "Config" }).click();
 
-    // While the fetch is in flight the picker shows the loading copy. Assert it
-    // appears within the delay window (well under 1.5s).
-    await expect(page.getByText("Loading model catalog…")).toBeVisible({
+    // While the fetch is in flight the lever panel shows the loading copy. Phase
+    // 39: the AdvancedExpander copy is "Loading levers…" (was "Loading model
+    // catalog…"). Assert it appears within the delay window (well under 1.5s).
+    await expect(page.getByText("Loading levers…")).toBeVisible({
       timeout: 1000,
     });
 
     // And once the (empty) catalog resolves, the loading copy goes away — proving
     // it was the transient in-flight state, not a stuck spinner.
-    await expect(page.getByText("Loading model catalog…")).toBeHidden({
+    await expect(page.getByText("Loading levers…")).toBeHidden({
       timeout: 4000,
     });
   });

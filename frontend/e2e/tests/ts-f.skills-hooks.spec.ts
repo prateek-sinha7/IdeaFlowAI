@@ -32,9 +32,17 @@ const HOOK_NAME = "Quality Gate";
 /** Open the AgentsPopup from the idea page and switch to the Skills & Hooks tab. */
 async function openSkillsHooksTab(dashboard: { page: import("@playwright/test").Page; selectWorkflow: (l: string) => Promise<void>; fillIdea: (t: string) => Promise<void>; openAdvanced: () => Promise<void> }) {
   await dashboard.selectWorkflow(WORKFLOW);
+  // Wait for the brief screen to mount before filling — else the fill races the
+  // still-mounted home composer and the idea never lands in the brief textarea,
+  // leaving Run disabled at TS-F-05 (mirrors dashboard.runWith's guard).
+  await expect(
+    dashboard.page.getByRole("heading", { name: /Provide the brief/i }),
+  ).toBeVisible({ timeout: 15000 });
   await dashboard.fillIdea(IDEA);
   await dashboard.openAdvanced(); // asserts "Workflow configuration"
-  await dashboard.page.getByRole("button", { name: /Skills & Hooks/ }).click();
+  // Phase 39 redesign: the old "Skills & Hooks" tab is now the "Workflow" tab
+  // (Puzzle icon; still hosts the SkillsHooksTab body unchanged).
+  await dashboard.page.getByRole("button", { name: /^Workflow/ }).click();
 }
 
 /** The Add/Added button inside a specific skill/hook picker row (deepest match). */
@@ -102,21 +110,29 @@ test.describe("TS-F — Skills & Hooks", () => {
     await openSkillsHooksTab(dashboard);
     await page.getByRole("button", { name: /Add skill/ }).click();
 
+    // Phase 39 renamed the popup tab to "Workflow", which now collides with the
+    // "Workflow" skill-category pill under strict mode. The category pills are the
+    // only rounded-full buttons on screen while the skills picker is open (the
+    // tab is a border-b-2 button, the hooks picker is closed), so target by that
+    // reskin-durable shape + exact label to exclude the tab.
+    const catPill = (cat: string) =>
+      page.locator("button.rounded-full").filter({ hasText: new RegExp(`^${cat}$`) });
+
     // Every category pill is present.
     for (const cat of ["All", "Planning", "Testing", "Workflow", "Security", "Debugging", "Collaboration", "Meta"]) {
-      await expect(page.getByRole("button", { name: cat, exact: true })).toBeVisible();
+      await expect(catPill(cat)).toBeVisible();
     }
 
     // Default ("All"): the planning-category first skill is in the list.
     await expect(page.getByText(SKILL_NAME, { exact: true })).toBeVisible();
 
     // Filter to Testing → the planning skill drops out, a testing skill appears.
-    await page.getByRole("button", { name: "Testing", exact: true }).click();
+    await catPill("Testing").click();
     await expect(page.getByText(SKILL_NAME, { exact: true })).toHaveCount(0);
     await expect(page.getByText(TESTING_SKILL_NAME, { exact: true }).first()).toBeVisible();
 
     // Filter to Planning → the planning skill is back, the testing skill drops out.
-    await page.getByRole("button", { name: "Planning", exact: true }).click();
+    await catPill("Planning").click();
     await expect(page.getByText(SKILL_NAME, { exact: true })).toBeVisible();
     await expect(page.getByText(TESTING_SKILL_NAME, { exact: true })).toHaveCount(0);
   });
@@ -161,13 +177,16 @@ test.describe("TS-F — Skills & Hooks", () => {
     await rowButton(page, HOOK_NAME, /^Add$/).click();
     await expect(rowButton(page, HOOK_NAME, /^Added$/)).toBeVisible();
 
-    // The combined tab badge reflects both (1 skill + 1 hook = 2).
+    // The combined tab badge reflects both (1 skill + 1 hook = 2). Phase 39
+    // relabelled the tab "Workflow"; the badge is its {totalAttached} span.
     await expect(
-      page.getByRole("button", { name: /Skills & Hooks/ }).locator("span", { hasText: /^2$/ }),
+      page.getByRole("button", { name: /^Workflow/ }).locator("span", { hasText: /^2$/ }),
     ).toBeVisible();
 
-    // Close the popup via Save changes, then Run from the idea page.
-    await page.getByRole("button", { name: "Save changes" }).click();
+    // Close the popup, then Run from the idea page. Phase 39 replaced the footer
+    // "Save changes" with "Cancel" (config persists live via context/refs, so
+    // closing retains the attachments) + a separate "Save workflow" (catalogue).
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page.getByText("Workflow configuration")).toBeHidden();
 
     await expect(dashboard.runButton()).toBeEnabled();
@@ -214,13 +233,13 @@ test.describe("TS-F — Skills & Hooks", () => {
     await rowButton(page, SKILL_NAME, /^Add$/).click();
     await expect(rowButton(page, SKILL_NAME, /^Added$/)).toBeVisible();
 
-    // Close the popup.
-    await page.getByRole("button", { name: "Save changes" }).click();
+    // Close the popup (Phase 39: footer "Save changes" → "Cancel").
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page.getByText("Workflow configuration")).toBeHidden();
 
-    // Reopen via Advanced → Skills & Hooks tab.
+    // Reopen via Advanced → Workflow tab (formerly "Skills & Hooks").
     await dashboard.openAdvanced();
-    await page.getByRole("button", { name: /Skills & Hooks/ }).click();
+    await page.getByRole("button", { name: /^Workflow/ }).click();
 
     // The attached skill is listed in the "attached" section (CheckCircle row),
     // and reopening the picker shows it as Added (context persisted globally).
