@@ -66,18 +66,86 @@ export function makeRun(partial: Partial<RawRun> & { id: string }): RawRun {
   };
 }
 
+/**
+ * A launchable row shape the home deliverable grid (HomeLaunchGrid) expects from
+ * GET /api/workflows. Without at least one row the grid's `rows.filter(...)`
+ * throws "rows.filter is not a function" — the #1 known-red harness crash.
+ */
+export interface MockWorkflowRow {
+  id: string;
+  display_name: string;
+  description: string;
+  user_launchable: boolean;
+  step_count: number;
+}
+
+/** The unnormalized RunFamily read model GET /api/runs/{id}/family returns. */
+export interface MockFamilyMember {
+  id: string;
+  type: string;
+  title: string;
+  status: string;
+  revision_index: number;
+  parent_run_id: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+export interface MockRunFamily {
+  root_id: string;
+  members: MockFamilyMember[];
+}
+
+/**
+ * The launchable catalog the home grid renders — a faithful mirror of the live
+ * `GET /api/workflows` payload (the `user_launchable: true` workflow.yaml rows,
+ * with their authored `display_name`/`description`/agent-count). Without at least
+ * one row the grid's `rows.filter(...)` throws; the full set keeps the selection
+ * specs (prototype/app_builder/migration/custom/ppt rows) exercising real ids.
+ */
+export const DEFAULT_WORKFLOWS: MockWorkflowRow[] = [
+  { id: "user_stories", display_name: "Generate product requirements", description: "Epics, user stories, and Gherkin acceptance criteria — ready for Jira.", user_launchable: true, step_count: 6 },
+  { id: "prototype", display_name: "Build an interactive prototype", description: "Navigable, high-fidelity HTML prototype from a brief or story set.", user_launchable: true, step_count: 5 },
+  { id: "app_builder", display_name: "Build an end-to-end application", description: "Full-stack code, tests, and infrastructure from a single requirement.", user_launchable: true, step_count: 15 },
+  { id: "ppt", display_name: "Pitch an idea", description: "Executive-grade deck with charts, data, and a clear narrative.", user_launchable: true, step_count: 3 },
+  { id: "mulesoft_to_springboot", display_name: "Platform workflows", description: "Modernise a legacy estate — Mulesoft to AWS or .NET to Azure.", user_launchable: true, step_count: 13 },
+  { id: "custom", display_name: "Compose a custom workflow", description: "Assemble specialist agents for tasks outside the standard pipelines.", user_launchable: true, step_count: 8 },
+];
+
+/** A well-formed single-member family so `[...runFamily.members]` never throws. */
+export const defaultFamily = (id: string): MockRunFamily => ({
+  root_id: id,
+  members: [
+    {
+      id,
+      type: "prototype",
+      title: "Modern Website Prototype Design Reference",
+      status: "completed",
+      revision_index: 0,
+      parent_run_id: null,
+      created_at: "2026-07-04T09:00:00Z",
+      completed_at: "2026-07-04T09:24:00Z",
+    },
+  ],
+});
+
 export interface MockApiOptions {
   user?: Partial<MockUser>;
   runs?: RawRun[];
   capabilities?: { capabilities: unknown[]; model_catalog: unknown[] };
   /** Resolve a single run by id (reopen). Falls back to the runs list. */
   runDetail?: (id: string) => RawRun | undefined;
+  /** Launchable rows for the home grid (GET /api/workflows). */
+  workflows?: MockWorkflowRow[];
+  /** Revision family for GET /api/runs/{id}/family. */
+  family?: (id: string) => MockRunFamily;
 }
 
 export class MockApi {
   user: MockUser;
   runs: RawRun[];
   capabilities: { capabilities: unknown[]; model_catalog: unknown[] };
+  workflows: MockWorkflowRow[];
+  private family: (id: string) => MockRunFamily;
   private runDetail?: (id: string) => RawRun | undefined;
   /** Recorded request log for assertions (method + path). */
   readonly requests: { method: string; url: string; body?: unknown }[] = [];
@@ -95,6 +163,8 @@ export class MockApi {
       capabilities: CAPABILITIES as unknown as unknown[],
       model_catalog: MODEL_CATALOG as unknown as unknown[],
     };
+    this.workflows = opts.workflows ?? DEFAULT_WORKFLOWS;
+    this.family = opts.family ?? defaultFamily;
     this.runDetail = opts.runDetail;
   }
 
@@ -103,6 +173,12 @@ export class MockApi {
   }
   setRuns(runs: RawRun[]) {
     this.runs = runs;
+  }
+  setWorkflows(rows: MockWorkflowRow[]) {
+    this.workflows = rows;
+  }
+  setFamily(fn: (id: string) => MockRunFamily) {
+    this.family = fn;
   }
   setRunDetail(fn: (id: string) => RawRun | undefined) {
     this.runDetail = fn;
@@ -148,6 +224,42 @@ export class MockApi {
           .map((m) => ({ id: m.id, name: m.label, description: m.description, tier: m.tier })),
       });
     }
+
+    // --- workflows catalog (home launch grid) — fixes `rows.filter` crash ---
+    if (path.endsWith("/api/workflows")) return json(this.workflows);
+
+    // --- analytics summary (home grid duration chips) ---
+    if (path.endsWith("/api/analytics/summary")) return json({ type_avg_duration_sec: {} });
+
+    // --- revision family (right panel Version menu) — fixes `[...members]` crash ---
+    const familyMatch = path.match(/\/api\/runs\/([^/]+)\/family$/);
+    if (familyMatch) return json(this.family(familyMatch[1]));
+
+    // --- audit reads (Audit tab) — categorized gate / validation / exec rows ---
+    const gateMatch = path.match(/\/api\/runs\/([^/]+)\/gate-events$/);
+    if (gateMatch) {
+      const id = gateMatch[1];
+      return json({
+        workflow_id: id,
+        gate_events: [
+          { id: "g1", gate: "Specification approved", step: "prototype-specify", outcome: "approved", detail: "Paused for review · approved by you", created_at: "2026-07-04T09:03:00Z" },
+          { id: "g2", gate: "Build approved", step: "prototype-plan", outcome: "approved", detail: "Task plan approved by you", created_at: "2026-07-04T09:05:00Z" },
+        ],
+      });
+    }
+    const validationMatch = path.match(/\/api\/runs\/([^/]+)\/validation-results$/);
+    if (validationMatch) {
+      const id = validationMatch[1];
+      return json({
+        workflow_id: id,
+        validation_results: [
+          { id: "v1", validator: "static_check", step: "prototype-build", severity: "pass", issues: [], created_at: "2026-07-04T09:20:00Z" },
+          { id: "v2", validator: "render_check", step: "prototype-build", severity: "pass", issues: [], created_at: "2026-07-04T09:21:00Z" },
+        ],
+      });
+    }
+    const execMatch = path.match(/\/api\/runs\/([^/]+)\/exec-runs$/);
+    if (execMatch) return json({ workflow_id: execMatch[1], exec_runs: [] });
 
     // --- runs (history) ---
     const runDetailMatch = path.match(/\/api\/runs\/([^/]+)(\/chain-context)?$/);

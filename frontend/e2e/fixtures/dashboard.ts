@@ -45,14 +45,24 @@ export class DashboardPage {
     return this.page.getByRole("button", { name: /Run workflow|Add agents first|Pick a migration path/ });
   }
 
-  /** Select a workflow from home, type a brief, click Run, and (default) wait
-   *  for the outbound run_pipeline frame. Leaves the app on the execution view. */
+  /** Select a workflow from home, land on the "Provide the brief" screen, type
+   *  the brief AFTER it mounts, click Run, and (default) wait for the outbound
+   *  run_pipeline frame. Leaves the app on the execution view.
+   *
+   *  The home deliverable row → brief-screen navigation is a real transition: the
+   *  textarea must be filled only once "Provide the brief" is visible, else the
+   *  fill races the still-mounted home composer and lands in the wrong field. */
   async runWith(opts: { workflow?: string; idea: string; waitForFrame?: boolean }) {
     if (opts.workflow) await this.selectWorkflow(opts.workflow);
-    await this.fillIdea(opts.idea);
-    await expect(this.runButton()).toBeEnabled();
+    await expect(
+      this.page.getByRole("heading", { name: /Provide the brief/i }),
+    ).toBeVisible({ timeout: 15000 });
+    const brief = this.ideaTextarea();
+    await brief.click();
+    await brief.fill(opts.idea);
+    await expect(this.runButton()).toBeEnabled({ timeout: 10000 });
     await this.runButton().click();
-    if (opts.waitForFrame !== false) await this.ws.waitForClientFrame("run_pipeline");
+    if (opts.waitForFrame !== false) await this.ws.waitForClientFrame("run_pipeline", 20000);
   }
 
   // ── composer / model picker ──────────────────────────────────────────────────
@@ -96,7 +106,8 @@ export class DashboardPage {
   // tabs
   previewTab(): Locator { return this.page.getByRole("button", { name: "Preview" }); }
   filesTab(): Locator { return this.page.getByRole("button", { name: "Files" }); }
-  thinkingTab(): Locator { return this.page.getByRole("button", { name: "Thinking" }); }
+  /** The Steps tab (Phase 32 relabelled the old "Thinking" tab to "Steps"). */
+  thinkingTab(): Locator { return this.page.getByRole("button", { name: "Steps" }); }
 
   // questionnaire / gates
   questionnaireTitle(): Locator { return this.page.getByRole("heading", { name: "Quick Setup" }); }
