@@ -72,23 +72,36 @@ test.describe("TS-C — idea input & trigger", () => {
     await expect(run).toHaveText(/Run workflow/);
   });
 
-  test("TS-C-04 Cmd/Ctrl+Enter from the textarea triggers the run", async ({ dashboard, mockWs }) => {
+  test("TS-C-04 Cmd/Ctrl+Enter from the textarea triggers the run", async ({ dashboard, mockWs, page }) => {
     await dashboard.selectWorkflow("Generate product requirements");
+    // Phase-39 "Fused Home" mounts its OWN launcher <textarea> (#home-launch-prompt),
+    // so `ideaTextarea().first()` can land on the home field mid-transition. Wait for
+    // the input view ("Provide the brief") so the fill targets the IdeaInputPage.
+    await expect(page.getByRole("heading", { name: /Provide the brief/i })).toBeVisible();
     const ta = dashboard.ideaTextarea();
     await ta.click();
     await ta.fill("Generate epics for a refunds workflow with multi-currency support.");
+    // Gate the keyboard submit on the brief actually being committed to React
+    // state (handleRun early-returns while `ideaInput` is empty) — the Run button
+    // enabling is the observable proxy for that commit.
+    await expect(dashboard.runButton()).toBeEnabled();
 
     // onKeyDown fires handleRun() when Enter is pressed with metaKey || ctrlKey.
     // Playwright maps Meta→Cmd on macOS; the component accepts either modifier.
-    await ta.press("Meta+Enter");
+    await ta.press("ControlOrMeta+Enter");
 
     // The app dispatches a run_pipeline frame (proves the keyboard path runs).
     const frame = await mockWs.waitForClientFrame("run_pipeline");
     expect(frame.pipeline_type).toBe("user_stories");
   });
 
-  test("TS-C-06 attach file shows a chip and injects the filename into the brief", async ({ dashboard, page }) => {
+  test("TS-C-06 attach file shows a chip and injects the filename into the brief", async ({ dashboard, page, mockWs }) => {
     await dashboard.selectWorkflow("Generate product requirements");
+    // Wait for the input view — the Phase-39 "Fused Home" launcher <textarea> would
+    // otherwise steal `ideaTextarea().first()` mid-transition (see TS-C-04).
+    await expect(page.getByRole("heading", { name: /Provide the brief/i })).toBeVisible();
+    // A brief is required for Run to fire (attaching alone does not enable it).
+    await dashboard.fillIdea("Generate epics for a refunds workflow with multi-currency support.");
 
     // Reveal/identify the hidden file input, then drive it directly. The visible
     // "+ Attach file" button just proxies a click to this input.
@@ -100,12 +113,17 @@ test.describe("TS-C — idea input & trigger", () => {
     });
 
     // A chip with the filename renders. Target it with exact text so we hit the
-    // chip <span> ("spec.txt") and not the textarea, whose value is the longer
-    // "[Attached: spec.txt]" marker (a non-exact "spec.txt" match would be ambiguous).
+    // chip <span> ("spec.txt") and not other chrome.
     await expect(page.getByText("spec.txt", { exact: true })).toBeVisible();
-    // …and the textarea value gains the "[Attached: spec.txt]" marker
-    // (only the name is injected — bytes are NOT uploaded in this UI).
-    await expect(dashboard.ideaTextarea()).toHaveValue(/\[Attached: spec\.txt\]/);
+
+    // Phase-39/KAN-91: the textarea now stays CLEAN — the old "[Attached: …]"
+    // marker is no longer injected into the visible brief. Instead the filename
+    // (and its extracted content) is composed into the brief at SEND time: the
+    // outbound run_pipeline `message` carries an "=== Attached: spec.txt ===" block
+    // (IdeaInputPage.handleRun fileBlocks). Run it and assert that injection.
+    await dashboard.runButton().click();
+    const frame = await mockWs.waitForClientFrame("run_pipeline");
+    expect(String(frame.message)).toContain("Attached: spec.txt");
   });
 
   test("TS-C-07 Voice button presence is gated on SpeechRecognition support", async ({ dashboard, page }) => {
@@ -134,6 +152,15 @@ test.describe("TS-C — idea input & trigger", () => {
     }
   });
 
+  // FLAG (removed / rerouted behavior): this test targets the `migration` META
+  // path-tile selector. In the Phase-39 data-driven home the "Platform workflows"
+  // row is served by GET /api/workflows as the CONCRETE `mulesoft_to_springboot`
+  // workflow id (fixtures/mockApi DEFAULT_WORKFLOWS), so clicking it opens the
+  // concrete "Modernise off Mulesoft" input (13 agents, Run enabled directly) —
+  // the `migration` meta-picker ("Choose your migration path" + "Pick a migration
+  // path" Run label + the two tiles) is no longer reachable from home. The
+  // meta-picker still exists in IdeaInputPage but has no home entry point. Left
+  // failing for reconciliation.
   test("TS-C-08 migration path tile selects (navy) and unlocks Run", async ({ dashboard, page }) => {
     // Platform workflows = the `migration` meta-pipeline. The meta-type has NO
     // default LIBRARY_AGENTS, and the Run-label ternary checks the no-agents
@@ -162,16 +189,19 @@ test.describe("TS-C — idea input & trigger", () => {
     await expect(run).toHaveText(/Run workflow/);
   });
 
-  test("TS-C-10 trigger swaps to the execution view and emits run_pipeline", async ({ dashboard, mockWs }) => {
+  test("TS-C-10 trigger swaps to the execution view and emits run_pipeline", async ({ dashboard, mockWs, page }) => {
     // runWith: select user_stories, type a brief, click Run, await the frame.
     await dashboard.runWith({
       workflow: "Generate product requirements",
       idea: "Generate epics for a refunds workflow with multi-currency support.",
     });
 
-    // The view machine swaps input → execution (AnimatePresence mode="wait"),
-    // so the IdeaInputPage textarea unmounts entirely.
-    await expect(dashboard.ideaTextarea()).toHaveCount(0);
+    // The view machine swaps input → execution (AnimatePresence mode="wait"), so
+    // the IdeaInputPage unmounts. Phase-39: the execution surface (RunChatLane)
+    // mounts its OWN chat-composer textarea, so a bare `textarea` count is no
+    // longer 0 — assert the IdeaInputPage's "Provide the brief" heading is gone
+    // instead (the reliable input-view-unmounted signal).
+    await expect(page.getByRole("heading", { name: /Provide the brief/i })).toHaveCount(0);
     // And the run_pipeline frame was sent for this pipeline type.
     expect(mockWs.framesOfType("run_pipeline").length).toBeGreaterThan(0);
 

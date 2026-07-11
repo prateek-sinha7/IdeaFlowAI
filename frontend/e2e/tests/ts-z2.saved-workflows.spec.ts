@@ -104,10 +104,13 @@ async function mockUserWorkflows(page: Page) {
   return { rows, posts };
 }
 
-/** Navigate to the in-dashboard Catalog view via the header nav button. It
- *  re-MOUNTS WorkflowCatalog → triggers a fresh `getUserWorkflows` GET. */
-async function openCatalog(page: Page) {
-  await page.getByRole("button", { name: /^Catalog$/ }).click();
+/** Open the saved-workflows page. Phase-39 RETIRED the "Catalog" header nav and
+ *  moved "Your workflows" out of the catalog into a dedicated SavedWorkflowsPage,
+ *  reached via the "My Workflows" header nav item (AppHeader navItems, key
+ *  `saved-workflows`). Navigating there MOUNTS SavedWorkflowsPage → triggers a
+ *  fresh `getUserWorkflows` GET. */
+async function openSavedWorkflows(page: Page) {
+  await page.getByRole("button", { name: "My Workflows" }).click();
 }
 
 test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appears → rename → launch)", () => {
@@ -116,7 +119,11 @@ test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appea
   test("TS-Z2-01 compose custom → Save persists a POST", async ({ dashboard, page }) => {
     await dashboard.goto({ tier: "enterprise" });
     const { posts } = await mockUserWorkflows(page); // AFTER goto → wins over the catch-all
-    await openCatalog(page);
+
+    // Phase-39: the "+ Create workflow" entry lives on the HOME view (the
+    // HomeLaunchGrid header, SAVE-FROM-BOTH), which `dashboard.goto()` already
+    // lands on — no separate catalog nav.
+    await expect(page.getByRole("heading", { name: "What would you like to build today?" })).toBeVisible();
 
     // "+ Create workflow" → onSelectFeature("custom") → the custom composer
     // (IdeaInputPage). `custom` seeds ZERO agents, so Save is disabled until one
@@ -129,10 +136,21 @@ test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appea
     await page.getByRole("button", { name: /\+ Add agent/i }).first().click();
     await expect(page.getByRole("heading", { name: "Add agent" })).toBeVisible();
     await page.getByRole("button", { name: /^\+ Add$/ }).first().click();
-    // Close the library + popup back to the composer.
-    await page.getByRole("button", { name: /Save changes/i }).click();
+    // The library closes on +Add — wait for that before closing the popup so the
+    // Cancel click can't race the library's own Cancel button.
+    await expect(page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
 
-    // Now "Save workflow" is enabled → NameWorkflowModal → name → Save (POST).
+    // Close the popup back to the composer. Phase-39 replaced the footer's plain
+    // "Save changes" close with "Save workflow" (which opens the save modal), so
+    // the popup's real close path is now "Cancel" — the added agent already lives
+    // in the composer's parent state, so cancelling the popup does not discard it.
+    // With the library closed, the popup footer's is the only "Cancel" on-page.
+    await page.getByRole("button", { name: /^Cancel$/ }).click();
+    await expect(page.getByRole("heading", { name: "Workflow configuration" })).toHaveCount(0);
+
+    // Now the composer's own "Save workflow" (IdeaInputPage toolbar — the only one
+    // left once the popup is closed) opens NameWorkflowModal → name → Save (POST),
+    // and surfaces the "Saved" confirmation.
     await page.getByRole("button", { name: /Save workflow/i }).click();
     await expect(page.getByRole("heading", { name: "Save workflow" })).toBeVisible();
     await page.getByPlaceholder(/Competitive research/i).fill("My saved workflow");
@@ -164,32 +182,36 @@ test.describe("TS-Z2 — saved workflows (enterprise: compose → Save → appea
       updated_at: "2026-06-14T12:00:00Z",
     });
 
-    // Open the catalog → the "Your workflows" section renders the saved row by its
-    // OWN name (user rows render their name; the never-raw-name rule is manifest-only).
-    await openCatalog(page);
-    await expect(page.getByText("Your workflows")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "My saved workflow" })).toBeVisible();
+    // Open the saved-workflows page (Phase-39 moved "Your workflows" here) → the
+    // saved row renders by its OWN name. On SavedWorkflowsPage the card name is a
+    // <p> (not a heading); the page's own <h1> is "My Workflows".
+    await openSavedWorkflows(page);
+    await expect(page.getByRole("heading", { name: "My Workflows" })).toBeVisible();
+    await expect(page.getByText("My saved workflow", { exact: true })).toBeVisible();
 
-    // ── Rename via the per-row kebab → NameWorkflowModal (prefilled) → PATCH. ──
-    const savedRowEl = page.locator(".group", { has: page.getByRole("heading", { name: "My saved workflow" }) });
+    // ── Rename via the per-row kebab (aria-label "Workflow actions") →
+    //    NameWorkflowModal (prefilled) → PATCH. ──
+    const savedRowEl = page.locator(".group", { has: page.getByText("My saved workflow", { exact: true }) });
     await savedRowEl.hover();
-    await savedRowEl.getByRole("button").last().click(); // the kebab (MoreHorizontal)
-    await page.getByRole("button", { name: /^Rename$/ }).click();
+    await savedRowEl.getByRole("button", { name: "Workflow actions" }).click();
+    await page.getByRole("menuitem", { name: /^Rename$/ }).click();
     await expect(page.getByRole("heading", { name: "Rename workflow" })).toBeVisible();
     const nameInput = page.getByPlaceholder(/Competitive research/i);
     await expect(nameInput).toHaveValue("My saved workflow"); // prefilled
     await nameInput.fill("Renamed workflow");
     await page.getByRole("button", { name: /^Save$/ }).click();
 
-    // Optimistic label update — the row now reads the new name.
-    await expect(page.getByRole("heading", { name: "Renamed workflow" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "My saved workflow" })).toHaveCount(0);
+    // Optimistic label update — the card now reads the new name.
+    await expect(page.getByText("Renamed workflow", { exact: true })).toBeVisible();
+    await expect(page.getByText("My saved workflow", { exact: true })).toHaveCount(0);
 
-    // ── Launch the saved row → onLaunchSaved → DashboardLayout seeds the composer
-    //    and routes to IdeaInputPage PRE-LOADED. The launch preload (21-03) seeds
-    //    pipelineAgents from agent_ids, so Run is reachable for this custom row
-    //    (which would otherwise seed NO agents → "Add agents first"). ──
-    await page.getByRole("heading", { name: "Renamed workflow" }).click();
+    // ── Launch the saved row via its card "Run workflow" button → onLaunchSaved →
+    //    DashboardLayout seeds the composer and routes to IdeaInputPage PRE-LOADED.
+    //    The launch preload (21-03) seeds pipelineAgents from agent_ids, so Run is
+    //    reachable for this custom row (which would otherwise seed NO agents →
+    //    "Add agents first"). Re-scope the card locator by the RENAMED name. ──
+    const renamedRowEl = page.locator(".group", { has: page.getByText("Renamed workflow", { exact: true }) });
+    await renamedRowEl.getByRole("button", { name: /Run workflow/ }).click();
     await expect(dashboard.ideaTextarea()).toBeVisible();
 
     // Pre-loaded proof (the load-bearing 21-03 change): the seeded agents are

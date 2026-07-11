@@ -82,17 +82,28 @@ test.describe("TS-D — agent composer", () => {
     await expect(popup(dashboard).getByText("Advanced", { exact: true })).toBeVisible();
     await expect(dashboard.page.getByRole("heading", { name: "Workflow configuration" })).toBeVisible();
 
-    // Both tabs exist.
+    // Both tabs exist. The Phase-39 popup relabelled the second tab from
+    // "Skills & Hooks" to "Workflow" (Puzzle icon; it now hosts Skills, Hooks &
+    // Capabilities per the AgentsPopup :1913-1926 tab).
     await expect(agentsTab(dashboard)).toBeVisible();
-    await expect(dashboard.page.getByRole("button", { name: "Skills & Hooks" })).toBeVisible();
+    await expect(dashboard.page.getByRole("button", { name: "Workflow", exact: true })).toBeVisible();
 
     // Close via Cancel → modal gone.
     await dashboard.page.getByRole("button", { name: "Cancel" }).click();
     await expect(dashboard.page.getByRole("heading", { name: "Workflow configuration" })).toHaveCount(0);
 
-    // Reopen, then close via Save changes (Save ≡ Cancel — both just onClose).
+    // Reopen — the Phase-39 footer replaced the old plain "Save changes" close
+    // button with a "Save workflow" action (it opens the save-to-catalogue modal,
+    // AgentsPopup :2088-2093, rather than just closing). Assert that footer action
+    // is present, then close the popup via Cancel (the real close path).
     await dashboard.openAdvanced();
-    await dashboard.page.getByRole("button", { name: "Save changes" }).click();
+    // The popup footer's "Save workflow" is the only title-less one (the
+    // IdeaInputPage toolbar's carries a `title` tooltip), so this disambiguates
+    // from the toolbar button behind the modal.
+    await expect(
+      dashboard.page.locator("button:not([title])", { hasText: /^Save workflow$/ }),
+    ).toBeVisible();
+    await dashboard.page.getByRole("button", { name: "Cancel" }).click();
     await expect(dashboard.page.getByRole("heading", { name: "Workflow configuration" })).toHaveCount(0);
   });
 
@@ -176,13 +187,21 @@ test.describe("TS-D — agent composer", () => {
   test("TS-D-08 capabilities modal shows the three sections", async ({ dashboard }) => {
     await openComposer(dashboard);
 
-    // Open the capabilities modal from a card's Info button (View capabilities).
-    // The first card is domain-analyst (Domain Discovery Agent), which has both a
-    // suggested skill AND a suggested hook, so all three sections render.
-    await dashboard.page.locator('[title="View capabilities"]').first().click();
+    // Open the capabilities inspector from a card's Info button. Phase-39/SHELL-04
+    // renamed the trigger title to "View capabilities & configure" and turned the
+    // former single-panel modal into a 4-tab inspector (Overview / Skills / Hooks /
+    // Config), so the three sections no longer render together — each lives on its
+    // own role="tab" panel. The first card is domain-analyst (Domain Discovery
+    // Agent), which has both a suggested skill AND a suggested hook.
+    await dashboard.page.locator('[title="View capabilities & configure"]').first().click();
 
+    // Overview (default) — the "what this agent does" summary.
     await expect(dashboard.page.getByText("What this agent does")).toBeVisible();
+    // Skills tab — Suggested Skills.
+    await dashboard.page.getByRole("tab", { name: "Skills" }).click();
     await expect(dashboard.page.getByText("Suggested Skills")).toBeVisible();
+    // Hooks tab — Suggested Hooks.
+    await dashboard.page.getByRole("tab", { name: "Hooks" }).click();
     await expect(dashboard.page.getByText("Suggested Hooks")).toBeVisible();
   });
 

@@ -39,6 +39,16 @@ test.describe("TS-B — workflow selection", () => {
     await expect(page.getByRole("heading", { name: "Describe the application" })).toBeVisible();
   });
 
+  // FLAG (removed / rerouted behavior): this test targets the `migration` META
+  // input view — the NEW pill, the "Modernise a legacy estate" meta heading, the
+  // "Choose your migration path" copy, and the two MIGRATION_OPTIONS sub-pipeline
+  // tiles. In the Phase-39 data-driven home the "Platform workflows" row is served
+  // by GET /api/workflows as the CONCRETE `mulesoft_to_springboot` workflow id
+  // (see fixtures/mockApi DEFAULT_WORKFLOWS), so clicking it opens the concrete
+  // "Modernise off Mulesoft" input directly — the `migration` meta-picker (which
+  // still exists in IdeaInputPage) is no longer reachable from home. The NEW pill
+  // is also gone (data-driven home has no badge field). No equivalent home entry
+  // point exists to re-target; left failing for reconciliation.
   test("TS-B-05 'Platform workflows' opens the migration input view with two path tiles", async ({ dashboard, page }) => {
     // The migration row carries the NEW pill on the (enterprise) home screen.
     await expect(page.getByText("NEW", { exact: true })).toBeVisible();
@@ -63,8 +73,12 @@ test.describe("TS-B — workflow selection", () => {
   test("TS-B-07 workflow rows are focusable, enabled buttons (hover affordance proxy)", async ({ page }) => {
     // The hover highlight is a CSS-only affordance that can't be asserted
     // deterministically; instead assert the row is a real enabled, focusable
-    // <button> the user can activate.
-    const row = page.getByRole("button", { name: /Generate product requirements/i });
+    // <button> the user can activate. Scope to the launch row via its <h2> child
+    // — the Phase-39 home row's sibling "Inspect …" Info button shares the label
+    // in its aria-label (strict-mode-safe).
+    const row = page
+      .getByRole("button")
+      .filter({ has: page.getByRole("heading", { level: 2, name: /Generate product requirements/i }) });
     await expect(row).toBeEnabled();
     await row.focus();
     await expect(row).toBeFocused();
