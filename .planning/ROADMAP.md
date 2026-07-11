@@ -1033,6 +1033,28 @@ Plans:
 
 - [x] 38-05-PLAN.md — Home deliverable-card real estimates (~N agents · ~Xm) (Wave 3)
 
+### Phase 39: Run Screen Mock Fidelity [B5]
+
+**Goal:** Bring the run/execution screen to full visual fidelity with the VelocityAI-New-UI mocks (`Hexaware Run` / `Run - Live` / `Run - Failed`) — the left conversation lane, the run header, all four tabs (Preview / Steps / Files / Audit) with every sub-navigation level, across the settled / live-streaming / failed states — as-is. Re-aligns the run screen Phase 32 built.
+**Depends on:** Phase 32 (Run-Screen Redesign — the code this re-aligns), Phase 36 (D-11 nav), Phase 33 (Concierge)
+**Success Criteria:**
+
+1. Each run-screen surface (left lane, run header, Preview/Steps/Files/Audit, and the three run states) matches its mock to the intended-divergence register — proven by a side-by-side screenshot-diff against the mock, not a prose claim.
+2. Net-new as-is affordances land: Share, the Version ▾ menu, the "Renders as" deliverable-type switch, and the fuller Audit categories (secret-scan / performance / behavioral).
+3. Data stays real & live (SC-001): no cloning the mocks' hardcoded values; the deliverable renderers are reused, not rebuilt; intended divergences (brand "VelocityAI", "My Workflows", nav underline) are preserved.
+4. The mocked e2e suite is green again against feat/ui-2 (home-grid / launch-flow / run-family fixes) and the fidelity screenshot harness runs under `frontend/e2e`.
+
+**Plans:** 7 plans
+
+Plans:
+- [ ] 39-07-PLAN.md — Repair stale mocked-e2e harness + formalize the fidelity screenshot oracle (Wave 1)
+- [ ] 39-01-PLAN.md — Left conversation lane: structured transcript + lane header + live/failed states (Wave 2)
+- [ ] 39-02-PLAN.md — Steps tab: overview spine → 2-col agent detail (sticky Context received) → task drill (Wave 2)
+- [ ] 39-03-PLAN.md — Files tab: dark Final-output hero + agent-outputs timeline + Run-input cards (Wave 2)
+- [ ] 39-04-PLAN.md — Audit tab: 6-stat grid + coverage banner + fuller categories over real fetches (Wave 2)
+- [ ] 39-05-PLAN.md — Run header (Version/Share/Download/status) + tab order + shell wiring (Wave 3)
+- [ ] 39-06-PLAN.md — Preview browser chrome + "Renders as" switch wrapping the reused renderers (Wave 4)
+
 ### v2.0 Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -1048,3 +1070,4 @@ Plans:
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
 | 37. Configure Unification [B3] | 5/6 | In Progress|  |
 | 38. Analytics, Estimates & Notifications [B4] | 5/5 | Complete   | 2026-07-10 |
+| 39. Run Screen Mock Fidelity [B5] | 0/7 | Planned | — |
