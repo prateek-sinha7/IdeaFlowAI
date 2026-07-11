@@ -201,8 +201,9 @@ describe("AuditTab (SC-3 — 3-endpoint reader + severity filters + export)", ()
     render(<AuditTab workflowRunId={RUN} />);
     expect(await screen.findByText(/static_check/)).toBeTruthy();
     expect(screen.getByText(/axe_check/)).toBeTruthy();
-    // gate + exec rows also present.
-    expect(screen.getByText(/security/)).toBeTruthy();
+    // gate + exec rows also present (the gate kind "security" also appears in the
+    // header subline, so assert at least one occurrence).
+    expect(screen.getAllByText(/security/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/ls/)).toBeTruthy();
   });
 
@@ -220,12 +221,15 @@ describe("AuditTab (SC-3 — 3-endpoint reader + severity filters + export)", ()
     expect(screen.getByText(/static_check/)).toBeTruthy();
   });
 
-  it("Export CSV / Export JSON invoke the Task-2 util over the current rows", async () => {
+  it("the Export ▾ menu's CSV / JSON items invoke the Task-2 util over the current rows", async () => {
     const csvSpy = vi.spyOn(exporterMod, "exportAuditCSV").mockImplementation(() => {});
     const jsonSpy = vi.spyOn(exporterMod, "exportAuditJSON").mockImplementation(() => {});
     render(<AuditTab workflowRunId={RUN} />);
     await screen.findByText(/static_check/);
+    // The export options live behind the brand Export ▾ menu; each click closes it.
+    fireEvent.click(screen.getByTestId("audit-export-menu"));
     fireEvent.click(screen.getByTestId("audit-export-csv"));
+    fireEvent.click(screen.getByTestId("audit-export-menu"));
     fireEvent.click(screen.getByTestId("audit-export-json"));
     expect(csvSpy).toHaveBeenCalledTimes(1);
     expect(jsonSpy).toHaveBeenCalledTimes(1);
@@ -234,6 +238,42 @@ describe("AuditTab (SC-3 — 3-endpoint reader + severity filters + export)", ()
     expect((csvSpy.mock.calls[0][0] as unknown[]).length).toBe(5);
     csvSpy.mockRestore();
     jsonSpy.mockRestore();
+  });
+
+  it("renders the 6-stat compliance grid + verdict banner derived from the live rows", async () => {
+    render(<AuditTab workflowRunId={RUN} />);
+    await screen.findByText(/static_check/);
+    // 5 merged rows → Checks 5. One gate 'block' + one CRITICAL validation → not clean.
+    expect(screen.getByTestId("audit-stat-checks").textContent).toContain("5");
+    const banner = screen.getByTestId("audit-verdict-banner");
+    expect(banner.getAttribute("data-clean")).toBe("false");
+    expect(banner.textContent).toMatch(/governance stopped this run/i);
+  });
+
+  it("shows the green 'passed all governance gates' banner for a clean run", async () => {
+    vi.mocked(api.getRunGateEvents).mockResolvedValue({
+      workflow_id: RUN,
+      gate_events: [
+        { id: "g1", run_id: RUN, step: "specify", gate: "human", outcome: "pass", detail: { note: "ok" }, created_at: "2026-07-08T10:00:00Z" },
+      ],
+    });
+    vi.mocked(api.getRunValidationResults).mockResolvedValue({
+      workflow_id: RUN,
+      validation_results: [
+        { id: "v1", run_id: RUN, step: "build", validator: "static_check", severity: "pass", attempt: 1, issues: [], created_at: "2026-07-08T10:02:00Z" },
+      ],
+    });
+    vi.mocked(api.getRunExecRuns).mockResolvedValue({
+      workflow_id: RUN,
+      exec_runs: [
+        { id: "e1", run_id: RUN, step: "build", argv_json: ["ls"], outcome: "allowed", exit_code: 0, duration_ms: 12, policy_snapshot_json: {}, output_digest: "abc", created_at: "2026-07-08T10:04:00Z" },
+      ],
+    });
+    render(<AuditTab workflowRunId={RUN} />);
+    await screen.findByText(/static_check/);
+    const banner = screen.getByTestId("audit-verdict-banner");
+    expect(banner.getAttribute("data-clean")).toBe("true");
+    expect(banner.textContent).toMatch(/passed all governance gates/i);
   });
 
   it("renders gracefully when a cross-owner / missing run yields empty envelopes", async () => {
