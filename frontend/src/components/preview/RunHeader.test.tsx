@@ -115,4 +115,9 @@ describe("RunHeader — failed state", () => {
     expect(screen.queryByRole("button", { name: /Copy a link to this run/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Download the deliverable/ })).toBeNull();
   });
+
+  it("names the live failure location on the failed badge (ND-D reason)", () => {
+    render(<RunHeader runState="terminal" failed versionLabel="v1" failureReason="Security reviewer" />);
+    expect(screen.getByText(/Run failed · Security reviewer/)).toBeInTheDocument();
+  });
 });

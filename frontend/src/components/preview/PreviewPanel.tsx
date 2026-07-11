@@ -647,6 +647,15 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     ? Math.min((pipelineState?.completedCount ?? 0) + 1, buildStepTotal)
     : undefined;
 
+  // Failed-badge reason (ND ruling 2026-07-11) — name WHERE the run stopped using
+  // the SAME live signal the lane's failure card uses (resolveAgentNames on the
+  // failed-agent ids, already in scope above). Generic + live (ND-D): the first
+  // failed agent's human name (raw-id fallback), NEVER the mock's fixed "security
+  // gate" text. Empty → the badge stays the bare "Run failed".
+  const headerFailureReason = headerFailed
+    ? resolveAgentNames(failedAgentNames, failedAgentNameById)[0]
+    : undefined;
+
   // Client-only Share (ND-H) — copy the owner-auth-gated run deep link. Composed
   // from the live run id; NO backend call. Default provided here so the header is
   // functional even when the caller does not override it.
@@ -805,6 +814,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       <RunHeader
         runState={headerRunState}
         failed={headerFailed}
+        failureReason={headerFailureReason}
         family={runFamily ?? null}
         activeRunId={activeRunId}
         versionLabel={headerVersionLabel}

@@ -171,6 +171,7 @@ function VersionMenu({
 function StatusBadge({
   runState,
   failed,
+  failureReason,
   currentAgentName,
   buildStepIndex,
   buildStepTotal,
@@ -178,6 +179,7 @@ function StatusBadge({
 }: {
   runState: RunLaneState;
   failed: boolean;
+  failureReason?: string;
   currentAgentName?: string;
   buildStepIndex?: number;
   buildStepTotal?: number;
@@ -187,7 +189,7 @@ function StatusBadge({
     return (
       <span className="inline-flex items-center gap-[7px] rounded-[10px] border border-status-failed-border bg-status-failed-fill px-3 py-2 font-sans text-[11.5px] font-semibold leading-none text-status-failed">
         <X aria-hidden className="h-[13px] w-[13px]" strokeWidth={2.2} />
-        Run failed
+        Run failed{failureReason ? ` · ${failureReason}` : ""}
       </span>
     );
   }
@@ -235,6 +237,9 @@ export interface RunHeaderProps {
   runState: RunLaneState;
   /** True when the terminal state is a hard failure (red badge). */
   failed?: boolean;
+  /** Live failure LOCATION (first failed agent name) appended to the failed badge;
+   *  ND-D live/generic, never the mock's fixed text. Absent → bare "Run failed". */
+  failureReason?: string;
   /** The on-screen run's revision family (Version menu source, settled only). */
   family?: RunFamily | null;
   /** The active run id within the family (the checked / current version). */
@@ -258,6 +263,7 @@ export interface RunHeaderProps {
 export function RunHeader({
   runState,
   failed = false,
+  failureReason,
   family = null,
   activeRunId = null,
   versionLabel,
@@ -306,6 +312,7 @@ export function RunHeader({
         <StatusBadge
           runState={runState}
           failed={isFailed}
+          failureReason={failureReason}
           currentAgentName={currentAgentName}
           buildStepIndex={buildStepIndex}
           buildStepTotal={buildStepTotal}
