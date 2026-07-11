@@ -133,16 +133,38 @@ describe("PreviewPanel — Phase 39 Preview browser chrome", () => {
     deliverableFilename: "apple-reference-prototype.html",
   } as unknown as PipelineRunState;
 
-  it("frames the settled deliverable in the browser chrome with the REAL live filename (ND-D/ND-G)", () => {
+  it("frames a PLAIN (non-self-chromed) deliverable in the browser chrome with the REAL live filename (ND-D/ND-G)", () => {
+    // user_stories is NOT self-chromed → it keeps our PreviewChrome browser frame.
     render(
-      <PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" pipelineState={settledState} />,
+      <PreviewPanel workflowType="user_stories" userStoryContent="# stories" pipelineState={settledState} />,
     );
     const chrome = screen.getByTestId("preview-chrome");
     expect(chrome).toBeInTheDocument();
     // The URL bar shows the real live filename — never the mock's fixed index.html.
     expect(screen.getByTestId("preview-url")).toHaveTextContent("apple-reference-prototype.html");
     // ND-G — the REUSED renderer is slotted INSIDE the chrome, unchanged.
-    expect(chrome).toContainElement(screen.getByTestId("proto-preview"));
+    expect(chrome).toContainElement(screen.getByTestId("user-story-preview"));
+  });
+
+  it("renders a SELF-CHROMED type (prototype) in its OWN frame — no browser chrome — keeping the Renders-as switch (ND-J)", () => {
+    render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" pipelineState={settledState} />);
+    // ND-J (Option B): prototype brings its own frame → our PreviewChrome is absent.
+    expect(screen.queryByTestId("preview-chrome")).toBeNull();
+    // …but the "Renders as" switch still sits above the renderer.
+    expect(screen.getByTestId("renders-as-switch")).toBeInTheDocument();
+    expect(screen.getByTestId("proto-preview")).toBeInTheDocument();
+  });
+
+  it("renders a SELF-CHROMED type (app_builder IDE) in its OWN frame — no browser chrome (ND-J)", () => {
+    render(
+      <PreviewPanel
+        workflowType="app_builder"
+        userStoryContent={"```filename: a.ts\nconst a = 1;\n```"}
+        pipelineState={settledState}
+      />,
+    );
+    expect(screen.queryByTestId("preview-chrome")).toBeNull();
+    expect(screen.getByTestId("appbuilder-preview")).toBeInTheDocument();
   });
 
   it("offers a 'Renders as' switch with ONLY the deliverable's live typed renderers (ND-D — not the mock's fixed 5-way)", () => {

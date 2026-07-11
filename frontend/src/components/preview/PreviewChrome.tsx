@@ -26,9 +26,59 @@
 import { type ReactNode } from "react";
 import { ExternalLink, Lock } from "lucide-react";
 
-interface RendererOption {
+export interface RendererOption {
   value: string;
   label: string;
+}
+
+// ─── RendersAsSwitch — the mock's "Renders as" segmented deliverable-type row ──
+// ONE switch implementation with TWO mount points (INV-12 — not cloned markup):
+//   • inside PreviewChrome (beneath the browser top bar) for PLAIN deliverables;
+//   • standalone above a SELF-CHROMED renderer (prototype / app_builder) that
+//     brings its own frame (ND-J, Option B ruling 2026-07-11).
+// The pills reuse the caller's existing rendererOptions/rendererOverride dispatch.
+export function RendersAsSwitch({
+  rendererOptions,
+  rendererValue = "auto",
+  onRendererChange,
+  className,
+}: {
+  rendererOptions: RendererOption[];
+  rendererValue?: string;
+  onRendererChange?: (value: string | null) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      data-testid="renders-as-switch"
+      className={`flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-[#FBFAF6] px-[14px] py-[9px] ${
+        className ?? ""
+      }`}
+    >
+      <span className="mr-[3px] font-sans text-[9px] font-semibold uppercase leading-none tracking-[0.09em] text-ink-300">
+        Renders as
+      </span>
+      {rendererOptions.map((o) => {
+        const active = (rendererValue ?? "auto") === o.value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            data-testid="renderer-pill"
+            aria-pressed={active}
+            onClick={() => onRendererChange?.(o.value === "auto" ? null : o.value)}
+            className={`rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors ${
+              active
+                ? "bg-ink-900 text-white"
+                : "border border-line-control bg-surface-white text-ink-500 hover:border-line-faint"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export interface PreviewChromeProps {
@@ -127,35 +177,15 @@ export function PreviewChrome({
 
         {/* "Renders as" segmented deliverable-type switch (settled only). The
             options are the genuinely-available typed renderers for THIS deliverable
-            (ND-D) — reskinned from the existing renderer switcher, same dispatch. */}
+            (ND-D) — reskinned from the existing renderer switcher, same dispatch.
+            Extracted to RendersAsSwitch so a self-chromed renderer can mount the
+            SAME strip standalone above its own frame (ND-J). */}
         {showSwitch && (
-          <div
-            data-testid="renders-as-switch"
-            className="flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-[#FBFAF6] px-[14px] py-[9px]"
-          >
-            <span className="mr-[3px] font-sans text-[9px] font-semibold uppercase leading-none tracking-[0.09em] text-ink-300">
-              Renders as
-            </span>
-            {rendererOptions!.map((o) => {
-              const active = (rendererValue ?? "auto") === o.value;
-              return (
-                <button
-                  key={o.value}
-                  type="button"
-                  data-testid="renderer-pill"
-                  aria-pressed={active}
-                  onClick={() => onRendererChange?.(o.value === "auto" ? null : o.value)}
-                  className={`rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors ${
-                    active
-                      ? "bg-ink-900 text-white"
-                      : "border border-line-control bg-surface-white text-ink-500 hover:border-line-faint"
-                  }`}
-                >
-                  {o.label}
-                </button>
-              );
-            })}
-          </div>
+          <RendersAsSwitch
+            rendererOptions={rendererOptions!}
+            rendererValue={rendererValue}
+            onRendererChange={onRendererChange}
+          />
         )}
 
         {/* Content surface — the reused renderer floats on the mock's #EEECE5 bg.

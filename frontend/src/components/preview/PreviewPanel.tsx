@@ -15,7 +15,7 @@ import { ReadOnlyVersionBanner } from "./ReadOnlyVersionBanner";
 // Phase 39 (RUNUI-06/07) — the mock's browser-chrome frame that WRAPS the reused
 // deliverable renderer (ND-G) with a real-filename URL bar (ND-D) + the "Renders
 // as" segmented type switch. A passive frame — no content rendering here.
-import { PreviewChrome } from "./PreviewChrome";
+import { PreviewChrome, RendersAsSwitch } from "./PreviewChrome";
 // Phase 39 (RUNUI-06/07) — the mock's right-column run header (Version menu /
 // Share / Download / status badge) mounts above the tab row. It supersedes the
 // old in-preview version pill (INV-3/INV-12 — one version affordance).
@@ -704,6 +704,16 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }, [genericDeliverable?.content, genericDeliverable?.mimetype, activeContent, renderType]);
 
+  // ─── ND-J (Option B ruling 2026-07-11) — self-chromed renderers ──────────────
+  // prototype (its own dots + prototype.preview URL + Tweaks/Source/Open) and
+  // app_builder (AppBuilderIDEPreview — a full FileTree + editor IDE) bring their
+  // OWN frame; wrapping them in our PreviewChrome browser frame doubled it. Skip
+  // our chrome for those two EFFECTIVE types (a forced override matches what
+  // actually renders), keeping the "Renders as" switch above the renderer.
+  const effectiveRenderType = rendererOverride ?? renderType;
+  const isSelfChromedRender =
+    effectiveRenderType === "prototype" || effectiveRenderType === "app_builder";
+
   // ─── UXFIX-04 / D-21 (22-07) — generic-primary deliverable dispatch TABLE ────
   // The 4 first-party render types are REGISTERED ENTRIES in a dispatch table
   // keyed on the structural `renderType` (never a workflow name — SC-001). Each
@@ -960,22 +970,42 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 // same bespoke renderer as before; the generic entry preserves
                 // the CR-01 fix + the P18 sandboxed-iframe security contract.
                 //
-                // Phase 39 (RUNUI-06/07): the settled deliverable is now FRAMED in
-                // the mock's browser chrome (ND-G — the renderer is WRAPPED, not
-                // rebuilt). The "Renders as" switch reuses the existing
-                // rendererOptions/rendererOverride dispatch (ND-D live typed set);
-                // renderDeliverable() still applies the override, so the pills drive
-                // the SAME dispatch. The URL bar carries the real filename (ND-D).
-                <PreviewChrome
-                  filename={previewFilename}
-                  versionLabel={headerVersionLabel}
-                  rendererOptions={rendererOptions}
-                  rendererValue={rendererOverride ?? "auto"}
-                  onRendererChange={setRendererOverride}
-                  onOpen={handlePreviewOpen}
-                >
-                  {renderDeliverable()}
-                </PreviewChrome>
+                // Phase 39 (RUNUI-06/07): the settled deliverable is FRAMED in the
+                // mock's browser chrome (ND-G — the renderer is WRAPPED, not rebuilt).
+                // The "Renders as" switch reuses the existing rendererOptions/
+                // rendererOverride dispatch (ND-D live typed set); renderDeliverable()
+                // still applies the override, so the pills drive the SAME dispatch.
+                //
+                // ND-J (Option B ruling 2026-07-11): a SELF-CHROMED renderer
+                // (prototype = its own dots/URL/Source/Tweaks/Open; app_builder = a
+                // full IDE) brings its OWN frame, so wrapping it in our browser chrome
+                // doubled it. For those two EFFECTIVE types we skip our chrome (the
+                // renderer's frame is the single frame) but KEEP the "Renders as"
+                // switch above. Keyed on the EFFECTIVE type so a forced override
+                // matches what actually renders. Plain deliverables keep our chrome.
+                isSelfChromedRender ? (
+                  <div className="flex h-full flex-col">
+                    {rendererOptions.length > 1 && (
+                      <RendersAsSwitch
+                        rendererOptions={rendererOptions}
+                        rendererValue={rendererOverride ?? "auto"}
+                        onRendererChange={setRendererOverride}
+                      />
+                    )}
+                    <div className="min-h-0 flex-1">{renderDeliverable()}</div>
+                  </div>
+                ) : (
+                  <PreviewChrome
+                    filename={previewFilename}
+                    versionLabel={headerVersionLabel}
+                    rendererOptions={rendererOptions}
+                    rendererValue={rendererOverride ?? "auto"}
+                    onRendererChange={setRendererOverride}
+                    onOpen={handlePreviewOpen}
+                  >
+                    {renderDeliverable()}
+                  </PreviewChrome>
+                )
               )}
             </motion.div>
           )}
