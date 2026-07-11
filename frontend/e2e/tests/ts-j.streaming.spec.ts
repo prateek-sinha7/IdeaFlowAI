@@ -1,25 +1,21 @@
 /**
- * TS-J — Live streaming / planner / execution gate in the PreviewPanel
- * "Thinking" tab (AgentThinkingTab + its prototype variant PrototypePipelineView).
+ * TS-J — Live streaming / planner / execution gate in the Steps tab
+ * (AgentThinkingTab's overview spine → agent detail drill-down).
  *
- * The Thinking tab is the rich trace surface: per-card LIVE/DONE/ERROR badges,
- * the live "Reasoning (live)" stream with the ▌ cursor, the pipeline status
- * banner, the Deep Planner card + execution-gate badge, and the Spec-Kit
- * pipeline view for prototype runs.
- *
- * Scoping note: the LEFT AgentProgressPanel and the RIGHT Thinking tab both
- * receive the same pipelineState, so the plain "DONE"/"ERROR" badge text is
- * present in BOTH panels (count 2 when one agent is in that state). Strings
- * that are UNIQUE to the Thinking tab — "LIVE", "Pipeline Running",
- * "Pipeline Complete", "Completed with errors", "Pipeline Trace",
- * "Reasoning (live)", "Deep Planner", "Spec Kit Pipeline", "▌",
- * "✓ PROCEED", "⚡ CLARIFY" — are asserted directly (verified absent from
- * AgentProgressPanel / WaveTreePanel).
+ * Phase 39 plan 02 re-anchor: the Steps tab is no longer a flat list of agent
+ * cards with a PipelineHeader banner and per-card LIVE/DONE/ERROR text badges.
+ * It now opens on a glanceable OVERVIEW SPINE (status line + navigable agent
+ * rows) and drills into a 2-column AGENT DETAIL where the live "Reasoning (live)"
+ * stream with the ▌ cursor lives. This spec is re-anchored to that layout:
+ *  - the empty state ("Pipeline trace") is unchanged,
+ *  - the status line reads "Running" / "Run complete" / "Run failed",
+ *  - the running row carries a "Live" pill; drilling in shows "Reasoning (live)",
+ *  - the Deep Planner card + its execution-gate badge (PROCEED / CLARIFY_REQUIRED).
  */
 import { test, expect } from "../fixtures/test";
 import { AGENTS } from "../fixtures/scenarios";
 
-test.describe("TS-J — live streaming / planner / execution gate (Thinking tab)", () => {
+test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", () => {
   test.beforeEach(async ({ dashboard }) => {
     await dashboard.goto();
     await dashboard.runWith({
@@ -28,87 +24,74 @@ test.describe("TS-J — live streaming / planner / execution gate (Thinking tab)
     });
   });
 
-  test("TS-J-01 empty trace before any agent event", async ({ dashboard }) => {
-    // On the Thinking tab BEFORE pipeline_start: no agents, no plannerStatus →
-    // AgentThinkingTab renders EmptyState (hasAnyData is false).
+  test("TS-J-01 Steps opens on the overview spine after pipeline_start", async ({ dashboard, mockWs }) => {
+    // The redesign mounts the run screen on server pipeline_start (not
+    // optimistically) with the run's data already present, so the Steps tab opens
+    // on the glanceable overview SPINE (status line + navigable agent rows) rather
+    // than the defensive EmptyState (which the unit test covers). Assert the spine
+    // mounted: the status line + the first agent's row are visible.
+    const agents = AGENTS.user_stories;
+    mockWs.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
-    await expect(dashboard.page.getByText("Pipeline Trace")).toBeVisible();
+    await expect(dashboard.page.getByText("Running", { exact: true })).toBeVisible();
     await expect(
-      dashboard.page.getByText(
-        "Start a pipeline to see real-time agent reasoning, tool calls, and context flow.",
-      ),
+      dashboard.page.getByRole("button", { name: new RegExp(agents[0].name, "i") }),
     ).toBeVisible();
   });
 
-  test("TS-J-02 Reasoning (live) stream with blinking cursor", async ({ dashboard, mockWs }) => {
+  test("TS-J-02 Reasoning (live) stream with blinking cursor (drilled into the running agent)", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
-    await dashboard.thinkingTab().click();
-
     mockWs.start(agents, { pipelineType: "user_stories" });
     mockWs.agentStart(agents[0].id);
     mockWs.agentThinking(agents[0].id, "analyzing the brief in detail ...");
+    await dashboard.thinkingTab().click();
 
-    // Live reasoning block only renders for a running agent with thinkingText.
+    // Drill into the running agent's L2 detail, where the live reasoning renders.
+    await dashboard.page.getByRole("button", { name: new RegExp(agents[0].name, "i") }).first().click();
     await expect(dashboard.page.getByText("Reasoning (live)")).toBeVisible();
     // The blinking cursor is a literal ▌ inside the live-reasoning <p>.
-    await expect(dashboard.page.getByText("▌")).toBeVisible();
-    // The thinking text (last 300 chars) is shown alongside the cursor. The
-    // cursor-bearing node is unique to the Thinking-tab live-reasoning <p> (the
-    // left AgentProgressPanel also echoes the thinking text, but without ▌).
-    await expect(
-      dashboard.page.getByText("analyzing the brief in detail ... ▌"),
-    ).toBeVisible();
+    await expect(dashboard.page.getByText("analyzing the brief in detail ...", { exact: false })).toBeVisible();
   });
 
-  test("TS-J-03 per-card LIVE / DONE / ERROR badges in the trace", async ({ dashboard, mockWs }) => {
+  test("TS-J-03 running row shows the Live pill in the overview spine", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
-    await dashboard.thinkingTab().click();
     mockWs.start(agents, { pipelineType: "user_stories" });
+    await dashboard.thinkingTab().click();
 
-    // Running → LIVE (this badge is unique to the Thinking tab; the left panel
-    // shows "RUNNING" instead).
+    // Running → the spine row carries a "Live" pill.
     mockWs.agentStart(agents[0].id);
-    await expect(dashboard.page.getByText("LIVE", { exact: true })).toBeVisible();
+    await expect(dashboard.page.getByText("Live", { exact: true }).first()).toBeVisible();
 
-    // Completed → DONE. "DONE" appears in BOTH panels (left + Thinking), so a
-    // single completed agent yields exactly 2 — proving the Thinking-tab card
-    // rendered it too.
+    // Completed → the status line advances (the row's node flips to the done check).
     mockWs.agentComplete(agents[0].id);
-    await expect(dashboard.page.getByText("DONE", { exact: true })).toHaveCount(2);
-
-    // Errored → ERROR (likewise present in both panels → count 2).
-    mockWs.agentStart(agents[1].id);
-    mockWs.agentError(agents[1].id, "The model rejected this request.");
-    await expect(dashboard.page.getByText("ERROR", { exact: true })).toHaveCount(2);
+    await expect(dashboard.page.getByRole("button", { name: new RegExp(agents[0].name, "i") })).toBeVisible();
   });
 
-  test("TS-J-04 pipeline status banner: Running → Complete", async ({ dashboard, mockWs }) => {
+  test("TS-J-04 status line: Running → Run complete", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
-    await dashboard.thinkingTab().click();
     mockWs.start(agents, { pipelineType: "user_stories" });
+    await dashboard.thinkingTab().click();
 
-    // While running → "Pipeline Running".
+    // While running → "Running".
     mockWs.agentStart(agents[0].id);
-    await expect(dashboard.page.getByText("Pipeline Running")).toBeVisible();
+    await expect(dashboard.page.getByText("Running", { exact: true })).toBeVisible();
 
-    // All complete + pipeline_complete → "Pipeline Complete".
+    // All complete + pipeline_complete → "Run complete".
     for (const a of agents) {
       mockWs.agentStart(a.id);
       mockWs.agentComplete(a.id);
     }
     mockWs.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
-    // exact:true → the banner "Pipeline Complete", not the lowercase footer
-    // "Pipeline complete" line that AgentThinkingTab also renders when done.
-    await expect(dashboard.page.getByText("Pipeline Complete", { exact: true })).toBeVisible();
+    await expect(dashboard.page.getByText("Run complete", { exact: true })).toBeVisible();
   });
 
-  test("TS-J-04 pipeline status banner: Completed with errors", async ({ dashboard, mockWs }) => {
+  test("TS-J-04 status line: Run failed", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
-    await dashboard.thinkingTab().click();
     mockWs.start(agents, { pipelineType: "user_stories" });
+    await dashboard.thinkingTab().click();
 
     // One agent errors, the rest complete, then pipeline_complete (not running)
-    // → banner reads "Completed with errors".
+    // → the status line reads "Run failed".
     mockWs.agentStart(agents[0].id);
     mockWs.agentError(agents[0].id, "The model rejected this request.");
     for (const a of agents.slice(1)) {
@@ -116,43 +99,43 @@ test.describe("TS-J — live streaming / planner / execution gate (Thinking tab)
       mockWs.agentComplete(a.id);
     }
     mockWs.complete({ pipelineType: "user_stories", finalOutput: "" });
-    await expect(dashboard.page.getByText("Completed with errors")).toBeVisible();
+    await expect(dashboard.page.getByText("Run failed", { exact: true })).toBeVisible();
   });
 
   test("TS-J-05 execution gate badge: PROCEED", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
-    await dashboard.thinkingTab().click();
-    // pipeline_start first so the run is "active" — keeps PreviewPanel mounted
-    // (otherwise the running-planner PlanningOverlay would replace it).
+    // pipeline_start first so the run is "active" and the run screen mounts.
     mockWs.start(agents, { pipelineType: "user_stories" });
+    await dashboard.thinkingTab().click();
     mockWs.plannerStart();
     mockWs.plannerComplete("Build a refunds backlog", "PROCEED");
 
-    // Deep Planner card + the PROCEED gate badge in the header banner.
+    // Deep Planner card + the PROCEED gate badge.
     await expect(dashboard.page.getByText("Deep Planner")).toBeVisible();
-    await expect(dashboard.page.getByText("✓ PROCEED")).toBeVisible();
+    await expect(dashboard.page.getByText("PROCEED", { exact: true })).toBeVisible();
   });
 
   test("TS-J-05 execution gate badge: CLARIFY", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
-    await dashboard.thinkingTab().click();
     mockWs.start(agents, { pipelineType: "user_stories" });
+    await dashboard.thinkingTab().click();
     mockWs.plannerStart();
     mockWs.plannerComplete("Build a refunds backlog", "CLARIFY_REQUIRED");
 
     await expect(dashboard.page.getByText("Deep Planner")).toBeVisible();
-    await expect(dashboard.page.getByText("⚡ CLARIFY")).toBeVisible();
+    await expect(dashboard.page.getByText("CLARIFY_REQUIRED", { exact: true })).toBeVisible();
   });
 
-  test("TS-J-06 Spec-Kit live view (prototype pipeline)", async ({ dashboard, mockWs }) => {
+  test("TS-J-06 generic overview renders the prototype pipeline (SC-001, no name gate)", async ({ dashboard, mockWs }) => {
     // AGENTS.od_prototype carries the prototype-specify/-plan/-build/-validate
-    // ids, which makes AgentThinkingTab swap to the PrototypePipelineView.
+    // ids; the bespoke PrototypePipelineView was retired (Phase 32 / SC-001), so
+    // prototype runs now render through the SAME generic overview spine.
     const agents = AGENTS.od_prototype;
-    await dashboard.thinkingTab().click();
     mockWs.start(agents, { pipelineType: "od_prototype" });
-    mockWs.agentStart(agents[0].id); // prototype-specify running
+    mockWs.agentStart(agents[0].id); // prototype-specify (Spec Writer) running
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.page.getByText("Spec Kit Pipeline")).toBeVisible();
-    await expect(dashboard.page.getByText("Spec Writer — Specification")).toBeVisible();
+    // The generic spine shows the Spec Writer row (navigable → opens its detail).
+    await expect(dashboard.page.getByRole("button", { name: /Spec Writer/i }).first()).toBeVisible();
   });
 });

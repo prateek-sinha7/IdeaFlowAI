@@ -106,8 +106,9 @@ export class DashboardPage {
   // tabs
   previewTab(): Locator { return this.page.getByRole("button", { name: "Preview" }); }
   filesTab(): Locator { return this.page.getByRole("button", { name: "Files" }); }
-  /** The Steps tab (Phase 32 relabelled the old "Thinking" tab to "Steps"). */
-  thinkingTab(): Locator { return this.page.getByRole("button", { name: "Steps" }); }
+  /** The Steps tab (Phase 32 relabelled the old "Thinking" tab to "Steps"; the
+   *  Phase-39 redesign made the tab strip role="tab"). */
+  thinkingTab(): Locator { return this.page.getByRole("tab", { name: /Steps/i }); }
 
   // questionnaire / gates
   questionnaireTitle(): Locator { return this.page.getByRole("heading", { name: "Quick Setup" }); }

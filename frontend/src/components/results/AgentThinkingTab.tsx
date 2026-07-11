@@ -168,9 +168,11 @@ export function AgentThinkingTab({
   const constructionComplete = constructionAgent
     ? constructionAgent.status === "done" && (laterAgentStarted || pipelineState?.isRunning === false)
     : pipelineState?.isRunning === false;
-  const hasConstruction = resolvedWaves.length > 0 || pipelineState?.protoCompletedTaskCount != null;
 
   const selectedAgent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : undefined;
+  // The construction section (waves + task-loop) belongs to the build/construct
+  // agent's L2 detail — shown whenever that agent is selected, even with an empty
+  // wave tree (the WaveTreePanel renders "No waves running." until a wave arrives).
   const isConstructionSelected = !!selectedAgent && constructionAgent?.id === selectedAgent.id;
 
   // ── L3 task status (KAN-99 N-1 cap, mirrors ConstructionBlock) ──
@@ -197,7 +199,7 @@ export function AgentThinkingTab({
           <AgentDetailPanel
             agent={selectedAgent}
             onBack={() => setSelectedAgentId(null)}
-            construction={isConstructionSelected && hasConstruction ? {
+            construction={isConstructionSelected ? {
               completedCount: completedTaskCount,
               totalTasks,
               isComplete: constructionComplete,
