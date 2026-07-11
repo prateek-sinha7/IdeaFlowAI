@@ -80,12 +80,12 @@ describe("Live version chip (B3 / D5) — PreviewPanel", () => {
     const { rerender } = render(
       <PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" runFamily={family3} liveRunId="r2" />,
     );
-    const chip = screen.getByLabelText(/Current version v3, choose version/);
+    const chip = screen.getByLabelText(/Version v3, choose version/);
     expect(chip).toHaveAttribute("aria-haspopup", "listbox");
 
     // No family → chip absent.
     rerender(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" runFamily={null} liveRunId={null} />);
-    expect(screen.queryByLabelText(/Current version/)).toBeNull();
+    expect(screen.queryByLabelText(/Version/)).toBeNull();
   });
 
   it("dropdown + read-only load: selecting an older version fetches it via getWorkflow and shows the read-only banner; Back to latest restores live", async () => {
@@ -94,7 +94,7 @@ describe("Live version chip (B3 / D5) — PreviewPanel", () => {
     render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" runFamily={family3} liveRunId="r2" />);
 
     // Open the dropdown.
-    fireEvent.click(screen.getByLabelText(/Current version v3/));
+    fireEvent.click(screen.getByLabelText(/Version v3/));
     expect(screen.getByRole("listbox")).toBeInTheDocument();
     const options = screen.getAllByRole("option");
     expect(options).toHaveLength(3);
@@ -119,7 +119,7 @@ describe("Live version chip (B3 / D5) — PreviewPanel", () => {
     render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" runFamily={family3} liveRunId="r2" />);
 
     // Open the dropdown → keyboard focus ENTERS the listbox (onto the active option).
-    fireEvent.click(screen.getByLabelText(/Current version v3/));
+    fireEvent.click(screen.getByLabelText(/Version v3/));
     const listbox = screen.getByRole("listbox");
     expect(listbox.contains(document.activeElement)).toBe(true);
     const focusedOnOpen = document.activeElement;
@@ -135,27 +135,27 @@ describe("Live version chip (B3 / D5) — PreviewPanel", () => {
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
 
     // Re-open, then Escape closes the dropdown AND returns focus to the chip button.
-    fireEvent.click(screen.getByLabelText(/Current version/));
+    fireEvent.click(screen.getByLabelText(/Version/));
     fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-    expect(document.activeElement).toBe(screen.getByLabelText(/Current version/));
+    expect(document.activeElement).toBe(screen.getByLabelText(/Version/));
   });
 
   it("chip tick: when the family grows the chip label increments v2 → v3", () => {
     const { rerender } = render(
       <PreviewPanel workflowType="prototype" prototypeContent="<html>v2</html>" runFamily={family2} liveRunId="r1" />,
     );
-    expect(screen.getByLabelText(/Current version v2, choose version/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Version v2, choose version/)).toBeInTheDocument();
 
     // A revision completed → the threaded family grew and the live run advanced.
     rerender(<PreviewPanel workflowType="prototype" prototypeContent="<html>v3</html>" runFamily={family3} liveRunId="r2" />);
-    expect(screen.getByLabelText(/Current version v3, choose version/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Version v3, choose version/)).toBeInTheDocument();
   });
 
   it("a11y: chip carries aria-haspopup/aria-expanded; the dropdown is a listbox with aria-selected options", () => {
     render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" runFamily={family3} liveRunId="r2" />);
 
-    const chip = screen.getByLabelText(/Current version v3/);
+    const chip = screen.getByLabelText(/Version v3/);
     expect(chip).toHaveAttribute("aria-haspopup", "listbox");
     expect(chip).toHaveAttribute("aria-expanded", "false");
 

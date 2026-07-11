@@ -1,17 +1,22 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useState, useMemo, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Eye, FolderDown, Brain, Shield, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
+import { Eye, FolderDown, Brain, Shield, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { FilesTab } from "@/components/results/FilesTab";
+import { FilesTab, downloadBlob } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
-import { LiveVersionChip, ReadOnlyVersionBanner } from "./LiveVersionChip";
+import { ReadOnlyVersionBanner } from "./ReadOnlyVersionBanner";
+// Phase 39 (RUNUI-06/07) — the mock's right-column run header (Version menu /
+// Share / Download / status badge) mounts above the tab row. It supersedes the
+// old in-preview version pill (INV-3/INV-12 — one version affordance).
+import { RunHeader } from "./RunHeader";
+import type { RunLaneState } from "@/components/chat/RunChatLane";
 // Phase 32 (plan 07) — shared run-screen underline-tab primitive (SC-1, D-15).
 import { Tabs } from "@/components/ui/Tabs";
 import type { WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
@@ -248,7 +253,6 @@ interface PreviewPanelProps {
   // declared mimetype, never a workflow name.
   genericDeliverable?: GenericDeliverable;
   isStreaming?: boolean;
-  onCollapse?: () => void;
   initialTab?: string;
   onTabSelect?: (tab: string) => void;
   workflowType?: WorkflowType;
@@ -326,15 +330,26 @@ interface PreviewPanelProps {
   // the Steps drill-down where WaveTreePanel now mounts (relocated from the
   // below-the-fold left-column slot). Optional/default-empty (tsc-identity).
   waves?: import("@/types/index").WaveGroup[];
+  // Phase 39 (RUNUI-06/07) — run-header wiring. All optional/default-undefined so
+  // history + test renders are byte-unchanged (tsc-identity). runType is the
+  // humanized run label (unused visually today; reserved for header eyebrows);
+  // onShare copies the run deep link (ND-H, client-only — NO backend); onDownload
+  // downloads the primary deliverable.
+  runType?: string;
+  onShare?: () => void;
+  onDownload?: () => void;
 }
 
+// Phase 39 (RUNUI-06 / D39 specifics #3) — tab order is Preview · Steps · Files ·
+// Audit (was Preview · Files · Steps · Audit). The internal id stays "thinking"
+// so the deep-link targets + tab testids (data-testid="tab-thinking") remain
+// stable; the "Thinking"→"Steps" relabel (Phase 32 plan 07) is preserved. The
+// mock's tab row is text-only, so the per-tab lucide icons are dropped here to
+// match (a Steps review-dot is threaded in instead when the run is paused).
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "preview", label: "Preview", icon: Eye },
-  { id: "files", label: "Files", icon: FolderDown },
-  // Phase 32 (plan 07) — the "Thinking" tab is RELABELLED to "Steps" (SC-1/SC-2).
-  // The internal id stays "thinking" so the deep-link targets + tab testids
-  // (data-testid="tab-thinking") remain stable; only the visible label changes.
   { id: "thinking", label: "Steps", icon: Brain },
+  { id: "files", label: "Files", icon: FolderDown },
   { id: "audit", label: "Audit", icon: Shield },
 ];
 
@@ -427,22 +442,20 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, waves }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, waves, onShare, onDownload }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
-  const [copied, setCopied] = useState(false);
   // ─── Plan 07 — manual typed-renderer switcher override ───────────────────────
   // null = follow the generic auto-dispatch (the PRIMARY route); a non-null value
   // is a renderType/mimetype token (SC-001, never a workflow name) that FORCES a
   // specific renderer for the current deliverable. Cleared back to auto on demand
   // (the "Auto" option) and whenever the deliverable's renderType changes.
   const [rendererOverride, setRendererOverride] = useState<string | null>(null);
-  // ─── B3 (POR §5 D5) — live version chip state ───────────────────────────────
+  // ─── B3 (POR §5 D5) — read-only older-version state ─────────────────────────
   // viewingVersion is the read-only older-version override ({ id, content }) or
-  // null (live latest on screen); pulse is the one-shot tick shown when the
-  // family grows on a revision-complete.
+  // null (live latest on screen). The version affordance itself now lives in the
+  // Phase-39 RunHeader Version menu (INV-12 — the old version-pill pulse tick is
+  // retired with it).
   const [viewingVersion, setViewingVersion] = useState<{ id: string; content?: string } | null>(null);
-  const [pulse, setPulse] = useState(false);
-  const prevMemberCount = useRef<number | null>(null);
 
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
 
@@ -506,19 +519,6 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   }, [latestId]);
 
   const handleBackToLatest = useCallback(() => setViewingVersion(null), []);
-
-  // A revision completed → the threaded family grew: tick the chip label with a
-  // one-shot animate-pulse (~1200ms), then clear.
-  useEffect(() => {
-    const count = runFamily?.members.length ?? 0;
-    if (prevMemberCount.current != null && count > prevMemberCount.current) {
-      setPulse(true);
-      const t = setTimeout(() => setPulse(false), 1200);
-      prevMemberCount.current = count;
-      return () => clearTimeout(t);
-    }
-    prevMemberCount.current = count;
-  }, [runFamily?.members.length]);
 
   // A new live run supersedes any active read-only view.
   useEffect(() => { setViewingVersion(null); }, [liveRunId]);
@@ -613,6 +613,62 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     ...(reopenedAgentNameById || {}),
     ...buildAgentNameById(pipelineState?.agents),
   };
+
+  // ─── Phase 39 (RUNUI-06/07) — run-header state derivation ────────────────────
+  // The header keys off the SAME generic discriminator the lane uses (SC-001,
+  // mirrors DashboardLayout.runLaneState): gate (an active review gate while
+  // running) → clarify (open questions while running) → building (running) →
+  // terminal (a server failure signal) → complete (a settled deliverable) → idle.
+  // Never a workflow-name branch.
+  const hasActiveGate = !!laneGate && isStillRunning;
+  const hasOpenClarify = !!(clarifyQuestions && clarifyQuestions.length > 0) && isStillRunning;
+  const headerFailed = terminalFailure && !isCancelledTerminal;
+  const headerRunState: RunLaneState =
+    hasActiveGate ? "gate" :
+    hasOpenClarify ? "clarify" :
+    isStillRunning ? "building" :
+    headerFailed ? "terminal" :
+    hasContent ? "complete" :
+    "idle";
+  // The Steps tab shows a pulsing review dot while the run is paused on the user
+  // (an open gate or clarify round) — mirrors the mock's Live "review gate" dot.
+  const stepsReviewDot = headerRunState === "gate" || headerRunState === "clarify";
+  // Live version label — derived from the live family (active member index) or the
+  // pipeline's deliverableVersion; default v1. NEVER the mock's fixed "v1"/"v2".
+  const familyVersionCount = runFamily?.members.length ?? 0;
+  const derivedVersionNumber =
+    activeIdx >= 0 ? activeIdx + 1
+      : pipelineState?.deliverableVersion ?? (familyVersionCount > 0 ? familyVersionCount : 1);
+  const headerVersionLabel = `v${derivedVersionNumber}`;
+  // Live building-badge inputs (generic/live — the current running agent name +
+  // step k of N from the live pipeline counts).
+  const headerAgents = pipelineState?.agents ?? [];
+  const currentAgentName = headerAgents.find((a) => a.status === "running")?.name;
+  const buildStepTotal = headerAgents.length || undefined;
+  const buildStepIndex = buildStepTotal
+    ? Math.min((pipelineState?.completedCount ?? 0) + 1, buildStepTotal)
+    : undefined;
+
+  // Client-only Share (ND-H) — copy the owner-auth-gated run deep link. Composed
+  // from the live run id; NO backend call. Default provided here so the header is
+  // functional even when the caller does not override it.
+  const handleHeaderShare = useCallback(() => {
+    if (onShare) return onShare();
+    const runId = liveRunId ?? activeRunId ?? "";
+    if (!runId || typeof window === "undefined") return;
+    const link = `${window.location.origin}${window.location.pathname}?run=${encodeURIComponent(runId)}`;
+    void navigator.clipboard?.writeText(link);
+  }, [onShare, liveRunId, activeRunId]);
+
+  // Primary deliverable download — reuses FilesTab.downloadBlob (INV-12). Default
+  // downloads the on-screen deliverable content under its live filename.
+  const canHeaderDownload = headerRunState === "complete" && !!activeContent;
+  const handleHeaderDownload = useCallback(() => {
+    if (onDownload) return onDownload();
+    if (!activeContent) return;
+    const name = pipelineState?.deliverableFilename || `deliverable-${headerVersionLabel}.md`;
+    downloadBlob(activeContent, name, "text/markdown");
+  }, [onDownload, activeContent, pipelineState?.deliverableFilename, headerVersionLabel]);
 
   // ─── UXFIX-04 / D-21 (22-07) — generic-primary deliverable dispatch TABLE ────
   // The 4 first-party render types are REGISTERED ENTRIES in a dispatch table
@@ -740,73 +796,58 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   };
 
   const handleTabChange = (tabId: PanelTab) => { setActiveTab(tabId); onTabSelect?.(tabId); };
-  const handleCopy = () => {
-    if (activeContent) {
-      navigator.clipboard.writeText(activeContent);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
 
   return (
-    <div className="flex h-full flex-col bg-white border-l border-line-border">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-line-border">
-        <h2 className="text-sm font-semibold text-ink-900">
-          {isStreaming ? "Generating..." : hasContent ? "Results" : "Preview"}
-        </h2>
-        <div className="flex items-center gap-1">
-          {/* B3 (POR §5 D5) — live version chip: first control in the cluster,
-              before Copy (UI-SPEC Surface 3 "Where"). Renders nothing unless the
-              on-screen content belongs to a ≥2-member revision family. */}
-          <LiveVersionChip
-            family={runFamily ?? null}
-            activeRunId={activeRunId}
-            isViewingOlder={isViewingOlder}
-            pulse={pulse}
-            onSelectVersion={handleSelectVersion}
-            onBackToLatest={handleBackToLatest}
-          />
-          {hasContent && (
-            <button
-              onClick={handleCopy}
-              className="p-1.5 rounded text-ink-400 hover:text-ink-600 hover:bg-surface-warm transition-all"
-              title="Copy"
-            >
-              {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-            </button>
-          )}
-          {onCollapse && (
-            <button
-              onClick={onCollapse}
-              className="p-1.5 rounded text-ink-400 hover:text-ink-600 hover:bg-surface-warm transition-all"
-              aria-label="Close preview"
-            >
-              <PanelRightClose className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="flex h-full flex-col bg-surface-paper">
+      {/* Phase 39 (RUNUI-06/07) — the mock's right-column run header row (Version
+          menu / Share / Download in the settled state; a status badge + version
+          chip in the live/failed states). Supersedes the old title+Copy+Collapse
+          header AND the old in-preview version pill (INV-3/INV-12: one version
+          affordance). Styling routes through the Phase-32 token layer. */}
+      <RunHeader
+        runState={headerRunState}
+        failed={headerFailed}
+        family={runFamily ?? null}
+        activeRunId={activeRunId}
+        versionLabel={headerVersionLabel}
+        onSelectVersion={handleSelectVersion}
+        onShare={handleHeaderShare}
+        onDownload={handleHeaderDownload}
+        canDownload={canHeaderDownload}
+        currentAgentName={currentAgentName}
+        buildStepIndex={buildStepIndex}
+        buildStepTotal={buildStepTotal}
+        clarifyCount={clarifyQuestions?.length}
+      />
 
       {/* B3 (POR §5 D5) — read-only amber banner: shown as a slim strip directly
           under the header while an older version is on screen. */}
       {isViewingOlder && (
-        <div className="px-4 py-2 border-b border-line-border">
+        <div className="px-[30px] pt-3">
           <ReadOnlyVersionBanner versionNumber={activeIdx + 1} onBackToLatest={handleBackToLatest} />
         </div>
       )}
 
-      {/* Tab Bar — Phase 32 (plan 07): the plan-02 underline Tabs primitive
-          (active ink #15161A + 2px brand #3C2CDA underline, all token-routed —
-          no raw hex) replaces the legacy gray pill row. The tab shape is a
-          generic {id,label} list (SC-001, never a workflow name). PPT actions +
-          the renderer switcher live in the right cluster. */}
-      <div className="px-4 py-2 border-b border-line-divider flex items-center justify-between gap-2">
+      {/* Tab Bar — Phase 39: the mock's text-only tab row (Preview · Steps ·
+          Files · Audit, 30px gutter, 2px brand underline via the Tabs primitive).
+          The per-tab lucide icons are dropped to match the mock; the Steps tab
+          carries a pulsing review dot while the run is paused on the user (an open
+          gate / clarify round). PPT actions + the renderer switcher live in the
+          right cluster. */}
+      <div className="flex-none px-[30px] pt-4 flex items-center justify-between gap-2 border-b border-line-divider">
         <Tabs
-          tabs={TAB_CONFIG.map((tab) => {
-            const Icon = tab.icon;
-            return { id: tab.id, label: tab.label, icon: <Icon className="h-3.5 w-3.5" /> };
-          })}
+          tabs={TAB_CONFIG.map((tab) => ({
+            id: tab.id,
+            label: tab.label,
+            icon:
+              tab.id === "thinking" && stepsReviewDot ? (
+                <span
+                  aria-hidden
+                  data-testid="steps-review-dot"
+                  className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand"
+                />
+              ) : undefined,
+          }))}
           active={activeTab}
           onChange={(id) => handleTabChange(id as PanelTab)}
         />
@@ -818,7 +859,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               genuinely apply; a first-party deliverable's bespoke renderer is
               authoritative so no override is offered (this also keeps the switcher
               <select> out of the a11y tree on first-party renders, avoiding an
-              option-role collision with the LiveVersionChip listbox). Options are
+              option-role collision with the Version-menu listbox). Options are
               generic renderType/mimetype tokens (SC-001). */}
           {activeTab === "preview" && hasGenericDeliverable && rendererOptions.length > 1 && (
             <RendererSwitcher

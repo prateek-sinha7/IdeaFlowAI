@@ -139,10 +139,12 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
       />,
     );
 
-    // Not framed, not markdown — a download affordance instead.
+    // Not framed, not markdown — a download affordance instead. Scope to the
+    // deliverable's own "Download <filename>" button so it is not confused with
+    // the Phase-39 run-header "Download the deliverable" button.
     expect(container.querySelector("iframe")).toBeNull();
     expect(screen.queryByTestId("markdown-preview")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /download/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /download data\.bin/i })).toBeInTheDocument();
   });
 
   it("NO REGRESSION — known renderTypes still render their bespoke renderers; the generic branch is NOT taken", () => {

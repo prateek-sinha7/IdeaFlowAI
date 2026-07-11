@@ -850,7 +850,9 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-function downloadBlob(content: string, filename: string, mimeType: string) {
+// Exported (INV-12) so the run header's primary Download button reuses the SAME
+// blob-download path rather than rolling a second implementation.
+export function downloadBlob(content: string, filename: string, mimeType: string) {
   let url: string;
   if (content.startsWith("blob:")) {
     url = content;
