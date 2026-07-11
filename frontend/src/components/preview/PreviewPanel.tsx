@@ -330,12 +330,10 @@ interface PreviewPanelProps {
   // the Steps drill-down where WaveTreePanel now mounts (relocated from the
   // below-the-fold left-column slot). Optional/default-empty (tsc-identity).
   waves?: import("@/types/index").WaveGroup[];
-  // Phase 39 (RUNUI-06/07) — run-header wiring. All optional/default-undefined so
-  // history + test renders are byte-unchanged (tsc-identity). runType is the
-  // humanized run label (unused visually today; reserved for header eyebrows);
-  // onShare copies the run deep link (ND-H, client-only — NO backend); onDownload
-  // downloads the primary deliverable.
-  runType?: string;
+  // Phase 39 (RUNUI-06/07) — run-header action wiring. Both optional/default-
+  // undefined so history + test renders are byte-unchanged (tsc-identity), and
+  // both have sensible in-component defaults. onShare copies the run deep link
+  // (ND-H, client-only — NO backend); onDownload downloads the primary deliverable.
   onShare?: () => void;
   onDownload?: () => void;
 }

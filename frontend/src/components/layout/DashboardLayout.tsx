@@ -1349,6 +1349,14 @@ export function DashboardLayout({
     laneHasDeliverable ? "complete" :
     "idle";
 
+  // Phase 39 (RUNUI-06) — the live run title for the lane header. Prefer the
+  // clean backend-generated title of the active run (recentRuns[0], the same
+  // source the notification title uses at :543), else fall back to the submitted
+  // brief; the lane itself falls back further to the first user turn.
+  const latestRunTitle = recentRuns?.[0]?.title;
+  const runHeaderTitle =
+    latestRunTitle && latestRunTitle !== "Untitled" ? latestRunTitle : submittedBrief;
+
   // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props). The
   // KAN-101 spec-loop affordance + approve relabel are mapped off the declared
   // reviewGateData flags (SC-001) — mirrors the redoable mapping, no literal.
@@ -1716,6 +1724,14 @@ export function DashboardLayout({
                       streamingContent={streamingContent}
                       pipelineState={pipelineState}
                       onRequestOpenTab={onRequestOpenTab}
+                      // Phase 39 (RUNUI-06) — wire the lane run header's 39-01
+                      // slots with the real DashboardLayout data: Back-to-history
+                      // navigation, the live run title (clean backend title, else
+                      // the submitted brief), and the generic run type (SC-001 —
+                      // the pipeline_type string, never a workflow-name branch).
+                      onBackToHistory={() => setMainView("history")}
+                      runTitle={runHeaderTitle}
+                      runType={workflowType || pipelineState?.pipeline_type}
                       // Absorbed AgentProgressPanel controls (Stop / revise / suggestions).
                       onStop={handleStopPipeline}
                       onRevise={activeReviseHandler}
