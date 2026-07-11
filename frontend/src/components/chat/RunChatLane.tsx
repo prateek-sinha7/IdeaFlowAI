@@ -26,17 +26,28 @@
  */
 
 import { useCallback, useRef, useState } from "react";
-import { Send, Sparkles, Square, Minimize2 } from "lucide-react";
+import type { ReactNode } from "react";
+import {
+  ArrowRight,
+  Check,
+  Code2,
+  HelpCircle,
+  Mic,
+  Minimize2,
+  Paperclip,
+  Sparkles,
+  Square,
+} from "lucide-react";
 
 import type {
   AgentEvent,
 } from "./runtime/blocks.types";
-import type { AgentRunState, ChatAttachment, ChatMessage, PipelineRunState } from "@/types/index";
+import type { AgentRunState, ChatAttachment, ChatMessage, ClarifyRound, PipelineRunState } from "@/types/index";
 import type { ClarifyQuestion } from "../preview/QuestionnairePanel";
 import { ChatPanel } from "./ChatPanel";
 import { ChatAttachments } from "./ChatAttachments";
+import { LaneRunHeader } from "./LaneRunHeader";
 import {
-  ChatTokenWidget,
   composedContextUsage,
   COMPACT_THRESHOLD_PCT,
   type ComposedContextTelemetry,
@@ -47,6 +58,7 @@ import {
 } from "./InlineClarifyActions";
 import { InlineGateActions } from "./InlineGateActions";
 import type { PendingAttachment } from "@/hooks/useChatAttachments";
+import { formatDuration } from "@/lib/runStats";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Badge } from "../ui/Badge";
@@ -122,6 +134,19 @@ export interface RunChatLaneProps {
   eventsByMessageId?: Record<string, AgentEvent[]>;
   /** The nonce'd deep-link seam a narrator card fires (plan 03, borrow #6). */
   onRequestOpenTab?: (tab: string) => void;
+
+  // ── Lane run header (Phase 39, RUNUI-06 — wired live by 39-05) ─────────────
+  /** Back-to-history link in the run header — rendered only when supplied. */
+  onBackToHistory?: () => void;
+  /** The run title (falls back to the caller's brief / first user turn). */
+  runTitle?: string;
+  /** An explicit run-type label; falls back to the humanized `pipeline_type`. */
+  runType?: string;
+  /** The settled deliverable filename — renders the "open in preview" card when
+   *  supplied (live meta threaded by 39-05; absent = no card, never invented). */
+  deliverableFilename?: string;
+  /** The settled deliverable revision index (for the "Delivered as v{n}" label). */
+  deliverableVersion?: number;
 
   // ── Absorbed AgentProgressPanel controls ──────────────────────────────────
   /** Stop the running pipeline (Stop button, visible while running). */
@@ -202,7 +227,161 @@ function sanitizeError(err: string | undefined): string | undefined {
   return firstLine.length > 200 ? `${firstLine.slice(0, 197)}…` : firstLine;
 }
 
-/** Free-text composer: a textarea + send + the plan-06 attachment tray. */
+/** Total answered/asked clarifying questions across the retained rounds (live). */
+function countClarifications(rounds?: ClarifyRound[]): number {
+  if (!rounds || rounds.length === 0) return 0;
+  return rounds.reduce((sum, r) => sum + (r.qa?.length ?? 0), 0);
+}
+
+/** A generic clickable transcript adornment card (the mock's inline cards). */
+function TranscriptCard({
+  onOpen,
+  className,
+  children,
+  testid,
+}: {
+  onOpen?: () => void;
+  className?: string;
+  children: ReactNode;
+  testid?: string;
+}) {
+  return (
+    <div
+      data-testid={testid}
+      onClick={onOpen}
+      className={`ml-[31px] cursor-pointer rounded-[var(--radius-menu)] border transition-colors ${className ?? ""}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Settled: an inline "N clarifying questions → In Steps" row (live count). */
+function ClarifyCountRow({ count, onOpen }: { count: number; onOpen?: () => void }) {
+  return (
+    <TranscriptCard
+      testid="lane-clarify-count"
+      onOpen={onOpen}
+      className="flex items-center gap-[10px] border-line-border bg-surface-card px-[13px] py-[11px] hover:border-line-faint"
+    >
+      <HelpCircle className="h-[15px] w-[15px] text-ink-500" strokeWidth={1.6} />
+      <span className="flex-1 font-sans text-[12.5px] font-semibold text-ink-900">
+        {count} clarifying {count === 1 ? "question" : "questions"}
+      </span>
+      <span className="font-sans text-[11px] font-medium text-brand">In Steps →</span>
+    </TranscriptCard>
+  );
+}
+
+/** Settled/building: the "Pipeline · N agents" mini with per-agent rows (live). */
+function PipelineMini({
+  agents,
+  onOpen,
+  building,
+  completedCount,
+}: {
+  agents: AgentRunState[];
+  onOpen?: () => void;
+  building?: boolean;
+  completedCount?: number;
+}) {
+  return (
+    <TranscriptCard
+      testid="lane-pipeline-mini"
+      onOpen={onOpen}
+      className="border-line-border bg-surface-card px-[14px] py-3 hover:border-line-faint"
+    >
+      <div className="mb-[10px] flex items-center justify-between">
+        <span className="font-sans text-[10.5px] font-semibold uppercase tracking-[0.11em] text-ink-300">
+          Pipeline · {agents.length} agents
+        </span>
+        {building ? (
+          <span className="inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-brand">
+            <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-brand" />
+            {completedCount ?? 0} / {agents.length}
+          </span>
+        ) : (
+          <span className="font-sans text-[11px] font-medium text-brand">Open Steps →</span>
+        )}
+      </div>
+      {agents.map((a) => {
+        const done = a.status === "done";
+        const running = a.status === "running" || a.status === "thinking";
+        const errored = a.status === "error";
+        return (
+          <div key={a.id} className="flex items-center gap-[10px] py-[5px]">
+            <span
+              className={`grid h-5 w-5 flex-none place-items-center rounded-full ${
+                done
+                  ? "bg-surface-near-black"
+                  : errored
+                    ? "bg-status-failed"
+                    : running
+                      ? "border border-brand bg-brand-fill"
+                      : "border border-line-control bg-surface-white"
+              }`}
+            >
+              {done ? (
+                <Check className="h-[11px] w-[11px] text-white" strokeWidth={2.4} />
+              ) : running ? (
+                <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-brand" />
+              ) : null}
+            </span>
+            <span
+              className={`flex-1 font-sans text-[12.5px] font-medium ${
+                running ? "text-ink-900" : "text-ink-800"
+              }`}
+            >
+              {a.name}
+            </span>
+            <span className="font-serif text-[11px] tabular-nums text-ink-200">
+              {formatDuration(a.duration)}
+            </span>
+          </div>
+        );
+      })}
+      {building && (
+        <p className="mt-[9px] font-sans text-[11px] font-medium text-brand">
+          Open Steps for the full live trace →
+        </p>
+      )}
+    </TranscriptCard>
+  );
+}
+
+/** Settled: the deliverable card ("Delivered as v{n} · open in preview"). */
+function DeliverableCard({
+  filename,
+  version,
+  onOpen,
+}: {
+  filename: string;
+  version?: number;
+  onOpen?: () => void;
+}) {
+  return (
+    <TranscriptCard
+      testid="lane-deliverable"
+      onOpen={onOpen}
+      className="flex items-center gap-[11px] border-brand-border bg-brand-fill px-[13px] py-[11px] hover:bg-brand-border/40"
+    >
+      <span className="grid h-8 w-8 flex-none place-items-center rounded-[var(--radius-node)] bg-brand">
+        <Code2 className="h-4 w-4 text-white" strokeWidth={1.7} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-sans text-[12.5px] font-semibold text-ink-900">
+          {filename}
+        </span>
+        <span className="mt-0.5 block font-serif text-[11px] text-ink-600">
+          {version ? `Delivered as v${version} · ` : ""}open in preview →
+        </span>
+      </span>
+    </TranscriptCard>
+  );
+}
+
+/** Free-text composer: the mock's white rounded input bar (attach · voice ·
+ *  send) + the plan-06 attachment tray as compact chips above (Phase 39). */
 function FreeTextComposer({
   placeholder,
   onSend,
@@ -216,6 +395,7 @@ function FreeTextComposer({
   // Remounting ChatAttachments (via key) clears its internal intake after a send.
   const [attachKey, setAttachKey] = useState(0);
   const pendingRef = useRef<PendingAttachment[]>([]);
+  const attachOpenRef = useRef<(() => void) | null>(null);
 
   const handleSend = useCallback(() => {
     const text = value.trim();
@@ -231,11 +411,13 @@ function FreeTextComposer({
       {hint && <p className="text-[10px] text-ink-400">{hint}</p>}
       <ChatAttachments
         key={attachKey}
+        compact
+        openRef={attachOpenRef}
         onChange={(a) => {
           pendingRef.current = a;
         }}
       />
-      <div className="flex items-end gap-2">
+      <div className="flex items-center gap-[5px] rounded-[var(--radius-menu)] border border-line-control bg-surface-white py-[7px] pl-[13px] pr-[7px]">
         <textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -245,20 +427,37 @@ function FreeTextComposer({
               handleSend();
             }
           }}
-          rows={2}
+          rows={1}
           placeholder={placeholder}
           aria-label="Chat message input"
-          className="flex-1 resize-none rounded-[var(--radius-card)] border border-line-control bg-surface-white px-3 py-2 text-[13px] text-ink-900 placeholder-ink-400 focus:outline-none focus:border-brand/40 leading-relaxed"
+          className="flex-1 resize-none border-none bg-transparent font-serif text-[13px] leading-[1.3] text-ink-900 placeholder-ink-200 focus:outline-none"
         />
+        <button
+          type="button"
+          onClick={() => attachOpenRef.current?.()}
+          title="Attach files"
+          aria-label="Attach files"
+          className="grid h-8 w-8 flex-none place-items-center rounded-[9px] text-ink-500 transition-colors hover:bg-surface-paper hover:text-brand"
+        >
+          <Paperclip className="h-4 w-4" strokeWidth={1.7} />
+        </button>
+        <button
+          type="button"
+          title="Voice · transcribe"
+          aria-label="Voice input"
+          className="grid h-8 w-8 flex-none place-items-center rounded-[9px] text-ink-500 transition-colors hover:bg-surface-paper hover:text-brand"
+        >
+          <Mic className="h-4 w-4" strokeWidth={1.7} />
+        </button>
         <button
           type="button"
           data-testid="chat-send"
           onClick={handleSend}
           disabled={!value.trim()}
           aria-label="Send message"
-          className="flex items-center justify-center rounded-[var(--radius-button)] bg-brand px-3.5 py-2.5 text-white transition-colors hover:bg-brand-pressed disabled:opacity-40 disabled:cursor-not-allowed"
+          className="grid h-8 w-8 flex-none place-items-center rounded-[9px] bg-brand text-white transition-colors hover:bg-brand-pressed disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Send className="h-4 w-4" />
+          <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
         </button>
       </div>
     </div>
@@ -274,6 +473,11 @@ export function RunChatLane({
   pipelineState,
   eventsByMessageId,
   onRequestOpenTab,
+  onBackToHistory,
+  runTitle,
+  runType,
+  deliverableFilename,
+  deliverableVersion,
   onStop,
   onRevise,
   onRelaunch,
@@ -432,8 +636,7 @@ export function RunChatLane({
               </div>
             )}
             <FreeTextComposer
-              placeholder="Describe what you'd like to change…"
-              hint="Free text sends a revision."
+              placeholder="Ask for a change or a follow-up…"
               onSend={handleFreeText}
             />
           </div>
@@ -548,8 +751,7 @@ export function RunChatLane({
       case "building":
         return (
           <FreeTextComposer
-            placeholder="Steer the run…"
-            hint="Guidance applies at the next step."
+            placeholder="Steer the run — add a note…"
             onSend={handleFreeText}
           />
         );
@@ -565,49 +767,93 @@ export function RunChatLane({
     }
   };
 
+  // Deep-link seams the inline transcript cards fire (borrow #6).
+  const goSteps = onRequestOpenTab ? () => onRequestOpenTab("thinking") : undefined;
+  const goPreview = onRequestOpenTab ? () => onRequestOpenTab("preview") : undefined;
+
+  // The structured-transcript adornments (the mock's inline cards), rendered at
+  // the foot of the transcript and driven by the GENERIC runState + live
+  // pipelineState (SC-001 / ND-D — never the mock's fixed counts/strings).
+  const renderTranscriptFooter = (): ReactNode => {
+    const agents = pipelineState?.agents ?? [];
+
+    // Settled — the completed transcript's inline cards.
+    if (runState === "complete" || runState === "idle") {
+      const clarifyCount = countClarifications(pipelineState?.clarifications);
+      if (clarifyCount === 0 && agents.length === 0 && !deliverableFilename) {
+        return null;
+      }
+      return (
+        <div data-testid="lane-adornments" className="flex flex-col gap-4">
+          {clarifyCount > 0 && (
+            <ClarifyCountRow count={clarifyCount} onOpen={goSteps} />
+          )}
+          {agents.length > 0 && <PipelineMini agents={agents} onOpen={goSteps} />}
+          {deliverableFilename && (
+            <DeliverableCard
+              filename={deliverableFilename}
+              version={deliverableVersion}
+              onOpen={goPreview}
+            />
+          )}
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  // The run-header actions (Stop / Compact) — kept while running (behavior
+  // preserved), surfaced in the header's back-link row.
+  const headerActions =
+    (isRunning && onStop) || compactEligible ? (
+      <>
+        {compactEligible && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            data-testid="chat-compact"
+            onClick={() => onCompact?.()}
+            title="Context is near budget — compact the conversation history"
+            className="gap-1.5 text-[10px] text-ink-500"
+          >
+            <Minimize2 className="h-3 w-3" /> Compact
+          </Button>
+        )}
+        {isRunning && onStop && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            data-testid="chat-stop"
+            onClick={onStop}
+            className="gap-1.5 text-[10px] text-ink-500"
+          >
+            <Square className="h-3 w-3" /> Stop
+          </Button>
+        )}
+      </>
+    ) : null;
+
+  // Title fallback — the run's brief (the first user turn) when no explicit title.
+  const firstUserTurn = messages.find((m) => m.role === "user")?.content;
+
   return (
     <div
       data-testid="run-chat-lane"
       data-run-state={runState}
-      className="flex h-full flex-col bg-white"
+      className="flex h-full flex-col bg-surface-warm"
     >
-      {/* Header — compact token widget + Stop while running. */}
-      <div className="flex items-center justify-between gap-2 border-b border-line-divider px-4 py-2.5 flex-shrink-0">
-        {pipelineState ? (
-          <ChatTokenWidget pipelineState={pipelineState} />
-        ) : (
-          <span />
-        )}
-        <div className="flex items-center gap-1.5">
-          {/* Compact affordance — signals backend compaction is available when
-              composed-context usage is high. FE triggers only (D-08). */}
-          {compactEligible && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              data-testid="chat-compact"
-              onClick={() => onCompact?.()}
-              title="Context is near budget — compact the conversation history"
-              className="gap-1.5 text-[10px] text-ink-500"
-            >
-              <Minimize2 className="h-3 w-3" /> Compact
-            </Button>
-          )}
-          {isRunning && onStop && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              data-testid="chat-stop"
-              onClick={onStop}
-              className="gap-1.5 text-[10px] text-ink-500"
-            >
-              <Square className="h-3 w-3" /> Stop
-            </Button>
-          )}
-        </div>
-      </div>
+      {/* Run header — Back-to-history · type · status · title · meta (Phase 39). */}
+      <LaneRunHeader
+        runState={runState}
+        pipelineState={pipelineState}
+        runType={runType}
+        runTitle={runTitle ?? firstUserTurn}
+        onBackToHistory={onBackToHistory}
+        actions={headerActions}
+      />
 
       {/* Transcript — ChatPanel owns the aria-live/role=log region + blocks. */}
       <div data-testid="chat-lane-transcript" className="flex-1 min-h-0">
@@ -619,6 +865,7 @@ export function RunChatLane({
           onRequestOpenTab={onRequestOpenTab}
           eventsByMessageId={eventsByMessageId}
           hideComposer
+          transcriptFooter={renderTranscriptFooter()}
         />
       </div>
 
@@ -626,7 +873,7 @@ export function RunChatLane({
       <div
         data-testid="chat-composer"
         data-composer-mode={runState}
-        className="flex-shrink-0 border-t border-line-divider px-4 py-3 space-y-2.5"
+        className="flex-shrink-0 border-t border-line-border bg-surface-warm px-4 py-3 space-y-2.5"
       >
         {/* Held consequential proposals surface above the mode body so a
             confirm/reject decision is visible in ANY live state (D-05). */}

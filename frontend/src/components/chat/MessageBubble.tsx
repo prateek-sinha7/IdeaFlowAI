@@ -5,8 +5,6 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   RefreshCw,
   Pencil,
-  Sparkles,
-  User,
   Copy,
   Check,
   Volume2,
@@ -200,9 +198,9 @@ export function MessageBubble({
         transition={{ duration: 0.3, ease: "easeOut" }}
         className="flex w-full mb-6"
       >
-        <div className="mr-4 flex-shrink-0 pt-1">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-navy/60 border border-grey/15">
-            <Sparkles className="h-3.5 w-3.5 text-white/80" />
+        <div className="mr-[9px] flex-shrink-0 pt-px">
+          <div className="grid h-[22px] w-[22px] place-items-center rounded-[6px] bg-surface-near-black">
+            <span className="h-[7px] w-[7px] rotate-45 rounded-[1px] bg-brand" />
           </div>
         </div>
         <div className="flex-1 min-w-0">
@@ -225,18 +223,12 @@ export function MessageBubble({
         onMouseEnter={() => setShowActions(true)}
         onMouseLeave={() => setShowActions(false)}
       >
-        <div className="relative max-w-[80%] flex items-start gap-3">
+        <div className="relative max-w-[86%] flex items-start gap-3">
           {/* Message content */}
           <div className="flex-1 min-w-0">
-            {/* User message container */}
-            <div
-              className="rounded-2xl px-5 py-3.5 border"
-              style={{
-                backgroundColor: "var(--theme-accent)",
-                borderColor: "var(--theme-border)",
-                opacity: 0.85,
-              }}
-            >
+            {/* User message container — the mock's brand-tint bubble (Phase 39,
+                RUNUI-06): #ECEAFC fill, #DED9F7 border, 14/14/4/14 radius. */}
+            <div className="rounded-[14px_14px_4px_14px] border border-brand-border bg-brand-fill px-[13px] py-[10px]">
               {isEditing ? (
                 <div className="flex flex-col gap-2">
                   <textarea
@@ -265,7 +257,7 @@ export function MessageBubble({
                   </div>
                 </div>
               ) : (
-                <p className="text-[15px] leading-relaxed text-white whitespace-pre-wrap">
+                <p className="font-serif text-[13.5px] leading-[1.5] text-ink-800 whitespace-pre-wrap">
                   {displayContent}
                 </p>
               )}
@@ -306,16 +298,6 @@ export function MessageBubble({
               </AnimatePresence>
             )}
           </div>
-
-          {/* User Avatar */}
-          <div className="flex-shrink-0 pt-1">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-full border"
-              style={{ backgroundColor: "var(--theme-accent)", borderColor: "var(--theme-border)" }}
-            >
-              <User className="h-3.5 w-3.5 text-white" />
-            </div>
-          </div>
         </div>
       </motion.div>
     );
@@ -333,14 +315,15 @@ export function MessageBubble({
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >
-      {/* AI Avatar */}
-      <div className="mr-4 flex-shrink-0 pt-1">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-navy/60 border border-grey/15">
-          <Sparkles className="h-3.5 w-3.5 text-white/80" />
+      {/* AI Avatar — the mock's 22px near-black square with a rotated brand
+          diamond (Phase 39, RUNUI-06). */}
+      <div className="mr-[9px] flex-shrink-0 pt-px">
+        <div className="grid h-[22px] w-[22px] place-items-center rounded-[6px] bg-surface-near-black">
+          <span className="h-[7px] w-[7px] rotate-45 rounded-[1px] bg-brand" />
         </div>
       </div>
 
-      <div className="relative flex-1 min-w-0">
+      <div className="relative flex-1 min-w-0 font-serif text-[13.5px] leading-[1.55] text-ink-700">
         {/* Mode badge */}
         {mode && mode !== "default" && MODE_LABELS[mode] && (
           <div className="mb-2">

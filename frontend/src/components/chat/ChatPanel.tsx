@@ -33,8 +33,14 @@ export interface ChatPanelProps {
   /** Plan-01 agent event stream per assistant turn id — renders the block strip. */
   eventsByMessageId?: Record<string, AgentEvent[]>;
   /** Suppress the built-in ChatInput so the run lane can supply its own unified
-   *  composer (the composition root owns the mode-switched composer). */
+   *  composer (the composition root owns the mode-switched composer). Doubles as
+   *  the "in a run" signal — the greeting empty-state is suppressed (Phase 39,
+   *  RUNUI-06: the run lane is a structured transcript, not a greeting). */
   hideComposer?: boolean;
+  /** Structured transcript adornments rendered at the FOOT of the scroll region
+   *  (Phase 39): the mock's inline "N clarifying questions" / "PIPELINE · N
+   *  agents" / deliverable / Awaiting-you cards. Scrolls with the transcript. */
+  transcriptFooter?: ReactNode;
 }
 
 /** A per-row height-measuring wrapper feeding the virtual window (borrow #5).
@@ -100,6 +106,7 @@ export function ChatPanel({
   onRequestOpenTab,
   eventsByMessageId,
   hideComposer,
+  transcriptFooter,
 }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -114,6 +121,10 @@ export function ChatPanel({
   }, [messages, streamingContent, isStreaming]);
 
   const hasMessages = messages.length > 0 || isStreaming;
+  // In a run context (hideComposer) the greeting/orbs empty-state is suppressed —
+  // the lane is a structured transcript (Phase 39, RUNUI-06). The greeting stays
+  // for the standalone chat usage (no run, its own composer).
+  const showGreeting = !hasMessages && !hideComposer;
 
   // Borrow #5: engage the measured virtual window above VIRTUALIZE_THRESHOLD (80)
   // messages; below it the hook disengages (full range, zero spacers) and the
@@ -212,7 +223,7 @@ export function ChatPanel({
       >
         {/* Subtle dot grid pattern */}
         <div className="dot-grid absolute inset-0 pointer-events-none" />
-        {!hasMessages ? (
+        {showGreeting ? (
           <div className="flex h-full flex-col items-center justify-center px-4 relative overflow-hidden">
             {/* Animated gradient orbs — floating ambient background */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -360,6 +371,10 @@ export function ChatPanel({
                 messages[messages.length - 1].role !== "assistant") && (
                 <TypingIndicator />
               )}
+
+            {/* Structured transcript adornments (Phase 39) — the mock's inline
+                cards, rendered at the foot so they scroll with the transcript. */}
+            {transcriptFooter}
 
             {/* Scroll anchor */}
             <div ref={messagesEndRef} />
