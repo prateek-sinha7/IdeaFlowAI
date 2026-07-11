@@ -138,6 +138,41 @@ describe("FilesTab — per-agent output section", () => {
   });
 });
 
+// ─── Phase 39-03 — agent-outputs timeline spine + failed banner ───────────────
+describe("FilesTab — timeline spine + Build-incomplete banner (39-03)", () => {
+  it("renders the agent-outputs timeline with one avatar node (agent initials) per live agent", () => {
+    render(
+      <FilesTab
+        workflowType={"ppt"}
+        agentOutputs={[
+          { name: "Spec Writer", output: "spec", agentId: "specify" },
+          { name: "Task Planner", output: "plan", agentId: "plan" },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/agent outputs \(2\)/i)).toBeInTheDocument();
+    // Avatar nodes carry the derived agent initials (one node per LIVE agent).
+    expect(screen.getByText("SW")).toBeInTheDocument();
+    expect(screen.getByText("TP")).toBeInTheDocument();
+  });
+
+  it("does NOT render the Build-incomplete banner by default (completed run)", () => {
+    render(<FilesTab workflowType={"user_stories"} userStoryContent={"# Heading\nbody"} />);
+    expect(screen.queryByText(/build incomplete/i)).not.toBeInTheDocument();
+  });
+
+  it("renders the Build-incomplete banner ONLY when runStatus is failed/degraded", () => {
+    const { rerender } = render(
+      <FilesTab workflowType={"ppt"} runStatus={"failed"} agentOutputs={[{ name: "Spec Writer", output: "spec" }]} />,
+    );
+    expect(screen.getByText(/build incomplete/i)).toBeInTheDocument();
+    rerender(
+      <FilesTab workflowType={"ppt"} runStatus={"degraded"} agentOutputs={[{ name: "Spec Writer", output: "spec" }]} />,
+    );
+    expect(screen.getByText(/build incomplete/i)).toBeInTheDocument();
+  });
+});
+
 // ─── ISS-021 (18-03) — generic deliverable row ────────────────────────────────
 describe("FilesTab — generic deliverable row (ISS-021)", () => {
   it("a present generic deliverable yields exactly ONE generic row, with the resolved filename", () => {

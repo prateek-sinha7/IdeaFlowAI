@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import {
   Download, FileText, Presentation, Layout, Code, Package,
   BookOpen, Settings, Shield, Palette, Database, TestTube,
-  GitBranch, Server, FileCode, ChevronDown,
+  GitBranch, Server, FileCode, ChevronDown, Clock,
 } from "lucide-react";
 import { exportUserStories } from "@/lib/exporters/storyExporter";
 import { ENV } from "@/lib/env";
@@ -707,6 +707,20 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     </div>
   ) : null;
 
+  // ── Phase 39-03 (W6) — failed-run "Build incomplete" banner (mock Hexaware
+  // Run - Failed.dc.html:175). Renders ONLY for a failed/degraded run; the file
+  // list below already reflects the reduced live outputs (ND-D — no fabricated
+  // planning-only rows). Default runStatus undefined → no banner (zero regression).
+  const isFailedRun = runStatus === "failed" || runStatus === "degraded";
+  const buildIncompleteBanner = isFailedRun ? (
+    <div className="mb-4 flex items-center gap-[9px] rounded-xl border border-status-amber-border bg-status-amber-fill px-[15px] py-[13px]">
+      <Clock className="h-[17px] w-[17px] flex-none text-status-amber" strokeWidth={1.8} />
+      <span className="font-serif text-[12.5px] leading-[1.4] text-status-amber">
+        Build incomplete — only the planning artifacts were produced before the run stopped. No application code was written.
+      </span>
+    </div>
+  ) : null;
+
   return (
     <div className="h-full overflow-y-auto bg-surface-paper">
       <div className="mx-auto max-w-[860px] px-8 pt-6 pb-16">
@@ -727,6 +741,8 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
             Download All
           </button>
         </div>
+
+        {buildIncompleteBanner}
 
         {/* ── App Builder layout (multi-section; token-reskinned) ─────────────── */}
         {isAppBuilder ? (
@@ -778,8 +794,43 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
                 <p className="m-0 mb-3 font-serif text-[12.5px] leading-[1.4] text-ink-300">
                   Intermediate work-in-progress from each agent in the pipeline.
                 </p>
-                <div className="space-y-2">
-                  {genericAgentFiles.map((f, i) => renderFileRow(f, i))}
+                {/* Timeline spine (mock :642-656): a vertical rail behind a
+                    per-agent 38px avatar node + the downloadable file-row card. */}
+                <div className="relative">
+                  <div aria-hidden className="absolute left-[19px] top-3 bottom-[26px] w-0.5 bg-line-divider" />
+                  {genericAgentFiles.map((f) => {
+                    const Icon = f.icon;
+                    return (
+                      <motion.div
+                        key={f.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="relative flex items-center gap-[14px] py-2"
+                      >
+                        <div className="relative z-[1] grid h-[38px] w-[38px] flex-none place-items-center rounded-full border border-line-control bg-surface-card font-sans text-[11px] font-semibold text-ink-900">
+                          {f.code || <Icon className="h-4 w-4 text-ink-500" strokeWidth={1.7} />}
+                        </div>
+                        <div className="flex min-w-0 flex-1 items-center gap-[14px] rounded-[var(--radius-list-row)] border border-line-faint-row bg-surface-card px-[14px] py-[11px]">
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 truncate font-sans text-[13.5px] font-medium text-ink-800">{f.name}</p>
+                            <p className="m-0 mt-[3px] font-serif text-[11.5px] text-ink-300">
+                              {f.type !== f.name ? `${f.type} · ` : ""}{f.size}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleDownload(f)}
+                            disabled={downloadingId === f.id}
+                            className="grid h-[34px] w-[34px] flex-none place-items-center rounded-lg border border-line-border bg-surface-white text-ink-500 transition-all hover:border-brand hover:text-brand disabled:opacity-50"
+                            title={`Download ${f.name}`}
+                          >
+                            {downloadingId === f.id
+                              ? <span className="h-3.5 w-3.5 border-2 border-ink-300 border-t-transparent rounded-full animate-spin" />
+                              : <Download className="h-4 w-4" strokeWidth={1.7} />}
+                          </button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </div>
             )}
