@@ -52,6 +52,7 @@
   --color-status-running: var(--status-running);
   --color-status-done: var(--status-done);
   --color-status-failed: var(--status-failed);
+  --color-status-failed-strong: var(--status-failed-strong);
   --color-status-amber: var(--status-amber);
   --color-status-queued: var(--status-queued);
 }
@@ -98,6 +99,7 @@
   --status-done-fill: #E7F0EA;
   --status-done-border: #CFE3D6;
   --status-failed: #A33A32;
+  --status-failed-strong: #8A2F28; /* darker red — failed card title + primary-button hover */
   --status-failed-fill: #F5E5E2;
   --status-failed-border: #E8CDC8;
   --status-amber: #9A6B1E; /* cancelled + gate/review */

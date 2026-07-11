@@ -419,6 +419,50 @@ describe("RunChatLane", () => {
     );
   });
 
+  it("failed terminal renders What-went-wrong (live error + agents) + Resume options", () => {
+    const onRelaunch = vi.fn();
+    render(
+      <RunChatLane
+        {...(baseProps({
+          runState: "terminal",
+          onRelaunch,
+          pipelineState: ps({
+            failed: true,
+            failedAgents: ["a1"],
+            agents: [
+              {
+                id: "a1",
+                name: "Build Agent",
+                role: "",
+                icon: "",
+                status: "error",
+                output: "",
+                thinking: "",
+                duration: null,
+                error: "Blocked by the security gate\nstack frame hidden",
+                index: 1,
+              },
+            ],
+          }),
+        }) as RunChatLaneProps)}
+      />,
+    );
+    const card = screen.getByTestId("chat-terminal-failed");
+    expect(card).toHaveTextContent("What went wrong");
+    expect(card).toHaveTextContent("Build Agent");
+    expect(card).toHaveTextContent("Resume options");
+    // Sanitized to the first line only — no stack frame leaks (T-39-01-01).
+    const err = screen.getByTestId("chat-terminal-error");
+    expect(err).toHaveTextContent("Blocked by the security gate");
+    expect(err).not.toHaveTextContent("stack frame hidden");
+    // The header reads Failed.
+    expect(screen.getByTestId("lane-run-status")).toHaveTextContent("Failed");
+    // Both resume actions relaunch.
+    fireEvent.click(screen.getByTestId("chat-relaunch"));
+    fireEvent.click(screen.getByTestId("chat-relaunch-secondary"));
+    expect(onRelaunch).toHaveBeenCalledTimes(2);
+  });
+
   it("SC-001: the source carries no workflow-name literal", () => {
     const src = readFileSync(
       join(process.cwd(), "src/components/chat/RunChatLane.tsx"),

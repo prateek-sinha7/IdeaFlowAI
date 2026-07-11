@@ -28,6 +28,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
   Code2,
@@ -36,6 +37,7 @@ import {
   Minimize2,
   Paperclip,
   Pause,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Square,
@@ -734,39 +736,67 @@ export function RunChatLane({
           );
         }
 
-        // "What went wrong" card — agents_failed[] names + sanitized error (P16).
+        // Failed — the mock's failure-explanation card + "Resume options" (P16).
+        // Live data only (ND-D): sanitized server error + real failed-agent
+        // names, never the mock's fixed security-gate fiction.
         if (pipelineState?.failed) {
           const names = resolveAgentNames(failedIds, nameById);
           const sanitized = sanitizeError(
             firstAgentError(pipelineState?.agents, failedIds),
           );
           return (
-            <div data-testid="chat-terminal-failed" className="space-y-2.5">
-              <Card className="px-3.5 py-3">
-                <div className="flex items-center gap-2">
-                  <Badge status="failed" label="Failed" />
-                  <p className="text-[12px] font-semibold text-ink-900">
+            <div data-testid="chat-terminal-failed" className="space-y-3">
+              {/* Failure card — red-tinted, alert header, live bullets. */}
+              <div className="overflow-hidden rounded-[13px] border border-status-failed-border bg-status-failed-fill">
+                <div className="flex items-center gap-2 border-b border-status-failed-border px-[14px] py-3">
+                  <AlertTriangle
+                    className="h-[15px] w-[15px] text-status-failed"
+                    strokeWidth={1.8}
+                  />
+                  <span className="flex-1 font-sans text-[12.5px] font-semibold text-status-failed-strong">
                     What went wrong
-                  </p>
+                  </span>
                 </div>
-                {names.length > 0 && (
-                  <p className="mt-1.5 text-[11px] text-ink-600">
-                    Failed {names.length > 1 ? "agents" : "agent"}:{" "}
-                    <span className="font-medium text-ink-900">
-                      {names.join(", ")}
-                    </span>
-                  </p>
-                )}
-                {sanitized && (
-                  <p
-                    data-testid="chat-terminal-error"
-                    className="mt-1 text-[11px] text-status-failed"
-                  >
-                    {sanitized}
-                  </p>
-                )}
-              </Card>
-              {relaunch("Edit brief & run again")}
+                <div className="px-[14px] py-3 font-serif text-[12px] leading-[1.6] text-ink-700">
+                  {names.length > 0 && (
+                    <p className="mb-[7px]">
+                      • Failed {names.length > 1 ? "agents" : "agent"}:{" "}
+                      <span className="font-semibold text-ink-900">
+                        {names.join(", ")}
+                      </span>
+                    </p>
+                  )}
+                  {sanitized && (
+                    <p data-testid="chat-terminal-error">• {sanitized}</p>
+                  )}
+                  {names.length === 0 && !sanitized && (
+                    <p>• The run stopped before completing. Reopen to resume.</p>
+                  )}
+                </div>
+              </div>
+              {/* Resume options — primary reopen (red) + secondary edit-brief. */}
+              <div className="rounded-[var(--radius-menu)] border border-line-border bg-surface-card px-[14px] py-[13px]">
+                <p className="mb-[9px] font-sans text-[11.5px] font-semibold text-ink-900">
+                  Resume options
+                </p>
+                <button
+                  type="button"
+                  data-testid="chat-relaunch"
+                  onClick={() => onRelaunch?.()}
+                  className="mb-2 flex w-full items-center justify-center gap-[7px] rounded-[10px] bg-status-failed px-3 py-[11px] font-sans text-[12.5px] font-semibold text-white transition-colors hover:bg-status-failed-strong"
+                >
+                  <RotateCcw className="h-[14px] w-[14px]" strokeWidth={1.9} />
+                  Reopen &amp; fix from the failed step
+                </button>
+                <button
+                  type="button"
+                  data-testid="chat-relaunch-secondary"
+                  onClick={() => onRelaunch?.()}
+                  className="flex w-full items-center justify-center rounded-[10px] border border-line-control bg-surface-white px-3 py-[10px] font-sans text-[12px] font-semibold text-ink-700 transition-colors hover:border-line-faint"
+                >
+                  Edit brief &amp; run again
+                </button>
+              </div>
             </div>
           );
         }

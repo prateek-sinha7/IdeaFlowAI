@@ -106,9 +106,13 @@ describe("RunChatLane — terminal states", () => {
     // Sanitized first line only — the raw stack frames must NOT be surfaced.
     expect(screen.getByText(/Model timed out/)).toBeInTheDocument();
     expect(screen.queryByText(/engine\.py:42/)).toBeNull();
-    // Resume affordance = relaunch (Edit brief & run again).
+    // Resume options (Phase 39 mock): primary = "Reopen & fix from the failed
+    // step", secondary = "Edit brief & run again". Both relaunch.
     const relaunch = screen.getByTestId("chat-relaunch");
-    expect(relaunch).toHaveTextContent(/Edit brief & run again/i);
+    expect(relaunch).toHaveTextContent(/Reopen & fix from the failed step/i);
+    expect(screen.getByTestId("chat-relaunch-secondary")).toHaveTextContent(
+      /Edit brief & run again/i,
+    );
     fireEvent.click(relaunch);
     expect(onRelaunch).toHaveBeenCalledTimes(1);
   });
