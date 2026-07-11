@@ -177,6 +177,13 @@ test("CAPTURE live streaming run", async ({ dashboard, mockWs, page }) => {
   await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
   mockWs.plannerStart();
   mockWs.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
+  // Answer a clarify round so the building 'N clarifications answered · task plan
+  // approved' note renders (live count).
+  mockWs.questionnaireReady(CLARIFY_Q);
+  await page.getByTestId("chat-clarify-actions").waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+  await page.getByTestId("chat-clarify-chip").first().click({ timeout: 6_000 }).catch(() => {});
+  await page.getByTestId("chat-clarify-submit").click({ timeout: 6_000 }).catch(() => {});
+  mockWs.questionnaireComplete();
   mockWs.agentStart("prototype-specify"); mockWs.agentChunk("prototype-specify", "# Spec…"); mockWs.agentComplete("prototype-specify", { totalTokens: 30100, duration: 84 });
   mockWs.agentStart("prototype-plan"); mockWs.agentChunk("prototype-plan", "# Build tasks…"); mockWs.agentComplete("prototype-plan", { totalTokens: 42200, duration: 47 });
   // 3rd agent left RUNNING (streaming, no complete)
