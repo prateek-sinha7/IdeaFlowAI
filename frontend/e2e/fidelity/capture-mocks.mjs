@@ -74,6 +74,12 @@ async function capture(state, file, browser, origin) {
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(OUT, `leftlane__${state}.png`), clip: { x: 0, y: 0, width: 400, height: VIEWPORT.height } });
 
+  // Phase 39 (RUNUI-06/07) — the run-header row crop (Version ▾ / Share / Download
+  // in settled; the status badge + version chip in live/failed). The mock's right
+  // column starts after the ~390px lane, below the 58px black top nav. Pairs
+  // against our `header__{state}` crop in the fidelity gallery (`--surface header`).
+  await page.screenshot({ path: join(OUT, `header__${state}.png`), clip: { x: 390, y: 58, width: 1050, height: 132 } });
+
   // Steps INTERNAL views (settled) — drill the mock's Build Agent → its
   // construction artifact block → a construction task row → L3 task detail, so the
   // gallery can pair `steps-construction` + `steps-task` against our side. The

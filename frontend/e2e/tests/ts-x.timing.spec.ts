@@ -56,12 +56,13 @@ test.describe("TS-X — timing budgets", () => {
   });
 
   // ── TS-X-05 — copy toast reverts after 2000ms ──────────────────────────────
-  // Two copy affordances both use setTimeout(()=>setCopied(false), 2000):
-  //   1. UserStoryPreview header: "Copy MD" ⇄ "Copied" (TEXT — easy, primary).
-  //   2. PreviewPanel header [title="Copy"]: <Copy/> ⇄ <Check class=…emerald-600>
-  //      (ICON swap — asserted via the rendered lucide <svg> class).
-  // We assert BOTH the success state appears and that it auto-reverts.
-  test("TS-X-05 copy toast shows a success state then reverts (UserStoryPreview text + header icon)", async ({ dashboard, mockWs }) => {
+  // The UserStoryPreview header "Copy MD" ⇄ "Copied" affordance uses
+  // setTimeout(()=>setCopied(false), 2000). We assert the success state appears
+  // and auto-reverts. (Phase 39: the old PreviewPanel-header [title="Copy"] icon
+  // affordance was retired with the mock's run-header redesign — the mock header
+  // carries Version/Share/Download, not a per-deliverable Copy — so only the
+  // renderer-level Copy is exercised here.)
+  test("TS-X-05 copy toast shows a success state then reverts (UserStoryPreview text)", async ({ dashboard, mockWs }) => {
     // Navigate + trigger a run so the WS is open and we're on the execution view.
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
@@ -86,18 +87,6 @@ test.describe("TS-X — timing budgets", () => {
     await expect(copied).toBeVisible();
     // …and it reverts to "Copy MD" within the 2000ms window (poll past the timer).
     await expect(dashboard.page.getByRole("button", { name: /Copy MD/ })).toBeVisible({ timeout: 4000 });
-
-    // Also exercise the PreviewPanel header [title="Copy"] button. Its success
-    // state is an ICON swap: <Copy/> → <Check class="…text-emerald-600">. Assert
-    // the emerald check svg appears, then reverts. (Icon-only, so we target the
-    // rendered lucide class — documented as the header's only visible change.)
-    const headerCopy = dashboard.page.locator('button[title="Copy"]');
-    await expect(headerCopy).toBeVisible();
-    await headerCopy.click();
-    const checkIcon = headerCopy.locator("svg.text-emerald-600");
-    await expect(checkIcon).toBeVisible();
-    // The icon reverts to the plain copy glyph within the 2000ms window.
-    await expect(headerCopy.locator("svg.text-emerald-600")).toHaveCount(0, { timeout: 4000 });
   });
 
   // ── TS-X-08 — no spinner-forever: every terminal path resolves isRunning ────

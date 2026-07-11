@@ -40,6 +40,14 @@ const PROTO_HTML =
 const shot = async (page: Page, surface: string, state: string) =>
   page.screenshot({ path: `${OUT}/${surface}__${state}.png`, fullPage: false });
 
+// Phase 39 (RUNUI-06/07) — the run-header row crop (Version ▾ / Share / Download
+// in settled; the status badge + version chip in live/failed). The right column
+// starts after the ~360px lane and below the ~64px top bar. `header__{state}`
+// pairs against the target mock header crop in the fidelity gallery.
+const HEADER_CLIP = { x: 360, y: 64, width: 1080, height: 132 };
+const headerShot = async (page: Page, state: string, clip = HEADER_CLIP) =>
+  page.screenshot({ path: `${OUT}/header__${state}.png`, clip });
+
 // The current launch flow: click the home deliverable row → a "Provide the brief"
 // wizard screen → fill the brief → "Run workflow" → run_pipeline → execution view.
 // The home / family / audit REST stubs are now the shared MockApi's (INV-12).
@@ -203,6 +211,15 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   // left-lane clip (the conversation column) — reset to Preview first so it is calm
   await tab("Preview").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(600);
   await page.screenshot({ path: `${OUT}/leftlane__settled.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
+
+  // Phase 39 run header (settled) — Version ▾ / Share / Download, closed then with
+  // the Version menu OPEN (the human WILL catch an unshown state).
+  await headerShot(page, "settled");
+  const verBtn = page.getByRole("button", { name: /choose version/i }).first();
+  await verBtn.click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(500);
+  await headerShot(page, "settledmenu", { x: 360, y: 64, width: 1080, height: 360 });
+  await verBtn.click({ timeout: 3000 }).catch(() => {}); // close the menu
 });
 
 test("CAPTURE live streaming run", async ({ dashboard, mockWs, page }) => {
@@ -229,6 +246,9 @@ test("CAPTURE live streaming run", async ({ dashboard, mockWs, page }) => {
   mockWs.agentChunk("prototype-build", "<section class=\"compare\">building…");
   await page.waitForTimeout(1400);
   await shot(page, "full", "live");
+  // Phase 39 run header (live) — the streaming status badge + 'vN draft' chip +
+  // disabled Share (no Download while building).
+  await headerShot(page, "live");
   await page.getByRole("tab", { name: /Steps/i }).first().click({ timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(900); await shot(page, "steps", "live");
   await page.screenshot({ path: `${OUT}/leftlane__live.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
@@ -301,6 +321,9 @@ test("CAPTURE failed run", async ({ dashboard, mockWs, mockApi, page }) => {
   mockWs.failed({ agentsFailed: ["prototype-build"], error: "Blocked by the security gate", totalDuration: 401 });
   await page.waitForTimeout(1400);
   await shot(page, "full", "failed");
+  // Phase 39 run header (failed) — the red 'Run failed' badge + 'vN · partial'
+  // chip (no Share / Download).
+  await headerShot(page, "failed");
   await page.getByRole("tab", { name: /Steps/i }).first().click({ timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(900); await shot(page, "steps", "failed");
   // Files tab (failed): the amber "Build incomplete" banner + only the live

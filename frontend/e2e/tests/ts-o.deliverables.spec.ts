@@ -110,12 +110,15 @@ test.describe("TS-O — deliverable renderers", () => {
     await expect(dashboard.page.getByRole("button", { name: "Download All" })).toBeVisible();
   });
 
-  test("TS-O-08 header copy button appears once content is present", async ({ dashboard, mockWs }) => {
-    // No content yet → no header copy button.
-    await expect(dashboard.page.locator('button[title="Copy"]')).toHaveCount(0);
-
+  test("TS-O-08 run header settles with Share + Download once content is present", async ({ dashboard, mockWs }) => {
+    // Phase 39 (RUNUI-06/07): the old header [title="Copy"] icon button was retired
+    // with the mock run-header redesign. The run header now settles (data-run-state
+    // ="complete") and exposes Share + Download once the deliverable is present.
     await runToComplete(mockWs, "user_stories", SAMPLE_BACKLOG);
 
-    await expect(dashboard.page.locator('button[title="Copy"]')).toBeVisible();
+    const runHeader = dashboard.page.locator('[data-testid="run-header"]');
+    await expect(runHeader).toHaveAttribute("data-run-state", "complete");
+    await expect(dashboard.page.getByRole("button", { name: /Copy a link to this run/ })).toBeVisible();
+    await expect(dashboard.page.getByRole("button", { name: /Download the deliverable/ })).toBeVisible();
   });
 });

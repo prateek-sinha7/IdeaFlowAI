@@ -245,11 +245,11 @@ test.describe("TS-V — per-workflow end-to-end (LIVE, real Bedrock)", () => {
     //   • text/markdown  → a MarkdownPreview (no iframe), OR
     //   • other          → a "Deliverable ready" download card.
     // We accept ANY of these as proof the run produced a deliverable. A robust
-    // cross-cut: the PreviewPanel header flips "Generating..." → "Results" when
-    // content is present, so we wait on that too.
+    // cross-cut: the Phase-39 run header flips to its settled state
+    // (data-run-state="complete") once content is present, so we wait on that too.
     const genericIframe = page.locator('iframe[title="Deliverable Preview"]');
     const deliverableReady = page.getByText("Deliverable ready");
-    const resultsHeader = page.getByText("Results", { exact: true });
+    const resultsHeader = page.locator('[data-testid="run-header"][data-run-state="complete"]');
 
     await expect
       .poll(
