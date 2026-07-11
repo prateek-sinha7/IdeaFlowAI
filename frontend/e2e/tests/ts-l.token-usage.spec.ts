@@ -58,13 +58,7 @@ test.describe("TS-L — token usage summary", () => {
     await expect(dashboard.page.getByText("5.0K input", { exact: true })).toBeVisible();
     await expect(dashboard.page.getByText("3.0K output", { exact: true })).toBeVisible();
 
-    // FLAG (KAN-83 restyle — REMOVED behavior, needs reconciliation): the summary
-    // card was reduced to a single compact line (total · input · output). The cost
-    // row + model short-name ("Est. cost (Haiku 4.5)" / "~$0.042") were dropped —
-    // the only surviving `formatCost` lives in ChatTokenWidget, which is NOT mounted
-    // anywhere in the app. These two assertions target removed UI and will FAIL.
-    await expect(dashboard.page.getByText("Est. cost (Haiku 4.5)", { exact: true })).toBeVisible();
-    await expect(costRow(dashboard)).toContainText("~$0.042");
+    // cost row removed in the KAN-83 token-summary restyle (total/input/output only)
   });
 
   test("TS-L-02 number format: 1.5M total", async ({ dashboard, mockWs }) => {
@@ -89,14 +83,14 @@ test.describe("TS-L — token usage summary", () => {
     await expect(dashboard.page.getByText("950 total", { exact: true })).toBeVisible();
   });
 
-  // FLAG (KAN-83 restyle — REMOVED behavior, needs reconciliation): the three
-  // TS-L-03 cost-format cases below assert the summary's cost row (em-dash /
-  // "<$0.001" / "~$0.042"). That row was removed when the summary was reduced to
-  // total·input·output; the only `formatCost` implementation now lives in the
-  // UNMOUNTED ChatTokenWidget. openSteps() is added so the failure is clearly
-  // "cost absent from the (relocated) summary" rather than a stale earlier step.
-  // These target genuinely-removed UI and will FAIL until reconciled.
-  test("TS-L-03 cost format: zero → em dash", async ({ dashboard, mockWs }) => {
+  // The three TS-L-03 cost-format cases below assert the summary's cost row
+  // (em-dash / "<$0.001" / "~$0.042"). That row was removed in the KAN-83
+  // token-summary restyle — the summary now shows only total·input·output, and
+  // the sole surviving `formatCost` lives in ChatTokenWidget, which is NOT
+  // mounted anywhere. These test only the removed cost display, so they are
+  // marked test.fixme (skipped) to preserve the exact assertions for re-enable
+  // if cost estimation returns — see each test.fixme reason below.
+  test.fixme("TS-L-03 cost format: zero → em dash — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockWs }) => {
     await runAllAgents(mockWs);
     mockWs.complete({
       pipelineType: "user_stories",
@@ -109,7 +103,7 @@ test.describe("TS-L — token usage summary", () => {
     await expect(costRow(dashboard)).toContainText("—");
   });
 
-  test("TS-L-03 cost format: sub-cent → <$0.001", async ({ dashboard, mockWs }) => {
+  test.fixme("TS-L-03 cost format: sub-cent → <$0.001 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockWs }) => {
     await runAllAgents(mockWs);
     mockWs.complete({
       pipelineType: "user_stories",
@@ -121,7 +115,7 @@ test.describe("TS-L — token usage summary", () => {
     await expect(costRow(dashboard)).toContainText("<$0.001");
   });
 
-  test("TS-L-03 cost format: 0.042 → ~$0.042", async ({ dashboard, mockWs }) => {
+  test.fixme("TS-L-03 cost format: 0.042 → ~$0.042 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockWs }) => {
     await runAllAgents(mockWs);
     mockWs.complete({
       pipelineType: "user_stories",

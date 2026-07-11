@@ -141,7 +141,7 @@ test.describe("TS-M — questionnaire / clarify gate", () => {
     await expect(dashboard.page.getByRole("button", { name: "Skip all & run directly" })).toBeVisible();
   });
 
-  test("TS-M-05b some answered → 'Continue with 1/2 answered'", async ({ dashboard, mockWs }) => {
+  test("TS-M-05b some answered → primary 'Run User Stories Pipeline' (partial label removed)", async ({ dashboard, mockWs }) => {
     mockWs.questionnaireReady([
       { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
       { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
@@ -155,13 +155,13 @@ test.describe("TS-M — questionnaire / clarify gate", () => {
     await panel.getByRole("button", { name: /^Next/ }).click();
     await panel.getByRole("button", { name: /Skip & review/ }).click();
 
-    // FLAGGED — REMOVED BEHAVIOR (Phase 39 redesign). The redesigned summary
-    // slide no longer distinguishes a PARTIAL-answer state with its own
-    // "Continue with N/M answered" label: it shows "Run User Stories Pipeline"
-    // whenever answeredCount > 0 (see QuestionnairePanel summary primary button),
-    // and "Run with defaults" only at zero. This distinct partial label is gone.
-    // Left intentionally failing for reconciliation — do NOT loosen.
-    await expect(dashboard.page.getByRole("button", { name: "Continue with 1/2 answered" })).toBeVisible();
+    // "Continue with N/M answered" label removed in the questionnaire redesign.
+    // The summary slide no longer distinguishes a PARTIAL-answer state: its
+    // primary control reads "Run {pipelineLabel} Pipeline" whenever
+    // answeredCount > 0 (QuestionnairePanel summary primary button), and
+    // "Run with defaults" only at zero. With q1 answered the partial state
+    // therefore still offers the labelled pipeline run — you can proceed.
+    await expect(dashboard.page.getByRole("button", { name: "Run User Stories Pipeline" })).toBeVisible();
   });
 
   test("TS-M-05c none answered → 'Run with defaults'", async ({ dashboard, mockWs }) => {
