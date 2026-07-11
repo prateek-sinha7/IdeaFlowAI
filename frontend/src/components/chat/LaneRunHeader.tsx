@@ -11,7 +11,7 @@
  * `pipeline_type` / `runType` string (never branched on a workflow name), the
  * status token keys off the generic `runState`, and the meta row derives from the
  * live `pipelineState` via the shared `runStats` formatters (INV-12 single
- * source). It NEVER clones the mock's fixed "24m 6s / 14.8M tokens".
+ * source). It NEVER clones the mock's fixed elapsed / token values.
  */
 import type { ReactNode } from "react";
 import { Check, ChevronLeft, X } from "lucide-react";

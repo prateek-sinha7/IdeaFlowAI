@@ -35,6 +35,8 @@ import {
   Mic,
   Minimize2,
   Paperclip,
+  Pause,
+  ShieldCheck,
   Sparkles,
   Square,
 } from "lucide-react";
@@ -346,6 +348,57 @@ function PipelineMini({
         </p>
       )}
     </TranscriptCard>
+  );
+}
+
+/** Live: an "Awaiting you" status card (clarify / gate) — status only; the full
+ *  clarify/gate UI lives in the composer body + Steps (Phase 39, RUNUI-08). */
+function AwaitingCard({
+  icon,
+  title,
+  body,
+  cta,
+  onOpen,
+  testid,
+}: {
+  icon: ReactNode;
+  title: string;
+  body: string;
+  cta: string;
+  onOpen?: () => void;
+  testid: string;
+}) {
+  return (
+    <TranscriptCard
+      testid={testid}
+      onOpen={onOpen}
+      className="border-line-border bg-surface-card px-[14px] py-[13px] hover:border-line-faint"
+    >
+      <div className="mb-1.5 flex items-center gap-2">
+        {icon}
+        <span className="flex-1 font-sans text-[12.5px] font-semibold text-ink-900">
+          {title}
+        </span>
+        <span className="rounded-[var(--radius-tag)] bg-brand-fill px-1.5 py-1 font-sans text-[8px] font-semibold uppercase tracking-[0.05em] text-brand">
+          Awaiting you
+        </span>
+      </div>
+      <p className="mb-[9px] font-serif text-[11.5px] leading-[1.5] text-ink-500">{body}</p>
+      <span className="inline-flex items-center gap-1.5 font-sans text-[11px] font-semibold text-brand">
+        {cta}
+        <ArrowRight className="h-[13px] w-[13px]" strokeWidth={2} />
+      </span>
+    </TranscriptCard>
+  );
+}
+
+/** Live: a small "N clarifications answered" progress note (live count). */
+function AnsweredNote({ count }: { count: number }) {
+  return (
+    <div className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500">
+      <Check className="h-[14px] w-[14px] text-ink-900" strokeWidth={2} />
+      {count} clarifications answered
+    </div>
   );
 }
 
@@ -794,6 +847,59 @@ export function RunChatLane({
               filename={deliverableFilename}
               version={deliverableVersion}
               onOpen={goPreview}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // Live — clarify: status card only (the questions live in the composer + Steps).
+    if (runState === "clarify") {
+      const n = clarifyQuestions?.length ?? 0;
+      return (
+        <AwaitingCard
+          testid="lane-clarify-status"
+          icon={<Pause className="h-[14px] w-[14px] text-brand" strokeWidth={1.9} />}
+          title={`Paused — ${n > 0 ? `${n} ${n === 1 ? "question" : "questions"} for you` : "questions for you"}`}
+          body="Answer a few clarifications in the Steps panel and the build will start."
+          cta="Answer in Steps"
+          onOpen={goSteps}
+        />
+      );
+    }
+
+    // Live — gate: status card only (the plan + approve live in the composer + Steps).
+    if (runState === "gate") {
+      return (
+        <div className="flex flex-col gap-4">
+          {countClarifications(pipelineState?.clarifications) > 0 && (
+            <AnsweredNote count={countClarifications(pipelineState?.clarifications)} />
+          )}
+          <AwaitingCard
+            testid="lane-gate-status"
+            icon={<ShieldCheck className="h-[14px] w-[14px] text-brand" strokeWidth={1.7} />}
+            title="Paused — task plan needs approval"
+            body="Review the task plan and approve it in the Steps panel to start building."
+            cta="Review in Steps"
+            onOpen={goSteps}
+          />
+        </div>
+      );
+    }
+
+    // Live — building: an answered note + the live pipeline mini (k/N, per-agent dots).
+    if (runState === "building") {
+      const answered = countClarifications(pipelineState?.clarifications);
+      if (answered === 0 && agents.length === 0) return null;
+      return (
+        <div data-testid="lane-adornments" className="flex flex-col gap-4">
+          {answered > 0 && <AnsweredNote count={answered} />}
+          {agents.length > 0 && (
+            <PipelineMini
+              agents={agents}
+              onOpen={goSteps}
+              building
+              completedCount={pipelineState?.completedCount}
             />
           )}
         </div>

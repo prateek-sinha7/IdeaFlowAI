@@ -301,6 +301,124 @@ describe("RunChatLane", () => {
     expect(screen.getByTestId("chat-compact")).toBeInTheDocument();
   });
 
+  // ─── Phase 39 (RUNUI-06/08) — structured transcript adornments ──────────────
+
+  const ps = (overrides: Record<string, unknown> = {}) => ({
+    isRunning: false,
+    pipeline_type: "generic",
+    agents: [],
+    currentAgentIndex: 0,
+    totalDuration: null,
+    completedCount: 0,
+    ...overrides,
+  });
+
+  it("run header renders a Running phase pill while building", () => {
+    render(<RunChatLane {...baseProps({ runState: "building" })} />);
+    expect(screen.getByTestId("lane-run-status")).toHaveTextContent("Running");
+  });
+
+  it("clarify state renders an Awaiting-you status card that deep-links to Steps", () => {
+    const onRequestOpenTab = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "clarify",
+          clarifyQuestions: [
+            { id: "q1", question: "Which?", options: ["a", "b"], answerType: "single_choice" },
+          ],
+          onRequestOpenTab,
+        })}
+      />,
+    );
+    const card = screen.getByTestId("lane-clarify-status");
+    expect(card).toHaveTextContent("Awaiting you");
+    expect(card).toHaveTextContent("1 question for you");
+    fireEvent.click(card);
+    expect(onRequestOpenTab).toHaveBeenCalledWith("thinking");
+  });
+
+  it("gate state renders an Awaiting-you approval card that deep-links to Steps", () => {
+    const onRequestOpenTab = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "gate",
+          gate: { agentId: "a1", agentName: "Rev", output: "o", gateKey: "g1" },
+          onApprove: vi.fn(),
+          onReject: vi.fn(),
+          onRequestOpenTab,
+        })}
+      />,
+    );
+    const card = screen.getByTestId("lane-gate-status");
+    expect(card).toHaveTextContent("needs approval");
+    fireEvent.click(card);
+    expect(onRequestOpenTab).toHaveBeenCalledWith("thinking");
+  });
+
+  it("building state renders the live pipeline mini (k/N from pipelineState)", () => {
+    const onRequestOpenTab = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "building",
+          onRequestOpenTab,
+          pipelineState: ps({
+            isRunning: true,
+            completedCount: 3,
+            agents: [1, 2, 3, 4, 5].map((n) => ({
+              id: `a${n}`,
+              name: `Agent ${n}`,
+              role: "",
+              icon: "",
+              status: n <= 3 ? "done" : n === 4 ? "running" : "idle",
+              output: "",
+              thinking: "",
+              duration: null,
+              error: null,
+              index: n,
+            })),
+          }),
+        }) as RunChatLaneProps}
+      />,
+    );
+    const mini = screen.getByTestId("lane-pipeline-mini");
+    expect(mini).toHaveTextContent("Pipeline · 5 agents");
+    expect(mini).toHaveTextContent("3 / 5");
+    fireEvent.click(mini);
+    expect(onRequestOpenTab).toHaveBeenCalledWith("thinking");
+  });
+
+  it("settled state renders the pipeline mini from live agents", () => {
+    render(
+      <RunChatLane
+        {...(baseProps({
+          runState: "complete",
+          onRequestOpenTab: vi.fn(),
+          pipelineState: ps({
+            completedCount: 2,
+            agents: [1, 2].map((n) => ({
+              id: `a${n}`,
+              name: `Agent ${n}`,
+              role: "",
+              icon: "",
+              status: "done",
+              output: "",
+              thinking: "",
+              duration: 12,
+              error: null,
+              index: n,
+            })),
+          }),
+        }) as RunChatLaneProps)}
+      />,
+    );
+    expect(screen.getByTestId("lane-pipeline-mini")).toHaveTextContent(
+      "Pipeline · 2 agents",
+    );
+  });
+
   it("SC-001: the source carries no workflow-name literal", () => {
     const src = readFileSync(
       join(process.cwd(), "src/components/chat/RunChatLane.tsx"),
