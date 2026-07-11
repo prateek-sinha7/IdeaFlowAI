@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Universal Run Chat & VelocityAI UI Convergence
-status: executing
-last_updated: "2026-07-10T02:13:53.477Z"
-last_activity: 2026-07-09 -- Phase 37 execution started
+status: verifying
+last_updated: "2026-07-11T09:41:16.781Z"
+last_activity: "2026-07-10 -- quick 260710-ftq: fixed prototype/ppt image-drop on launch + dead Home recents chips (both live-proven on Bedrock); Phase 37 still in progress"
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 10
-  total_plans: 63
-  completed_plans: 64
-  percent: 91
+  total_plans: 70
+  completed_plans: 65
+  percent: 83
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 Phase: 37 (Configure Unification + Composer/Wizard [B3]) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Prior status: 36-04 OFFLINE-COMPLETE. SHELL-03 FE half (RunDetailPage + getRunSummary) — SHELL-03 now COMPLETE (backend 36-02 + FE 36-04). Task 1 [feat: getRunSummary(token,runId)->request<RunSummary>('/api/runs/{id}/summary') + RunSummary/RunSummaryAgent types in api.ts mirroring backend RunSummaryResponse field-for-field (id/title/type/status/duration/agent_count/token_usage/error/agents/root_id/members) + RunSummaryAgent=_SUMMARY_SAFE_AGENT_KEYS all-optional; members reuse FamilyMember so {root_id,members} feeds VersionTimeline as RunFamily; getRunFamily authHeaders idiom]. Task 2 [feat tdd: RunDetailPage.tsx cancellable mount-fetch (activeVersionId-keyed → version-chip refetch) composing KPI strip + per-agent cards + REUSED VersionTimeline + REUSED DegradedRunAffordance; generic-keyed SC-001/INV-1 (failure banner on status∈{failed,cancelled,degraded}, NO summary.type branch grep=0); imports (not rebuilds) VersionTimeline/DegradedRunAffordance/parseFailedAgentIds/buildAgentNameById + extracted formatDuration/formatTokenCount->NEW src/lib/runStats.ts single-source (WorkflowHistory local copies retire in 36-05); Phase-32 @theme tokens + ui/ Badge+Tabs, retired-palette grep 0, no stray stock/hex; a11y section frame + reused Tabs role=tablist + back aria + role=tabpanel]. In-task refinement [not scoped deviation]: replaced runId-sync useEffect with React render-phase state-on-prop-change (prevRunId tracker) to drop the set-state-in-effect warning; remaining 1 warning is the mount-fetch idiom (matches accepted SavedWorkflowsPage pattern), 0 eslint errors. RunDetailPage.test.tsx 5 tests (mock getRunSummary + motion proxy, REAL shared surfaces prove reuse): completed→KPI(2.0K/1.2K/800/2m5s)+agents+VersionTimeline radiogroup; failed→DegradedRunAffordance+failed-agent name; cancelled→cancelled copy; fetch error→graceful; back aria; retired-palette absent in rendered class strings. VERIFIED offline: getRunSummary grep 1; shared-surface imports 3; summary.type=== grep 0; retired-palette grep 0; vitest 5/5; tsc --noEmit 0 (identity, baseline 0). Mocked Playwright e2e LIVE-DEFERRED (offline; live summary round-trip→Phase 34). Per-plan commits 9dcaab0f(feat client+type)+fb0b5e9c(feat page+test+runStats); summary 36-04-SUMMARY.md; requirements SHELL-03 marked Complete; ROADMAP 36 In Progress 4/5. Remaining 36 plan: 36-05 History grouping/sort/delete + retire the in-panel WorkflowHistory duplicate (repoint onto RunDetailPage + runStats.ts).
 Prior status: 36-03 OFFLINE-COMPLETE. SHELL-02 SC-3 My Workflows relabel + token reskin. In-page <h1> 'Workflow Catalogue'->'My Workflows' (D-11 — Catalogue reserved for the future marketplace); delete copy 'removed from your catalogue'->'saved workflows'; dead style var(--font-fraunces)->font-serif. SavedWorkflowsPage reskinned onto Phase-32 @theme tokens: bg-surface-paper/card/white/warm, text-ink-*, border-line-*, text-brand/bg-brand/hover:bg-brand-pressed, status-failed error+delete affordances, radius-menu/elevation-menu/elevation-modal/scrim vars, ICON_STYLES avatar tints rebuilt from tokens (no raw hex). Retired-palette grep 0, stray-stock grep 0. D-15 reuse-don't-rebuild: cancellable mount-fetch + kebab Rename/Duplicate/Delete->rename/create/deleteUserWorkflow with optimistic setUserWorkflows + delete-confirm modal + launch wiring all preserved byte-behavior-identical (grep 5). a11y: kebab trigger aria-haspopup=menu/aria-expanded/aria-label, role=menu + 3 role=menuitem, Escape close+refocus; delete modal role=dialog/aria-modal/aria-labelledby + Escape-close. Rule-1 a11y deviation: KebabMenu was defined inside the render body (remounted on every openMenuId change -> detached trigger node broke in-place aria-expanded + reset the Escape-focus ref) -> hoisted to module scope with explicit props (row/isOpen/onToggle/onClose/onRename/onDuplicate/onDelete), CRUD wiring unchanged. NEW SavedWorkflowsPage.test.tsx (Wave-0 gap, 5 tests, co-located HomeLaunchGrid.test api-mock+motion-proxy idiom): D-11 label present/'Workflow Catalogue' absent; Rename fires renameUserWorkflow(+optimistic); Duplicate fires createUserWorkflow(+copy prepended); Delete->confirm fires deleteUserWorkflow(+row removed); kebab aria + Escape a11y. VERIFIED offline: grep 'Workflow Catalogue' 0; retired-palette grep 0; kebab-CRUD grep 5; vitest 5/5 green; tsc --noEmit 0 (identity, baseline 0). Mocked Playwright e2e LIVE-DEFERRED (offline). Per-plan commits 3eaea5f5(feat relabel+reskin)+e7b29891(fix a11y hoist)+91039712(test); summary 36-03-SUMMARY.md; requirements SHELL-02 marked; ROADMAP 36 In Progress 3/5. Remaining 36 plans: 36-04 RunDetailPage+getRunSummary (SHELL-03 FE half), 36-05 History grouping/sort/delete.
 Prior status: 36-02 OFFLINE-COMPLETE. Additive read-only owner-scoped GET /api/runs/{id}/summary (SHELL-03 backend half) — RunSummaryResponse aggregates ONLY existing WorkflowRun columns + the owned family walk (id/title/type/status/duration/agent_count/token_usage/error + per-agent breakdown + root_id + members), inventing ZERO fields, ZERO tables/migrations (git diff = runs.py + new test only; no alembic/model/engine/transport/golden touch, INV-3 by construction, LOCK-B). _owner_gate_or_404 on WorkflowRun.user_id (never nullable owner_id): cross-owner + missing -> 404 (IDOR->404, never 403). agent_outputs/token_usage json.loads each in try/except -> []/{} fallback (DoS guard, no 500). Per-agent projection = summary-safe identity+KPI keys ONLY (_SUMMARY_SAFE_AGENT_KEYS) — raw output/input_prompt/thinking_text/tool_calls NEVER echoed (V7 leak guard, test-proven). Version/revision timeline reuses _compute_root_ids + a NEW extracted _owned_family_members helper shared by /summary AND /family (INV-12 no dual impl; family parity 8/8 green after refactor). SHELL-03 NOT marked complete — FE half (RunDetailPage + getRunSummary) is 36-04. test_runs_api_summary.py 8/8 green; import-linter 4 kept/0 broken. Commits 3be49bfa(feat)+c7706f45(test). Remaining 36 plans: 36-03 My Workflows label+kebab, 36-04 RunDetailPage+getRunSummary, 36-05 History grouping/sort/delete.
@@ -270,6 +270,7 @@ Progress: [░░░░░░░░░░] 0% (Milestone v2.0: 0/11 phases — p
 | Phase 35 P35-04 | ~22m | 3 tasks | 5 files |
 | Phase 35 P05 | 10min | 2 tasks | 2 files |
 | Phase 35 P35-06 | 12min | 2 tasks | 3 files |
+| Phase 39-run-screen-mock-fidelity-b5 P07 | 60min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -432,6 +433,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 32-09: AuditTab reads the 3 plan-03 endpoints off hook_runs; fetchers map 404->empty envelope (IDOR-safe); CSV/JSON client-side export only (ND-6, no PDF/backend route) with structural + formula-injection escaping; governance status/severity palette is the sole one-chroma exception.
 - [Phase ?]: 32-10: re-anchored 5 run-screen e2e specs off hardcoded color classes (bg-[#1B2A4A]/bg-gray-900/textarea.font-mono) onto reskin-durable role/structural selectors; verified BY DELTA vs the 128-red baseline (0 new reds; moved-to-green live-deferred to Phase-34)
 - [Phase ?]: 35-05: Library reskinned onto Phase-32 tokens via Tabs/Card/Pill; Agents/Skills/Hooks counts carried in tab labels; brand-fill active sidebar filters; real local-data search/filter + modals preserved.
+- [Phase ?]: 39-07: enriched the mocked /api/workflows stub to the full launchable catalog (faithful to workflow.yaml) so the data-driven HomeLaunchGrid feeds selection specs
+- [Phase ?]: 39-07: mocked e2e suite is broadly stale vs the feat/ui-2 redesign beyond the 3 named crashes (51 pass/95 fail); exit-0 deferred to the surface waves re-anchoring specs (deferred-items D-39-07-1)
 
 ### Pending Todos
 
@@ -449,6 +452,7 @@ Open decision records to confirm before their phase (from plan §26):
 - ~~N6/N10 (Phase 9)~~ resolved by implementation: grep/glob default + opt-in in-memory tree-sitter `repo_index`
 - **N9 (Phase 5/[1B])** — artifact retention default (run_ttl vs keep)
 - **N11 (Phase 6/[1C])** — model default/premium policy + fallback chain
+- Phase 39: mocked e2e suite not green (51 pass/95 fail) — systemically stale vs the feat/ui-2 redesign; surface waves 39-01..06 must re-anchor specs before RUNUI-09's 'suite green' half closes (deferred-items D-39-07-1)
 
 ### Quick Tasks Completed
 
