@@ -3,15 +3,15 @@ import { render, screen } from "@testing-library/react";
 import type { AgentRunState, ClarifyRound, PipelineRunState } from "@/types/index";
 
 // ─────────────────────────────────────────────────────────────────
-// Quick byv FIX-1 (updated Phase 32 plan 08 / SC-001) — the bespoke
+// Quick byv FIX-1 (updated Phase 39 plan 02 / SC-001) — the bespoke
 // PrototypePipelineView + its prototype-* render-path literals are removed;
-// prototype runs now render through the SAME generic Steps drill-down as every
-// other workflow (INV-3 no dual impl). This test now asserts the run's
-// Starting point → Clarifications preamble still renders for a prototype-id run
-// via that generic path, and that the header still reads "Prototype Pipeline"
-// (derived from the generic "prototype-" family prefix, NOT a gated literal).
-// Real-DOM specs: (1) runInput + clarify → all three present; (2) runInput,
-// no clarify → StartingPoint present, Clarifications absent (PROCEED run).
+// prototype runs now render through the SAME generic Steps overview→detail
+// drill-down as every other workflow (INV-3 no dual impl). This test asserts the
+// run's Starting point → Clarifications preamble still renders for a prototype-id
+// run via that generic path, and that the generic overview spine renders the
+// prototype's agent row (no workflow-name gate). Real-DOM specs: (1) runInput +
+// clarify → preamble + agent row present; (2) runInput, no clarify → StartingPoint
+// present, Clarifications absent (PROCEED run).
 // TokenUsageSummary is stubbed (parity with the narrativeOrder idiom).
 // ─────────────────────────────────────────────────────────────────
 
@@ -66,11 +66,11 @@ describe("AgentThinkingTab — prototype preamble (byv FIX-1)", () => {
       />,
     );
 
-    // All three surfaces present: the two preamble cards + the generic header
-    // (which now reads "Prototype Pipeline" off the generic family prefix).
+    // All three surfaces present: the two preamble cards + the generic overview
+    // spine's agent row for the prototype build agent (no workflow-name gate).
     expect(screen.getByText("Starting point")).toBeInTheDocument();
     expect(screen.getByText("Clarifications")).toBeInTheDocument();
-    expect(screen.getByText("Prototype Pipeline")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Build Agent/i })).toBeInTheDocument();
 
     // Narrative order in the unified generic drill-down: Starting point precedes
     // Clarifications (the header leads; the two preamble cards keep their order).
@@ -91,7 +91,7 @@ describe("AgentThinkingTab — prototype preamble (byv FIX-1)", () => {
     // StartingPoint renders from runInput alone; ClarificationsCard returns null.
     expect(screen.getByText("Starting point")).toBeInTheDocument();
     expect(screen.queryByText("Clarifications")).toBeNull();
-    // The prototype view still renders below the preamble.
-    expect(screen.getByText("Prototype Pipeline")).toBeInTheDocument();
+    // The generic overview spine still renders the prototype agent row.
+    expect(screen.getByRole("button", { name: /Build Agent/i })).toBeInTheDocument();
   });
 });

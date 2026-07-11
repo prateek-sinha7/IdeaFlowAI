@@ -1,0 +1,483 @@
+"use client";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 39 plan 02 (RUNUI-06/08) — AgentDetailPanel: the Steps tab's L2 view.
+// A 2-column agent detail — the full execution on the LEFT (reasoning · artifact ·
+// tool calls · full input · agent output) and a `position:sticky` "Context
+// received" panel on the RIGHT, built from the agent's LIVE `contextSources`
+// (ND-D — never the mock's hardcoded source sizes; SC-001 — never a
+// workflow/agent-name literal). It reuses the sub-sections that previously lived
+// inside the retired flat AgentTimelineCard (INV-3: single implementation) and
+// the shared WaveTreePanel for the construction fan-out (INV-12: not rebuilt).
+// Token-reskinned off the Phase-32 tokens (no gray-* palette).
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { useEffect, useState } from "react";
+import {
+  Brain, Wrench, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
+  Clock, Cpu, FileText, Copy, Check, Eye, EyeOff, AlertTriangle, Pencil,
+  Layers, Zap, FileCode, BookText,
+} from "lucide-react";
+import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
+import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
+import { formatDuration, formatTokenCount } from "@/lib/runStats";
+
+// ─── Shared context-source formatting (INV-12 — the single derivation the sticky
+//     panel + any future consumer share; was inline in the retired ContextSourcesRow).
+export function formatContextSource(src: ContextSource): { name: string; meta: string } {
+  const name = src.type === "summary"
+    ? (src.agent_name || src.agent_id || "Agent")
+    : (src.artifact_type || "artifact");
+  const sizeK = src.type === "summary" && src.summary_length != null
+    ? `${(src.summary_length / 1000).toFixed(1)}k`
+    : src.type === "artifact" && src.artifact_size_chars != null
+    ? `${(src.artifact_size_chars / 1000).toFixed(1)}k`
+    : null;
+  const compression = src.type === "summary" && src.summary_length != null &&
+    src.full_output_length != null && src.full_output_length > 0
+    ? Math.round((1 - src.summary_length / src.full_output_length) * 100)
+    : null;
+  const meta = [sizeK, compression != null && compression > 0 ? `-${compression}%` : null]
+    .filter(Boolean).join(" · ") || "context";
+  return { name, meta };
+}
+
+// ─── Reasoning card (violet) ──────────────────────────────────────────────────
+function ReasoningCard({ text, live }: { text: string; live: boolean }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="rounded-[11px] border border-[#E4E0F5] bg-[#F4F2FB] overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left"
+      >
+        <span className="w-[22px] h-[22px] flex-none rounded-md bg-brand-fill grid place-items-center">
+          <Brain className="h-3 w-3 text-[#6E5EDA]" />
+        </span>
+        <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5A4FC0]">
+          {live ? "Reasoning (live)" : "Reasoning"}
+        </span>
+        <ChevronDown className={`h-3.5 w-3.5 text-[#9A93C8] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <p className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-[#4A4680] font-[Heebo] whitespace-pre-wrap">
+          {text}
+          {live && <span className="animate-pulse">▌</span>}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Tool calls (card, collapsed) ─────────────────────────────────────────────
+export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [sectionOpen, setSectionOpen] = useState(toolCalls.length <= 5);
+  return (
+    <div className="mt-3 bg-surface-card border border-line-border rounded-[11px] overflow-hidden">
+      <button
+        onClick={() => setSectionOpen(v => !v)}
+        aria-expanded={sectionOpen}
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left"
+      >
+        <span className="w-[22px] h-[22px] flex-none rounded-md bg-[#EFEDE6] grid place-items-center">
+          <Wrench className="h-3 w-3 text-ink-500" />
+        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500">Tool calls</span>
+        <span className="text-[10.5px] text-ink-200 font-mono">{toolCalls.length}</span>
+        <span className="flex-1" />
+        <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${sectionOpen ? "rotate-180" : ""}`} />
+      </button>
+      {sectionOpen && (
+        <div className="px-3 pb-2.5 space-y-1.5">
+          {toolCalls.map((tc, i) => (
+            <div key={i} className="rounded-[9px] border border-line-faint-row overflow-hidden bg-surface-white">
+              <button
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-left"
+              >
+                <span className="w-5 h-5 flex-none rounded-[5px] border border-line-control bg-surface-warm grid place-items-center">
+                  <ChevronRight className="h-2.5 w-2.5 text-ink-500" />
+                </span>
+                <span className="text-[12.5px] font-medium text-ink-800">{tc.tool}</span>
+                <span className="text-[12px] text-ink-300 truncate flex-1 min-w-0">
+                  {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${String(v).slice(0, 24)}`).join(", ") || "no args"}
+                </span>
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full flex-none ${tc.result != null ? "bg-brand-fill text-brand" : "bg-status-amber-fill text-status-amber animate-pulse"}`}>
+                  {tc.result != null ? "ok" : "…"}
+                </span>
+              </button>
+              {expandedIdx === i && (
+                <div className="border-t border-line-faint-row bg-surface-warm/60">
+                  {Object.keys(tc.args || {}).length > 0 && (
+                    <div className="px-3 py-2 border-b border-line-faint-row">
+                      <p className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider mb-1">Arguments</p>
+                      <pre className="text-[9px] text-ink-600 font-mono whitespace-pre-wrap leading-relaxed">{JSON.stringify(tc.args, null, 2)}</pre>
+                    </div>
+                  )}
+                  {tc.result != null && (
+                    <div className="px-3 py-2">
+                      <p className="text-[9px] font-semibold text-brand uppercase tracking-wider mb-1">Result</p>
+                      <pre className="text-[9px] text-ink-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">{tc.result}</pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Full input prompt (paper) ────────────────────────────────────────────────
+export function InputPromptSection({ prompt }: { prompt: string }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(prompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div className="mt-2.5 bg-surface-paper border border-line-divider rounded-[11px] overflow-hidden">
+      <button onClick={() => setOpen(v => !v)} aria-expanded={open} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
+        <span className="w-[22px] h-[22px] flex-none rounded-md bg-line-border grid place-items-center">
+          <FileText className="h-3 w-3 text-ink-500" />
+        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500">Full input prompt</span>
+        <span className="text-[10.5px] text-ink-200 font-mono">{prompt.length.toLocaleString()} chars</span>
+        <span className="flex-1" />
+        <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div>
+          <div className="flex items-center justify-end px-3.5 pt-1">
+            <button onClick={handleCopy} className="flex items-center gap-1 text-[9px] text-ink-400 hover:text-ink-600 transition-colors">
+              {copied ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <pre className="m-0 px-11 pb-3 text-[12px] leading-[1.6] text-ink-500 whitespace-pre-wrap font-[Heebo] max-h-[500px] overflow-y-auto">{prompt}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Agent output (violet) ────────────────────────────────────────────────────
+export function OutputPreviewSection({ output }: { output: string }) {
+  const [open, setOpen] = useState(false);
+  const isHtml = /<!DOCTYPE|<html/i.test(output) || output.includes("<artifact>");
+  const preview = isHtml ? "[HTML artifact — click to expand]" : output.slice(0, 160) + (output.length > 160 ? "…" : "");
+  return (
+    <div className="mt-2.5 bg-[#F4F2FB] border border-[#E4E0F5] rounded-[11px] overflow-hidden">
+      <button onClick={() => setOpen(v => !v)} aria-expanded={open} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
+        <span className="w-[22px] h-[22px] flex-none rounded-md bg-brand-fill grid place-items-center">
+          {open ? <EyeOff className="h-3 w-3 text-[#5A4FC0]" /> : <Eye className="h-3 w-3 text-[#5A4FC0]" />}
+        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5A4FC0]">Agent output</span>
+        <span className="text-[10.5px] text-[#9A93C8] font-mono">{(output.length / 1000).toFixed(1)}k chars</span>
+        <span className="flex-1" />
+        <ChevronDown className={`h-3.5 w-3.5 text-[#9A93C8] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      <p className={`m-0 px-11 pb-3 text-[12px] leading-[1.6] text-[#4A4680] whitespace-pre-wrap font-[Heebo] ${open ? "max-h-[500px] overflow-y-auto" : "line-clamp-2"}`}>
+        {open ? output : preview}
+      </p>
+    </div>
+  );
+}
+
+// ─── Revision instruction (violet emphasis) ───────────────────────────────────
+function RevisionInstructionCard({ prompt }: { prompt: string }) {
+  const match = prompt.match(/===\s*REVISION REQUEST\s*===\s*\n([\s\S]*?)\n===\s*END REQUEST\s*===/i);
+  if (!match) return null;
+  return (
+    <div className="mb-3 rounded-[11px] border-2 border-brand/30 bg-brand/5 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Pencil className="h-3 w-3 text-brand" />
+        <span className="text-[9px] font-bold text-brand uppercase tracking-widest">Revision request</span>
+      </div>
+      <p className="text-[11px] text-brand font-medium leading-relaxed">{match[1].trim()}</p>
+    </div>
+  );
+}
+
+// ─── Edit summary (from tool calls) ───────────────────────────────────────────
+function EditSummaryCard({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
+  const edits = toolCalls.filter(tc => tc.tool === "edit_file");
+  const writes = toolCalls.filter(tc => tc.tool === "write_file");
+  if (edits.length === 0 && writes.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-[11px] border border-status-done-border bg-status-done-fill px-3 py-2.5">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <CheckCircle2 className="h-3 w-3 text-status-done" />
+        <span className="text-[9px] font-bold text-status-done uppercase tracking-widest">Changes applied</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {edits.length > 0 && <span className="text-[10px] font-semibold text-status-done bg-surface-white px-2 py-0.5 rounded-full">{edits.length} surgical edit{edits.length !== 1 ? "s" : ""}</span>}
+        {writes.length > 0 && <span className="text-[10px] font-semibold text-status-done bg-surface-white px-2 py-0.5 rounded-full">{writes.length} full rewrite{writes.length !== 1 ? "s" : ""}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Validation result ────────────────────────────────────────────────────────
+function ValidationResultCard({ passed, issues }: { passed?: boolean; issues?: ValidationIssue[] }) {
+  const [open, setOpen] = useState(false);
+  if (passed === undefined && (!issues || issues.length === 0)) return null;
+  const hasIssues = issues && issues.length > 0;
+  const isPassed = passed === true && !hasIssues;
+  return (
+    <div className={`mb-3 rounded-[11px] border px-3 py-2.5 ${isPassed ? "border-status-done-border bg-status-done-fill" : "border-status-amber-border bg-status-amber-fill"}`}>
+      <button onClick={() => hasIssues && setOpen(v => !v)} className="w-full flex items-center gap-1.5 text-left">
+        {isPassed ? <CheckCircle2 className="h-3 w-3 text-status-done flex-none" /> : <AlertTriangle className="h-3 w-3 text-status-amber flex-none" />}
+        <span className={`text-[9px] font-bold uppercase tracking-widest ${isPassed ? "text-status-done" : "text-status-amber"}`}>
+          Validation {isPassed ? "passed" : passed === false ? "blocked" : "issues found"}
+        </span>
+        {hasIssues && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-1 bg-surface-white text-status-amber">{issues!.length} issue{issues!.length !== 1 ? "s" : ""}</span>}
+        {hasIssues && <ChevronDown className={`h-3 w-3 text-ink-300 ml-auto transition-transform ${open ? "rotate-180" : ""}`} />}
+      </button>
+      {open && hasIssues && (
+        <div className="mt-2 space-y-1">
+          {issues!.map((issue, i) => (
+            <div key={i} className="flex items-start gap-1.5 rounded-lg bg-surface-white border border-status-amber-border px-2.5 py-1.5">
+              <span className="text-[8px] font-bold uppercase px-1 py-0.5 rounded flex-none mt-0.5 bg-status-amber-fill text-status-amber">{issue.severity}</span>
+              <p className="text-[10px] text-ink-700 leading-snug">{issue.message}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Construction block (waves + navigable per-task rows → L3) ─────────────────
+// Dual-source (STEPS-ARTIFACT-DERIVATION §2/§3): the task-loop checklist (KAN-99
+// N-1 capped) merged with the fan-out wave tree (WaveTreePanel, reused). Each task
+// row opens the L3 TaskDetailPanel via onOpenTask (Phase 39 plan 02).
+function ConstructionBlock({
+  completedCount, totalTasks, isComplete, waves, tasks, onOpenTask,
+}: {
+  completedCount: number;
+  totalTasks: number;
+  isComplete: boolean;
+  waves: WaveGroup[];
+  tasks?: Array<{ number: number; title: string; summary: string }>;
+  onOpenTask?: (taskIndex: number) => void;
+}) {
+  const displayedDone = isComplete ? totalTasks : Math.min(completedCount, Math.max(0, totalTasks - 1));
+  const pct = totalTasks > 0 ? Math.round((displayedDone / totalTasks) * 100) : 0;
+  const titleFor = (i: number) => tasks?.find(t => t.number === i + 1)?.title;
+
+  return (
+    <div data-testid="construction-block" className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
+      <div className="flex items-center gap-2 mb-1.5">
+        <Layers className="h-3.5 w-3.5 text-ink-500" />
+        <span className="text-[11px] font-semibold text-ink-800">Construction · waves &amp; subagents</span>
+        <span className="flex-1" />
+        {totalTasks > 0 && (
+          <span data-testid="construction-progress" className="text-[11px] font-mono text-brand">{displayedDone} / {totalTasks} done</span>
+        )}
+      </div>
+      {totalTasks > 0 && (
+        <div className="h-[5px] rounded-full bg-brand-fill overflow-hidden mb-3">
+          <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {/* Navigable task rows (Source A checklist → L3 drill) */}
+      {totalTasks > 0 && (
+        <div className="ml-1 pl-3.5 border-l-2 border-line-faint-row space-y-1.5 mb-3">
+          {Array.from({ length: totalTasks }).map((_, i) => {
+            const done = i < displayedDone;
+            const active = !isComplete && i === displayedDone;
+            const t = titleFor(i);
+            return (
+              <button
+                key={i}
+                onClick={() => onOpenTask?.(i)}
+                className="w-full flex items-center gap-2.5 rounded-[9px] border border-line-faint-row bg-surface-card px-2.5 py-2.5 text-left hover:border-line-faint transition-colors"
+              >
+                {done ? (
+                  <span className="w-[17px] h-[17px] flex-none rounded-full bg-surface-near-black grid place-items-center"><Check className="h-2.5 w-2.5 text-white" /></span>
+                ) : active ? (
+                  <span className="w-[17px] h-[17px] flex-none rounded-full bg-brand-fill border-[1.5px] border-brand grid place-items-center"><span className="w-1.5 h-1.5 rounded-full bg-brand" /></span>
+                ) : (
+                  <span className="w-[17px] h-[17px] flex-none rounded-full border-[1.5px] border-line-control" />
+                )}
+                <span className="text-[11.5px] text-ink-700">
+                  <span className="font-mono text-ink-200">Task {i + 1}</span>{t ? ` · ${t}` : ""}
+                </span>
+                <span className="flex-1" />
+                <ChevronRight className="h-[15px] w-[15px] flex-none text-line-faint" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {/* Source B — the fan-out wave/subagent tree (reused WaveTreePanel). */}
+      <WaveTreePanel waves={waves} />
+    </div>
+  );
+}
+
+// ─── Sticky "Context received" panel (RIGHT column) ───────────────────────────
+function ContextReceivedPanel({ sources }: { sources: ContextSource[] }) {
+  return (
+    <div className="sticky top-0">
+      <div className="bg-surface-warm border border-line-border rounded-[14px] px-4 pt-4 pb-3.5">
+        <div className="flex items-center gap-2.5 mb-3.5">
+          <span className="w-7 h-7 flex-none rounded-lg bg-[#EFEDE6] grid place-items-center text-ink-500">
+            <BookText className="h-[15px] w-[15px]" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.11em] text-ink-300">Context received</p>
+            <p className="mt-1 text-[11px] text-ink-400 font-mono">{sources.length} source{sources.length !== 1 ? "s" : ""} fed in</p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          {sources.map((src, i) => {
+            const { name, meta } = formatContextSource(src);
+            return (
+              <div key={i} className="flex items-center gap-2.5 bg-surface-white border border-line-border rounded-[10px] px-2.5 py-2">
+                <span className="w-7 h-7 flex-none rounded-[7px] bg-brand-fill grid place-items-center text-brand">
+                  <FileCode className="h-3.5 w-3.5" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="m-0 text-[12px] font-semibold text-ink-800 truncate">{name}</p>
+                  <p className="mt-0.5 text-[10px] text-ink-200 font-mono">{meta}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3.5 pt-3 border-t border-line-border text-[11px] leading-[1.55] text-ink-200">
+          The kernel assembled these into this agent&apos;s prompt before it ran.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main L2 panel ────────────────────────────────────────────────────────────
+export interface AgentDetailPanelProps {
+  agent: AgentRunState;
+  onBack: () => void;
+  construction?: {
+    completedCount: number;
+    totalTasks: number;
+    isComplete: boolean;
+    waves: WaveGroup[];
+    tasks?: Array<{ number: number; title: string; summary: string }>;
+  };
+  onOpenTask?: (taskIndex: number) => void;
+}
+
+export function AgentDetailPanel({ agent, onBack, construction, onOpenTask }: AgentDetailPanelProps) {
+  const isRunning = agent.status === "running" || agent.status === "thinking";
+  const isDone = agent.status === "done";
+  const isError = agent.status === "error";
+  const reasoning = agent.thinkingText || agent.thinking || "";
+  const sources = agent.contextSources ?? [];
+
+  const metaBits = [
+    isDone && agent.duration != null ? formatDuration(agent.duration) : null,
+    isDone && agent.totalTokens != null && agent.totalTokens > 0 ? `${formatTokenCount(agent.totalTokens)} tok` : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="max-w-[1200px] mx-auto">
+      {/* Breadcrumb — Steps / {agent} */}
+      <button
+        onClick={onBack}
+        className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-ink-500 hover:text-ink-900 transition-colors mb-4"
+      >
+        <ChevronLeft className="h-[15px] w-[15px]" />
+        Steps <span className="text-line-faint">/</span> <span className="text-ink-900">{agent.name}</span>
+      </button>
+
+      <div className="grid gap-[22px] items-start" style={{ gridTemplateColumns: "1fr 288px" }}>
+        {/* LEFT — full execution */}
+        <div className="min-w-0">
+          <div className="rounded-[11px] border border-line-border bg-surface-white overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-line-faint-row">
+              <div className={`w-8 h-8 rounded-xl flex-none grid place-items-center ${
+                isRunning ? "bg-brand-fill text-brand" :
+                isDone ? "bg-surface-near-black text-white" :
+                isError ? "bg-status-failed-fill text-status-failed" :
+                "bg-surface-paper text-ink-300"
+              }`}>
+                {isDone ? <CheckCircle2 className="h-4 w-4" /> :
+                 isError ? <XCircle className="h-4 w-4" /> :
+                 isRunning ? <Zap className="h-4 w-4" /> :
+                 <span className="text-[11px] font-bold">{agent.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()}</span>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="m-0 text-[13.5px] font-semibold text-ink-900 truncate">{agent.name}</p>
+                  {isRunning && <span className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-brand-fill text-brand"><Zap className="h-2.5 w-2.5" />Live</span>}
+                  {isDone && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-surface-paper text-ink-500">Done</span>}
+                  {isError && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-status-failed-fill text-status-failed">Failed</span>}
+                </div>
+                <p className="m-0 text-[11px] text-ink-400 truncate">{agent.role}</p>
+              </div>
+              {metaBits.length > 0 && (
+                <span className="flex items-center gap-1 text-[11px] text-ink-200 font-mono flex-none">
+                  {metaBits.includes(`${formatTokenCount(agent.totalTokens ?? 0)} tok`) && <Cpu className="h-2.5 w-2.5" />}
+                  {metaBits.join(" · ")}
+                </span>
+              )}
+            </div>
+
+            <div className="px-4 py-4">
+              <div className="pl-4 border-l-2 border-line-divider">
+                {/* revision diagnostics (revision runs only) */}
+                {agent.inputPrompt && <RevisionInstructionCard prompt={agent.inputPrompt} />}
+                {agent.toolCalls && agent.toolCalls.length > 0 && <EditSummaryCard toolCalls={agent.toolCalls} />}
+                <ValidationResultCard passed={agent.validationPassed} issues={agent.validationIssues} />
+
+                {/* reasoning */}
+                {reasoning.trim().length > 0 && <ReasoningCard text={reasoning} live={isRunning} />}
+                {reasoning.trim().length === 0 && isRunning && <ReasoningCard text="" live />}
+
+                {/* construction fan-out (build agent) */}
+                {construction && (
+                  <ConstructionBlock
+                    completedCount={construction.completedCount}
+                    totalTasks={construction.totalTasks}
+                    isComplete={construction.isComplete}
+                    waves={construction.waves}
+                    tasks={construction.tasks}
+                    onOpenTask={onOpenTask}
+                  />
+                )}
+
+                {/* tool calls */}
+                {agent.toolCalls && agent.toolCalls.length > 0 && <ToolCallsSection toolCalls={agent.toolCalls} />}
+
+                {/* full input */}
+                {agent.inputPrompt && <InputPromptSection prompt={agent.inputPrompt} />}
+
+                {/* output */}
+                {isDone && agent.output && agent.output.trim().length > 0 && <OutputPreviewSection output={agent.output} />}
+
+                {/* failed reason card */}
+                {isError && agent.error && (
+                  <div className="mt-3 rounded-[10px] bg-status-failed-fill border border-status-failed-border px-3.5 py-3">
+                    <p className="m-0 mb-1 text-[11px] font-semibold text-status-failed-strong font-[Manrope]">What went wrong</p>
+                    <p className="m-0 text-[12px] leading-[1.55] text-[#6E4A46]">{agent.error}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT — sticky context received */}
+        <ContextReceivedPanel sources={sources} />
+      </div>
+    </div>
+  );
+}

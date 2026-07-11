@@ -1,68 +1,42 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
-  Brain, Wrench, ChevronDown, ChevronRight, Zap, CheckCircle2,
-  XCircle, Clock, Cpu, FileText, Database,
-  Layers, Activity, Eye, EyeOff, Copy, Check,
-  AlertTriangle, Pencil,
+  Brain, ChevronDown, Zap, CheckCircle2, XCircle, Activity,
 } from "lucide-react";
-import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState, ValidationIssue, ClarifyRound, WaveGroup } from "@/types/index";
-import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
+import type { AgentRunState, PipelineRunState, ClarifyRound, WaveGroup } from "@/types/index";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
-import { InlineGateActions } from "@/components/chat/InlineGateActions";
-import { InlineClarifyActions } from "@/components/chat/InlineClarifyActions";
+// Phase 39 plan 02 — the three-level Steps navigation lives in these extracted
+// views. The former flat AgentTimelineCard list + PipelineHeader + inline
+// sub-sections (ToolCallsSection / InputPromptSection / OutputPreviewSection /
+// ContextSourcesRow) are RETIRED here and re-homed inside AgentDetailPanel
+// (INV-3 — single implementation, no dual list).
+import { StepsOverviewSpine } from "./StepsOverviewSpine";
+import { AgentDetailPanel } from "./AgentDetailPanel";
 import { StartingPointCard } from "./StartingPointCard";
-import { ClarificationsCard } from "./ClarificationsCard";
+// The inline gate/clarify affordances are REUSED (SC-2, INV-12) — mounted inside
+// StepsOverviewSpine. The type imports below reference
+// @/components/chat/InlineGateActions / InlineClarifyActions (same submit channels).
+import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 
 interface AgentThinkingTabProps {
   agents: AgentRunState[];
   pipelineState?: PipelineRunState;
-  // Phase 32 (plan 08 / SC-2, STEPS-ARTIFACT-DERIVATION-CONTRACT §2) — the L3
-  // construction fan-out: the wave/subagent groups assembled from the live
-  // wave_*/subagent_* events (deduped by the parent). Optional + default-empty
-  // so non-wave workflows render an empty tree. This mounts WaveTreePanel INSIDE
-  // the drill-down (ISS-019 below-the-fold fix), the second of the two
-  // construction sources (the first being task_progress on pipelineState).
   waves?: WaveGroup[];
-  // Workstream C2 (POR §5 D3+D4) — timeline narrative surfaces. All optional and
-  // default-undefined so every existing call site renders byte-unchanged.
-  runInput?: string;               // raw run input for StartingPointCard (C1 parse)
-  originalBriefRootRunId?: string; // revision-only lineage → lazy Original-brief fetch
-  revisionParentVersion?: number;  // "revision of v{n-1}" chip
-  clarifications?: ClarifyRound[]; // reopen-fetched rounds; live falls back to pipelineState
-  clarificationsLoading?: boolean; // reopen fetch in flight → aria-busy
-  // Phase 32 (plan 07 → 08) — OPTIONAL, DORMANT gate/clarify passthrough. These
-  // are the run's active gate + clarify quick-action context PreviewPanel now
-  // forwards from DashboardLayout (plan 06) so a future Steps surface (plan 08)
-  // can mount the same inline gate/clarify affordances the RunChatLane composer
-  // uses. Pinned to the existing GateContext / ClarifyQuestion / ClarifyResponse
-  // shapes (name-free, SC-001); all default-undefined and NOT yet consumed here →
-  // every existing call site renders byte-unchanged (tsc-identity).
+  runInput?: string;
+  originalBriefRootRunId?: string;
+  revisionParentVersion?: number;
+  clarifications?: ClarifyRound[];
+  clarificationsLoading?: boolean;
   laneGate?: import("@/components/chat/RunChatLane").GateContext;
   onApproveGate?: (gateKey: string, editedContent?: string) => void;
   onRejectGate?: (gateKey: string) => void;
   onRedoGate?: (gateKey: string, instructions: string) => void;
   onUpdateSpecsGate?: (gateKey: string, report: string) => void;
   clarifyQuestions?: import("@/components/preview/QuestionnairePanel").ClarifyQuestion[];
-  onSubmitClarify?: (
-    responses: import("@/components/chat/InlineClarifyActions").ClarifyResponse[],
-  ) => void;
+  onSubmitClarify?: (responses: ClarifyResponse[]) => void;
   onSkipClarify?: () => void;
 }
-
-// ─── Agent accent — single on-brand color (plan-01 brand token) ────────────────
-// Replaces the former per-agent rainbow so the trace matches the rest of the app.
-// Status uses the same brand accent: in-progress and done are distinguished by
-// icon (pulse vs check) and fill, not hue. error=red, clarify=amber are kept
-// separate. Routed through the plan-01 brand tokens (no raw hex, SC-001-adjacent).
-const AGENT_ACCENT = {
-  bg: "bg-brand-fill",
-  text: "text-brand",
-  border: "border-brand/20",
-  dot: "bg-brand",
-  glow: "",
-};
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 function EmptyState() {
@@ -72,71 +46,16 @@ function EmptyState() {
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand/8 to-brand/4 flex items-center justify-center">
           <Activity className="h-7 w-7 text-brand/30" />
         </div>
-        <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-gray-200 flex items-center justify-center">
-          <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+        <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-surface-paper flex items-center justify-center">
+          <div className="w-1.5 h-1.5 rounded-full bg-line-faint" />
         </div>
       </div>
       <div>
-        <p className="text-[13px] font-semibold text-gray-700 mb-1">Pipeline Trace</p>
-        <p className="text-[11px] text-gray-400 leading-relaxed max-w-[200px]">
+        <p className="text-[13px] font-semibold text-ink-700 mb-1">Pipeline trace</p>
+        <p className="text-[11px] text-ink-300 leading-relaxed max-w-[200px]">
           Start a pipeline to see real-time agent reasoning, tool calls, and context flow.
         </p>
       </div>
-    </div>
-  );
-}
-
-// ─── Pipeline header bar ──────────────────────────────────────────────────────
-function PipelineHeader({ pipelineState, workflowLabel }: { pipelineState?: PipelineRunState; workflowLabel?: string }) {
-  if (!pipelineState) return null;
-  const { isRunning, completedCount, agents, totalDuration, executionGate } = pipelineState;
-  const total = agents.length;
-  const progress = total > 0 ? (completedCount / total) * 100 : 0;
-  const hasErrors = agents.some(a => a.status === "error");
-
-  return (
-    <div className="flex-shrink-0 px-4 pt-4 pb-3 border-b border-gray-100 bg-white">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${
-            isRunning ? "bg-brand animate-pulse" :
-            hasErrors ? "bg-red-400" :
-            "bg-brand"
-          }`} />
-          <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider">
-            {workflowLabel || (isRunning ? "Pipeline Running" : hasErrors ? "Completed with errors" : "Pipeline Complete")}
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          {executionGate && (
-            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-              executionGate === "PROCEED"
-                ? "bg-brand-fill text-brand border border-brand/20"
-                : "bg-amber-50 text-amber-700 border border-amber-200"
-            }`}>
-              {executionGate === "PROCEED" ? "✓ PROCEED" : "⚡ CLARIFY"}
-            </span>
-          )}
-          {totalDuration != null && (
-            <span className="text-[10px] text-gray-400 flex items-center gap-1">
-              <Clock className="h-3 w-3" />{totalDuration.toFixed(1)}s
-            </span>
-          )}
-        </div>
-      </div>
-      {/* Progress bar — matches prototype style */}
-      {total > 0 && (
-        <div className="flex items-center gap-1">
-          {agents.map((a, i) => (
-            <div key={i} className={`h-1.5 flex-1 rounded-full transition-all ${
-              a.status === "done" ? "bg-brand" :
-              a.status === "running" || a.status === "thinking" ? "bg-brand animate-pulse" :
-              a.status === "error" ? "bg-red-400" :
-              "bg-gray-200"
-            }`} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -153,572 +72,75 @@ function PlannerCard({ pipelineState }: { pipelineState: PipelineRunState }) {
 
   return (
     <div className="relative pl-8">
-      {/* Timeline dot */}
       <div className="absolute left-0 top-3 flex flex-col items-center">
         <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 z-10 ${
           isRunning ? "border-brand/40 bg-brand-fill animate-pulse" :
           isDone ? "border-brand bg-brand" :
-          "border-red-400 bg-red-50"
+          "border-status-failed bg-status-failed-fill"
         }`}>
           {isDone ? <CheckCircle2 className="h-3 w-3 text-white" /> :
-           isError ? <XCircle className="h-3 w-3 text-red-500" /> :
+           isError ? <XCircle className="h-3 w-3 text-status-failed" /> :
            <Brain className="h-3 w-3 text-brand" />}
         </div>
-        <div className="w-px flex-1 bg-gray-200 mt-1" style={{ minHeight: 20 }} />
+        <div className="w-px flex-1 bg-line-border mt-1" style={{ minHeight: 20 }} />
       </div>
 
       <div className={`rounded-xl border overflow-hidden transition-all ${
-        isRunning ? "border-brand/20 shadow-sm" : "border-gray-100"
+        isRunning ? "border-brand/20 shadow-sm" : "border-line-faint-row"
       }`}>
         <button
           onClick={() => setExpanded(v => !v)}
-          className="w-full flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50/50 transition-colors text-left"
+          aria-expanded={expanded}
+          className="w-full flex items-center gap-3 px-4 py-3 bg-surface-white hover:bg-surface-warm/50 transition-colors text-left"
         >
           <div className="w-7 h-7 rounded-lg bg-brand-fill flex items-center justify-center flex-shrink-0">
             <Brain className="h-3.5 w-3.5 text-brand" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-[12px] font-semibold text-gray-900">Deep Planner</p>
+              <p className="text-[12px] font-semibold text-ink-900">Deep Planner</p>
               {plannerStatus === "timeout" && (
-                <span className="text-[9px] bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded-full font-medium">TIMEOUT</span>
+                <span className="text-[9px] bg-status-amber-fill text-status-amber border border-status-amber-border px-1.5 py-0.5 rounded-full font-medium">TIMEOUT</span>
               )}
             </div>
-            <p className="text-[10px] text-gray-400 truncate">
+            <p className="text-[10px] text-ink-300 truncate">
               {plannerSummary ? `Intent: ${plannerSummary.slice(0, 60)}` : "Analyzing brief & planning execution…"}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {executionGate && (
               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                executionGate === "PROCEED" ? "bg-brand-fill text-brand" : "bg-amber-50 text-amber-700"
+                executionGate === "PROCEED" ? "bg-brand-fill text-brand" : "bg-status-amber-fill text-status-amber"
               }`}>
                 {executionGate}
               </span>
             )}
             {isRunning && <Zap className="h-3.5 w-3.5 text-brand animate-pulse" />}
-            <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+            <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${expanded ? "rotate-180" : ""}`} />
           </div>
         </button>
 
         {expanded && plannerSummary && (
-          <div className="border-t border-gray-100 px-4 py-3 bg-gradient-to-b from-brand-fill/40 to-white">
-            <p className="text-[10px] font-semibold text-brand uppercase tracking-wider mb-1.5">Inferred Intent</p>
-            <p className="text-[11px] text-gray-700 leading-relaxed">{plannerSummary}</p>
+          <div className="border-t border-line-faint-row px-4 py-3 bg-gradient-to-b from-brand-fill/40 to-surface-white">
+            <p className="text-[10px] font-semibold text-brand uppercase tracking-wider mb-1.5">Inferred intent</p>
+            <p className="text-[11px] text-ink-700 leading-relaxed">{plannerSummary}</p>
           </div>
         )}
       </div>
     </div>
   );
 }
-
-// ─── Revision instruction card ────────────────────────────────────────────────
-// Extracts and highlights the actual revision request from the full input prompt
-// (which can be 60-100k chars of HTML). Makes it immediately visible at the top.
-function RevisionInstructionCard({ prompt }: { prompt: string }) {
-  const match = prompt.match(/===\s*REVISION REQUEST\s*===\s*\n([\s\S]*?)\n===\s*END REQUEST\s*===/i);
-  if (!match) return null;
-  const instruction = match[1].trim();
-  return (
-    <div className="mb-3 rounded-xl border-2 border-brand/30 bg-brand/5 px-3 py-2.5">
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <Pencil className="h-3 w-3 text-brand" />
-        <span className="text-[9px] font-bold text-brand uppercase tracking-widest">Revision Request</span>
-      </div>
-      <p className="text-[11px] text-brand font-medium leading-relaxed">{instruction}</p>
-    </div>
-  );
-}
-
-// ─── Edit summary card ─────────────────────────────────────────────────────────
-// Derives a concise summary of what was changed from the tool calls list.
-function EditSummaryCard({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
-  const edits = toolCalls.filter(tc => tc.tool === "edit_file");
-  const writes = toolCalls.filter(tc => tc.tool === "write_file");
-  const reads = toolCalls.filter(tc => tc.tool === "read_file" || tc.tool === "grep");
-  if (edits.length === 0 && writes.length === 0) return null;
-  return (
-    <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-        <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-widest">Changes Applied</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {edits.length > 0 && (
-          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-            {edits.length} surgical edit{edits.length !== 1 ? "s" : ""}
-          </span>
-        )}
-        {writes.length > 0 && (
-          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-            {writes.length} full rewrite{writes.length !== 1 ? "s" : ""}
-          </span>
-        )}
-        {reads.length > 0 && (
-          <span className="text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-            {reads.length} read/scan{reads.length !== 1 ? "s" : ""}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Validation result card ────────────────────────────────────────────────────
-// Shows the post-revision validation outcome (html_static + html_render).
-function ValidationResultCard({ passed, issues }: { passed?: boolean; issues?: ValidationIssue[] }) {
-  const [open, setOpen] = useState(false);
-  if (passed === undefined && (!issues || issues.length === 0)) return null;
-  const hasIssues = issues && issues.length > 0;
-  const isPassed = passed === true && !hasIssues;
-  return (
-    <div className={`mb-3 rounded-xl border px-3 py-2.5 ${isPassed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-      <button onClick={() => hasIssues && setOpen(v => !v)} className="w-full flex items-center gap-1.5 text-left">
-        {isPassed
-          ? <CheckCircle2 className="h-3 w-3 text-emerald-600 flex-shrink-0" />
-          : <AlertTriangle className="h-3 w-3 text-amber-600 flex-shrink-0" />}
-        <span className={`text-[9px] font-bold uppercase tracking-widest ${isPassed ? "text-emerald-700" : "text-amber-700"}`}>
-          Validation {isPassed ? "Passed" : passed === false ? "Blocked" : "Issues Found"}
-        </span>
-        {hasIssues && (
-          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-1 ${isPassed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-            {issues!.length} issue{issues!.length !== 1 ? "s" : ""}
-          </span>
-        )}
-        {hasIssues && <ChevronDown className={`h-3 w-3 text-gray-400 ml-auto transition-transform ${open ? "rotate-180" : ""}`} />}
-      </button>
-      {open && hasIssues && (
-        <div className="mt-2 space-y-1">
-          {issues!.map((issue, i) => (
-            <div key={i} className="flex items-start gap-1.5 rounded-lg bg-white border border-amber-100 px-2.5 py-1.5">
-              <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded flex-shrink-0 mt-0.5 ${
-                issue.severity === "CRITICAL" ? "bg-red-100 text-red-700" :
-                issue.severity === "HIGH" ? "bg-orange-100 text-orange-700" :
-                issue.severity === "MEDIUM" ? "bg-amber-100 text-amber-700" :
-                "bg-gray-100 text-gray-600"
-              }`}>{issue.severity}</span>
-              <p className="text-[10px] text-gray-700 leading-snug">{issue.message}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Context sources row ──────────────────────────────────────────────────────
-export function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
-  return (
-    <div className="mb-3 rounded-xl border border-brand/20 bg-brand-fill/60 px-3 py-2.5">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Database className="h-3 w-3 text-brand" />
-        <span className="text-[9px] font-bold text-brand uppercase tracking-widest">Context Received</span>
-        <span className="text-[9px] bg-brand/10 text-brand px-1.5 py-0.5 rounded-full font-medium ml-auto">{sources.length} source{sources.length !== 1 ? "s" : ""}</span>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {sources.map((src, i) => {
-          const label = src.type === "summary"
-            ? (src.agent_name || src.agent_id || "Agent")
-            : (src.artifact_type || "artifact");
-          const size = src.type === "summary" && src.summary_length != null
-            ? `${(src.summary_length / 1000).toFixed(1)}k`
-            : src.type === "artifact" && src.artifact_size_chars != null
-            ? `${(src.artifact_size_chars / 1000).toFixed(1)}k`
-            : null;
-          const compression = src.type === "summary" && src.summary_length != null && src.full_output_length != null && src.full_output_length > 0
-            ? Math.round((1 - src.summary_length / src.full_output_length) * 100)
-            : null;
-          return (
-            <div key={i} className="flex items-center gap-1.5 bg-white border border-brand/20 shadow-sm rounded-lg px-2.5 py-1.5">
-              <Layers className="h-2.5 w-2.5 text-brand flex-shrink-0" />
-              <span className="text-[10px] font-semibold text-brand truncate max-w-[140px]">{label}</span>
-              {size && <span className="text-[9px] text-brand/60 font-mono">{size}</span>}
-              {compression != null && compression > 0 && (
-                <span className="text-[9px] bg-brand/10 text-brand px-1 rounded font-medium">-{compression}%</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Tool calls section ───────────────────────────────────────────────────────
-export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  // Collapse the whole section by default when there are many tool calls
-  const [sectionOpen, setSectionOpen] = useState(toolCalls.length <= 5);
-  return (
-    <div className="mb-3">
-      <button
-        onClick={() => setSectionOpen(v => !v)}
-        className="flex items-center gap-1.5 mb-2 w-full text-left hover:text-gray-600 transition-colors"
-      >
-        <Wrench className="h-3 w-3 text-gray-400 flex-shrink-0" />
-        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Tool Calls</span>
-        <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{toolCalls.length}</span>
-        <ChevronDown className={`h-3 w-3 text-gray-300 ml-auto flex-shrink-0 transition-transform ${sectionOpen ? "rotate-180" : ""}`} />
-      </button>
-      {sectionOpen && (
-        <div className="space-y-1.5">
-          {toolCalls.map((tc, i) => (
-            <div key={i} className="rounded-lg border border-gray-100 overflow-hidden bg-white">
-              <button
-                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
-                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors text-left"
-              >
-                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tc.result != null ? "bg-brand" : "bg-amber-400 animate-pulse"}`} />
-                <span className="text-[10px] font-mono font-semibold text-brand flex-1 truncate">{tc.tool}</span>
-                <span className="text-[9px] text-gray-400 truncate max-w-[120px]">
-                  {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${String(v).slice(0, 20)}`).join(", ") || "no args"}
-                </span>
-                <ChevronDown className={`h-3 w-3 text-gray-300 flex-shrink-0 transition-transform ${expandedIdx === i ? "rotate-180" : ""}`} />
-              </button>
-              {expandedIdx === i && (
-                <div className="border-t border-gray-100 bg-gray-50/50">
-                  {Object.keys(tc.args || {}).length > 0 && (
-                    <div className="px-3 py-2 border-b border-gray-100">
-                      <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Arguments</p>
-                      <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed">
-                        {JSON.stringify(tc.args, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {tc.result != null && (
-                    <div className="px-3 py-2">
-                      <p className="text-[9px] font-semibold text-brand uppercase tracking-wider mb-1">Result</p>
-                      <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">
-                        {tc.result}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Input prompt section ─────────────────────────────────────────────────────
-export function InputPromptSection({ prompt }: { prompt: string }) {
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(prompt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-  return (
-    <div className="mb-3">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1.5 text-[9px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"
-      >
-        <FileText className="h-3 w-3" />
-        Full Input Prompt
-        <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <div className="mt-2 rounded-lg border border-gray-100 overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-100">
-            <span className="text-[9px] text-gray-400">{prompt.length.toLocaleString()} chars</span>
-            <button onClick={handleCopy} className="flex items-center gap-1 text-[9px] text-gray-400 hover:text-gray-600 transition-colors">
-              {copied ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
-          <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed p-3 max-h-[500px] overflow-y-auto font-mono bg-white">
-            {prompt}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Output preview section ───────────────────────────────────────────────────
-export function OutputPreviewSection({ output, agentId }: { output: string; agentId: string }) {
-  const [open, setOpen] = useState(false);
-  const isHtml = /<!DOCTYPE|<html/i.test(output) || output.includes("<artifact>");
-  const preview = isHtml ? "[HTML artifact — click to expand]" : output.slice(0, 120) + (output.length > 120 ? "…" : "");
-  return (
-    <div>
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1.5 text-[9px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"
-      >
-        {open ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-        Agent Output
-        <span className="text-[9px] text-gray-300 font-normal normal-case tracking-normal">
-          {(output.length / 1000).toFixed(1)}k chars
-        </span>
-        <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {!open && (
-        <p className="mt-1 text-[10px] text-gray-500 leading-relaxed line-clamp-2 font-mono">{preview}</p>
-      )}
-      {open && (
-        <div className="mt-2 rounded-lg border border-gray-100 overflow-hidden">
-          <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed p-3 max-h-[500px] overflow-y-auto font-mono bg-gray-50">
-            {output}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Per-agent timeline card ──────────────────────────────────────────────────
-interface AgentCardProps {
-  agent: AgentRunState;
-  isLast: boolean;
-  isRunning: boolean;
-  refCallback?: (el: HTMLDivElement | null) => void;
-}
-
-function AgentTimelineCard({ agent, isLast, isRunning, refCallback }: AgentCardProps) {
-  const [expanded, setExpanded] = useState(isRunning);
-  const color = AGENT_ACCENT;
-  const isDone = agent.status === "done";
-  const isError = agent.status === "error";
-  const isIdle = agent.status === "idle";
-  const initials = agent.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
-
-  // Auto-expand when agent starts running
-  useEffect(() => {
-    if (isRunning) setExpanded(true);
-  }, [isRunning]);
-
-  const hasContent = agent.inputPrompt || (agent.contextSources?.length ?? 0) > 0 ||
-    (agent.toolCalls?.length ?? 0) > 0 || agent.thinkingText || (isDone && agent.output);
-
-  return (
-    <div ref={refCallback} className={`rounded-xl border overflow-hidden transition-all ${
-      isRunning ? `${color.border} shadow-sm` :
-      isDone ? "border-gray-100" :
-      isError ? "border-red-100" :
-      "border-gray-100 opacity-50"
-    }`}>
-      {/* Header */}
-      <button
-        onClick={() => hasContent && setExpanded(v => !v)}
-        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-          hasContent ? "hover:bg-gray-50/50 cursor-pointer" : "cursor-default"
-        } bg-white`}
-      >
-        {/* Avatar — matches prototype phase icon style */}
-        <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
-          isRunning ? `${color.bg} ${color.text}` :
-          isDone ? "bg-brand-fill text-brand" :
-          isError ? "bg-red-50 text-red-500" :
-          "bg-gray-100 text-gray-400"
-        }`}>
-          {isDone ? <CheckCircle2 className="h-4 w-4" /> :
-           isError ? <XCircle className="h-4 w-4" /> :
-           agent.icon && agent.icon !== "🤖" ? <span className="text-[13px]">{agent.icon}</span> :
-           <span className="text-[11px] font-bold">{initials}</span>}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <p className={`text-[12px] font-semibold truncate ${isIdle ? "text-gray-400" : "text-gray-900"}`}>
-              {agent.name}
-            </p>
-            {isRunning && (
-              <span className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${color.bg} ${color.text}`}>
-                <Zap className="h-2.5 w-2.5" />LIVE
-              </span>
-            )}
-            {isDone && (
-              <span className="text-[9px] font-bold text-brand bg-brand-fill px-1.5 py-0.5 rounded-full">DONE</span>
-            )}
-            {isError && (
-              <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full">ERROR</span>
-            )}
-          </div>
-          <p className={`text-[10px] truncate ${isIdle ? "text-gray-300" : "text-gray-400"}`}>{agent.role}</p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {isDone && agent.totalTokens != null && agent.totalTokens > 0 && (
-            <div className="flex items-center gap-1 text-[9px] text-gray-400">
-              <Cpu className="h-2.5 w-2.5" />
-              <span>{(agent.totalTokens / 1000).toFixed(1)}k</span>
-            </div>
-          )}
-          {isDone && agent.duration != null && (
-            <span className="text-[9px] text-gray-400 flex items-center gap-0.5">
-              <Clock className="h-2.5 w-2.5" />{agent.duration.toFixed(1)}s
-            </span>
-          )}
-          {hasContent && (
-            <ChevronDown className={`h-3.5 w-3.5 text-gray-300 transition-transform ${expanded ? "rotate-180" : ""}`} />
-          )}
-        </div>
-      </button>
-
-      {/* Live thinking stream */}
-      {isRunning && agent.thinkingText && (
-        <div className={`px-4 py-2 border-t ${color.border} ${color.bg}/30`}>
-          <div className="flex items-center gap-1.5 mb-1">
-            <Brain className={`h-3 w-3 ${color.text}`} />
-            <span className={`text-[9px] font-bold uppercase tracking-widest ${color.text}`}>Reasoning (live)</span>
-          </div>
-          <p className="text-[10px] text-gray-700 leading-relaxed font-mono max-h-[200px] overflow-y-auto">
-            {agent.thinkingText}
-            <span className="animate-pulse">▌</span>
-          </p>
-        </div>
-      )}
-
-      {/* Expanded body */}
-      {expanded && hasContent && (
-        <div className="border-t border-gray-100 px-4 py-3 bg-white space-y-0">
-          {/* KAN-81: revision-specific diagnostics shown first */}
-          {agent.inputPrompt && <RevisionInstructionCard prompt={agent.inputPrompt} />}
-          {agent.toolCalls && agent.toolCalls.length > 0 && (
-            <EditSummaryCard toolCalls={agent.toolCalls} />
-          )}
-          <ValidationResultCard passed={agent.validationPassed} issues={agent.validationIssues} />
-          {agent.contextSources && agent.contextSources.length > 0 && (
-            <ContextSourcesRow sources={agent.contextSources} />
-          )}
-          {agent.toolCalls && agent.toolCalls.length > 0 && (
-            <ToolCallsSection toolCalls={agent.toolCalls} />
-          )}
-          {agent.inputPrompt && (
-            <InputPromptSection prompt={agent.inputPrompt} />
-          )}
-          {isDone && agent.output && agent.output.trim().length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-100">
-              <OutputPreviewSection output={agent.output} agentId={agent.id} />
-            </div>
-          )}
-          {isError && agent.error && (
-            <div className="mt-2 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
-              <p className="text-[10px] text-red-600 font-medium">{agent.error}</p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Construction drill-down (L3) — dual-source ───────────────────────────────
-// STEPS-ARTIFACT-DERIVATION-CONTRACT §2/§3/§4. The construction block merges the
-// TWO backend event families the contract pins:
-//   Source A — the task-loop checklist (`task_progress.completed_count`, carried
-//     on pipelineState.protoCompletedTaskCount).
-//   Source B — the fan-out waves + workers (`wave_*` / `subagent_*`), rendered by
-//     the shared WaveTreePanel mounted HERE inside the drill-down (ISS-019 —
-//     no longer below the fold).
-// KAN-99 (§3): the FINAL task_progress fires BEFORE the build agent's non-yielding
-// fix-loop, so the checklist caps at N-1 until agent_complete; completed_count ==
-// total-1 is the expected steady state, never a stall. It reaches N only when the
-// construction agent truly completes (a later agent started OR the run ended).
-function ConstructionDrilldown({
-  completedCount,
-  totalTasks,
-  isComplete,
-  waves,
-}: {
-  completedCount: number;
-  totalTasks: number;
-  isComplete: boolean;
-  waves: WaveGroup[];
-}) {
-  // KAN-99 N-1 cap — until agent_complete, never show the last task as done.
-  const displayedDone = isComplete
-    ? totalTasks
-    : Math.min(completedCount, Math.max(0, totalTasks - 1));
-
-  return (
-    <div
-      data-testid="construction-block"
-      className="rounded-xl border border-line-border bg-surface-white overflow-hidden"
-    >
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-line-divider">
-        <Layers className="h-3.5 w-3.5 text-brand" />
-        <span className="text-[11px] font-semibold text-ink-700">
-          Construction · waves &amp; subagents
-        </span>
-        {totalTasks > 0 && (
-          <span
-            data-testid="construction-progress"
-            className="ml-auto text-[10px] font-mono font-semibold text-brand bg-brand-fill px-2 py-0.5 rounded-full"
-          >
-            {displayedDone}/{totalTasks}
-          </span>
-        )}
-      </div>
-
-      {/* Source A — the task-loop checklist (KAN-99 capped). */}
-      {totalTasks > 0 && (
-        <div className="px-4 py-3 space-y-1.5 border-b border-line-divider">
-          {Array.from({ length: totalTasks }).map((_, i) => {
-            const done = i < displayedDone;
-            const active = !isComplete && i === displayedDone;
-            return (
-              <div key={i} className="flex items-center gap-2">
-                {done ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-brand flex-shrink-0" />
-                ) : active ? (
-                  <Zap className="h-3.5 w-3.5 text-brand animate-pulse flex-shrink-0" />
-                ) : (
-                  <Clock className="h-3.5 w-3.5 text-ink-300 flex-shrink-0" />
-                )}
-                <span
-                  className={`text-[11px] ${
-                    done ? "text-ink-700 font-medium" : active ? "text-brand font-medium" : "text-ink-400"
-                  }`}
-                >
-                  Task {i + 1}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Source B — the fan-out wave/subagent tree (ISS-019: mounted here). */}
-      <div className="px-4 py-3">
-        <WaveTreePanel waves={waves} />
-      </div>
-    </div>
-  );
-}
-
-// Token usage is rendered via the shared TokenUsageSummary card (see main export),
-// replacing the former bespoke TokenSummary so all pipelines use one component.
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 export function AgentThinkingTab({
   agents, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion,
   clarifications, clarificationsLoading,
-  // Phase 32 plan 08 — the plan-06/07 gate/clarify passthrough is now CONSUMED
-  // via the reused generic InlineGateActions/InlineClarifyActions (SC-2).
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify,
 }: AgentThinkingTabProps) {
-  const runningRef = useRef<HTMLDivElement | null>(null);
+  // ── The three-level Steps navigation (mirrors the mock's stepView/taskView) ──
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Defensive: scrollIntoView is unimplemented in jsdom and may be absent in
-    // some embedded webviews — guard so a running-agent auto-scroll never throws.
-    const el = runningRef.current;
-    if (el && typeof el.scrollIntoView === "function") {
-      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-  }, [agents]);
-
-  // Workstream C2 — the run input / clarify rounds are also first-class timeline
-  // data, so a run with only inputs (no agents yet) must NOT short-circuit to the
-  // EmptyState. Additive to the existing conditions (both props new/optional).
   const resolvedClarifications = clarifications ?? pipelineState?.clarifications;
   const hasAnyData = pipelineState?.plannerStatus ||
     agents.some(a => a.thinkingText || (a.toolCalls?.length ?? 0) > 0 || a.inputPrompt || a.status !== "idle") ||
@@ -726,151 +148,74 @@ export function AgentThinkingTab({
 
   if (!hasAnyData) return <EmptyState />;
 
-  // SC-001 (Phase 32 plan 08): the former `isPrototypePipeline` branch that keyed
-  // on the phase-agent render-path name literals and swapped in the prototype-only
-  // PrototypePipelineView is REMOVED. Per INV-3
-  // (no dual implementation), the generic Steps drill-down below supersedes the
-  // bespoke phase view and renders EVERY workflow — prototype included — off the
-  // same generic agent-timeline + dual-source construction path. No workflow name
-  // gates the render; the drill-down knows no pipeline by name.
-
+  // SC-001: no workflow-name gate. Every workflow renders through this generic
+  // overview → detail drill-down (the former isPrototypePipeline branch is gone).
   const visibleAgents = agents.filter(a => a.status !== "idle" || (a.inputPrompt || (a.toolCalls?.length ?? 0) > 0));
 
-  // Derive a friendly pipeline label from a GENERIC id-substring scan (SC-001 —
-  // the "prototype-" prefix is a structural family marker, never one of the three
-  // gated phase-agent render-path name literals).
-  const pipelineLabel = (() => {
-    const ids = agents.map(a => a.id);
-    if (ids.some(id => id.includes("user_stories") || id.includes("domain-analyst") || id.includes("epic-architect") || id.includes("backlog"))) return "User Stories Pipeline";
-    if (ids.some(id => id.includes("ppt") || id.includes("presentation"))) return "Presentation Pipeline";
-    if (ids.some(id => id.includes("app-builder") || id.includes("sdlc"))) return "App Builder Pipeline";
-    if (ids.some(id => id.includes("mulesoft"))) return "Mulesoft Migration Pipeline";
-    if (ids.some(id => id.includes("dotnet"))) return ".NET Migration Pipeline";
-    if (ids.some(id => id === "prototype-revision-agent")) return "Prototype Revision Pipeline";
-    if (ids.some(id => id.startsWith("prototype-"))) return "Prototype Pipeline";
-    return "Pipeline";
-  })();
-
-  // ── L3 construction drill-down (dual-source, STEPS-ARTIFACT-DERIVATION §2/§3) ──
+  // ── L2 construction data (dual-source, STEPS-ARTIFACT-DERIVATION §2/§3) ──
   const resolvedWaves = waves ?? [];
-  // Source A — task_progress completed_count (task-loop checklist).
-  const completedCount = pipelineState?.protoCompletedTaskCount ?? 0;
-  // Task universe = the distinct task ids the fan-out declared across its waves
-  // (Source B); fall back to the task-loop count so a wave-less construction run
-  // still shows its checklist. This is the dual-source merge (§2).
+  const completedTaskCount = pipelineState?.protoCompletedTaskCount ?? 0;
   const waveTaskUniverse = new Set(resolvedWaves.flatMap(w => w.taskIds));
-  const totalTasks = waveTaskUniverse.size > 0 ? waveTaskUniverse.size : completedCount;
-  // The construction agent — a GENERIC structural id match (build/construct
-  // family), never a gated phase-agent name literal (SC-001).
+  const totalTasks = waveTaskUniverse.size > 0 ? waveTaskUniverse.size : completedTaskCount;
   const constructionIdx = agents.findIndex(a => /build|construct/i.test(a.id));
   const constructionAgent = constructionIdx >= 0 ? agents[constructionIdx] : undefined;
   const laterAgentStarted = constructionIdx >= 0 &&
     agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
-  // KAN-99 terminal signal: the construction checklist reaches N only when the
-  // construction agent truly completes (a later agent started OR the run ended) —
-  // NOT on the final task_progress (which precedes the fix-loop).
   const constructionComplete = constructionAgent
     ? constructionAgent.status === "done" && (laterAgentStarted || pipelineState?.isRunning === false)
     : pipelineState?.isRunning === false;
   const hasConstruction = resolvedWaves.length > 0 || pipelineState?.protoCompletedTaskCount != null;
 
+  const selectedAgent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : undefined;
+  const isConstructionSelected = !!selectedAgent && constructionAgent?.id === selectedAgent.id;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <PipelineHeader pipelineState={pipelineState} workflowLabel={pipelineLabel} />
-
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {/* Workstream C2 (POR §5 D3) — the run's starting point, BEFORE the Planner */}
-        <StartingPointCard
-          input={runInput}
-          originalBriefRootRunId={originalBriefRootRunId}
-          revisionParentVersion={revisionParentVersion}
-        />
-
-        {/* Planner step */}
-        {pipelineState && (
-          <PlannerCard pipelineState={pipelineState} />
-        )}
-
-        {/* Workstream C2 (POR §5 D4) — the clarify exchange, AFTER the Planner */}
-        <ClarificationsCard clarifications={resolvedClarifications} loading={clarificationsLoading} />
-
-        {/* Phase 32 plan 08 — INLINE gate: the paused review gate rendered in the
-            Steps trace via the REUSED generic InlineGateActions (KAN-101/95/100/98,
-            SC-001). The Update-the-Specs affordance keys on the generic
-            updateSpecsEligible flag; the KAN-100 terminal fence + retained edit +
-            reject-confirm are all inherited from the shared component. */}
-        {laneGate && onApproveGate && (
-          <InlineGateActions
-            agentId={laneGate.agentId}
-            agentName={laneGate.agentName}
-            output={laneGate.output}
-            gateKey={laneGate.gateKey}
-            redoable={laneGate.redoable}
-            updateSpecsEligible={laneGate.updateSpecsEligible}
-            isPipelineRunning={pipelineState?.isRunning ?? false}
-            approveLabel={laneGate.approveLabel}
-            onApprove={onApproveGate}
-            onReject={onRejectGate ?? (() => {})}
-            onRedo={onRedoGate}
-            onUpdateSpecs={onUpdateSpecsGate}
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        {selectedAgent ? (
+          // ── L2 — agent detail ──
+          <AgentDetailPanel
+            agent={selectedAgent}
+            onBack={() => setSelectedAgentId(null)}
+            construction={isConstructionSelected && hasConstruction ? {
+              completedCount: completedTaskCount,
+              totalTasks,
+              isComplete: constructionComplete,
+              waves: resolvedWaves,
+              tasks: pipelineState?.protoCompletedTasks,
+            } : undefined}
           />
-        )}
-
-        {/* Phase 32 plan 08 — INLINE clarify: the clarify-waiting round rendered in
-            the Steps trace via the REUSED generic InlineClarifyActions, emitting the
-            canonical [{question_id, answer}] over the SAME submit_questionnaire
-            channel the full panel uses (one channel regardless of surface). */}
-        {clarifyQuestions && clarifyQuestions.length > 0 && onSubmitClarify && (
-          <InlineClarifyActions
-            questions={clarifyQuestions}
-            onSubmitAnswers={onSubmitClarify}
-            onSkipAll={onSkipClarify}
-          />
-        )}
-
-        {/* Agent cards */}
-        {visibleAgents.map((agent, idx) => {
-          const isRunning = agent.status === "running" || agent.status === "thinking";
-          return (
-            <AgentTimelineCard
-              key={agent.id}
-              agent={agent}
-              isLast={idx === visibleAgents.length - 1}
-              isRunning={isRunning}
-              refCallback={isRunning ? (el) => { runningRef.current = el; } : undefined}
+        ) : (
+          // ── L1 — overview ──
+          <div className="max-w-[760px] mx-auto space-y-3">
+            <StartingPointCard
+              input={runInput}
+              originalBriefRootRunId={originalBriefRootRunId}
+              revisionParentVersion={revisionParentVersion}
             />
-          );
-        })}
+            {pipelineState && <PlannerCard pipelineState={pipelineState} />}
 
-        {/* L3 construction drill-down — dual-source (task_progress plus the
-            wave and subagent events); WaveTreePanel mounted HERE (ISS-019),
-            with the KAN-99 N-1 cap. */}
-        {hasConstruction && (
-          <ConstructionDrilldown
-            completedCount={completedCount}
-            totalTasks={totalTasks}
-            isComplete={constructionComplete}
-            waves={resolvedWaves}
-          />
-        )}
-
-        {/* All done state — matches prototype complete indicator */}
-        {pipelineState && !pipelineState.isRunning && visibleAgents.length > 0 &&
-          visibleAgents.every(a => a.status === "done" || a.status === "error") && (
-          <div className="flex items-center gap-2 py-2">
-            <div className="w-6 h-6 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
-              <CheckCircle2 className="h-3.5 w-3.5 text-white" />
-            </div>
-            <span className="text-[11px] font-semibold text-brand">Pipeline complete</span>
-            {pipelineState.totalDuration != null && (
-              <span className="text-[10px] text-gray-400">in {pipelineState.totalDuration.toFixed(1)}s</span>
-            )}
+            <StepsOverviewSpine
+              agents={visibleAgents}
+              pipelineState={pipelineState}
+              clarifications={resolvedClarifications}
+              clarificationsLoading={clarificationsLoading}
+              onOpenAgent={(id) => setSelectedAgentId(id)}
+              laneGate={laneGate}
+              onApproveGate={onApproveGate}
+              onRejectGate={onRejectGate}
+              onRedoGate={onRedoGate}
+              onUpdateSpecsGate={onUpdateSpecsGate}
+              clarifyQuestions={clarifyQuestions}
+              onSubmitClarify={onSubmitClarify}
+              onSkipClarify={onSkipClarify}
+            />
           </div>
         )}
       </div>
 
       {pipelineState && (
-        <div className="flex-shrink-0 border-t border-gray-100 px-4 py-2 bg-gray-50/50">
+        <div className="flex-shrink-0 border-t border-line-faint-row px-4 py-2 bg-surface-warm/50">
           <TokenUsageSummary pipelineState={pipelineState} modelId={pipelineState.modelId} />
         </div>
       )}
