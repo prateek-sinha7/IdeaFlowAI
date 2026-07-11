@@ -52,9 +52,12 @@ async function capture(state, file, browser, origin) {
   await page.addScriptTag({ url: REACT_UMD }).catch(() => {});
   await page.addScriptTag({ url: REACT_DOM_UMD }).catch(() => {});
 
-  // Hydration is done once a real tab button (e.g. "Preview") is on the page.
+  // Hydration is done once ANY real tab button is on the page. The failed mock
+  // omits the Preview tab (Steps·Files·Audit only) AND renders a count inside the
+  // tab label ("Steps 5"), so gate on a CONTAINS match of any tab word — anchored
+  // "^Preview$" would time out on the failed mock and skip its leftlane clip.
   await page
-    .getByRole("button", { name: /^Preview$/ })
+    .getByRole("button", { name: /(Preview|Steps|Files|Audit)/ })
     .first()
     .waitFor({ state: "visible", timeout: 30_000 });
 

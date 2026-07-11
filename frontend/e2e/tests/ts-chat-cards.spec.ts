@@ -40,15 +40,17 @@ test.describe("TS-CHAT-CARDS — result cards, deep-link, attachments (mocked)",
     await expect(card).toContainText("Deliverable");
 
     // Move OFF the default Preview tab so the deep-link switch is observable.
-    const previewTab = page.getByRole("button", { name: "Preview", exact: true });
-    const filesTab = page.getByRole("button", { name: "Files", exact: true });
+    // Phase 39 re-anchor: the redesigned tabs are role="tab" with an
+    // aria-selected active-state (was a role="button" + text-gray-900 class).
+    const previewTab = page.getByRole("tab", { name: /Preview/ });
+    const filesTab = page.getByRole("tab", { name: /Files/ });
     await filesTab.click();
-    await expect(filesTab).toHaveClass(/text-gray-900/);
+    await expect(filesTab).toHaveAttribute("aria-selected", "true");
 
     // Click the card's deep-link → the nonce'd seam opens the Preview tab.
     await page.getByTestId("chat-result-card-link").click();
-    await expect(previewTab).toHaveClass(/text-gray-900/);
-    await expect(filesTab).not.toHaveClass(/text-gray-900/);
+    await expect(previewTab).toHaveAttribute("aria-selected", "true");
+    await expect(filesTab).toHaveAttribute("aria-selected", "false");
   });
 
   // ── TS-CHAT-CARDS-02 — spec_revision card reads "Revising spec — cycle N" ────
