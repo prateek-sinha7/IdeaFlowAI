@@ -24,8 +24,10 @@ import { resolve } from "path";
 
 test.skip(!process.env.SHELL_CAPTURE, "shell fidelity capture only (set SHELL_CAPTURE=1)");
 
+// Repo-relative by default (aligns with assemble-shell-gallery.mjs BASE:
+// <base>/current). PHASE40_OUT=/abs overrides the base dir for scratch runs.
 const OUT = process.env.PHASE40_OUT
-  ? resolve(process.env.PHASE40_OUT, "shots", "current")
+  ? resolve(process.env.PHASE40_OUT, "current")
   : resolve(process.cwd(), "e2e/fidelity/shots-shell/current");
 mkdirSync(OUT, { recursive: true });
 
@@ -51,6 +53,7 @@ async function menu(page: Page, item: RegExp) {
 
 test("CAPTURE shell surfaces (home/library/catalogue/history/analytics/settings)", async ({ dashboard, page }) => {
   test.setTimeout(120_000);
+  dashboard.seedShell(); // opt-in: populate Catalogue/History/Analytics/recents
   await dashboard.goto(); // lands on Home ("What would you like to build today?")
 
   // 1) HOME

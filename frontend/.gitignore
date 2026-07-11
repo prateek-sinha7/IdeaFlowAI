@@ -48,3 +48,6 @@ next-env.d.ts
 # fidelity harness outputs (scripts + README committed; shots + gallery are not)
 /e2e/fidelity/shots/
 /e2e/fidelity/gallery.html
+# Phase 40 shell fidelity outputs
+/e2e/fidelity/shots-shell/
+/e2e/fidelity/gallery-shell.html

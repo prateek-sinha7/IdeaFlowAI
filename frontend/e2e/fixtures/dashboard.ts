@@ -8,12 +8,30 @@ import type { Page, Locator } from "@playwright/test";
 import { expect } from "@playwright/test";
 import type { MockWs } from "./mockWs";
 import type { MockApi, Tier } from "./mockApi";
+import {
+  DEFAULT_USER_WORKFLOWS, SEEDED_HISTORY_RUNS, SEEDED_ANALYTICS, seededHistoryFamily,
+} from "./mockApi";
 import { TOKEN_KEY, TEST_JWT } from "./constants";
 
 export class DashboardPage {
   constructor(readonly page: Page, readonly ws: MockWs, readonly api: MockApi) {}
 
   // ── navigation ──────────────────────────────────────────────────────────────
+
+  /**
+   * OPT-IN shell-capture seeding (Phase 40 / SHELL-04). Installs representative
+   * saved-workflow / history / analytics data into the MockApi so the Catalogue,
+   * Run History, Analytics and Home "Jump back in" recents render POPULATED for a
+   * fair fidelity diff. Call BEFORE `goto()`. NOT production data — the DEFAULT
+   * MockApi stays empty so no other spec regresses (ND-D / SC-001).
+   */
+  seedShell() {
+    this.api.setUserWorkflows(DEFAULT_USER_WORKFLOWS);
+    this.api.setRuns(SEEDED_HISTORY_RUNS);
+    this.api.setAnalytics(SEEDED_ANALYTICS);
+    this.api.setFamily(seededHistoryFamily);
+    return this;
+  }
 
   /** Seed an auth token (mocked mode) then open the dashboard at `home`. */
   async goto(opts: { tier?: Tier } = {}) {

@@ -43,6 +43,12 @@ export interface RawRun {
   error: string | null;
   token_usage: string | null;
   model_id: string | null;
+  // Revision Families (B1) — optional so legacy rows still parse; the FE
+  // normalizer (lib/api.ts) reads these to group a run into its family.
+  parent_run_id?: string | null;
+  root_run_id?: string;
+  deliverable_mimetype?: string | null;
+  deliverable_filename?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -128,6 +134,182 @@ export const defaultFamily = (id: string): MockRunFamily => ({
   ],
 });
 
+/**
+ * The saved-workflow read model GET /api/user-workflows returns — a faithful
+ * mirror of the FE's `UserWorkflowSummary` (lib/api.ts). Without this route the
+ * mock catch-all returns `{}`, so `userWorkflows.filter(...)` throws at
+ * SavedWorkflowsPage.tsx:170 (the Catalogue / My Workflows crash). The GET
+ * handler always returns an ARRAY (empty by default), which alone fixes the
+ * crash; `setUserWorkflows`/seeding populate it for the fidelity capture.
+ */
+export interface MockUserWorkflow {
+  id: string;
+  name: string;
+  description?: string | null;
+  base_pipeline_type: string;
+  agent_ids: string[];
+  model_overrides?: Record<string, string> | null;
+  selections?: Record<string, Record<string, unknown>> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** The date-scoped analytics rollup GET /api/analytics/summary returns
+ *  (AnalyticsSummary in lib/api.ts). The minimal default renders the zero-state;
+ *  SEEDED_ANALYTICS below fills every key for the populated fidelity capture. */
+export interface MockAnalyticsSummary {
+  kpis?: { total: number; completed: number; failed: number; success_rate: number };
+  daily?: { date: string; total: number; completed: number; failed: number; input_tokens: number; output_tokens: number; total_tokens: number }[];
+  pipelines?: { type: string; count: number; total_tokens: number; cost: number; avg_duration: number }[];
+  models?: { model_id: string; count: number; total_tokens: number; cost: number }[];
+  spend?: number;
+  token_totals?: { input: number; output: number; cache_read: number; cache_write: number; total: number };
+  type_avg_duration_sec: Record<string, number>;
+}
+
+/** The default analytics payload (zero-state) — byte-identical to the pre-seed
+ *  handler shape so specs that don't opt into seeding are unregressed. */
+export const DEFAULT_ANALYTICS: MockAnalyticsSummary = { type_avg_duration_sec: {} };
+
+// ── Opt-in shell-capture scaffolding (NOT production data) ────────────────────
+//
+// The following seed sets exist ONLY so the Phase-40 shell fidelity capture can
+// diff POPULATED surfaces (Catalogue / History / Analytics / Home-recents) that
+// otherwise render empty in mocked mode. Production endpoints return only real
+// owner-scoped data — this is capture scaffolding under SC-001/ND-D, mirroring
+// the audit-seeding block below. Install it via `dashboard.seedShell()` /
+// `setUserWorkflows` / `setRuns` / `setAnalytics`; the DEFAULTS stay empty so no
+// existing spec regresses.
+
+/** ≥2 representative saved workflows for the Catalogue capture. */
+export const DEFAULT_USER_WORKFLOWS: MockUserWorkflow[] = [
+  {
+    id: "uw-sprint-deck",
+    name: "Sprint kickoff deck",
+    description: "Exec-ready deck summarising the sprint goal, scope and risks.",
+    base_pipeline_type: "ppt",
+    agent_ids: ["planner", "researcher", "deck-writer"],
+    selections: { _wizard: { brief: "A 10-slide kickoff deck for the Q3 growth sprint — goals, scope, risks, timeline." } },
+    created_at: "2026-06-20T10:00:00Z",
+    updated_at: "2026-07-09T14:20:00Z",
+  },
+  {
+    id: "uw-auth-migration",
+    name: "Auth service migration",
+    description: "Modernise the legacy Mulesoft auth flow onto Spring Boot.",
+    base_pipeline_type: "mulesoft_to_springboot",
+    agent_ids: ["analyzer", "planner", "code-generator", "test-writer"],
+    selections: { _wizard: { brief: "Migrate the OAuth token-exchange flow from Mulesoft to Spring Boot on AWS." } },
+    created_at: "2026-05-30T09:00:00Z",
+    updated_at: "2026-07-02T11:05:00Z",
+  },
+  {
+    id: "uw-onboarding-proto",
+    name: "Onboarding prototype",
+    description: "High-fidelity onboarding walkthrough prototype.",
+    base_pipeline_type: "prototype",
+    agent_ids: ["ux-writer", "prototype-builder"],
+    selections: { _wizard: { brief: "A 4-step onboarding prototype: welcome, connect data, invite team, first run." } },
+    created_at: "2026-07-01T08:30:00Z",
+    updated_at: "2026-07-10T16:45:00Z",
+  },
+];
+
+const tokenUsage = (input: number, output: number, cost: number, model = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0") =>
+  JSON.stringify({
+    total_input_tokens: input,
+    total_output_tokens: output,
+    total_tokens: input + output,
+    estimated_cost_usd: cost,
+    model_id: model,
+  });
+
+// Dynamic timestamps so the TODAY / EARLIER / OLDER date buckets render
+// correctly whenever the capture runs (dateBucketOf is relative to `new Date()`).
+const _now = Date.now();
+const _iso = (msAgo: number) => new Date(_now - msAgo).toISOString();
+const HOUR = 3_600_000, DAY = 86_400_000;
+
+/** A representative history set: a 2-version revision family (TODAY) + a failed
+ *  run (EARLIER) + a cancelled run (OLDER), each with token_usage so the family
+ *  grouping + status/token/version chips render. Also feeds the Home "Jump back
+ *  in" recents (both bind GET /api/runs). */
+export const SEEDED_HISTORY_RUNS: RawRun[] = [
+  makeRun({
+    id: "run-proto-v1", root_run_id: "run-proto-v1", parent_run_id: null,
+    type: "prototype", status: "completed", title: "Growth dashboard prototype",
+    input: "A KPI dashboard for a 5-person growth squad.",
+    token_usage: tokenUsage(820_000, 240_000, 3.42), model_id: "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    duration: 184.2, created_at: _iso(3 * HOUR), completed_at: _iso(3 * HOUR - 184_000),
+  }),
+  makeRun({
+    id: "run-proto-v2", root_run_id: "run-proto-v1", parent_run_id: "run-proto-v1",
+    type: "prototype_revision", status: "completed", title: "Growth dashboard prototype (revised)",
+    input: "Add a cohort-retention chart and dark mode.",
+    token_usage: tokenUsage(410_000, 150_000, 1.91), model_id: "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    duration: 96.8, created_at: _iso(1 * HOUR), completed_at: _iso(1 * HOUR - 96_000),
+  }),
+  makeRun({
+    id: "run-stories-fail", root_run_id: "run-stories-fail", parent_run_id: null,
+    type: "user_stories", status: "failed", title: "Billing epics & stories",
+    input: "Epics + Gherkin for the metered-billing rework.",
+    error: "A downstream agent exceeded its budget and the run was halted.",
+    token_usage: tokenUsage(190_000, 60_000, 0.88), model_id: "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+    duration: 42.1, created_at: _iso(3 * DAY), completed_at: _iso(3 * DAY - 42_000),
+  }),
+  makeRun({
+    id: "run-deck-cancel", root_run_id: "run-deck-cancel", parent_run_id: null,
+    type: "ppt", status: "cancelled", title: "Investor update deck",
+    input: "A 12-slide investor update for the Series B round.",
+    token_usage: tokenUsage(60_000, 15_000, 0.28), model_id: "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    duration: 18.0, created_at: _iso(30 * DAY), completed_at: null,
+  }),
+];
+
+/** The revision family for the seeded prototype root (GET /api/runs/{id}/family)
+ *  so the History detail's version timeline / chips render both versions. */
+export const seededHistoryFamily = (id: string): MockRunFamily => {
+  if (id === "run-proto-v1" || id === "run-proto-v2") {
+    return {
+      root_id: "run-proto-v1",
+      members: [
+        { id: "run-proto-v1", type: "prototype", title: "Growth dashboard prototype", status: "completed", revision_index: 0, parent_run_id: null, created_at: _iso(3 * HOUR), completed_at: _iso(3 * HOUR - 184_000) },
+        { id: "run-proto-v2", type: "prototype_revision", title: "Growth dashboard prototype (revised)", status: "completed", revision_index: 1, parent_run_id: "run-proto-v1", created_at: _iso(1 * HOUR), completed_at: _iso(1 * HOUR - 96_000) },
+      ],
+    };
+  }
+  return defaultFamily(id);
+};
+
+/** A populated analytics summary (non-zero KPIs / daily bars / donut /
+ *  by-pipeline / by-model / token totals) for the Analytics fidelity capture. */
+export const SEEDED_ANALYTICS: MockAnalyticsSummary = {
+  kpis: { total: 34, completed: 29, failed: 5, success_rate: 0.85 },
+  token_totals: { input: 8_420_000, output: 2_610_000, cache_read: 1_200_000, cache_write: 240_000, total: 11_030_000 },
+  spend: 41.87,
+  daily: Array.from({ length: 14 }, (_, i) => {
+    const input = 200_000 + ((i * 137) % 9) * 55_000;
+    const output = 60_000 + ((i * 71) % 7) * 18_000;
+    const total = 2 + ((i * 3) % 5);
+    return {
+      date: new Date(_now - (13 - i) * DAY).toISOString().slice(0, 10),
+      total, completed: Math.max(total - (i % 2), 0), failed: i % 2,
+      input_tokens: input, output_tokens: output, total_tokens: input + output,
+    };
+  }),
+  pipelines: [
+    { type: "prototype", count: 12, total_tokens: 5_100_000, cost: 19.4, avg_duration: 172.5 },
+    { type: "user_stories", count: 9, total_tokens: 2_300_000, cost: 8.1, avg_duration: 54.2 },
+    { type: "ppt", count: 8, total_tokens: 2_030_000, cost: 9.8, avg_duration: 61.0 },
+    { type: "app_builder", count: 5, total_tokens: 1_600_000, cost: 4.6, avg_duration: 320.7 },
+  ],
+  models: [
+    { model_id: "eu.anthropic.claude-sonnet-4-5-20250929-v1:0", count: 21, total_tokens: 8_100_000, cost: 33.2 },
+    { model_id: "eu.anthropic.claude-haiku-4-5-20251001-v1:0", count: 13, total_tokens: 2_930_000, cost: 8.67 },
+  ],
+  type_avg_duration_sec: { prototype: 172.5, user_stories: 54.2, ppt: 61.0, app_builder: 320.7 },
+};
+
 export interface MockApiOptions {
   user?: Partial<MockUser>;
   runs?: RawRun[];
@@ -136,6 +318,10 @@ export interface MockApiOptions {
   runDetail?: (id: string) => RawRun | undefined;
   /** Launchable rows for the home grid (GET /api/workflows). */
   workflows?: MockWorkflowRow[];
+  /** Saved workflows for the Catalogue (GET /api/user-workflows). Default []. */
+  userWorkflows?: MockUserWorkflow[];
+  /** Analytics rollup (GET /api/analytics/summary). Default zero-state. */
+  analytics?: MockAnalyticsSummary;
   /** Revision family for GET /api/runs/{id}/family. */
   family?: (id: string) => MockRunFamily;
 }
@@ -145,6 +331,10 @@ export class MockApi {
   runs: RawRun[];
   capabilities: { capabilities: unknown[]; model_catalog: unknown[] };
   workflows: MockWorkflowRow[];
+  /** Saved workflows the Catalogue reads (GET /api/user-workflows). */
+  userWorkflows: MockUserWorkflow[];
+  /** Analytics rollup (GET /api/analytics/summary). */
+  analytics: MockAnalyticsSummary;
   /** Which seeded audit set the 3 audit reads return (settled=clean, failed=blocked). */
   auditVariant: "settled" | "failed" = "settled";
   private family: (id: string) => MockRunFamily;
@@ -166,6 +356,10 @@ export class MockApi {
       model_catalog: MODEL_CATALOG as unknown as unknown[],
     };
     this.workflows = opts.workflows ?? DEFAULT_WORKFLOWS;
+    // Default EMPTY (not seeded) so existing specs are byte-unchanged; the
+    // GET handler still returns an array, which fixes the Catalogue crash.
+    this.userWorkflows = opts.userWorkflows ?? [];
+    this.analytics = opts.analytics ?? DEFAULT_ANALYTICS;
     this.family = opts.family ?? defaultFamily;
     this.runDetail = opts.runDetail;
   }
@@ -178,6 +372,12 @@ export class MockApi {
   }
   setWorkflows(rows: MockWorkflowRow[]) {
     this.workflows = rows;
+  }
+  setUserWorkflows(rows: MockUserWorkflow[]) {
+    this.userWorkflows = rows;
+  }
+  setAnalytics(summary: MockAnalyticsSummary) {
+    this.analytics = summary;
   }
   setFamily(fn: (id: string) => MockRunFamily) {
     this.family = fn;
@@ -233,8 +433,49 @@ export class MockApi {
     // --- workflows catalog (home launch grid) — fixes `rows.filter` crash ---
     if (path.endsWith("/api/workflows")) return json(this.workflows);
 
-    // --- analytics summary (home grid duration chips) ---
-    if (path.endsWith("/api/analytics/summary")) return json({ type_avg_duration_sec: {} });
+    // --- saved workflows (Catalogue / My Workflows) — fixes the
+    //     `userWorkflows.filter is not a function` crash (SavedWorkflowsPage:170).
+    //     GET always returns an ARRAY; create/rename/delete are stubbed so the
+    //     kebab actions don't fall through to the empty catch-all. ---
+    const uwIdMatch = path.match(/\/api\/user-workflows\/([^/]+)$/);
+    if (uwIdMatch) {
+      const id = uwIdMatch[1];
+      if (method === "DELETE") {
+        this.userWorkflows = this.userWorkflows.filter((w) => w.id !== id);
+        return route.fulfill({ status: 204, body: "" });
+      }
+      // PATCH (rename/edit)
+      const b = (body as Partial<MockUserWorkflow>) ?? {};
+      const existing = this.userWorkflows.find((w) => w.id === id);
+      const updated: MockUserWorkflow = {
+        ...(existing ?? { id, name: "Workflow", base_pipeline_type: "custom", agent_ids: [] }),
+        ...b, id, updated_at: new Date().toISOString(),
+      };
+      this.userWorkflows = this.userWorkflows.map((w) => (w.id === id ? updated : w));
+      return json(updated);
+    }
+    if (path.endsWith("/api/user-workflows")) {
+      if (method === "POST") {
+        const b = (body as Partial<MockUserWorkflow>) ?? {};
+        const created: MockUserWorkflow = {
+          id: `uw-${this.userWorkflows.length + 1}-${Date.now()}`,
+          name: b.name ?? "New workflow",
+          description: b.description ?? null,
+          base_pipeline_type: b.base_pipeline_type ?? "custom",
+          agent_ids: b.agent_ids ?? [],
+          model_overrides: b.model_overrides ?? null,
+          selections: b.selections ?? null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        this.userWorkflows = [created, ...this.userWorkflows];
+        return json(created);
+      }
+      return json(this.userWorkflows);
+    }
+
+    // --- analytics summary (home grid duration chips + Analytics page) ---
+    if (path.endsWith("/api/analytics/summary")) return json(this.analytics);
 
     // --- revision family (right panel Version menu) — fixes `[...members]` crash ---
     const familyMatch = path.match(/\/api\/runs\/([^/]+)\/family$/);

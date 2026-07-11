@@ -27,10 +27,16 @@
  */
 import { chromium } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { startMockServer } from "./serve-mocks.mjs";
 
-const OUT = join(process.env.PHASE40_OUT || "/tmp/phase40-scope", "shots", "target");
+// Repo-relative default (aligns with assemble-shell-gallery.mjs BASE:
+// <base>/target). PHASE40_OUT=/abs overrides the base dir for scratch runs.
+const HERE = dirname(fileURLToPath(import.meta.url)); // e2e/fidelity
+const OUT = process.env.PHASE40_OUT
+  ? join(process.env.PHASE40_OUT, "target")
+  : join(HERE, "shots-shell", "target");
 const REACT_UMD = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
 const REACT_DOM_UMD = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
 const VIEWPORT = { width: 1440, height: 900 };
