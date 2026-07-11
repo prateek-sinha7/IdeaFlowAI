@@ -56,6 +56,13 @@ test.describe("TS-G — pre-run Review-gates section", () => {
     // Land on IdeaInputPage for user_stories with an idea typed (Run-enabled).
     await dashboard.goto();
     await dashboard.selectWorkflow(WORKFLOW);
+    // Phase 39: selecting a workflow is a real transition to the "Provide the
+    // brief" screen. Fill the brief only AFTER that screen mounts, else the fill
+    // races the still-mounted home composer and the brief textarea stays empty
+    // (which keeps the Run button disabled — the TS-G-03 failure mode).
+    await expect(
+      dashboard.page.getByRole("heading", { name: /Provide the brief/i }),
+    ).toBeVisible({ timeout: 15000 });
     await dashboard.fillIdea(IDEA);
     // The section renders below "Advanced" once agents exist (always, here).
     await expect(gatesHeader(dashboard.page)).toBeVisible();

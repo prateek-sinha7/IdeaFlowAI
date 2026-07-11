@@ -22,12 +22,32 @@
  */
 import { test, expect } from "../fixtures/test";
 import { AGENTS } from "../fixtures/scenarios";
+import type { Page } from "@playwright/test";
 
 const WORKFLOW = "Generate product requirements"; // → user_stories (IdeaInputPage flow)
 const IDEA = "Refunds backlog with multi-currency support";
 
-// A spec body whose `## ` headings become preview cards.
-const SPEC_OUTPUT = "## Overview\nThe spec.\n## Details\nMore.";
+// Phase 39 redesign: the ReviewGatePanel (right panel) now classifies its output
+// by the DECLARED artifact kind OR the artifact's own wrapper tag in the payload
+// (`<spec>` / `<tasks>` / `<analysis>`) — NEVER the agent-id anymore. So a spec
+// payload must carry the `<spec>` wrapper for the panel to render the
+// "Specification Review" heading + SpecPreview cards (the mock cannot set
+// artifactKind, so the wrapper is the name-free classifier). The `## ` headings
+// inside still become preview cards (SpecPreview strips the wrapper first).
+const SPEC_OUTPUT = "<spec>\n## Overview\nThe spec.\n## Details\nMore.\n</spec>";
+
+// The redesign renders the gate in TWO places: the right-panel ReviewGatePanel
+// AND the inline lane gate (`chat-gate-actions`, "· review before continuing"
+// lowercase). Both carry an Edit toggle + an "Approve … continue" button, so an
+// un-scoped role locator is a strict-mode violation. gatePanel() scopes to the
+// ReviewGatePanel root — anchored on its unique "Reject & cancel pipeline"
+// button (the lane gate's reject reads "Reject & cancel", no "pipeline"), walking
+// to the nearest ancestor div that also holds the panel's <h2> title.
+function gatePanel(page: Page) {
+  return page
+    .getByRole("button", { name: "Reject & cancel pipeline" })
+    .locator('xpath=ancestor::div[.//h2][1]');
+}
 // A tasks body whose `## Task N:` blocks become the TasksPreview list.
 const TASKS_OUTPUT = [
   "<tasks>",
@@ -59,8 +79,10 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
     });
 
     await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
+    // getByText is case-insensitive, so the subtitle collides with the inline
+    // lane gate's lowercase "· review before continuing" — scope to the panel.
     await expect(
-      dashboard.page.getByText("Spec Writer · Review before continuing"),
+      gatePanel(dashboard.page).getByText("Spec Writer · Review before continuing"),
     ).toBeVisible();
   });
 
@@ -74,8 +96,10 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
     });
 
     await expect(dashboard.reviewGateTitle("Task Plan Review")).toBeVisible();
+    // getByText is case-insensitive, so the subtitle collides with the inline
+    // lane gate's lowercase "· review before continuing" — scope to the panel.
     await expect(
-      dashboard.page.getByText("Task Planner · Review before continuing"),
+      gatePanel(dashboard.page).getByText("Task Planner · Review before continuing"),
     ).toBeVisible();
   });
 
@@ -127,18 +151,19 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
 
     await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
 
-    // Toggle to Edit (the mode-switch button labelled "Edit").
-    await dashboard.page.getByRole("button", { name: "Edit", exact: true }).click();
+    // Toggle to Edit (the panel's mode-switch button labelled "Edit"). The inline
+    // lane gate ALSO carries an "Edit" toggle, so scope the click to the panel.
+    await gatePanel(dashboard.page).getByRole("button", { name: "Edit", exact: true }).click();
 
     // Helper line for edit mode.
     await expect(
       dashboard.page.getByText("Changes will be used by the next agent", { exact: false }),
     ).toBeVisible();
 
-    // A prefilled editable textarea. Anchor on the ARIA textbox role (the edit
-    // pane's only textbox; the redo box only mounts when redoable) rather than
-    // the font-mono class the reskin retokenises — role survives the reskin.
-    const textarea = dashboard.page.getByRole("textbox");
+    // A prefilled editable textarea — the panel's edit pane's only textbox (the
+    // redo box only mounts when redoable). Scope to the panel so the inline lane
+    // gate's (closed) editor never collides; role survives the reskin.
+    const textarea = gatePanel(dashboard.page).getByRole("textbox");
     await expect(textarea).toBeVisible();
     await expect(textarea).toHaveValue(SPEC_OUTPUT);
   });
@@ -153,7 +178,8 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
     });
 
     await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
-    await dashboard.approveButton().click();
+    // Scope the approve to the panel (the inline lane gate has the same label).
+    await gatePanel(dashboard.page).getByRole("button", { name: /Approve.*continue/ }).click();
 
     // Disambiguate the shared `approve_review` type by `approved: true`.
     const f = await mockWs.waitForClientFrame(
@@ -180,16 +206,18 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
 
     await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
 
-    // Edit the content, then approve — the label flips to "Approve with edits".
-    await dashboard.page.getByRole("button", { name: "Edit", exact: true }).click();
-    // Anchor on the ARIA textbox role (reskin-durable), not the font-mono class.
-    const textarea = dashboard.page.getByRole("textbox");
+    // Edit the panel content, then approve — the label flips to "Approve with
+    // edits". Both the Edit toggle and textarea are scoped to the panel (the
+    // inline lane gate carries its own, independent editor).
+    const panel = gatePanel(dashboard.page);
+    await panel.getByRole("button", { name: "Edit", exact: true }).click();
+    const textarea = panel.getByRole("textbox");
     const edited = SPEC_OUTPUT + "\n## Extra\nAdded by reviewer.";
     await textarea.fill(edited);
     await expect(
-      dashboard.page.getByRole("button", { name: /Approve with edits & continue/ }),
+      panel.getByRole("button", { name: /Approve with edits & continue/ }),
     ).toBeVisible();
-    await dashboard.approveButton().click();
+    await panel.getByRole("button", { name: /Approve.*continue/ }).click();
 
     const f = await mockWs.waitForClientFrame(
       (frame) => frame.type === "approve_review" && frame.approved === true,
@@ -208,7 +236,10 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
     });
 
     await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
+    // Reject is a two-step confirm in the panel: the "Reject & cancel pipeline"
+    // button reveals a confirmation, then "Yes, cancel pipeline" sends the frame.
     await dashboard.rejectButton().click();
+    await dashboard.page.getByRole("button", { name: "Yes, cancel pipeline" }).click();
 
     // Reject is the SAME type with approved:false and no edited_content.
     const f = await mockWs.waitForClientFrame(
@@ -231,7 +262,13 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       output: "",
     });
 
-    await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
+    // Empty output cannot classify as a spec/tasks/analysis artifact (no wrapper
+    // tag, no artifactKind), so the panel falls back to the GENERIC "Review"
+    // heading — the redesign derives the label from the artifact kind, not the
+    // agent-id. The defensive empty state still renders below it.
+    await expect(
+      dashboard.page.getByRole("heading", { name: "Review", exact: true }),
+    ).toBeVisible();
     await expect(
       dashboard.page.getByText("No content was produced for review."),
     ).toBeVisible();
