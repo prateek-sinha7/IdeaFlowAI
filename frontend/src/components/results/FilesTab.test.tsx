@@ -39,20 +39,22 @@ describe("FilesTab — per-agent output section", () => {
     expect(screen.getByText(/no files available/i)).toBeInTheDocument();
   });
 
-  it("renders the final output without the 'Final output' header when no agent files are present", () => {
+  it("renders the Final-output hero (naming the derived deliverable) and no agent section when no agent files are present", () => {
     render(
       <FilesTab
         workflowType={"user_stories"}
         userStoryContent={"# Heading\n\nbody text"}
       />,
     );
-    expect(screen.queryByText(/^final output$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^agent outputs/i)).not.toBeInTheDocument();
-    // The final markdown file is listed (name derived from first heading).
+    // The dark hero always carries a "Final output" eyebrow when a deliverable
+    // exists; the deliverable name is the live-derived filename.
+    expect(screen.getByText(/^final output$/i)).toBeInTheDocument();
     expect(screen.getByText("heading.md")).toBeInTheDocument();
+    // No agent-outputs section when there are no agent files.
+    expect(screen.queryByText(/^agent outputs/i)).not.toBeInTheDocument();
   });
 
-  it("renders BOTH final and per-agent outputs with section headers", () => {
+  it("renders BOTH the Final-output hero and the per-agent outputs section", () => {
     render(
       <FilesTab
         workflowType={"user_stories"}
@@ -69,7 +71,32 @@ describe("FilesTab — per-agent output section", () => {
     expect(screen.getByText("01-domain-discovery-agent.md")).toBeInTheDocument();
     expect(screen.getByText("02-backlog-architecture-agent.md")).toBeInTheDocument();
     // Counter at the top includes BOTH final + agent files (1 final + 2 agents = 3).
-    expect(screen.getByText(/^3 files available$/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 files available/i)).toBeInTheDocument();
+    // The subline also names the deliverable count.
+    expect(screen.getByText(/1 deliverable/i)).toBeInTheDocument();
+  });
+
+  it("the Final-output hero fires the download handler and surfaces the optional Preview action", () => {
+    const onOpenPreview = vi.fn();
+    render(
+      <FilesTab
+        workflowType={"user_stories"}
+        userStoryContent={"# Heading\n\nbody"}
+        onOpenPreview={onOpenPreview}
+      />,
+    );
+    // Preview action renders only when onOpenPreview is provided, and fires it.
+    const preview = screen.getByRole("button", { name: /^preview$/i });
+    preview.click();
+    expect(onOpenPreview).toHaveBeenCalledTimes(1);
+    // The hero + header both expose a Download control (Download / Download All).
+    expect(screen.getByRole("button", { name: /download all/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^download$/i })).toBeInTheDocument();
+  });
+
+  it("omits the hero Preview action when onOpenPreview is not wired", () => {
+    render(<FilesTab workflowType={"user_stories"} userStoryContent={"# Heading\n\nbody"} />);
+    expect(screen.queryByRole("button", { name: /^preview$/i })).not.toBeInTheDocument();
   });
 
   it("skips agent entries with empty output", () => {
@@ -123,7 +150,7 @@ describe("FilesTab — generic deliverable row (ISS-021)", () => {
     );
     // Exactly one generic row, named from the resolved filename.
     expect(screen.getByText("custom.html")).toBeInTheDocument();
-    expect(screen.getByText(/^1 file available$/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 file available/i)).toBeInTheDocument();
   });
 
   it("derives a filename from the mimetype when deliverable_filename is absent", () => {
@@ -153,7 +180,7 @@ describe("FilesTab — generic deliverable row (ISS-021)", () => {
     expect(screen.getByText("01-agent-one.md")).toBeInTheDocument();
     expect(screen.getByText("02-agent-two.md")).toBeInTheDocument();
     // 1 deliverable + 2 agent files = 3 total.
-    expect(screen.getByText(/^3 files available$/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 files available/i)).toBeInTheDocument();
   });
 
   it("does NOT add a generic row for a known type (the generic channel is a fallback only)", () => {

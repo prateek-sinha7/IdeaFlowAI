@@ -43,6 +43,17 @@ interface FilesTabProps {
   // section (zero regression). Type-agnostic (SC-001 — no workflowType branch).
   runInput?: string;
   clarifications?: ClarifyRound[];
+  // Phase 39-03 (RUNUI-06) — the hero "Preview" action. When provided the dark
+  // Final-output hero renders a "Preview" button that calls this (the caller
+  // switches to the Preview tab). Optional + default-undefined → the button is
+  // omitted (zero regression for callers that don't wire it).
+  onOpenPreview?: () => void;
+  // Phase 39-03 (RUNUI-06, W6) — the run's terminal status. When "failed" or
+  // "degraded" the mock's amber "Build incomplete" banner renders above the file
+  // list. Optional + default-undefined → NO banner (zero regression for
+  // completed runs). The file list itself already reflects the reduced live
+  // outputs (ND-D — never a fabricated planning-only list).
+  runStatus?: "failed" | "degraded";
 }
 
 // ─── Workstream C2 (POR §5 D7) — "Run input" file rows (module-level pure) ─────
@@ -112,6 +123,19 @@ interface FileItem {
   format: string;
   content: string;
   mimeType: string;
+  // Phase 39-03 — 1–2 letter agent initials for the agent-outputs timeline
+  // avatar node (derived from the source agent name). Present only on per-agent
+  // rows; undefined for deliverable / run-input / code rows.
+  code?: string;
+}
+
+// ─── Phase 39-03 — agent initials for the timeline avatar node ────────────────
+// "Spec Writer" → "SW", "Task Planner" → "TP", single word → first two letters.
+function agentInitials(name?: string): string {
+  const words = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "··";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
 }
 
 // ─── Agent ID → documentation metadata ───────────────────────────────────────
@@ -211,8 +235,8 @@ function parseAppBuilderFiles(markdown: string): FileItem[] {
 function SectionHeader({ label, count }: { label: string; count: number }) {
   return (
     <div className="flex items-center justify-between mb-2 mt-5 first:mt-0">
-      <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{label}</p>
-      <span className="text-[9px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-medium">{count}</span>
+      <p className="text-[10px] uppercase tracking-wider text-ink-300 font-semibold">{label}</p>
+      <span className="text-[9px] text-ink-300 bg-surface-paper px-1.5 py-0.5 rounded font-medium">{count}</span>
     </div>
   );
 }
@@ -277,7 +301,7 @@ function deriveDeliverableFiles(
   return files;
 }
 
-export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, parentRunId, parentVersionNumber, runInput, clarifications }: FilesTabProps) {
+export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, parentRunId, parentVersionNumber, runInput, clarifications, onOpenPreview, runStatus }: FilesTabProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   // ─── B3 (POR §5 D6) — base-version "From v{n-1}" section state ────────────────
   // Collapsed by default; the parent run's files are fetched LAZILY on first
@@ -363,6 +387,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
           format: "Markdown (.md)",
           content: a.output,
           mimeType: "text/markdown",
+          code: agentInitials(a.name),
         };
       });
   }, [workflowType, agentOutputs]);
@@ -524,10 +549,10 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
 
   if (totalCount === 0) {
     return (
-      <div className="flex items-center justify-center h-full px-6">
+      <div className="flex items-center justify-center h-full px-6 bg-surface-paper">
         <div className="text-center">
-          <p className="text-sm text-gray-400">No files available</p>
-          <p className="text-[11px] text-gray-400 mt-1">Run a workflow to generate downloadable files</p>
+          <p className="text-sm text-ink-400">No files available</p>
+          <p className="text-[11px] text-ink-300 mt-1">Run a workflow to generate downloadable files</p>
         </div>
       </div>
     );
@@ -541,26 +566,26 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: idx * 0.03 }}
-        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 hover:border-gray-300 hover:shadow-sm transition-all"
+        className="flex items-center gap-3 rounded-[var(--radius-list-row)] border border-line-faint-row bg-surface-card px-4 py-3 hover:border-line-control hover:shadow-sm transition-all"
       >
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 flex-shrink-0">
-          <Icon className="h-4 w-4 text-gray-500" />
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-paper border border-line-border flex-shrink-0">
+          <Icon className="h-4 w-4 text-ink-500" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[12px] font-semibold text-gray-900 truncate">{file.name}</p>
-          <p className="text-[10px] text-gray-400 mt-0.5 truncate">
+          <p className="text-[13.5px] font-medium text-ink-800 truncate">{file.name}</p>
+          <p className="text-[11.5px] text-ink-300 mt-0.5 truncate">
             {file.type !== file.name ? `${file.type} · ` : ""}{file.size}
           </p>
         </div>
         <button
           onClick={() => handleDownload(file)}
           disabled={downloadingId === file.id}
-          className="flex items-center justify-center rounded-lg p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 border border-gray-200 transition-all flex-shrink-0 disabled:opacity-50"
+          className="flex h-[34px] w-[34px] items-center justify-center rounded-lg text-ink-500 hover:text-brand hover:border-brand bg-surface-white border border-line-border transition-all flex-shrink-0 disabled:opacity-50"
           title={`Download ${file.name}`}
         >
           {downloadingId === file.id
-            ? <span className="h-3.5 w-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-            : <Download className="h-3.5 w-3.5" />
+            ? <span className="h-3.5 w-3.5 border-2 border-ink-300 border-t-transparent rounded-full animate-spin" />
+            : <Download className="h-4 w-4" strokeWidth={1.7} />
           }
         </button>
       </motion.div>
@@ -582,127 +607,188 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         onClick={handleToggleBase}
         aria-expanded={baseOpen}
         aria-label={baseAriaLabel}
-        className="w-full flex items-center justify-between mb-2 hover:bg-gray-50 rounded transition-colors"
+        className="w-full flex items-center justify-between mb-2 hover:bg-surface-card rounded transition-colors"
       >
-        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{baseLabel}</span>
-        <ChevronDown aria-hidden className={`h-3.5 w-3.5 text-gray-400 transition-transform ${baseOpen ? "rotate-180" : ""}`} />
+        <span className="text-[10px] uppercase tracking-wider text-ink-300 font-semibold">{baseLabel}</span>
+        <ChevronDown aria-hidden className={`h-3.5 w-3.5 text-ink-300 transition-transform ${baseOpen ? "rotate-180" : ""}`} />
       </button>
       {baseOpen && (
         <div className="space-y-2">
           {baseLoading ? (
             <div className="flex items-center gap-2 px-1 py-2">
-              <span className="h-3.5 w-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-              <span className="text-[10px] text-gray-400">Loading base version…</span>
+              <span className="h-3.5 w-3.5 border-2 border-ink-300 border-t-transparent rounded-full animate-spin" />
+              <span className="text-[10px] text-ink-300">Loading base version…</span>
             </div>
           ) : baseFiles && baseFiles.length > 0 ? (
             <>
               {baseFiles.map((f, i) => renderFileRow(f, i))}
-              <p className="text-[10px] text-gray-400">Files from the previous version this revision was based on.</p>
+              <p className="text-[10px] text-ink-300">Files from the previous version this revision was based on.</p>
             </>
           ) : (
-            <p className="text-[10px] text-gray-400">No files in the base version.</p>
+            <p className="text-[10px] text-ink-300">No files in the base version.</p>
           )}
         </div>
       )}
     </div>
   ) : null;
 
-  return (
-    <div className="px-5 py-4 h-full overflow-y-auto" style={{ background: "#f5f5f0" }}>
-      {/* Header row */}
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-[11px] text-gray-500 font-medium">{totalCount} file{totalCount !== 1 ? "s" : ""} available</span>
-        <button
-          onClick={() => {
-            const all = [...runInputRows, ...files, ...(isAppBuilder ? appBuilderDocFiles : []), ...(isAppBuilder ? appBuilderCodeFiles : genericAgentFiles)];
-            all.forEach((file, i) => setTimeout(() => handleDownload(file), i * 150));
-          }}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 transition-all"
-        >
-          <Download className="h-3 w-3" />
-          Download All
-        </button>
-      </div>
+  // ── Phase 39-03 — the run's final deliverable (the hero) is files[0] on the
+  // non-app-builder path; deliverableCount drives the "· N deliverable" subline.
+  const deliverableCount = files.length;
+  const finalFile = files[0];
 
-      {/* ── Workstream C2 (POR §5 D7) — "Run input" section ────────────────────
-          FIRST content section (the run's input precedes its outputs), same
-          plain uppercase label idiom as "Agent outputs" (:619,627). Rows go
-          through the SAME renderFileRow; type-agnostic (no workflowType branch). */}
-      {runInputRows.length > 0 && (
-        <div className="mb-5">
-          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Run input</p>
-          <div className="space-y-2">{runInputRows.map((f, i) => renderFileRow(f, i))}</div>
+  const downloadAll = () => {
+    const all = [...files, ...(isAppBuilder ? appBuilderDocFiles : genericAgentFiles), ...(isAppBuilder ? appBuilderCodeFiles : []), ...runInputRows];
+    all.forEach((file, i) => setTimeout(() => handleDownload(file), i * 150));
+  };
+
+  // ── Phase 39-03 — dark "Final output" hero (mock Hexaware Run.dc.html:624-638).
+  // Names the LIVE final deliverable (finalFile). "validated" is the mock's static
+  // deliverable-passed affirmation (ND-Q) — the run reached Files after its
+  // validation gate; not a fabricated per-run value (name/format/size are live).
+  const HeroIcon = finalFile?.icon ?? FileText;
+  const finalOutputHero = finalFile ? (
+    <div className="relative overflow-hidden rounded-2xl bg-surface-ink-black px-6 py-[22px]">
+      <div aria-hidden className="pointer-events-none absolute -top-10 -right-8 h-[220px] w-[220px] rounded-full" style={{ background: "radial-gradient(circle, rgba(60,44,218,.55), transparent 70%)" }} />
+      <div className="relative flex items-center gap-[18px]">
+        <div className="grid h-[52px] w-[52px] flex-none place-items-center rounded-xl border border-white/[0.12] bg-white/[0.08]">
+          <HeroIcon className="h-6 w-6 text-white" strokeWidth={1.6} />
         </div>
-      )}
-
-      {/* ── App Builder layout ─────────────────────────────────────────────── */}
-      {isAppBuilder ? (
-        <>
-          {/* ZIP + final output files */}
-          {files.length > 0 && (
-            <>
-              <SectionHeader label="Project Download" count={files.length} />
-              <div className="space-y-2">{files.map((f, i) => renderFileRow(f, i))}</div>
-            </>
+        <div className="min-w-0 flex-1">
+          <p className="m-0 font-sans text-[9.5px] font-semibold uppercase tracking-[0.14em] text-brand-on-dark">Final output</p>
+          <p className="m-0 mt-1 truncate font-sans text-[17px] font-medium leading-[1.25] text-white">{finalFile.name}</p>
+          <p className="m-0 mt-[5px] font-serif text-[12px] text-[#9FA0AE]">{finalFile.format} · {finalFile.size} · validated</p>
+        </div>
+        <div className="flex flex-none gap-2">
+          {onOpenPreview && (
+            <button onClick={onOpenPreview} className="inline-flex items-center gap-[7px] rounded-[9px] border border-white/[0.16] bg-transparent px-[13px] py-[9px] font-sans text-[12.5px] font-medium text-[#E7E7EE] transition-colors hover:bg-white/[0.08]">
+              Preview
+            </button>
           )}
+          <button
+            onClick={() => handleDownload(finalFile)}
+            disabled={downloadingId === finalFile.id}
+            className="inline-flex items-center gap-[7px] rounded-[9px] bg-brand px-[14px] py-[9px] font-sans text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-pressed disabled:opacity-50"
+          >
+            {downloadingId === finalFile.id
+              ? <span className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <Download className="h-3.5 w-3.5" strokeWidth={1.9} />}
+            Download
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
-          {/* Code files from code-producing agents */}
-          {appBuilderCodeFiles.length > 0 && (
-            <>
-              <SectionHeader label="Source Code Files" count={appBuilderCodeFiles.length} />
-              <p className="text-[10px] text-gray-400 mb-2">
-                Generated code files — frontend, backend, tests, config, and infrastructure.
-              </p>
-              <div className="space-y-2">
-                {appBuilderCodeFiles.map((f, i) => renderFileRow(f, files.length + i))}
+  // ── Phase 39-03 — "Run input" bordered card pair (mock :658-669). The same
+  // live runInputRows (prompt.md / clarifications.md), one compact card each;
+  // clicking a card downloads it (reuses handleDownload). Type-agnostic.
+  const runInputCards = runInputRows.length > 0 ? (
+    <div className="mt-7">
+      <p className="m-0 mb-3 font-sans text-[10.5px] font-semibold uppercase tracking-[0.12em] text-ink-300">Run input</p>
+      <div className="flex gap-2.5">
+        {runInputRows.map((f) => {
+          const Icon = f.icon;
+          return (
+            <button
+              key={f.id}
+              onClick={() => handleDownload(f)}
+              className="flex flex-1 items-center gap-[11px] rounded-[var(--radius-list-row)] border border-line-divider bg-transparent px-[13px] py-[11px] text-left transition-colors hover:border-line-control hover:bg-surface-card"
+            >
+              <Icon className="h-[17px] w-[17px] flex-none text-ink-300" strokeWidth={1.6} />
+              <div className="min-w-0 flex-1">
+                <p className="m-0 truncate font-sans text-[12.5px] font-medium text-ink-700">{f.name}</p>
+                <p className="m-0 mt-0.5 font-serif text-[11px] text-ink-200">{f.size}</p>
               </div>
-            </>
-          )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
 
-          {/* Agent outputs (.md) from design/analysis agents — same style as other pipelines */}
-          {appBuilderDocFiles.length > 0 && (
-            <>
-              <SectionHeader label={`Agent Outputs (${appBuilderDocFiles.length})`} count={appBuilderDocFiles.length} />
-              <p className="text-[10px] text-gray-400 mb-2">
-                Intermediate output from each agent in the pipeline. Each file contains the full output of one agent.
-              </p>
-              <div className="space-y-2">
-                {appBuilderDocFiles.map((f, i) => renderFileRow(f, files.length + appBuilderCodeFiles.length + i))}
+  return (
+    <div className="h-full overflow-y-auto bg-surface-paper">
+      <div className="mx-auto max-w-[860px] px-8 pt-6 pb-16">
+        {/* Header — title + subline + Download All (mock :616-622) */}
+        <div className="mb-5 flex items-end justify-between gap-4">
+          <div>
+            <p className="m-0 font-sans text-[22px] font-light leading-[1.2] text-ink-900">Files</p>
+            <p className="m-0 mt-1.5 font-serif text-[13px] text-ink-400">
+              {totalCount} file{totalCount !== 1 ? "s" : ""} available
+              {deliverableCount > 0 ? ` · ${deliverableCount} deliverable${deliverableCount !== 1 ? "s" : ""}` : ""}
+            </p>
+          </div>
+          <button
+            onClick={downloadAll}
+            className="inline-flex flex-none items-center gap-2 rounded-[var(--radius-button)] border border-line-control bg-surface-card px-[15px] py-[9px] font-sans text-[13px] font-medium text-ink-700 transition-colors hover:border-line-faint hover:bg-surface-white"
+          >
+            <Download className="h-[15px] w-[15px]" strokeWidth={1.7} />
+            Download All
+          </button>
+        </div>
+
+        {/* ── App Builder layout (multi-section; token-reskinned) ─────────────── */}
+        {isAppBuilder ? (
+          <>
+            {files.length > 0 && (
+              <>
+                <SectionHeader label="Project Download" count={files.length} />
+                <div className="space-y-2">{files.map((f, i) => renderFileRow(f, i))}</div>
+              </>
+            )}
+
+            {appBuilderCodeFiles.length > 0 && (
+              <>
+                <SectionHeader label="Source Code Files" count={appBuilderCodeFiles.length} />
+                <p className="text-[10px] text-ink-300 mb-2">
+                  Generated code files — frontend, backend, tests, config, and infrastructure.
+                </p>
+                <div className="space-y-2">
+                  {appBuilderCodeFiles.map((f, i) => renderFileRow(f, files.length + i))}
+                </div>
+              </>
+            )}
+
+            {appBuilderDocFiles.length > 0 && (
+              <>
+                <SectionHeader label={`Agent Outputs (${appBuilderDocFiles.length})`} count={appBuilderDocFiles.length} />
+                <p className="text-[10px] text-ink-300 mb-2">
+                  Intermediate output from each agent in the pipeline. Each file contains the full output of one agent.
+                </p>
+                <div className="space-y-2">
+                  {appBuilderDocFiles.map((f, i) => renderFileRow(f, files.length + appBuilderCodeFiles.length + i))}
+                </div>
+              </>
+            )}
+
+            {runInputCards}
+            {baseVersionSection}
+          </>
+        ) : (
+          /* ── Non-app-builder layout — hero + agent-outputs + run input ─────── */
+          <>
+            {finalOutputHero}
+
+            {genericAgentFiles.length > 0 && (
+              <div className="mt-7">
+                <p className="m-0 mb-1 font-sans text-[10.5px] font-semibold uppercase tracking-[0.12em] text-ink-300">
+                  Agent outputs ({genericAgentFiles.length})
+                </p>
+                <p className="m-0 mb-3 font-serif text-[12.5px] leading-[1.4] text-ink-300">
+                  Intermediate work-in-progress from each agent in the pipeline.
+                </p>
+                <div className="space-y-2">
+                  {genericAgentFiles.map((f, i) => renderFileRow(f, i))}
+                </div>
               </div>
-            </>
-          )}
+            )}
 
-          {baseVersionSection}
-        </>
-      ) : (
-        /* ── Non-app-builder layout ─────────────────────────────────────── */
-        <>
-          {files.length > 0 && (
-            <>
-              {genericAgentFiles.length > 0 && (
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Final output</p>
-              )}
-              <div className="space-y-2 mb-5">{files.map(renderFileRow)}</div>
-            </>
-          )}
-
-          {genericAgentFiles.length > 0 && (
-            <>
-              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">
-                Agent outputs ({genericAgentFiles.length})
-              </p>
-              <p className="text-[10px] text-gray-400 mb-3">
-                Intermediate work-in-progress from each agent in the pipeline.
-              </p>
-              <div className="space-y-2">
-                {genericAgentFiles.map((f, i) => renderFileRow(f, files.length + i))}
-              </div>
-            </>
-          )}
-
-          {baseVersionSection}
-        </>
-      )}
+            {runInputCards}
+            {baseVersionSection}
+          </>
+        )}
+      </div>
     </div>
   );
 }
