@@ -20,8 +20,8 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import {
   Shield, ShieldCheck, FileCheck2, Terminal, Download,
-  CheckCircle, XCircle, AlertTriangle, Clock, Filter,
-  Check, ChevronDown, Lock,
+  CheckCircle, XCircle, AlertTriangle, Clock,
+  Check, ChevronDown, Lock, Ban, Search,
 } from "lucide-react";
 import type { HookRunEntry } from "@/types/index";
 import {
@@ -128,36 +128,6 @@ function verdictKind(outcome: string): VerdictKind {
   return "queued";
 }
 
-const VERDICT_CLASS: Record<VerdictKind, string> = {
-  done: "text-status-done bg-[var(--status-done-fill)] border-[var(--status-done-border)]",
-  failed: "text-status-failed bg-[var(--status-failed-fill)] border-[var(--status-failed-border)]",
-  amber: "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
-  queued: "text-status-queued bg-[var(--status-queued-fill)] border-[var(--status-queued-border)]",
-};
-
-const VERDICT_ICON: Record<VerdictKind, typeof CheckCircle> = {
-  done: CheckCircle,
-  failed: XCircle,
-  amber: AlertTriangle,
-  queued: Clock,
-};
-
-function VerdictChip({ outcome }: { outcome: string }) {
-  const kind = verdictKind(outcome);
-  const Icon = VERDICT_ICON[kind];
-  return (
-    <span
-      className={[
-        "inline-flex items-center gap-1 border rounded-[var(--radius-tag)] px-1.5 py-0.5 font-sans text-[9px] font-semibold uppercase tracking-wide leading-none",
-        VERDICT_CLASS[kind],
-      ].join(" ")}
-    >
-      <Icon className="h-2.5 w-2.5" />
-      {outcome}
-    </span>
-  );
-}
-
 // Severity ladder tokens (governance exception, severity colors only).
 const SEVERITY_VAR: Record<Severity, string> = {
   CRITICAL: "var(--severity-critical)",
@@ -176,14 +146,6 @@ function SeverityChip({ severity }: { severity: Severity }) {
     </span>
   );
 }
-
-// ─── Category metadata ───────────────────────────────────────────────────────
-
-const CATEGORY_META: Record<AuditCategory, { label: string; icon: typeof Shield }> = {
-  gate: { label: "Gate events", icon: ShieldCheck },
-  validation: { label: "Validations", icon: FileCheck2 },
-  exec: { label: "Exec runs", icon: Terminal },
-};
 
 // ─── Fuller category taxonomy (the mock's Governance / Security / Activity) ────
 //
@@ -273,10 +235,10 @@ function deriveFineCategory(
 
 type Outcome3 = "pass" | "warn" | "block";
 
-const OUTCOME3_META: Record<Outcome3, { badge: string; kind: VerdictKind; Icon: typeof CheckCircle }> = {
-  pass: { badge: "Passed", kind: "done", Icon: Check },
-  warn: { badge: "Warning", kind: "amber", Icon: AlertTriangle },
-  block: { badge: "Blocked", kind: "failed", Icon: XCircle },
+const OUTCOME3_META: Record<Outcome3, { badge: string; Icon: typeof CheckCircle }> = {
+  pass: { badge: "Passed", Icon: Check },
+  warn: { badge: "Warning", Icon: AlertTriangle },
+  block: { badge: "Blocked", Icon: XCircle },
 };
 
 /** Map a real row to the mock's 3-state outcome (pass / warn / block). */
@@ -333,41 +295,82 @@ function formatTime(iso?: string | null): string {
   } catch { return ""; }
 }
 
-// ─── Single audit-row card ───────────────────────────────────────────────────
+// ─── Outcome icon-wrap (the mock's circular pass/warn/block glyph) ────────────
+
+const OUTCOME_WRAP_CLASS: Record<Outcome3, string> = {
+  pass: "bg-[var(--status-done-fill)] border-[var(--status-done-border)] text-status-done",
+  warn: "bg-[var(--status-amber-fill)] border-[var(--status-amber-border)] text-status-amber",
+  block: "bg-[var(--status-failed-fill)] border-[var(--status-failed-border)] text-status-failed",
+};
+
+const OUTCOME_BADGE_CLASS: Record<Outcome3, string> = {
+  pass: "text-status-done bg-[var(--status-done-fill)] border-[var(--status-done-border)]",
+  warn: "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
+  block: "text-status-failed bg-[var(--status-failed-fill)] border-[var(--status-failed-border)]",
+};
+
+// ─── Single audit-row card (collapsible entry — the mock's row) ───────────────
 
 function AuditRowCard({ row, index }: { row: AuditRow; index: number }) {
-  const { icon: Icon } = CATEGORY_META[row.category];
+  const [open, setOpen] = useState(false);
+  const meta = FINE_CATEGORY_META[row.fineCategory];
+  const out = OUTCOME3_META[row.outcome3];
+  const WrapIcon = out.Icon;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.16, delay: Math.min(index * 0.03, 0.4) }}
-      className="bg-surface-card border border-line-border rounded-[var(--radius-list-row)] px-3 py-2.5"
+      data-testid="audit-row"
+      className="bg-surface-card border border-line-border rounded-[var(--radius-list-row)] overflow-hidden"
     >
-      <div className="flex items-start gap-2.5">
-        <Icon className="h-3.5 w-3.5 text-ink-400 flex-shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[12px] font-semibold text-ink-800 truncate">{row.label}</span>
-            {row.severity ? <SeverityChip severity={row.severity} /> : <VerdictChip outcome={row.outcome} />}
+      {/* Header (click to expand) */}
+      <button
+        type="button"
+        data-testid="audit-row-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-3 px-3.5 py-3 text-left cursor-pointer hover:bg-surface-warm/40 transition-colors"
+      >
+        <span className={`w-6 h-6 flex-none rounded-full border grid place-items-center ${OUTCOME_WRAP_CLASS[row.outcome3]}`}>
+          <WrapIcon className="h-3 w-3" strokeWidth={2.4} />
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[13px] font-medium text-ink-900 truncate leading-tight">{row.label}</span>
+          <span className="block text-[11px] text-ink-400 mt-0.5 truncate">
+            {row.step || "—"}
+            {row.created_at ? ` · ${formatTime(row.created_at)}` : ""}
+          </span>
+        </span>
+        {/* Category chip */}
+        <span className="flex-none inline-flex items-center text-[8.5px] font-semibold uppercase tracking-wide text-ink-500 bg-surface-warm border border-line-control rounded-[var(--radius-tag)] px-1.5 py-1 leading-none">
+          {meta.label}
+        </span>
+        {/* Optional severity chip */}
+        {row.severity && <SeverityChip severity={row.severity} />}
+        {/* Verdict badge */}
+        <span className={`flex-none inline-flex items-center border rounded-[var(--radius-pill)] px-2 py-1 text-[10px] font-semibold leading-none ${OUTCOME_BADGE_CLASS[row.outcome3]}`}>
+          {out.badge}
+        </span>
+        <ChevronDown className={`h-3.5 w-3.5 text-ink-400 flex-none transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {/* Collapsible body — "What is this?" explainer + key/value detail */}
+      {open && (
+        <div className="px-3.5 pb-3.5 pl-[46px]">
+          <div className="border border-brand-border bg-brand-fill rounded-[var(--radius-list-row)] px-3 py-2.5 mb-2.5">
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-brand mb-1">What is this?</p>
+            <p className="text-[12px] text-ink-700 leading-relaxed">{meta.whatIs}</p>
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <span className="text-[10px] text-ink-500">{CATEGORY_META[row.category].label}</span>
-            <span className="text-[10px] text-ink-300">·</span>
-            <span className="text-[10px] text-ink-500">{row.step || "—"}</span>
-            {row.created_at && (
-              <>
-                <span className="text-[10px] text-ink-300">·</span>
-                <Clock className="h-2.5 w-2.5 text-ink-400" />
-                <span className="text-[10px] text-ink-400">{formatTime(row.created_at)}</span>
-              </>
-            )}
-          </div>
-          {row.detail && (
-            <p className="text-[11px] text-ink-600 leading-relaxed mt-1 break-words">{row.detail}</p>
-          )}
+          {row.detailRows.map(([k, v], i) => (
+            <div key={`${k}-${i}`} className="flex gap-3 py-1.5 border-t border-line-divider">
+              <span className="w-[130px] flex-none text-[11px] font-medium text-ink-400 leading-snug">{k}</span>
+              <span className="flex-1 text-[12px] text-ink-700 leading-snug break-words">{v}</span>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
     </motion.div>
   );
 }
@@ -377,7 +380,9 @@ function AuditRowCard({ row, index }: { row: AuditRow; index: number }) {
 export function AuditTab({ workflowRunId, runMeta }: AuditTabProps) {
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeSeverities, setActiveSeverities] = useState<Set<Severity>>(new Set());
+  const [activeGroup, setActiveGroup] = useState<"all" | FilterGroup>("all");
+  const [blockedOnly, setBlockedOnly] = useState(false);
+  const [search, setSearch] = useState("");
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -488,30 +493,19 @@ export function AuditTab({ workflowRunId, runMeta }: AuditTabProps) {
     return () => { cancelled = true; };
   }, [workflowRunId]);
 
-  // ── Filtered view (severity filter narrows the rendered rows) ──────────────
+  // ── Filtered view: category group + blocked/denied-only + free-text search ──
   const visibleRows = useMemo(() => {
-    if (activeSeverities.size === 0) return rows;
-    return rows.filter((r) => r.severity != null && activeSeverities.has(r.severity));
-  }, [rows, activeSeverities]);
-
-  // ── Counters over ALL rows (coverage), computed once ───────────────────────
-  const counts = useMemo(() => {
-    const c = {
-      gate: rows.filter((r) => r.category === "gate").length,
-      validation: rows.filter((r) => r.category === "validation").length,
-      exec: rows.filter((r) => r.category === "exec").length,
-      gatePass: rows.filter((r) => r.category === "gate" && verdictKind(r.outcome) === "done").length,
-      gateBlock: rows.filter((r) => r.category === "gate" && verdictKind(r.outcome) === "failed").length,
-      gateWait: rows.filter((r) => r.category === "gate" && verdictKind(r.outcome) === "amber").length,
-      execAllowed: rows.filter((r) => r.category === "exec" && verdictKind(r.outcome) === "done").length,
-      execDenied: rows.filter((r) => r.category === "exec" && verdictKind(r.outcome) === "failed").length,
-      execKilled: rows.filter((r) => r.category === "exec" && verdictKind(r.outcome) === "amber").length,
-      sev: Object.fromEntries(
-        SEVERITIES.map((s) => [s, rows.filter((r) => r.severity === s).length]),
-      ) as Record<Severity, number>,
-    };
-    return c;
-  }, [rows]);
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (activeGroup !== "all" && FINE_CATEGORY_META[r.fineCategory].group !== activeGroup) return false;
+      if (blockedOnly && r.outcome3 !== "block") return false;
+      if (q) {
+        const hay = `${r.label} ${r.step} ${r.detail} ${FINE_CATEGORY_META[r.fineCategory].label}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [rows, activeGroup, blockedOnly, search]);
 
   // ── The mock's 6-stat compliance grid, all derived from live rows (ND-D) ────
   const stats = useMemo(() => ({
@@ -560,15 +554,6 @@ export function AuditTab({ workflowRunId, runMeta }: AuditTabProps) {
       duration: formatDurationMs(durationMs),
     };
   }, [rows, runMeta, workflowRunId]);
-
-  function toggleSeverity(sev: Severity) {
-    setActiveSeverities((prev) => {
-      const next = new Set(prev);
-      if (next.has(sev)) next.delete(sev);
-      else next.add(sev);
-      return next;
-    });
-  }
 
   function exportRows() {
     return visibleRows.map((r) => ({
@@ -756,37 +741,63 @@ export function AuditTab({ workflowRunId, runMeta }: AuditTabProps) {
           </div>
         </div>
 
-        {/* Severity filters (superseded by the group filter row in Task 2) */}
-        <div className="flex items-center gap-1.5 flex-wrap mt-3">
-          <Filter className="h-3 w-3 text-ink-400" />
-          {SEVERITIES.map((sev) => {
-            const active = activeSeverities.has(sev);
+        {/* ── Filter row: category groups + blocked-only + search ── */}
+        <div className="flex items-center gap-2 flex-wrap mt-3.5">
+          {(["all", "gov", "sec", "act"] as const).map((g) => {
+            const active = activeGroup === g;
+            const count = groupCounts[g];
             return (
               <button
-                key={sev}
+                key={g}
                 type="button"
-                data-testid={`sev-filter-${sev}`}
+                data-testid={`audit-filter-${g}`}
                 aria-pressed={active}
-                onClick={() => toggleSeverity(sev)}
+                onClick={() => setActiveGroup(g)}
                 className={[
-                  "inline-flex items-center gap-1 border rounded-[var(--radius-tag)] px-1.5 py-0.5 font-sans text-[9px] font-semibold uppercase tracking-wide leading-none transition-colors",
+                  "inline-flex items-center gap-1.5 border rounded-[var(--radius-pill)] px-3 py-1.5 font-sans text-[12px] font-medium leading-none transition-colors whitespace-nowrap",
                   active
-                    ? "bg-brand-fill border-brand-border"
-                    : "bg-surface-white border-line-control hover:bg-surface-warm",
+                    ? "bg-ink-900 border-ink-900 text-surface-white"
+                    : "bg-surface-white border-line-control text-ink-600 hover:bg-surface-warm",
                 ].join(" ")}
-                style={{ color: SEVERITY_VAR[sev] }}
               >
-                {sev} {counts.sev[sev]}
+                {GROUP_LABEL[g]} <span className="opacity-50">{count}</span>
               </button>
             );
           })}
+          <span className="flex-1" />
+          <button
+            type="button"
+            data-testid="audit-blocked-only"
+            aria-pressed={blockedOnly}
+            onClick={() => setBlockedOnly((b) => !b)}
+            className={[
+              "inline-flex items-center gap-1.5 border rounded-[var(--radius-button)] px-2.5 py-1.5 font-sans text-[12px] font-medium leading-none transition-colors whitespace-nowrap",
+              blockedOnly
+                ? "bg-[var(--status-failed-fill)] border-[var(--status-failed-border)] text-status-failed"
+                : "bg-surface-white border-line-control text-ink-500 hover:bg-surface-warm",
+            ].join(" ")}
+          >
+            <Ban className="h-3 w-3" />
+            Blocked / denied only
+          </button>
+          <div className="inline-flex items-center gap-2 w-[190px] bg-surface-card border border-line-control rounded-[var(--radius-button)] px-3 py-2">
+            <Search className="h-3.5 w-3.5 text-ink-400 flex-none" />
+            <input
+              data-testid="audit-search"
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search log…"
+              className="flex-1 min-w-0 bg-transparent text-[12px] text-ink-700 placeholder:text-ink-400 outline-none"
+            />
+          </div>
         </div>
       </div>
 
-      {/* ── Row list ── */}
+      {/* ── Row list + integrity footer ── */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
         {visibleRows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
+          <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
             <p className="text-[11px] text-ink-500">No records match the active filters.</p>
           </div>
         ) : (
@@ -794,6 +805,17 @@ export function AuditTab({ workflowRunId, runMeta }: AuditTabProps) {
             <AuditRowCard key={row.id} row={row} index={idx} />
           ))
         )}
+
+        {/* Integrity footer — immutable, attributed, exportable log. */}
+        <div
+          data-testid="audit-integrity-footer"
+          className="flex items-center gap-2.5 mt-3 px-3.5 py-2.5 border border-dashed border-line-control rounded-[var(--radius-button)] text-[11.5px] text-ink-500 leading-relaxed"
+        >
+          <Lock className="h-3.5 w-3.5 text-ink-400 flex-none" />
+          <span>
+            Immutable, owner- and workspace-attributed log · every entry carries severity + timestamp · exportable to CSV / JSON for compliance review.
+          </span>
+        </div>
       </div>
     </div>
   );

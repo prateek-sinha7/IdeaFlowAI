@@ -154,7 +154,7 @@ describe("auditExporter (ND-6 — client-side CSV/JSON blob download only)", () 
 // Task 3 — AuditTab repoint onto the 3 endpoints + counters/filters/export.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("AuditTab (SC-3 — 3-endpoint reader + severity filters + export)", () => {
+describe("AuditTab (SC-3 — 3-endpoint reader + category-group filters + export)", () => {
   const RUN = "r1";
 
   beforeEach(() => {
@@ -207,18 +207,52 @@ describe("AuditTab (SC-3 — 3-endpoint reader + severity filters + export)", ()
     expect(screen.getByText(/ls/)).toBeTruthy();
   });
 
-  it("severity filter narrows the rendered rows", async () => {
+  it("the category-group filter (Governance / Security / Activity) narrows the rows", async () => {
     render(<AuditTab workflowRunId={RUN} />);
     await screen.findByText(/static_check/);
-    // Both severities visible initially.
+    // Security group = exec + secret-scan rows only; the exec "ls" row survives,
+    // the Governance validations do not.
+    fireEvent.click(screen.getByTestId("audit-filter-sec"));
+    await waitFor(() => {
+      expect(screen.queryByText(/static_check/)).toBeNull();
+    });
+    expect(screen.getByText(/ls/)).toBeTruthy();
+  });
+
+  it("the 'Blocked / denied only' toggle keeps only block-outcome rows", async () => {
+    render(<AuditTab workflowRunId={RUN} />);
+    await screen.findByText(/static_check/);
+    // axe_check is LOW severity → a 'warn' outcome, so it drops under blocked-only.
     expect(screen.getByText(/axe_check/)).toBeTruthy();
-    // Activate the CRITICAL severity filter.
-    fireEvent.click(screen.getByTestId("sev-filter-CRITICAL"));
+    fireEvent.click(screen.getByTestId("audit-blocked-only"));
     await waitFor(() => {
       expect(screen.queryByText(/axe_check/)).toBeNull();
     });
-    // The critical row survives the filter.
+    // The CRITICAL validation (a 'block' outcome) survives.
     expect(screen.getByText(/static_check/)).toBeTruthy();
+  });
+
+  it("free-text search narrows the rows by label / step", async () => {
+    render(<AuditTab workflowRunId={RUN} />);
+    await screen.findByText(/static_check/);
+    fireEvent.change(screen.getByTestId("audit-search"), { target: { value: "axe" } });
+    await waitFor(() => {
+      expect(screen.queryByText(/static_check/)).toBeNull();
+    });
+    expect(screen.getByText(/axe_check/)).toBeTruthy();
+  });
+
+  it("a row expands to a 'What is this?' explainer + key/value detail", async () => {
+    render(<AuditTab workflowRunId={RUN} />);
+    await screen.findByText(/static_check/);
+    // Nothing expanded initially.
+    expect(screen.queryByText(/What is this\?/i)).toBeNull();
+    fireEvent.click(screen.getAllByTestId("audit-row-toggle")[0]);
+    await waitFor(() => {
+      expect(screen.getByText(/What is this\?/i)).toBeTruthy();
+    });
+    // The collapsible body carries the category's static explainer copy.
+    expect(screen.getAllByText(/checkpoint|validator|command|scan|guideline|measurement|activity/i).length).toBeGreaterThan(0);
   });
 
   it("the Export ▾ menu's CSV / JSON items invoke the Task-2 util over the current rows", async () => {
