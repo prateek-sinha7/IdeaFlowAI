@@ -479,8 +479,12 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | SHELL-03 | Phase 36 [B2] | Complete |
 | SHELL-04 | Phase 37 [B3] | Pending |
 | SHELL-05 | Phase 38 [B4] | Complete |
+| RUNUI-06 | Phase 39 [B5] | Pending |
+| RUNUI-07 | Phase 39 [B5] | Pending |
+| RUNUI-08 | Phase 39 [B5] | Pending |
+| RUNUI-09 | Phase 39 [B5] | Pending |
 
-**v2.0 counts:** P28=1 · P29=6 · P30=4 · P31=3 · P32=5 · P33=3 · P34=1 · P35=1 · P36=2 · P37=1 · P38=1 (= 28)
+**v2.0 counts:** P28=1 · P29=6 · P30=4 · P31=3 · P32=5 · P33=3 · P34=1 · P35=1 · P36=2 · P37=1 · P38=1 · P39=4 (= 32)
 
 ---
 *Requirements defined: 2026-06-06*
