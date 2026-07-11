@@ -187,6 +187,14 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   await page.getByTestId("construction-task-row").first().click({ timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(700); await shot(page, "steps-task", "settled");
   await tab("Files").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(900); await shot(page, "files", "settled");
+  // Sub-view: scroll the Files pane to the bottom so the "Run input" card pair
+  // (below the fold on a settled run with 4 agent outputs) is fully captured.
+  await page.evaluate(() => {
+    const panes = Array.from(document.querySelectorAll<HTMLElement>(".overflow-y-auto"));
+    const pane = panes.find((el) => el.scrollHeight > el.clientHeight && el.textContent?.includes("Run input"));
+    if (pane) pane.scrollTop = pane.scrollHeight;
+  });
+  await page.waitForTimeout(500); await shot(page, "files-runinput", "settled");
   await tab("Audit").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(1200); await shot(page, "audit", "settled");
   // left-lane clip (the conversation column) — reset to Preview first so it is calm
   await tab("Preview").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(600);
