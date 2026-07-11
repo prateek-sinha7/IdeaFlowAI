@@ -106,8 +106,10 @@ export class DashboardPage {
   prototypeIframe(): Locator { return this.page.locator('iframe[title="Prototype Preview"]'); }
 
   // tabs
-  previewTab(): Locator { return this.page.getByRole("button", { name: "Preview" }); }
-  filesTab(): Locator { return this.page.getByRole("button", { name: "Files" }); }
+  // Phase 39 redesigned right-panel tabs are the Tabs primitive (role="tab");
+  // labels may carry a count (e.g. "Files 8"), so match by regex like thinkingTab.
+  previewTab(): Locator { return this.page.getByRole("tab", { name: /Preview/i }); }
+  filesTab(): Locator { return this.page.getByRole("tab", { name: /Files/i }); }
   /** The Steps tab (Phase 32 relabelled the old "Thinking" tab to "Steps"; the
    *  Phase-39 redesign made the tab strip role="tab"). */
   thinkingTab(): Locator { return this.page.getByRole("tab", { name: /Steps/i }); }

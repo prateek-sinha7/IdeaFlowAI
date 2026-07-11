@@ -8,7 +8,7 @@
  * RIGHT, per `{surface}__{state}` tag. Images are inlined as base64 data-URIs so
  * the file is a single portable artifact a reviewer can open anywhere.
  *
- * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-O) as
+ * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-Q) as
  * "expected — ignore" so a reviewer never mistakes a registered divergence for a
  * fidelity gap. There is deliberately NO automated pixel-diff: ND-D (our live
  * data never equals the mock's hardcoded values) would make a pixel compare
@@ -34,7 +34,7 @@ const OUT = join(HERE, "gallery.html");
  *  ND-K/ND-L added 39-02 for the Steps tab; ND-M resolved in 39-02; ND-N/ND-O
  *  added 39-02 for the L3 task-detail live-data limits; ND-P added 39-02 for the
  *  task↔wave mapping fallback after the construction split was reconciled into ONE
- *  nested block). */
+ *  nested block; ND-Q added 39-03 for the Files hero's static 'validated' label). */
 const ND = [
   ["ND-A", "Brand wordmark", 'mock "HEXAWARE" → we ship "VelocityAI"'],
   ["ND-B", "Nav label", 'mock "Catalogue" → we ship "My Workflows" (D-11)'],
@@ -54,6 +54,7 @@ const ND = [
   ["ND-N", "L3 per-task tool calls", "the mock shows a tool-call list per construction task; our live trace records tool calls at the AGENT level, not attributed to an individual subagent task, so the L3 tool-call list is OMITTED (never the misleading agent-wide tools)"],
   ["ND-O", "L3 per-task duration", "protoCompletedTasks carries {number,title,summary} with no per-task duration, so the L3 duration line — AND the nested construction task row's duration — is omitted unless live per-task timing is supplied (never fabricated)"],
   ["ND-P", "Task↔wave grouping", "the mock hardcodes which tasks sit under which wave; our wave carries backend `taskIds` and the completed tasks carry a `number`, joined on the trailing integer of each taskId. When that join cleanly covers every task, tasks nest under their own wave; when it does not, ALL tasks nest under a single wave group (still ONE integrated block) — the honest fallback for a run whose taskIds don't map 1:1 to the completed-task set"],
+  ["ND-Q", "Files hero 'validated' label", "the Final-output hero's 'validated' suffix is the mock's static deliverable-passed affirmation — a settled run reaches Files only after its validation gate; the deliverable NAME / format / size are LIVE (ND-D), only the 'validated' word is a fixed composition label (39-03)"],
 ];
 
 const surfaceArg = process.argv.includes("--surface")
@@ -141,7 +142,7 @@ async function main() {
   <h1>Run-Screen Fidelity Gallery${surfaceArg ? ` — <code>${esc(surfaceArg)}</code>` : ""}</h1>
   <p>Mock (left) vs current (right), per <code>{surface}__{state}</code>. Human review only — no pixel-diff (ND-D live data ≠ mock values).</p>
   <details class="nd" open>
-    <summary>Intended divergences — expected, ignore (ND-A..ND-O)</summary>
+    <summary>Intended divergences — expected, ignore (ND-A..ND-Q)</summary>
     <table>${ndRows}</table>
   </details>
 </header>

@@ -270,8 +270,15 @@ test("CAPTURE failed run", async ({ dashboard, mockWs, page }) => {
   await seedBrief(mockWs, "Build a full inventory app with a seed script that writes credentials to .env");
   // An assistant explanation line precedes the failure card (like the mock).
   mockWs.chatReply({ cardKind: "pipeline", text: "The run stopped at the security gate — a step tried to write secrets to disk and run code the workspace policy doesn't allow. Nothing was written outside the sandbox." });
-  mockWs.agentStart("prototype-specify"); mockWs.agentComplete("prototype-specify", { totalTokens: 30100 });
-  mockWs.agentStart("prototype-plan"); mockWs.agentComplete("prototype-plan", { totalTokens: 42200 });
+  // Seed the two planning agents' output so the failed Files tab shows the real
+  // (reduced) planning artifacts — the mock's "only planning artifacts" list is
+  // LIVE agent outputs here (ND-D), not a fabricated file list.
+  mockWs.agentStart("prototype-specify");
+  mockWs.agentChunk("prototype-specify", "# Apple Reference — Specification\n\nSix pages, one shared design system, a single type scale and a 12-column grid.");
+  mockWs.agentComplete("prototype-specify", { totalTokens: 30100 });
+  mockWs.agentStart("prototype-plan");
+  mockWs.agentChunk("prototype-plan", "# Build tasks\n1. Scaffold shared layout, nav & footer\n2. Home / landing page…");
+  mockWs.agentComplete("prototype-plan", { totalTokens: 42200 });
   mockWs.agentStart("prototype-build"); mockWs.agentError("prototype-build", "The run stopped at the security gate. A step tried to write secrets to disk.");
   // Only the build agent hard-fails; the downstream Validation Agent never runs
   // (stays idle → renders as a "Not run" row + drives the "Pipeline halted — N
@@ -281,5 +288,9 @@ test("CAPTURE failed run", async ({ dashboard, mockWs, page }) => {
   await shot(page, "full", "failed");
   await page.getByRole("tab", { name: /Steps/i }).first().click({ timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(900); await shot(page, "steps", "failed");
+  // Files tab (failed): the amber "Build incomplete" banner + only the live
+  // planning-artifact files (reduced live outputs, ND-D — no fabricated rows).
+  await page.getByRole("tab", { name: /Files/i }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(900); await shot(page, "files", "failed");
   await page.screenshot({ path: `${OUT}/leftlane__failed.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
 });
