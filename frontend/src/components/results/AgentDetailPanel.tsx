@@ -7,8 +7,10 @@
 // received" panel on the RIGHT, built from the agent's LIVE `contextSources`
 // (ND-D — never the mock's hardcoded source sizes; SC-001 — never a
 // workflow/agent-name literal). It reuses the sub-sections that previously lived
-// inside the retired flat AgentTimelineCard (INV-3: single implementation) and
-// the shared WaveTreePanel for the construction fan-out (INV-12: not rebuilt).
+// inside the retired flat AgentTimelineCard (INV-3: single implementation). The
+// construction fan-out renders as ONE integrated block with build tasks NESTED
+// UNDER their waves (INV-12: the former separate WaveTreePanel "Wave / Subagent
+// tree" is retired here — single representation, no dual view).
 // Token-reskinned off the Phase-32 tokens (no gray-* palette).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -16,10 +18,9 @@ import { useEffect, useState } from "react";
 import {
   Brain, Wrench, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   Clock, Cpu, FileText, Copy, Check, Eye, EyeOff, AlertTriangle, Pencil,
-  Layers, Zap, FileCode, BookText,
+  Layers, Zap, FileCode, BookText, GitBranch,
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
-import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
 
 // ─── Shared context-source formatting (INV-12 — the single derivation the sticky
@@ -254,10 +255,102 @@ function ValidationResultCard({ passed, issues }: { passed?: boolean; issues?: V
   );
 }
 
-// ─── Construction block (waves + navigable per-task rows → L3) ─────────────────
-// Dual-source (STEPS-ARTIFACT-DERIVATION §2/§3): the task-loop checklist (KAN-99
-// N-1 capped) merged with the fan-out wave tree (WaveTreePanel, reused). Each task
-// row opens the L3 TaskDetailPanel via onOpenTask (Phase 39 plan 02).
+// ─── Construction block (waves + NESTED navigable per-task rows → L3) ──────────
+// The mock's single integrated "Construction · waves & subagents · N/N done"
+// block: build TASKS are NESTED UNDER the wave that produced them. This retires
+// the former DUAL representation (a flat task list PLUS a separate WaveTreePanel
+// "Wave / Subagent tree") — INV-12, one representation only.
+//
+// Task↔wave mapping (ND-P): a wave carries `taskIds` (backend strings) while the
+// completed tasks carry a `number`. We join on the trailing integer of each
+// taskId. When that join cleanly covers every displayed task, each task nests
+// under its own wave; otherwise ALL tasks nest under a single wave group (still
+// ONE integrated block) — the registered mapping limitation. Every task row keeps
+// the `construction-task-row` testid + opens the L3 TaskDetailPanel via onOpenTask.
+//
+// Per-task DURATION (ND-O): protoCompletedTasks carries {number,title,summary}
+// with NO per-task timing, so a nested task row shows no duration — never a
+// fabricated one.
+
+type CTaskStatus = "done" | "running" | "pending";
+interface CTask { index: number; number: number; title?: string; status: CTaskStatus; }
+interface CGroup { key: string; waveIndex: number | null; kind: string | null; status: string | null; tasks: CTask[]; }
+
+/** Task numbers a wave references, parsed from the trailing integer of each taskId. */
+function waveTaskNumbers(w: WaveGroup): Set<number> {
+  return new Set(
+    w.taskIds
+      .map(id => { const m = /(\d+)\s*$/.exec(id); return m ? parseInt(m[1], 10) : NaN; })
+      .filter(n => Number.isFinite(n)),
+  );
+}
+
+/** A wave that fanned out to >1 concurrent subagent ran its tasks in parallel. */
+function waveKind(w: WaveGroup): string {
+  return w.workers.length > 1 ? "parallel" : "sequential";
+}
+
+/** Group the displayed tasks under their wave (clean map) or, failing a clean
+ *  join, under a single wave group (ND-P fallback) — always ONE integrated block. */
+function buildConstructionGroups(waves: WaveGroup[], tasks: CTask[]): CGroup[] {
+  const ordered = [...waves].sort((a, b) => a.waveIndex - b.waveIndex);
+  if (ordered.length === 0) {
+    // No wave lifecycle reported — one group, tasks nested, no wave chrome.
+    return [{ key: "all", waveIndex: null, kind: null, status: null, tasks }];
+  }
+  const parsed = ordered.map(w => ({ w, nums: waveTaskNumbers(w) }));
+  const groupFor = (n: number) => parsed.findIndex(p => p.nums.has(n));
+  const cleanMap = tasks.length > 0 && tasks.every(t => groupFor(t.number) >= 0);
+  if (!cleanMap) {
+    // Mapping unclean (taskIds don't cover the completed-task set) — ND-P fallback:
+    // ALL tasks nest under a single group, chrome borrowed from the first wave.
+    const first = ordered[0];
+    return [{ key: `wave-${first.waveIndex}`, waveIndex: first.waveIndex, kind: waveKind(first), status: first.status, tasks }];
+  }
+  return parsed
+    .map(p => ({
+      key: `wave-${p.w.waveIndex}`,
+      waveIndex: p.w.waveIndex,
+      kind: waveKind(p.w),
+      status: p.w.status,
+      tasks: tasks.filter(t => p.nums.has(t.number)),
+    }))
+    .filter(g => g.tasks.length > 0);
+}
+
+/** Normalize a wave lifecycle status into its display label + token chip. */
+function waveStatusChip(status: string): { label: string; cls: string } {
+  const s = (status || "").toLowerCase();
+  if (s.includes("cancel")) return { label: "cancelled", cls: "bg-status-amber/10 text-status-amber" };
+  if (s.includes("fail") || s.includes("error")) return { label: "failed", cls: "bg-status-failed/10 text-status-failed" };
+  if (s.includes("complete") || s.includes("done") || s.includes("success")) return { label: "completed", cls: "bg-status-done/10 text-status-done" };
+  if (s.includes("run") || s.includes("spawn") || s.includes("progress") || s.includes("start")) return { label: "running", cls: "bg-status-running/10 text-status-running" };
+  return { label: "pending", cls: "bg-status-queued/10 text-status-queued" };
+}
+
+function ConstructionTaskRow({ task, onOpenTask }: { task: CTask; onOpenTask?: (taskIndex: number) => void }) {
+  return (
+    <button
+      data-testid="construction-task-row"
+      onClick={() => onOpenTask?.(task.index)}
+      className="w-full flex items-center gap-2.5 rounded-[9px] border border-line-faint-row bg-surface-card px-2.5 py-2.5 text-left hover:border-line-faint transition-colors"
+    >
+      {task.status === "done" ? (
+        <span className="w-[17px] h-[17px] flex-none rounded-full bg-surface-near-black grid place-items-center"><Check className="h-2.5 w-2.5 text-white" /></span>
+      ) : task.status === "running" ? (
+        <span className="w-[17px] h-[17px] flex-none rounded-full bg-brand-fill border-[1.5px] border-brand grid place-items-center"><span className="w-1.5 h-1.5 rounded-full bg-brand" /></span>
+      ) : (
+        <span className="w-[17px] h-[17px] flex-none rounded-full border-[1.5px] border-line-control" />
+      )}
+      <span className="text-[11.5px] text-ink-700">
+        <span className="font-mono text-ink-200">Task {task.number}</span>{task.title ? ` · ${task.title}` : ""}
+      </span>
+      <span className="flex-1" />
+      <ChevronRight className="h-[15px] w-[15px] flex-none text-line-faint" />
+    </button>
+  );
+}
+
 function ConstructionBlock({
   completedCount, totalTasks, isComplete, waves, tasks, onOpenTask,
 }: {
@@ -271,6 +364,14 @@ function ConstructionBlock({
   const displayedDone = isComplete ? totalTasks : Math.min(completedCount, Math.max(0, totalTasks - 1));
   const pct = totalTasks > 0 ? Math.round((displayedDone / totalTasks) * 100) : 0;
   const titleFor = (i: number) => tasks?.find(t => t.number === i + 1)?.title;
+
+  const displayTasks: CTask[] = Array.from({ length: totalTasks }).map((_, i) => ({
+    index: i,
+    number: i + 1,
+    title: titleFor(i),
+    status: i < displayedDone ? "done" : (!isComplete && i === displayedDone ? "running" : "pending"),
+  }));
+  const groups = buildConstructionGroups(waves, displayTasks);
 
   return (
     <div data-testid="construction-block" className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
@@ -287,39 +388,40 @@ function ConstructionBlock({
           <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${pct}%` }} />
         </div>
       )}
-      {/* Navigable task rows (Source A checklist → L3 drill) */}
-      {totalTasks > 0 && (
-        <div className="ml-1 pl-3.5 border-l-2 border-line-faint-row space-y-1.5 mb-3">
-          {Array.from({ length: totalTasks }).map((_, i) => {
-            const done = i < displayedDone;
-            const active = !isComplete && i === displayedDone;
-            const t = titleFor(i);
+
+      {totalTasks === 0 ? (
+        <p data-testid="construction-empty" className="flex items-center gap-1.5 text-[11px] text-ink-300">
+          <GitBranch className="h-3 w-3 flex-none" /> No subagents yet.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {groups.map(group => {
+            const chip = group.status ? waveStatusChip(group.status) : null;
             return (
-              <button
-                key={i}
-                data-testid="construction-task-row"
-                onClick={() => onOpenTask?.(i)}
-                className="w-full flex items-center gap-2.5 rounded-[9px] border border-line-faint-row bg-surface-card px-2.5 py-2.5 text-left hover:border-line-faint transition-colors"
-              >
-                {done ? (
-                  <span className="w-[17px] h-[17px] flex-none rounded-full bg-surface-near-black grid place-items-center"><Check className="h-2.5 w-2.5 text-white" /></span>
-                ) : active ? (
-                  <span className="w-[17px] h-[17px] flex-none rounded-full bg-brand-fill border-[1.5px] border-brand grid place-items-center"><span className="w-1.5 h-1.5 rounded-full bg-brand" /></span>
-                ) : (
-                  <span className="w-[17px] h-[17px] flex-none rounded-full border-[1.5px] border-line-control" />
+              <div key={group.key}>
+                {group.waveIndex != null && (
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <GitBranch className="h-3 w-3 flex-none text-ink-400" />
+                    <span className="text-[11px] font-semibold text-ink-700">Wave {group.waveIndex + 1}</span>
+                    {group.kind && <span className="text-[10px] text-ink-200">{group.kind}</span>}
+                    <span className="flex-1" />
+                    {chip && (
+                      <span className={`inline-flex items-center text-[8px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded ${chip.cls}`}>
+                        {chip.label}
+                      </span>
+                    )}
+                  </div>
                 )}
-                <span className="text-[11.5px] text-ink-700">
-                  <span className="font-mono text-ink-200">Task {i + 1}</span>{t ? ` · ${t}` : ""}
-                </span>
-                <span className="flex-1" />
-                <ChevronRight className="h-[15px] w-[15px] flex-none text-line-faint" />
-              </button>
+                <div className="ml-1 pl-3.5 border-l-2 border-line-faint-row space-y-1.5">
+                  {group.tasks.map(t => (
+                    <ConstructionTaskRow key={t.index} task={t} onOpenTask={onOpenTask} />
+                  ))}
+                </div>
+              </div>
             );
           })}
         </div>
       )}
-      {/* Source B — the fan-out wave/subagent tree (reused WaveTreePanel). */}
-      <WaveTreePanel waves={waves} />
     </div>
   );
 }

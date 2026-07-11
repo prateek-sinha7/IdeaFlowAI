@@ -110,7 +110,8 @@ export function AgentThinkingTab({
   // pending / "Not run" rings), mirroring the mock's spine — the halted banner's
   // "N did not run" count derives from those idle rows (ND-D).
 
-  // ── L2 construction data (dual-source, STEPS-ARTIFACT-DERIVATION §2/§3) ──
+  // ── L2 construction data (task_progress + wave_*/subagent_* reconciled into
+  //    ONE nested block — STEPS-ARTIFACT-DERIVATION §2/§3) ──
   const resolvedWaves = waves ?? [];
   const completedTaskCount = pipelineState?.protoCompletedTaskCount ?? 0;
   const waveTaskUniverse = new Set(resolvedWaves.flatMap(w => w.taskIds));
@@ -124,9 +125,9 @@ export function AgentThinkingTab({
     : pipelineState?.isRunning === false;
 
   const selectedAgent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : undefined;
-  // The construction section (waves + task-loop) belongs to the build/construct
-  // agent's L2 detail — shown whenever that agent is selected, even with an empty
-  // wave tree (the WaveTreePanel renders "No waves running." until a wave arrives).
+  // The construction section (nested waves → tasks) belongs to the build/construct
+  // agent's L2 detail — shown whenever that agent is selected, even before any wave
+  // arrives (the block renders a "No subagents yet." empty affordance until then).
   const isConstructionSelected = !!selectedAgent && constructionAgent?.id === selectedAgent.id;
 
   // ── L3 task status (KAN-99 N-1 cap, mirrors ConstructionBlock) ──

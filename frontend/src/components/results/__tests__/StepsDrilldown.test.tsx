@@ -7,14 +7,16 @@ import type { ClarifyQuestion } from "@/components/preview/QuestionnairePanel";
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 32 plan 08 (SC-2, STEPS-ARTIFACT-DERIVATION-CONTRACT) — the Steps
 // drill-down construction contract, proven off SCRIPTED events. Re-anchored for
-// the Phase 39 plan 02 three-level nav: the construction block (dual-source
-// checklist + WaveTreePanel) now lives inside the construction agent's L2 detail,
-// so each construction spec first DRILLS into the Build Agent row before asserting.
-//   §2 dual-source: task_progress (completed_count) AND wave_*/subagent_*
-//       (WaveTreePanel) both feed the construction block.
+// the Phase 39 plan 02 three-level nav AND its wave/task reconciliation: the
+// construction block now lives inside the construction agent's L2 detail as ONE
+// integrated "Construction · waves & subagents" block with build TASKS NESTED
+// under their waves (the former separate WaveTreePanel "Wave / Subagent tree" is
+// retired — INV-12, single representation). Each construction spec first DRILLS
+// into the Build Agent row before asserting.
+//   §2 sources: task_progress (completed_count) AND wave_*/subagent_* both feed
+//       the ONE block — the tasks nest under the wave that produced them.
 //   §3 KAN-99: the checklist caps at N-1 until agent_complete; completed_count
 //       == total-1 is the expected fix-loop steady state, NOT a stall.
-//   ISS-019: WaveTreePanel is mounted INSIDE the drill-down (not below the fold).
 // The inline gate/clarify (unchanged surfaces) stay on the overview spine.
 // TokenUsageSummary is stubbed (parity with the sibling AgentThinkingTab specs).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,7 +83,7 @@ function openBuildDetail() {
 }
 
 describe("Steps drill-down — construction dual-source + KAN-99 cap (SC-2)", () => {
-  it("renders BOTH sources: the task_progress checklist AND the wave/subagent tree (ISS-019 mounted in the drill-down)", () => {
+  it("renders ONE integrated block with tasks NESTED under their waves (task_progress + wave_*/subagent_* reconciled)", () => {
     render(
       <AgentThinkingTab
         agents={buildState().agents}
@@ -91,13 +93,19 @@ describe("Steps drill-down — construction dual-source + KAN-99 cap (SC-2)", ()
     );
     openBuildDetail();
 
-    // Source B — WaveTreePanel is mounted INSIDE the Steps drill-down (ISS-019).
-    expect(screen.getByText("Wave / Subagent Tree")).toBeInTheDocument();
-    expect(screen.getByText("Wave 0")).toBeInTheDocument();
-    expect(screen.getByText("worker-alpha")).toBeInTheDocument();
-    expect(screen.getByText("worker-beta")).toBeInTheDocument();
+    // ONE integrated block — the separate "Wave / Subagent Tree" is retired (INV-12).
+    expect(screen.queryByText("Wave / Subagent Tree")).toBeNull();
+    expect(screen.getByTestId("construction-block")).toBeInTheDocument();
 
-    // Source A — the task-loop checklist renders its progress counter.
+    // The waves render as nested groups (1-based to match the mock): wave 0 → tasks
+    // t1,t2 (Wave 1); wave 1 → t3 (Wave 2).
+    expect(screen.getByText("Wave 1")).toBeInTheDocument();
+    expect(screen.getByText("Wave 2")).toBeInTheDocument();
+
+    // The three tasks nest as navigable rows (the mock's model — tasks, not workers).
+    expect(screen.getAllByTestId("construction-task-row")).toHaveLength(3);
+
+    // The task-loop checklist still surfaces its progress counter.
     expect(screen.getByTestId("construction-progress")).toBeInTheDocument();
   });
 

@@ -131,6 +131,9 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
 
   // 3) Build Agent (+ wave / subagents)
   mockWs.agentStart("prototype-build");
+  // Seed the Build Agent's assembled context (tasks.md + spec.md) so the L2
+  // "Context received" panel shows real sources fed in, not "0 sources".
+  mockWs.emit("agent_input", { agent_id: "prototype-build", context_message: "You are the Build Agent. Read spec.md and tasks.md, then build each task in dependency order, verifying each before moving on.", context_sources: [{ type: "artifact", artifact_type: "tasks.md", artifact_size_chars: 36100 }, { type: "artifact", artifact_type: "spec.md", artifact_size_chars: 36400 }] });
   mockWs.agentThinking("prototype-build", "I build task by task and verify each before moving on.");
   mockWs.waveStarted(0, "prototype-build", ["t1", "t2", "t3"]);
   mockWs.subagentSpawned(0, "prototype-build", "build-task-1", 1, "running");

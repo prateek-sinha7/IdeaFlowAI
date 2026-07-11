@@ -32,7 +32,9 @@ const OUT = join(HERE, "gallery.html");
 /** The intended-divergence register (39-01-PLAN ND-A..ND-G + ND-H per 39-07,
  *  ND-I/ND-J added 39-01 for two live-data extras the lane renders vs the mock;
  *  ND-K/ND-L added 39-02 for the Steps tab; ND-M resolved in 39-02; ND-N/ND-O
- *  added 39-02 for the L3 task-detail live-data limits). */
+ *  added 39-02 for the L3 task-detail live-data limits; ND-P added 39-02 for the
+ *  task↔wave mapping fallback after the construction split was reconciled into ONE
+ *  nested block). */
 const ND = [
   ["ND-A", "Brand wordmark", 'mock "HEXAWARE" → we ship "VelocityAI"'],
   ["ND-B", "Nav label", 'mock "Catalogue" → we ship "My Workflows" (D-11)'],
@@ -45,12 +47,13 @@ const ND = [
   ["ND-I", "Header Stop control (live)", "we KEEP a Stop while a run is live — essential run control the mock's live lane omits"],
   ["ND-J", "Attachment chips on a failed run", "real run inputs show — the mock's specific failed example happened to have none"],
   ["ND-K", "Steps overview live card", "we KEEP a live 'Starting point' (run input) card below the stepper — the mock's clean overview omits it (human-approved single live-data extra; the Deep-Planner card was DROPPED to match the mock)"],
-  ["ND-L", "Agent-detail artifact preview", "the mock hardcodes a per-agent artifact preview per agent kind — a 'pages' grid (Spec Writer), a task-count list (Task Planner), a checks/verdict grid (Analyzer/Validation). We have NO live structured page/task-count field, so for those agents we surface the real 'Agent output' section (raw live markdown) instead; the Validation agent's checks ARE surfaced live via the validation-result card, and the Build Agent's construction fan-out (waves + task rows) IS reproduced live"],
+  ["ND-L", "Agent-detail artifact preview", "the mock hardcodes a per-agent artifact preview per agent kind — a 'pages' grid (Spec Writer), a task-count list (Task Planner), a checks/verdict grid (Analyzer/Validation). We have NO live structured page/task-count field, so for those agents we surface the real 'Agent output' section (raw live markdown) instead; the Validation agent's checks ARE surfaced live via the validation-result card, and the Build Agent's construction fan-out (waves + task rows) IS reproduced live. RESOLVED 39-02: the fan-out previously rendered as TWO blocks (a flat task list + a separate 'Wave / Subagent tree'); it is now the mock's SINGLE integrated block with tasks NESTED under their waves (INV-12 — no dual representation)"],
   // ND-M RESOLVED (39-02): the settled "Review gate — X · approved" strips now
   // render from the live getRunGateEvents fetch (mapped to their agent by `step`),
   // matching the mock's settled spine — no longer a divergence.
   ["ND-N", "L3 per-task tool calls", "the mock shows a tool-call list per construction task; our live trace records tool calls at the AGENT level, not attributed to an individual subagent task, so the L3 tool-call list is OMITTED (never the misleading agent-wide tools)"],
-  ["ND-O", "L3 per-task duration", "protoCompletedTasks carries {number,title,summary} with no per-task duration, so the L3 duration line is omitted unless live per-task timing is supplied"],
+  ["ND-O", "L3 per-task duration", "protoCompletedTasks carries {number,title,summary} with no per-task duration, so the L3 duration line — AND the nested construction task row's duration — is omitted unless live per-task timing is supplied (never fabricated)"],
+  ["ND-P", "Task↔wave grouping", "the mock hardcodes which tasks sit under which wave; our wave carries backend `taskIds` and the completed tasks carry a `number`, joined on the trailing integer of each taskId. When that join cleanly covers every task, tasks nest under their own wave; when it does not, ALL tasks nest under a single wave group (still ONE integrated block) — the honest fallback for a run whose taskIds don't map 1:1 to the completed-task set"],
 ];
 
 const surfaceArg = process.argv.includes("--surface")

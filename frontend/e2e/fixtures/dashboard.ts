@@ -89,10 +89,12 @@ export class DashboardPage {
   /** An agent card by its display name. */
   agentCardByName(name: string): Locator { return this.page.getByText(name, { exact: false }); }
 
-  // wave panel
-  waveHeading(): Locator { return this.page.getByText("Wave / Subagent Tree"); }
-  waveEmpty(): Locator { return this.page.getByText("No waves running."); }
-  waveGroup(index: number): Locator { return this.page.getByText(new RegExp(`^Wave ${index}$`)); }
+  // Construction · waves & subagents (the Build Agent's L2 detail — Phase 39 plan
+  // 02: the former standalone WaveTreePanel is now ONE integrated block with build
+  // tasks NESTED under their waves; waves display 1-based to match the mock).
+  waveHeading(): Locator { return this.page.getByText(/Construction · waves/); }
+  waveEmpty(): Locator { return this.page.getByTestId("construction-empty"); }
+  waveGroup(index: number): Locator { return this.page.getByText(new RegExp(`^Wave ${index + 1}$`)); }
 
   // preview
   previewEmpty(): Locator { return this.page.getByText("Output will appear here"); }
