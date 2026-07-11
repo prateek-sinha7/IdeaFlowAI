@@ -80,14 +80,48 @@ export class DashboardPage {
 
   // ── execution-view locators ──────────────────────────────────────────────────
 
-  runningBadge(): Locator { return this.page.getByText("RUNNING", { exact: true }); }
-  doneBadge(): Locator { return this.page.getByText("DONE", { exact: true }); }
-  errorBadge(): Locator { return this.page.getByText("ERROR", { exact: true }); }
+  // Run-status badges — Phase 39 run-screen redesign RETIRED the per-agent
+  // uppercase RUNNING/DONE/ERROR text badges of the old AgentProgressPanel (that
+  // panel is no longer mounted). The run-level status now renders as a single
+  // token in the lane run header (LaneRunHeader → StatusToken, testid
+  // `lane-run-status`) keyed by a generic `data-status-tone`:
+  //   • building/clarify/gate → tone "running"  (pill "Running"/"Clarifying"/…)
+  //   • complete / settled    → tone "done"      (token "Done")
+  //   • terminal-failed       → tone "failed"    (token "Failed")
+  // These are the run-lifecycle heirs of the three badges (whole-run granularity).
+  // PER-AGENT state relocated to the Steps tab (see the Steps helpers below).
+  runningBadge(): Locator { return this.page.locator('[data-testid="lane-run-status"][data-status-tone="running"]'); }
+  doneBadge(): Locator { return this.page.locator('[data-testid="lane-run-status"][data-status-tone="done"]'); }
+  errorBadge(): Locator { return this.page.locator('[data-testid="lane-run-status"][data-status-tone="failed"]'); }
   stopButton(): Locator { return this.page.getByRole("button", { name: "Stop" }); }
-  newPipelineButton(): Locator { return this.page.getByRole("button", { name: "New Pipeline" }); }
 
-  /** An agent card by its display name. */
+  /** An agent card by its display name (the lane's PipelineMini rows / Steps spine). */
   agentCardByName(name: string): Locator { return this.page.getByText(name, { exact: false }); }
+
+  // ── Steps tab · per-agent panels (Phase 39 relocated the AgentProgressPanel
+  //    per-agent detail into the Steps drill-down: L1 StepsOverviewSpine spine →
+  //    L2 AgentDetailPanel). Open the tab, then use these to assert per-agent
+  //    state that used to live in the run-lane badges. ──────────────────────────
+  async openSteps() { await this.thinkingTab().click(); }
+
+  /** A Steps L1 spine row for an agent, by its display name. */
+  stepsAgentRow(name: string): Locator {
+    return this.page.getByTestId("steps-agent-row").filter({ hasText: name });
+  }
+
+  /** The per-agent "Live" badge carried by a RUNNING agent's spine row — one per
+   *  running agent (the per-agent running signal that replaced the RUNNING badge). */
+  stepsLiveBadge(): Locator {
+    return this.page.getByTestId("steps-agent-row").getByText("Live", { exact: true });
+  }
+
+  /** The Steps L1 segmented progress track (one segment per agent). */
+  stepsProgressTrack(): Locator {
+    return this.page.locator("div.h-\\[5px\\]").first();
+  }
+
+  /** Drill into an agent's L2 detail (AgentDetailPanel) by clicking its spine row. */
+  async openAgentDetail(name: string) { await this.stepsAgentRow(name).click(); }
 
   // Construction · waves & subagents (the Build Agent's L2 detail — Phase 39 plan
   // 02: the former standalone WaveTreePanel is now ONE integrated block with build
