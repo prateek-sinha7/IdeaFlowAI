@@ -51,7 +51,12 @@ test.describe("TS-O — deliverable renderers", () => {
     mockWs.start(agents, { pipelineType: "user_stories" });
     for (const a of agents) await runAgent(mockWs, a.id);
 
-    await expect(dashboard.previewEmpty()).toBeVisible();
+    // Phase 39 redesign: while the run is still in-flight (isRunning) with no
+    // content, the preview shows the streaming "Building your deliverable…"
+    // placeholder inside PreviewChrome (the neutral "Output will appear here"
+    // now only shows for a settled/idle empty run). This is the heir of the
+    // pre-completion neutral state.
+    await expect(dashboard.page.getByText(/Building your deliverable/)).toBeVisible();
   });
 
   test("TS-O-02 user_stories renders the Product Backlog with stats", async ({ dashboard, mockWs }) => {

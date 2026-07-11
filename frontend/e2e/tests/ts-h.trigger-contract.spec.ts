@@ -50,8 +50,14 @@ test.describe("TS-H — trigger contract", () => {
   test("TS-H-02 clicking Run swaps to the execution view immediately (pre-event)", async ({ dashboard, mockWs }) => {
     await dashboard.goto();
 
-    // On the input page the brief textarea is present.
+    // Phase 39: selecting a workflow from home transitions to the "Provide the
+    // brief" screen; the brief textarea must be filled only once that heading is
+    // visible (else the fill races the still-mounted home composer — the same
+    // gotcha DashboardPage.runWith guards against).
     await dashboard.selectWorkflow("Generate product requirements");
+    await expect(
+      dashboard.page.getByRole("heading", { name: /Provide the brief/i }),
+    ).toBeVisible({ timeout: 15000 });
     await dashboard.fillIdea("Build a refunds backlog");
     await expect(dashboard.ideaTextarea()).toBeVisible();
 
@@ -61,19 +67,22 @@ test.describe("TS-H — trigger contract", () => {
     // The transition is OPTIMISTIC: handleRunPipeline sets mainView="execution"
     // synchronously, before onStartPipeline sends the frame and long before any
     // server event. So immediately after the run_pipeline frame lands, the
-    // IdeaInputPage textarea is gone and the agent-panel header is mounted —
-    // with NO pipeline_start/agent_* sent yet.
+    // brief-input screen is gone and the run lane is mounted — with NO
+    // pipeline_start/agent_* sent yet.
     await mockWs.waitForClientFrame("run_pipeline");
-    await expect(dashboard.page.locator("textarea")).toHaveCount(0);
-    // The left agent panel renders its header even before pipeline_start
-    // (isRunning is already true → "0 / 0 agents"). This is the pre-event marker.
-    await expect(dashboard.page.getByText(/\d+ \/ \d+ agents/)).toBeVisible();
+    await expect(dashboard.page.getByRole("heading", { name: /Provide the brief/i })).toHaveCount(0);
+    // Phase 39: the retired AgentProgressPanel "0 / 0 agents" header is replaced by
+    // the run lane (RunChatLane) whose header shows the live "Running" status pill
+    // even before pipeline_start (isRunning is already true). This is the
+    // pre-event marker of the mounted execution surface.
+    await expect(dashboard.page.getByTestId("execution-chat-lane")).toBeVisible();
+    await expect(dashboard.runningBadge().first()).toBeVisible();
 
     // Now drive the server: pipeline_start seeds the real cards into the same
     // mounted panel, confirming the execution surface is live.
     mockWs.start(AGENTS.user_stories, { pipelineType: "user_stories" });
     await expect(dashboard.agentCardByName("Domain Discovery Agent").first()).toBeVisible();
-    await expect(dashboard.page.locator("textarea")).toHaveCount(0);
+    await expect(dashboard.page.getByRole("heading", { name: /Provide the brief/i })).toHaveCount(0);
   });
 
   test("TS-H-04 pipeline_start seeds exactly the sent cards; currentAgentIndex starts at 0", async ({ dashboard, mockWs }) => {

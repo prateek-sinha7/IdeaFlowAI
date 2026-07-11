@@ -41,7 +41,11 @@ test.describe("TS-S — reconnect / replay", () => {
     mockWs.start(agents, { pipelineType: "user_stories" });
     mockWs.agentStart(agents[0].id);
     mockWs.agentComplete(agents[0].id);
-    await expect(dashboard.doneBadge().first()).toBeVisible();
+    // Phase 39: the run-level done badge only appears once the WHOLE run settles;
+    // a single completed agent (run still mid-flight) is now reflected by the
+    // lane header's completed/total agents count. This is the pre-reload sync
+    // barrier: one agent event processed, run NOT terminated.
+    await expect(dashboard.page.getByText("1/3 agents")).toBeVisible();
 
     const connectionsBefore = mockWs.connectionCount;
 
@@ -97,7 +101,9 @@ test.describe("TS-S — reconnect / replay", () => {
     mockWs.start(agents, { pipelineType: "user_stories" });
     mockWs.agentStart(agents[0].id);
     mockWs.agentComplete(agents[0].id);
-    await expect(dashboard.doneBadge().first()).toBeVisible();
+    // Phase 39: run mid-flight (1 of 3 done) reads via the lane header agent count,
+    // not the now run-level done badge.
+    await expect(dashboard.page.getByText("1/3 agents")).toBeVisible();
 
     const connectionsBefore = mockWs.connectionCount;
     await page.reload();
@@ -119,7 +125,9 @@ test.describe("TS-S — reconnect / replay", () => {
     }
     mockWs.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
 
-    await expect(dashboard.page.getByText(/Done in \d+(\.\d)?s/)).toBeVisible();
+    // Phase 39 retired the "Done in …s" header; a settled run surfaces the Done
+    // status token (lane-run-status, done tone).
+    await expect(dashboard.doneBadge()).toBeVisible();
   });
 
   test("TS-S/TS-Y-04 JWT expiry (close 4001) clears the token and redirects to /login", async ({ dashboard, mockWs, page }) => {

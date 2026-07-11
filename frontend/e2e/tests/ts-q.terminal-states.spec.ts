@@ -27,7 +27,11 @@ test.describe("TS-Q — terminal states", () => {
     await expect(dashboard.errorBadge().first()).toBeVisible();
     await expect(dashboard.degradedHeading()).toBeVisible();
     await expect(dashboard.page.getByText("No deliverable was produced. The run ended in a failed or degraded state.")).toBeVisible();
-    await expect(dashboard.failedAgentsLabel()).toBeVisible();
+    // Phase 39 redesign: the failed run now also renders the RunChatLane terminal
+    // card ("• Failed agents: …") in the left lane, so the shared "Failed agents"
+    // text matches both it and the preview-panel affordance label — assert the
+    // first (both prove failed-agent labeling is present on a failed run).
+    await expect(dashboard.failedAgentsLabel().first()).toBeVisible();
     // The neutral empty state must NOT show on a failed run.
     await expect(dashboard.previewEmpty()).toHaveCount(0);
   });

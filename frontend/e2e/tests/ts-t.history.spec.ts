@@ -26,9 +26,42 @@ async function openHistory(page: Page) {
   // profile are the only always-present trailing buttons; the profile one is last.
   const headerButtons = page.locator("header button");
   await headerButtons.last().click();
-  await page.getByRole("button", { name: "Workflow History" }).click();
+  // Phase 39 redesign renamed the profile menu item + list heading to "Run History"
+  // and the dropdown items now carry role="menuitem" (not the implicit button role).
+  await page.getByRole("menuitem", { name: "Run History" }).click();
   // The history list header heading confirms we landed on the view.
-  await expect(page.getByRole("heading", { name: "Workflow History" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Run History" })).toBeVisible();
+}
+
+/**
+ * Stub GET /api/runs/{id}/summary (SHELL-03 RunDetailPage data spine). The shared
+ * mockApi (frontend/e2e/fixtures/mockApi.ts — outside the nine files this wave may
+ * edit) has no route for it, so its catch-all returns {} and RunDetailPage throws
+ * on the missing `agents`/`token_usage` fields → ErrorBoundary blanks the reopen
+ * detail. Registered per-test so it wins (LIFO) over the fixture's "**\/api\/**".
+ * Returns a minimal, crash-free RunSummary keyed to the requested run id.
+ */
+async function stubRunSummary(page: Page) {
+  await page.route("**/api/runs/*/summary", async (route) => {
+    const parts = new URL(route.request().url()).pathname.split("/");
+    const id = parts[parts.length - 2] || "run";
+    await route.fulfill({
+      json: {
+        id,
+        title: "",
+        type: "custom",
+        status: "completed",
+        input: "",
+        duration: null,
+        agent_count: 0,
+        token_usage: {},
+        error: null,
+        agents: [],
+        root_id: id,
+        members: [],
+      },
+    });
+  });
 }
 
 test.describe("TS-T — WorkflowHistory", () => {
@@ -115,6 +148,14 @@ test.describe("TS-T — WorkflowHistory", () => {
         output: "# Product Backlog\n\n## Epic: Refunds\n\nAs a user I want a refund.",
       }),
     ]);
+    // Phase 39 (SHELL-03): the reopen detail's left summary column is now the
+    // RunDetailPage, fed by GET /api/runs/{id}/summary — an endpoint the shared
+    // mockApi (outside these nine files) does not serve, so its catch-all returns
+    // {} and RunDetailPage throws on summary.agents.map → ErrorBoundary, which
+    // blanks the whole detail (incl. the right-column tabs this test asserts).
+    // Stub the summary endpoint here with a minimal valid RunSummary so the detail
+    // renders. This override wins over the fixture's "**/api/**" route (LIFO).
+    await stubRunSummary(page);
 
     await dashboard.goto();
     await openHistory(page);
@@ -145,6 +186,9 @@ test.describe("TS-T — WorkflowHistory", () => {
         output: "<!DOCTYPE html><html><body><h1>Hi</h1></body></html>",
       }),
     ]);
+    // See TS-T-03: stub the SHELL-03 RunDetailPage summary endpoint so the reopen
+    // detail renders instead of crashing into the ErrorBoundary.
+    await stubRunSummary(page);
 
     await dashboard.goto();
     await openHistory(page);
@@ -179,7 +223,9 @@ test.describe("TS-T — WorkflowHistory", () => {
     await row.getByRole("button").last().click();
 
     // Menu → Delete → confirm modal "Delete workflow" → confirm Delete.
-    await page.getByRole("button", { name: "Delete" }).click();
+    // The per-row menu Delete item is a role="menuitem" (RowMenu); the modal's
+    // confirm Delete (below) is a plain button.
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await expect(page.getByRole("heading", { name: "Delete workflow" })).toBeVisible();
 
     // The modal exposes Cancel + Delete; click the confirming Delete (the last one).

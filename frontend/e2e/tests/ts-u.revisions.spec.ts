@@ -63,19 +63,24 @@ test.describe("TS-U — revision runs", () => {
     for (const a of agents) await runAgent(mockWs, a.id);
     mockWs.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
 
-    // The PPT preview renders the deck iframe + the Revise bar.
+    // The PPT preview renders the deck iframe.
     await expect(dashboard.deckIframe()).toBeVisible();
-    const revInput = dashboard.page.getByPlaceholder(/Request changes, e\.g\. "Make slide 3 title bigger"/);
+    // Phase 39: the per-preview Revise bar was absorbed into the run lane composer.
+    // The settled ("complete") lane composer IS the revise-as-chat input, wired to
+    // the SAME handleRevisePpt dispatch → a free-text send is a revision.
+    const revInput = dashboard.page.getByPlaceholder(/Ask for a change or a follow-up/);
     await expect(revInput).toBeVisible();
-    const reviseBtn = dashboard.page.getByRole("button", { name: /Revise/ });
-    await expect(reviseBtn).toBeVisible();
 
-    // ── Type a change + click Revise → assert the outbound run_revision frame ──
+    // ── Type a change + send → assert the outbound run_revision frame ──
     await revInput.fill("Add a slide about ROI");
-    await reviseBtn.click();
+    await dashboard.page.getByTestId("chat-send").click();
 
     const frame = await mockWs.waitForClientFrame("run_revision");
-    expect(frame.parent_run_id).toBe("parent-ppt-1");
+    // Phase 39: revising through the lane composer dispatches handleRevisePpt, which
+    // links the parent to `contentSourceRunId` — the ON-SCREEN run (the od_ppt run
+    // just completed = mockWs.currentRunId), not the seeded history run. This is the
+    // faithful parent of the deck being revised.
+    expect(frame.parent_run_id).toBe(mockWs.currentRunId);
     // od_ppt normalised → ppt ⇒ target is "ppt_output" (see header note).
     expect(frame.target_artifact_type).toBe("ppt_output");
     expect(frame.instruction).toBe("Add a slide about ROI");
@@ -105,8 +110,9 @@ test.describe("TS-U — revision runs", () => {
     mockWs.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
 
     await expect(dashboard.deckIframe()).toBeVisible();
-    await dashboard.page.getByPlaceholder(/Request changes, e\.g\. "Make slide 3 title bigger"/).fill("Add a slide about ROI");
-    await dashboard.page.getByRole("button", { name: /Revise/ }).click();
+    // Phase 39: revise via the settled lane composer (absorbed the per-preview bar).
+    await dashboard.page.getByPlaceholder(/Ask for a change or a follow-up/).fill("Add a slide about ROI");
+    await dashboard.page.getByTestId("chat-send").click();
     await mockWs.waitForClientFrame("run_revision");
 
     // Drive the revision run to completion WITHOUT ever emitting questionnaire_ready
@@ -132,16 +138,17 @@ test.describe("TS-U — revision runs", () => {
     mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
 
     await expect(dashboard.page.getByText("Product Backlog").first()).toBeVisible();
-    const revInput = dashboard.page.getByPlaceholder(/Request changes, e\.g\. "Add a story for password reset"/);
+    // Phase 39: the per-preview Revise bar was absorbed into the run lane composer,
+    // wired to the SAME handleReviseUserStory dispatch (a settled free-text send is
+    // a revision → a user_stories_revision run_pipeline frame).
+    const revInput = dashboard.page.getByPlaceholder(/Ask for a change or a follow-up/);
     await expect(revInput).toBeVisible();
-    const reviseBtn = dashboard.page.getByRole("button", { name: /Revise/ });
-    await expect(reviseBtn).toBeVisible();
 
-    // ── Type a change + click Revise → assert the outbound run_pipeline frame ─
+    // ── Type a change + send → assert the outbound run_pipeline frame ─
     // The first run_pipeline (the parent run) was already sent by runWith, so we
     // wait for the SECOND one whose pipeline_type is the revision.
     await revInput.fill("Add a story for password reset");
-    await reviseBtn.click();
+    await dashboard.page.getByTestId("chat-send").click();
 
     const frame = await mockWs.waitForClientFrame(
       (f) => f.type === "run_pipeline" && f.pipeline_type === "user_stories_revision",

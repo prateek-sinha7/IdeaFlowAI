@@ -112,9 +112,10 @@ test.describe("TS-X — timing budgets", () => {
       for (const a of agents) await runAgent(mockWs, a.id);
       mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
 
-      // Terminal: header shows wall-clock "Done in …s" (regex — never an exact
-      // value) and the Stop button is gone → isRunning resolved to false.
-      await expect(dashboard.page.getByText(/Done in \d+(\.\d)?s/)).toBeVisible();
+      // Terminal: Phase 39 retired the AgentProgressPanel "Done in …s" header; the
+      // settled run now surfaces the Done status token (lane-run-status, done tone)
+      // and the Stop button is gone → isRunning resolved to false.
+      await expect(dashboard.doneBadge()).toBeVisible();
       await expect(dashboard.stopButton()).toHaveCount(0);
       await expect(dashboard.runningBadge()).toHaveCount(0);
     });
@@ -141,10 +142,11 @@ test.describe("TS-X — timing budgets", () => {
       await mockWs.waitForClientFrame("cancel_pipeline");
       mockWs.cancelled({ duration: 8 });
 
-      // Terminal: header flips to "Pipeline stopped" and running cards clear.
+      // Terminal: Phase 39 replaced the "Pipeline stopped" header with the
+      // RunChatLane terminal "Cancelled by you" card and running cards clear.
       // (Live cancel sets NO degraded flag — FIXTURE-CONTRACT gotcha #8 — so it
-      // is "Pipeline stopped", not the history-reopen "This run was cancelled".)
-      await expect(dashboard.page.getByText("Pipeline stopped")).toBeVisible();
+      // is "Cancelled by you", not the history-reopen "This run was cancelled".)
+      await expect(dashboard.page.getByText("Cancelled by you")).toBeVisible();
       await expect(dashboard.runningBadge()).toHaveCount(0);
       await expect(dashboard.stopButton()).toHaveCount(0);
     });

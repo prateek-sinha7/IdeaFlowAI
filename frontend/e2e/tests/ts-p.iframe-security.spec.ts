@@ -103,7 +103,11 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
 
     // A safe download affordance — never inline/iframe an unknown type (T-18-06).
     await expect(page.getByText("Deliverable ready")).toBeVisible();
-    await expect(page.getByRole("button", { name: /download/i })).toBeVisible();
+    // Phase 39: the run-header now also carries a "Download the deliverable" button,
+    // so scope the generic download-affordance assertion to the "Deliverable ready"
+    // card (its own filename download button) to avoid the header match.
+    const downloadCard = page.locator("div").filter({ hasText: "Deliverable ready" }).last();
+    await expect(downloadCard.getByRole("button", { name: /download/i })).toBeVisible();
     await expect(page.getByRole("button", { name: "Download data.bin" })).toBeVisible();
     await expect(dashboard.genericIframe()).toHaveCount(0);
   });
