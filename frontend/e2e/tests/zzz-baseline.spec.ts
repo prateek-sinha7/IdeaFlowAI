@@ -196,6 +196,10 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   });
   await page.waitForTimeout(500); await shot(page, "files-runinput", "settled");
   await tab("Audit").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(1200); await shot(page, "audit", "settled");
+  // Audit sub-view: expand the first log entry so the "What is this?" explainer +
+  // key/value detail body is captured (the human WILL catch an unshown section).
+  await page.getByTestId("audit-row-toggle").first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(500); await shot(page, "audit-expanded", "settled");
   // left-lane clip (the conversation column) — reset to Preview first so it is calm
   await tab("Preview").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(600);
   await page.screenshot({ path: `${OUT}/leftlane__settled.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
@@ -269,8 +273,11 @@ test("CAPTURE live — gate-awaiting lane", async ({ dashboard, mockWs, page }) 
   await page.screenshot({ path: `${OUT}/leftlane__gate.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
 });
 
-test("CAPTURE failed run", async ({ dashboard, mockWs, page }) => {
+test("CAPTURE failed run", async ({ dashboard, mockWs, mockApi, page }) => {
   test.setTimeout(120_000);
+  // Seed the failed (blocked / denied / secrets-hit) audit set so the Audit tab
+  // renders the red 'governance stopped this run' variant (W6 states).
+  mockApi.setAuditVariant("failed");
   await dashboard.goto();
   await launch(page, mockWs, "Build a full inventory app with a seed script that writes credentials to .env");
   const agents = AGENTS.od_prototype;
@@ -300,5 +307,9 @@ test("CAPTURE failed run", async ({ dashboard, mockWs, page }) => {
   // planning-artifact files (reduced live outputs, ND-D — no fabricated rows).
   await page.getByRole("tab", { name: /Files/i }).first().click({ timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(900); await shot(page, "files", "failed");
+  // Audit tab (failed): the red 'governance stopped this run' banner + the
+  // blocked/denied/secrets-hit stats over the failed audit set.
+  await page.getByRole("tab", { name: /Audit/i }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(1200); await shot(page, "audit", "failed");
   await page.screenshot({ path: `${OUT}/leftlane__failed.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
 });

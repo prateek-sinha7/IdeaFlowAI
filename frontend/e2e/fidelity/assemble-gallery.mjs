@@ -8,7 +8,7 @@
  * RIGHT, per `{surface}__{state}` tag. Images are inlined as base64 data-URIs so
  * the file is a single portable artifact a reviewer can open anywhere.
  *
- * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-Q) as
+ * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-T) as
  * "expected — ignore" so a reviewer never mistakes a registered divergence for a
  * fidelity gap. There is deliberately NO automated pixel-diff: ND-D (our live
  * data never equals the mock's hardcoded values) would make a pixel compare
@@ -55,6 +55,9 @@ const ND = [
   ["ND-O", "L3 per-task duration", "protoCompletedTasks carries {number,title,summary} with no per-task duration, so the L3 duration line — AND the nested construction task row's duration — is omitted unless live per-task timing is supplied (never fabricated)"],
   ["ND-P", "Task↔wave grouping", "the mock hardcodes which tasks sit under which wave; our wave carries backend `taskIds` and the completed tasks carry a `number`, joined on the trailing integer of each taskId. When that join cleanly covers every task, tasks nest under their own wave; when it does not, ALL tasks nest under a single wave group (still ONE integrated block) — the honest fallback for a run whose taskIds don't map 1:1 to the completed-task set"],
   ["ND-Q", "Files hero 'validated' label", "the Final-output hero's 'validated' suffix is the mock's static deliverable-passed affirmation — a settled run reaches Files only after its validation gate; the deliverable NAME / format / size are LIVE (ND-D), only the 'validated' word is a fixed composition label (39-03)"],
+  ["ND-R", "Audit filter row — no severity buttons", "39-04: the mock's Audit filter row is the category-group set (All / Governance / Security / Activity) + a 'Blocked / denied only' toggle + a search box — it has NO standalone severity filter. We adopt the mock's row exactly and RETIRE the prior CRITICAL/HIGH/MEDIUM/LOW filter buttons; severity stays visible as a per-row chip and the blocked-only toggle covers the 'show me the problems' need (INV-12 — no dual filter row)"],
+  ["ND-S", "Audit attribution — elided owner/workspace", "the mock hardcodes Run f3a1c9…e42 · Owner ak@hexaware.com · Workspace default · Started/Duration. The three owner-scoped audit fetches do NOT carry owner/workspace/started/duration, so we render the live Run id (truncated) + Started/Duration DERIVED from the row timestamps, and ELIDE owner/workspace rather than fabricate them (ND-D / T-39-04-01). A later wave may thread a live runMeta prop"],
+  ["ND-T", "Audit static UI copy + derived coverage + no PDF", "the coverage chips are DERIVED one-per-fine-category-present (not the mock's fixed 7-word list); the violet 'What is this?' explainer is static per-category UI copy (a genuine affordance, not run data); and the Export menu's 'Compliance report' option is DISABLED — CSV/JSON only, no signed PDF path (ND-6)"],
 ];
 
 const surfaceArg = process.argv.includes("--surface")
@@ -142,7 +145,7 @@ async function main() {
   <h1>Run-Screen Fidelity Gallery${surfaceArg ? ` — <code>${esc(surfaceArg)}</code>` : ""}</h1>
   <p>Mock (left) vs current (right), per <code>{surface}__{state}</code>. Human review only — no pixel-diff (ND-D live data ≠ mock values).</p>
   <details class="nd" open>
-    <summary>Intended divergences — expected, ignore (ND-A..ND-Q)</summary>
+    <summary>Intended divergences — expected, ignore (ND-A..ND-T)</summary>
     <table>${ndRows}</table>
   </details>
 </header>

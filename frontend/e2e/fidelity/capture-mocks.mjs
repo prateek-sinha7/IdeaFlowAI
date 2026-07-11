@@ -92,6 +92,16 @@ async function capture(state, file, browser, origin) {
     const taskRow = page.getByText(/Task\s*1\b/).last();
     if ((await taskRow.count().catch(() => 0)) > 0) { await taskRow.click({ timeout: 4_000 }).catch(() => {}); await page.waitForTimeout(600); }
     await page.screenshot({ path: join(OUT, `steps-task__${state}.png`), fullPage: false });
+
+    // Audit INTERNAL view (settled) — re-open the Audit tab and expand the first
+    // log entry so the gallery can pair the "What is this?" + key/value body
+    // against our side. The mock's entries are click-handler divs (no roles); the
+    // meta line carries "Jul 4", so click that to toggle the first entry open.
+    await page.getByRole("button", { name: /^Audit$/ }).first().click({ timeout: 6_000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    const auditEntry = page.getByText(/Jul 4/).first();
+    if ((await auditEntry.count().catch(() => 0)) > 0) { await auditEntry.click({ timeout: 4_000 }).catch(() => {}); await page.waitForTimeout(500); }
+    await page.screenshot({ path: join(OUT, `audit-expanded__${state}.png`), fullPage: false });
   }
 
   // The Live mock carries clarify/gate/building lane variants behind its own

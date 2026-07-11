@@ -145,6 +145,8 @@ export class MockApi {
   runs: RawRun[];
   capabilities: { capabilities: unknown[]; model_catalog: unknown[] };
   workflows: MockWorkflowRow[];
+  /** Which seeded audit set the 3 audit reads return (settled=clean, failed=blocked). */
+  auditVariant: "settled" | "failed" = "settled";
   private family: (id: string) => MockRunFamily;
   private runDetail?: (id: string) => RawRun | undefined;
   /** Recorded request log for assertions (method + path). */
@@ -179,6 +181,9 @@ export class MockApi {
   }
   setFamily(fn: (id: string) => MockRunFamily) {
     this.family = fn;
+  }
+  setAuditVariant(v: "settled" | "failed") {
+    this.auditVariant = v;
   }
   setRunDetail(fn: (id: string) => RawRun | undefined) {
     this.runDetail = fn;
@@ -236,30 +241,60 @@ export class MockApi {
     if (familyMatch) return json(this.family(familyMatch[1]));
 
     // --- audit reads (Audit tab) — categorized gate / validation / exec rows ---
+    //
+    // Harness seeding (NOT fabricated production data): the audit tab derives its
+    // fuller category taxonomy (gate / validation / secret-scan / exec / perf /
+    // behavioral) from signals in the real row. To EXERCISE every category + the
+    // failed variant in the fidelity capture, we seed representative rows here.
+    // `auditVariant` swaps the settled (clean, passed-all-gates) set for the
+    // failed (blocked/denied/secrets-hit) set. Real runs return only what the
+    // backend recorded — this is capture scaffolding, not a production shape.
     const gateMatch = path.match(/\/api\/runs\/([^/]+)\/gate-events$/);
     if (gateMatch) {
       const id = gateMatch[1];
-      return json({
-        workflow_id: id,
-        gate_events: [
-          { id: "g1", gate: "Specification approved", step: "prototype-specify", outcome: "approved", detail: "Paused for review · approved by you", created_at: "2026-07-04T09:03:00Z" },
-          { id: "g2", gate: "Build approved", step: "prototype-build", outcome: "approved", detail: "Build approved by you", created_at: "2026-07-04T09:05:00Z" },
-        ],
-      });
+      const gate_events = this.auditVariant === "failed"
+        ? [
+            { id: "g1", gate: "Specification approved", step: "prototype-specify", outcome: "approved", detail: { note: "Paused for review · approved by you" }, created_at: "2026-07-04T09:03:00Z" },
+            { id: "g2", gate: "Behavioral guideline check", step: "prototype-plan", outcome: "pass", detail: { note: "Agents followed the workspace operating rules" }, created_at: "2026-07-04T09:06:00Z" },
+            { id: "g3", gate: "Secret scan — credentials detected", step: "prototype-build", outcome: "block", detail: { note: "A step tried to write credentials to .env — blocked" }, created_at: "2026-07-04T09:08:00Z" },
+            { id: "g4", gate: "Security gate", step: "prototype-build", outcome: "block", detail: { note: "Run halted at the security gate" }, created_at: "2026-07-04T09:08:30Z" },
+          ]
+        : [
+            { id: "g1", gate: "Specification approved", step: "prototype-specify", outcome: "approved", detail: { note: "Paused for review · approved by you" }, created_at: "2026-07-04T09:03:00Z" },
+            { id: "g2", gate: "Build approved", step: "prototype-build", outcome: "approved", detail: { note: "Build approved by you" }, created_at: "2026-07-04T09:05:00Z" },
+            { id: "g3", gate: "Behavioral guideline check", step: "prototype-plan", outcome: "pass", detail: { note: "Agents followed the workspace operating rules for this run" }, created_at: "2026-07-04T09:06:00Z" },
+            { id: "g4", gate: "Secret scan — no credentials written", step: "prototype-build", outcome: "pass", detail: { note: "No secrets written, logged, or exposed" }, created_at: "2026-07-04T09:07:00Z" },
+          ];
+      return json({ workflow_id: id, gate_events });
     }
     const validationMatch = path.match(/\/api\/runs\/([^/]+)\/validation-results$/);
     if (validationMatch) {
       const id = validationMatch[1];
-      return json({
-        workflow_id: id,
-        validation_results: [
-          { id: "v1", validator: "static_check", step: "prototype-build", severity: "pass", issues: [], created_at: "2026-07-04T09:20:00Z" },
-          { id: "v2", validator: "render_check", step: "prototype-build", severity: "pass", issues: [], created_at: "2026-07-04T09:21:00Z" },
-        ],
-      });
+      const validation_results = this.auditVariant === "failed"
+        ? [
+            { id: "v1", validator: "static_check", step: "prototype-specify", severity: "pass", issues: [], created_at: "2026-07-04T09:20:00Z" },
+            { id: "v2", validator: "security_review", step: "prototype-build", severity: "CRITICAL", issues: ["Credential write attempt outside the sandbox"], created_at: "2026-07-04T09:21:00Z" },
+          ]
+        : [
+            { id: "v1", validator: "static_check", step: "prototype-build", severity: "pass", issues: [], created_at: "2026-07-04T09:20:00Z" },
+            { id: "v2", validator: "render_check", step: "prototype-build", severity: "pass", issues: [], created_at: "2026-07-04T09:21:00Z" },
+            { id: "v3", validator: "a11y_check", step: "prototype-build", severity: "LOW", issues: ["2 images missing alt text"], created_at: "2026-07-04T09:22:00Z" },
+          ];
+      return json({ workflow_id: id, validation_results });
     }
     const execMatch = path.match(/\/api\/runs\/([^/]+)\/exec-runs$/);
-    if (execMatch) return json({ workflow_id: execMatch[1], exec_runs: [] });
+    if (execMatch) {
+      const id = execMatch[1];
+      const exec_runs = this.auditVariant === "failed"
+        ? [
+            { id: "e1", step: "prototype-build", argv_json: ["python", "seed.py", "--write-env"], outcome: "denied", exit_code: null, duration_ms: 40, policy_snapshot_json: {}, output_digest: "sha256:9f1c…", created_at: "2026-07-04T09:23:00Z" },
+          ]
+        : [
+            { id: "e1", step: "prototype-build", argv_json: ["npm", "run", "build"], outcome: "allowed", exit_code: 0, duration_ms: 4120, policy_snapshot_json: {}, output_digest: "sha256:a1b2…", created_at: "2026-07-04T09:23:00Z" },
+            { id: "e2", step: "prototype-build", argv_json: ["otel-span", "render-benchmark"], outcome: "allowed", exit_code: 0, duration_ms: 210, policy_snapshot_json: {}, output_digest: "sha256:c3d4…", created_at: "2026-07-04T09:24:00Z" },
+          ];
+      return json({ workflow_id: id, exec_runs });
+    }
 
     // --- runs (history) ---
     const runDetailMatch = path.match(/\/api\/runs\/([^/]+)(\/chain-context)?$/);
