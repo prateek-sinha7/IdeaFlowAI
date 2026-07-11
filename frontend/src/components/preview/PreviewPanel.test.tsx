@@ -115,3 +115,80 @@ describe("PreviewPanel — Phase 39 run header + tabs", () => {
     expect(screen.getByTestId("run-header")).toHaveAttribute("data-run-state", "complete");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PreviewChrome (Phase 39, RUNUI-06/07) — the browser-chrome frame wrapping the
+// REUSED deliverable renderer (ND-G), the real-filename URL bar + the live
+// "Renders as" switch (ND-D), the streaming build affordance (progress bar +
+// building URL, no image-slot per ND-F), and the preserved failed degraded card.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PreviewPanel — Phase 39 Preview browser chrome", () => {
+  const settledState = {
+    isRunning: false,
+    pipeline_type: "prototype",
+    agents: [],
+    currentAgentIndex: 0,
+    totalDuration: null,
+    completedCount: 0,
+    deliverableFilename: "apple-reference-prototype.html",
+  } as unknown as PipelineRunState;
+
+  it("frames the settled deliverable in the browser chrome with the REAL live filename (ND-D/ND-G)", () => {
+    render(
+      <PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" pipelineState={settledState} />,
+    );
+    const chrome = screen.getByTestId("preview-chrome");
+    expect(chrome).toBeInTheDocument();
+    // The URL bar shows the real live filename — never the mock's fixed index.html.
+    expect(screen.getByTestId("preview-url")).toHaveTextContent("apple-reference-prototype.html");
+    // ND-G — the REUSED renderer is slotted INSIDE the chrome, unchanged.
+    expect(chrome).toContainElement(screen.getByTestId("proto-preview"));
+  });
+
+  it("offers a 'Renders as' switch with ONLY the deliverable's live typed renderers (ND-D — not the mock's fixed 5-way)", () => {
+    render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" />);
+    expect(screen.getByTestId("renders-as-switch")).toBeInTheDocument();
+    const pills = screen.getAllByTestId("renderer-pill").map((p) => p.textContent?.trim());
+    // Auto + the one typed renderer genuinely available for a prototype deliverable.
+    expect(pills).toEqual(["Auto", "Prototype"]);
+    // The mock's hardcoded 5-way labels never appear.
+    expect(screen.queryByText("Deck")).toBeNull();
+    expect(screen.queryByText("App code")).toBeNull();
+    expect(screen.queryByText("Doc")).toBeNull();
+  });
+
+  it("shows the streaming build chrome — a 'building …' URL + top progress bar, no settled switch row (ND-F: no image-slot)", () => {
+    const streamingState = { ...settledState, isRunning: true } as unknown as PipelineRunState;
+    render(
+      <PreviewPanel
+        workflowType="prototype"
+        prototypeContent="<html>partial…</html>"
+        pipelineState={streamingState}
+        isStreaming
+      />,
+    );
+    const chrome = screen.getByTestId("preview-chrome");
+    expect(chrome).toHaveAttribute("data-streaming", "true");
+    expect(screen.getByTestId("preview-url")).toHaveTextContent("building apple-reference-prototype.html");
+    expect(screen.getByTestId("preview-progress")).toBeInTheDocument();
+    // Streaming omits the settled "Renders as" switch row.
+    expect(screen.queryByTestId("renders-as-switch")).toBeNull();
+  });
+
+  it("keeps the degraded affordance UNWRAPPED (no chrome) for a terminal-failed, empty run", () => {
+    const failedState = {
+      isRunning: false,
+      failed: true,
+      pipeline_type: "prototype",
+      agents: [],
+      currentAgentIndex: 0,
+      totalDuration: null,
+      completedCount: 0,
+      failedAgents: ["prototype-build"],
+    } as unknown as PipelineRunState;
+    render(<PreviewPanel workflowType="prototype" pipelineState={failedState} />);
+    // The failed mock shows the degraded card, NOT a chromed preview.
+    expect(screen.queryByTestId("preview-chrome")).toBeNull();
+    expect(screen.getByText(/did not complete successfully/i)).toBeInTheDocument();
+  });
+});

@@ -12,6 +12,10 @@ import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
 import { ReadOnlyVersionBanner } from "./ReadOnlyVersionBanner";
+// Phase 39 (RUNUI-06/07) — the mock's browser-chrome frame that WRAPS the reused
+// deliverable renderer (ND-G) with a real-filename URL bar (ND-D) + the "Renders
+// as" segmented type switch. A passive frame — no content rendering here.
+import { PreviewChrome } from "./PreviewChrome";
 // Phase 39 (RUNUI-06/07) — the mock's right-column run header (Version menu /
 // Share / Download / status badge) mounts above the tab row. It supersedes the
 // old in-preview version pill (INV-3/INV-12 — one version affordance).
@@ -677,6 +681,29 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     downloadBlob(activeContent, name, "text/markdown");
   }, [onDownload, activeContent, pipelineState?.deliverableFilename, headerVersionLabel]);
 
+  // ─── Phase 39 (RUNUI-06/07) — PreviewChrome URL bar + open affordance ────────
+  // The REAL deliverable filename for the browser-chrome URL bar (ND-D live — the
+  // live deliverable name, the generic deliverable's filename, else a derived name;
+  // NEVER the mock's fixed "index.html").
+  const previewFilename =
+    pipelineState?.deliverableFilename ||
+    genericDeliverable?.filename ||
+    `deliverable-${headerVersionLabel}`;
+  // The chrome's open-in-new affordance — opens the on-screen deliverable in a new
+  // tab via a client-only blob URL (the same pattern PPTTabActions.handleFullScreen
+  // uses; NO network, no new surface). The chrome itself stays a passive frame.
+  const handlePreviewOpen = useCallback(() => {
+    const content = genericDeliverable?.content ?? activeContent;
+    if (!content || typeof window === "undefined") return;
+    const mimetype =
+      genericDeliverable?.mimetype ||
+      (renderType === "ppt" || renderType === "prototype" ? "text/html" : "text/markdown");
+    const blob = new Blob([content], { type: mimetype });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }, [genericDeliverable?.content, genericDeliverable?.mimetype, activeContent, renderType]);
+
   // ─── UXFIX-04 / D-21 (22-07) — generic-primary deliverable dispatch TABLE ────
   // The 4 first-party render types are REGISTERED ENTRIES in a dispatch table
   // keyed on the structural `renderType` (never a workflow name — SC-001). Each
@@ -861,21 +888,11 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         />
 
         <div className="flex items-center gap-2">
-          {/* Renderer switcher — a MANUAL typed-renderer override layered on top
-              of the generic dispatch (which stays PRIMARY). Surfaced for a GENERIC
-              (mimetype-routed) deliverable, where multiple typed renderers
-              genuinely apply; a first-party deliverable's bespoke renderer is
-              authoritative so no override is offered (this also keeps the switcher
-              <select> out of the a11y tree on first-party renders, avoiding an
-              option-role collision with the Version-menu listbox). Options are
-              generic renderType/mimetype tokens (SC-001). */}
-          {activeTab === "preview" && hasGenericDeliverable && rendererOptions.length > 1 && (
-            <RendererSwitcher
-              value={rendererOverride ?? "auto"}
-              options={rendererOptions}
-              onChange={setRendererOverride}
-            />
-          )}
+          {/* Phase 39 (RUNUI-07) — the renderer switcher was RESKINNED into the
+              PreviewChrome's "Renders as" segmented row (below the browser top bar),
+              replacing the old tab-bar <select>. It now surfaces for ANY deliverable
+              with more than one genuinely-available typed renderer (segmented
+              buttons, so no <option>-role collision with the Version menu). */}
 
           {/* PPT action buttons — shown only when PPT preview is active */}
           {activeTab === "preview" && renderType === "ppt" && (pptContent || pptxCode) && (
@@ -904,12 +921,28 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               className="absolute inset-0 overflow-y-auto"
             >
               {showFailureAffordance ? (
+                // Failed run — the mock shows the degraded card, NOT a chromed
+                // preview (Hexaware Run - Failed.dc.html has no Preview surface).
+                // Keep the existing affordance path exactly, unwrapped.
                 <DegradedRunAffordance
                   failedAgents={failedAgentNames}
                   agentNameById={failedAgentNameById}
                   onRetry={onRevisePrototype || onRevisePpt || onReviseUserStory || onReviseAppBuilder}
                   cancelled={isCancelledTerminal}
                 />
+              ) : isStillRunning ? (
+                // Streaming build — the mock's chrome with a "building …" URL + an
+                // indeterminate progress bar (ND-F: no screenshot placeholder). The
+                // live renderer streams inside; a calm building state fills until then.
+                <PreviewChrome filename={previewFilename} versionLabel={headerVersionLabel} streaming>
+                  {hasContent ? (
+                    renderDeliverable()
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      <p className="text-xs text-ink-400">Building your deliverable…</p>
+                    </div>
+                  )}
+                </PreviewChrome>
               ) : !hasContent ? (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-xs text-ink-400">Output will appear here</p>
@@ -926,7 +959,23 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 // No visual regression: each first-party entry renders the exact
                 // same bespoke renderer as before; the generic entry preserves
                 // the CR-01 fix + the P18 sandboxed-iframe security contract.
-                <>{renderDeliverable()}</>
+                //
+                // Phase 39 (RUNUI-06/07): the settled deliverable is now FRAMED in
+                // the mock's browser chrome (ND-G — the renderer is WRAPPED, not
+                // rebuilt). The "Renders as" switch reuses the existing
+                // rendererOptions/rendererOverride dispatch (ND-D live typed set);
+                // renderDeliverable() still applies the override, so the pills drive
+                // the SAME dispatch. The URL bar carries the real filename (ND-D).
+                <PreviewChrome
+                  filename={previewFilename}
+                  versionLabel={headerVersionLabel}
+                  rendererOptions={rendererOptions}
+                  rendererValue={rendererOverride ?? "auto"}
+                  onRendererChange={setRendererOverride}
+                  onOpen={handlePreviewOpen}
+                >
+                  {renderDeliverable()}
+                </PreviewChrome>
               )}
             </motion.div>
           )}
@@ -995,40 +1044,6 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         </AnimatePresence>
       </div>
     </div>
-  );
-}
-
-// ── Plan 07 — typed-renderer switcher (manual override control) ───────────────
-// A small token-styled <select> shown in the Preview tab bar. Options are the
-// generic renderType/mimetype tokens available for the current deliverable
-// (SC-001 — never a workflow name). Choosing "Auto" clears the override (→ null)
-// so the generic dispatch resumes as the PRIMARY route.
-function RendererSwitcher({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string | null) => void;
-}) {
-  return (
-    <label className="flex items-center gap-1.5 text-[11px] text-ink-500">
-      <span className="sr-only">Renderer</span>
-      <select
-        data-testid="renderer-switcher"
-        aria-label="Renderer"
-        value={value}
-        onChange={(e) => onChange(e.target.value === "auto" ? null : e.target.value)}
-        className="rounded-[var(--radius-button)] border border-line-control bg-surface-card px-2 py-1 text-[11px] font-medium text-ink-700 transition-colors hover:border-line-border"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 
