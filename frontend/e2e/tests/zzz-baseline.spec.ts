@@ -249,6 +249,11 @@ test("CAPTURE live streaming run", async ({ dashboard, mockWs, page }) => {
   // Phase 39 run header (live) — the streaming status badge + 'vN draft' chip +
   // disabled Share (no Download while building).
   await headerShot(page, "live");
+  // Phase 39 (RUNUI-06/07) — the Preview browser chrome in its STREAMING variant
+  // (the 'building …' URL + the indeterminate progress bar, no image placeholder).
+  // The Preview tab is the default; click to be explicit, then capture preview__live.
+  await page.getByRole("tab", { name: /Preview/i }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(700); await shot(page, "preview", "live");
   await page.getByRole("tab", { name: /Steps/i }).first().click({ timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(900); await shot(page, "steps", "live");
   await page.screenshot({ path: `${OUT}/leftlane__live.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
