@@ -43,6 +43,7 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  X,
 } from "lucide-react";
 
 import type {
@@ -396,12 +397,12 @@ function AwaitingCard({
   );
 }
 
-/** Live: a small "N clarifications answered" progress note (live count). */
-function AnsweredNote({ count }: { count: number }) {
+/** Live: a small "N clarifications answered [· task plan approved]" note. */
+function AnsweredNote({ count, planApproved }: { count: number; planApproved?: boolean }) {
   return (
     <div className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500">
       <Check className="h-[14px] w-[14px] text-ink-900" strokeWidth={2} />
-      {count} clarifications answered
+      {count} clarifications answered{planApproved ? " · task plan approved" : ""}
     </div>
   );
 }
@@ -445,36 +446,64 @@ function formatChipSize(bytes?: number): string {
   return `${(bytes / 1_048_576).toFixed(1)}MB`;
 }
 
+/** True when an attachment is audio — by mime or by a common audio extension
+ *  (ChatAttachment.kind is only image|file, so audio is detected here). */
+function isAudioAttachment(f: ChatAttachment): boolean {
+  return (
+    (f.mimeType?.startsWith("audio/") ?? false) ||
+    /\.(m4a|mp3|wav|ogg|aac|flac|opus)$/i.test(f.name)
+  );
+}
+
 /** The run's input attachments as the mock's white chips above the composer
- *  (Phase 39). Display-only (the run's files) — derived live from the transcript
- *  turns' attachments, deduped by name (SC-001: never a seeded literal). */
+ *  (Phase 39). Derived live from the transcript turns' attachments (SC-001);
+ *  each chip carries a hover-red "×" for functional in-view removal. */
 function RunAttachmentChips({ attachments }: { attachments: ChatAttachment[] }) {
-  if (attachments.length === 0) return null;
+  // Local in-view removal (the mock's per-chip "×") — keyed by kind:name.
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const shown = attachments.filter((f) => !removed.has(`${f.kind}:${f.name}`));
+  if (shown.length === 0) return null;
   return (
     <div data-testid="lane-run-attachments" className="mb-2 flex flex-wrap gap-1.5">
-      {attachments.map((f, i) => (
-        <span
-          key={`${f.name}-${i}`}
-          data-testid="lane-run-attach-chip"
-          className="inline-flex items-center gap-[7px] rounded-[var(--radius-node)] border border-line-control bg-surface-white py-[5px] pl-2 pr-[7px]"
-        >
-          <span className="grid h-[22px] w-[22px] flex-none place-items-center rounded-[var(--radius-tag)] bg-surface-paper text-ink-500">
-            {f.kind === "image" ? (
-              <ImageIcon className="h-3 w-3" strokeWidth={1.7} />
-            ) : (
-              <FileText className="h-3 w-3" strokeWidth={1.7} />
-            )}
-          </span>
-          <span className="max-w-[10rem] truncate font-sans text-[11.5px] font-medium text-ink-800">
-            {f.name}
-          </span>
-          {f.sizeBytes ? (
-            <span className="font-serif text-[10px] tabular-nums text-ink-200">
-              {formatChipSize(f.sizeBytes)}
+      {shown.map((f, i) => {
+        const audio = isAudioAttachment(f);
+        return (
+          <span
+            key={`${f.name}-${i}`}
+            data-testid="lane-run-attach-chip"
+            className="inline-flex items-center gap-[7px] rounded-[var(--radius-node)] border border-line-control bg-surface-white py-[5px] pl-2 pr-[7px]"
+          >
+            <span className="grid h-[22px] w-[22px] flex-none place-items-center rounded-[var(--radius-tag)] bg-surface-paper text-ink-500">
+              {f.kind === "image" ? (
+                <ImageIcon className="h-3 w-3" strokeWidth={1.7} />
+              ) : audio ? (
+                <Mic className="h-3 w-3" strokeWidth={1.7} />
+              ) : (
+                <FileText className="h-3 w-3" strokeWidth={1.7} />
+              )}
             </span>
-          ) : null}
-        </span>
-      ))}
+            <span className="max-w-[10rem] truncate font-sans text-[11.5px] font-medium text-ink-800">
+              {f.name}
+            </span>
+            {f.sizeBytes ? (
+              <span className="font-serif text-[10px] tabular-nums text-ink-200">
+                {formatChipSize(f.sizeBytes)}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              data-testid="lane-run-attach-remove"
+              aria-label={`Remove ${f.name}`}
+              onClick={() =>
+                setRemoved((prev) => new Set(prev).add(`${f.kind}:${f.name}`))
+              }
+              className="grid h-4 w-4 flex-none place-items-center rounded-[4px] text-ink-200 transition-colors hover:bg-status-failed-fill hover:text-status-failed"
+            >
+              <X className="h-[11px] w-[11px]" strokeWidth={2} />
+            </button>
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -622,6 +651,16 @@ export function RunChatLane({
       sendMessage(text, attachments);
     },
     [runState, onRevise, sendMessage],
+  );
+
+  // Failed-lane composer send — a change instruction that feeds the reopen /
+  // edit-brief flow (the mock's "Tell the agents what to change, then reopen…").
+  const handleTerminalRevise = useCallback(
+    (text: string, attachments: ChatAttachment[]) => {
+      if (onRevise) onRevise(text);
+      else sendMessage(text, attachments);
+    },
+    [onRevise, sendMessage],
   );
 
   // Consequential Concierge proposals held behind a confirm chip (33-03/D-05).
@@ -819,6 +858,12 @@ export function RunChatLane({
                   Edit brief &amp; run again
                 </button>
               </div>
+              {/* Composer at the lane foot (mock Run-Failed:82-89) — a change
+                  instruction that feeds the reopen / edit-brief flow. */}
+              <FreeTextComposer
+                placeholder="Tell the agents what to change, then reopen…"
+                onSend={handleTerminalRevise}
+              />
             </div>
           );
         }
@@ -856,7 +901,7 @@ export function RunChatLane({
       case "building":
         return (
           <FreeTextComposer
-            placeholder="Steer the run — add a note…"
+            placeholder="Steer the run — add a note or change a requirement…"
             onSend={handleFreeText}
           />
         );
@@ -951,7 +996,7 @@ export function RunChatLane({
       if (answered === 0 && agents.length === 0) return null;
       return (
         <div data-testid="lane-adornments" className="flex flex-col gap-4">
-          {answered > 0 && <AnsweredNote count={answered} />}
+          {answered > 0 && <AnsweredNote count={answered} planApproved />}
           {agents.length > 0 && (
             <PipelineMini
               agents={agents}

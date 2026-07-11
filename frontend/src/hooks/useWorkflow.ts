@@ -253,6 +253,10 @@ export function handlePipelineMessage(
         agents: agentStates,
         currentAgentIndex: 0,
         completedCount: 0,
+        // Phase 39 (RUNUI-06): surface the run's created_at so the lane header can
+        // render a relative age ("23h ago"). ADDITIVE optional — falls back to
+        // the receipt time when the event omits it.
+        createdAt: (msg.created_at as string) || prev.createdAt || new Date().toISOString(),
       }));
 
       // Persist pipeline_run_id to sessionStorage so reconnection works
@@ -362,7 +366,12 @@ export function handlePipelineMessage(
     case "agent_complete": {
       const agentId = msg.agent_id as string;
       const startTime = agentStartTimesRef.current[agentId];
-      const duration = startTime ? (Date.now() - startTime) / 1000 : null;
+      // Prefer an explicit server-provided duration; fall back to the measured
+      // start→complete wall time. ADDITIVE — existing events (no `duration`)
+      // keep the measured behavior unchanged.
+      const measured = startTime ? (Date.now() - startTime) / 1000 : null;
+      const duration =
+        typeof msg.duration === "number" ? (msg.duration as number) : measured;
 
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);

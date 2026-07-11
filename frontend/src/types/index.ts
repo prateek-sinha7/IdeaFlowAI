@@ -628,6 +628,10 @@ export interface PipelineRunState {
   // ADDITIVE optional — no existing field/handler/consumer changed.
   deliverableFilename?: string;
   deliverableVersion?: number;
+  // Phase 39 (RUNUI-06) — the run's created_at (ISO), surfaced from pipeline_start
+  // so the lane header can render a relative age ("23h ago") for a settled run.
+  // ADDITIVE optional.
+  createdAt?: string;
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

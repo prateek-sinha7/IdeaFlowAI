@@ -6,6 +6,7 @@ import {
   LaneRunHeader,
   humanizeRunType,
   deriveLaneMeta,
+  formatRelativeAge,
 } from "./LaneRunHeader";
 
 // ─── LaneRunHeader — the run-screen left-lane header ──────────────────────────
@@ -77,14 +78,28 @@ describe("deriveLaneMeta", () => {
   });
 });
 
+describe("formatRelativeAge", () => {
+  it("formats an ISO timestamp as a compact relative age", () => {
+    const hoursAgo = (h: number) =>
+      new Date(Date.now() - h * 3_600_000).toISOString();
+    expect(formatRelativeAge(hoursAgo(23))).toBe("23h ago");
+    expect(formatRelativeAge(hoursAgo(48))).toBe("2d ago");
+    expect(formatRelativeAge(new Date(Date.now() - 5 * 60_000).toISOString())).toBe(
+      "5m ago",
+    );
+    expect(formatRelativeAge(undefined)).toBe("");
+  });
+});
+
 describe("LaneRunHeader", () => {
-  it("renders the humanized type eyebrow, title and derived meta", () => {
+  it("SETTLED meta = relative-age · duration · tokens (no agent count)", () => {
     render(
       <LaneRunHeader
         runState="complete"
         runTitle="Modern Website Prototype Design Reference"
         pipelineState={ps({
           pipeline_type: "od_prototype",
+          createdAt: new Date(Date.now() - 23 * 3_600_000).toISOString(),
           totalDuration: 1446,
           agents: [
             {
@@ -110,9 +125,42 @@ describe("LaneRunHeader", () => {
       "Modern Website Prototype Design Reference",
     );
     const meta = screen.getByTestId("lane-run-meta");
+    expect(meta).toHaveTextContent("23h ago");
     expect(meta).toHaveTextContent("24m 6s");
-    expect(meta).toHaveTextContent("1/1 agents");
     expect(meta).toHaveTextContent("14.8M tokens");
+    // Settled omits the agent count.
+    expect(meta).not.toHaveTextContent("agents");
+  });
+
+  it("LIVE/terminal meta = duration · N/M agents · tokens (no relative age)", () => {
+    render(
+      <LaneRunHeader
+        runState="building"
+        pipelineState={ps({
+          createdAt: new Date(Date.now() - 23 * 3_600_000).toISOString(),
+          totalDuration: 1446,
+          completedCount: 3,
+          totalTokens: 2_100_000,
+          agents: [1, 2, 3, 4, 5].map((n) => ({
+            id: `a${n}`,
+            name: `A${n}`,
+            role: "",
+            icon: "",
+            status: "done" as const,
+            output: "",
+            thinking: "",
+            duration: null,
+            error: null,
+            index: n,
+          })),
+        })}
+      />,
+    );
+    const meta = screen.getByTestId("lane-run-meta");
+    expect(meta).toHaveTextContent("3/5 agents");
+    expect(meta).toHaveTextContent("2.1M tokens");
+    // Live omits the relative age.
+    expect(meta).not.toHaveTextContent("ago");
   });
 
   it("shows a Done status token when complete", () => {

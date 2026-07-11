@@ -515,6 +515,40 @@ describe("RunChatLane", () => {
     expect(screen.getByTestId("lane-run-attachments")).toHaveTextContent("reference.png");
   });
 
+  it("failed lane has a composer that feeds the reopen/revise flow", () => {
+    const onRevise = vi.fn();
+    render(
+      <RunChatLane
+        {...(baseProps({
+          runState: "terminal",
+          onRevise,
+          onRelaunch: vi.fn(),
+          pipelineState: ps({ failed: true, failedAgents: ["a1"] }),
+        }) as RunChatLaneProps)}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "drop the .env write and rerun" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(onRevise).toHaveBeenCalledWith("drop the .env write and rerun");
+  });
+
+  it("attachment chip × removes it from the in-view list", () => {
+    const brief: ChatMessage = {
+      ...userMsg("u1", "go"),
+      attachments: [
+        { kind: "file", name: "brief.md", sizeBytes: 1200, retained: true },
+        { kind: "image", name: "reference.png", sizeBytes: 340_000, retained: true },
+      ],
+    };
+    render(<RunChatLane {...baseProps({ runState: "complete", messages: [brief] })} />);
+    expect(screen.getAllByTestId("lane-run-attach-chip")).toHaveLength(2);
+    fireEvent.click(screen.getAllByTestId("lane-run-attach-remove")[0]);
+    expect(screen.getAllByTestId("lane-run-attach-chip")).toHaveLength(1);
+    expect(screen.getByTestId("lane-run-attachments")).not.toHaveTextContent("brief.md");
+  });
+
   it("SC-001: the source carries no workflow-name literal", () => {
     const src = readFileSync(
       join(process.cwd(), "src/components/chat/RunChatLane.tsx"),

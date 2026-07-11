@@ -36,6 +36,25 @@ export function humanizeRunType(raw?: string | null): string {
     .join(" ");
 }
 
+/** Compact relative age from an ISO timestamp: "just now" / "23h ago" / "2d ago". */
+export function formatRelativeAge(iso?: string): string {
+  if (!iso) return "";
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (secs < 45) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  return months < 12 ? `${months}mo ago` : `${Math.floor(days / 365)}y ago`;
+}
+
 /** The three meta parts of the header row, derived from live `pipelineState`. */
 export interface LaneMeta {
   elapsed: string;
@@ -165,7 +184,15 @@ export function LaneRunHeader({
   const type = runType || humanizeRunType(pipelineState?.pipeline_type);
   const meta = deriveLaneMeta(pipelineState);
   const status = laneStatus(runState, pipelineState);
-  const metaParts = [meta.elapsed, meta.agents, meta.tokens].filter(Boolean);
+  // The meta row composition varies by run state to match the mock:
+  //   • settled (complete/idle): relative-age · duration · tokens   (NO agents)
+  //   • live (building/clarify/gate) + terminal: duration · N/M agents · tokens
+  const isSettled = runState === "complete" || runState === "idle";
+  const metaParts = (
+    isSettled
+      ? [formatRelativeAge(pipelineState?.createdAt), meta.elapsed, meta.tokens]
+      : [meta.elapsed, meta.agents, meta.tokens]
+  ).filter(Boolean);
 
   // The back link always renders (mock fidelity). `onBackToHistory` overrides the
   // exact target (wired by 39-05); the default navigates back to the prior view
