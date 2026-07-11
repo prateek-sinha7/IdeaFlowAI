@@ -62,6 +62,25 @@ const CTX = [
   { type: "artifact", artifact_type: "clarifications.md", artifact_size_chars: 1900 },
 ];
 
+// The run's input attachments — surfaced as the mock's chip tray above the
+// composer. Seeded onto the brief turn so the lane derives them live.
+const BRIEF_ATTACH = [
+  { kind: "file", name: "brief.md", sizeBytes: 1240, retained: true },
+  { kind: "image", name: "apple-hero.png", sizeBytes: 512_000, retained: true },
+  { kind: "file", name: "spec.pdf", sizeBytes: 98_000, retained: true },
+];
+
+const CLARIFY_Q = [
+  { id: "q1", text: "Which pages should the reference cover?", options: ["Home + 5", "Home only"], answerType: "single_choice" },
+  { id: "q2", text: "Light or dark theme?", options: ["Light", "Dark"], answerType: "single_choice" },
+  { id: "q3", text: "Any real brand assets?", options: ["Reference-only", "Use brand"], answerType: "single_choice" },
+];
+
+/** Seed the user's brief turn (with run attachments) into the chat transcript. */
+async function seedBrief(mockWs: MockWs, text: string) {
+  mockWs.chatMessage({ messageId: "u-brief", text, attachments: BRIEF_ATTACH });
+}
+
 test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   test.setTimeout(120_000);
   await dashboard.goto();
@@ -69,8 +88,19 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
 
   const agents = AGENTS.od_prototype; // specify, plan, build, validate
   mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  // Seed the conversation: the user's brief turn (+ run attachments) so the
+  // transcript renders bubbles + the attachment-chip tray like the mock.
+  await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
   mockWs.plannerStart();
   mockWs.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
+
+  // Clarify round — answer it so pipelineState.clarifications is populated and
+  // the settled "N clarifying questions" inline card renders (live count).
+  mockWs.questionnaireReady(CLARIFY_Q);
+  await page.getByTestId("chat-clarify-actions").waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+  await page.getByTestId("chat-clarify-chip").first().click({ timeout: 6_000 }).catch(() => {});
+  await page.getByTestId("chat-clarify-submit").click({ timeout: 6_000 }).catch(() => {});
+  mockWs.questionnaireComplete();
 
   // 1) Spec Writer (+ gate)
   mockWs.agentStart("prototype-specify");
@@ -113,6 +143,9 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
 
   mockWs.complete({ pipelineType: "od_prototype", finalOutput: PROTO_HTML, deliverableFilename: "apple-reference-prototype.html", deliverableMimetype: "text/html", totalDuration: 1446 });
 
+  // Assistant narration + the deliverable card (a deep-linkable narrator turn).
+  mockWs.chatReply({ cardKind: "deliverable", text: "Your Apple-style reference prototype is ready — open the Preview tab to view it." });
+
   await page.waitForTimeout(1500);
   await shot(page, "full", "settled");
 
@@ -136,6 +169,7 @@ test("CAPTURE live streaming run", async ({ dashboard, mockWs, page }) => {
   await launch(page, mockWs, "build prototype mimicking apple website just for reference");
   const agents = AGENTS.od_prototype;
   mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
   mockWs.plannerStart();
   mockWs.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
   mockWs.agentStart("prototype-specify"); mockWs.agentChunk("prototype-specify", "# Spec…"); mockWs.agentComplete("prototype-specify", { totalTokens: 30100 });
@@ -151,12 +185,54 @@ test("CAPTURE live streaming run", async ({ dashboard, mockWs, page }) => {
   await page.screenshot({ path: `${OUT}/leftlane__live.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
 });
 
+test("CAPTURE live — clarify-awaiting lane", async ({ dashboard, mockWs, page }) => {
+  test.setTimeout(120_000);
+  await dashboard.goto();
+  await launch(page, mockWs, "build prototype mimicking apple website just for reference");
+  const agents = AGENTS.od_prototype;
+  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
+  mockWs.plannerStart();
+  mockWs.plannerComplete("Build an Apple-style reference prototype", "CLARIFY_REQUIRED");
+  // Questions surface and the lane pauses in the clarify state (NOT answered —
+  // capture the Awaiting-you clarify card + the clarify composer).
+  mockWs.questionnaireReady(CLARIFY_Q);
+  await page.getByTestId("chat-clarify-actions").waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+  // The tall clarify composer squeezes the scroll region — pin it to the bottom
+  // so the "Awaiting you" clarify status card is visible above the composer.
+  await page.getByTestId("chat-transcript").evaluate((el) => { el.scrollTop = el.scrollHeight; }).catch(() => {});
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `${OUT}/leftlane__clarify.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
+});
+
+test("CAPTURE live — gate-awaiting lane", async ({ dashboard, mockWs, page }) => {
+  test.setTimeout(120_000);
+  await dashboard.goto();
+  await launch(page, mockWs, "build prototype mimicking apple website just for reference");
+  const agents = AGENTS.od_prototype;
+  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
+  mockWs.plannerStart();
+  mockWs.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
+  // An agent produces output and a review gate opens — the lane pauses in the
+  // gate state (NOT approved — capture the Awaiting-you approval card + gate UI).
+  mockWs.agentStart("prototype-specify");
+  mockWs.agentChunk("prototype-specify", "# Apple Reference — Specification\n\nSix pages, one design system.");
+  mockWs.reviewGateReady({ gateKey: "spec", agentId: "prototype-specify", agentName: "Spec Writer", output: "Specification ready for your approval." });
+  await page.getByTestId("chat-gate-actions").waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `${OUT}/leftlane__gate.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
+});
+
 test("CAPTURE failed run", async ({ dashboard, mockWs, page }) => {
   test.setTimeout(120_000);
   await dashboard.goto();
   await launch(page, mockWs, "Build a full inventory app with a seed script that writes credentials to .env");
   const agents = AGENTS.od_prototype;
   mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  await seedBrief(mockWs, "Build a full inventory app with a seed script that writes credentials to .env");
+  // An assistant explanation line precedes the failure card (like the mock).
+  mockWs.chatReply({ cardKind: "pipeline", text: "The run stopped at the security gate — a step tried to write secrets to disk and run code the workspace policy doesn't allow. Nothing was written outside the sandbox." });
   mockWs.agentStart("prototype-specify"); mockWs.agentComplete("prototype-specify", { totalTokens: 30100 });
   mockWs.agentStart("prototype-plan"); mockWs.agentComplete("prototype-plan", { totalTokens: 42200 });
   mockWs.agentStart("prototype-build"); mockWs.agentError("prototype-build", "The run stopped at the security gate. A step tried to write secrets to disk.");

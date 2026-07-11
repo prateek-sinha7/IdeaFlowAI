@@ -74,6 +74,20 @@ async function capture(state, file, browser, origin) {
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(OUT, `leftlane__${state}.png`), clip: { x: 0, y: 0, width: 400, height: VIEWPORT.height } });
 
+  // The Live mock carries clarify/gate/building lane variants behind its own
+  // phase scrubber (ND-F — a demo-only control we do NOT reproduce, but it is
+  // how the mock exposes those lane compositions). Drive it to capture the
+  // clarify + gate target lanes so the gallery can pair our live sub-states.
+  if (state === "live") {
+    for (const phase of ["Clarify", "Gate"]) {
+      const btn = page.getByRole("button", { name: new RegExp(`^${phase}$`, "i") }).first();
+      if ((await btn.count()) === 0) continue;
+      await btn.click({ timeout: 4_000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: join(OUT, `leftlane__${phase.toLowerCase()}.png`), clip: { x: 0, y: 0, width: 400, height: VIEWPORT.height } });
+    }
+  }
+
   await page.close();
   console.log(`[capture-mocks] ${state}: captured ${SURFACES.length} tabs + leftlane`);
 }
