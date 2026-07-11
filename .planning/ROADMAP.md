@@ -1057,6 +1057,30 @@ Plans:
 - [x] 39-05-PLAN.md — Run header (Version/Share/Download/status) + tab order + shell wiring (Wave 3)
 - [x] 39-06-PLAN.md — Preview browser chrome + "Renders as" switch wrapping the reused renderers (Wave 4)
 
+### Phase 40: Shell Mock Fidelity (restyle surfaces) [B6]
+
+**Goal:** Bring the SHELL surfaces to full visual fidelity with the VelocityAI-New-UI `Hexaware Workspace v2` mock — Home, Library (Agents/Skills/Hooks +agent-detail), Analytics, Account Settings (4 tabs), Workflow History (3 states), and Catalogue / My Workflows — as-is, using the SAME anti-drift method Phase 39 used for the run screen. RESTYLE-FIRST: only the close-to-mock / merely-blocked surfaces, plus the harness fixes that unblock them. The Configure single-screen rebuild + the Composer full-page rebuild are DEFERRED to Phase 41.
+**Depends on:** Phase 39 (the fidelity oracle + shell oracle scaffolding this reuses), Phase 35/36/38 (the shell surfaces this re-aligns), Phase 36 (D-11 nav)
+**Requirements:** SHELL-01, SHELL-02, SHELL-03, SHELL-04
+**Success Criteria:**
+
+1. Each in-scope shell surface + every sub-view/sub-tab/state matches its `Hexaware Workspace v2` mock to the intended-divergence register — proven by the side-by-side shell gallery + a HUMAN sign-off (a blocking checkpoint), not a prose claim.
+2. Net-new as-is affordances land on live data: the Home 3×2 deliverable card grid + "Jump back in" recents, the Library card grids, the Settings richer profile form, the History filter chips / Sort tabs / date groups, the Catalogue card grid.
+3. Data stays real & live (SC-001/ND-D): no cloned mock values, no fabricated fields; intended divergences preserved (ND-A brand · ND-B "My Workflows" · ND-C nav underline · ND-W "Run History" · ND-X no Voice · ND-Y no fabricated profile fields · ND-Z Library drawer → Phase 41).
+4. The blocked Catalogue is stubbed (`/api/user-workflows`) + the empty surfaces seeded, the shell fidelity oracle is formalized (per-surface gallery), and each touched surface's mocked-e2e spec is re-anchored green.
+
+**Plans:** 7 plans (2 waves: 40-01 harness → 40-02..40-07 surfaces, parallel/disjoint files)
+
+Plans:
+
+- [ ] 40-01-PLAN.md — Stub `/api/user-workflows` + seed History/Analytics/recents + formalize the shell fidelity oracle + own SHELL-01..04 (Wave 1)
+- [ ] 40-02-PLAN.md — Home: prompt-under-h1 (Attach + Build, no Voice) + 3×2 live card grid + "Jump back in" recents (Wave 2)
+- [ ] 40-03-PLAN.md — Library: h1 + count + search header + Agents/Skills/Hooks card grids (agent-detail drawer → Phase 41, ND-Z) (Wave 2)
+- [ ] 40-04-PLAN.md — Analytics: styling + number-format parity pass over the live endpoint (Wave 2)
+- [ ] 40-05-PLAN.md — Account Settings: Usage & Limits relabel + real-data richer profile form (ND-Y) + four mock-parity tabs (Wave 2)
+- [ ] 40-06-PLAN.md — Workflow History: keep "Run History" (ND-W) + filter chips + Sort tabs + date groups + 3 states (Wave 2)
+- [ ] 40-07-PLAN.md — Catalogue / My Workflows: unblock + restyle the Catalogue grid, keep "My Workflows" (ND-B), 3 states (Wave 2)
+
 ### v2.0 Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -1073,3 +1097,4 @@ Plans:
 | 37. Configure Unification [B3] | 5/6 | In Progress|  |
 | 38. Analytics, Estimates & Notifications [B4] | 5/5 | Complete   | 2026-07-10 |
 | 39. Run Screen Mock Fidelity [B5] | 7/7 | Complete | 2026-07-12 |
+| 40. Shell Mock Fidelity (restyle) [B6] | 0/7 | Planned | — |
