@@ -1045,12 +1045,12 @@ Plans:
 3. Data stays real & live (SC-001): no cloning the mocks' hardcoded values; the deliverable renderers are reused, not rebuilt; intended divergences (brand "VelocityAI", "My Workflows", nav underline) are preserved.
 4. The mocked e2e suite is green again against feat/ui-2 (home-grid / launch-flow / run-family fixes) and the fidelity screenshot harness runs under `frontend/e2e`.
 
-**Plans:** 1/7 plans executed
+**Plans:** 2/7 plans executed
 
 Plans:
 
 - [x] 39-07-PLAN.md — Repair stale mocked-e2e harness + formalize the fidelity screenshot oracle (Wave 1)
-- [ ] 39-01-PLAN.md — Left conversation lane: structured transcript + lane header + live/failed states (Wave 2)
+- [x] 39-01-PLAN.md — Left conversation lane: structured transcript + lane header + live/failed states (Wave 2)
 - [ ] 39-02-PLAN.md — Steps tab: overview spine → 2-col agent detail (sticky Context received) → task drill (Wave 2)
 - [ ] 39-03-PLAN.md — Files tab: dark Final-output hero + agent-outputs timeline + Run-input cards (Wave 2)
 - [ ] 39-04-PLAN.md — Audit tab: 6-stat grid + coverage banner + fuller categories over real fetches (Wave 2)
@@ -1072,4 +1072,4 @@ Plans:
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
 | 37. Configure Unification [B3] | 5/6 | In Progress|  |
 | 38. Analytics, Estimates & Notifications [B4] | 5/5 | Complete   | 2026-07-10 |
-| 39. Run Screen Mock Fidelity [B5] | 1/7 | In Progress|  |
+| 39. Run Screen Mock Fidelity [B5] | 2/7 | In Progress|  |

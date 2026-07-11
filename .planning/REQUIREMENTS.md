@@ -235,9 +235,9 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 
 ### Run-Screen Mock Fidelity (Phase 39)
 
-- [ ] **RUNUI-06**: Every run-screen surface (left lane, run header, Preview/Steps/Files/Audit + all sub-navigation) matches its VelocityAI-New-UI mock across settled/live/failed to the intended-divergence register — proven by a side-by-side screenshot-diff gallery + human sign-off, not a prose claim (Phase 39 SC-1)
+- [x] **RUNUI-06**: Every run-screen surface (left lane, run header, Preview/Steps/Files/Audit + all sub-navigation) matches its VelocityAI-New-UI mock across settled/live/failed to the intended-divergence register — proven by a side-by-side screenshot-diff gallery + human sign-off, not a prose claim (Phase 39 SC-1)
 - [ ] **RUNUI-07**: Net-new as-is affordances land — Share (client-only link), the Version ▾ menu (from `runFamily`), the "Renders as" deliverable-type switch, and the fuller Audit categories (secret-scan / performance / behavioral) (Phase 39 SC-2)
-- [ ] **RUNUI-08**: Data stays real & live (SC-001) — no cloned mock values; the deliverable renderers are reused not rebuilt; intended divergences (VelocityAI / My Workflows / nav underline) preserved (Phase 39 SC-3)
+- [x] **RUNUI-08**: Data stays real & live (SC-001) — no cloned mock values; the deliverable renderers are reused not rebuilt; intended divergences (VelocityAI / My Workflows / nav underline) preserved (Phase 39 SC-3)
 - [ ] **RUNUI-09**: The mocked e2e suite is green again against feat/ui-2 (home-grid / launch-flow / run-family fixes) and the fidelity screenshot harness + side-by-side gallery run under `frontend/e2e` (Phase 39 SC-4)
 
 ### Concierge & Compaction (Phase 33)
@@ -479,9 +479,9 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | SHELL-03 | Phase 36 [B2] | Complete |
 | SHELL-04 | Phase 37 [B3] | Pending |
 | SHELL-05 | Phase 38 [B4] | Complete |
-| RUNUI-06 | Phase 39 [B5] | Pending |
+| RUNUI-06 | Phase 39 [B5] | Complete |
 | RUNUI-07 | Phase 39 [B5] | Pending |
-| RUNUI-08 | Phase 39 [B5] | Pending |
+| RUNUI-08 | Phase 39 [B5] | Complete |
 | RUNUI-09 | Phase 39 [B5] | Pending |
 
 **v2.0 counts:** P28=1 · P29=6 · P30=4 · P31=3 · P32=5 · P33=3 · P34=1 · P35=1 · P36=2 · P37=1 · P38=1 · P39=4 (= 32)
