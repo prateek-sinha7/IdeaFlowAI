@@ -14,6 +14,7 @@
 
 import { Check, ChevronRight, XCircle, Zap, ListChecks, RotateCw } from "lucide-react";
 import type { AgentRunState, ClarifyRound, PipelineRunState } from "@/types/index";
+import type { GateEventRow } from "@/lib/api";
 import { InlineGateActions } from "@/components/chat/InlineGateActions";
 import { InlineClarifyActions } from "@/components/chat/InlineClarifyActions";
 import type { GateContext } from "@/components/chat/RunChatLane";
@@ -29,10 +30,14 @@ export interface StepsOverviewSpineProps {
   clarificationsLoading?: boolean;
   onOpenAgent: (agentId: string) => void;
   /** Rendered AFTER the pipeline-stepper progress and BEFORE the Clarifications
-   *  card — the repositioned Starting-point + Deep-Planner cards (live-data
-   *  surfaces the mock's clean spine omits; kept below the stepper, never above
-   *  it — mock overview order, Hexaware Run.dc.html :294-354). */
+   *  card — the repositioned Starting-point card (the single live-data surface the
+   *  mock's clean overview omits; kept below the stepper, never above it — mock
+   *  overview order, Hexaware Run.dc.html :294-354). */
   topSlot?: React.ReactNode;
+  /** The run's governance-gate rows (from getRunGateEvents) — an approved gate is
+   *  rendered as a "Review gate — {gate} · Approved" strip AFTER the agent row it
+   *  maps to (by the event's `step` field), matching the mock's settled spine. */
+  gateEvents?: GateEventRow[];
   // Reused inline gate / clarify (SC-2, INV-12 — same submit channels)
   laneGate?: GateContext;
   onApproveGate?: (gateKey: string, editedContent?: string) => void;
@@ -97,8 +102,26 @@ function GateAwaitingCard({
   );
 }
 
+// The settled "Review gate — {gate} · approved by you · Approved" strip, from a
+// live approved gate-event row (Hexaware Run.dc.html :345-351). Interleaved after
+// the agent row the gate maps to (event.step === agent.id).
+function GateApprovedStrip({ gate }: { gate: string }) {
+  return (
+    <div className="flex items-center gap-2.5 mb-3 ml-2 px-3.5 py-2.5 border border-brand-border bg-brand-violet-tint rounded-[11px]">
+      <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-surface-near-black grid place-items-center">
+        <ListChecks className="h-3.5 w-3.5 text-brand-on-dark" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="m-0 text-[12px] font-semibold text-ink-900 font-[Manrope]">Review gate — {gate}</p>
+        <p className="mt-0.5 m-0 text-[11px] text-[#8A86B0]">Paused for review · approved by you</p>
+      </div>
+      <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-ink-700 font-[Manrope]"><Check className="h-3 w-3 text-ink-900" />Approved</span>
+    </div>
+  );
+}
+
 export function StepsOverviewSpine({
-  agents, pipelineState, clarifications, clarificationsLoading, onOpenAgent, topSlot,
+  agents, pipelineState, clarifications, clarificationsLoading, onOpenAgent, topSlot, gateEvents,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify,
 }: StepsOverviewSpineProps) {
@@ -122,6 +145,15 @@ export function StepsOverviewSpine({
   // visible agent, a foot-of-spine fallback keeps it reachable (never lost).
   const gateAgentMatches = !!laneGate && agents.some(a => a.id === laneGate.agentId);
   const showGateFallback = !!laneGate && isRunning && !!onApproveGate && !gateAgentMatches;
+
+  // Approved gate-event rows keyed by the agent (step) they fired on → the settled
+  // "Review gate — approved" strips interleaved after each agent's row.
+  const approvedGatesByAgent = (gateEvents ?? [])
+    .filter(g => g.step && (g.outcome ?? "").toLowerCase().includes("approv"))
+    .reduce<Record<string, GateEventRow[]>>((acc, g) => {
+      (acc[g.step as string] ||= []).push(g);
+      return acc;
+    }, {});
 
   return (
     <div className="max-w-[760px] mx-auto">
@@ -153,8 +185,8 @@ export function StepsOverviewSpine({
         )}
       </div>
 
-      {/* Repositioned live-data cards (Starting point + Deep Planner) — below the
-          stepper, above Clarifications, per the mock's overview order. */}
+      {/* Repositioned live-data card (Starting point) — below the stepper, above
+          Clarifications, per the mock's overview order. */}
       {topSlot && <div className="mb-2 space-y-3">{topSlot}</div>}
 
       {/* Clarifications (reused; renders nothing on a PROCEED run) */}
@@ -189,7 +221,7 @@ export function StepsOverviewSpine({
 
         const gateHere = laneGate?.agentId === agent.id;
         const gateAwaiting = gateHere && isRunning && !!onApproveGate;
-        const gateApproved = gateHere && !isRunning && !!laneGate;
+        const approvedGates = approvedGatesByAgent[agent.id] ?? [];
 
         return (
           <div key={agent.id}>
@@ -230,19 +262,10 @@ export function StepsOverviewSpine({
               />
             )}
 
-            {/* gate — approved by you (settled strip) */}
-            {gateApproved && (
-              <div className="flex items-center gap-2.5 mb-3 ml-2 px-3.5 py-2.5 border border-brand-border bg-brand-violet-tint rounded-[11px]">
-                <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-surface-near-black grid place-items-center">
-                  <ListChecks className="h-3.5 w-3.5 text-brand-on-dark" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="m-0 text-[12px] font-semibold text-ink-900 font-[Manrope]">Review gate — {laneGate!.gateKey}</p>
-                  <p className="mt-0.5 m-0 text-[11px] text-[#8A86B0]">Paused for review · approved by you</p>
-                </div>
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-ink-700 font-[Manrope]"><Check className="h-3 w-3 text-ink-900" />Approved</span>
-              </div>
-            )}
+            {/* gate — approved by you (settled strips, from live gate events) */}
+            {approvedGates.map((g) => (
+              <GateApprovedStrip key={g.id} gate={g.gate || "approved"} />
+            ))}
           </div>
         );
       })}

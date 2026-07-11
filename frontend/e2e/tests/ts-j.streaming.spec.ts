@@ -102,7 +102,7 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
     await expect(dashboard.page.getByText("Run failed", { exact: true })).toBeVisible();
   });
 
-  test("TS-J-05 execution gate badge: PROCEED", async ({ dashboard, mockWs }) => {
+  test("TS-J-05 Deep-Planner card is NOT surfaced on the Steps overview (PROCEED)", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
     // pipeline_start first so the run is "active" and the run screen mounts.
     mockWs.start(agents, { pipelineType: "user_stories" });
@@ -110,20 +110,22 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
     mockWs.plannerStart();
     mockWs.plannerComplete("Build a refunds backlog", "PROCEED");
 
-    // Deep Planner card + the PROCEED gate badge.
-    await expect(dashboard.page.getByText("Deep Planner")).toBeVisible();
-    await expect(dashboard.page.getByText("PROCEED", { exact: true })).toBeVisible();
+    // Phase 39 plan 02 (human ruling): the Deep-Planner card was DROPPED from the
+    // Steps overview to match the mock's clean spine. The run still renders — the
+    // agent spine shows — but no planner card / gate badge is surfaced here.
+    await expect(dashboard.page.getByRole("button", { name: new RegExp(agents[0].name, "i") })).toBeVisible();
+    await expect(dashboard.page.getByText("Deep Planner")).toHaveCount(0);
   });
 
-  test("TS-J-05 execution gate badge: CLARIFY", async ({ dashboard, mockWs }) => {
+  test("TS-J-05 Deep-Planner card is NOT surfaced on the Steps overview (CLARIFY)", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
     mockWs.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
     mockWs.plannerStart();
     mockWs.plannerComplete("Build a refunds backlog", "CLARIFY_REQUIRED");
 
-    await expect(dashboard.page.getByText("Deep Planner")).toBeVisible();
-    await expect(dashboard.page.getByText("CLARIFY_REQUIRED", { exact: true })).toBeVisible();
+    await expect(dashboard.page.getByRole("button", { name: new RegExp(agents[0].name, "i") })).toBeVisible();
+    await expect(dashboard.page.getByText("Deep Planner")).toHaveCount(0);
   });
 
   test("TS-J-06 generic overview renders the prototype pipeline (SC-001, no name gate)", async ({ dashboard, mockWs }) => {

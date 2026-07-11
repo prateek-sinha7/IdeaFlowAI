@@ -243,7 +243,7 @@ export class MockApi {
         workflow_id: id,
         gate_events: [
           { id: "g1", gate: "Specification approved", step: "prototype-specify", outcome: "approved", detail: "Paused for review · approved by you", created_at: "2026-07-04T09:03:00Z" },
-          { id: "g2", gate: "Build approved", step: "prototype-plan", outcome: "approved", detail: "Task plan approved by you", created_at: "2026-07-04T09:05:00Z" },
+          { id: "g2", gate: "Build approved", step: "prototype-build", outcome: "approved", detail: "Build approved by you", created_at: "2026-07-04T09:05:00Z" },
         ],
       });
     }

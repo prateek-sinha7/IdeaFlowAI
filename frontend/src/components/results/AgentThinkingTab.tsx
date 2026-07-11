@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import {
-  Brain, ChevronDown, Zap, CheckCircle2, XCircle, Activity,
-} from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity } from "lucide-react";
 import type { AgentRunState, PipelineRunState, ClarifyRound, WaveGroup } from "@/types/index";
+import type { GateEventRow } from "@/lib/api";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
 // Phase 39 plan 02 — the three-level Steps navigation lives in these extracted
 // views. The former flat AgentTimelineCard list + PipelineHeader + inline
@@ -61,76 +60,10 @@ function EmptyState() {
   );
 }
 
-// ─── Planner step card ────────────────────────────────────────────────────────
-function PlannerCard({ pipelineState }: { pipelineState: PipelineRunState }) {
-  const [expanded, setExpanded] = useState(false);
-  const { plannerStatus, plannerSummary, executionGate } = pipelineState;
-  if (!plannerStatus || plannerStatus === "idle") return null;
-
-  const isRunning = plannerStatus === "running";
-  const isDone = plannerStatus === "complete" || plannerStatus === "timeout";
-  const isError = plannerStatus === "error";
-
-  return (
-    <div className="relative pl-8">
-      <div className="absolute left-0 top-3 flex flex-col items-center">
-        <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 z-10 ${
-          isRunning ? "border-brand/40 bg-brand-fill animate-pulse" :
-          isDone ? "border-brand bg-brand" :
-          "border-status-failed bg-status-failed-fill"
-        }`}>
-          {isDone ? <CheckCircle2 className="h-3 w-3 text-white" /> :
-           isError ? <XCircle className="h-3 w-3 text-status-failed" /> :
-           <Brain className="h-3 w-3 text-brand" />}
-        </div>
-        <div className="w-px flex-1 bg-line-border mt-1" style={{ minHeight: 20 }} />
-      </div>
-
-      <div className={`rounded-xl border overflow-hidden transition-all ${
-        isRunning ? "border-brand/20 shadow-sm" : "border-line-faint-row"
-      }`}>
-        <button
-          onClick={() => setExpanded(v => !v)}
-          aria-expanded={expanded}
-          className="w-full flex items-center gap-3 px-4 py-3 bg-surface-white hover:bg-surface-warm/50 transition-colors text-left"
-        >
-          <div className="w-7 h-7 rounded-lg bg-brand-fill flex items-center justify-center flex-shrink-0">
-            <Brain className="h-3.5 w-3.5 text-brand" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-[12px] font-semibold text-ink-900">Deep Planner</p>
-              {plannerStatus === "timeout" && (
-                <span className="text-[9px] bg-status-amber-fill text-status-amber border border-status-amber-border px-1.5 py-0.5 rounded-full font-medium">TIMEOUT</span>
-              )}
-            </div>
-            <p className="text-[10px] text-ink-300 truncate">
-              {plannerSummary ? `Intent: ${plannerSummary.slice(0, 60)}` : "Analyzing brief & planning execution…"}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {executionGate && (
-              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                executionGate === "PROCEED" ? "bg-brand-fill text-brand" : "bg-status-amber-fill text-status-amber"
-              }`}>
-                {executionGate}
-              </span>
-            )}
-            {isRunning && <Zap className="h-3.5 w-3.5 text-brand animate-pulse" />}
-            <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${expanded ? "rotate-180" : ""}`} />
-          </div>
-        </button>
-
-        {expanded && plannerSummary && (
-          <div className="border-t border-line-faint-row px-4 py-3 bg-gradient-to-b from-brand-fill/40 to-surface-white">
-            <p className="text-[10px] font-semibold text-brand uppercase tracking-wider mb-1.5">Inferred intent</p>
-            <p className="text-[11px] text-ink-700 leading-relaxed">{plannerSummary}</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+// The Deep-Planner card was RETIRED from the Steps overview (Phase 39 plan 02,
+// human ruling) — the mock's clean overview has no planner card; its spine is the
+// pipeline agents with gate strips. The planner's PROCEED/CLARIFY verdict still
+// drives the run elsewhere; it is simply not surfaced as a card on this spine.
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 export function AgentThinkingTab({
@@ -142,6 +75,27 @@ export function AgentThinkingTab({
   // ── The three-level Steps navigation (mirrors the mock's stepView/taskView) ──
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedTaskIndex, setSelectedTaskIndex] = useState<number | null>(null);
+
+  // ── Gate-events fetch (RUNUI-06) — the run's governance-gate rows drive the
+  // "Review gate — {gate} · approved" strips interleaved in the overview spine.
+  // REUSES the existing getRunGateEvents endpoint (the Audit tab's source) — no
+  // new endpoint, no useWorkflow field. Tolerant: any failure → no strips.
+  const runId = pipelineState?.pipelineRunId;
+  const [gateEvents, setGateEvents] = useState<GateEventRow[]>([]);
+  useEffect(() => {
+    if (!runId) { setGateEvents([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getRunGateEvents, getToken } = await import("@/lib/api");
+        const res = await getRunGateEvents(getToken() || "", runId);
+        if (!cancelled) setGateEvents(res.gate_events ?? []);
+      } catch {
+        if (!cancelled) setGateEvents([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [runId]);
 
   const resolvedClarifications = clarifications ?? pipelineState?.clarifications;
   const hasAnyData = pipelineState?.plannerStatus ||
@@ -217,15 +171,13 @@ export function AgentThinkingTab({
             clarifications={resolvedClarifications}
             clarificationsLoading={clarificationsLoading}
             onOpenAgent={(id) => { setSelectedAgentId(id); setSelectedTaskIndex(null); }}
+            gateEvents={gateEvents}
             topSlot={
-              <>
-                <StartingPointCard
-                  input={runInput}
-                  originalBriefRootRunId={originalBriefRootRunId}
-                  revisionParentVersion={revisionParentVersion}
-                />
-                {pipelineState && <PlannerCard pipelineState={pipelineState} />}
-              </>
+              <StartingPointCard
+                input={runInput}
+                originalBriefRootRunId={originalBriefRootRunId}
+                revisionParentVersion={revisionParentVersion}
+              />
             }
             laneGate={laneGate}
             onApproveGate={onApproveGate}
