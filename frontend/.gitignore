@@ -44,3 +44,7 @@ next-env.d.ts
 /test-results/
 /e2e/.report/
 /playwright/.cache/
+
+# fidelity harness outputs (scripts + README committed; shots + gallery are not)
+/e2e/fidelity/shots/
+/e2e/fidelity/gallery.html

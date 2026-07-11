@@ -1,0 +1,169 @@
+/**
+ * FIDELITY CAPTURE spec (our-side of the D39-6 oracle) — RETAINED, but GATED.
+ *
+ * Drives our CURRENT run/execution screen into settled / live / failed via the
+ * mocked harness and screenshots every tab into `frontend/e2e/fidelity/shots/
+ * current/`, tagged `{surface}__{state}` (e.g. `steps__settled`, `audit__failed`,
+ * `leftlane__live`). These become the RIGHT column of the side-by-side gallery
+ * (`assemble-gallery.mjs`); the LEFT column comes from `capture-mocks.mjs`.
+ *
+ * It is NOT an assertion suite: gated behind FIDELITY_CAPTURE=1 so a normal
+ * `npm run e2e` skips it entirely (it never gates CI green).
+ *   Capture:  FIDELITY_CAPTURE=1 npm run e2e -- zzz-baseline
+ *
+ * The home-grid / run-family / audit REST stubs it used to define inline now
+ * live in the SHARED MockApi fixture (INV-12 — no dual stub); this spec only
+ * drives the WS timeline + screenshots.
+ */
+import { test, expect } from "../fixtures/test";
+import { AGENTS } from "../fixtures/scenarios";
+import type { MockWs } from "../fixtures/mockWs";
+import type { Page } from "@playwright/test";
+import { mkdirSync } from "fs";
+import { resolve } from "path";
+
+// Only run when explicitly capturing — a normal `npm run e2e` skips the file.
+test.skip(!process.env.FIDELITY_CAPTURE, "fidelity capture only (set FIDELITY_CAPTURE=1)");
+
+// Playwright's cwd is the config dir (frontend/); write repo-relative outputs.
+const OUT = resolve(process.cwd(), "e2e/fidelity/shots/current");
+mkdirSync(OUT, { recursive: true });
+
+test.use({ viewport: { width: 1440, height: 900 } });
+
+const PROTO_HTML =
+  "<!DOCTYPE html><html><head><title>Apple Reference</title></head><body>" +
+  "<header>northwind</header><h1>Titanium. So strong. So light. So Pro.</h1>" +
+  "<p>The most advanced reference build we've ever made.</p></body></html>";
+
+/** Screenshot our surface, tagged `{surface}__{state}`. */
+const shot = async (page: Page, surface: string, state: string) =>
+  page.screenshot({ path: `${OUT}/${surface}__${state}.png`, fullPage: false });
+
+// The current launch flow: click the home deliverable row → a "Provide the brief"
+// wizard screen → fill the brief → "Run workflow" → run_pipeline → execution view.
+// The home / family / audit REST stubs are now the shared MockApi's (INV-12).
+async function launch(page: Page, ws: MockWs, idea: string) {
+  await page.getByRole("button", { name: /Generate product requirements/i }).first().click();
+  await expect(page.getByRole("heading", { name: /Provide the brief/i })).toBeVisible({ timeout: 15000 });
+  const brief = page.locator("textarea").first();
+  await brief.click();
+  await brief.fill(idea);
+  const run = page.getByRole("button", { name: /Run workflow/i });
+  await expect(run).toBeEnabled({ timeout: 10000 });
+  await run.click();
+  await ws.waitForClientFrame("run_pipeline", 20000);
+  await page.getByTestId("execution-chat-lane").waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+  await ws.ready();
+}
+
+const CTX = [
+  { type: "summary", agent_name: "prompt.md", summary_length: 120, full_output_length: 200 },
+  { type: "artifact", artifact_type: "clarifications.md", artifact_size_chars: 1900 },
+];
+
+test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
+  test.setTimeout(120_000);
+  await dashboard.goto();
+  await launch(page, mockWs, "build prototype mimicking apple website just for reference");
+
+  const agents = AGENTS.od_prototype; // specify, plan, build, validate
+  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  mockWs.plannerStart();
+  mockWs.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
+
+  // 1) Spec Writer (+ gate)
+  mockWs.agentStart("prototype-specify");
+  mockWs.emit("agent_input", { agent_id: "prototype-specify", context_message: "You are the Spec Writer. Read prompt.md and clarifications.md. Produce spec.md: six pages on one shared design system, a single type scale and a 12-column grid. Reference-only, light theme, no real trademarks.", context_sources: CTX });
+  mockWs.agentThinking("prototype-specify", "The prompt asks for an Apple-style reference site and the clarifications lock it to a static, reference-only build. I will define six pages sharing one design system, type scale and 12-column grid.");
+  mockWs.emit("tool_call", { agent_id: "prototype-specify", tool: "read_file", args: { path: "prompt.md" } });
+  mockWs.emit("tool_result", { agent_id: "prototype-specify", tool: "read_file", result: "57 B" });
+  mockWs.emit("tool_call", { agent_id: "prototype-specify", tool: "write_file", args: { path: "spec.md" } });
+  mockWs.emit("tool_result", { agent_id: "prototype-specify", tool: "write_file", result: "36.4 KB" });
+  mockWs.agentChunk("prototype-specify", "# Apple Reference — Specification\n\n## Design system\nOne type scale, one 12-column grid, six pages sharing nav + footer.");
+  mockWs.agentComplete("prototype-specify", { inputTokens: 2400, outputTokens: 12100, totalTokens: 30100 });
+  mockWs.reviewGateReady({ gateKey: "spec", agentId: "prototype-specify", agentName: "Spec Writer", output: "Specification approved" });
+  mockWs.reviewGateApproved();
+
+  // 2) Task Planner
+  mockWs.agentStart("prototype-plan");
+  mockWs.emit("agent_input", { agent_id: "prototype-plan", context_message: "You are the Task Planner. Decompose spec.md into an ordered, dependency-aware build task list.", context_sources: [{ type: "artifact", artifact_type: "spec.md", artifact_size_chars: 36400 }] });
+  mockWs.agentThinking("prototype-plan", "With the spec fixed I decompose it into seven tasks so shared scaffolding lands first.");
+  mockWs.emit("tool_call", { agent_id: "prototype-plan", tool: "write_file", args: { path: "tasks.md" } });
+  mockWs.emit("tool_result", { agent_id: "prototype-plan", tool: "write_file", result: "36.1 KB" });
+  mockWs.agentChunk("prototype-plan", "# Build tasks\n1. Scaffold shared layout, nav & footer\n2. Home / landing page…");
+  mockWs.agentComplete("prototype-plan", { totalTokens: 42200 });
+
+  // 3) Build Agent (+ wave / subagents)
+  mockWs.agentStart("prototype-build");
+  mockWs.agentThinking("prototype-build", "I build task by task and verify each before moving on.");
+  mockWs.waveStarted(0, "prototype-build", ["t1", "t2", "t3"]);
+  mockWs.subagentSpawned(0, "prototype-build", "build-task-1", 1, "running");
+  mockWs.subagentResult(0, "prototype-build", "build-task-1", 1, "completed");
+  mockWs.subagentSpawned(0, "prototype-build", "build-task-2", 2, "running");
+  mockWs.subagentResult(0, "prototype-build", "build-task-2", 2, "completed");
+  mockWs.waveCompleted(0, "prototype-build");
+  mockWs.agentChunk("prototype-build", "[HTML artifact — apple-reference-prototype.html — 151.6 KB]");
+  mockWs.agentComplete("prototype-build", { totalTokens: 1102240 });
+
+  // 4) Validation Agent
+  mockWs.agentStart("prototype-validate");
+  mockWs.agentChunk("prototype-validate", "Coverage 100% — every spec section maps to ≥1 task.");
+  mockWs.agentComplete("prototype-validate", { totalTokens: 8000 });
+
+  mockWs.complete({ pipelineType: "od_prototype", finalOutput: PROTO_HTML, deliverableFilename: "apple-reference-prototype.html", deliverableMimetype: "text/html", totalDuration: 1446 });
+
+  await page.waitForTimeout(1500);
+  await shot(page, "full", "settled");
+
+  // tabs (role="tab" — Tabs.tsx:39; short per-click timeout so a miss fails fast)
+  const tab = (name: string) => page.getByRole("tab", { name: new RegExp(name, "i") }).first();
+  await tab("Preview").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(900); await shot(page, "preview", "settled");
+  await tab("Steps").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(900); await shot(page, "steps", "settled");
+  // expand the first agent for the detail drill-down
+  await page.getByText("Spec Writer", { exact: false }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(900); await shot(page, "steps-detail", "settled");
+  await tab("Files").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(900); await shot(page, "files", "settled");
+  await tab("Audit").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(1200); await shot(page, "audit", "settled");
+  // left-lane clip (the conversation column) — reset to Preview first so it is calm
+  await tab("Preview").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(600);
+  await page.screenshot({ path: `${OUT}/leftlane__settled.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
+});
+
+test("CAPTURE live streaming run", async ({ dashboard, mockWs, page }) => {
+  test.setTimeout(120_000);
+  await dashboard.goto();
+  await launch(page, mockWs, "build prototype mimicking apple website just for reference");
+  const agents = AGENTS.od_prototype;
+  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  mockWs.plannerStart();
+  mockWs.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
+  mockWs.agentStart("prototype-specify"); mockWs.agentChunk("prototype-specify", "# Spec…"); mockWs.agentComplete("prototype-specify", { totalTokens: 30100 });
+  mockWs.agentStart("prototype-plan"); mockWs.agentChunk("prototype-plan", "# Build tasks…"); mockWs.agentComplete("prototype-plan", { totalTokens: 42200 });
+  // 3rd agent left RUNNING (streaming, no complete)
+  mockWs.agentStart("prototype-build");
+  mockWs.agentThinking("prototype-build", "building task 4 of 7 — compare page");
+  mockWs.agentChunk("prototype-build", "<section class=\"compare\">building…");
+  await page.waitForTimeout(1400);
+  await shot(page, "full", "live");
+  await page.getByRole("tab", { name: /Steps/i }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(900); await shot(page, "steps", "live");
+  await page.screenshot({ path: `${OUT}/leftlane__live.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
+});
+
+test("CAPTURE failed run", async ({ dashboard, mockWs, page }) => {
+  test.setTimeout(120_000);
+  await dashboard.goto();
+  await launch(page, mockWs, "Build a full inventory app with a seed script that writes credentials to .env");
+  const agents = AGENTS.od_prototype;
+  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  mockWs.agentStart("prototype-specify"); mockWs.agentComplete("prototype-specify", { totalTokens: 30100 });
+  mockWs.agentStart("prototype-plan"); mockWs.agentComplete("prototype-plan", { totalTokens: 42200 });
+  mockWs.agentStart("prototype-build"); mockWs.agentError("prototype-build", "The run stopped at the security gate. A step tried to write secrets to disk.");
+  mockWs.failed({ agentsFailed: ["prototype-build", "prototype-validate"], error: "Blocked by the security gate", totalDuration: 401 });
+  await page.waitForTimeout(1400);
+  await shot(page, "full", "failed");
+  await page.getByRole("tab", { name: /Steps/i }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(900); await shot(page, "steps", "failed");
+  await page.screenshot({ path: `${OUT}/leftlane__failed.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
+});
