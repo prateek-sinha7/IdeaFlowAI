@@ -1045,7 +1045,7 @@ Plans:
 3. Data stays real & live (SC-001): no cloning the mocks' hardcoded values; the deliverable renderers are reused, not rebuilt; intended divergences (brand "VelocityAI", "My Workflows", nav underline) are preserved.
 4. The mocked e2e suite is green again against feat/ui-2 (home-grid / launch-flow / run-family fixes) and the fidelity screenshot harness runs under `frontend/e2e`.
 
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans executed
 
 Plans:
 
@@ -1055,7 +1055,7 @@ Plans:
 - [x] 39-03-PLAN.md — Files tab: dark Final-output hero + agent-outputs timeline + Run-input cards (Wave 2)
 - [x] 39-04-PLAN.md — Audit tab: 6-stat grid + coverage banner + fuller categories over real fetches (Wave 2)
 - [x] 39-05-PLAN.md — Run header (Version/Share/Download/status) + tab order + shell wiring (Wave 3)
-- [ ] 39-06-PLAN.md — Preview browser chrome + "Renders as" switch wrapping the reused renderers (Wave 4)
+- [x] 39-06-PLAN.md — Preview browser chrome + "Renders as" switch wrapping the reused renderers (Wave 4)
 
 ### v2.0 Progress
 
@@ -1072,4 +1072,4 @@ Plans:
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
 | 37. Configure Unification [B3] | 5/6 | In Progress|  |
 | 38. Analytics, Estimates & Notifications [B4] | 5/5 | Complete   | 2026-07-10 |
-| 39. Run Screen Mock Fidelity [B5] | 6/7 | In Progress|  |
+| 39. Run Screen Mock Fidelity [B5] | 7/7 | In Progress|  |
