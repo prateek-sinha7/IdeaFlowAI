@@ -167,29 +167,32 @@ export function LaneRunHeader({
   const status = laneStatus(runState, pipelineState);
   const metaParts = [meta.elapsed, meta.agents, meta.tokens].filter(Boolean);
 
+  // The back link always renders (mock fidelity). `onBackToHistory` overrides the
+  // exact target (wired by 39-05); the default navigates back to the prior view
+  // (the run history / dashboard) so the link is present + functional now.
+  const handleBack =
+    onBackToHistory ??
+    (() => {
+      if (typeof window !== "undefined") window.history.back();
+    });
+
   return (
     <div
       data-testid="lane-run-header"
       className="flex-none border-b border-line-border bg-surface-warm px-[18px] pb-[14px] pt-4"
     >
-      {(onBackToHistory || actions) && (
-        <div className="mb-[15px] flex items-center justify-between gap-2">
-          {onBackToHistory ? (
-            <button
-              type="button"
-              data-testid="lane-back"
-              onClick={onBackToHistory}
-              className="inline-flex items-center gap-[7px] font-sans text-[13px] font-medium text-ink-500 transition-colors hover:text-ink-900"
-            >
-              <ChevronLeft className="h-[15px] w-[15px]" strokeWidth={1.7} />
-              Back to history
-            </button>
-          ) : (
-            <span />
-          )}
-          {actions && <div className="flex items-center gap-1.5">{actions}</div>}
-        </div>
-      )}
+      <div className="mb-[15px] flex items-center justify-between gap-2">
+        <button
+          type="button"
+          data-testid="lane-back"
+          onClick={handleBack}
+          className="inline-flex items-center gap-[7px] font-sans text-[13px] font-medium text-ink-500 transition-colors hover:text-ink-900"
+        >
+          <ChevronLeft className="h-[15px] w-[15px]" strokeWidth={1.7} />
+          Back to history
+        </button>
+        {actions && <div className="flex items-center gap-1.5">{actions}</div>}
+      </div>
 
       {(type || status) && (
         <div className="mb-[9px] flex items-center gap-2">

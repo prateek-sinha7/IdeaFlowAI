@@ -146,21 +146,20 @@ describe("RunChatLane", () => {
     expect(screen.getByTestId("chat-gate-approve")).toBeInTheDocument();
   });
 
-  it("complete mode shows the revision affordance + suggestion chips", () => {
-    const onSuggestion = vi.fn();
+  it("complete mode shows the revision composer and NO suggestion chips (mock fidelity)", () => {
     render(
       <RunChatLane
         {...baseProps({
           runState: "complete",
           suggestions: [{ id: "ppt", label: "Build a deck" }],
-          onSuggestion,
+          onSuggestion: vi.fn(),
         })}
       />,
     );
+    // The settled composer is just the "Ask for a change…" input.
     expect(screen.getByTestId("chat-send")).toBeInTheDocument();
-    const chip = screen.getByTestId("chat-suggestion-chip");
-    fireEvent.click(chip);
-    expect(onSuggestion).toHaveBeenCalledWith("ppt");
+    // The unregistered "Suggested next steps" block is removed from the lane.
+    expect(screen.queryByTestId("chat-suggestion-chip")).toBeNull();
   });
 
   it("Stop is visible while running and fires its callback", () => {
@@ -461,6 +460,23 @@ describe("RunChatLane", () => {
     fireEvent.click(screen.getByTestId("chat-relaunch"));
     fireEvent.click(screen.getByTestId("chat-relaunch-secondary"));
     expect(onRelaunch).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders the run's input attachments as chips above the composer (live, deduped)", () => {
+    const brief: ChatMessage = {
+      ...userMsg("u1", "build the thing"),
+      attachments: [
+        { kind: "file", name: "brief.md", sizeBytes: 1200, retained: true },
+        { kind: "image", name: "reference.png", sizeBytes: 340_000, retained: true },
+        // duplicate name+kind — must dedupe to one chip.
+        { kind: "file", name: "brief.md", sizeBytes: 1200, retained: true },
+      ],
+    };
+    render(<RunChatLane {...baseProps({ runState: "complete", messages: [brief] })} />);
+    const chips = screen.getAllByTestId("lane-run-attach-chip");
+    expect(chips).toHaveLength(2);
+    expect(screen.getByTestId("lane-run-attachments")).toHaveTextContent("brief.md");
+    expect(screen.getByTestId("lane-run-attachments")).toHaveTextContent("reference.png");
   });
 
   it("SC-001: the source carries no workflow-name literal", () => {

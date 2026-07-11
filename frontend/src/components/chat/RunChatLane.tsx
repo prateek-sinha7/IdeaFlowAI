@@ -32,7 +32,9 @@ import {
   ArrowRight,
   Check,
   Code2,
+  FileText,
   HelpCircle,
+  ImageIcon,
   Mic,
   Minimize2,
   Paperclip,
@@ -435,6 +437,48 @@ function DeliverableCard({
   );
 }
 
+/** Format a byte count as the mock's compact chip size ("1.2KB" / "340KB"). */
+function formatChipSize(bytes?: number): string {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1_048_576) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1_048_576).toFixed(1)}MB`;
+}
+
+/** The run's input attachments as the mock's white chips above the composer
+ *  (Phase 39). Display-only (the run's files) — derived live from the transcript
+ *  turns' attachments, deduped by name (SC-001: never a seeded literal). */
+function RunAttachmentChips({ attachments }: { attachments: ChatAttachment[] }) {
+  if (attachments.length === 0) return null;
+  return (
+    <div data-testid="lane-run-attachments" className="mb-2 flex flex-wrap gap-1.5">
+      {attachments.map((f, i) => (
+        <span
+          key={`${f.name}-${i}`}
+          data-testid="lane-run-attach-chip"
+          className="inline-flex items-center gap-[7px] rounded-[var(--radius-node)] border border-line-control bg-surface-white py-[5px] pl-2 pr-[7px]"
+        >
+          <span className="grid h-[22px] w-[22px] flex-none place-items-center rounded-[var(--radius-tag)] bg-surface-paper text-ink-500">
+            {f.kind === "image" ? (
+              <ImageIcon className="h-3 w-3" strokeWidth={1.7} />
+            ) : (
+              <FileText className="h-3 w-3" strokeWidth={1.7} />
+            )}
+          </span>
+          <span className="max-w-[10rem] truncate font-sans text-[11.5px] font-medium text-ink-800">
+            {f.name}
+          </span>
+          {f.sizeBytes ? (
+            <span className="font-serif text-[10px] tabular-nums text-ink-200">
+              {formatChipSize(f.sizeBytes)}
+            </span>
+          ) : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** Free-text composer: the mock's white rounded input bar (attach · voice ·
  *  send) + the plan-06 attachment tray as compact chips above (Phase 39). */
 function FreeTextComposer({
@@ -663,38 +707,16 @@ export function RunChatLane({
         ) : null;
 
       case "complete":
+        // Mock fidelity (D39-1): the settled composer is JUST the "Ask for a
+        // change…" input — the "Suggested next steps" chip block has no mock
+        // equivalent and is removed from the run-screen lane. The
+        // suggestions/onSuggestion props are retained on the interface until
+        // 39-05 retires the DashboardLayout wiring (kept here, unrendered).
         return (
-          <div className="space-y-2.5">
-            {suggestions && suggestions.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="h-3 w-3 text-brand" />
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
-                    Suggested next steps
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {suggestions.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      data-testid="chat-suggestion-chip"
-                      data-suggestion-id={s.id}
-                      onClick={() => onSuggestion?.(s.id)}
-                      title={s.description}
-                      className="rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-brand transition-all hover:border-brand hover:bg-brand hover:text-white"
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <FreeTextComposer
-              placeholder="Ask for a change or a follow-up…"
-              onSend={handleFreeText}
-            />
-          </div>
+          <FreeTextComposer
+            placeholder="Ask for a change or a follow-up…"
+            onSend={handleFreeText}
+          />
         );
 
       case "terminal": {
@@ -975,6 +997,23 @@ export function RunChatLane({
   // Title fallback — the run's brief (the first user turn) when no explicit title.
   const firstUserTurn = messages.find((m) => m.role === "user")?.content;
 
+  // The run's input attachments — the mock's chip tray above the composer.
+  // Derived live from the transcript turns' attachments, deduped by name+kind
+  // (SC-001 / ND-D — never a seeded literal).
+  const runAttachments = (() => {
+    const seen = new Set<string>();
+    const out: ChatAttachment[] = [];
+    for (const m of messages) {
+      for (const a of m.attachments ?? []) {
+        const key = `${a.kind}:${a.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(a);
+      }
+    }
+    return out;
+  })();
+
   return (
     <div
       data-testid="run-chat-lane"
@@ -1011,6 +1050,8 @@ export function RunChatLane({
         data-composer-mode={runState}
         className="flex-shrink-0 border-t border-line-border bg-surface-warm px-4 py-3 space-y-2.5"
       >
+        {/* The run's input attachments — the mock's chip tray above the input. */}
+        <RunAttachmentChips attachments={runAttachments} />
         {/* Held consequential proposals surface above the mode body so a
             confirm/reject decision is visible in ANY live state (D-05). */}
         {renderProposals()}

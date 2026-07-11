@@ -147,13 +147,18 @@ describe("LaneRunHeader", () => {
     expect(screen.getByTestId("lane-run-status")).toHaveTextContent("Failed");
   });
 
-  it("renders the Back-to-history link only when the callback is supplied", () => {
+  it("always renders the Back-to-history link; the callback overrides the target", () => {
     const onBackToHistory = vi.fn();
     const { rerender } = render(
       <LaneRunHeader runState="complete" pipelineState={ps()} />,
     );
-    expect(screen.queryByTestId("lane-back")).toBeNull();
+    // Renders even without a callback (mock fidelity) — default = history.back().
+    const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    fireEvent.click(screen.getByTestId("lane-back"));
+    expect(backSpy).toHaveBeenCalledTimes(1);
+    backSpy.mockRestore();
 
+    // When supplied, the callback overrides the default target.
     rerender(
       <LaneRunHeader
         runState="complete"
