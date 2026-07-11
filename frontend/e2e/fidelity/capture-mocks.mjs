@@ -74,6 +74,26 @@ async function capture(state, file, browser, origin) {
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(OUT, `leftlane__${state}.png`), clip: { x: 0, y: 0, width: 400, height: VIEWPORT.height } });
 
+  // Steps INTERNAL views (settled) — drill the mock's Build Agent → its
+  // construction artifact block → a construction task row → L3 task detail, so the
+  // gallery can pair `steps-construction` + `steps-task` against our side. The
+  // mock's rows are click-handler divs (no roles), so target by text; best-effort
+  // (a miss still screenshots whatever is shown).
+  if (state === "settled") {
+    await page.getByRole("button", { name: /^Steps$/ }).first().click({ timeout: 6_000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    // The overview spine's "Build Agent" row is the LAST such label (the left-lane
+    // pipeline mini lists it earlier) — open its detail (construction block).
+    const builds = page.getByText("Build Agent");
+    const bn = await builds.count().catch(() => 0);
+    if (bn > 0) { await builds.nth(bn - 1).click({ timeout: 4_000 }).catch(() => {}); await page.waitForTimeout(600); }
+    await page.screenshot({ path: join(OUT, `steps-construction__${state}.png`), fullPage: false });
+    // A construction task row → L3 task detail.
+    const taskRow = page.getByText(/Task\s*1\b/).last();
+    if ((await taskRow.count().catch(() => 0)) > 0) { await taskRow.click({ timeout: 4_000 }).catch(() => {}); await page.waitForTimeout(600); }
+    await page.screenshot({ path: join(OUT, `steps-task__${state}.png`), fullPage: false });
+  }
+
   // The Live mock carries clarify/gate/building lane variants behind its own
   // phase scrubber (ND-F — a demo-only control we do NOT reproduce, but it is
   // how the mock exposes those lane compositions). Drive it to capture the

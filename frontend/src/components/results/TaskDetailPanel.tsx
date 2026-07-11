@@ -2,16 +2,26 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 39 plan 02 (RUNUI-06/08) — TaskDetailPanel: the Steps tab's L3 view.
-// A single construction task's detail — status node, "Task N · {title}",
-// duration, a reasoning card (from the task's live summary), and the task's
-// tool-call rows. Opened from an L2 construction task row and back-navigates to
-// the agent detail. All values are LIVE (ND-D) — sourced from the construction
-// data already threaded (protoCompletedTasks + the build agent's toolCalls);
-// never the mock's fixed transcript. Token-reskinned (no gray-* palette).
+// A single construction task's detail — status node, "Task N · {title}", the
+// per-task duration (WHEN live data carries one), and a reasoning card (from the
+// task's live summary). Opened from an L2 construction task row, back-navigating
+// to the agent detail. All values are LIVE (ND-D) from the construction data
+// (protoCompletedTasks).
+//
+// INTENDED DIVERGENCES vs the mock (audit 39-02, live-data limits — SC-001):
+//   ND-N — per-task TOOL CALLS: the mock shows a per-task tool-call list, but our
+//     live trace records tool calls at the AGENT level, not attributed to an
+//     individual subagent task. Rendering the whole build agent's tools on every
+//     task would be misleading, so the L3 tool-call list is OMITTED (never the
+//     agent-wide tools). If per-task tool attribution ever lands on the wire, wire
+//     it here.
+//   ND-O — per-task DURATION: protoCompletedTasks carries {number,title,summary}
+//     with no per-task duration, so the duration line is omitted unless a live
+//     `duration` is supplied.
+// Token-reskinned (no gray-* palette).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Check, ChevronLeft, ChevronRight } from "lucide-react";
-import type { ToolCallEntry } from "@/types/index";
+import { Check, ChevronLeft } from "lucide-react";
 import { formatDuration } from "@/lib/runStats";
 
 export type TaskDetailStatus = "done" | "running" | "pending";
@@ -21,18 +31,17 @@ export interface TaskDetailPanelProps {
   agentName: string;
   status: TaskDetailStatus;
   task?: { number: number; title: string; summary: string };
+  /** Per-task duration — rendered ONLY when live data supplies one (ND-O). */
   duration?: number | null;
-  toolCalls?: ToolCallEntry[];
   onBack: () => void;
 }
 
 export function TaskDetailPanel({
-  taskIndex, agentName, status, task, duration, toolCalls, onBack,
+  taskIndex, agentName, status, task, duration, onBack,
 }: TaskDetailPanelProps) {
   const n = task?.number ?? taskIndex + 1;
   const title = task?.title ?? `Task ${n}`;
   const summary = task?.summary ?? "";
-  const tools = toolCalls ?? [];
 
   return (
     <div className="max-w-[860px] mx-auto">
@@ -61,36 +70,13 @@ export function TaskDetailPanel({
           </div>
         </div>
 
-        {/* reasoning (violet) */}
-        {summary.trim().length > 0 && (
-          <div className="rounded-[11px] border border-[#E4E0F5] bg-[#F4F2FB] px-3.5 py-3 mb-3.5">
+        {/* reasoning (violet) — the task's live summary */}
+        {summary.trim().length > 0 ? (
+          <div className="rounded-[11px] border border-[#E4E0F5] bg-[#F4F2FB] px-3.5 py-3">
             <p className="m-0 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5A4FC0] font-[Manrope]">Reasoning</p>
             <p className="m-0 text-[13px] leading-[1.6] text-[#4A4680] whitespace-pre-wrap">{summary}</p>
           </div>
-        )}
-
-        {/* tool calls */}
-        {tools.length > 0 && (
-          <>
-            <p className="m-0 mb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500 font-[Manrope]">Tool calls</p>
-            <div className="space-y-1.5">
-              {tools.map((tc, i) => (
-                <div key={i} className="flex items-center gap-2.5 px-3 py-2 border border-line-faint-row bg-surface-white rounded-[9px]">
-                  <span className="w-5 h-5 flex-none rounded-[5px] border border-line-control bg-surface-warm grid place-items-center">
-                    <ChevronRight className="h-2.5 w-2.5 text-ink-500" />
-                  </span>
-                  <span className="text-[12.5px] font-medium text-ink-800 font-[Manrope]">{tc.tool}</span>
-                  <span className="text-[11.5px] text-ink-300 flex-1 min-w-0 truncate">
-                    {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${String(v).slice(0, 24)}`).join(", ") || "no args"}
-                  </span>
-                  <span className="text-[10.5px] font-mono text-ink-500 bg-surface-paper px-1.5 py-0.5 rounded flex-none">{tc.result != null ? "ok" : "…"}</span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {tools.length === 0 && summary.trim().length === 0 && (
+        ) : (
           <p className="m-0 text-[12px] text-ink-300">No further detail recorded for this task.</p>
         )}
       </div>

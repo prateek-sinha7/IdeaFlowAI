@@ -145,7 +145,6 @@ export function AgentThinkingTab({
             agentName={selectedAgent.name}
             status={taskStatusFor(selectedTaskIndex!)}
             task={pipelineState?.protoCompletedTasks?.find(t => t.number === selectedTaskIndex! + 1)}
-            toolCalls={selectedAgent.toolCalls}
             onBack={() => setSelectedTaskIndex(null)}
           />
         ) : selectedAgent ? (

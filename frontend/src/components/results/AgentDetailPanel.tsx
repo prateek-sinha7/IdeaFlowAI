@@ -297,6 +297,7 @@ function ConstructionBlock({
             return (
               <button
                 key={i}
+                data-testid="construction-task-row"
                 onClick={() => onOpenTask?.(i)}
                 className="w-full flex items-center gap-2.5 rounded-[9px] border border-line-faint-row bg-surface-card px-2.5 py-2.5 text-left hover:border-line-faint transition-colors"
               >

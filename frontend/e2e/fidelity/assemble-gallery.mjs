@@ -8,7 +8,7 @@
  * RIGHT, per `{surface}__{state}` tag. Images are inlined as base64 data-URIs so
  * the file is a single portable artifact a reviewer can open anywhere.
  *
- * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-L) as
+ * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-O) as
  * "expected — ignore" so a reviewer never mistakes a registered divergence for a
  * fidelity gap. There is deliberately NO automated pixel-diff: ND-D (our live
  * data never equals the mock's hardcoded values) would make a pixel compare
@@ -31,7 +31,8 @@ const OUT = join(HERE, "gallery.html");
 
 /** The intended-divergence register (39-01-PLAN ND-A..ND-G + ND-H per 39-07,
  *  ND-I/ND-J added 39-01 for two live-data extras the lane renders vs the mock;
- *  ND-K/ND-L added 39-02 for the Steps tab; ND-M was resolved in 39-02). */
+ *  ND-K/ND-L added 39-02 for the Steps tab; ND-M resolved in 39-02; ND-N/ND-O
+ *  added 39-02 for the L3 task-detail live-data limits). */
 const ND = [
   ["ND-A", "Brand wordmark", 'mock "HEXAWARE" → we ship "VelocityAI"'],
   ["ND-B", "Nav label", 'mock "Catalogue" → we ship "My Workflows" (D-11)'],
@@ -44,10 +45,12 @@ const ND = [
   ["ND-I", "Header Stop control (live)", "we KEEP a Stop while a run is live — essential run control the mock's live lane omits"],
   ["ND-J", "Attachment chips on a failed run", "real run inputs show — the mock's specific failed example happened to have none"],
   ["ND-K", "Steps overview live card", "we KEEP a live 'Starting point' (run input) card below the stepper — the mock's clean overview omits it (human-approved single live-data extra; the Deep-Planner card was DROPPED to match the mock)"],
-  ["ND-L", "Agent-detail artifact grid", "the mock hardcodes a per-agent artifact preview (spec 'pages' grid / task list); our live agent output is raw markdown, not a structured page/task list, so we surface the real 'Agent output' section instead (build agent's construction fan-out IS reproduced from live waves/tasks)"],
+  ["ND-L", "Agent-detail artifact preview", "the mock hardcodes a per-agent artifact preview per agent kind — a 'pages' grid (Spec Writer), a task-count list (Task Planner), a checks/verdict grid (Analyzer/Validation). We have NO live structured page/task-count field, so for those agents we surface the real 'Agent output' section (raw live markdown) instead; the Validation agent's checks ARE surfaced live via the validation-result card, and the Build Agent's construction fan-out (waves + task rows) IS reproduced live"],
   // ND-M RESOLVED (39-02): the settled "Review gate — X · approved" strips now
   // render from the live getRunGateEvents fetch (mapped to their agent by `step`),
   // matching the mock's settled spine — no longer a divergence.
+  ["ND-N", "L3 per-task tool calls", "the mock shows a tool-call list per construction task; our live trace records tool calls at the AGENT level, not attributed to an individual subagent task, so the L3 tool-call list is OMITTED (never the misleading agent-wide tools)"],
+  ["ND-O", "L3 per-task duration", "protoCompletedTasks carries {number,title,summary} with no per-task duration, so the L3 duration line is omitted unless live per-task timing is supplied"],
 ];
 
 const surfaceArg = process.argv.includes("--surface")
@@ -80,7 +83,14 @@ function cell(src, missingLabel) {
 
 async function main() {
   const tags = [...new Set([...(await pngTags(TARGET)), ...(await pngTags(CURRENT))])]
-    .filter((t) => !surfaceArg || t.split("__")[0] === surfaceArg)
+    // Include the surface AND its sub-views (e.g. --surface steps → steps,
+    // steps-detail, steps-construction, steps-task) so the internal drill-down
+    // shots appear in the section, not just the top-level tab.
+    .filter((t) => {
+      if (!surfaceArg) return true;
+      const s = t.split("__")[0];
+      return s === surfaceArg || s.startsWith(`${surfaceArg}-`);
+    })
     .sort();
 
   const rows = [];
@@ -128,7 +138,7 @@ async function main() {
   <h1>Run-Screen Fidelity Gallery${surfaceArg ? ` — <code>${esc(surfaceArg)}</code>` : ""}</h1>
   <p>Mock (left) vs current (right), per <code>{surface}__{state}</code>. Human review only — no pixel-diff (ND-D live data ≠ mock values).</p>
   <details class="nd" open>
-    <summary>Intended divergences — expected, ignore (ND-A..ND-L)</summary>
+    <summary>Intended divergences — expected, ignore (ND-A..ND-O)</summary>
     <table>${ndRows}</table>
   </details>
 </header>

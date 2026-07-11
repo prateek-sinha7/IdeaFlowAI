@@ -138,6 +138,17 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   mockWs.subagentSpawned(0, "prototype-build", "build-task-2", 2, "running");
   mockWs.subagentResult(0, "prototype-build", "build-task-2", 2, "completed");
   mockWs.waveCompleted(0, "prototype-build");
+  // task_progress → protoCompletedTasks (title + summary per task) so the L2
+  // construction block shows titled task rows and the L3 task-detail renders each
+  // task's live reasoning (summary). Live data — never the mock's fixed transcript.
+  mockWs.emit("task_progress", {
+    completed_count: 3,
+    completed_tasks: [
+      { number: 1, title: "Scaffold shared layout, nav & footer", summary: "Built the shared nav, footer and the 12-column grid every page inherits, so the six pages stay on one design system." },
+      { number: 2, title: "Home / landing page", summary: "Composed the landing hero and feature grid on the shared type scale, wired the primary nav links." },
+      { number: 3, title: "Compare page", summary: "Rendered the product comparison grid reusing the shared table + type scale; no real trademarks." },
+    ],
+  });
   mockWs.agentChunk("prototype-build", "[HTML artifact — apple-reference-prototype.html — 151.6 KB]");
   mockWs.agentComplete("prototype-build", { totalTokens: 1102240, duration: 1180 });
 
@@ -162,6 +173,16 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   // left-lane pipeline mini; scope to the steps-agent-row testid so we open L2).
   await page.getByTestId("steps-agent-row").first().click({ timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(900); await shot(page, "steps-detail", "settled");
+  // back to overview, then drill into the BUILD AGENT's L2 → the construction
+  // artifact block (waves + navigable task rows), then a task row → L3 task detail.
+  await page.getByRole("button", { name: /Steps \/ Spec Writer/i }).click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  await page.getByTestId("steps-agent-row").filter({ hasText: "Build Agent" }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  await page.getByTestId("construction-block").scrollIntoViewIfNeeded().catch(() => {});
+  await page.waitForTimeout(400); await shot(page, "steps-construction", "settled");
+  await page.getByTestId("construction-task-row").first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(700); await shot(page, "steps-task", "settled");
   await tab("Files").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(900); await shot(page, "files", "settled");
   await tab("Audit").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(1200); await shot(page, "audit", "settled");
   // left-lane clip (the conversation column) — reset to Preview first so it is calm
