@@ -8,7 +8,7 @@
  * RIGHT, per `{surface}__{state}` tag. Images are inlined as base64 data-URIs so
  * the file is a single portable artifact a reviewer can open anywhere.
  *
- * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-H) as
+ * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-J) as
  * "expected — ignore" so a reviewer never mistakes a registered divergence for a
  * fidelity gap. There is deliberately NO automated pixel-diff: ND-D (our live
  * data never equals the mock's hardcoded values) would make a pixel compare
@@ -29,7 +29,8 @@ const TARGET = join(HERE, "shots", "target");
 const CURRENT = join(HERE, "shots", "current");
 const OUT = join(HERE, "gallery.html");
 
-/** The intended-divergence register (39-01-PLAN ND-A..ND-G + ND-H per 39-07). */
+/** The intended-divergence register (39-01-PLAN ND-A..ND-G + ND-H per 39-07,
+ *  ND-I/ND-J added 39-01 for two live-data extras the lane renders vs the mock). */
 const ND = [
   ["ND-A", "Brand wordmark", 'mock "HEXAWARE" → we ship "VelocityAI"'],
   ["ND-B", "Nav label", 'mock "Catalogue" → we ship "My Workflows" (D-11)'],
@@ -39,6 +40,8 @@ const ND = [
   ["ND-F", "Prototype scrubber / image-slot", "demo-only — NOT reproduced"],
   ["ND-G", "Deliverable renderers", "we REUSE the existing renderers (D39-3)"],
   ["ND-H", "Share action", "client-only Share link in v1"],
+  ["ND-I", "Header Stop control (live)", "we KEEP a Stop while a run is live — essential run control the mock's live lane omits"],
+  ["ND-J", "Attachment chips on a failed run", "real run inputs show — the mock's specific failed example happened to have none"],
 ];
 
 const surfaceArg = process.argv.includes("--surface")
@@ -119,7 +122,7 @@ async function main() {
   <h1>Run-Screen Fidelity Gallery${surfaceArg ? ` — <code>${esc(surfaceArg)}</code>` : ""}</h1>
   <p>Mock (left) vs current (right), per <code>{surface}__{state}</code>. Human review only — no pixel-diff (ND-D live data ≠ mock values).</p>
   <details class="nd" open>
-    <summary>Intended divergences — expected, ignore (ND-A..ND-H)</summary>
+    <summary>Intended divergences — expected, ignore (ND-A..ND-J)</summary>
     <table>${ndRows}</table>
   </details>
 </header>

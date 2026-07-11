@@ -67,6 +67,7 @@ const CTX = [
 const BRIEF_ATTACH = [
   { kind: "file", name: "brief.md", sizeBytes: 1240, retained: true },
   { kind: "image", name: "apple-hero.png", sizeBytes: 512_000, retained: true },
+  { kind: "file", name: "voice-note.m4a", mimeType: "audio/mp4", sizeBytes: 48_000, retained: true },
   { kind: "file", name: "spec.pdf", sizeBytes: 98_000, retained: true },
 ];
 
@@ -87,10 +88,13 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   await launch(page, mockWs, "build prototype mimicking apple website just for reference");
 
   const agents = AGENTS.od_prototype; // specify, plan, build, validate
-  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  // A run created ~23h ago so the settled header shows a realistic relative age.
+  const createdAt = new Date(Date.now() - 23 * 3_600_000).toISOString();
+  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1", createdAt });
   // Seed the conversation: the user's brief turn (+ run attachments) so the
   // transcript renders bubbles + the attachment-chip tray like the mock.
   await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
+  mockWs.chatNarration("Before I build, I confirmed the scope with a few clarifications and locked one shared design system.");
   mockWs.plannerStart();
   mockWs.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
 
@@ -101,6 +105,7 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   await page.getByTestId("chat-clarify-chip").first().click({ timeout: 6_000 }).catch(() => {});
   await page.getByTestId("chat-clarify-submit").click({ timeout: 6_000 }).catch(() => {});
   mockWs.questionnaireComplete();
+  mockWs.chatNarration("Got it — running the build pipeline now.");
 
   // 1) Spec Writer (+ gate)
   mockWs.agentStart("prototype-specify");
@@ -111,7 +116,7 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   mockWs.emit("tool_call", { agent_id: "prototype-specify", tool: "write_file", args: { path: "spec.md" } });
   mockWs.emit("tool_result", { agent_id: "prototype-specify", tool: "write_file", result: "36.4 KB" });
   mockWs.agentChunk("prototype-specify", "# Apple Reference — Specification\n\n## Design system\nOne type scale, one 12-column grid, six pages sharing nav + footer.");
-  mockWs.agentComplete("prototype-specify", { inputTokens: 2400, outputTokens: 12100, totalTokens: 30100 });
+  mockWs.agentComplete("prototype-specify", { inputTokens: 2400, outputTokens: 12100, totalTokens: 30100, duration: 84 });
   mockWs.reviewGateReady({ gateKey: "spec", agentId: "prototype-specify", agentName: "Spec Writer", output: "Specification approved" });
   mockWs.reviewGateApproved();
 
@@ -122,7 +127,7 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   mockWs.emit("tool_call", { agent_id: "prototype-plan", tool: "write_file", args: { path: "tasks.md" } });
   mockWs.emit("tool_result", { agent_id: "prototype-plan", tool: "write_file", result: "36.1 KB" });
   mockWs.agentChunk("prototype-plan", "# Build tasks\n1. Scaffold shared layout, nav & footer\n2. Home / landing page…");
-  mockWs.agentComplete("prototype-plan", { totalTokens: 42200 });
+  mockWs.agentComplete("prototype-plan", { totalTokens: 42200, duration: 47 });
 
   // 3) Build Agent (+ wave / subagents)
   mockWs.agentStart("prototype-build");
@@ -134,17 +139,17 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   mockWs.subagentResult(0, "prototype-build", "build-task-2", 2, "completed");
   mockWs.waveCompleted(0, "prototype-build");
   mockWs.agentChunk("prototype-build", "[HTML artifact — apple-reference-prototype.html — 151.6 KB]");
-  mockWs.agentComplete("prototype-build", { totalTokens: 1102240 });
+  mockWs.agentComplete("prototype-build", { totalTokens: 1102240, duration: 1180 });
 
   // 4) Validation Agent
   mockWs.agentStart("prototype-validate");
   mockWs.agentChunk("prototype-validate", "Coverage 100% — every spec section maps to ≥1 task.");
-  mockWs.agentComplete("prototype-validate", { totalTokens: 8000 });
+  mockWs.agentComplete("prototype-validate", { totalTokens: 8000, duration: 33 });
 
   // The deliverable filename + version ride pipeline_complete (D39-4). The lane
   // renders the SINGLE mock-styled deliverable card from pipelineState (INV-12) —
   // no interim narrator ResultCard stand-in is seeded.
-  mockWs.complete({ pipelineType: "od_prototype", finalOutput: PROTO_HTML, deliverableFilename: "apple-reference-prototype.html", deliverableMimetype: "text/html", deliverableVersion: 1, totalDuration: 1446 });
+  mockWs.complete({ pipelineType: "od_prototype", finalOutput: PROTO_HTML, deliverableFilename: "apple-reference-prototype.html", deliverableMimetype: "text/html", deliverableVersion: 1, totalTokens: 14_620_000, totalDuration: 1446 });
 
   await page.waitForTimeout(1500);
   await shot(page, "full", "settled");
@@ -172,8 +177,8 @@ test("CAPTURE live streaming run", async ({ dashboard, mockWs, page }) => {
   await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
   mockWs.plannerStart();
   mockWs.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
-  mockWs.agentStart("prototype-specify"); mockWs.agentChunk("prototype-specify", "# Spec…"); mockWs.agentComplete("prototype-specify", { totalTokens: 30100 });
-  mockWs.agentStart("prototype-plan"); mockWs.agentChunk("prototype-plan", "# Build tasks…"); mockWs.agentComplete("prototype-plan", { totalTokens: 42200 });
+  mockWs.agentStart("prototype-specify"); mockWs.agentChunk("prototype-specify", "# Spec…"); mockWs.agentComplete("prototype-specify", { totalTokens: 30100, duration: 84 });
+  mockWs.agentStart("prototype-plan"); mockWs.agentChunk("prototype-plan", "# Build tasks…"); mockWs.agentComplete("prototype-plan", { totalTokens: 42200, duration: 47 });
   // 3rd agent left RUNNING (streaming, no complete)
   mockWs.agentStart("prototype-build");
   mockWs.agentThinking("prototype-build", "building task 4 of 7 — compare page");

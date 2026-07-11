@@ -192,12 +192,13 @@ export class MockWs implements SeqSource {
   get currentRunId() { return this.runId; }
 
   /** pipeline_start — seeds the agent cards (each idle). Resets the seq cursor. */
-  start(agents: AgentSeed[], opts: { pipelineType?: string; runId?: string } = {}) {
+  start(agents: AgentSeed[], opts: { pipelineType?: string; runId?: string; createdAt?: string } = {}) {
     if (opts.runId) this.runId = opts.runId;
     this.seq = 0;
     this.emit("pipeline_start", {
       pipeline_run_id: this.runId,
       pipeline_type: opts.pipelineType ?? "user_stories",
+      created_at: opts.createdAt,
       agents: agents.map((a, i) => ({ id: a.id, name: a.name, role: a.role, icon: a.icon ?? "🤖", order: a.order ?? i })),
     });
   }
@@ -210,13 +211,14 @@ export class MockWs implements SeqSource {
   agentStart(id: string) { this.emit("agent_start", { agent_id: id }); }
   agentThinking(id: string, thinking: string) { this.emit("agent_thinking", { agent_id: id, thinking }); }
   agentChunk(id: string, chunk: string) { this.emit("agent_chunk", { agent_id: id, chunk }); }
-  agentComplete(id: string, t: TokenStats = {}) {
+  agentComplete(id: string, t: TokenStats & { duration?: number } = {}) {
     this.emit("agent_complete", {
       agent_id: id,
       input_tokens: t.inputTokens ?? 1200,
       output_tokens: t.outputTokens ?? 800,
       total_tokens: t.totalTokens ?? (t.inputTokens ?? 1200) + (t.outputTokens ?? 800),
       estimated_cost_usd: t.estimatedCostUsd ?? 0.004,
+      duration: t.duration,
     });
   }
   agentError(id: string, error = "The model rejected this request.") { this.emit("agent_error", { agent_id: id, error }); }
@@ -297,6 +299,17 @@ export class MockWs implements SeqSource {
       message_id: opts.messageId,
       text: opts.text,
       attachments: opts.attachments ?? [],
+      run_id: this.runId,
+      thread_id: this.runId,
+    });
+  }
+
+  /** A plain assistant PROSE turn — `chat_reply` with NO card_kind folds into a
+   *  prose assistant bubble (not a ResultCard), for the mock's bot back-and-forth. */
+  chatNarration(text: string, messageId?: string) {
+    this.emit("chat_reply", {
+      message_id: messageId ?? `narr-${(this.chatReplyCount += 1)}`,
+      text,
       run_id: this.runId,
       thread_id: this.runId,
     });
