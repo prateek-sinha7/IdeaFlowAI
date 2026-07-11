@@ -885,7 +885,13 @@ export function RunChatLane({
     // Settled — the completed transcript's inline cards.
     if (runState === "complete" || runState === "idle") {
       const clarifyCount = countClarifications(pipelineState?.clarifications);
-      if (clarifyCount === 0 && agents.length === 0 && !deliverableFilename) {
+      // The deliverable is surfaced LIVE from pipelineState (D39-4 — the
+      // pipeline_complete event carries the filename/version). The prop remains a
+      // 39-05 override. This is the SINGLE deliverable card (INV-12) — the mock's
+      // composition; no interim narrator ResultCard stand-in.
+      const dFilename = pipelineState?.deliverableFilename ?? deliverableFilename;
+      const dVersion = pipelineState?.deliverableVersion ?? deliverableVersion;
+      if (clarifyCount === 0 && agents.length === 0 && !dFilename) {
         return null;
       }
       return (
@@ -894,10 +900,10 @@ export function RunChatLane({
             <ClarifyCountRow count={clarifyCount} onOpen={goSteps} />
           )}
           {agents.length > 0 && <PipelineMini agents={agents} onOpen={goSteps} />}
-          {deliverableFilename && (
+          {dFilename && (
             <DeliverableCard
-              filename={deliverableFilename}
-              version={deliverableVersion}
+              filename={dFilename}
+              version={dVersion}
               onOpen={goPreview}
             />
           )}

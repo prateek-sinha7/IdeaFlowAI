@@ -470,6 +470,11 @@ export function handlePipelineMessage(
           cacheReadTokens: (msg.total_cache_read_tokens as number) || prev.cacheReadTokens || 0,
           cacheWriteTokens: (msg.total_cache_write_tokens as number) || prev.cacheWriteTokens || 0,
           modelId: (msg.model_id as string) || prev.modelId || undefined,
+          // Phase 39 (RUNUI-06): surface the deliverable filename/version that the
+          // event already carries so the lane can render the mock's deliverable
+          // card. ADDITIVE optional — undefined when the event omits them.
+          deliverableFilename: (msg.deliverable_filename as string) || prev.deliverableFilename,
+          deliverableVersion: (msg.deliverable_version as number) ?? prev.deliverableVersion,
         };
       });
       return true;

@@ -141,10 +141,10 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   mockWs.agentChunk("prototype-validate", "Coverage 100% — every spec section maps to ≥1 task.");
   mockWs.agentComplete("prototype-validate", { totalTokens: 8000 });
 
-  mockWs.complete({ pipelineType: "od_prototype", finalOutput: PROTO_HTML, deliverableFilename: "apple-reference-prototype.html", deliverableMimetype: "text/html", totalDuration: 1446 });
-
-  // Assistant narration + the deliverable card (a deep-linkable narrator turn).
-  mockWs.chatReply({ cardKind: "deliverable", text: "Your Apple-style reference prototype is ready — open the Preview tab to view it." });
+  // The deliverable filename + version ride pipeline_complete (D39-4). The lane
+  // renders the SINGLE mock-styled deliverable card from pipelineState (INV-12) —
+  // no interim narrator ResultCard stand-in is seeded.
+  mockWs.complete({ pipelineType: "od_prototype", finalOutput: PROTO_HTML, deliverableFilename: "apple-reference-prototype.html", deliverableMimetype: "text/html", deliverableVersion: 1, totalDuration: 1446 });
 
   await page.waitForTimeout(1500);
   await shot(page, "full", "settled");

@@ -621,6 +621,13 @@ export interface PipelineRunState {
   // Workstream C1 (POR §6.2/§6.5) — answered clarify rounds retained per run so
   // they survive the questionnaire panel unmount (consumed by C2's ClarificationsCard).
   clarifications?: ClarifyRound[];
+  // Phase 39 (RUNUI-06) — the settled deliverable's filename/version, surfaced
+  // from the pipeline_complete event that ALREADY carries them (D39-4: the data
+  // already flows). Lets the run lane render the mock's "Delivered as v{n} ·
+  // <filename> · open in preview" card without a workflow-name branch (SC-001).
+  // ADDITIVE optional — no existing field/handler/consumer changed.
+  deliverableFilename?: string;
+  deliverableVersion?: number;
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

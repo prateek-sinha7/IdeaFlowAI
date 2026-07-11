@@ -247,6 +247,7 @@ export class MockWs implements SeqSource {
     finalOutput?: string;
     deliverableMimetype?: string;
     deliverableFilename?: string;
+    deliverableVersion?: number;
     status?: "degraded";
     agentsFailed?: string[];
     totalDuration?: number;
@@ -265,6 +266,7 @@ export class MockWs implements SeqSource {
       model_id: "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
       deliverable_mimetype: opts.deliverableMimetype,
       deliverable_filename: opts.deliverableFilename,
+      deliverable_version: opts.deliverableVersion,
     });
   }
   failed(opts: { agentsFailed?: string[]; error?: string; totalDuration?: number } = {}) {

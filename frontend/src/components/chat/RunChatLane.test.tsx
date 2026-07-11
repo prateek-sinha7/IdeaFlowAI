@@ -462,6 +462,42 @@ describe("RunChatLane", () => {
     expect(onRelaunch).toHaveBeenCalledTimes(2);
   });
 
+  it("settled: renders the deliverable card from pipelineState (filename + version) and deep-links to Preview", () => {
+    const onRequestOpenTab = vi.fn();
+    render(
+      <RunChatLane
+        {...(baseProps({
+          runState: "complete",
+          onRequestOpenTab,
+          pipelineState: ps({
+            completedCount: 1,
+            deliverableFilename: "apple-reference-prototype.html",
+            deliverableVersion: 1,
+            agents: [
+              {
+                id: "a1",
+                name: "Build Agent",
+                role: "",
+                icon: "",
+                status: "done",
+                output: "",
+                thinking: "",
+                duration: 12,
+                error: null,
+                index: 1,
+              },
+            ],
+          }),
+        }) as RunChatLaneProps)}
+      />,
+    );
+    const card = screen.getByTestId("lane-deliverable");
+    expect(card).toHaveTextContent("apple-reference-prototype.html");
+    expect(card).toHaveTextContent("Delivered as v1");
+    fireEvent.click(card);
+    expect(onRequestOpenTab).toHaveBeenCalledWith("preview");
+  });
+
   it("renders the run's input attachments as chips above the composer (live, deduped)", () => {
     const brief: ChatMessage = {
       ...userMsg("u1", "build the thing"),
