@@ -19,7 +19,7 @@
  * Phase-32 token layer.
  */
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Download, Loader2, Pause, Share2, Clock, X } from "lucide-react";
+import { Check, ChevronDown, Download, Loader2, Pause, Upload, Clock, X } from "lucide-react";
 
 import type { RunFamily } from "@/types/index";
 import type { RunLaneState } from "@/components/chat/RunChatLane";
@@ -337,7 +337,7 @@ export function RunHeader({
               : "cursor-not-allowed border-line-control bg-surface-card text-ink-200"
           }`}
         >
-          {copied ? <Check aria-hidden className="h-[15px] w-[15px]" /> : <Share2 aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.7} />}
+          {copied ? <Check aria-hidden className="h-[15px] w-[15px]" /> : <Upload aria-hidden className="h-[15px] w-[15px]" strokeWidth={1.7} />}
           {copied ? "Link copied" : "Share"}
         </button>
       )}
