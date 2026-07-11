@@ -6,12 +6,16 @@ import type { ClarifyQuestion } from "@/components/preview/QuestionnairePanel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 32 plan 08 (SC-2, STEPS-ARTIFACT-DERIVATION-CONTRACT) — the Steps
-// drill-down construction contract, proven off SCRIPTED events:
+// drill-down construction contract, proven off SCRIPTED events. Re-anchored for
+// the Phase 39 plan 02 three-level nav: the construction block (dual-source
+// checklist + WaveTreePanel) now lives inside the construction agent's L2 detail,
+// so each construction spec first DRILLS into the Build Agent row before asserting.
 //   §2 dual-source: task_progress (completed_count) AND wave_*/subagent_*
 //       (WaveTreePanel) both feed the construction block.
 //   §3 KAN-99: the checklist caps at N-1 until agent_complete; completed_count
 //       == total-1 is the expected fix-loop steady state, NOT a stall.
 //   ISS-019: WaveTreePanel is mounted INSIDE the drill-down (not below the fold).
+// The inline gate/clarify (unchanged surfaces) stay on the overview spine.
 // TokenUsageSummary is stubbed (parity with the sibling AgentThinkingTab specs).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -71,6 +75,11 @@ function buildState(over: Partial<PipelineRunState> = {}): PipelineRunState {
   };
 }
 
+/** Drill into the Build Agent's L2 detail (where the construction block lives). */
+function openBuildDetail() {
+  fireEvent.click(screen.getByRole("button", { name: /Build Agent/i }));
+}
+
 describe("Steps drill-down — construction dual-source + KAN-99 cap (SC-2)", () => {
   it("renders BOTH sources: the task_progress checklist AND the wave/subagent tree (ISS-019 mounted in the drill-down)", () => {
     render(
@@ -80,6 +89,7 @@ describe("Steps drill-down — construction dual-source + KAN-99 cap (SC-2)", ()
         waves={WAVES}
       />,
     );
+    openBuildDetail();
 
     // Source B — WaveTreePanel is mounted INSIDE the Steps drill-down (ISS-019).
     expect(screen.getByText("Wave / Subagent Tree")).toBeInTheDocument();
@@ -100,10 +110,11 @@ describe("Steps drill-down — construction dual-source + KAN-99 cap (SC-2)", ()
         waves={WAVES}
       />,
     );
+    openBuildDetail();
 
     const progress = screen.getByTestId("construction-progress");
-    // Capped at N-1 (2/3) — NOT prematurely 3/3.
-    expect(progress).toHaveTextContent("2/3");
+    // Capped at N-1 (2 / 3) — NOT prematurely 3 / 3.
+    expect(progress).toHaveTextContent("2 / 3");
     // No stall / error affordance for the expected fix-loop steady state.
     const block = screen.getByTestId("construction-block");
     expect(within(block).queryByText(/stall|stalled|error/i)).toBeNull();
@@ -121,8 +132,9 @@ describe("Steps drill-down — construction dual-source + KAN-99 cap (SC-2)", ()
         waves={WAVES.map((w) => ({ ...w, status: "completed" }))}
       />,
     );
+    openBuildDetail();
 
-    expect(screen.getByTestId("construction-progress")).toHaveTextContent("3/3");
+    expect(screen.getByTestId("construction-progress")).toHaveTextContent("3 / 3");
   });
 });
 

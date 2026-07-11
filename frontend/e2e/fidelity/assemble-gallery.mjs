@@ -8,7 +8,7 @@
  * RIGHT, per `{surface}__{state}` tag. Images are inlined as base64 data-URIs so
  * the file is a single portable artifact a reviewer can open anywhere.
  *
- * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-J) as
+ * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-M) as
  * "expected — ignore" so a reviewer never mistakes a registered divergence for a
  * fidelity gap. There is deliberately NO automated pixel-diff: ND-D (our live
  * data never equals the mock's hardcoded values) would make a pixel compare
@@ -30,7 +30,8 @@ const CURRENT = join(HERE, "shots", "current");
 const OUT = join(HERE, "gallery.html");
 
 /** The intended-divergence register (39-01-PLAN ND-A..ND-G + ND-H per 39-07,
- *  ND-I/ND-J added 39-01 for two live-data extras the lane renders vs the mock). */
+ *  ND-I/ND-J added 39-01 for two live-data extras the lane renders vs the mock;
+ *  ND-K/ND-L/ND-M added 39-02 for the Steps tab's live-data surfaces). */
 const ND = [
   ["ND-A", "Brand wordmark", 'mock "HEXAWARE" → we ship "VelocityAI"'],
   ["ND-B", "Nav label", 'mock "Catalogue" → we ship "My Workflows" (D-11)'],
@@ -42,6 +43,9 @@ const ND = [
   ["ND-H", "Share action", "client-only Share link in v1"],
   ["ND-I", "Header Stop control (live)", "we KEEP a Stop while a run is live — essential run control the mock's live lane omits"],
   ["ND-J", "Attachment chips on a failed run", "real run inputs show — the mock's specific failed example happened to have none"],
+  ["ND-K", "Steps overview live cards", "we KEEP a live 'Starting point' (run input) + 'Deep Planner' (intent/gate) card below the stepper — the mock's clean overview omits both; positioned below the stepper, never above the spine"],
+  ["ND-L", "Agent-detail artifact grid", "the mock hardcodes a per-agent artifact preview (spec 'pages' grid / task list); our live agent output is raw markdown, not a structured page/task list, so we surface the real 'Agent output' section instead (build agent's construction fan-out IS reproduced from live waves/tasks)"],
+  ["ND-M", "Approved-gate strips", 'mock hardcodes "Review gate — X · approved" strips per agent; ours render only from live gate data (laneGate) — a settled run with no retained gate history shows none rather than fabricating approvals'],
 ];
 
 const surfaceArg = process.argv.includes("--surface")
@@ -122,7 +126,7 @@ async function main() {
   <h1>Run-Screen Fidelity Gallery${surfaceArg ? ` — <code>${esc(surfaceArg)}</code>` : ""}</h1>
   <p>Mock (left) vs current (right), per <code>{surface}__{state}</code>. Human review only — no pixel-diff (ND-D live data ≠ mock values).</p>
   <details class="nd" open>
-    <summary>Intended divergences — expected, ignore (ND-A..ND-J)</summary>
+    <summary>Intended divergences — expected, ignore (ND-A..ND-M)</summary>
     <table>${ndRows}</table>
   </details>
 </header>

@@ -28,6 +28,11 @@ export interface StepsOverviewSpineProps {
   clarifications?: ClarifyRound[];
   clarificationsLoading?: boolean;
   onOpenAgent: (agentId: string) => void;
+  /** Rendered AFTER the pipeline-stepper progress and BEFORE the Clarifications
+   *  card — the repositioned Starting-point + Deep-Planner cards (live-data
+   *  surfaces the mock's clean spine omits; kept below the stepper, never above
+   *  it — mock overview order, Hexaware Run.dc.html :294-354). */
+  topSlot?: React.ReactNode;
   // Reused inline gate / clarify (SC-2, INV-12 — same submit channels)
   laneGate?: GateContext;
   onApproveGate?: (gateKey: string, editedContent?: string) => void;
@@ -48,8 +53,52 @@ function AwaitingCard({ children }: { children: React.ReactNode }) {
   );
 }
 
+// The inline "Awaiting you" review-gate card — the REUSED generic InlineGateActions
+// (same approve_review submit channel + KAN-100 terminal fence, INV-12) under the
+// mock's gate-card chrome. Rendered inline after the paused agent's row when the
+// gate maps to a visible agent, else as a fallback at the foot of the spine so an
+// active gate is NEVER lost (correctness — the gate must stay reachable).
+function GateAwaitingCard({
+  laneGate, isRunning, onApprove, onReject, onRedo, onUpdateSpecs,
+}: {
+  laneGate: GateContext;
+  isRunning: boolean;
+  onApprove: (gateKey: string, editedContent?: string) => void;
+  onReject?: (gateKey: string) => void;
+  onRedo?: (gateKey: string, instructions: string) => void;
+  onUpdateSpecs?: (gateKey: string, report: string) => void;
+}) {
+  return (
+    <AwaitingCard>
+      <div className="flex items-center gap-2.5 px-3.5 py-3 border-b border-line-faint-row">
+        <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-brand grid place-items-center">
+          <ListChecks className="h-3.5 w-3.5 text-white" />
+        </div>
+        <p className="flex-1 m-0 text-[12.5px] font-semibold text-ink-900 font-[Manrope]">Review gate — {laneGate.gateKey}</p>
+        <span className="text-[8.5px] font-semibold uppercase tracking-wider text-brand bg-brand-fill border border-brand-border px-1.5 py-1 rounded">Awaiting you</span>
+      </div>
+      <div className="px-3.5 py-3">
+        <InlineGateActions
+          agentId={laneGate.agentId}
+          agentName={laneGate.agentName}
+          output={laneGate.output}
+          gateKey={laneGate.gateKey}
+          redoable={laneGate.redoable}
+          updateSpecsEligible={laneGate.updateSpecsEligible}
+          isPipelineRunning={isRunning}
+          approveLabel={laneGate.approveLabel}
+          onApprove={onApprove}
+          onReject={onReject ?? (() => {})}
+          onRedo={onRedo}
+          onUpdateSpecs={onUpdateSpecs}
+        />
+      </div>
+    </AwaitingCard>
+  );
+}
+
 export function StepsOverviewSpine({
-  agents, pipelineState, clarifications, clarificationsLoading, onOpenAgent,
+  agents, pipelineState, clarifications, clarificationsLoading, onOpenAgent, topSlot,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify,
 }: StepsOverviewSpineProps) {
@@ -68,6 +117,11 @@ export function StepsOverviewSpine({
   // Not-run (idle) agents after a failure → the halted banner count (ND-D).
   const notRun = failed ? agents.filter(a => a.status === "idle").length : 0;
   const failedAgent = agents.find(a => a.status === "error");
+
+  // An active gate renders inline after its paused agent's row; if it maps to no
+  // visible agent, a foot-of-spine fallback keeps it reachable (never lost).
+  const gateAgentMatches = !!laneGate && agents.some(a => a.id === laneGate.agentId);
+  const showGateFallback = !!laneGate && isRunning && !!onApproveGate && !gateAgentMatches;
 
   return (
     <div className="max-w-[760px] mx-auto">
@@ -98,6 +152,10 @@ export function StepsOverviewSpine({
           </div>
         )}
       </div>
+
+      {/* Repositioned live-data cards (Starting point + Deep Planner) — below the
+          stepper, above Clarifications, per the mock's overview order. */}
+      {topSlot && <div className="mb-2 space-y-3">{topSlot}</div>}
 
       {/* Clarifications (reused; renders nothing on a PROCEED run) */}
       <div className="mb-2">
@@ -162,31 +220,14 @@ export function StepsOverviewSpine({
 
             {/* gate — AWAITING you (reused InlineGateActions, same submit channel) */}
             {gateAwaiting && (
-              <AwaitingCard>
-                <div className="flex items-center gap-2.5 px-3.5 py-3 border-b border-line-faint-row">
-                  <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-brand grid place-items-center">
-                    <ListChecks className="h-3.5 w-3.5 text-white" />
-                  </div>
-                  <p className="flex-1 m-0 text-[12.5px] font-semibold text-ink-900 font-[Manrope]">Review gate — {laneGate!.gateKey}</p>
-                  <span className="text-[8.5px] font-semibold uppercase tracking-wider text-brand bg-brand-fill border border-brand-border px-1.5 py-1 rounded">Awaiting you</span>
-                </div>
-                <div className="px-3.5 py-3">
-                  <InlineGateActions
-                    agentId={laneGate!.agentId}
-                    agentName={laneGate!.agentName}
-                    output={laneGate!.output}
-                    gateKey={laneGate!.gateKey}
-                    redoable={laneGate!.redoable}
-                    updateSpecsEligible={laneGate!.updateSpecsEligible}
-                    isPipelineRunning={isRunning}
-                    approveLabel={laneGate!.approveLabel}
-                    onApprove={onApproveGate!}
-                    onReject={onRejectGate ?? (() => {})}
-                    onRedo={onRedoGate}
-                    onUpdateSpecs={onUpdateSpecsGate}
-                  />
-                </div>
-              </AwaitingCard>
+              <GateAwaitingCard
+                laneGate={laneGate!}
+                isRunning={isRunning}
+                onApprove={onApproveGate!}
+                onReject={onRejectGate}
+                onRedo={onRedoGate}
+                onUpdateSpecs={onUpdateSpecsGate}
+              />
             )}
 
             {/* gate — approved by you (settled strip) */}
@@ -205,6 +246,18 @@ export function StepsOverviewSpine({
           </div>
         );
       })}
+
+      {/* Fallback: an active gate that maps to no visible agent row still shows. */}
+      {showGateFallback && (
+        <GateAwaitingCard
+          laneGate={laneGate!}
+          isRunning={isRunning}
+          onApprove={onApproveGate!}
+          onReject={onRejectGate}
+          onRedo={onRedoGate}
+          onUpdateSpecs={onUpdateSpecsGate}
+        />
+      )}
 
       {/* Pipeline halted banner (failed) — ND-D live count, never the mock's fixed text */}
       {failed && notRun > 0 && (

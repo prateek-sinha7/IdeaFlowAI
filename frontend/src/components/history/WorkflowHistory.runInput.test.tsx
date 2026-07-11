@@ -121,9 +121,12 @@ describe("WorkflowHistory reopen — clarify fetch + Starting point (C2)", () =>
 
     // StartingPointCard renders the run's brief (from selectedRun.input).
     await waitFor(() => expect(screen.getAllByText("Build a plain landing page brief.").length).toBeGreaterThan(0));
-    // ClarificationsCard renders the fetched round.
+    // ClarificationsCard renders the fetched round (Phase 39 plan 02: collapsed
+    // by default per the mock → expand it, then the Q&A + answer are visible;
+    // the answer renders with a check icon, not a "✓" literal).
+    fireEvent.click(screen.getByRole("button", { name: /clarifications/i }));
     expect(screen.getByText("Auth method?")).toBeInTheDocument();
-    expect(screen.getByText("✓ OAuth")).toBeInTheDocument();
+    expect(screen.getByText("OAuth")).toBeInTheDocument();
   });
 
   it("shows NO ClarificationsCard for a PROCEED reopen (empty artifacts)", async () => {

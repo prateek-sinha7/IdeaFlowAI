@@ -209,31 +209,33 @@ export function AgentThinkingTab({
             onOpenTask={isConstructionSelected ? (i) => setSelectedTaskIndex(i) : undefined}
           />
         ) : (
-          // ── L1 — overview ──
-          <div className="max-w-[760px] mx-auto space-y-3">
-            <StartingPointCard
-              input={runInput}
-              originalBriefRootRunId={originalBriefRootRunId}
-              revisionParentVersion={revisionParentVersion}
-            />
-            {pipelineState && <PlannerCard pipelineState={pipelineState} />}
-
-            <StepsOverviewSpine
-              agents={agents}
-              pipelineState={pipelineState}
-              clarifications={resolvedClarifications}
-              clarificationsLoading={clarificationsLoading}
-              onOpenAgent={(id) => { setSelectedAgentId(id); setSelectedTaskIndex(null); }}
-              laneGate={laneGate}
-              onApproveGate={onApproveGate}
-              onRejectGate={onRejectGate}
-              onRedoGate={onRedoGate}
-              onUpdateSpecsGate={onUpdateSpecsGate}
-              clarifyQuestions={clarifyQuestions}
-              onSubmitClarify={onSubmitClarify}
-              onSkipClarify={onSkipClarify}
-            />
-          </div>
+          // ── L1 — overview (mock order: stepper progress → starting-point /
+          //    planner → Clarifications → agent spine + gate strips). ──
+          <StepsOverviewSpine
+            agents={agents}
+            pipelineState={pipelineState}
+            clarifications={resolvedClarifications}
+            clarificationsLoading={clarificationsLoading}
+            onOpenAgent={(id) => { setSelectedAgentId(id); setSelectedTaskIndex(null); }}
+            topSlot={
+              <>
+                <StartingPointCard
+                  input={runInput}
+                  originalBriefRootRunId={originalBriefRootRunId}
+                  revisionParentVersion={revisionParentVersion}
+                />
+                {pipelineState && <PlannerCard pipelineState={pipelineState} />}
+              </>
+            }
+            laneGate={laneGate}
+            onApproveGate={onApproveGate}
+            onRejectGate={onRejectGate}
+            onRedoGate={onRedoGate}
+            onUpdateSpecsGate={onUpdateSpecsGate}
+            clarifyQuestions={clarifyQuestions}
+            onSubmitClarify={onSubmitClarify}
+            onSkipClarify={onSkipClarify}
+          />
         )}
       </div>
 

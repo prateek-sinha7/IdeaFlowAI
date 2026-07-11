@@ -381,6 +381,12 @@ export function AgentDetailPanel({ agent, onBack, construction, onOpenTask }: Ag
   const isError = agent.status === "error";
   const reasoning = agent.thinkingText || agent.thinking || "";
   const sources = agent.contextSources ?? [];
+  // The revision diagnostics ("Revision request" + "Changes applied") are
+  // revision-only — the mock's fresh-run detail has no such cards. Gate them on
+  // the run carrying an actual revision marker (RevisionInstructionCard self-gates
+  // on the same marker; EditSummaryCard is gated here). SC-001: structural marker,
+  // never a workflow-name literal.
+  const isRevision = /===\s*REVISION REQUEST\s*===/i.test(agent.inputPrompt || "");
 
   const metaBits = [
     isDone && agent.duration != null ? formatDuration(agent.duration) : null,
@@ -433,9 +439,9 @@ export function AgentDetailPanel({ agent, onBack, construction, onOpenTask }: Ag
 
             <div className="px-4 py-4">
               <div className="pl-4 border-l-2 border-line-divider">
-                {/* revision diagnostics (revision runs only) */}
-                {agent.inputPrompt && <RevisionInstructionCard prompt={agent.inputPrompt} />}
-                {agent.toolCalls && agent.toolCalls.length > 0 && <EditSummaryCard toolCalls={agent.toolCalls} />}
+                {/* revision diagnostics (revision runs only — absent on fresh runs) */}
+                {isRevision && agent.inputPrompt && <RevisionInstructionCard prompt={agent.inputPrompt} />}
+                {isRevision && agent.toolCalls && agent.toolCalls.length > 0 && <EditSummaryCard toolCalls={agent.toolCalls} />}
                 <ValidationResultCard passed={agent.validationPassed} issues={agent.validationIssues} />
 
                 {/* reasoning */}
