@@ -233,6 +233,13 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 - [x] **RUNUI-04**: Audit tab reads new `gate_events`/`validation_results`/`exec_runs` endpoints; counters/filters/CSV-JSON export; status palette only for governance
 - [x] **RUNUI-05**: E2E hardened — brittle color-class assertions fixed, `data-testid`s on chat surfaces, mockWs chat driver in use
 
+### Run-Screen Mock Fidelity (Phase 39)
+
+- [ ] **RUNUI-06**: Every run-screen surface (left lane, run header, Preview/Steps/Files/Audit + all sub-navigation) matches its VelocityAI-New-UI mock across settled/live/failed to the intended-divergence register — proven by a side-by-side screenshot-diff gallery + human sign-off, not a prose claim (Phase 39 SC-1)
+- [ ] **RUNUI-07**: Net-new as-is affordances land — Share (client-only link), the Version ▾ menu (from `runFamily`), the "Renders as" deliverable-type switch, and the fuller Audit categories (secret-scan / performance / behavioral) (Phase 39 SC-2)
+- [ ] **RUNUI-08**: Data stays real & live (SC-001) — no cloned mock values; the deliverable renderers are reused not rebuilt; intended divergences (VelocityAI / My Workflows / nav underline) preserved (Phase 39 SC-3)
+- [ ] **RUNUI-09**: The mocked e2e suite is green again against feat/ui-2 (home-grid / launch-flow / run-family fixes) and the fidelity screenshot harness + side-by-side gallery run under `frontend/e2e` (Phase 39 SC-4)
+
 ### Concierge & Compaction (Phase 33)
 
 - [ ] **CONC-01**: `chat:concierge` registered capability — one implementation, per-run instances, read + proposal-only tools, confirm chips, execution only through existing channels (INV-13 via `deep_agent_runner`)

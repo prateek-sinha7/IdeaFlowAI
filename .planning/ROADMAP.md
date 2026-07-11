@@ -1037,6 +1037,7 @@ Plans:
 
 **Goal:** Bring the run/execution screen to full visual fidelity with the VelocityAI-New-UI mocks (`Hexaware Run` / `Run - Live` / `Run - Failed`) — the left conversation lane, the run header, all four tabs (Preview / Steps / Files / Audit) with every sub-navigation level, across the settled / live-streaming / failed states — as-is. Re-aligns the run screen Phase 32 built.
 **Depends on:** Phase 32 (Run-Screen Redesign — the code this re-aligns), Phase 36 (D-11 nav), Phase 33 (Concierge)
+**Requirements:** RUNUI-06, RUNUI-07, RUNUI-08, RUNUI-09
 **Success Criteria:**
 
 1. Each run-screen surface (left lane, run header, Preview/Steps/Files/Audit, and the three run states) matches its mock to the intended-divergence register — proven by a side-by-side screenshot-diff against the mock, not a prose claim.
