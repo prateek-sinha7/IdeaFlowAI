@@ -136,6 +136,7 @@ export function StepsOverviewSpine({
         return (
           <div key={agent.id}>
             <button
+              data-testid="steps-agent-row"
               onClick={() => navigable && onOpenAgent(agent.id)}
               disabled={!navigable}
               className={`w-full flex items-center gap-2.5 rounded-[11px] px-3 py-2.5 mb-1.5 text-left transition-colors ${

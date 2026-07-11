@@ -158,8 +158,9 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   const tab = (name: string) => page.getByRole("tab", { name: new RegExp(name, "i") }).first();
   await tab("Preview").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(900); await shot(page, "preview", "settled");
   await tab("Steps").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(900); await shot(page, "steps", "settled");
-  // expand the first agent for the detail drill-down
-  await page.getByText("Spec Writer", { exact: false }).first().click({ timeout: 6000 }).catch(() => {});
+  // drill into the first agent's L2 detail (the Steps overview spine row — NOT the
+  // left-lane pipeline mini; scope to the steps-agent-row testid so we open L2).
+  await page.getByTestId("steps-agent-row").first().click({ timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(900); await shot(page, "steps-detail", "settled");
   await tab("Files").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(900); await shot(page, "files", "settled");
   await tab("Audit").click({ timeout: 6000 }).catch(() => {}); await page.waitForTimeout(1200); await shot(page, "audit", "settled");
@@ -248,7 +249,10 @@ test("CAPTURE failed run", async ({ dashboard, mockWs, page }) => {
   mockWs.agentStart("prototype-specify"); mockWs.agentComplete("prototype-specify", { totalTokens: 30100 });
   mockWs.agentStart("prototype-plan"); mockWs.agentComplete("prototype-plan", { totalTokens: 42200 });
   mockWs.agentStart("prototype-build"); mockWs.agentError("prototype-build", "The run stopped at the security gate. A step tried to write secrets to disk.");
-  mockWs.failed({ agentsFailed: ["prototype-build", "prototype-validate"], error: "Blocked by the security gate", totalDuration: 401 });
+  // Only the build agent hard-fails; the downstream Validation Agent never runs
+  // (stays idle → renders as a "Not run" row + drives the "Pipeline halted — N
+  // agents did not run" banner, mirroring the mock's failed Steps).
+  mockWs.failed({ agentsFailed: ["prototype-build"], error: "Blocked by the security gate", totalDuration: 401 });
   await page.waitForTimeout(1400);
   await shot(page, "full", "failed");
   await page.getByRole("tab", { name: /Steps/i }).first().click({ timeout: 6000 }).catch(() => {});
