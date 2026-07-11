@@ -104,3 +104,68 @@ describe("AgentThinkingTab — Steps three-level navigation", () => {
     expect(screen.getByText(/-80%/)).toBeInTheDocument();
   });
 });
+
+// ── L3 construction task detail + failed-overview state ──
+const BUILD_AGENT: AgentRunState = makeAgent({
+  id: "prototype-build", name: "Build Agent", status: "done", totalTokens: 88_000,
+  toolCalls: [{ tool: "write_file", args: { path: "index.html" }, result: "ok", timestamp: "t" }],
+});
+
+function makeBuildPipeline(): PipelineRunState {
+  return {
+    isRunning: false,
+    pipeline_type: "od_prototype",
+    agents: [BUILD_AGENT],
+    currentAgentIndex: 0,
+    totalDuration: 300,
+    completedCount: 1,
+    protoCompletedTaskCount: 3,
+    protoCompletedTasks: [
+      { number: 1, title: "Scaffold shared layout", summary: "Built the shared nav + footer." },
+      { number: 2, title: "Home page", summary: "Composed the landing hero." },
+      { number: 3, title: "Compare page", summary: "Rendered the comparison grid." },
+    ],
+  };
+}
+
+describe("AgentThinkingTab — L3 task detail", () => {
+  it("drills overview -> construction agent -> task detail and back", () => {
+    render(<AgentThinkingTab agents={[BUILD_AGENT]} pipelineState={makeBuildPipeline()} />);
+
+    // L1 -> L2 (construction agent detail with the construction block)
+    fireEvent.click(screen.getByRole("button", { name: /Build Agent/i }));
+    expect(screen.getByTestId("construction-block")).toBeInTheDocument();
+
+    // L2 -> L3 (open a task row → single-task detail)
+    fireEvent.click(screen.getByRole("button", { name: /Task 2 · Home page/i }));
+    expect(screen.getByRole("button", { name: /Build Agent \/ task detail/i })).toBeInTheDocument();
+    expect(screen.getByText("Task 2 · Home page")).toBeInTheDocument();
+    expect(screen.getByText("Composed the landing hero.")).toBeInTheDocument();
+
+    // L3 -> L2 back
+    fireEvent.click(screen.getByRole("button", { name: /Build Agent \/ task detail/i }));
+    expect(screen.getByTestId("construction-block")).toBeInTheDocument();
+  });
+});
+
+describe("AgentThinkingTab — failed overview", () => {
+  it("shows the Pipeline-halted banner + Not-run rows from live pipeline state", () => {
+    const failedAgents: AgentRunState[] = [
+      makeAgent({ id: "spec", name: "Spec Writer", status: "done", duration: 40 }),
+      makeAgent({ id: "build", name: "Build Agent", status: "error", error: "Blocked by the security gate", duration: null }),
+      makeAgent({ id: "validate", name: "Validator", status: "idle", duration: null }),
+      makeAgent({ id: "polish", name: "Polisher", status: "idle", duration: null }),
+    ];
+    const ps: PipelineRunState = {
+      isRunning: false, pipeline_type: "od_prototype", agents: failedAgents,
+      currentAgentIndex: 1, totalDuration: 401, completedCount: 1, failed: true,
+    };
+    render(<AgentThinkingTab agents={failedAgents} pipelineState={ps} />);
+
+    expect(screen.getByText("Run failed")).toBeInTheDocument();
+    // Live count (2 idle agents) — never the mock's fixed text.
+    expect(screen.getByText(/Pipeline halted — 2 agents did not run/i)).toBeInTheDocument();
+    expect(screen.getByText(/resume from Build Agent/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Not run").length).toBe(2);
+  });
+});

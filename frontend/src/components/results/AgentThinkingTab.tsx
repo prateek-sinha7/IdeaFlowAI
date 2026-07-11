@@ -13,6 +13,7 @@ import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
 // (INV-3 — single implementation, no dual list).
 import { StepsOverviewSpine } from "./StepsOverviewSpine";
 import { AgentDetailPanel } from "./AgentDetailPanel";
+import { TaskDetailPanel } from "./TaskDetailPanel";
 import { StartingPointCard } from "./StartingPointCard";
 // The inline gate/clarify affordances are REUSED (SC-2, INV-12) — mounted inside
 // StepsOverviewSpine. The type imports below reference
@@ -140,6 +141,7 @@ export function AgentThinkingTab({
 }: AgentThinkingTabProps) {
   // ── The three-level Steps navigation (mirrors the mock's stepView/taskView) ──
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedTaskIndex, setSelectedTaskIndex] = useState<number | null>(null);
 
   const resolvedClarifications = clarifications ?? pipelineState?.clarifications;
   const hasAnyData = pipelineState?.plannerStatus ||
@@ -150,7 +152,9 @@ export function AgentThinkingTab({
 
   // SC-001: no workflow-name gate. Every workflow renders through this generic
   // overview → detail drill-down (the former isPrototypePipeline branch is gone).
-  const visibleAgents = agents.filter(a => a.status !== "idle" || (a.inputPrompt || (a.toolCalls?.length ?? 0) > 0));
+  // The overview spine shows the FULL ordered pipeline (idle agents render as
+  // pending / "Not run" rings), mirroring the mock's spine — the halted banner's
+  // "N did not run" count derives from those idle rows (ND-D).
 
   // ── L2 construction data (dual-source, STEPS-ARTIFACT-DERIVATION §2/§3) ──
   const resolvedWaves = waves ?? [];
@@ -169,10 +173,26 @@ export function AgentThinkingTab({
   const selectedAgent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : undefined;
   const isConstructionSelected = !!selectedAgent && constructionAgent?.id === selectedAgent.id;
 
+  // ── L3 task status (KAN-99 N-1 cap, mirrors ConstructionBlock) ──
+  const displayedDone = constructionComplete ? totalTasks : Math.min(completedTaskCount, Math.max(0, totalTasks - 1));
+  const taskStatusFor = (i: number): "done" | "running" | "pending" =>
+    i < displayedDone ? "done" : (!constructionComplete && i === displayedDone ? "running" : "pending");
+  const showTaskDetail = selectedTaskIndex != null && isConstructionSelected;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        {selectedAgent ? (
+        {showTaskDetail && selectedAgent ? (
+          // ── L3 — single construction task detail ──
+          <TaskDetailPanel
+            taskIndex={selectedTaskIndex!}
+            agentName={selectedAgent.name}
+            status={taskStatusFor(selectedTaskIndex!)}
+            task={pipelineState?.protoCompletedTasks?.find(t => t.number === selectedTaskIndex! + 1)}
+            toolCalls={selectedAgent.toolCalls}
+            onBack={() => setSelectedTaskIndex(null)}
+          />
+        ) : selectedAgent ? (
           // ── L2 — agent detail ──
           <AgentDetailPanel
             agent={selectedAgent}
@@ -184,6 +204,7 @@ export function AgentThinkingTab({
               waves: resolvedWaves,
               tasks: pipelineState?.protoCompletedTasks,
             } : undefined}
+            onOpenTask={isConstructionSelected ? (i) => setSelectedTaskIndex(i) : undefined}
           />
         ) : (
           // ── L1 — overview ──
@@ -196,11 +217,11 @@ export function AgentThinkingTab({
             {pipelineState && <PlannerCard pipelineState={pipelineState} />}
 
             <StepsOverviewSpine
-              agents={visibleAgents}
+              agents={agents}
               pipelineState={pipelineState}
               clarifications={resolvedClarifications}
               clarificationsLoading={clarificationsLoading}
-              onOpenAgent={(id) => setSelectedAgentId(id)}
+              onOpenAgent={(id) => { setSelectedAgentId(id); setSelectedTaskIndex(null); }}
               laneGate={laneGate}
               onApproveGate={onApproveGate}
               onRejectGate={onRejectGate}
