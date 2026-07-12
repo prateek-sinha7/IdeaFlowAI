@@ -1077,9 +1077,9 @@ Plans:
 - [x] 40-02-PLAN.md — Home: prompt-under-h1 (Attach + Build, no Voice) + 3×2 live card grid + "Jump back in" recents (Wave 2) — Complete 2026-07-12 (caa8e185; human-approved, closed to ND-A/D/X)
 - [x] 40-03-PLAN.md — Library: h1 + count + search header + Agents/Skills/Hooks card grids (agent-detail drawer → Phase 41, ND-Z) (Wave 2) — Complete 2026-07-12 (be885c58; +count-line capabilities hint; human-approved, closed to ND-A/B/C/D/Z)
 - [x] 40-04-PLAN.md — Analytics: styling + number-format parity pass over the live endpoint (Wave 2) — Complete 2026-07-12 (fc536cab + chart-primitive fidelity fix: tall bars + one dark peak, enlarged donut; human-approved, closed to ND-A/C/D + new ND-AA)
-- [ ] 40-05-PLAN.md — Account Settings: Usage & Limits relabel + real-data richer profile form (ND-Y) + four mock-parity tabs (Wave 2)
-- [ ] 40-06-PLAN.md — Workflow History: keep "Run History" (ND-W) + filter chips + Sort tabs + date groups + 3 states (Wave 2)
-- [ ] 40-07-PLAN.md — Catalogue / My Workflows: unblock + restyle the Catalogue grid, keep "My Workflows" (ND-B), 3 states (Wave 2)
+- [x] 40-05-PLAN.md — Account Settings: Usage & Limits relabel + real-data richer profile form (ND-Y) + four mock-parity tabs (Wave 2) — Complete 2026-07-12 (ba3a0fe9 + label-fix dbdc5e61; human-approved, closed to ND-A/C/D/Y/AB/AC)
+- [x] 40-06-PLAN.md — Workflow History: keep "Run History" (ND-W) + filter chips + Sort tabs + date groups + 3 states (Wave 2) — Complete 2026-07-12 (552e0673 + row-level fidelity fix: per-row token/elapsed + purple version chip + always-visible kebab, Newest/Longest/Tokens sort, EARLIER THIS WEEK bucket, near-black active chip; human-approved, closed to ND-W/D)
+- [x] 40-07-PLAN.md — Catalogue / My Workflows: unblock + restyle the Catalogue grid, keep "My Workflows" (ND-B), 3 states (Wave 2) — Complete 2026-07-12 (f02fc671; human-approved, closed to ND-A/B/C/D/AD)
 
 ### v2.0 Progress
 
@@ -1097,4 +1097,4 @@ Plans:
 | 37. Configure Unification [B3] | 5/6 | In Progress|  |
 | 38. Analytics, Estimates & Notifications [B4] | 5/5 | Complete   | 2026-07-10 |
 | 39. Run Screen Mock Fidelity [B5] | 7/7 | Complete | 2026-07-12 |
-| 40. Shell Mock Fidelity (restyle) [B6] | 4/7 | In Progress | — |
+| 40. Shell Mock Fidelity (restyle) [B6] | 7/7 | Complete | 2026-07-12 |
