@@ -56,6 +56,7 @@ const ND = [
   ["ND-X", "Home prompt affordances", "mock Attach + Voice buttons → Attach only (Attach is a real image-input feature; there is NO product voice-input capability)"],
   ["ND-Y", "Account Settings profile form", "mock's fabricated name / role / organization fields → only profile fields backed by real user data (email, plan/tier) — never fabricate unpersisted data"],
   ["ND-Z", "Library agent-detail", "mock's right-side agent-detail DRAWER (Overview/Skills/Hooks/Config) → Phase 40 keeps the shared AgentCapabilitiesModal; the drawer rebuild lands with the Composer in Phase 41"],
+  ["ND-AA", "Analytics 'By Model' vs the mock's 'Recent Runs'", "the /api/analytics/summary payload carries no recent-runs list, so the right-column card shows the live per-model rollup rather than fabricating run rows (ND-D). A recent-runs data wire is a Phase-41 follow-up."],
 ];
 
 /** Normalize divergent per-side tags so a surface pairs left/right. The mock
