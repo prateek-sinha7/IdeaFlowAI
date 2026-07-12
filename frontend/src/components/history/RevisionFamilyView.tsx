@@ -21,7 +21,7 @@ import {
 import type { WorkflowRun, WorkflowStatus, RunFamily } from "@/types/index";
 import { parseRunInput } from "@/lib/runInput";
 // INV-12: the run-stat formatters live once in @/lib/runStats — no local copy.
-import { formatDuration } from "@/lib/runStats";
+import { formatDuration, formatTokenCount } from "@/lib/runStats";
 
 // ─── Display helpers (mirrors WorkflowHistory.tsx:87-120 — small presentational
 // utilities copied so the family card renders the SAME row shape without a
@@ -266,7 +266,7 @@ function RowMenu({
         aria-haspopup="menu"
         aria-expanded={isOpen}
         aria-label="Run actions"
-        className="flex items-center justify-center h-7 w-7 rounded-[var(--radius-button)] text-ink-300 hover:text-ink-600 hover:bg-surface-warm transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        className="flex items-center justify-center h-7 w-7 rounded-[var(--radius-button)] text-ink-300 hover:text-ink-900 hover:bg-surface-warm transition-colors"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
@@ -292,6 +292,30 @@ function RowMenu({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── RowStats — the mock's right-aligned per-row token / elapsed column
+// (Hexaware Workspace v2.dc.html History row :398 — `r.tok` over `r.ago`). Both
+// values come from fields ALREADY on the list row (`tokenUsage.total_tokens`,
+// `created_at`), so there is no extra fetch. ND-D: never fabricate — the token
+// line is omitted when the run carries no usage datum (0 tokens), so a run with
+// no metered usage shows only its relative time, never a fake "0" count.
+function RowStats({ run }: { run: WorkflowRun }) {
+  const tokens = run.tokenUsage?.total_tokens ?? 0;
+  const ago = formatDate(run.createdAt);
+  if (tokens <= 0 && !ago) return null;
+  return (
+    <div className="w-[64px] flex-none text-right">
+      {tokens > 0 && (
+        <p className="text-[11px] font-semibold text-ink-700 tabular-nums leading-none">
+          {formatTokenCount(tokens)}
+        </p>
+      )}
+      {ago && (
+        <p className="text-[10px] text-ink-400 tabular-nums leading-none mt-0.5">{ago}</p>
+      )}
     </div>
   );
 }
@@ -339,20 +363,18 @@ export function FamilyGroupCard({
           <p className="text-[13px] font-semibold text-ink-900 leading-tight">{run.title}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
-            <span className="text-ink-200">·</span>
-            <span className="text-[10px] text-ink-400">{formatDate(run.createdAt)}</span>
-            {run.duration && (
+            {run.duration ? (
               <>
                 <span className="text-ink-200">·</span>
                 <span className="text-[10px] text-ink-400">{formatDuration(run.duration)}</span>
               </>
-            )}
+            ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <RowStats run={run} />
           <StatusBadge status={run.status} />
           <RowMenu runId={run.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
-          <ChevronRight className="h-4 w-4 text-ink-300 group-hover:text-ink-500 transition-colors" />
         </div>
       </motion.div>
     );
@@ -387,30 +409,33 @@ export function FamilyGroupCard({
           <p className="text-[13px] font-semibold text-ink-900 leading-tight">{group.root.title}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
-            <span className="text-ink-200">·</span>
-            <span className="text-[10px] text-ink-400">{formatDate(latest.createdAt)}</span>
+            {latest.duration ? (
+              <>
+                <span className="text-ink-200">·</span>
+                <span className="text-[10px] text-ink-400">{formatDuration(latest.duration)}</span>
+              </>
+            ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {/* "v{N}" count pill — filter-count-pill class (WorkflowHistory.tsx:806). */}
-          <span
-            aria-label={`${versionCount} versions`}
-            className="text-[9px] font-semibold px-1 rounded bg-surface-warm text-ink-500"
-          >
-            v{versionCount}
-          </span>
-          <StatusBadge status={latest.status} />
-          <RowMenu runId={group.root.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
-          {/* Chevron toggle — controlled-state rotate (NOT group-open, which only
-              fires inside a native <details>). */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {/* Purple "v{N}" version pill = the expand toggle (mock History row :397:
+              #ECEAFC fill / #3C2CDA text → bg-brand-fill / text-brand, chevron
+              rotates open). Merges the former grey count-pill + separate chevron
+              button into the single control the mock shows. The inner span keeps
+              the "{N} versions" a11y label; the button keeps the toggle label. */}
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
             aria-expanded={expanded}
             aria-label={expanded ? "Collapse versions" : "Show versions"}
-            className="flex items-center justify-center h-7 w-7 rounded-lg text-ink-300 hover:text-ink-600 hover:bg-surface-warm transition-colors"
+            className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand bg-brand-fill px-2 py-1 rounded-md hover:opacity-80 transition-opacity"
           >
-            <ChevronRight className={`h-3.5 w-3.5 text-ink-400 transition-transform ${expanded ? "rotate-90" : ""}`} />
+            <span aria-label={`${versionCount} versions`}>v{versionCount}</span>
+            <ChevronRight className={`h-2.5 w-2.5 text-brand transition-transform ${expanded ? "rotate-90" : ""}`} />
           </button>
+          <RowStats run={latest} />
+          <StatusBadge status={latest.status} />
+          <RowMenu runId={group.root.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
         </div>
       </motion.div>
 

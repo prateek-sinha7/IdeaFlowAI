@@ -156,9 +156,9 @@ describe("History grouping — rendered (SHELL-02)", () => {
     render(<WorkflowHistory onBack={vi.fn()} />);
 
     await screen.findByText("Alpha today");
-    // Bucket headers.
+    // Bucket headers (mock copy: "Earlier" reads "Earlier this week").
     expect(screen.getByText("Today")).toBeInTheDocument();
-    expect(screen.getByText("Earlier")).toBeInTheDocument();
+    expect(screen.getByText("Earlier this week")).toBeInTheDocument();
     expect(screen.getByText("Older")).toBeInTheDocument();
     // Family stays intact → exactly one v2 count pill.
     expect(screen.getByLabelText("2 versions")).toBeInTheDocument();

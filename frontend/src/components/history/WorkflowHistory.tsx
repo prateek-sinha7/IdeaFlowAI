@@ -797,7 +797,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   onClick={() => setFilterType(type)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                     filterType === type
-                      ? "bg-brand text-white"
+                      ? "bg-ink-900 text-white"
                       : "text-ink-500 hover:bg-surface-warm hover:text-ink-700"
                   }`}
                 >
@@ -820,10 +820,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           >
             <span className="text-[10px] font-medium text-ink-400">Sort</span>
             <div className="inline-flex items-center gap-0.5 bg-surface-warm p-0.5 rounded-lg">
+              {/* Display labels track the mock's Sort tabs (Newest / Longest /
+                  Tokens); the sort KEYS + the "Sort by {key}" aria-labels stay
+                  stable so behavior + the a11y contract (ts-t) don't shift. */}
               {([
-                { key: "recent", label: "Recent" },
+                { key: "recent", label: "Newest" },
+                { key: "duration", label: "Longest" },
                 { key: "tokens", label: "Tokens" },
-                { key: "duration", label: "Duration" },
               ] as const).map((opt) => {
                 const active = sortKey === opt.key;
                 return (
@@ -832,7 +835,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     type="button"
                     onClick={() => setSortKey(opt.key)}
                     aria-pressed={active}
-                    aria-label={`Sort by ${opt.label.toLowerCase()}`}
+                    aria-label={`Sort by ${opt.key}`}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
                       active
                         ? "bg-surface-white text-ink-900 shadow-sm"
@@ -931,7 +934,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     uppercase label + a faded count + a hairline rule to the edge. */}
                 <div className="flex items-center gap-2.5 px-6 pt-5 pb-1.5">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-400">
-                    {section.bucket}
+                    {/* Mock bucket copy: "Earlier" reads "Earlier this week"
+                        (uppercased by CSS → "EARLIER THIS WEEK"). The `bucket`
+                        enum + the section aria-label stay Today/Earlier/Older. */}
+                    {section.bucket === "Earlier" ? "Earlier this week" : section.bucket}
                   </span>
                   <span className="text-[10px] text-ink-300 tabular-nums">{section.groups.length}</span>
                   <span className="flex-1 h-px bg-line-divider" />
