@@ -39,29 +39,24 @@ test.describe("TS-B — workflow selection", () => {
     await expect(page.getByRole("heading", { name: "Describe the application" })).toBeVisible();
   });
 
-  // FLAG (removed / rerouted behavior): this test targets the `migration` META
-  // input view — the NEW pill, the "Modernise a legacy estate" meta heading, the
-  // "Choose your migration path" copy, and the two MIGRATION_OPTIONS sub-pipeline
-  // tiles. In the Phase-39 data-driven home the "Platform workflows" row is served
-  // by GET /api/workflows as the CONCRETE `mulesoft_to_springboot` workflow id
-  // (see fixtures/mockApi DEFAULT_WORKFLOWS), so clicking it opens the concrete
-  // "Modernise off Mulesoft" input directly — the `migration` meta-picker (which
-  // still exists in IdeaInputPage) is no longer reachable from home. The NEW pill
-  // is also gone (data-driven home has no badge field). No equivalent home entry
-  // point exists to re-target; left failing for reconciliation.
-  test("TS-B-05 'Platform workflows' opens the migration input view with two path tiles", async ({ dashboard, page }) => {
-    // The migration row carries the NEW pill on the (enterprise) home screen.
-    await expect(page.getByText("NEW", { exact: true })).toBeVisible();
-
+  // RE-ANCHORED (40-02): the data-driven home (GET /api/workflows) serves
+  // "Platform workflows" as the CONCRETE `mulesoft_to_springboot` id (fixtures
+  // DEFAULT_WORKFLOWS), so selecting it opens the concrete "Modernise off
+  // Mulesoft" input DIRECTLY. The removed behaviors are flagged, not asserted:
+  //   • the `migration` META meta-picker ("Modernise a legacy estate" heading +
+  //     "Choose your migration path" + the two sub-pipeline tiles) still exists
+  //     in IdeaInputPage but has NO home entry point in the data-driven catalog;
+  //   • the NEW pill is gone (the card grid carries no badge field).
+  // The load-bearing behavior — selecting the platform card LAUNCHES its concrete
+  // migration input — is preserved and asserted below.
+  test("TS-B-05 'Platform workflows' opens the concrete Mulesoft migration input", async ({ dashboard, page }) => {
     await dashboard.selectWorkflow("Platform workflows");
 
-    // IdeaInputPage heading for the migration meta-pipeline.
-    await expect(page.getByRole("heading", { name: "Modernise a legacy estate" })).toBeVisible();
-
-    // The migration sub-pipeline selector renders exactly two tiles (MIGRATION_OPTIONS).
-    await expect(page.getByText("Choose your migration path")).toBeVisible();
-    await expect(page.getByRole("button", { name: /Mulesoft → Spring Boot microservices on AWS/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /\.NET → Azure \(AI-augmented\)/i })).toBeVisible();
+    // IdeaInputPage heading for the concrete mulesoft_to_springboot pipeline
+    // (TYPE_CONFIG.mulesoft_to_springboot.heading) — reached directly, no picker.
+    await expect(page.getByRole("heading", { name: "Modernise off Mulesoft" })).toBeVisible();
+    // The Run control is present for the concrete pipeline (13 agents seeded).
+    await expect(dashboard.runButton()).toBeVisible();
   });
 
   test("TS-B-06 'Compose a custom workflow' opens the custom task input view", async ({ dashboard, page }) => {

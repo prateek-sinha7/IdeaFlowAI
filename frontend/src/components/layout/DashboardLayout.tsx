@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { WifiOff, RefreshCw, Brain, Sparkles, Loader2, ArrowRight } from "lucide-react";
+import { WifiOff, RefreshCw, Brain, Sparkles, Loader2 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
 import { HomeLaunchGrid } from "@/components/catalog/HomeLaunchGrid";
@@ -1485,64 +1485,28 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              {/* FUSED HOME (SHELL-02 SC-1) — one landing = prompt launcher +
-                  deliverable grid + recents strip. The launcher captures a brief;
-                  HomeLaunchGrid is the SC-001 data-driven deliverable picker;
-                  selecting a generic deliverable carries the typed brief into the
-                  input view (initialInput). Wizard-routed types (prototype/ppt/
-                  requiresWizard) still router.push to their template wizard inside
+              {/* FUSED HOME (SHELL-02 SC-1, restyled 40-02) — one landing owned by
+                  HomeLaunchGrid: the mock's prompt UNDER the h1 (Attach + Build,
+                  no Voice — ND-X), the SC-001 data-driven deliverable card grid,
+                  and the live "Jump back in" recents. The prompt state stays here
+                  (homeBrief) so it can ride into the launch via pendingHomeBrief;
+                  it is threaded down as controlled props. Build carries the brief
+                  down the existing launch fork (handleHomeSelectFeature). Wizard-
+                  routed types (prototype/ppt) still router.push inside
                   HomeLaunchGrid — the fork is preserved. The `input` view is
                   UNCHANGED and still reachable for the saved-workflow preload path
-                  (handleLaunchSaved). Recents read the already-threaded `recentRuns`
-                  prop — NO new fetch. Page-keys stay generic (SC-001/INV-1). */}
+                  (handleLaunchSaved). Recents deep-link via onSelectWorkflowRun →
+                  the execution view. Page-keys stay generic (SC-001/INV-1). */}
               <div className="flex h-full flex-col bg-surface-paper">
-                {/* Prompt launcher — folded from the input-view idiom */}
-                <div className="shrink-0 border-b border-line-divider px-6 pt-8 pb-5">
-                  <div className="max-w-2xl mx-auto w-full">
-                    <label htmlFor="home-launch-prompt" className="block text-[11px] font-semibold text-ink-500 mb-2">
-                      Start with a prompt
-                    </label>
-                    <textarea
-                      id="home-launch-prompt"
-                      value={homeBrief}
-                      onChange={(e) => setHomeBrief(e.target.value)}
-                      rows={2}
-                      placeholder="Describe what you want to build, then choose a deliverable below…"
-                      className="w-full resize-none rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3.5 py-2.5 text-[13px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:border-brand focus:shadow-[var(--focus-ring)] transition-all"
-                    />
-                  </div>
-                </div>
-
-                {/* Deliverable grid — SC-001 data-driven launcher. onSelectFeature is
-                    wrapped so the typed brief rides into the input view. */}
-                <div className="flex-1 min-h-0">
-                  <HomeLaunchGrid onSelectFeature={handleHomeSelectFeature} onLaunchSaved={handleLaunchSaved} userTier={userTier} />
-                </div>
-
-                {/* Recents strip — reads the threaded recentRuns prop (no fetch) */}
-                {recentRuns && recentRuns.length > 0 && (
-                  <div className="shrink-0 border-t border-line-divider px-6 py-4">
-                    <div className="max-w-2xl mx-auto w-full">
-                      <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.14em] mb-2.5">
-                        Recent runs
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {recentRuns.slice(0, 4).map((run) => (
-                          <button
-                            key={run.id}
-                            onClick={() => { onSelectWorkflowRun?.(run); setMainView("execution"); }}
-                            className="group inline-flex items-center gap-2 rounded-[var(--radius-button)] border border-line-border bg-surface-card px-3 py-1.5 text-left transition-colors hover:border-brand-border hover:bg-surface-warm"
-                          >
-                            <span className="max-w-[220px] truncate text-[12px] font-medium text-ink-800 group-hover:text-brand">
-                              {run.title}
-                            </span>
-                            <ArrowRight className="h-3 w-3 shrink-0 text-ink-300 group-hover:text-brand" />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <HomeLaunchGrid
+                  onSelectFeature={handleHomeSelectFeature}
+                  onLaunchSaved={handleLaunchSaved}
+                  userTier={userTier}
+                  brief={homeBrief}
+                  onBriefChange={setHomeBrief}
+                  onBuild={() => handleHomeSelectFeature("custom" as WorkflowType)}
+                  onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); }}
+                />
               </div>
             </motion.div>
           )}

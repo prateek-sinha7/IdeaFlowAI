@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import React from "react";
 import type { WorkflowSummary, UserWorkflowSummary, AnalyticsSummary } from "@/lib/api";
+import type { WorkflowRun } from "@/types/index";
 
 // ─────────────────────────────────────────────────────────────────
 // Mocks. Hoisted by vitest before module imports.
@@ -28,6 +29,12 @@ const mockGetAnalyticsSummary = vi.fn(
   async (_token?: string, _range?: string): Promise<AnalyticsSummary> =>
     ({ type_avg_duration_sec: {} } as unknown as AnalyticsSummary),
 );
+// 40-02: the "Jump back in" recents source (GET /api/runs list). Default →
+// empty so the OTHER suites render with NO recents strip (ND-D: absent when
+// there are no runs) and never reject on mount (tolerant .catch parity).
+const mockGetWorkflows = vi.fn(
+  async (_token?: string, _opts?: { limit?: number }): Promise<WorkflowRun[]> => [],
+);
 
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
@@ -35,10 +42,28 @@ vi.mock("@/lib/api", () => ({
   getUserWorkflows: (token: string) => mockGetUserWorkflows(token),
   getAnalyticsSummary: (token: string, range: string) =>
     mockGetAnalyticsSummary(token, range),
+  getWorkflows: (token: string, opts?: { limit?: number }) =>
+    mockGetWorkflows(token, opts),
   createUserWorkflow: (...args: unknown[]) => mockCreateUserWorkflow(...args),
   renameUserWorkflow: (...args: unknown[]) => mockRenameUserWorkflow(...args),
   deleteUserWorkflow: (...args: unknown[]) => mockDeleteUserWorkflow(...args),
 }));
+
+// A minimal WorkflowRun factory for the recents fixtures (only the fields the
+// "Jump back in" strip reads matter; the rest satisfy the type).
+function makeRun(partial: Partial<WorkflowRun> & { id: string }): WorkflowRun {
+  return {
+    title: `Run ${partial.id}`,
+    type: "user_stories",
+    status: "completed",
+    input: "",
+    parentRunId: null,
+    rootRunId: partial.id,
+    createdAt: new Date().toISOString(),
+    agentCount: 3,
+    ...partial,
+  } as WorkflowRun;
+}
 
 // next/navigation router — the catalog calls useRouter() for the wizard fork.
 const mockPush = vi.fn();
@@ -257,5 +282,188 @@ describe("HomeLaunchGrid — real per-deliverable estimate line (SC-2, 38-05)", 
     // Owner-scoped fetch: the endpoint enforces WHERE user_id server-side; the
     // grid asks for the full history window ("all").
     expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "all");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// 40-02 — the shell-mock restyle: the prompt UNDER the h1 (Attach + Build, NO
+// Voice — ND-X), the live-data CARD GRID (count is data-driven, ND-D), and the
+// "Jump back in" recents (live GET /api/runs, absent when empty).
+// ─────────────────────────────────────────────────────────────────
+
+// A 7-launchable list — proves the card count is DATA-DRIVEN (SC-001), never
+// the mock's fixed 6. Real enterprise-entitled, non-wizard ids so every card is
+// allowed and clicking routes through onSelectFeature (not a router.push fork).
+const SEVEN_IDS = [
+  "user_stories",
+  "app_builder",
+  "custom",
+  "migration",
+  "mulesoft_to_springboot",
+  "dotnet_to_azure",
+  "user_stories_revision",
+];
+const SEVEN: WorkflowSummary[] = SEVEN_IDS.map((id, i) => ({
+  id,
+  name: `raw-name-${i}`,
+  description: `Deliverable number ${i}.`,
+  step_count: 2 + i,
+  steps: [],
+  user_launchable: true,
+  display_name: `Deliverable ${i}`,
+  icon: null,
+  launch_surface: null,
+}));
+
+describe("HomeLaunchGrid — 40-02 prompt (Attach + Build, no Voice)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetToken.mockReturnValue("test-token");
+    mockGetWorkflowDefinitions.mockResolvedValue(MIXED);
+    mockGetUserWorkflows.mockResolvedValue([]);
+  });
+
+  it("renders the prompt UNDER the h1 with an Attach + Build affordance and NO Voice button", async () => {
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Generate product requirements")).toBeInTheDocument(),
+    );
+
+    // The relocated prompt input.
+    expect(screen.getByPlaceholderText(/Describe what you want to build/i)).toBeInTheDocument();
+    // Attach + Build render...
+    expect(screen.getByRole("button", { name: /Attach/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Build$/i })).toBeInTheDocument();
+    // ...and NO Voice affordance (ND-X).
+    expect(screen.queryByRole("button", { name: /voice/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /mic/i })).toBeNull();
+  });
+
+  it("Build is disabled until a brief is typed, then submits down the launch fork", async () => {
+    const onSelectFeature = vi.fn();
+    render(<HomeLaunchGrid onSelectFeature={onSelectFeature} userTier="enterprise" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Generate product requirements")).toBeInTheDocument(),
+    );
+
+    const build = screen.getByRole("button", { name: /^Build$/i });
+    // Empty brief → disabled; clicking is a no-op.
+    expect(build).toBeDisabled();
+    fireEvent.click(build);
+    expect(onSelectFeature).not.toHaveBeenCalled();
+
+    // Typing a brief enables Build; clicking submits (uncontrolled → custom fork).
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "A kanban board for a growth squad." },
+    });
+    expect(build).toBeEnabled();
+    fireEvent.click(build);
+    expect(onSelectFeature).toHaveBeenCalledWith("custom");
+  });
+
+  it("Build calls the explicit onBuild handler when provided (controlled brief)", async () => {
+    const onBuild = vi.fn();
+    const onSelectFeature = vi.fn();
+    render(
+      <HomeLaunchGrid
+        onSelectFeature={onSelectFeature}
+        userTier="enterprise"
+        brief="Modernise our payments platform."
+        onBriefChange={vi.fn()}
+        onBuild={onBuild}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("Generate product requirements")).toBeInTheDocument(),
+    );
+
+    const build = screen.getByRole("button", { name: /^Build$/i });
+    expect(build).toBeEnabled(); // controlled brief is non-empty
+    fireEvent.click(build);
+    expect(onBuild).toHaveBeenCalledTimes(1);
+    expect(onSelectFeature).not.toHaveBeenCalled(); // explicit handler wins
+  });
+});
+
+describe("HomeLaunchGrid — 40-02 live-data card grid (ND-D)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetToken.mockReturnValue("test-token");
+    mockGetUserWorkflows.mockResolvedValue([]);
+  });
+
+  it("renders one card per live launchable row (7 rows → 7 cards, not the mock's fixed 6)", async () => {
+    mockGetWorkflowDefinitions.mockResolvedValue(SEVEN);
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Deliverable 0")).toBeInTheDocument(),
+    );
+    // Each deliverable card carries an <h2> label — count them.
+    const headings = screen.getAllByRole("heading", { level: 2 });
+    expect(headings).toHaveLength(7);
+    expect(screen.getByText("Deliverable 6")).toBeInTheDocument();
+  });
+
+  it("clicking a deliverable card launches its run (onSelectFeature with the row id)", async () => {
+    const onSelectFeature = vi.fn();
+    mockGetWorkflowDefinitions.mockResolvedValue(SEVEN);
+    render(<HomeLaunchGrid onSelectFeature={onSelectFeature} userTier="enterprise" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Deliverable 3")).toBeInTheDocument(),
+    );
+    // The card is a <button> holding the <h2> — click it via its label.
+    const card = screen
+      .getAllByRole("button")
+      .find((b) => b.querySelector("h2")?.textContent === "Deliverable 3");
+    expect(card).toBeTruthy();
+    fireEvent.click(card!);
+    expect(onSelectFeature).toHaveBeenCalledWith("migration"); // SEVEN_IDS[3]
+  });
+});
+
+describe("HomeLaunchGrid — 40-02 'Jump back in' recents (live GET /api/runs)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetToken.mockReturnValue("test-token");
+    mockGetWorkflowDefinitions.mockResolvedValue(MIXED);
+    mockGetUserWorkflows.mockResolvedValue([]);
+  });
+
+  it("renders a recent card per live run and deep-links on click", async () => {
+    const onOpenRun = vi.fn();
+    mockGetWorkflows.mockResolvedValue([
+      makeRun({ id: "r1", title: "Growth dashboard prototype", status: "completed" }),
+      makeRun({ id: "r2", title: "Refunds backlog", status: "failed" }),
+      makeRun({ id: "r3", title: "Board pitch deck", status: "running" }),
+    ]);
+    render(
+      <HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" onOpenRun={onOpenRun} />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("Jump back in")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Growth dashboard prototype")).toBeInTheDocument();
+    expect(screen.getByText("Refunds backlog")).toBeInTheDocument();
+    expect(screen.getByText("Board pitch deck")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Refunds backlog"));
+    expect(onOpenRun).toHaveBeenCalledTimes(1);
+    expect(onOpenRun.mock.calls[0][0].id).toBe("r2");
+  });
+
+  it("omits the recents strip entirely when there are no runs (ND-D — no fabricated placeholder)", async () => {
+    mockGetWorkflows.mockResolvedValue([]);
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Generate product requirements")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Jump back in")).toBeNull();
   });
 });

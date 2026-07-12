@@ -152,39 +152,27 @@ test.describe("TS-C — idea input & trigger", () => {
     }
   });
 
-  // FLAG (removed / rerouted behavior): this test targets the `migration` META
-  // path-tile selector. In the Phase-39 data-driven home the "Platform workflows"
-  // row is served by GET /api/workflows as the CONCRETE `mulesoft_to_springboot`
-  // workflow id (fixtures/mockApi DEFAULT_WORKFLOWS), so clicking it opens the
-  // concrete "Modernise off Mulesoft" input (13 agents, Run enabled directly) —
-  // the `migration` meta-picker ("Choose your migration path" + "Pick a migration
-  // path" Run label + the two tiles) is no longer reachable from home. The
-  // meta-picker still exists in IdeaInputPage but has no home entry point. Left
-  // failing for reconciliation.
-  test("TS-C-08 migration path tile selects (navy) and unlocks Run", async ({ dashboard, page }) => {
-    // Platform workflows = the `migration` meta-pipeline. The meta-type has NO
-    // default LIBRARY_AGENTS, and the Run-label ternary checks the no-agents
-    // branch FIRST — so before a sub-path is chosen the button reads
-    // "Add agents first" (NOT "Pick a migration path"; that label is only
-    // reachable for a migration sub-type that DOES seed agents).
+  // RE-ANCHORED (40-02): the data-driven home serves "Platform workflows" as the
+  // CONCRETE `mulesoft_to_springboot` id (fixtures DEFAULT_WORKFLOWS), so it opens
+  // the concrete "Modernise off Mulesoft" input directly (13 LIBRARY_AGENTS
+  // seeded) — the `migration` meta-picker ("Choose your migration path" + the two
+  // path tiles + the "Pick a migration path" Run label) still exists in
+  // IdeaInputPage but has no home entry point. The behavioral core — the concrete
+  // migration input takes a brief and enables Run — is preserved and asserted.
+  test("TS-C-08 'Platform workflows' opens the concrete migration input and Run enables on a brief", async ({ dashboard, page }) => {
     await dashboard.selectWorkflow("Platform workflows");
-    await expect(page.getByRole("heading", { name: "Modernise a legacy estate" })).toBeVisible();
-    await expect(dashboard.runButton()).toHaveText(/Add agents first/);
+    await expect(page.getByRole("heading", { name: "Modernise off Mulesoft" })).toBeVisible();
 
-    const tile = page.getByRole("button", { name: /Mulesoft → Spring Boot microservices on AWS/i });
-    await tile.click();
-    // Selected tile gains the raised selected affordance (shadow-md) — a
-    // reskin-durable signal (unselected tiles carry no shadow), and the
-    // placeholder swap + Run enablement below are the behavioral proof of it.
-    await expect(tile).toHaveClass(/shadow-md/);
-
-    // Picking the sub-pipeline swaps the config copy + agent lineup
-    // (mulesoft_to_springboot has 13 LIBRARY_AGENTS), so the placeholder
-    // switches and Run goes from "Pick a migration path" → enabled "Run workflow"
-    // once a brief is present.
+    // The concrete pipeline's placeholder (TYPE_CONFIG.mulesoft_to_springboot).
     await expect(dashboard.ideaTextarea()).toHaveAttribute("placeholder", PLACEHOLDER.mulesoft_to_springboot);
-    await dashboard.fillIdea("Migrate three Mulesoft 4 apps onto AWS as Spring Boot microservices.");
+
+    // 13 agents are seeded for the concrete pipeline → Run reads "Run workflow"
+    // and enables once a brief is present (empty brief keeps it disabled).
     const run = dashboard.runButton();
+    await expect(run).toHaveText(/Run workflow/);
+    await expect(run).toBeDisabled();
+
+    await dashboard.fillIdea("Migrate three Mulesoft 4 apps onto AWS as Spring Boot microservices.");
     await expect(run).toBeEnabled();
     await expect(run).toHaveText(/Run workflow/);
   });
