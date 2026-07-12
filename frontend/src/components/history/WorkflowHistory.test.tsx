@@ -281,3 +281,65 @@ describe("WorkflowHistory — terminal-failure affordance on reopen (SHELL-03)",
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// 40-06 — list-chrome restyle to the shell History mock: the "Run History"
+// title kept (ND-W), the type-filter chips + Sort tabs, and the two distinct
+// empty states (mock histZero + histFilterEmpty). The date-grouped rows +
+// status/version badges are covered by RevisionFamilyView's own tests.
+// ─────────────────────────────────────────────────────────────────
+describe("WorkflowHistory — list chrome (40-06 restyle)", () => {
+  it("renders the 'Run History' title (ND-W — NOT the mock's 'Workflow History')", async () => {
+    mockGetWorkflows.mockResolvedValue([]);
+    render(<WorkflowHistory onBack={vi.fn()} />);
+    expect(await screen.findByRole("heading", { name: "Run History" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Workflow History" })).not.toBeInTheDocument();
+  });
+
+  it("renders type-filter chips + the Sort segmented control over seeded runs", async () => {
+    mockGetWorkflows.mockResolvedValue([
+      makeRun({ id: "a", title: "Alpha stories", type: "user_stories", rootRunId: "a" }),
+      makeRun({ id: "b", title: "Beta deck", type: "ppt", rootRunId: "b" }),
+    ]);
+    render(<WorkflowHistory onBack={vi.fn()} />);
+    await screen.findByText("Alpha stories");
+
+    // Type-filter chips (label + count) render from the live family counts.
+    expect(screen.getByRole("button", { name: /^All/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^User Stories/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Presentation/ })).toBeInTheDocument();
+
+    // Sort tabs (Recent / Tokens / Duration).
+    expect(screen.getByRole("button", { name: /Sort by recent/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sort by tokens/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sort by duration/i })).toBeInTheDocument();
+  });
+
+  it("shows the ZERO empty-state (mock histZero) when there are no runs; Start a run → onBack", async () => {
+    mockGetWorkflows.mockResolvedValue([]);
+    const onBack = vi.fn();
+    render(<WorkflowHistory onBack={onBack} />);
+
+    expect(await screen.findByText("No runs yet")).toBeInTheDocument();
+    expect(screen.getByText("Your workflow runs will appear here.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start a run" }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the FILTER-EMPTY state (mock histFilterEmpty) when runs exist but none match; Show all runs restores", async () => {
+    mockGetWorkflows.mockResolvedValue([
+      makeRun({ id: "z", title: "Zebra deck", type: "ppt", rootRunId: "z" }),
+    ]);
+    render(<WorkflowHistory onBack={vi.fn()} />);
+    await screen.findByText("Zebra deck");
+
+    const search = screen.getByPlaceholderText("Search workflows...");
+    await userEvent.type(search, "no-such-run-xyz");
+    expect(await screen.findByText("No runs match this filter")).toBeInTheDocument();
+    expect(screen.queryByText("Zebra deck")).not.toBeInTheDocument();
+
+    // "Show all runs" clears the filter + search → the row returns.
+    await userEvent.click(screen.getByRole("button", { name: "Show all runs" }));
+    expect(await screen.findByText("Zebra deck")).toBeInTheDocument();
+  });
+});

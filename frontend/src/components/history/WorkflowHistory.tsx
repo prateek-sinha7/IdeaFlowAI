@@ -781,62 +781,70 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           />
         </div>
 
-        {/* Type filter tabs */}
-        <div className="flex items-center gap-1 mt-3 overflow-x-auto pb-0.5">
-          {typeGroups.map((type) => {
-            const count = typeCounts[type] || 0;
-            if (type !== "all" && count === 0) return null;
-            const label = type === "all" ? "All" : (TYPE_META[type]?.label || type);
-            return (
-              <button
-                key={type}
-                onClick={() => setFilterType(type)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
-                  filterType === type
-                    ? "bg-brand text-white"
-                    : "text-ink-500 hover:bg-surface-warm hover:text-ink-700"
-                }`}
-              >
-                {label}
-                <span className={`text-[9px] font-semibold px-1 rounded ${filterType === type ? "bg-white/20 text-white" : "bg-surface-warm text-ink-500"}`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {/* 40-06: type-filter chips + Sort tabs on ONE row (mock History: chips
+            left flex-1, the Sort segmented control right) — over the live/seeded
+            /api/runs family counts (ND-D). */}
+        <div className="flex items-center gap-3.5 mt-3">
+          {/* Type filter chips */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 flex-1 min-w-0">
+            {typeGroups.map((type) => {
+              const count = typeCounts[type] || 0;
+              if (type !== "all" && count === 0) return null;
+              const label = type === "all" ? "All" : (TYPE_META[type]?.label || type);
+              return (
+                <button
+                  key={type}
+                  onClick={() => setFilterType(type)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
+                    filterType === type
+                      ? "bg-brand text-white"
+                      : "text-ink-500 hover:bg-surface-warm hover:text-ink-700"
+                  }`}
+                >
+                  {label}
+                  <span className={`text-[9px] font-semibold px-1 rounded ${filterType === type ? "bg-white/20 text-white" : "bg-surface-warm text-ink-500"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
 
-        {/* SHELL-02: sort control — recency / tokens / duration, all off fields
-            already on each row. Segmented buttons; the active option is pressed. */}
-        <div
-          role="group"
-          aria-label="Sort runs"
-          className="flex items-center gap-1 mt-3"
-        >
-          <span className="text-[10px] font-medium text-ink-400 mr-1">Sort</span>
-          {([
-            { key: "recent", label: "Recent" },
-            { key: "tokens", label: "Tokens" },
-            { key: "duration", label: "Duration" },
-          ] as const).map((opt) => {
-            const active = sortKey === opt.key;
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => setSortKey(opt.key)}
-                aria-pressed={active}
-                aria-label={`Sort by ${opt.label.toLowerCase()}`}
-                className={`px-2.5 py-1 rounded-[var(--radius-button)] text-[11px] font-medium transition-colors ${
-                  active
-                    ? "bg-brand text-white"
-                    : "text-ink-500 hover:bg-surface-warm hover:text-ink-700"
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+          {/* SHELL-02: sort control — recency / tokens / duration, all off fields
+              already on each row. Mock's segmented pill; the active option sits on
+              a raised surface (no fetch, no backend change). */}
+          <div
+            role="group"
+            aria-label="Sort runs"
+            className="flex items-center gap-2 flex-none"
+          >
+            <span className="text-[10px] font-medium text-ink-400">Sort</span>
+            <div className="inline-flex items-center gap-0.5 bg-surface-warm p-0.5 rounded-lg">
+              {([
+                { key: "recent", label: "Recent" },
+                { key: "tokens", label: "Tokens" },
+                { key: "duration", label: "Duration" },
+              ] as const).map((opt) => {
+                const active = sortKey === opt.key;
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setSortKey(opt.key)}
+                    aria-pressed={active}
+                    aria-label={`Sort by ${opt.label.toLowerCase()}`}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                      active
+                        ? "bg-surface-white text-ink-900 shadow-sm"
+                        : "text-ink-500 hover:text-ink-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -886,18 +894,48 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             ))}
           </div>
         ) : visibleFamilies.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 gap-2">
-            <FileText className="h-8 w-8 text-ink-200" />
-            <p className="text-[12px] text-ink-400">No workflows found</p>
-          </div>
+          runs.length === 0 ? (
+            /* 40-06: ZERO state (mock histZero) — no runs at all. */
+            <div className="flex flex-col items-center justify-center h-full min-h-[280px] gap-3 px-6 text-center">
+              <FileText className="h-8 w-8 text-ink-200" />
+              <div>
+                <p className="text-[13px] font-medium text-ink-600">No runs yet</p>
+                <p className="text-[11px] text-ink-400 mt-1">Your workflow runs will appear here.</p>
+              </div>
+              <button
+                onClick={onBack}
+                className="mt-1 rounded-lg bg-brand px-3.5 py-2 text-[12px] font-semibold text-white hover:bg-brand-pressed transition-colors"
+              >
+                Start a run
+              </button>
+            </div>
+          ) : (
+            /* 40-06: FILTER-EMPTY state (mock histFilterEmpty) — runs exist, none
+               match the active type filter / search. "Show all runs" clears both. */
+            <div className="flex flex-col items-center justify-center h-full min-h-[280px] gap-3 px-6 text-center">
+              <Search className="h-7 w-7 text-ink-200" />
+              <p className="text-[13px] font-medium text-ink-600">No runs match this filter</p>
+              <button
+                onClick={() => { setFilterType("all"); setSearchQuery(""); }}
+                className="mt-1 rounded-lg border border-line-border bg-surface-white px-3.5 py-2 text-[12px] font-semibold text-ink-700 hover:border-brand hover:text-brand transition-colors"
+              >
+                Show all runs
+              </button>
+            </div>
+          )
         ) : (
           <div>
             {sections.map((section) => (
               <section key={section.bucket} aria-label={section.bucket}>
-                {/* Today / Earlier / Older group header */}
-                <h2 className="px-6 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-widest text-ink-400">
-                  {section.bucket}
-                </h2>
+                {/* 40-06: Today / Earlier / Older group header — mock composition:
+                    uppercase label + a faded count + a hairline rule to the edge. */}
+                <div className="flex items-center gap-2.5 px-6 pt-5 pb-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+                    {section.bucket}
+                  </span>
+                  <span className="text-[10px] text-ink-300 tabular-nums">{section.groups.length}</span>
+                  <span className="flex-1 h-px bg-line-divider" />
+                </div>
                 <div className="divide-y divide-line-divider">
                   {section.groups.map((group, idx) => (
                     <FamilyGroupCard
