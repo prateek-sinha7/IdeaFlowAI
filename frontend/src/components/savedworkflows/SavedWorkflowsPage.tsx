@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  AlertCircle, MoreHorizontal, Pencil, Copy, Trash2,
+  AlertCircle, MoreVertical, Pencil, Copy, Trash2,
   Play, Workflow, Clock, Cpu,
   Search,
 } from "lucide-react";
@@ -113,7 +113,7 @@ function KebabMenu({
         onClick={onToggle}
         className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-300 hover:text-ink-600 hover:bg-surface-warm transition-colors"
       >
-        <MoreHorizontal className="h-4 w-4" />
+        <MoreVertical className="h-4 w-4" />
       </button>
       <AnimatePresence>
         {isOpen && (
@@ -214,7 +214,7 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
         {/* ── Page header — matches HomeLaunchGrid style ─────────────────── */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }} className="mb-8">
-          <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.18em] mb-4">
+          <p className="text-[11px] font-semibold text-ink-400 uppercase tracking-[0.24em] mb-2">
             VelocityAI
           </p>
           <div className="flex items-end justify-between gap-4 flex-wrap">
@@ -246,12 +246,12 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
 
         {/* ── Toolbar ─────────────────────────────────────────────────────── */}
         {!loading && userWorkflows.length > 0 && (
-          <div className="flex items-center gap-3 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
+          <div className="flex items-center gap-3 mt-[22px] mb-[18px]">
+            <div className="relative w-full max-w-[340px]">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[15px] w-[15px] text-ink-400" />
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search workflows…"
-                className="w-full pl-9 pr-4 py-2 text-[12px] bg-surface-white border border-line-border rounded-lg focus:outline-none focus:border-line-faint placeholder-ink-400 transition-colors" />
+                className="w-full pl-10 pr-4 py-[9px] text-[13px] bg-surface-card border border-line-control rounded-[10px] focus:outline-none focus:border-line-faint placeholder-ink-400 transition-colors" />
             </div>
             {search && filtered.length < userWorkflows.length && (
               <p className="text-[11px] text-ink-400">{filtered.length} of {userWorkflows.length}</p>
@@ -295,7 +295,7 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
 
         {/* ── CARD VIEW ─────────────────────────────────────────────────── */}
         {!loading && filtered.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {filtered.map((row, idx) => {
               const iconStyle = ICON_STYLES[idx % ICON_STYLES.length];
               const pipelineLabel = PIPELINE_LABEL[row.base_pipeline_type] ?? row.base_pipeline_type;
@@ -304,10 +304,10 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
                 <motion.div key={row.id}
                   initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.25, delay: Math.min(idx * 0.05, 0.3) }}
-                  className="group flex flex-col bg-surface-card rounded-xl border border-line-border p-4 hover:border-line-faint hover:shadow-md transition-all">
+                  className="group flex flex-col min-h-[200px] bg-surface-card rounded-[14px] border border-line-border p-[17px] hover:border-line-faint hover:shadow-md transition-all">
                   {/* Header */}
                   <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-[11px] font-bold group-hover:scale-105 transition-transform ${iconStyle}`}>
+                    <div className={`w-10 h-10 rounded-[11px] flex items-center justify-center flex-shrink-0 text-[13px] font-semibold group-hover:scale-105 transition-transform ${iconStyle}`}>
                       {getInitials(row.name)}
                     </div>
                     <KebabMenu
@@ -321,16 +321,16 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
                     />
                   </div>
                   {/* Type badge */}
-                  <span className="self-start text-[10px] font-semibold px-2 py-0.5 rounded-full bg-surface-warm text-ink-600 border border-line-border mb-1.5">
+                  <span className="self-start text-[9px] font-semibold uppercase tracking-[0.06em] px-2 py-1 rounded-[5px] bg-surface-warm text-ink-500 border border-line-control mb-1.5">
                     {pipelineLabel}
                   </span>
                   {/* Name */}
-                  <p className="text-[14px] font-semibold italic text-ink-900 group-hover:text-brand transition-colors line-clamp-1">
+                  <p className="text-[15px] font-semibold italic text-ink-900 group-hover:text-brand transition-colors line-clamp-1">
                     {row.name}
                   </p>
                   {/* Description */}
                   {row.description
-                    ? <p className="text-[11px] text-ink-500 mt-1 leading-relaxed line-clamp-2 flex-1">{row.description}</p>
+                    ? <p className="text-[12px] text-ink-500 mt-1 leading-relaxed line-clamp-2 flex-1">{row.description}</p>
                     : null}
                   {/* Brief preview — from _wizard for all workflow types.
                       Strips === Attached: === file blocks so only the user's own
@@ -357,7 +357,7 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
                   </div>
                   {/* Run button */}
                   <button onClick={() => onLaunchSaved?.(row)}
-                    className="mt-3 w-full flex items-center justify-center gap-1.5 rounded-lg bg-brand px-3 py-2.5 text-[12px] font-semibold text-white hover:bg-brand-pressed transition-colors">
+                    className="mt-3 w-full flex items-center justify-center gap-1.5 rounded-[10px] bg-brand px-3 py-2.5 text-[12px] font-semibold text-white hover:bg-brand-pressed transition-colors">
                     <Play className="h-3.5 w-3.5" />Run workflow
                   </button>
                 </motion.div>

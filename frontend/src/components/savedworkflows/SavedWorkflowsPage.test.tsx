@@ -100,6 +100,58 @@ describe("SavedWorkflowsPage — D-11 label", () => {
   });
 });
 
+describe("SavedWorkflowsPage — grid, empty + search-filtered states (Phase 40 shell)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetToken.mockReturnValue("test-token");
+  });
+
+  it("renders one card per seeded row (populated grid)", async () => {
+    mockGetUserWorkflows.mockResolvedValue([
+      { ...ROW, id: "uw-1", name: "Alpha deck", base_pipeline_type: "ppt" },
+      { ...ROW, id: "uw-2", name: "Beta migration", base_pipeline_type: "mulesoft_to_springboot" },
+    ]);
+    render(<SavedWorkflowsPage />);
+    expect(await screen.findByText("Alpha deck")).toBeInTheDocument();
+    expect(screen.getByText("Beta migration")).toBeInTheDocument();
+    // Each card carries its own "Run workflow" launch action.
+    expect(screen.getAllByRole("button", { name: /Run workflow/ })).toHaveLength(2);
+  });
+
+  it("shows the empty state (no cards) when the list is empty", async () => {
+    mockGetUserWorkflows.mockResolvedValue([]);
+    render(<SavedWorkflowsPage />);
+    expect(await screen.findByText("No workflows saved yet")).toBeInTheDocument();
+    // No launch actions and no search toolbar when there are zero workflows.
+    expect(screen.queryByRole("button", { name: /Run workflow/ })).toBeNull();
+    expect(screen.queryByPlaceholderText(/Search workflows/i)).toBeNull();
+  });
+
+  it("filters the grid by the search query and offers a clear-search escape", async () => {
+    const user = userEvent.setup();
+    mockGetUserWorkflows.mockResolvedValue([
+      { ...ROW, id: "uw-1", name: "Alpha deck", description: "", base_pipeline_type: "ppt" },
+      { ...ROW, id: "uw-2", name: "Beta migration", description: "", base_pipeline_type: "prototype" },
+    ]);
+    render(<SavedWorkflowsPage />);
+    await screen.findByText("Alpha deck");
+
+    const box = screen.getByPlaceholderText(/Search workflows/i);
+    await user.type(box, "Alpha");
+    // The non-matching row drops out.
+    expect(screen.getByText("Alpha deck")).toBeInTheDocument();
+    expect(screen.queryByText("Beta migration")).toBeNull();
+
+    // A query matching nothing yields the "no results" affordance + a clear button.
+    await user.clear(box);
+    await user.type(box, "zzz-nothing");
+    expect(await screen.findByText(/No workflows match/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Clear search/i }));
+    expect(await screen.findByText("Alpha deck")).toBeInTheDocument();
+    expect(screen.getByText("Beta migration")).toBeInTheDocument();
+  });
+});
+
 describe("SavedWorkflowsPage — kebab a11y (aria + Escape)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
