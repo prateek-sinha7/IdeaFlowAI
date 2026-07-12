@@ -107,8 +107,9 @@ describe("AnalyticsPage — server recompute (SC-1)", () => {
       expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
     );
     // The first payload's spend is rendered (appears in the KPI tile + spend chip).
+    // Cost renders in the mock's 2-dp currency format (40-04 number-format parity).
     await waitFor(() =>
-      expect(screen.getAllByText("$1.230").length).toBeGreaterThan(0),
+      expect(screen.getAllByText("$1.23").length).toBeGreaterThan(0),
     );
 
     await user.click(screen.getByRole("button", { name: "7d" }));
@@ -119,7 +120,7 @@ describe("AnalyticsPage — server recompute (SC-1)", () => {
     );
     // A number re-renders from the SECOND payload.
     await waitFor(() =>
-      expect(screen.getAllByText("$4.560").length).toBeGreaterThan(0),
+      expect(screen.getAllByText("$4.56").length).toBeGreaterThan(0),
     );
   });
 

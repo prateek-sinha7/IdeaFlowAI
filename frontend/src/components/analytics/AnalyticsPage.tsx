@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import {
-  ArrowLeft, Zap, DollarSign, Activity, Layers,
+  ChevronLeft, Activity,
   RefreshCw, CheckCircle2, XCircle, Clock3, Cpu,
 } from "lucide-react";
 import { getToken, getAnalyticsSummary, getPreferences } from "@/lib/api";
@@ -49,16 +49,17 @@ function normalizeType(type: string): string {
   return type.replace("od_ppt", "ppt").replace("od_prototype", "prototype").replace("_revision", "");
 }
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
+// ─── Formatters (aligned to the mock's number format: compact 1-dp tokens,
+//     2-dp currency, tabular figures — 40-04 parity pass) ─────────────────────────
 function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
 }
 function formatCost(usd: number): string {
   if (usd === 0) return "$0.00";
-  if (usd < 0.001) return "<$0.001";
-  return `$${usd.toFixed(3)}`;
+  if (usd < 0.01) return "<$0.01";
+  return `$${usd.toFixed(2)}`;
 }
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -89,29 +90,24 @@ function AnimatedNumber({ value, format }: { value: number; format: (n: number) 
   return <>{format(mounted ? display : value)}</>;
 }
 
-// ─── Stat card ────────────────────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, rawValue, sub, format }: {
-  icon: typeof Zap; label: string; value: string; rawValue?: number;
+// ─── Stat card (mock parity: no icon — label / figure / sub) ────────────────────
+function StatCard({ label, value, rawValue, sub, format }: {
+  label: string; value: string; rawValue?: number;
   sub?: string; format?: (n: number) => string;
 }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow"
+      className="bg-surface-card rounded-[14px] border border-line-border px-[17px] py-4 hover:shadow-md transition-shadow"
     >
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-semibold text-ink-400 uppercase tracking-widest">{label}</span>
-        <div className="h-7 w-7 rounded-lg bg-brand-fill flex items-center justify-center">
-          <Icon className="h-3.5 w-3.5 text-brand" />
-        </div>
-      </div>
-      <p className="text-[24px] font-bold text-ink-900 leading-none tracking-tight">
+      <p className="text-[9.5px] font-semibold text-ink-300 uppercase tracking-[0.11em] mb-3">{label}</p>
+      <p className="text-[24px] font-bold text-ink-900 leading-none tabular-nums">
         {rawValue !== undefined && format
           ? <AnimatedNumber value={rawValue} format={format} />
           : value}
       </p>
-      {sub && <p className="text-[10px] text-ink-400 mt-1.5">{sub}</p>}
+      {sub && <p className="text-[11px] text-ink-400 mt-2 tabular-nums">{sub}</p>}
     </motion.div>
   );
 }
@@ -237,26 +233,25 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
 
   return (
     <div className="h-full flex flex-col overflow-y-auto bg-surface-paper">
+      <div className="max-w-[1040px] mx-auto w-full px-10 pt-6 pb-16">
 
-      {/* ── Header ── */}
-      <div className="px-6 pt-5 pb-4 border-b border-line-border bg-surface-white flex-shrink-0">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <button onClick={onBack} className="h-8 w-8 rounded-lg hover:bg-surface-warm flex items-center justify-center transition-colors">
-              <ArrowLeft className="h-4 w-4 text-ink-500" />
-            </button>
-            <div>
-              <h1 className="text-[17px] font-semibold text-ink-900 leading-tight">Analytics</h1>
-              <p className="text-[11px] text-ink-400 mt-0.5">Token usage · Cost · Pipeline performance</p>
-            </div>
+        {/* ── Header (inline over paper — mock parity) ── */}
+        <div className="flex items-center gap-3.5 mb-[22px] flex-wrap">
+          <button onClick={onBack}
+            className="h-9 w-9 flex-none rounded-[9px] border border-line-control bg-surface-card grid place-items-center text-ink-700 hover:border-line-faint transition-colors">
+            <ChevronLeft className="h-[17px] w-[17px]" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-[26px] font-normal italic font-serif text-ink-900 leading-none tracking-tight">Analytics</h1>
+            <p className="text-[12.5px] text-ink-400 mt-1.5">Token usage · Cost · Pipeline performance</p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
             {/* Date pills — each selection re-queries the server (SC-1). */}
-            <div className="flex items-center gap-0.5 bg-surface-warm rounded-xl p-0.5">
+            <div className="flex items-center gap-0.5 bg-surface-warm rounded-[9px] p-[3px]">
               {(["today", "3d", "7d", "30d", "90d", "all"] as DateFilter[]).map(f => (
                 <button key={f} onClick={() => setDateFilter(f)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${
+                  className={`px-3 py-1.5 rounded-[7px] text-[11px] font-semibold transition-all ${
                     dateFilter === f ? "bg-surface-white text-ink-900 shadow-sm" : "text-ink-500 hover:text-ink-700"
                   }`}>
                   {f === "all" ? "All" : f === "today" ? "Today" : f}
@@ -265,7 +260,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             </div>
             {/* Pipeline select — narrows the fetched rollup arrays client-side. */}
             <select value={pipelineFilter} onChange={e => setPipelineFilter(e.target.value as PipelineFilter)}
-              className="text-[11px] border border-line-border rounded-xl px-3 py-1.5 bg-surface-white text-ink-700 focus:outline-none focus:border-brand transition-colors">
+              className="text-[12.5px] font-medium border border-line-control rounded-[9px] px-3 py-2 bg-surface-card text-ink-700 focus:outline-none focus:border-brand transition-colors">
               <option value="all">All pipelines</option>
               <option value="user_stories">User Stories</option>
               <option value="ppt">Presentation</option>
@@ -276,7 +271,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             {/* Model select — only shown when multiple models appear in the range. */}
             {availableModelIds.length > 1 && (
               <select value={modelFilter} onChange={e => setModelFilter(e.target.value)}
-                className="text-[11px] border border-line-border rounded-xl px-3 py-1.5 bg-surface-white text-ink-700 focus:outline-none focus:border-brand transition-colors">
+                className="text-[12.5px] font-medium border border-line-control rounded-[9px] px-3 py-2 bg-surface-card text-ink-700 focus:outline-none focus:border-brand transition-colors">
                 <option value="all">All models</option>
                 {availableModelIds.map(id => (
                   <option key={id} value={id}>
@@ -287,278 +282,270 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             )}
           </div>
         </div>
-      </div>
 
-      {loading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <RefreshCw className="h-5 w-5 animate-spin text-ink-300" />
-            <p className="text-[11px] text-ink-400">Loading analytics…</p>
+        {loading ? (
+          <div className="py-24 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <RefreshCw className="h-5 w-5 animate-spin text-ink-300" />
+              <p className="text-[11px] text-ink-400">Loading analytics…</p>
+            </div>
           </div>
-        </div>
-      ) : error ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-2">
-            <XCircle className="h-5 w-5 text-status-failed" />
-            <p className="text-[11px] text-ink-500">{error}</p>
+        ) : error ? (
+          <div className="py-24 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-2">
+              <XCircle className="h-5 w-5 text-status-failed" />
+              <p className="text-[11px] text-ink-500">{error}</p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="px-5 py-5 space-y-4 max-w-5xl mx-auto w-full">
+        ) : (
+          <div className="space-y-3.5">
 
-          {/* ── KPI row ── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <StatCard icon={Zap}        label="Total Tokens"  value={formatTokens(totalTokens)}
-              rawValue={totalTokens} format={formatTokens}
-              sub={`${formatTokens(inputTokens)} in · ${formatTokens(outputTokens)} out`} />
-            <StatCard icon={DollarSign} label="Est. Cost"     value={formatCost(spend)}
-              sub={`across ${completedCount} completed runs`} />
-            <StatCard icon={Activity}   label="Avg / Run"     value={formatTokens(avgTokens)}
-              rawValue={avgTokens} format={formatTokens}
-              sub="tokens per run" />
-            <StatCard icon={Layers}     label="Total Runs"    value={String(totalCount)}
-              rawValue={totalCount} format={n => String(n)}
-              sub={`${completedCount} completed · ${failedCount} failed`} />
-          </div>
+            {/* ── KPI row ── */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <StatCard label="Total Tokens"  value={formatTokens(totalTokens)}
+                rawValue={totalTokens} format={formatTokens}
+                sub={`${formatTokens(inputTokens)} in · ${formatTokens(outputTokens)} out`} />
+              <StatCard label="Est. Cost"     value={formatCost(spend)}
+                sub={`across ${completedCount} completed runs`} />
+              <StatCard label="Avg / Run"     value={formatTokens(avgTokens)}
+                rawValue={avgTokens} format={formatTokens}
+                sub="tokens per run" />
+              <StatCard label="Total Runs"    value={String(totalCount)}
+                rawValue={totalCount} format={n => String(n)}
+                sub={`${completedCount} completed · ${failedCount} failed`} />
+            </div>
 
-          {/* ── Activity chart + Success rate ── */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            {/* ── Activity chart + Success rate ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
 
-            {/* Daily activity — extracted BarChart (INV-3), 2/3 width */}
-            <div className="lg:col-span-2 bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-[13px] font-semibold text-ink-900">Daily Activity</p>
-                  <p className="text-[10px] text-ink-400 mt-0.5">{DATE_LABELS[dateFilter]}</p>
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-ink-400">
-                  <span className="h-2 w-2 rounded-sm inline-block" style={{ background: "var(--brand)" }} />
-                  {dailyHasTokens ? "Tokens" : "Runs"}
-                </div>
-              </div>
-
-              {dailyEmpty ? (
-                <div className="h-20 flex flex-col items-center justify-center gap-1">
-                  <Activity className="h-5 w-5 text-ink-300" />
-                  <p className="text-[11px] text-ink-400">No activity in this period</p>
-                </div>
-              ) : (
-                <>
-                  <BarChart
-                    data={dailyData}
-                    ariaLabel={`Daily ${dailyHasTokens ? "token usage" : "run counts"} for ${DATE_LABELS[dateFilter]}`}
-                  />
-                  <div className="flex mt-2">
-                    {dailyData.map((d, i) => (
-                      <div key={i} className="flex-1 text-center">
-                        {(dailyData.length <= 3 || i % Math.ceil(dailyData.length / 5) === 0) && (
-                          <span className="text-[8px] text-ink-400">{d.label}</span>
-                        )}
-                      </div>
-                    ))}
+              {/* Daily activity — extracted BarChart (INV-3), 2/3 width */}
+              <div className="lg:col-span-2 bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-[12px] font-semibold text-ink-800">Daily Activity</p>
+                    <p className="text-[11px] text-ink-300 mt-1">{DATE_LABELS[dateFilter]}</p>
                   </div>
-                  {!dailyHasTokens && (
-                    <p className="text-[9px] text-ink-400 mt-1 text-center italic">
-                      Showing run counts — token data available for new runs
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Success rate — extracted DonutChart (INV-3), 1/3 width */}
-            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 flex flex-col items-center justify-center hover:shadow-md transition-shadow">
-              <p className="text-[11px] font-semibold text-ink-500 uppercase tracking-widest mb-4">Success Rate</p>
-              <DonutChart
-                percent={successRate}
-                status="done"
-                ariaLabel={`Success rate ${successRate} percent — ${completedCount} completed of ${totalCount}`}
-              >
-                <span className="text-[20px] font-bold text-ink-900">{successRate}%</span>
-              </DonutChart>
-              <div className="mt-4 space-y-1.5 w-full">
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="flex items-center gap-1.5 text-ink-500">
-                    <CheckCircle2 className="h-3 w-3 text-status-done" /> Completed
-                  </span>
-                  <span className="font-semibold text-ink-800">{completedCount}</span>
+                  <div className="flex items-center gap-1.5 text-[11px] text-ink-400">
+                    <span className="h-2 w-2 rounded-[2px] inline-block" style={{ background: "var(--brand)" }} />
+                    {dailyHasTokens ? "Tokens" : "Runs"}
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="flex items-center gap-1.5 text-ink-500">
-                    <XCircle className="h-3 w-3 text-status-failed" /> Failed
-                  </span>
-                  <span className="font-semibold text-ink-800">{failedCount}</span>
-                </div>
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="flex items-center gap-1.5 text-ink-500">
-                    <Clock3 className="h-3 w-3 text-ink-400" /> Total
-                  </span>
-                  <span className="font-semibold text-ink-800">{totalCount}</span>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {/* ── Pipeline breakdown + Model breakdown ── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-
-            {/* By Pipeline Type — bound to pipelines[] rollup */}
-            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
-              <p className="text-[13px] font-semibold text-ink-900 mb-4">By Pipeline Type</p>
-              {pipelineRows.length === 0 ? (
-                <p className="text-[11px] text-ink-400 py-6 text-center">No data for this period</p>
-              ) : (
-                <div className="space-y-3.5">
-                  {pipelineRows.map((p, i) => {
-                    const barVal = pipelineHasTokens ? p.tokens : p.runs;
-                    const pct = Math.max(Math.round((barVal / pipelineMax) * 100), barVal > 0 ? 3 : 0);
-                    return (
-                      <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-brand-fill text-brand">{p.label}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[10px] text-ink-500">
-                            <span className="font-medium">{p.runs} run{p.runs !== 1 ? "s" : ""}</span>
-                            {p.tokens > 0 && <><span className="text-ink-300">·</span><span className="font-semibold text-ink-700">{formatTokens(p.tokens)}</span><span className="text-ink-400">{formatCost(p.cost)}</span></>}
-                          </div>
-                        </div>
-                        <div className="h-1.5 bg-line-faint-row rounded-full overflow-hidden">
-                          <motion.div className="h-full rounded-full"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${pct}%` }}
-                            transition={{ duration: 0.6, delay: i * 0.05, ease: "easeOut" }}
-                            style={{ background: "var(--brand)" }}
-                          />
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* By Model — bound to models[] rollup */}
-            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
-              <p className="text-[13px] font-semibold text-ink-900 mb-4">By Model</p>
-              {modelRows.length === 0 ? (
-                <p className="text-[11px] text-ink-400 py-6 text-center">No model usage yet</p>
-              ) : (
-                <div className="space-y-3.5">
-                  {modelRows.map((m, i) => {
-                    const pct = Math.max(Math.round((m.tokens / modelMax) * 100), m.tokens > 0 ? 3 : 0);
-                    return (
-                      <motion.div key={m.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className="flex items-center gap-2">
-                            <Cpu className="h-3 w-3 text-brand" />
-                            <span className="text-[10px] font-semibold text-ink-800">{m.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[10px] text-ink-500">
-                            <span className="font-medium">{m.runs} run{m.runs !== 1 ? "s" : ""}</span>
-                            {m.tokens > 0 && <><span className="text-ink-300">·</span><span className="font-semibold text-ink-700">{formatTokens(m.tokens)}</span><span className="text-ink-400">{formatCost(m.cost)}</span></>}
-                          </div>
-                        </div>
-                        <div className="h-1.5 bg-line-faint-row rounded-full overflow-hidden">
-                          <motion.div className="h-full rounded-full"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${pct}%` }}
-                            transition={{ duration: 0.6, delay: i * 0.05, ease: "easeOut" }}
-                            style={{ background: "var(--brand-on-dark)" }}
-                          />
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── Token ratio + Model info ── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-
-            {/* Input vs Output ratio — bound to token_totals */}
-            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[13px] font-semibold text-ink-900">Token Breakdown</p>
-                {totalTokens > 0 && (
-                  <span className="text-[10px] text-ink-400">
-                    {Math.round((inputTokens / totalTokens) * 100)}% in ·{" "}
-                    {Math.round((outputTokens / totalTokens) * 100)}% out
-                  </span>
+                {dailyEmpty ? (
+                  <div className="h-20 flex flex-col items-center justify-center gap-1">
+                    <Activity className="h-5 w-5 text-ink-300" />
+                    <p className="text-[11px] text-ink-400">No activity in this period</p>
+                  </div>
+                ) : (
+                  <>
+                    <BarChart
+                      data={dailyData}
+                      ariaLabel={`Daily ${dailyHasTokens ? "token usage" : "run counts"} for ${DATE_LABELS[dateFilter]}`}
+                    />
+                    {!dailyHasTokens && (
+                      <p className="text-[9px] text-ink-400 mt-2 text-center italic">
+                        Showing run counts — token data available for new runs
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
-              {totalTokens === 0 ? (
-                <p className="text-[11px] text-ink-400 py-3 text-center">No token data yet</p>
-              ) : (
-                <>
-                  <div className="h-2.5 bg-line-faint-row rounded-full overflow-hidden flex mb-3">
-                    <motion.div className="h-full bg-brand rounded-l-full"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${(inputTokens / totalTokens) * 100}%` }}
-                      transition={{ duration: 0.8, ease: "easeOut" }}
-                    />
-                    <motion.div className="h-full rounded-r-full"
-                      style={{ background: "var(--brand-on-dark)" }}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
-                      transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { label: "Input", value: inputTokens, color: "var(--brand)" },
-                      { label: "Output", value: outputTokens, color: "var(--brand-on-dark)" },
-                      { label: "Total", value: totalTokens, color: "var(--ink-700)" },
-                    ].map(item => (
-                      <div key={item.label} className="bg-surface-warm rounded-xl px-3 py-2.5">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
-                          <span className="text-[9px] text-ink-400 font-medium">{item.label}</span>
-                        </div>
-                        <p className="text-[13px] font-bold text-ink-800">{formatTokens(item.value)}</p>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
 
-            {/* Model info — display-only meta for the active model */}
-            <div className="bg-surface-card rounded-2xl border border-line-border px-5 py-4 hover:shadow-md transition-shadow">
-              <p className="text-[13px] font-semibold text-ink-900 mb-3">Model Details</p>
-              <div className="space-y-2.5">
-                {[
-                  { label: "Model",          value: meta.name },
-                  { label: "Input rate",     value: `${meta.inputRate} tokens` },
-                  { label: "Output rate",    value: `${meta.outputRate} tokens` },
-                  { label: "Context window", value: `${meta.context} tokens` },
-                ].map(item => (
-                  <div key={item.label} className="flex items-center justify-between py-1.5 border-b border-line-faint-row last:border-0">
-                    <span className="text-[11px] text-ink-500">{item.label}</span>
-                    <span className="text-[11px] font-semibold text-ink-800">{item.value}</span>
+              {/* Success rate — extracted DonutChart (INV-3, brand sweep per mock), 1/3 width */}
+              <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 flex flex-col hover:shadow-md transition-shadow">
+                <p className="text-[9.5px] font-semibold text-ink-300 uppercase tracking-[0.11em] mb-2">Success Rate</p>
+                <div className="flex justify-center my-3">
+                  <DonutChart
+                    percent={successRate}
+                    ariaLabel={`Success rate ${successRate} percent — ${completedCount} completed of ${totalCount}`}
+                  >
+                    <span className="text-[22px] font-bold text-ink-900 tabular-nums">{successRate}%</span>
+                  </DonutChart>
+                </div>
+                <div className="space-y-2 w-full mt-auto">
+                  <div className="flex items-center justify-between text-[12px] text-ink-700">
+                    <span className="flex items-center gap-2">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-status-done" /> Completed
+                    </span>
+                    <span className="tabular-nums">{completedCount}</span>
                   </div>
-                ))}
+                  <div className="flex items-center justify-between text-[12px] text-ink-700">
+                    <span className="flex items-center gap-2">
+                      <XCircle className="h-3.5 w-3.5 text-status-failed" /> Failed
+                    </span>
+                    <span className="tabular-nums">{failedCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[12px] text-ink-700">
+                    <span className="flex items-center gap-2">
+                      <Clock3 className="h-3.5 w-3.5 text-ink-300" /> Total
+                    </span>
+                    <span className="tabular-nums">{totalCount}</span>
+                  </div>
+                </div>
               </div>
-              {showPreferenceNote && (
-                <div className="mt-3 rounded-lg bg-[var(--status-amber-fill)] border border-[var(--status-amber-border)] px-3 py-2">
-                  <p className="text-[10px] text-[var(--status-amber)]">
-                    New runs will use <span className="font-semibold">{preferenceLabel}</span>
-                  </p>
-                </div>
-              )}
-              {spend > 0 && (
-                <div className="mt-3 bg-brand-fill border border-brand-border rounded-xl px-3 py-2.5 flex items-center justify-between">
-                  <span className="text-[10px] text-brand font-medium">Total spend ({DATE_LABELS[dateFilter]})</span>
-                  <span className="text-[13px] font-bold text-brand">{formatCost(spend)}</span>
-                </div>
-              )}
             </div>
-          </div>
 
-        </div>
-      )}
+            {/* ── Pipeline breakdown + Model breakdown ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+
+              {/* By Pipeline Type — bound to pipelines[] rollup */}
+              <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
+                <p className="text-[12px] font-semibold text-ink-800 mb-3.5">By Pipeline Type</p>
+                {pipelineRows.length === 0 ? (
+                  <p className="text-[11px] text-ink-400 py-6 text-center">No data for this period</p>
+                ) : (
+                  <div className="space-y-2.5">
+                    {pipelineRows.map((p, i) => {
+                      const barVal = pipelineHasTokens ? p.tokens : p.runs;
+                      const pct = Math.max(Math.round((barVal / pipelineMax) * 100), barVal > 0 ? 3 : 0);
+                      return (
+                        <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-surface-warm text-ink-500 uppercase tracking-wide">{p.label}</span>
+                            <div className="flex items-center gap-2 text-[10.5px] text-ink-300 tabular-nums">
+                              <span>{p.runs} run{p.runs !== 1 ? "s" : ""}</span>
+                              {p.tokens > 0 && <><span>·</span><span className="font-semibold text-ink-700">{formatTokens(p.tokens)}</span><span>{formatCost(p.cost)}</span></>}
+                            </div>
+                          </div>
+                          <div className="h-1.5 bg-[var(--status-queued-fill)] rounded-full overflow-hidden">
+                            <motion.div className="h-full rounded-full"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${pct}%` }}
+                              transition={{ duration: 0.6, delay: i * 0.05, ease: "easeOut" }}
+                              style={{ background: "var(--brand)" }}
+                            />
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* By Model — bound to models[] rollup (ND-40-04-AA: the /api/analytics/summary
+                  payload carries no recent-runs list and this plan forbids a new fetch, so this
+                  slot renders the live model rollup where the mock shows Recent Runs). */}
+              <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
+                <p className="text-[12px] font-semibold text-ink-800 mb-3.5">By Model</p>
+                {modelRows.length === 0 ? (
+                  <p className="text-[11px] text-ink-400 py-6 text-center">No model usage yet</p>
+                ) : (
+                  <div className="space-y-2.5">
+                    {modelRows.map((m, i) => {
+                      const pct = Math.max(Math.round((m.tokens / modelMax) * 100), m.tokens > 0 ? 3 : 0);
+                      return (
+                        <motion.div key={m.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center gap-2">
+                              <Cpu className="h-3 w-3 text-brand" />
+                              <span className="text-[10.5px] font-semibold text-ink-800">{m.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10.5px] text-ink-300 tabular-nums">
+                              <span>{m.runs} run{m.runs !== 1 ? "s" : ""}</span>
+                              {m.tokens > 0 && <><span>·</span><span className="font-semibold text-ink-700">{formatTokens(m.tokens)}</span><span>{formatCost(m.cost)}</span></>}
+                            </div>
+                          </div>
+                          <div className="h-1.5 bg-[var(--status-queued-fill)] rounded-full overflow-hidden">
+                            <motion.div className="h-full rounded-full"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${pct}%` }}
+                              transition={{ duration: 0.6, delay: i * 0.05, ease: "easeOut" }}
+                              style={{ background: "var(--brand-on-dark)" }}
+                            />
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Token ratio + Model info ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+
+              {/* Input vs Output ratio — bound to token_totals */}
+              <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[12px] font-semibold text-ink-800">Token Breakdown</p>
+                  {totalTokens > 0 && (
+                    <span className="text-[11px] text-ink-300 tabular-nums">
+                      {Math.round((inputTokens / totalTokens) * 100)}% in ·{" "}
+                      {Math.round((outputTokens / totalTokens) * 100)}% out
+                    </span>
+                  )}
+                </div>
+                {totalTokens === 0 ? (
+                  <p className="text-[11px] text-ink-400 py-3 text-center">No token data yet</p>
+                ) : (
+                  <>
+                    <div className="h-2.5 bg-[var(--status-queued-fill)] rounded-full overflow-hidden flex mb-3.5">
+                      <motion.div className="h-full bg-brand rounded-l-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(inputTokens / totalTokens) * 100}%` }}
+                        transition={{ duration: 0.8, ease: "easeOut" }}
+                      />
+                      <motion.div className="h-full rounded-r-full"
+                        style={{ background: "var(--brand-on-dark)" }}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
+                        transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {[
+                        { label: "Input", value: inputTokens, color: "var(--brand)", accent: "text-ink-900" },
+                        { label: "Output", value: outputTokens, color: "var(--brand-on-dark)", accent: "text-ink-900" },
+                        { label: "Total", value: totalTokens, color: "var(--brand)", accent: "text-brand" },
+                      ].map(item => (
+                        <div key={item.label} className="bg-surface-white border border-line-faint-row rounded-[10px] px-3 py-[11px]">
+                          <p className={`text-[16px] font-bold tabular-nums ${item.accent}`}>{formatTokens(item.value)}</p>
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
+                            <span className="text-[10.5px] text-ink-300 font-medium">{item.label}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Model info — display-only meta for the active model */}
+              <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
+                <p className="text-[12px] font-semibold text-ink-800 mb-2">Model Details</p>
+                <div>
+                  {[
+                    { label: "Model",          value: meta.name },
+                    { label: "Input rate",     value: `${meta.inputRate} tokens` },
+                    { label: "Output rate",    value: `${meta.outputRate} tokens` },
+                    { label: "Context window", value: `${meta.context} tokens` },
+                  ].map(item => (
+                    <div key={item.label} className="flex items-center gap-3 py-2 border-t border-line-faint-row">
+                      <span className="w-[130px] flex-none text-[11.5px] font-medium text-ink-300">{item.label}</span>
+                      <span className="flex-1 text-[12px] text-ink-700 tabular-nums">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+                {showPreferenceNote && (
+                  <div className="mt-3 rounded-lg bg-[var(--status-amber-fill)] border border-[var(--status-amber-border)] px-3 py-2">
+                    <p className="text-[10px] text-[var(--status-amber)]">
+                      New runs will use <span className="font-semibold">{preferenceLabel}</span>
+                    </p>
+                  </div>
+                )}
+                {spend > 0 && (
+                  <div className="mt-3 bg-brand-violet-tint border border-brand-border rounded-[9px] px-3 py-2.5 flex items-center justify-between">
+                    <span className="text-[11.5px] text-ink-600 font-medium">Total spend ({DATE_LABELS[dateFilter]})</span>
+                    <span className="text-[14px] font-bold text-brand tabular-nums">{formatCost(spend)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        )}
+      </div>
     </div>
   );
 }
