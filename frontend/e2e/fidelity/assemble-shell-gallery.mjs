@@ -43,7 +43,7 @@ const surfaceArg = (() => {
 })();
 
 /** The FINALIZED intended-divergence register (SC-001 shell rules). ND-A..D are
- *  carried from Phase 39; ND-W..Z are the Phase-40 shell divergences. This array
+ *  carried from Phase 39; ND-W..AD are the Phase-40 shell divergences. This array
  *  is the canonical, shipped source of truth captioned "expected — ignore" in the
  *  gallery header. The Phase-39 scoping candidates (ND-E?..H?) and the DEFERRED
  *  Configure/Composer surfaces are intentionally NOT listed (not diffed here). */
@@ -161,7 +161,7 @@ async function main() {
   <h1>Phase 40 — Shell Fidelity Gallery${scope}</h1>
   <p>Mock (left) vs current app (right), per <code>{surface}__{state}</code> (state ∈ shell = 1440×900 viewport · shellfull = full page). Human review, no pixel-diff (ND-D live data ≠ mock values). See README.md for the surface→component map + commands.</p>
   <details class="nd" open>
-    <summary>Intended divergences (ND-A..D carried + ND-W..Z Phase 40) — expected, IGNORE</summary>
+    <summary>Intended divergences (ND-A..D carried + ND-W..AD Phase 40) — expected, IGNORE</summary>
     <table>${ndRows}</table>
   </details>
 </header>
