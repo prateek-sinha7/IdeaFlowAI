@@ -18,7 +18,14 @@
 
 import { motion } from "motion/react";
 
-const R = 36;
+// Mock-fidelity geometry (Phase 40): the analytics donut is drawn at 118px to
+// match shots-shell/target/analytics__shell.png. Radius / stroke / centre are
+// scaled proportionally from the original 88px primitive (r 36 → 48, stroke
+// 10 → 13, centre 44 → 59) so the ring stays centred and the centre % label fits.
+const SIZE = 118;
+const CENTER = SIZE / 2; // 59
+const R = 48;
+const STROKE = 13;
 const CIRCUMFERENCE = 2 * Math.PI * R;
 
 /** When a datum IS a run-status, colour the sweep from the status ramp. */
@@ -55,33 +62,33 @@ export function DonutChart({
   return (
     <div className="relative">
       <svg
-        width="88"
-        height="88"
-        viewBox="0 0 88 88"
+        width={SIZE}
+        height={SIZE}
+        viewBox={`0 0 ${SIZE} ${SIZE}`}
         role="img"
         aria-label={ariaLabel}
       >
         <circle
-          cx="44"
-          cy="44"
+          cx={CENTER}
+          cy={CENTER}
           r={R}
           fill="none"
           stroke="var(--status-queued-fill)"
-          strokeWidth="10"
+          strokeWidth={STROKE}
         />
         <motion.circle
-          cx="44"
-          cy="44"
+          cx={CENTER}
+          cy={CENTER}
           r={R}
           fill="none"
           stroke={stroke}
-          strokeWidth="10"
+          strokeWidth={STROKE}
           strokeLinecap="round"
           strokeDasharray={`${CIRCUMFERENCE}`}
           initial={{ strokeDashoffset: CIRCUMFERENCE }}
           animate={{ strokeDashoffset: CIRCUMFERENCE * (1 - pct / 100) }}
           transition={{ duration: 1, ease: "easeOut" }}
-          transform="rotate(-90 44 44)"
+          transform={`rotate(-90 ${CENTER} ${CENTER})`}
         />
       </svg>
       {children != null && (

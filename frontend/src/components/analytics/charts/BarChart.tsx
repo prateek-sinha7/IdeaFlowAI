@@ -53,16 +53,35 @@ export function BarChart({ data, ariaLabel, chroma = "var(--brand)" }: BarChartP
   const hasValues = data.some((d) => d.value > 0);
   const display = hasValues ? data : data.map((d) => ({ ...d, value: d.runs ?? 0 }));
   const max = Math.max(...display.map((d) => d.value), 1);
+  // Mock-fidelity peak (Phase 40): the analytics daily-activity chart shows ONE
+  // dark brand "peak" bar (the series max) among lighter lavender bars — see
+  // shots-shell/target/analytics__shell.png. First max index wins; only for
+  // non-status series (status bars keep their status-ramp colour + opacity).
+  const peakIdx = display.reduce(
+    (best, d, i, arr) => (d.value > arr[best].value ? i : best),
+    0,
+  );
 
   return (
     <div
       role="img"
       aria-label={ariaLabel}
-      className="flex items-end gap-[3px] h-20 w-full"
+      className="flex items-end gap-[3px] h-32 w-full"
     >
       {display.map((d, i) => {
         const pct = (d.value / max) * 100;
         const fill = d.status ? STATUS_FILL[d.status] : chroma;
+        // Non-status bars: the peak renders as the solid dark brand fill, the
+        // rest as a uniform lighter lavender (opacity ramp collapsed to a flat
+        // tint so exactly one dark peak reads against lavender, per the mock).
+        const isPeak = !d.status && d.value > 0 && i === peakIdx;
+        const barOpacity = d.status
+          ? d.value > 0 ? 0.75 + (i / display.length) * 0.25 : 0.12
+          : isPeak
+          ? 1
+          : d.value > 0
+          ? 0.34
+          : 0.12;
         const tip =
           d.tip ??
           (hasValues
@@ -81,7 +100,7 @@ export function BarChart({ data, ariaLabel, chroma = "var(--brand)" }: BarChartP
               className="w-full rounded-t-[3px] cursor-pointer"
               style={{
                 background: fill,
-                opacity: d.value > 0 ? 0.75 + (i / display.length) * 0.25 : 0.12,
+                opacity: barOpacity,
               }}
             />
             <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-ink-900 text-white text-[9px] px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">

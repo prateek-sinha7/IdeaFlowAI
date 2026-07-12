@@ -332,7 +332,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                 </div>
 
                 {dailyEmpty ? (
-                  <div className="h-20 flex flex-col items-center justify-center gap-1">
+                  <div className="h-32 flex flex-col items-center justify-center gap-1">
                     <Activity className="h-5 w-5 text-ink-300" />
                     <p className="text-[11px] text-ink-400">No activity in this period</p>
                   </div>

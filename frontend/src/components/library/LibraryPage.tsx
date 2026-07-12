@@ -394,7 +394,7 @@ export function LibraryPage() {
   const chipIdle =
     "bg-surface-card border-line-border text-ink-500 hover:border-line-control hover:text-ink-700";
 
-  const countLine = `${ALL_AGENTS_COMBINED.length} agents · ${SKILLS.length} skills · ${HOOKS.length} hooks`;
+  const countLine = `${ALL_AGENTS_COMBINED.length} agents · ${SKILLS.length} skills · ${HOOKS.length} hooks · tap any item to see its capabilities`;
 
   return (
     <div className="h-full overflow-y-auto bg-surface-paper">
