@@ -59,6 +59,7 @@ const ND = [
   ["ND-AA", "Analytics 'By Model' vs the mock's 'Recent Runs'", "the /api/analytics/summary payload carries no recent-runs list, so the right-column card shows the live per-model rollup rather than fabricating run rows (ND-D). A recent-runs data wire is a Phase-41 follow-up."],
   ["ND-AB", "Account Settings AI-Model selector", "mock's static radio-card model list → our live-bound dropdown (<select>). The model list is live per ND-D; the dropdown is the existing tested save-preference control (updatePreferences) — the control shape stays put so the pinned behaviour parity holds."],
   ["ND-AC", "Account Settings 'Usage & Limits' this-month bars", "mock's fabricated per-user 'This month' usage bars → omitted; there is no usage-metering endpoint so we never fabricate consumption numbers (SC-001/ND-D). We render the real plan banner + the live per-plan deliverable-access grid instead."],
+  ["ND-AD", "Catalogue '+ New workflow' CTA omitted", "the mock's header '+ New workflow' button is not shipped on this surface — the create-workflow entry lives on Home and the full custom-workflow Composer is the Phase-41 rebuild (parallel to ND-Z). We do not ship a dead/duplicate CTA (SC-001)."],
 ];
 
 /** Normalize divergent per-side tags so a surface pairs left/right. The mock

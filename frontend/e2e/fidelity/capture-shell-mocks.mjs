@@ -128,8 +128,8 @@ async function captureMainSurfaces(browser, origin) {
   await profileTo(page, /Account Settings/);
   await shot(page, "settings");
   await shotFull(page, "settings");
-  for (const [tab, tag] of [["Model", "settings-model"], ["Limits", "settings-limits"], ["Constitution", "settings-constitution"]]) {
-    await clickText(page, new RegExp(`^${tab}$`));
+  for (const [tab, tag] of [["AI Model", "settings-model"], ["Usage & Limits", "settings-limits"], ["Constitution", "settings-constitution"]]) {
+    await clickText(page, new RegExp(tab));
     await wait(page, 450);
     await shot(page, tag);
   }
