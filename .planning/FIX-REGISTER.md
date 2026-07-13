@@ -1466,6 +1466,100 @@ Design systems are out of scope — their picker is text chips, not an iframe gr
 - No backend restart needed — AGENT.md is read at agent dispatch time
 
 #### Notes
-- This fix is complementary to KAN-103 (template_id persistence). Even after KAN-103 is implemented to make design.md reliably available, this prompt change ensures the agent actually uses it.
-- The `write_todos` tool creates an in-context todo list visible to the model. It is NOT persisted to the sandbox as a file — the agent's todo tracking is model-context-only.
-- The `spec.md` read guidance changed from "may read to ground your change" to a clear "read this to understand original intent when needed" — but it remains non-mandatory since many revision requests don't require spec context.
+- The backend `_compute_root_ids` is intentionally NOT changed — it correctly walks `parent_run_id` ownership for all runs; the family membership decision belongs at the FE display layer (POR D7).
+- Multi-hop chains (prototype → user_stories → ppt) all share the original `root_run_id = prototype.id`. After this fix, each chained run in that chain emits as its own standalone entry since each has a different base type from the prototype root.
+- Same-type chaining edge case (e.g. prototype → prototype via chain, not revision): both runs have `baseWorkflowType = "prototype"` so they would still group together. This is an acceptable edge case since same-type chaining is rare and the behavior (grouping two prototypes) is not technically wrong. A future enhancement could add a `relationship_type` field to `WorkflowRun` to distinguish chain vs revision at the data layer.
+
+| FIX-053 | 2026-07-13 | KAN-106: Add delete option on individual revision version rows in expanded family list + reset stale version timeline after deletion | Child version rows in FamilyGroupCard rendered as plain `<button>` elements with no RowMenu; `handleDeleteConfirm` never reset `family` state leaving version timeline chips stale after deletion | `frontend/src/components/history/RevisionFamilyView.tsx`, `frontend/src/components/history/WorkflowHistory.tsx` | Phase 25 (B2 revision families) / KAN-106 | INV-1/3/12/SC-001 ✅ | Done |
+
+---
+
+### FIX-053 — KAN-106: Delete option on individual revision version rows
+
+**Date:** 2026-07-13
+**Triggered by:** `/velocity-ai-fix KAN-106`
+
+#### Root Cause
+Two separate gaps in the revision family UI:
+
+**Gap 1 — No delete affordance on child version rows:**
+The expanded child version rows in `FamilyGroupCard` (`RevisionFamilyView.tsx` ~lines 397-420) rendered as plain `<button>` elements with no overflow menu. The `RowMenu` component (which contains the Delete button) was already implemented and available, and the delete props (`openMenuId`, `onToggleMenu`, `onDeleteClick`) were already threaded through `FamilyGroupCard` props — but no `RowMenu` was placed on the child rows. A plain `<button>` can't host an overflow menu inside it (nested interactive elements violate HTML spec), so the child rows needed to be restructured from a flat `<button>` to a `<div class="group relative">` wrapper with a nested clickable area + `RowMenu` at the right edge.
+
+**Gap 2 — Stale version timeline after deletion:**
+`handleDeleteConfirm` in `WorkflowHistory.tsx` (~line 264) removed the deleted run from the `runs` local state via `setRuns(prev => prev.filter(...))` and cleared `selectedRun` if it matched. But it never called `setFamily(null)`. If the user had the detail view open showing the deleted run's family, the `VersionTimeline` chips remained stale (showing the now-deleted member) until the user navigated away and back.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 / Workstream B2 (`260702-uos`) — FamilyGroupCard + VersionTimeline
+- **Relevant register section:** Phase 25 §B2 key-decisions: `RowMenu` with delete is threaded through `FamilyGroupCard` props for the root card; Gap 1 extends it to child rows using the same prop threading
+- **Deleted code verified (not resurrected):** No deleted code — pure additive change to child row rendering and a one-line state reset
+- **Locked decisions respected:** INV-12 — `RowMenu` already exists and is reused; no new component. The `<div>` wrapper + nested `<button>` pattern is the correct HTML for this case (nested interactive elements require the outer element not be a button).
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/RevisionFamilyView.tsx` | Converted each expanded child version row from a flat `<button>` to a `<div class="group relative flex items-center">` wrapper containing a flex-1 `<button>` (clickable open-version area) + a `<RowMenu>` at the right edge (`pr-2 flex-shrink-0`) | Flat `<button>` cannot contain another `<button>` (RowMenu renders a button); the div wrapper keeps hover behavior, keyboard accessibility on the open-version button, and adds the hover-reveal delete menu |
+| `frontend/src/components/history/WorkflowHistory.tsx` | Added `setFamily(null)` in `handleDeleteConfirm` after the successful delete | The `family` state holds the `/family` API response; after a member is deleted it's stale. Resetting to null triggers the existing `useEffect` keyed on `selectedRun?.rootRunId` to re-fetch the family if the detail view is still open |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only presentational change
+- **INV-3** (golden parity): not affected — no backend/engine/golden changes
+- **INV-12** (no duplication): reuses existing `RowMenu` component — no new delete logic
+- **SC-001** (zero engine edits): not affected — FE only
+
+#### Verification
+- TypeScript diagnostics: 0 errors on both changed files
+- Trace Gap 1: expand a multi-revision family → each child row now shows hover-reveal MoreHorizontal button → click → Delete menu → `handleDeleteClick(member.id)` → `setDeleteConfirmId(member.id)` → `DeleteModal` appears → confirm → `handleDeleteConfirm` → `deleteWorkflow(token, member.id)` → run removed from list ✅
+- Trace Gap 2: after deletion, `setFamily(null)` → `useEffect` on `selectedRun?.rootRunId` re-fires → `getRunFamily(token, rootRunId)` → fresh family without the deleted member → VersionTimeline shows correct chips ✅
+- Backend `DELETE /api/runs/{id}` already correctly handles mid-chain deletion (nulls children's `parent_run_id`) — no backend change needed
+
+#### Notes
+- The `<div>` wrapper with nested `<button>` is the correct HTML pattern when a row needs both a full-row clickable area and a secondary control. The outer element must not be a `<button>` when it contains interactive children (HTML spec: interactive content must not be nested inside `<button>`).
+- The `setFamily(null)` reset only affects the `family` state variable; the `selectedRun` and its detail content remain visible. The re-fetch is triggered by the existing `useEffect` keyed on `selectedRun?.rootRunId` — if the detail is open, the family refreshes automatically.
+
+| FIX-054 | 2026-07-13 | KAN-107: Strip QA checklist text injected into PPT deck body before first slide + harden validator prompt | od-ppt-validator injects QA results as visible HTML elements inside `<body>` before slides; no backend step removed them; text rendered over first slide in iframe | `backend/agents/capabilities/deliverables/_artifact.py`, `backend/agents/capabilities/deliverables/ppt.py`, `backend/agents/prompts/od-ppt-validator/AGENT.md` | Phase 15 / Phase 7 (ppt deliverable) / KAN-107 | INV-1/3/12/SC-001 ✅ | Done |
+
+---
+
+### FIX-054 — KAN-107: Strip pre-slide QA body text from PPT deck + harden validator output contract
+
+**Date:** 2026-07-13
+**Triggered by:** `/velocity-ai-fix KAN-107`
+
+#### Root Cause
+The od-ppt-validator (Deck QA Agent) non-deterministically violates its output contract on live Haiku by injecting QA checklist results as visible HTML elements (`<p>`, `<div>`, bullet lines) inside the deck `<body>`, immediately before the `.stage` container or the first `<section class="slide">`. This text renders visibly in the iframe over the first presentation slide.
+
+The existing frontend mitigation (`htmlStart` slice in `PPTPreview.tsx`) only strips text appearing BEFORE `<!DOCTYPE html>` — it cannot remove HTML elements injected inside `<body>` after the doctype. The backend `ppt.py` resolver had no step to strip pre-slide body content, only `sanitize_carousel_deck_html` (which strips carousel-breaking CSS) and `unwrap_artifact`.
+
+This is the third recurrence of validator output leakage (FIX-001 removed the preamble-outside-artifact loophole; FIX-014 replaced `[ ]` checkbox syntax; FIX-054 strips in-body injections that survive both earlier fixes).
+
+The "Invalid presentation output" error (separate path) occurs when the validator emits a QA report with no HTML doctype at all — the frontend `isHtml` check catches it and shows the error UI. The new backend sanitizer also helps here by cleaning the body before the content reaches the frontend.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 15 (Live-Pass Prompt Contract Closure) + Phase 7 (ppt deliverable capability)
+- **Relevant register section:** Phase 15 §3 — validator output contract hardening (FIX-001/FIX-014 prior fixes); Phase 7 §3 — `_artifact.py` sanitizer pattern (INV-12 move-don't-copy single home)
+- **Deleted code verified (not resurrected):** No deleted code involved — new function added following the exact pattern of `sanitize_carousel_deck_html`
+- **Locked decisions respected:** INV-12 — new function in `_artifact.py` (the single home for deck sanitizers); no duplication. INV-1 — no pipeline_type branch; `strip_pre_slide_body_text` is a no-op on non-matching input.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/capabilities/deliverables/_artifact.py` | Added `strip_pre_slide_body_text(html)` function that removes any content between `<body>` opening tag and the first slide anchor (`.stage` div or `<section class="slide">`) | Deterministic backstop for validator body text injection; no-op on correct decks |
+| `backend/agents/capabilities/deliverables/ppt.py` | Added `strip_pre_slide_body_text` to import and chained it in `resolve()`: `unwrap_artifact(strip_pre_slide_body_text(sanitize_carousel_deck_html(last_streamed)))` | Applies the new sanitizer before the artifact is unwrapped |
+| `backend/agents/prompts/od-ppt-validator/AGENT.md` | Added explicit `❌ FORBIDDEN inside <body>` rule forbidding injection of any text/elements before `.stage` or `.slide` sections | Third prompt hardening; makes the body-injection failure mode explicit |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): `strip_pre_slide_body_text` is generic — it checks for `<body>` + slide indicators, never a pipeline_type literal. No-op on non-ppt HTML.
+- **INV-3** (golden parity): no golden re-baseline needed — the od_ppt golden was already regenerated in FIX-031. The new sanitizer is a no-op on the characterization fixture (which has no QA text injected in the body). Both backend `.py` changes are capability-layer only (never touched by the harness).
+- **INV-12** (no duplication): `strip_pre_slide_body_text` added to `_artifact.py` — the established single home for all deck sanitizers. `ppt.py` imports it from there.
+- **SC-001** (zero engine edits): not affected — capability deliverable layer only.
+
+#### Verification
+- Backend started cleanly with no import errors
+- `strip_pre_slide_body_text` is a no-op when `<body>` immediately precedes `.stage` or `.slide` (correct deck structure)
+- For a deck with QA text between `<body>` and the first slide, the text is removed and the deck renders correctly
+- The resolver chain now: `sanitize_carousel_deck_html` → `strip_pre_slide_body_text` → `unwrap_artifact`
+
+#### Notes
+- This is a defense-in-depth fix. The prompt hardening reduces but does not eliminate LLM non-determinism; the deterministic sanitizer catches what the prompt alone cannot prevent.
+- The `strip_pre_slide_body_text` function uses a targeted approach: find `<body>`, find first slide anchor, remove preamble. It does NOT attempt to parse full HTML — intentionally simple and narrow-scoped per the existing sanitizer pattern.
+- Follow-up: if the validator continues to produce "Invalid presentation output" errors (no HTML doctype at all), that is a separate failure mode requiring a different fix (the validator emitting a pure QA report with no deck).
