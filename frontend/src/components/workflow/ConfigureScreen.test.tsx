@@ -1,11 +1,18 @@
 /**
- * SC-001 / INV-1 — the Configure screen is a GENERIC per-run setup surface. The
- * Templates + Design System accordions render ONLY when the selected deliverable
- * DECLARES `context_providers:[opendesign]` — the SAME declared signal the Wave-1
- * backend seam keys on — NEVER a prototype-name branch. Any deliverable that
- * declares the opendesign context provider GAINS the accordions with zero
- * per-deliverable code; one that does not shows only Describe + Review Gates +
+ * SC-001 / INV-1 — the Configure screen is ONE generic "Configure your run" setup
+ * surface. The Templates + Design System accordions render ONLY when the selected
+ * deliverable DECLARES `context_providers:[opendesign]` — the SAME declared signal
+ * the Wave-1 backend seam keys on — NEVER a prototype-name branch (ND-AE). Any
+ * deliverable that declares the opendesign context provider GAINS the accordions
+ * with zero per-deliverable code; one that does not shows only Review Gates +
  * Workflow Settings.
+ *
+ * Phase-41 (41-02) composition assertions: the screen is the mock's ONE screen —
+ * a top header bar (Save draft + Start run), an always-open Step-1 "Describe what
+ * you're building" brief card (Attach, NO Voice — ND-AI), and four summary-line
+ * accordion cards whose Browse/Open control opens the matching overlay (which hosts
+ * the reused TemplateGallery / DesignSystemPicker / ReviewGatesSection /
+ * AdvancedExpander body). Unset Template/DS selections read "None selected" (ND-AF).
  *
  * The screen also lands the ND-1 consumer: Save-draft persists the composed
  * run-draft CLIENT-SIDE (sessionStorage), hydrated on mount and cleared once at
@@ -18,7 +25,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { ConfigureScreen } from "./ConfigureScreen";
@@ -74,14 +81,13 @@ function detail(contextProviders: string[], id = "any-deliverable"): WorkflowDet
   };
 }
 
-/** Open an accordion by clicking its header (needed to reach the picker stub). */
-async function openAccordion(user: ReturnType<typeof userEvent.setup>, testId: string) {
-  const section = screen.getByTestId(testId);
-  const header = section.querySelector("button");
-  if (header) await user.click(header);
+/** Open an accordion's overlay by clicking its Browse/Open control (needed to
+ *  reach the reused picker stub, which now lives inside the overlay). */
+async function openOverlay(user: ReturnType<typeof userEvent.setup>, testId: string) {
+  await user.click(screen.getByTestId(testId));
 }
 
-describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => {
+describe("ConfigureScreen — declared-signal accordion gating (SC-001 / ND-AE)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
@@ -95,7 +101,7 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
       expect(mockGetWorkflowDetail).toHaveBeenCalledWith("test-token", "any-deliverable"),
     );
 
-    expect(await screen.findByTestId("accordion-describe")).toBeInTheDocument();
+    expect(await screen.findByTestId("configure-brief")).toBeInTheDocument();
     expect(screen.getByTestId("accordion-gates")).toBeInTheDocument();
     expect(screen.getByTestId("accordion-settings")).toBeInTheDocument();
 
@@ -103,11 +109,11 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
     expect(screen.getByTestId("accordion-designsystem")).toBeInTheDocument();
   });
 
-  it("HIDES the Templates + Design System accordions when 'opendesign' is NOT declared", async () => {
+  it("HIDES the Templates + Design System accordions when 'opendesign' is NOT declared (ND-AE)", async () => {
     mockGetWorkflowDetail.mockResolvedValue(detail([]));
     render(<ConfigureScreen workflowId="any-deliverable" />);
 
-    expect(await screen.findByTestId("accordion-describe")).toBeInTheDocument();
+    expect(await screen.findByTestId("configure-brief")).toBeInTheDocument();
     expect(screen.getByTestId("accordion-gates")).toBeInTheDocument();
     expect(screen.getByTestId("accordion-settings")).toBeInTheDocument();
 
@@ -120,11 +126,10 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
     // the `od_prototype` alias — a bare-prototype launch returns od_context=None
     // and the backend 13-06 guard rejects it (launch_context.py:92). The gate must
     // exclude it exactly as the seam does, or the user picks a template the run drops.
-    // The backend returns compiled.id ("prototype") as the resolved base for this id.
     mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"], "prototype"));
     render(<ConfigureScreen workflowId="prototype" />);
 
-    expect(await screen.findByTestId("accordion-describe")).toBeInTheDocument();
+    expect(await screen.findByTestId("configure-brief")).toBeInTheDocument();
     expect(screen.getByTestId("accordion-gates")).toBeInTheDocument();
     expect(screen.queryByTestId("accordion-templates")).not.toBeInTheDocument();
     expect(screen.queryByTestId("accordion-designsystem")).not.toBeInTheDocument();
@@ -133,15 +138,79 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
   it("IN-06: HIDES template/DS when the RESOLVED base is `prototype` even if workflowId is a custom id", async () => {
     // The backend seam excludes on the resolved base pipeline_type (compiled.id ==
     // detail.id), NOT the input workflow id. A custom workflow whose resolved base
-    // is `prototype` must be carved out too, or the gate diverges from the seam the
-    // moment such a deliverable reaches Configure (it would offer a template the
-    // bare-prototype launch then drops). Gating on detail.id keeps them aligned.
+    // is `prototype` must be carved out too, or the gate diverges from the seam.
     mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"], "prototype"));
     render(<ConfigureScreen workflowId="my-custom-proto" />);
 
-    expect(await screen.findByTestId("accordion-describe")).toBeInTheDocument();
+    expect(await screen.findByTestId("configure-brief")).toBeInTheDocument();
     expect(screen.queryByTestId("accordion-templates")).not.toBeInTheDocument();
     expect(screen.queryByTestId("accordion-designsystem")).not.toBeInTheDocument();
+  });
+});
+
+describe("ConfigureScreen — mock composition (header · Step-1 brief · summary lines · overlays)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  it("renders a Step-1 brief with an Attach control but NO Voice control (ND-AI)", async () => {
+    mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"]));
+    render(<ConfigureScreen workflowId="any-deliverable" />);
+
+    await screen.findByTestId("configure-brief");
+    // Attach affordance present; Voice affordance absent (no product voice input).
+    expect(screen.getByText(/Attach/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Voice/i)).not.toBeInTheDocument();
+  });
+
+  it("Templates + Design System summary lines read 'None selected' until a selection is made (ND-AF)", async () => {
+    mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"]));
+    render(<ConfigureScreen workflowId="any-deliverable" />);
+
+    const tpl = await screen.findByTestId("accordion-templates");
+    const ds = screen.getByTestId("accordion-designsystem");
+    // Bound to the live registries (empty here) — never a fabricated value.
+    expect(within(tpl).getByText(/None selected/i)).toBeInTheDocument();
+    expect(within(ds).getByText(/None selected/i)).toBeInTheDocument();
+  });
+
+  it("the header Start-run button invokes onLaunch with the composed generic command", async () => {
+    mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"]));
+    const onLaunch = vi.fn();
+    const user = userEvent.setup();
+
+    render(<ConfigureScreen workflowId="any-deliverable" onLaunch={onLaunch} />);
+
+    await screen.findByTestId("configure-brief");
+    await user.click(screen.getByTestId("configure-launch"));
+
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+    const cmd = onLaunch.mock.calls[0][0];
+    expect(cmd.agent_ids).toEqual(["a1"]);
+    expect(cmd).toHaveProperty("brief");
+    expect(cmd).toHaveProperty("template_id");
+  });
+
+  it("each accordion's Browse/Open control opens an overlay hosting the reused body", async () => {
+    mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"]));
+    const user = userEvent.setup();
+
+    render(<ConfigureScreen workflowId="any-deliverable" />);
+    await screen.findByTestId("configure-brief");
+
+    await openOverlay(user, "configure-templates-browse");
+    expect(screen.getByTestId("stub-template-gallery")).toBeInTheDocument();
+
+    await openOverlay(user, "configure-settings-open");
+    expect(screen.getByTestId("stub-advanced-expander")).toBeInTheDocument();
+  });
+});
+
+describe("ConfigureScreen — draft round-trip + generic launch (ND-1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
   });
 
   it("hydrates the brief from a saved draft on mount (ND-1)", async () => {
@@ -163,9 +232,9 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
 
     const briefField = await screen.findByTestId("configure-brief");
     await user.type(briefField, "hello");
-    await openAccordion(user, "accordion-templates");
+    await openOverlay(user, "configure-templates-browse");
     await user.click(screen.getByTestId("stub-template-gallery")); // sets templateId
-    await openAccordion(user, "accordion-designsystem");
+    await openOverlay(user, "configure-ds-browse");
     await user.click(screen.getByTestId("stub-ds-picker")); // sets designSystemId
     await user.click(screen.getByTestId("configure-save-draft"));
 
@@ -185,9 +254,9 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
     render(<ConfigureScreen workflowId="any-deliverable" onLaunch={onLaunch} />);
 
     await screen.findByTestId("configure-brief");
-    await openAccordion(user, "accordion-templates");
+    await openOverlay(user, "configure-templates-browse");
     await user.click(screen.getByTestId("stub-template-gallery"));
-    await openAccordion(user, "accordion-designsystem");
+    await openOverlay(user, "configure-ds-browse");
     await user.click(screen.getByTestId("stub-ds-picker"));
     await user.click(screen.getByTestId("configure-launch"));
 
@@ -214,8 +283,6 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
 
     expect(onLaunch).toHaveBeenCalledTimes(1);
     const cmd = onLaunch.mock.calls[0][0];
-    // The captured discovery answers ride along instead of being silently
-    // dropped (they were only ever persisted to the draft before IN-01).
     expect(cmd).toHaveProperty("discovery");
     expect(cmd.discovery).toBeTruthy();
   });
