@@ -9,7 +9,7 @@
  *
  * The WizardStepper chrome is stubbed to expose its render-slots + selection
  * callbacks directly (the stepper's own chrome/a11y is covered by
- * WizardStepper.test.tsx); the heavy pickers are stubbed like ConfigureScreen.test.
+ * WizardStepper.test.tsx); the heavy pickers are stubbed at the module boundary.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
