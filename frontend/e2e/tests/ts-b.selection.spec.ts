@@ -1,8 +1,9 @@
 /**
  * TS-B — Workflow selection / CreationHub (TEST-REGISTER §3).
- * Proves the 6 CreationHub rows route correctly: four open the in-page
- * IdeaInputPage (assert its <h1> heading per TYPE_CONFIG), while prototype/ppt
- * HARD-NAVIGATE via router.push to their template wizards (assert the URL).
+ * Proves the 6 CreationHub rows route correctly: the non-wizard rows open the
+ * in-page IdeaInputPage (assert its <h1> heading per TYPE_CONFIG), while the
+ * wizard-routed prototype/ppt rows now open the unified "Configure your run"
+ * surface (Phase 41 plan 03 repoint — was router.push to /workflow/create).
  *
  * All rows are exercised at the `enterprise` tier so every workflow is enabled
  * (see entitlements.ts: only enterprise unlocks custom + migration).
@@ -21,16 +22,20 @@ test.describe("TS-B — workflow selection", () => {
     await expect(page.getByRole("heading", { name: "Provide the brief" })).toBeVisible();
   });
 
-  test("TS-B-02 'Pitch an idea' hard-navigates to the PPT template wizard", async ({ dashboard, page }) => {
-    // ppt routes via router.push("/workflow/create?mode=ppt") — NOT an input view.
+  test("TS-B-02 'Pitch an idea' opens the unified Configure surface", async ({ dashboard, page }) => {
+    // Phase 41 (plan 03): ppt no longer router.pushes to /workflow/create; the
+    // wizard-routed card now opens the unified mainView="configure" surface
+    // (ConfigureScreen), reached in-app (no hard navigation).
     await dashboard.selectWorkflow("Pitch an idea");
-    await page.waitForURL(/\/workflow\/create\?mode=ppt/);
+    await expect(page.getByRole("heading", { name: "Configure your run" })).toBeVisible();
   });
 
-  test("TS-B-03 'Build an interactive prototype' hard-navigates to the prototype template wizard", async ({ dashboard, page }) => {
-    // prototype routes via router.push("/workflow/create?mode=prototype") — NOT an input view.
+  test("TS-B-03 'Build an interactive prototype' opens the unified Configure surface", async ({ dashboard, page }) => {
+    // Phase 41 (plan 03): prototype no longer router.pushes to /workflow/create;
+    // the wizard-routed card now opens the unified mainView="configure" surface
+    // (ConfigureScreen), reached in-app (no hard navigation).
     await dashboard.selectWorkflow("Build an interactive prototype");
-    await page.waitForURL(/\/workflow\/create\?mode=prototype/);
+    await expect(page.getByRole("heading", { name: "Configure your run" })).toBeVisible();
   });
 
   test("TS-B-04 'Build an end-to-end application' opens the application input view", async ({ dashboard, page }) => {

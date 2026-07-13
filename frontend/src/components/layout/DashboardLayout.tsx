@@ -13,6 +13,13 @@ import { AccountSettings } from "@/components/settings/AccountSettings";
 import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
 import { SavedWorkflowsPage } from "@/components/savedworkflows/SavedWorkflowsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
+// Phase 41 (CFGUI-02, plan 03) — the revived unified "Configure your run" screen
+// (41-02). Mounted below as the mainView="configure" surface with a real onLaunch
+// that funnels the composed ComposedLaunchCommand into the EXISTING onStartPipeline
+// → startPipeline seam (no new launch contract). Reachable via the Home
+// deliverable/wizard cards (HomeLaunchGrid onConfigure). ADDITIVE — the old
+// IdeaInputPage/LaunchWizard split still coexists until its post-sign-off deletion.
+import { ConfigureScreen, type ComposedLaunchCommand } from "@/components/workflow/ConfigureScreen";
 // INV-3 (plan 06): the AgentProgressPanel run-lane mount was removed here — its
 // Stop/revise/suggestions controls are fully absorbed by RunChatLane. The
 // component itself is retained (its own suite + the plan-08 Steps relocation);
@@ -170,7 +177,7 @@ export interface DashboardLayoutProps {
   deepLinkTarget?: import("@/hooks/useTabDeepLink").TabDeepLinkTarget | null;
 }
 
-type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows";
+type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "configure" | "execution" | "catalog" | "saved-workflows";
 
 // ─── Prep overlay — shown while we set up your run (planner + clarify), any workflow ───
 const PLANNING_STEPS = [
@@ -969,6 +976,41 @@ export function DashboardLayout({
     }
   }, [onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
+  // ─── Phase 41 (CFGUI-02, plan 03) — the unified Configure surface ────────────
+  // Navigate a Home deliverable/wizard card into the mainView="configure" surface
+  // (threading the chosen deliverable as workflowType → ConfigureScreen.workflowId).
+  // ADDITIVE: the generic non-wizard cards still route to the "input" surface via
+  // handleSelectFeature until the old split is deleted post-sign-off.
+  const handleConfigureFeature = useCallback((type: WorkflowType) => {
+    setSavedComposition(null);
+    setPendingHomeBrief(undefined);
+    setWorkflowType(type);
+    setMainView("configure");
+  }, []);
+
+  // ConfigureScreen's launch hand-off. Maps the composed generic
+  // ComposedLaunchCommand fields onto the EXISTING onStartPipeline arg convention
+  // (the SAME extraParams shape the pendingOdProto/revision launch sites use), then
+  // funnels through handleRunPipeline → onStartPipeline → startPipeline. No new
+  // launch contract; the run then lands on the execution surface.
+  const handleConfigureLaunch = useCallback((command: ComposedLaunchCommand) => {
+    const extraParams: Record<string, unknown> = {
+      ...(command.template_id ? { template_id: command.template_id } : {}),
+      ...(command.design_system_id ? { design_system_id: command.design_system_id } : {}),
+      ...(command.custom_template_body ? { custom_template_body: command.custom_template_body } : {}),
+      ...(command.custom_ds_body ? { custom_design_system_body: command.custom_ds_body } : {}),
+      ...(command.discovery ? { discovery: command.discovery } : {}),
+      ...(command.selections && Object.keys(command.selections).length > 0 ? { selections: command.selections } : {}),
+      ...(command.gate_agent_ids !== undefined ? { gate_agent_ids: command.gate_agent_ids } : {}),
+    };
+    handleRunPipeline(
+      command.brief,
+      command.agent_ids,
+      workflowType,
+      Object.keys(extraParams).length > 0 ? extraParams : undefined,
+    );
+  }, [handleRunPipeline, workflowType]);
+
   // Go back to home
   const handleGoHome = useCallback(() => {
     setMainView("home");
@@ -1410,6 +1452,7 @@ export function DashboardLayout({
     mainView === "settings" ? "history" :
     mainView === "saved-workflows" ? "saved-workflows" :
     mainView === "input" ? "workflow" :
+    mainView === "configure" ? "workflow" :
     mainView === "execution" ? "execution" : "home";
 
   return (
@@ -1500,6 +1543,7 @@ export function DashboardLayout({
               <div className="flex h-full flex-col bg-surface-paper">
                 <HomeLaunchGrid
                   onSelectFeature={handleHomeSelectFeature}
+                  onConfigure={handleConfigureFeature}
                   onLaunchSaved={handleLaunchSaved}
                   userTier={userTier}
                   brief={homeBrief}
@@ -1650,6 +1694,31 @@ export function DashboardLayout({
                 // handleLaunchSaved). Unknown ids (e.g. `custom`/`migration` meta) 404
                 // server-side and the strip simply does not render.
                 workflowId={workflowType}
+              />
+            </motion.div>
+          )}
+
+          {/* CONFIGURE — Phase 41 (CFGUI-02, plan 03): the unified "Configure your
+              run" screen (41-02). Reachable via the Home deliverable/wizard cards
+              (HomeLaunchGrid onConfigure → handleConfigureFeature). Its onLaunch
+              funnels the composed ComposedLaunchCommand into the EXISTING
+              onStartPipeline → startPipeline seam via handleConfigureLaunch (no new
+              contract), landing the run on the execution surface. workflowId threads
+              the chosen deliverable so ConfigureScreen gates its declared-signal
+              accordions (Templates/Design-System) off the compiled definition. */}
+          {mainView === "configure" && (
+            <motion.div
+              key="configure"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.25 }}
+              className="h-full"
+            >
+              <ConfigureScreen
+                workflowId={workflowType}
+                onBack={handleGoHome}
+                onLaunch={handleConfigureLaunch}
               />
             </motion.div>
           )}

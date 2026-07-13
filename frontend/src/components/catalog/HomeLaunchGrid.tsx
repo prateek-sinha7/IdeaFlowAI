@@ -46,6 +46,12 @@ import {
 
 interface HomeLaunchGridProps {
   onSelectFeature: (type: WorkflowType) => void;
+  // Phase 41 (CFGUI-02, plan 03) — repoint the wizard-routed deliverable cards
+  // (prototype/ppt + any CHAIN_OPTIONS.requiresWizard row) into the unified
+  // mainView="configure" surface instead of the /workflow/create wizard route.
+  // ADDITIVE: when absent (standalone/vitest render) the legacy wizard route is
+  // still used, so the component renders unchanged outside the dashboard shell.
+  onConfigure?: (type: WorkflowType) => void;
   // Optional — kept for API compatibility; launch wiring lives in
   // SavedWorkflowsPage (profile dropdown) now.
   onLaunchSaved?: (saved: UserWorkflowSummary) => void;
@@ -99,6 +105,7 @@ function relativeTime(iso: string): string {
 
 export function HomeLaunchGrid({
   onSelectFeature,
+  onConfigure,
   userTier = "basic",
   brief,
   onBriefChange,
@@ -201,6 +208,16 @@ export function HomeLaunchGrid({
   const handleClick = (type: WorkflowType) => {
     if (!canRunPipeline(userTier, type)) return; // gate 2: tier-blocked → no-op
     const opt = CHAIN_OPTIONS.find((o) => o.type === type);
+    // Phase 41 (plan 03): the wizard-routed deliverables (prototype/ppt + any
+    // requiresWizard row) now open the unified Configure surface. ADDITIVE — the
+    // legacy /workflow/create wizard route is retained as the fallback when no
+    // onConfigure is wired (standalone/vitest render), and is deleted only after
+    // the Configure fidelity sign-off.
+    const needsConfigure = !!opt?.requiresWizard || type === "prototype" || type === "ppt";
+    if (needsConfigure && onConfigure) {
+      onConfigure(type);
+      return;
+    }
     if (opt?.requiresWizard && opt.wizardPath) {
       router.push(opt.wizardPath);
       return;
