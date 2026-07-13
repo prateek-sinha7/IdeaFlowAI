@@ -13,6 +13,7 @@ import { AccountSettings } from "@/components/settings/AccountSettings";
 import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
 import { SavedWorkflowsPage } from "@/components/savedworkflows/SavedWorkflowsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
+import { ComposerPage } from "@/components/workflow/composer/ComposerPage";
 // INV-3 (plan 06): the AgentProgressPanel run-lane mount was removed here — its
 // Stop/revise/suggestions controls are fully absorbed by RunChatLane. The
 // component itself is retained (its own suite + the plan-08 Steps relocation);
@@ -170,7 +171,7 @@ export interface DashboardLayoutProps {
   deepLinkTarget?: import("@/hooks/useTabDeepLink").TabDeepLinkTarget | null;
 }
 
-type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows";
+type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
 
 // ─── Prep overlay — shown while we set up your run (planner + clarify), any workflow ───
 const PLANNING_STEPS = [
@@ -835,6 +836,10 @@ export function DashboardLayout({
     selections: Record<string, Record<string, unknown>>;
     brief?: string;
     gateAgentIds?: string[];
+    // 41-04 — edit-from-My-Workflows carries the saved name/description into the
+    // full-page Composer (mainView='composer') so it mounts PRE-LOADED.
+    name?: string;
+    description?: string;
   } | null>(null);
 
   // Fused Home (SHELL-02 SC-1) — the launcher-brief captured on the home landing,
@@ -842,11 +847,14 @@ export function DashboardLayout({
   const [homeBrief, setHomeBrief] = useState("");
   const [pendingHomeBrief, setPendingHomeBrief] = useState<string | undefined>(undefined);
 
-  // Navigate from Home to Input page
+  // Navigate from Home to Input page — EXCEPT the custom-compose entry, which
+  // (41-04, D-CMP-ENTRY) opens the full-page Composer surface (mainView='composer')
+  // fresh instead of the brief/input view. All other deliverable types keep the
+  // existing home→input seam unchanged.
   const handleSelectFeature = useCallback((type: WorkflowType) => {
     setSavedComposition(null);
     setWorkflowType(type);
-    setMainView("input");
+    setMainView(type === ("custom" as WorkflowType) ? "composer" : "input");
   }, []);
 
   // Fused Home launcher: carry the typed brief into the input view, then reuse the
@@ -924,9 +932,14 @@ export function DashboardLayout({
       gateAgentIds: Array.isArray(saved.selections?._wizard?.gateAgentIds)
         ? (saved.selections!._wizard!.gateAgentIds as string[])
         : undefined,
+      name: saved.name,
+      description: saved.description ?? undefined,
     });
     setWorkflowType(saved.base_pipeline_type as WorkflowType);
-    setMainView("input");
+    // 41-04 — edit-from-My-Workflows opens the full-page Composer PRE-LOADED with
+    // the saved agents + selections (D-CMP-ENTRY). The composer's per-run Run wiring
+    // lands in 41-06; until then this is the authoring/edit entry for saved workflows.
+    setMainView("composer");
   }, [router]);
 
   // Run the pipeline from Input page — triggers questionnaire first
@@ -1650,6 +1663,39 @@ export function DashboardLayout({
                 // handleLaunchSaved). Unknown ids (e.g. `custom`/`migration` meta) 404
                 // server-side and the strip simply does not render.
                 workflowId={workflowType}
+              />
+            </motion.div>
+          )}
+
+          {/* COMPOSER — full-page custom-workflow authoring surface (41-04).
+              ADDITIVE: reached from Home's "Compose a custom workflow" card and
+              edit-from-My-Workflows (pre-loaded). Reuses the AgentsPopup shared
+              data model + exported sub-components; the modal wrapper is retained
+              for the wizard/input inline-edit flow (INV-3). */}
+          {mainView === "composer" && (
+            <motion.div
+              key="composer"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.25 }}
+              className="h-full"
+            >
+              <ComposerPage
+                workflowType={workflowType}
+                onBack={handleGoHome}
+                initialAgentIds={savedComposition?.agentIds}
+                initialSelections={
+                  savedComposition?.selections
+                    ? (Object.fromEntries(
+                        Object.entries(savedComposition.selections).filter(
+                          ([k]) => k !== "_wizard",
+                        ),
+                      ) as import("@/components/workflow/AgentsPopup").SelectionsMap)
+                    : undefined
+                }
+                initialName={savedComposition?.name}
+                initialDescription={savedComposition?.description}
               />
             </motion.div>
           )}

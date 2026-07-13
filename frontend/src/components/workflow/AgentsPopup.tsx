@@ -129,7 +129,10 @@ const REQUIRED_AGENT_IDS = new Set([
 
 type AgentRole = "locked" | "required" | "optional";
 
-function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
+// EXPORTED (41-04): reused by the full-page Composer (composer/AgentRow) for the
+// per-agent Core/Required lock badge — the SAME role predicate the modal uses,
+// so the composer and the retained modal agree on which agents are locked.
+export function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
   const isNativeLocked = LOCKED_AGENT_IDS.has(agentId);
   const isNativeRequired = REQUIRED_AGENT_IDS.has(agentId);
   if (!isNativeLocked && !isNativeRequired) return "optional";
@@ -169,7 +172,9 @@ function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
   return "optional";
 }
 
-const PIPELINE_LABEL: Record<string, string> = {
+// EXPORTED (41-04): the Composer's read-only Deliverable-type label (ND-AH) reads
+// the SAME pipeline→label map the modal uses.
+export const PIPELINE_LABEL: Record<string, string> = {
   user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
   app_builder: "App Builder", custom: "Custom",
   mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
@@ -181,7 +186,8 @@ const ICON_STYLES = [
   { bg: "#E8EEF0", text: "#2A4A5C" }, { bg: "#F0EEE8", text: "#5C5A2A" },
 ];
 
-function getAgentInitials(name: string): string {
+// EXPORTED (41-04): the Composer's AgentRow avatar reuses the modal's initials rule.
+export function getAgentInitials(name: string): string {
   const words = name.replace(/\s+agent$/i, "").split(" ");
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[1][0]).toUpperCase();
@@ -206,7 +212,9 @@ function getCapabilities(agent: AgentDef): string[] {
 // /api/agents/{id}/prompt) are OMITTED. The prompt body + override state stay
 // VIEW-only; no durable write path is reachable from the drawer.
 
-function AgentPromptSection({
+// EXPORTED (41-04): the Composer's AgentRow "Custom prompt →" affordance reuses
+// this exact section (surfaceOnly) — no forked prompt editor.
+export function AgentPromptSection({
   agent,
   surfaceOnly = false,
 }: {
@@ -787,7 +795,10 @@ export function AgentCapabilitiesModal({
 
 // ─── SkillsHooksTab ───────────────────────────────────────────────────────────
 
-function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
+// EXPORTED (41-04): the Composer's "Skills & hooks" card reuses this whole
+// section (skills + hooks pickers) — bound to the shared SkillsHooksContext, so
+// the modal and the composer share ONE attached-skills/hooks source of truth.
+export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
   const { attachedSkills, attachedHooks, attachSkill, detachSkill, attachHook, detachHook } = useSkillsHooks();
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [hooksOpen, setHooksOpen] = useState(false);

@@ -103,14 +103,14 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
     // The no-override sentinel leads the list.
     expect(optionTexts[0]).toBe("Default");
 
-    // FLAG (DECIDE-02 / D-23 — CHANGED behavior, needs reconciliation): the client
-    // user_allowed filter was DROPPED. The Model lever now offers the WHOLE catalog
-    // (server `_validate_model_overrides` is the authoritative allow-list), so the
-    // user_allowed:false model "Opus 4.6 (powerful)" is NOW OFFERED and there are 6
-    // options (Default + 5), not 5. The two assertions below encode the OLD filter
-    // contract and will FAIL until reconciled to the whole-catalog reality.
-    expect(optionTexts).not.toContain("Opus 4.6 (powerful)");
-    expect(optionTexts).toHaveLength(ALLOWED_LABELS.length + 1);
+    // RECONCILED (41-04, DECIDE-02 / D-23 — changed-behavior): the client
+    // user_allowed filter was DROPPED. The Model lever (the SAME AdvancedExpander
+    // the full-page Composer's inline model picker reuses) offers the WHOLE catalog
+    // — server `_validate_model_overrides` is the authoritative allow-list — so the
+    // user_allowed:false model "Opus 4.6 (powerful)" IS offered and there are 6
+    // options (Default + 5). Reconciled from the OLD filter contract to this reality.
+    expect(optionTexts).toContain("Opus 4.6 (powerful)");
+    expect(optionTexts).toHaveLength(ALLOWED_LABELS.length + 2);
   });
 
   test("TS-E-03 picking a non-default model emits it under selections on run_pipeline", async ({ dashboard, page, mockWs }) => {
@@ -188,38 +188,25 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
  *       See the precise reasons on the test.fixme.
  */
 test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
-  test("TS-E-01b-noagents shows no per-agent model surface (custom seeds 0 agents)", async ({
+  test("TS-E-01b-noagents composer shows no inline model picker (custom seeds 0 agents)", async ({
     dashboard,
     page,
   }) => {
-    // `custom` is the only workflow that seeds 0 agents → agents.length === 0.
+    // RE-ANCHORED (41-04): the "Compose a custom workflow" entry now opens the
+    // full-page Composer (mainView='composer'), NOT the brief screen. The custom
+    // pipeline seeds 0 agents → no agent rows → NO inline model picker surface.
     await dashboard.goto({ tier: "enterprise" });
     await dashboard.selectWorkflow("Compose a custom workflow");
-    await dashboard.fillIdea(
-      "Research the competitive landscape for AI coding assistants",
-    );
 
-    // Open the Advanced popup (Agents tab is default).
-    await dashboard.openAdvanced();
+    // We are on the Composer Simple view.
+    await expect(page.getByText(/Custom workflow · Composer/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: /^Simple$/ })).toBeVisible();
 
-    // Sanity: the Agents tab confirms there really are 0 agents…
-    await expect(
-      page.getByRole("button", { name: /Agents \(0\)/ }),
-    ).toBeVisible();
-    // …and there are no per-agent <select> rows.
-    await expect(page.locator("select")).toHaveCount(0);
-
-    // FLAG (Phase 39 — the AdvancedExpander's no-agents copy is now UNREACHABLE):
-    // per-agent levers moved INTO the per-agent AgentCapabilitiesModal, whose
-    // AdvancedExpander always receives exactly ONE agent, so its agents.length===0
-    // branch ("Add agents to assign per-agent levers.") can never render. The
-    // new-UI equivalent of "no per-agent model config when there are no agents" is:
-    // a 0-agent workflow exposes NO agent cards → NO "View capabilities &
-    // configure" entry point into the model lever. (Human: reconcile whether the
-    // dead no-agents copy should be removed from AdvancedExpander.)
-    await expect(
-      page.getByRole("button", { name: "View capabilities & configure" }),
-    ).toHaveCount(0);
+    // 0 agent rows → the empty-state copy, no inline model picker, no config levers.
+    await expect(page.locator('[data-testid^="agent-row-"]')).toHaveCount(0);
+    await expect(page.getByText(/No agents yet/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /Model for / })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: /Model for / })).toHaveCount(0);
   });
 
   test("TS-E-01b-loading shows the loading copy while /api/capabilities is in flight", async ({
@@ -284,4 +271,46 @@ test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
     "TS-E-01b-nojwt-and-failcopy: no-jwt redirects to /login (picker never mounts); 500/abort surface the body/statusText, never the literal 'Failed to load models.' fallback",
     async () => {},
   );
+});
+
+/**
+ * TS-E-05 — the FULL-PAGE COMPOSER's inline model picker (41-04).
+ *
+ * "Compose a custom workflow" opens the full-page Composer (mainView='composer').
+ * Custom seeds 0 agents, so we ADD one from the reused AgentLibrary, then drill the
+ * composer's INLINE model picker: the row's model pill opens the per-agent config
+ * panel, which mounts the REUSED `AdvancedExpander` — the SAME Model lever the modal
+ * uses (aria-label "Model for {name}", whole catalog per DECIDE-02). This anchors the
+ * model-picker coverage onto the composer without re-implementing the lever (INV-3).
+ */
+test.describe("TS-E-05 — composer inline model picker (full-page Composer)", () => {
+  test("composer add-agent → inline model pill → reused Model lever offers the whole catalog", async ({
+    dashboard,
+    page,
+  }) => {
+    await dashboard.goto({ tier: "enterprise" });
+    await dashboard.selectWorkflow("Compose a custom workflow");
+    await expect(page.getByText(/Custom workflow · Composer/i)).toBeVisible({ timeout: 15000 });
+
+    // Add an agent from the reused AgentLibrary (custom seeds 0).
+    await page.getByRole("button", { name: "Add agent" }).first().click();
+    await expect(page.getByRole("heading", { name: /^Add agent$/ })).toBeVisible();
+    await page.getByRole("button", { name: /^All$/ }).first().click();
+    await page.getByRole("button", { name: /\+ Add/ }).first().click();
+
+    // A row now exists with the composer's INLINE model picker (the pill).
+    const pill = page.getByRole("button", { name: /Model for / }).first();
+    await expect(pill).toBeVisible();
+
+    // Open the config panel + the reused AdvancedExpander → the Model lever <select>.
+    await pill.click();
+    await page.getByRole("button", { name: /Advanced — / }).first().click();
+    const model = page.getByRole("combobox", { name: /Model for / }).first();
+    await expect(model).toBeVisible();
+
+    // The lever is the whole catalog (Default-first), reused from the shared payload.
+    const optionTexts = await model.locator("option").allTextContents();
+    expect(optionTexts[0]).toBe("Default");
+    expect(optionTexts).toContain("Opus 4.6 (powerful)");
+  });
 });
