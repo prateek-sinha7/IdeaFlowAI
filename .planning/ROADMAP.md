@@ -1081,6 +1081,30 @@ Plans:
 - [x] 40-06-PLAN.md — Workflow History: keep "Run History" (ND-W) + filter chips + Sort tabs + date groups + 3 states (Wave 2) — Complete 2026-07-12 (552e0673 + row-level fidelity fix: per-row token/elapsed + purple version chip + always-visible kebab, Newest/Longest/Tokens sort, EARLIER THIS WEEK bucket, near-black active chip; human-approved, closed to ND-W/D)
 - [x] 40-07-PLAN.md — Catalogue / My Workflows: unblock + restyle the Catalogue grid, keep "My Workflows" (ND-B), 3 states (Wave 2) — Complete 2026-07-12 (f02fc671; human-approved, closed to ND-A/B/C/D/AD)
 
+### Phase 41: Configure Unification + Composer Rebuild [B7]
+
+**Goal:** Deliver the two structural REBUILDS Phase 40 deferred, to full mock/proposal fidelity using the same anti-drift method: (1) CONFIGURE — unify the split flow (IdeaInputPage + LaunchWizard + ConfigureScreen across two routes) into the mock's ONE "Configure your run" screen (Step-1 brief + four inline accordions Templates·Design System·Review Gates·Workflow Settings + overlays), reviving the dormant ConfigureScreen and DELETING the superseded impls (INV-3); (2) COMPOSER — a full-page custom-workflow surface with a Simple ⇄ Canvas view toggle bound to the AgentsPopup shared data model — the Simple view mock-fidelity to `Hexaware Composer.dc.html`, the Canvas view a hand-rolled node-graph designer matching the USER-APPROVED proposal `composer-canvas-proposal.html`. Plus the additive Composer Run-once wiring through the existing onStartPipeline seam (no engine change), and the Library agent-detail drawer (Phase-40 ND-Z deferral). Presentation-only except the one additive Run-wiring task.
+**Depends on:** Phase 40 (the shell fidelity oracle + shots this reuses), Phase 39 (the fidelity method), Phase 37 (SHELL-04 Configure surface this closes)
+**Requirements:** CFGUI-01, CFGUI-02, CMPUI-01, CMPUI-02, CMPUI-03, CMPUI-04, CMPUI-05, HARN-01 (closes SHELL-04)
+**Success Criteria:**
+
+1. The unified "Configure your run" screen (Step-1 brief + four accordions + overlays) matches its mock — screenshot-diff + a HUMAN sign-off — and no dual Configure implementation survives (IdeaInputPage brief-launch + LaunchWizard + WizardStepper deleted, INV-3); Start-run launches through the existing onStartPipeline seam.
+2. The Composer is a full-page surface (entry from Home + edit-from-My-Workflows) with a Simple ⇄ Canvas toggle bound to the AgentsPopup shared data model; the modal shell is replaced (INV-3). The Simple view matches `Hexaware Composer.dc.html` (HUMAN sign-off); the hand-rolled Canvas view matches the approved proposal `composer-canvas-proposal.html` (design-match HUMAN sign-off, ND-AJ; no graph library).
+3. Composer Run-once launches through the existing onStartPipeline seam (functional test) + Save-to-catalogue reuses createUserWorkflow — additive FE only, no engine/backend/manifest change, no fabricated cost (ND-AG). The Library agent-detail drawer (ND-Z) lands.
+4. Data stays real & live (SC-001/ND-D): live registries, "None selected" until picked (ND-AF), no fabricated cost; intended divergences preserved (ND-A/B/C/D carried + ND-AE..AJ new). The Configure template/DS/ppt APIs are stubbed + seeded and the Phase-41 fidelity oracle is formalized (per-surface regenerable + a canvas target).
+
+**Plans:** 7 plans (6 waves: 41-01 harness → 41-02 Configure build → 41-03 Configure unify+delete → 41-04 Composer shell+Simple → {41-05 Canvas ‖ 41-07 Library drawer} → 41-06 Run wiring)
+
+Plans:
+
+- [ ] 41-01-PLAN.md — Harness: stub the template/DS/ppt APIs + seed; formalize the Phase-41 fidelity oracle (repo-relative, --surface, ND-AE..AJ, current-side tags + canvas target); own the B7 requirement docs (Wave 1)
+- [ ] 41-02-PLAN.md — Configure build: revive ConfigureScreen into the ONE screen (Step-1 brief + four summary-line accordions + overlays), reuse the shipped bodies; fidelity checkpoint (Wave 2)
+- [ ] 41-03-PLAN.md — Configure unify+delete: mainView='configure' + real onLaunch → onStartPipeline + repoint nav; DELETE IdeaInputPage brief-launch + LaunchWizard + WizardStepper (INV-3) (Wave 3)
+- [ ] 41-04-PLAN.md — Composer shell + Simple view: full-page mainView='composer' + entry + Simple⇄Canvas toggle + the Simple (mock) view via the reused sub-components; delete the modal wrapper; fidelity checkpoint (Wave 4)
+- [ ] 41-05-PLAN.md — Composer Canvas view: hand-rolled node-graph (SVG bezier edges + absolute nodes + config rail + docked run summary) to the approved proposal; design-match checkpoint (Wave 5)
+- [ ] 41-07-PLAN.md — Library agent-detail drawer: restructure AgentCapabilitiesModal into the mock's right drawer (ND-Z resolved / SHELL-04 agent-drawer clause); fidelity checkpoint (Wave 5)
+- [ ] 41-06-PLAN.md — Composer Run wiring: Run-once → onStartPipeline (Simple + Canvas) + Save-to-catalogue → createUserWorkflow; functional test (Wave 6)
+
 ### v2.0 Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -1098,3 +1122,4 @@ Plans:
 | 38. Analytics, Estimates & Notifications [B4] | 5/5 | Complete   | 2026-07-10 |
 | 39. Run Screen Mock Fidelity [B5] | 7/7 | Complete | 2026-07-12 |
 | 40. Shell Mock Fidelity (restyle) [B6] | 7/7 | Complete | 2026-07-12 |
+| 41. Configure Unification + Composer Rebuild [B7] | 0/7 | Not started | — |
