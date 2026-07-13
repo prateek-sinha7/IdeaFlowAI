@@ -26,7 +26,7 @@
  * `--surface composer-canvas` (just the Canvas design-match section).
  *
  * No new dependency (Node built-ins). No pixel-diff (ND-D live data ≠ the mock's
- * fixed values) — human review of the assembled gallery, closed to ND-AE..AJ.
+ * fixed values) — human review of the assembled gallery, closed to ND-AE..AK.
  *
  * Usage: node e2e/fidelity/assemble-phase41-gallery.mjs [--surface <name>]
  */
@@ -87,7 +87,7 @@ function figure(caption, src, missing) {
   return `<figure><figcaption>${esc(caption)}</figcaption>${body}</figure>`;
 }
 
-/** The FINALIZED Phase-41 intended-divergence register (ND-AE..AJ). Canonical
+/** The FINALIZED Phase-41 intended-divergence register (ND-AE..AK). Canonical
  *  source of truth (captioned "expected — ignore" in the gallery header). ND-A..D
  *  carry from Phase 39; ND-W..AD are Phase 40's (in assemble-shell-gallery.mjs,
  *  UNTOUCHED). Phase 41 continues the lettering at ND-AE and adds ND-AJ (the
@@ -105,6 +105,8 @@ const ND = [
     "the mock's brief box shows Attach + Voice → Attach only (there is no product voice-input capability; carries ND-X from Phase 40)."],
   ["ND-AJ", "Composer Canvas reference",
     "the Canvas view has NO shipped `.dc.html` mock → acceptance = match-the-APPROVED-PROPOSAL (composer-canvas-proposal.html, embedded live below), a design reference; the gate is a design-match HUMAN sign-off, not a mock-fidelity pixel-diff. The Canvas view was designed + user-approved as a proposal, not shipped in the DC mock."],
+  ["ND-AK", "Composer Simple view per-agent lever depth",
+    "Composer Simple view — per-agent levers (Model / Validator / Gate / Retry / Custom prompt) open the REUSED AdvancedExpander + AgentPromptSection one expand deeper, rather than the mock's inline dropdown/toggles — deliberately reuse the shared levers (INV-3), not re-implement them. The collapsed row (pill + Overrides chips + Custom-prompt link) matches the mock pixel-for-pixel; only the interaction depth differs."],
 ];
 
 /** The rebuild DECISIONS (settled at planning — retained for provenance). */
@@ -303,7 +305,7 @@ async function main() {
   </details>
 
   <details open>
-    <summary>Intended divergences (ND-A..D carried + ND-W..AD Phase 40 + ND-AE..AJ Phase 41) — expected, IGNORE</summary>
+    <summary>Intended divergences (ND-A..D carried + ND-W..AD Phase 40 + ND-AE..AK Phase 41) — expected, IGNORE</summary>
     <table><tr><th>ID</th><th>Divergence</th><th>Rationale</th></tr>${ndRows}</table>
   </details>
 
