@@ -312,6 +312,14 @@ test("CAPTURE phase-41 populated composer Canvas view (guarded)", async ({ dashb
   // Switch to the Canvas view and capture the POPULATED node-graph (nodes + edges).
   await page.getByRole("button", { name: /^Canvas$/ }).first().click({ timeout: 4000 }).catch(() => {});
   await page.waitForTimeout(400);
+  // Select the gate-enabled node (3rd if present) so the inline config rail shows
+  // its Review-gate toggle in the ON (amber) state + the brand-tinted active edge.
+  const nodes = page.locator('[data-testid^="canvas-node-"]');
+  const nodeCount = await nodes.count();
+  if (nodeCount > 0) {
+    await nodes.nth(Math.min(2, nodeCount - 1)).click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(200);
+  }
   // Zoom out a couple of steps (via the existing control — capture-only) so the
   // whole 5-node chain + its edges fit the canvas viewport for the design review.
   for (let i = 0; i < 2; i++) {

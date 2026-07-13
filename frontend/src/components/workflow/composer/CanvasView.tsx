@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Minus, Maximize } from "lucide-react";
+import { Plus, Minus, Maximize, Save, Play } from "lucide-react";
 import { CanvasNode } from "./CanvasNode";
 import { CanvasConfigRail } from "./CanvasConfigRail";
-import { SummaryRail } from "./SummaryRail";
 import type { SelectionsMap, StepSelection } from "../AgentsPopup";
 import type { AgentDef, WorkflowType } from "@/types/index";
 
@@ -276,17 +275,83 @@ export function CanvasView({
           onSelection={onSelection}
         />
 
-        {/* docked Run summary (REUSE SummaryRail — ND-AG: no est. cost). */}
-        <div className="flex-none border-t border-line-divider bg-surface-warm p-[18px]">
-          <SummaryRail
-            agentCount={pipelineAgents.length}
-            gateCount={gateCount}
-            strategy={strategy}
-            estDurationLabel={estDurationLabel}
-            declaredCapabilities={declaredCapabilities}
-            onSaveToCatalogue={onSaveToCatalogue}
-            onRunOnce={onRunOnce}
-          />
+        {/* docked Run summary — the proposal's 2×2 stat-card grid (ND-AG: the
+            Est-cost card is OMITTED). Uses the SAME computed summary data the
+            Simple view passes (agent/review-gate counts, live est. duration,
+            declared-cap chips) — no forked counting logic. */}
+        <div
+          data-testid="canvas-run-summary"
+          className="flex-none border-t border-line-divider bg-surface-warm px-[18px] py-4"
+        >
+          <div className="mb-3 flex items-baseline justify-between">
+            <b className="font-sans text-[12.5px] font-semibold text-ink-900">
+              Run summary
+            </b>
+            <span className="font-serif text-[11px] text-ink-300">{strategy}</span>
+          </div>
+
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <div className="rounded-[9px] border border-line-border bg-surface-card px-2.5 py-2.5">
+              <div className="font-sans text-[16px] font-bold tabular-nums leading-none tracking-[-0.02em] text-ink-900">
+                {pipelineAgents.length}
+              </div>
+              <div className="mt-1 font-sans text-[10px] uppercase tracking-[0.06em] text-ink-300">
+                Agents
+              </div>
+            </div>
+            <div className="rounded-[9px] border border-line-border bg-surface-card px-2.5 py-2.5">
+              <div className="font-sans text-[16px] font-bold tabular-nums leading-none tracking-[-0.02em] text-ink-900">
+                {gateCount}
+              </div>
+              <div className="mt-1 font-sans text-[10px] uppercase tracking-[0.06em] text-ink-300">
+                Review gate
+              </div>
+            </div>
+            <div className="rounded-[9px] border border-line-border bg-surface-card px-2.5 py-2.5">
+              <div className="font-sans text-[16px] font-bold tabular-nums leading-none tracking-[-0.02em] text-ink-900">
+                {estDurationLabel}
+              </div>
+              <div className="mt-1 font-sans text-[10px] uppercase tracking-[0.06em] text-ink-300">
+                Est. duration
+              </div>
+            </div>
+            {/* 4th grid cell (Est. cost) OMITTED — ND-AG. */}
+          </div>
+
+          {/* declared-capability chips */}
+          {declaredCapabilities.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {declaredCapabilities.map((c) => (
+                <span
+                  key={c}
+                  className="rounded-[6px] border border-brand-border bg-brand-fill px-[7px] py-[3px] font-sans text-[10.5px] font-semibold text-brand"
+                >
+                  {c}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onSaveToCatalogue}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-[10px] border border-line-control bg-surface-card px-3 py-2.5 font-sans text-[12.5px] font-semibold text-ink-700 transition-colors hover:border-line-faint"
+            >
+              <Save className="h-3.5 w-3.5" />
+              Save to catalogue
+            </button>
+            <button
+              type="button"
+              onClick={onRunOnce}
+              disabled={!onRunOnce}
+              title="Run wiring lands in 41-06"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-brand px-3 py-2.5 font-sans text-[12.5px] font-semibold text-surface-white transition-colors enabled:hover:bg-brand-pressed disabled:opacity-60"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Run once
+            </button>
+          </div>
         </div>
       </aside>
     </div>

@@ -1408,39 +1408,52 @@ const COUPLED_GATE_LABEL = "validation";
 const RETRY_OPTIONS = [1, 2, 3];
 
 /**
- * Per-agent "Advanced" expander (collapsed by default; D-05, agent ≈ step).
- * Exposes the representative lever-set — Validator → Gate → Model → Retry
- * (EMP-01) — sourced ENTIRELY from the live `/api/capabilities` palette payload
- * (user_allowed caps of the relevant kinds + the model catalog), never a
- * hardcoded option list (SC-001). Selecting a lever updates a per-step
- * selections map reported upward via `onSelectionsChange` (pure data — no new
- * run endpoint). Selecting a validator auto-attaches the `validation` gate
- * inline + announces it (EMP-04, `role="status"`).
- *
- * Exported so it can be render-tested in isolation; it remains EMBEDDED in the
- * AgentsPopup composer.
+ * PURE lever-patch reducer — the SINGLE writer of the per-step selection shape,
+ * extracted verbatim from `AdvancedExpander.updateLever` so any surface (the
+ * modal expander AND the Canvas inline config rail) applies IDENTICAL selection
+ * semantics (INV-3 — no forked lever logic). Applies `patch`, clears any unset
+ * key (empty/undefined/`""`/`[]` → the "Default" parity), and auto-attaches the
+ * coupled `validation` gate whenever validators are present (EMP-04 / D-07 — so
+ * the validators actually fire at run time, mirroring selections.py). BEHAVIOR-
+ * PRESERVING extraction: `updateLever` now delegates to this helper.
  */
-export function AdvancedExpander({
-  agents,
-  onSelectionsChange,
-  token,
-  initialSelections,
-}: {
-  agents: { id: string; name: string }[];
-  /** Reports the compact per-step selections map upward (the 22-04 shape). */
-  onSelectionsChange?: (selections: SelectionsMap) => void;
-  /** Optional JWT override (defaults to the stored token), mirroring the picker. */
-  token?: string | null;
-  /** WR-01 — seed the per-step selections when launching a saved workflow. */
-  initialSelections?: SelectionsMap;
-}) {
+export function applyLeverPatch(
+  current: StepSelection | undefined,
+  patch: Partial<StepSelection>,
+): StepSelection {
+  const cur: StepSelection = { ...(current ?? {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    const key = k as keyof StepSelection;
+    if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) {
+      delete cur[key];
+    } else {
+      // @ts-expect-error — keyed assignment across the union is safe here.
+      cur[key] = v;
+    }
+  }
+  // EMP-04 (D-07): a validator selection requires the `validation` gate. Auto-
+  // attach it (deduped) so the validators actually fire at run time.
+  if (cur.validators && cur.validators.length > 0) {
+    const gates = new Set(cur.gates ?? []);
+    gates.add(COUPLED_GATE);
+    cur.gates = Array.from(gates);
+  }
+  return cur;
+}
+
+/**
+ * Fetch + kind-filter the live `/api/capabilities` palette into the lever
+ * OPTIONS: `user_allowed` validator/gate names + the whole `model_catalog`
+ * (SC-001 — never a hardcoded option list). Extracted from `AdvancedExpander` so
+ * the Canvas inline config rail sources the SAME options from the SAME endpoint
+ * (INV-3). Returns the option arrays + the fetch loading/error state.
+ */
+export function useAgentCapabilities(token?: string | null) {
   const [validatorOptions, setValidatorOptions] = useState<string[]>([]);
   const [gateOptions, setGateOptions] = useState<string[]>([]);
   const [modelOptions, setModelOptions] = useState<CapabilityModelEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [selections, setSelections] = useState<SelectionsMap>(initialSelections ?? {});
 
   useEffect(() => {
     let cancelled = false;
@@ -1483,6 +1496,43 @@ export function AdvancedExpander({
     };
   }, [token]);
 
+  return { validatorOptions, gateOptions, modelOptions, loading, error };
+}
+
+/**
+ * Per-agent "Advanced" expander (collapsed by default; D-05, agent ≈ step).
+ * Exposes the representative lever-set — Validator → Gate → Model → Retry
+ * (EMP-01) — sourced ENTIRELY from the live `/api/capabilities` palette payload
+ * (user_allowed caps of the relevant kinds + the model catalog), never a
+ * hardcoded option list (SC-001). Selecting a lever updates a per-step
+ * selections map reported upward via `onSelectionsChange` (pure data — no new
+ * run endpoint). Selecting a validator auto-attaches the `validation` gate
+ * inline + announces it (EMP-04, `role="status"`).
+ *
+ * Exported so it can be render-tested in isolation; it remains EMBEDDED in the
+ * AgentsPopup composer.
+ */
+export function AdvancedExpander({
+  agents,
+  onSelectionsChange,
+  token,
+  initialSelections,
+}: {
+  agents: { id: string; name: string }[];
+  /** Reports the compact per-step selections map upward (the 22-04 shape). */
+  onSelectionsChange?: (selections: SelectionsMap) => void;
+  /** Optional JWT override (defaults to the stored token), mirroring the picker. */
+  token?: string | null;
+  /** WR-01 — seed the per-step selections when launching a saved workflow. */
+  initialSelections?: SelectionsMap;
+}) {
+  // Lever OPTIONS + fetch state come from the SHARED hook (SC-001) — the same
+  // source the Canvas inline config rail uses (INV-3, no forked fetch/filter).
+  const { validatorOptions, gateOptions, modelOptions, loading, error } =
+    useAgentCapabilities(token);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selections, setSelections] = useState<SelectionsMap>(initialSelections ?? {});
+
   const toggle = (agentId: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -1498,26 +1548,9 @@ export function AdvancedExpander({
     patch: Partial<StepSelection>,
   ) =>
     setSelections((prev) => {
-      const cur: StepSelection = { ...(prev[agentId] ?? {}) };
-      // Apply the patch; an empty/undefined value clears the key (no override).
-      for (const [k, v] of Object.entries(patch)) {
-        const key = k as keyof StepSelection;
-        if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) {
-          delete cur[key];
-        } else {
-          // @ts-expect-error — keyed assignment across the union is safe here.
-          cur[key] = v;
-        }
-      }
-      // EMP-04 (D-07): a validator selection requires the `validation` gate.
-      // Auto-attach it (deduped) so the validators actually fire at run time —
-      // mirroring selections.py. Removing all validators drops the auto gate
-      // unless the user explicitly picked it.
-      if (cur.validators && cur.validators.length > 0) {
-        const gates = new Set(cur.gates ?? []);
-        gates.add(COUPLED_GATE);
-        cur.gates = Array.from(gates);
-      }
+      // Delegate to the shared pure reducer (patch + clear-unset + validator→gate
+      // coupling) — the single writer of the selection shape (INV-3).
+      const cur = applyLeverPatch(prev[agentId], patch);
       const next: SelectionsMap = { ...prev };
       if (Object.keys(cur).length === 0) delete next[agentId];
       else next[agentId] = cur;

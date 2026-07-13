@@ -32,7 +32,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { CapabilitiesPalette } from "@/lib/api";
 import type { AgentDef, WorkflowType } from "@/types/index";
-import type { SelectionsMap } from "../AgentsPopup";
+import type { SelectionsMap, StepSelection } from "../AgentsPopup";
 
 const mockGetCapabilities = vi.fn();
 vi.mock("@/lib/api", () => ({
@@ -123,28 +123,59 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
     expect(document.querySelector("marker#arwb")).not.toBeNull();
   });
 
-  it("clicking a node selects it and binds the config rail to SelectionsMap (AdvancedExpander) + AgentPromptSection", async () => {
+  it("clicking a node selects it and binds the inline config rail (Model + Overrides toggles + AgentPromptSection)", async () => {
     renderCanvas();
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
-    // The reused AdvancedExpander renders for the selected node (SelectionsMap writer).
-    await waitFor(() =>
-      expect(screen.getByText(/Advanced — Bravo Agent/i)).toBeInTheDocument(),
-    );
-    // The reused AgentPromptSection renders (custom prompt view).
+    // The inline rail renders the Model dropdown for the selected node.
+    expect(await screen.findByLabelText(/^Model$/i)).toBeInTheDocument();
+    // Validator + Review-gate toggle switches + the reused AgentPromptSection.
+    expect(screen.getByRole("switch", { name: /Validator/i })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /Review gate/i })).toBeInTheDocument();
     expect(screen.getByText(/System Prompt/i)).toBeInTheDocument();
     // The selected node carries the selected marker.
     expect(screen.getByTestId("canvas-node-bravo")).toHaveAttribute("data-selected", "true");
   });
 
-  it("editing a lever in the rail reports the per-agent SelectionsMap upward (shared state)", async () => {
+  it("the Model dropdown writes model to the per-agent SelectionsMap (shared state)", async () => {
     const { onSelection } = renderCanvas();
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
-    await userEvent.click(await screen.findByText(/Advanced — Bravo Agent/i));
-    const model = await screen.findByLabelText(/Model for Bravo Agent/i);
+    const model = await screen.findByLabelText(/^Model$/i);
     await userEvent.selectOptions(model, "model-opus");
     await waitFor(() => expect(onSelection).toHaveBeenCalled());
-    // The report targets the bravo agent id (bound to the shared data model).
-    expect(onSelection.mock.calls.some((c) => c[0] === "bravo")).toBe(true);
+    const [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(id).toBe("bravo");
+    expect(sel?.model).toBe("model-opus");
+  });
+
+  it("the Validator toggle writes validators AND auto-attaches the coupled `validation` gate (EMP-04)", async () => {
+    const { onSelection } = renderCanvas();
+    await userEvent.click(screen.getByTestId("canvas-node-bravo"));
+    await screen.findByLabelText(/^Model$/i);
+    await userEvent.click(screen.getByRole("switch", { name: /Validator/i }));
+    const [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(id).toBe("bravo");
+    expect((sel?.validators ?? []).length).toBeGreaterThan(0);
+    expect(sel?.gates).toContain("validation");
+  });
+
+  it("the Review-gate toggle attaches a non-validation (human) review gate", async () => {
+    const { onSelection } = renderCanvas();
+    await userEvent.click(screen.getByTestId("canvas-node-bravo"));
+    await screen.findByLabelText(/^Model$/i);
+    await userEvent.click(screen.getByRole("switch", { name: /Review gate/i }));
+    const [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(id).toBe("bravo");
+    expect((sel?.gates ?? []).some((g) => g !== "validation")).toBe(true);
+  });
+
+  it("the Retry stepper writes retry to the per-agent SelectionsMap", async () => {
+    const { onSelection } = renderCanvas();
+    await userEvent.click(screen.getByTestId("canvas-node-bravo"));
+    await screen.findByLabelText(/^Model$/i);
+    await userEvent.click(screen.getByRole("button", { name: /Increase retries/i }));
+    const [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(id).toBe("bravo");
+    expect(sel?.retry).toBe(1);
   });
 
   it("+ insert affordances (on edges + at the chain end) call the shared add-agent path", async () => {
@@ -161,13 +192,15 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
     expect(onRemoveAgent).toHaveBeenCalledWith("charlie");
   });
 
-  it("docked Run summary shows agents + review-gate counts and NO est. cost (ND-AG)", () => {
+  it("docked Run summary shows a 2×2 stat grid (Agents / Review gate / Est. duration), NO est. cost (ND-AG)", () => {
     renderCanvas();
-    const rail = screen.getByTestId("composer-summary-rail");
-    expect(within(rail).getByText(String(AGENTS.length))).toBeInTheDocument();
-    expect(within(rail).getByText(/Review gates/i)).toBeInTheDocument();
-    expect(within(rail).getByText(/Est\. duration/i)).toBeInTheDocument();
-    expect(within(rail).queryByText(/Est\. cost/i)).toBeNull();
+    const sum = screen.getByTestId("canvas-run-summary");
+    expect(within(sum).getByText(String(AGENTS.length))).toBeInTheDocument();
+    expect(within(sum).getByText(/Review gate/i)).toBeInTheDocument();
+    expect(within(sum).getByText(/Est\. duration/i)).toBeInTheDocument();
+    expect(within(sum).getByText("~6m")).toBeInTheDocument();
+    expect(within(sum).queryByText(/Est\. cost/i)).toBeNull();
+    expect(within(sum).getByRole("button", { name: /Save to catalogue/i })).toBeInTheDocument();
   });
 });
 
@@ -194,9 +227,10 @@ describe("CanvasView — hand-rolled, no graph library, reuses the shared levers
     expect(read("CanvasView.tsx")).toMatch(/<svg/);
   });
 
-  it("the config rail REUSES the exported levers (AdvancedExpander / AgentPromptSection / SelectionsMap), not forked", () => {
+  it("the config rail REUSES the shared lever logic (applyLeverPatch + useAgentCapabilities + AgentPromptSection + SelectionsMap), not forked", () => {
     const src = read("CanvasConfigRail.tsx");
-    expect(src).toMatch(/AdvancedExpander/);
+    expect(src).toMatch(/applyLeverPatch/);
+    expect(src).toMatch(/useAgentCapabilities/);
     expect(src).toMatch(/AgentPromptSection/);
     expect(src).toMatch(/SelectionsMap/);
   });
