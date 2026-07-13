@@ -197,3 +197,59 @@ test("CAPTURE phase-41 configure + composer surfaces (guarded, no-op until built
     }
   }
 });
+
+/**
+ * PHASE 41 (41-04) — POPULATED Composer Simple view capture, GUARDED.
+ *
+ * The default composer entry ("Compose a custom workflow") seeds 0 agents, so the
+ * primary composer capture shows the empty state. This driver DRIVES the Composer
+ * into a POPULATED state so the agent-row composition is reviewable against the
+ * mock's 5 populated rows: it adds ~5 agents via the reused AgentLibrary catalogue
+ * path, then toggles ONE agent's Gate override ON (black-active "Gate" chip,
+ * mirroring the mock's row-03) via the reused AdvancedExpander Gate lever. Writes
+ * `composer-simple-populated__shell(.full).png`. Capture-only — NO source changes.
+ */
+test("CAPTURE phase-41 populated composer Simple view (guarded)", async ({ dashboard, page }) => {
+  test.setTimeout(120_000);
+  // Enterprise tier so the custom-compose card is launchable (basic tier disables
+  // it) — the proven TS-E-05 navigation path.
+  await dashboard.goto({ tier: "enterprise" });
+  await dashboard.selectWorkflow("Compose a custom workflow");
+  const onComposer = await page
+    .getByText(/Custom workflow · Composer/i)
+    .first()
+    .waitFor({ state: "visible", timeout: 12000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!onComposer) return; // composer unreachable → no populated shot (assembler shows placeholder)
+
+  // Add ~5 agents via the reused AgentLibrary (each add closes the library, and
+  // existingAgentIds filters already-added agents, so the first "+ Add" adds a new
+  // agent each pass).
+  for (let i = 0; i < 5; i++) {
+    await page.getByRole("button", { name: "Add agent" }).first().click({ timeout: 6000 }).catch(() => {});
+    await page.getByRole("button", { name: /^All$/ }).first().click({ timeout: 4000 }).catch(() => {});
+    await page.getByRole("button", { name: /\+ Add/ }).first().click({ timeout: 4000 }).catch(() => {});
+    await page.waitForTimeout(200);
+  }
+
+  const rows = page.locator('[data-testid^="agent-row-"]');
+  await page.waitForTimeout(300);
+  const rowCount = await rows.count();
+
+  // Toggle the Gate override ON for one agent (3rd if present, else the last) via
+  // the reused AdvancedExpander Gate lever, so its "Gate" chip renders black-active.
+  if (rowCount > 0) {
+    const target = rows.nth(Math.min(2, rowCount - 1));
+    await target.getByRole("button", { name: /Model for / }).first().click({ timeout: 4000 }).catch(() => {});
+    await target.getByRole("button", { name: /Advanced — / }).first().click({ timeout: 4000 }).catch(() => {});
+    const gate = target.getByRole("combobox", { name: /Gate for / }).first();
+    await gate.selectOption({ index: 1 }).catch(() => {});
+    // Collapse the config panel so the screenshot shows the clean row + active chip.
+    await target.getByRole("button", { name: /Model for / }).first().click({ timeout: 4000 }).catch(() => {});
+    await page.waitForTimeout(300);
+  }
+
+  await shot(page, "composer-simple-populated");
+  await shotFull(page, "composer-simple-populated");
+});

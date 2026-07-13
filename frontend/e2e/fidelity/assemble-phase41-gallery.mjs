@@ -143,7 +143,11 @@ async function main() {
     imgUri(CURRENT, "config-gates__shellfull"),
     imgUri(CURRENT, "config-settings__shellfull"),
     imgUri(TARGET, "composer__shell"),
-    imgUri(CURRENT, "composer-simple__shell"),
+    // Prefer the POPULATED Simple-view capture (~5 agent rows + an active Gate
+    // chip) when present so the agent-row composition is reviewable against the
+    // mock's 5 rows; fall back to the fresh 0-agent shot otherwise (41-04).
+    (await imgUri(CURRENT, "composer-simple-populated__shell")) ??
+      (await imgUri(CURRENT, "composer-simple__shell")),
     imgUri(CURRENT, "composer-canvas__shell"),
   ]);
   const canvas = await canvasIframe();
@@ -187,7 +191,7 @@ async function main() {
       kind: "pair", surface: "composer", tag: "composer ▸ Simple view",
       note: "MOCK = FULL-PAGE Composer: identity card (Name/Deliverable-type/Description) + reorderable agent ROWS (avatar · name · Core badge · role · per-agent model picker · Validator/Gate/Retry override chips · Custom prompt) + right Summary rail. OURS (composer-simple__shell) = the full-page Simple view once built (Wave 4), bound to the AgentsPopup shared data model.",
       mock: cmpMock, mockCap: "MOCK — Composer Simple view (full page)",
-      cur: cmpSimpleCur, curCap: "OURS — Composer Simple view (composer-simple__shell)",
+      cur: cmpSimpleCur, curCap: "OURS — Composer Simple view, POPULATED (~5 agent rows; row-03 Gate override ON — composer-simple-populated__shell)",
     },
     {
       kind: "canvas", surface: "composer-canvas", tag: "composer ▸ Canvas view (APPROVED PROPOSAL · ND-AJ)",
