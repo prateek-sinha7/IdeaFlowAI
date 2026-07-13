@@ -173,9 +173,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   }, []);
 
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
-    // KAN-96: if this run is the currently-active pipeline, navigate to the
-    // live execution view rather than opening the static history detail.
-    if (activeRunId && run.id === activeRunId && onViewRunningPipeline) {
+    // KAN-96: if this run is the currently-ACTIVE (still running) pipeline,
+    // navigate to the live execution view rather than opening the history detail.
+    // Guard on BOTH the id match AND the run status — pipelineState.pipelineRunId
+    // is not cleared when a pipeline completes, so a completed run must always
+    // open in the history detail view regardless of id match.
+    const isCurrentlyRunning = run.status === "running" || run.status === "revising";
+    if (activeRunId && run.id === activeRunId && isCurrentlyRunning && onViewRunningPipeline) {
       onViewRunningPipeline();
       return;
     }
@@ -383,6 +387,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const meta = TYPE_META[selectedRun.type] || TYPE_META.custom;
     const Icon = meta.icon;
     const workflowType = selectedRun.type as WorkflowType;
+    // KAN-105: compute a display label that tells the user HOW this run was
+    // created — revision, chained, or a fresh standalone run. Revision types
+    // already carry "(Revised)" in TYPE_META. For non-revision types, a
+    // parentRunId means it was created via the Chain action from another run.
+    const isRevisionType = workflowType.endsWith("_revision");
+    const isChainedRun = !isRevisionType && !!selectedRun.parentRunId;
+    const displayLabel = isChainedRun
+      ? `${meta.label} (Chained)`
+      : meta.label;
     // ─── C-FLAG-1 (260703-174) — reopen StartingPointCard revision chip wiring ──
     // revisionParentVersion = 1-based family index of selectedRun's PARENT, derived
     // from the fetched `family` state (getRunFamily). family.members uses the same
@@ -468,7 +481,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                 <Icon className="h-4 w-4 text-gray-500" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest">{meta.label}</p>
+                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest">{displayLabel}</p>
               </div>
               {selectedRun.status === "completed" && (
                 <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-full flex-shrink-0">Done</span>

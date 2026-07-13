@@ -128,8 +128,44 @@ export function groupRunsByFamily(runs: WorkflowRun[]): FamilyGroup[] {
     // root = the member whose id IS the rootRunId; else the earliest present
     // (legacy NULL-parent / a family whose root fell outside the fetch window).
     const root = members.find((m) => m.id === rootRunId) ?? members[0];
+    const rootBaseType = baseWorkflowType(root.type);
     const latest = members[members.length - 1];
-    groups.push({ rootRunId, root, members, latest });
+
+    // KAN-105: Only revision runs (same base workflow type) belong in a family.
+    // A chained run produces a DIFFERENT base workflow type (e.g. prototype →
+    // user_stories). Even though the backend sets parent_run_id on chained runs
+    // too (making root_run_id resolve to the same ancestor), chained runs are
+    // NEW workflows — not versions of the source — and must appear as independent
+    // entries. Split any member whose base type differs from the root into its
+    // own standalone family. This is a FE display decision (SC-001: no
+    // pipeline_type branch in the engine; the backend root_run_id computation is
+    // unchanged). Only runs whose base type MATCHES the family root are treated
+    // as revision versions.
+    const revisionMembers: WorkflowRun[] = [];
+    const chainedStandalones: WorkflowRun[] = [];
+    for (const m of members) {
+      if (baseWorkflowType(m.type) === rootBaseType) {
+        revisionMembers.push(m);
+      } else {
+        // Different base type → chain run, not a revision → own standalone group.
+        chainedStandalones.push(m);
+      }
+    }
+
+    // Emit the revision family (may be a single-member family if the only member
+    // is the root itself — renders as a plain flat row, zero regression).
+    const revLatest = revisionMembers[revisionMembers.length - 1];
+    groups.push({ rootRunId, root, members: revisionMembers, latest: revLatest });
+
+    // Emit each chained run as its own standalone single-member family.
+    for (const standalone of chainedStandalones) {
+      groups.push({
+        rootRunId: standalone.id,
+        root: standalone,
+        members: [standalone],
+        latest: standalone,
+      });
+    }
   }
   // Newest family first (by latest member) — preserves today's newest-first list
   // order → zero ordering regression.
@@ -416,7 +452,13 @@ export function VersionTimeline({
   }, [activeRunId]);
 
   // Hide the chip row when this is not a family (single-member / absent).
+  // KAN-105: also hide when the active run is NOT a member of this family —
+  // this happens when a chained run's rootRunId points to the source family
+  // but the run itself was excluded from that family (different base type).
+  // In that case the family belongs to a different workflow; showing its chips
+  // on a chained run's detail would be incorrect.
   if (!family || family.members.length < 2) return null;
+  if (!members.find((m) => m.id === activeRunId)) return null;
 
   const select = (memberId: string) => {
     userSwitched.current = true;

@@ -1906,3 +1906,59 @@ No backend change; the `/thumbnail` endpoint still 404s as before — the fix ju
 #### Notes
 - End-to-end behaviour now: thumbnail on disk → 200 `<img>`; thumbnail missing/deleted → 404 → card renders the live `example.html` iframe (FIX-041); no more 500s from a stale cache.
 | FIX-043 | 2026-07-09 | Template gallery thumbnail 429 flood — compact cards loaded ALL thumbnails eagerly (no IntersectionObserver gate on `<img>` path) + `CompactTemplateCard` had no `onError` fallback | Two bugs: (1) `CompactTemplateCard` (TemplateGallery.tsx) keyed the thumbnail `<img>` on `thumbnailUrl` alone — the `shouldMount` IntersectionObserver gate only controlled the iframe fallback path, so all ~43 thumbnails fired simultaneously on gallery mount → 429 Too Many Requests from the server. (2) Same component had no `thumbnailError` state or `onError` handler (unlike `TemplateCard.tsx` and `CompactPPTCard` which both had it), so a 429/404 left the card stuck on the pulse shimmer with no recovery. `CompactPPTCard` (PPTTemplateGallery.tsx) had `onError` but the same missing `shouldMount` gate on the img path. Fix: gate `thumbnailUrl` rendering behind `shouldMount` in both compact cards (only visible cards fire requests); add `thumbnailError` + `onError` to `CompactTemplateCard` (on error, flip to iframe fallback — matching existing pattern in `TemplateCard.tsx`). | `frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx` | Phase 4 (OD catalog UI) · builds on FIX-039/041 | INV-3 golden-neutral (FE-only; catalog thumbnails) ✅ | Done |
+
+| FIX-052 | 2026-07-13 | KAN-105: Workflow History chained runs incorrectly grouped as versions under same workflow title | `groupRunsByFamily` bucketed ALL runs sharing the same `rootRunId` regardless of relationship type; chained runs (different base workflow type) were shown as v2/v3 under the source workflow title instead of as separate entries | `frontend/src/components/history/RevisionFamilyView.tsx`, `frontend/src/components/history/WorkflowHistory.family.test.tsx` | Phase 25 (B2 revision families) / KAN-105 | INV-1/3/12/SC-001 ✅ | Done |
+
+---
+
+### FIX-052 — KAN-105: Chained runs grouped incorrectly as revision versions in Workflow History
+
+**Date:** 2026-07-13
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-105`
+
+#### Root Cause
+`groupRunsByFamily` in `frontend/src/components/history/RevisionFamilyView.tsx` (line 106) bucketed ALL runs sharing the same `rootRunId` into a single family card, without checking whether the parent-child relationship is a **revision** (same base workflow type, `_revision` suffix) or a **chain** (new, different workflow type seeded from the source output).
+
+Both chained runs and revision runs receive `parent_run_id` on their `WorkflowRun` row — chaining uses `source_workflow_run_id` which the backend maps to `parent_run_id` via `_resolve_owned_parent_run_id`. The backend's `_compute_root_ids` walk therefore returns the same `root_run_id` for both types. `groupRunsByFamily` then placed them all in the same bucket, rendering a chained `user_stories` run as "v2" under the `prototype` title.
+
+Trace:
+```
+User chains prototype → user_stories
+  → handleChainPipeline → onStartPipeline("user_stories", ..., { source_workflow_run_id: contentSourceRunId })
+  → websocket.py _resolve_owned_parent_run_id → WorkflowRun(parent_run_id = prototype.id)
+  → runs.py _compute_root_ids walks parent_run_id chain → user_stories.root_run_id = prototype.id
+  → groupRunsByFamily: bucket[prototype.id] = [prototype, user_stories]
+  → FamilyGroup { members: [prototype, user_stories], v2 pill }
+  → user_stories displayed as v2 under "My Prototype" ❌
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 — Revision Families & Run-Inputs Surfacing, Workstream B2 (`260702-uos`)
+- **Relevant register section:** Phase 25 §B2 key-decisions: "Client-side family grouping on the server-supplied rootRunId (no workflow-name branching, SC-001)" — the fix honours this by using `baseWorkflowType()` (already in the file) which is type-based, not workflow-name based
+- **Deleted code verified (not resurrected):** No deleted code involved — FE-only change to `groupRunsByFamily` logic
+- **Locked decisions respected:** POR D7 (root_run_id computed server-side, FE groups by field) — honoured. The backend `_compute_root_ids` is unchanged. POR D1 (child-run model kept, unify at read/UX layer) — honoured. SC-001 — grouping uses `baseWorkflowType(run.type)`, a type-agnostic string operation, no workflow-name literal.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/RevisionFamilyView.tsx` | In `groupRunsByFamily`, after sorting bucket members, compute `rootBaseType = baseWorkflowType(root.type)`. Split each member: if `baseWorkflowType(m.type) === rootBaseType` → `revisionMembers`, else → `chainedStandalones`. Emit the revision family with only `revisionMembers` (may be single-member for the root alone). Emit each chained run as its own standalone `FamilyGroup` with `rootRunId = standalone.id`. | Chained runs have a different base type than the source; they must be independent entries. Only runs of the same base type are revision versions of the same workflow. |
+| `frontend/src/components/history/WorkflowHistory.family.test.tsx` | Added a new test "KAN-105: a chained run (different base type) is shown as a separate workflow entry, not as a version of the source" — renders a prototype + a user_stories run sharing `rootRunId="proto"`, asserts both titles appear and no "vN" pill is present. | Regression guard for the fixed behavior. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): `baseWorkflowType(run.type)` is a generic suffix/alias operation — no `if pipeline_type ==` or `if type === "prototype"` literal. Any new workflow type is handled correctly by the existing `_revision` suffix rule.
+- **INV-3** (golden parity): FE-only change. No backend/engine/websocket/manifest/migration edit. The 5 characterization goldens are untouched.
+- **INV-12** (no duplication): reuses the existing `baseWorkflowType` function already defined in `RevisionFamilyView.tsx`. No second implementation.
+- **SC-001** (zero engine edits): not applicable — FE presentation logic only.
+
+#### Verification
+- TypeScript diagnostics: 0 errors on both changed files
+- Test trace with fix:
+  - `proto (type=prototype)` + `chain (type=user_stories, rootRunId=proto)` → `rootBaseType="prototype"`, chain's base type = `"user_stories" ≠ "prototype"` → chainedStandalones → two independent FamilyGroup entries → no v2 pill ✅
+  - `proto (type=prototype)` + `rev1 (type=prototype_revision, rootRunId=proto)` → both base type = `"prototype"` → revisionMembers → one FamilyGroup with v2 pill ✅
+  - `od_prototype` + `prototype_revision` → `baseWorkflowType("od_prototype")="prototype"`, `baseWorkflowType("prototype_revision")="prototype"` → same family ✅
+- Existing tests unaffected: the fix only changes behavior when a bucket contains runs of different base types (the chain scenario); same-type buckets (all revisions) pass through the `revisionMembers` path unchanged and produce identical output.
+
+#### Notes
+- The backend `_compute_root_ids` is intentionally NOT changed — it correctly walks `parent_run_id` ownership for all runs; the family membership decision belongs at the FE display layer (POR D7).
+- Multi-hop chains (prototype → user_stories → ppt) all share the original `root_run_id = prototype.id`. After this fix, each chained run in that chain emits as its own standalone entry since each has a different base type from the prototype root.
+- Same-type chaining edge case (e.g. prototype → prototype via chain, not revision): both runs have `baseWorkflowType = "prototype"` so they would still group together. This is an acceptable edge case since same-type chaining is rare and the behavior (grouping two prototypes) is not technically wrong. A future enhancement could add a `relationship_type` field to `WorkflowRun` to distinguish chain vs revision at the data layer.
