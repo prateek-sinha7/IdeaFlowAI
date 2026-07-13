@@ -371,28 +371,52 @@ export function FamilyGroupCard({
             const parentIdx = group.members.findIndex((m) => m.id === member.parentRunId);
             const revisesN = (parentIdx >= 0 ? parentIdx : i - 1) + 1;
             return (
-              // Native <button> so each child version row is keyboard-focusable +
-              // Enter/Space-activatable for free (FIX 2 / §8 a11y). Keeps the exact
-              // row className + appends `w-full text-left` to reproduce the
-              // full-width flex row — no visual change. The ROOT family-card rows
-              // stay <div onClick> (audit-scoped out).
-              <button
+              // KAN-106: child version row is a flex container so it can host
+              // a hover-reveal RowMenu at the right edge. The clickable area
+              // covers the left portion (flex-1) so keyboard activation and
+              // pointer clicks still open the version as before.
+              <div
                 key={member.id}
-                type="button"
-                onClick={() => onSelectRun(member)}
-                aria-label={`Version ${i + 1}, ${member.status}`}
-                className="w-full text-left flex items-center gap-3 pl-8 pr-6 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors"
+                className="group relative flex items-center hover:bg-gray-50 transition-colors"
               >
-                <span className="text-[9px] font-semibold px-1 rounded bg-gray-200 text-gray-500">
-                  v{i + 1}
-                </span>
-                <span className={statusDotClass(member.status)} />
-                <span className="text-[12px] text-gray-700 truncate">{member.title}</span>
-                <span className="text-[10px] text-gray-400">{formatDate(member.createdAt)}</span>
-                {member.parentRunId && (
-                  <span className="text-[10px] text-gray-400">↳ revises v{revisesN}</span>
-                )}
-              </button>
+                {/* Clickable open-version area — keyboard accessible via role=button */}
+                <button
+                  type="button"
+                  onClick={() => onSelectRun(member)}
+                  aria-label={`Version ${i + 1}, ${member.status}`}
+                  className="flex-1 text-left flex items-center gap-3 pl-8 py-2.5 cursor-pointer min-w-0"
+                >
+                  <span className="text-[9px] font-semibold px-1 rounded bg-gray-200 text-gray-500 flex-shrink-0">
+                    v{i + 1}
+                  </span>
+                  <span className={`${statusDotClass(member.status)} flex-shrink-0`} />
+                  <span className="text-[12px] text-gray-700 truncate">{member.title}</span>
+                  <span className="text-[10px] text-gray-400 flex-shrink-0">{formatDate(member.createdAt)}</span>
+                  {member.parentRunId && (
+                    <span className="text-[10px] text-gray-400 flex-shrink-0">↳ revises v{revisesN}</span>
+                  )}
+                </button>
+                {/* Per-version delete menu — same RowMenu pattern as the root row.
+                    Use a "-child" suffix on the runId key so the child row's
+                    menu state never collides with the root card's menu (which
+                    uses runId={group.root.id} — the same id as v1's member.id).
+                    pr-2 aligns it with the root card's right padding. */}
+                <div className="pr-2 flex-shrink-0">
+                  <RowMenu
+                    runId={`${member.id}-child`}
+                    openMenuId={openMenuId}
+                    onToggleMenu={(id, e) => {
+                      // Strip the "-child" suffix before forwarding to the real handler
+                      // so handleDeleteClick / handleDeleteConfirm receive the real run id.
+                      onToggleMenu(id, e);
+                    }}
+                    onDeleteClick={(id, e) => {
+                      // Strip "-child" suffix to get the real run id for deletion.
+                      onDeleteClick(id.replace(/-child$/, ""), e);
+                    }}
+                  />
+                </div>
+              </div>
             );
           })}
         </div>

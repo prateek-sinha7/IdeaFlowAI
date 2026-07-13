@@ -273,6 +273,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       await deleteWorkflow(token, deleteConfirmId);
       setRuns((prev) => prev.filter((r) => r.id !== deleteConfirmId));
       if (selectedRun?.id === deleteConfirmId) { setSelectedRun(null); setSelectedOutput(null); }
+      // KAN-106: reset family so the detail view VersionTimeline doesn't show
+      // stale chips after a member is deleted. The family is re-fetched
+      // automatically when selectedRun changes or the detail is reopened.
+      setFamily(null);
       setDeleteConfirmId(null);
     } catch {
       setDeleteError("Failed to delete run. Please try again.");
