@@ -253,3 +253,72 @@ test("CAPTURE phase-41 populated composer Simple view (guarded)", async ({ dashb
   await shot(page, "composer-simple-populated");
   await shotFull(page, "composer-simple-populated");
 });
+
+/**
+ * PHASE 41 (41-05) — POPULATED Composer CANVAS view capture, GUARDED.
+ *
+ * The default composer entry ("Compose a custom workflow") seeds 0 agents, so the
+ * primary Canvas capture (in the HARN-01 driver above) shows the EMPTY state — no
+ * agent nodes, no bezier edges, which are the entire point of the node-graph. This
+ * driver DRIVES the Composer into a POPULATED state so the node-graph is reviewable
+ * against the APPROVED PROPOSAL (ND-AJ): it adds ~5 agents via the reused
+ * AgentLibrary catalogue path (in the default Simple view), toggles ONE agent's
+ * Gate override ON via the reused AdvancedExpander Gate lever (the shared
+ * SelectionsMap then carries the gate into the Canvas node + docked summary), then
+ * switches to the Canvas view and captures. Writes
+ * `composer-canvas-populated__shell(.full).png`. Capture-only — NO source changes.
+ */
+test("CAPTURE phase-41 populated composer Canvas view (guarded)", async ({ dashboard, page }) => {
+  test.setTimeout(120_000);
+  // Enterprise tier so the custom-compose card is launchable (basic tier disables
+  // it) — the proven TS-E-05 navigation path.
+  await dashboard.goto({ tier: "enterprise" });
+  await dashboard.selectWorkflow("Compose a custom workflow");
+  const onComposer = await page
+    .getByText(/Custom workflow · Composer/i)
+    .first()
+    .waitFor({ state: "visible", timeout: 12000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!onComposer) return; // composer unreachable → no populated canvas shot (assembler falls back)
+
+  // Add ~5 agents via the reused AgentLibrary (the composer opens in the Simple
+  // view, whose "Add agent" header button + catalogue path are the proven path).
+  for (let i = 0; i < 5; i++) {
+    await page.getByRole("button", { name: "Add agent" }).first().click({ timeout: 6000 }).catch(() => {});
+    await page.getByRole("button", { name: /^All$/ }).first().click({ timeout: 4000 }).catch(() => {});
+    await page.getByRole("button", { name: /\+ Add/ }).first().click({ timeout: 4000 }).catch(() => {});
+    await page.waitForTimeout(200);
+  }
+
+  // Toggle the Gate override ON for one agent (3rd if present, else the last) via
+  // the reused AdvancedExpander Gate lever in its Simple row — the shared
+  // SelectionsMap then carries the gate into the Canvas node's Gate chip AND the
+  // docked Run summary's review-gate count.
+  const rows = page.locator('[data-testid^="agent-row-"]');
+  await page.waitForTimeout(300);
+  const rowCount = await rows.count();
+  if (rowCount > 0) {
+    const target = rows.nth(Math.min(2, rowCount - 1));
+    await target.getByRole("button", { name: /Model for / }).first().click({ timeout: 4000 }).catch(() => {});
+    await target.getByRole("button", { name: /Advanced — / }).first().click({ timeout: 4000 }).catch(() => {});
+    const gate = target.getByRole("combobox", { name: /Gate for / }).first();
+    await gate.selectOption({ index: 1 }).catch(() => {});
+    // Collapse the config panel so the switch to Canvas starts clean.
+    await target.getByRole("button", { name: /Model for / }).first().click({ timeout: 4000 }).catch(() => {});
+    await page.waitForTimeout(300);
+  }
+
+  // Switch to the Canvas view and capture the POPULATED node-graph (nodes + edges).
+  await page.getByRole("button", { name: /^Canvas$/ }).first().click({ timeout: 4000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  // Zoom out a couple of steps (via the existing control — capture-only) so the
+  // whole 5-node chain + its edges fit the canvas viewport for the design review.
+  for (let i = 0; i < 2; i++) {
+    await page.getByRole("button", { name: /Zoom out/i }).first().click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(150);
+  }
+  await page.waitForTimeout(400);
+  await shot(page, "composer-canvas-populated");
+  await shotFull(page, "composer-canvas-populated");
+});

@@ -150,7 +150,11 @@ async function main() {
     // mock's 5 rows; fall back to the fresh 0-agent shot otherwise (41-04).
     (await imgUri(CURRENT, "composer-simple-populated__shell")) ??
       (await imgUri(CURRENT, "composer-simple__shell")),
-    imgUri(CURRENT, "composer-canvas__shell"),
+    // Prefer the POPULATED Canvas capture (~5 agent nodes + bezier edges + an
+    // active Gate chip) when present so the node-graph is reviewable against the
+    // approved proposal; fall back to the fresh 0-agent shot otherwise (41-05).
+    (await imgUri(CURRENT, "composer-canvas-populated__shell")) ??
+      (await imgUri(CURRENT, "composer-canvas__shell")),
   ]);
   const canvas = await canvasIframe();
 
@@ -198,7 +202,7 @@ async function main() {
     {
       kind: "canvas", surface: "composer-canvas", tag: "composer ▸ Canvas view (APPROVED PROPOSAL · ND-AJ)",
       note: "The node-graph Canvas view — ALREADY DESIGNED + USER-APPROVED (composer-canvas-proposal.html, the LEFT reference below). Agents = nodes on a dot-grid; Brief→agents left→right sequential edges; click-node → right config-rail (Model/Validator/Review-gate/Retry/Custom-prompt); +-insert on edges; docked Run summary. Maps 1:1 to the AgentsPopup data. Render approach: HAND-ROLLED SVG edges + absolute-positioned nodes (D-CMP-CANVAS). Acceptance (ND-AJ) = design-match to the proposal; OURS (composer-canvas__shell) captured once built (Wave 5).",
-      iframe: canvas, cur: canvasCur, curCap: "OURS — built Canvas (composer-canvas__shell)",
+      iframe: canvas, cur: canvasCur, curCap: "OURS — built Canvas, POPULATED (~5 agent nodes + bezier edges; one node Gate override ON — composer-canvas-populated__shell)",
     },
   ];
 
