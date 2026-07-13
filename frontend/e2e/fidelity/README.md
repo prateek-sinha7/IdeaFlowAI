@@ -181,3 +181,76 @@ and the DEFERRED Configure/Composer surfaces are NOT diffed in Phase 40.
 | ND-X | Home prompt affordances | Attach + Voice | Attach only | no product voice-input capability (demo-only affordance not reproduced) |
 | ND-Y | Settings profile form | fabricated name/role/org | only real user-backed fields (email, plan/tier) | never fabricate unpersisted data |
 | ND-Z | Library agent-detail | right-side drawer | shared modal (drawer rebuild → Phase 41) | composer-owned; restyle-first scope (D40-2) |
+
+---
+
+# Configure + Composer Fidelity Harness (Phase 41 · B7 · HARN-01 oracle)
+
+The oracle every Phase-41 surface plan (41-02..41-07) diffs against for the two
+rebuilds Phase 40 deferred — the unified **Configure** screen and the full-page
+**Composer** (Simple + Canvas views). Same method as Phase 39/40: render the
+target (the `.dc.html` mocks + the **approved Canvas proposal**) and our current
+surfaces, assemble a side-by-side gallery, human sign-off. No pixel-diff (ND-D
+live/seeded data ≠ mock values; the Canvas gate is a design-match, ND-AJ).
+
+## Pieces
+
+| File | Role |
+|------|------|
+| `capture-shell-mocks.mjs` | (reused) TARGET capture — already emits `config`/`config-full`, `composer`/`composer-full`, and the `wizard-*` overlays. |
+| `composer-canvas-proposal.html` | The **APPROVED** Canvas design reference (ND-AJ), vendored + committed; the assembler embeds it live as the Canvas LEFT/reference cell. |
+| `../tests/zzz-shell-baseline.spec.ts` | Env-gated (`SHELL_CAPTURE=1`) capture of OUR surfaces; the Phase-41 driver (guarded, opt-in `seedConfigure()`) emits `config__shell` · `config-settings__shellfull` · `composer-simple__shell` · `composer-canvas__shell`. |
+| `assemble-phase41-gallery.mjs` | Pairs target/reference + current into `gallery-phase41.html`; carries the finalized **ND-AE..AJ** register; `--surface config\|composer\|composer-canvas` filters to one section. |
+
+`shots-shell/` and `gallery-phase41.html` are **git-ignored**; the scripts, this
+README, and the vendored `composer-canvas-proposal.html` reference ARE committed.
+
+## Commands
+
+```bash
+# 1. OUR side — capture the Configure/Composer surfaces (Templates/Design-System
+#    overlays render POPULATED from the opt-in seedConfigure() stubs). Env-gated
+#    so a normal `npm run e2e` SKIPS this spec. The Phase-41 driver is guarded —
+#    it no-ops on surfaces not yet built (Waves 2–6).
+SHELL_CAPTURE=1 npm --prefix frontend run e2e -- zzz-shell-baseline
+
+# 2. TARGET side — render + capture the mocks (needs NETWORK for the DC runtime).
+node frontend/e2e/fidelity/capture-shell-mocks.mjs
+
+# 3. Assemble the side-by-side Phase-41 gallery (all surfaces, or one).
+node frontend/e2e/fidelity/assemble-phase41-gallery.mjs
+node frontend/e2e/fidelity/assemble-phase41-gallery.mjs --surface config
+node frontend/e2e/fidelity/assemble-phase41-gallery.mjs --surface composer
+node frontend/e2e/fidelity/assemble-phase41-gallery.mjs --surface composer-canvas
+
+# 4. Open the artifact and review.
+open frontend/e2e/fidelity/gallery-phase41.html
+```
+
+Repo-relative by default (`e2e/fidelity/shots-shell/` + `gallery-phase41.html`);
+set `PHASE41_OUT=/abs` to override the base dir, `CANVAS_PROPOSAL=/abs` to point
+the Canvas reference elsewhere.
+
+## Phase-41 current-side tags
+
+- `config__shell` — the unified Configure screen (Wave 2/3)
+- `config-gates__shellfull` — the Review Gates accordion (carried)
+- `config-settings__shellfull` — the Workflow Settings accordion/overlay (Wave 2)
+- `composer-simple__shell` — the Composer Simple view (Wave 4)
+- `composer-canvas__shell` — the built Composer Canvas view (Wave 5)
+
+## Intended-divergence register (ND-AE..AJ) — expected, IGNORE
+
+The canonical source is the `ND` array in `assemble-phase41-gallery.mjs` (captioned
+"expected — ignore" in the gallery header). ND-A..D carry from Phase 39, ND-W..AD
+are Phase 40's (in `assemble-shell-gallery.mjs`, UNTOUCHED). Phase 41 continues at
+ND-AE.
+
+| # | Divergence | Mock says | We ship | Why |
+|---|-----------|-----------|---------|-----|
+| ND-AE | Configure Templates/DS accordions | all four always render | Templates + Design System only when the deliverable declares `opendesign` | SC-001 (`acceptsTemplateDs`) |
+| ND-AF | Configure selections | fabricated "Currently using…" | live registries; "None selected" until picked | SC-001 (specializes ND-D) |
+| ND-AG | Composer Run cost + primary action | "Est. cost $4.50" + "Run once now" from the composer | est. cost omitted (no metering); Run via the real onStartPipeline seam; est. duration live | SC-001 |
+| ND-AH | Composer "Deliverable type" | editable dropdown | `base_pipeline_type` fixed at entry → read-only | composer scope |
+| ND-AI | Configure brief affordances | Attach + Voice | Attach only | no product voice-input capability (carries ND-X) |
+| ND-AJ | Composer Canvas reference | no shipped `.dc.html` mock | match the APPROVED PROPOSAL (`composer-canvas-proposal.html`) — a design-match human sign-off | designed + user-approved as a proposal, not in the DC mock |

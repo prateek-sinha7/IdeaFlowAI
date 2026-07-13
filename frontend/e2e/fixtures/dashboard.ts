@@ -10,6 +10,7 @@ import type { MockWs } from "./mockWs";
 import type { MockApi, Tier } from "./mockApi";
 import {
   DEFAULT_USER_WORKFLOWS, SEEDED_HISTORY_RUNS, SEEDED_ANALYTICS, seededHistoryFamily,
+  DEFAULT_PROTOTYPE_TEMPLATES, DEFAULT_DESIGN_SYSTEMS, DEFAULT_PPT_TEMPLATES,
 } from "./mockApi";
 import { TOKEN_KEY, TEST_JWT } from "./constants";
 
@@ -30,6 +31,21 @@ export class DashboardPage {
     this.api.setRuns(SEEDED_HISTORY_RUNS);
     this.api.setAnalytics(SEEDED_ANALYTICS);
     this.api.setFamily(seededHistoryFamily);
+    return this;
+  }
+
+  /**
+   * OPT-IN Configure-capture seeding (Phase 41 / HARN-01). Installs
+   * representative template / design-system / ppt-template rows so the Configure
+   * Templates + Design-System accordions/overlays render POPULATED for a fair
+   * fidelity diff. Call BEFORE `goto()`. NOT production data — the DEFAULT MockApi
+   * registries stay empty so no other spec regresses (ND-D / SC-001). Separate
+   * from seedShell() so a spec can opt into either independently.
+   */
+  seedConfigure() {
+    this.api.setPrototypeTemplates(DEFAULT_PROTOTYPE_TEMPLATES);
+    this.api.setDesignSystems(DEFAULT_DESIGN_SYSTEMS);
+    this.api.setPPTTemplates(DEFAULT_PPT_TEMPLATES);
     return this;
   }
 

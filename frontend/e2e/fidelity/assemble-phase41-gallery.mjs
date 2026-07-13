@@ -1,47 +1,60 @@
 #!/usr/bin/env node
 /**
- * assemble-phase41-gallery.mjs — Phase 41 SCOPING baseline gallery.
+ * assemble-phase41-gallery.mjs — Phase 41 Configure + Composer fidelity oracle.
  *
- * Phase 41 = the TWO rebuilds Phase 40 deferred:
- *   1. CONFIGURE — unify the mock's single "Configure your run" screen (brief
- *      Step-1 + four Advanced accordions) that our app splits across THREE
- *      components / TWO routes (IdeaInputPage · LaunchWizard · ConfigureScreen).
- *   2. COMPOSER — the full-page custom-workflow composer with TWO toggled views:
- *      a Simple linear agent-row list (mock: Hexaware Composer.dc.html) and a
- *      node-graph Canvas view (the approved proposal composer-canvas-proposal.html).
- *      Ours today is the AgentsPopup MODAL.
+ * The RETAINED, repo-relative Phase-41 gallery assembler (sibling of the Phase-40
+ * assemble-shell-gallery.mjs). It pairs the TARGET shots (the `.dc.html` mocks +
+ * the approved Canvas proposal) with OUR current shots into ONE self-contained
+ * gallery-phase41.html — mock/reference LEFT, ours RIGHT — for the two rebuilds
+ * Phase 40 deferred:
+ *   1. CONFIGURE — the mock's single "Configure your run" screen (Step-1 brief +
+ *      four Advanced accordions + overlays).
+ *   2. COMPOSER — the full-page composer with a Simple view (mock
+ *      `Hexaware Composer.dc.html`) and a node-graph Canvas view (the APPROVED
+ *      proposal `composer-canvas-proposal.html` — a design-match reference, ND-AJ).
  *
- * This is a READ-ONLY scoping assembler. It does NOT capture — it REUSES the
- * committed Phase-40 shell shots (e2e/fidelity/shots-shell/{target,current}) so
- * the Phase-40 oracle stays the single capture path (reproducible via
- * capture-shell-mocks.mjs + zzz-shell-baseline.spec.ts). It pairs the Configure
- * + Composer surfaces mock-vs-current, shows the four Configure overlays
- * one-sided (their current analogs are dormant/blocked), and embeds the approved
- * Canvas proposal live via a self-contained data: iframe.
+ * Repo-relative by default (no scratch dir needed): reads
+ *   e2e/fidelity/shots-shell/target/{tag}.png   (from capture-shell-mocks.mjs)
+ *   e2e/fidelity/shots-shell/current/{tag}.png  (from zzz-shell-baseline.spec.ts)
+ * and writes e2e/fidelity/gallery-phase41.html. Set PHASE41_OUT=/abs to override
+ * the base dir (then reads <base>/{target,current} + writes
+ * <base>/gallery-phase41.html). The Canvas proposal is vendored at
+ * e2e/fidelity/composer-canvas-proposal.html (override with CANVAS_PROPOSAL=/abs).
  *
- * Output: $PHASE41_OUT/gallery-phase41.html (default:
- *   $CLAUDE_JOB_DIR/tmp/phase41-scope/gallery-phase41.html).
- * Canvas proposal: $CANVAS_PROPOSAL (default: <out>/composer-canvas-proposal.html).
+ * Filter to ONE surface's section (a surface checkpoint regenerates only its
+ * part): `--surface config` (Configure), `--surface composer` (Simple + Canvas),
+ * `--surface composer-canvas` (just the Canvas design-match section).
  *
- * No new dependency (Node built-ins). No pixel-diff (ND-D live data ≠ mock).
+ * No new dependency (Node built-ins). No pixel-diff (ND-D live data ≠ the mock's
+ * fixed values) — human review of the assembled gallery, closed to ND-AE..AJ.
  *
- * Usage: PHASE41_OUT=/abs node e2e/fidelity/assemble-phase41-gallery.mjs
+ * Usage: node e2e/fidelity/assemble-phase41-gallery.mjs [--surface <name>]
  */
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url)); // e2e/fidelity
-const SHOTS = join(HERE, "shots-shell");
-const TARGET = join(SHOTS, "target");
-const CURRENT = join(SHOTS, "current");
-
-const OUT_DIR =
-  process.env.PHASE41_OUT ||
-  join(process.env.CLAUDE_JOB_DIR || HERE, "tmp", "phase41-scope");
-const OUT = join(OUT_DIR, "gallery-phase41.html");
+const BASE = process.env.PHASE41_OUT || join(HERE, "shots-shell");
+const TARGET = join(BASE, "target");
+const CURRENT = join(BASE, "current");
+const OUT = process.env.PHASE41_OUT
+  ? join(process.env.PHASE41_OUT, "gallery-phase41.html")
+  : join(HERE, "gallery-phase41.html");
 const CANVAS_PROPOSAL =
-  process.env.CANVAS_PROPOSAL || join(OUT_DIR, "composer-canvas-proposal.html");
+  process.env.CANVAS_PROPOSAL || join(HERE, "composer-canvas-proposal.html");
+
+// --surface <name> filter (optional): config | composer | composer-canvas.
+const surfaceArg = (() => {
+  const i = process.argv.indexOf("--surface");
+  return i >= 0 ? process.argv[i + 1] : null;
+})();
+/** A panel's surface matches the filter when it IS that surface or a sub-view
+ *  (`composer-canvas` under `composer`). Mirrors assemble-shell-gallery's rule. */
+function matchesSurface(surface) {
+  if (!surfaceArg) return true;
+  return surface === surfaceArg || surface.startsWith(`${surfaceArg}-`);
+}
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -74,33 +87,36 @@ function figure(caption, src, missing) {
   return `<figure><figcaption>${esc(caption)}</figcaption>${body}</figure>`;
 }
 
-/** The Phase-41 intended-divergence CANDIDATES (continue the register at ND-AE;
- *  ND-A..D + ND-W..AD are taken — see assemble-shell-gallery.mjs). These are
- *  deliberate ours≠mock keeps to CONFIRM at planning, NOT rebuild scope (the big
- *  rebuild choices live in DECISIONS below). */
+/** The FINALIZED Phase-41 intended-divergence register (ND-AE..AJ). Canonical
+ *  source of truth (captioned "expected — ignore" in the gallery header). ND-A..D
+ *  carry from Phase 39; ND-W..AD are Phase 40's (in assemble-shell-gallery.mjs,
+ *  UNTOUCHED). Phase 41 continues the lettering at ND-AE and adds ND-AJ (the
+ *  Composer Canvas design-match reference). See 41-UI-SPEC.md. */
 const ND = [
-  ["ND-AE", "Configure Templates/Design-System accordions are DECLARED-signal-gated",
-    "mock always renders all four Advanced accordions; ours renders Templates + Design System ONLY when the deliverable declares the `opendesign` context provider (SC-001 — ConfigureScreen already gates on this). A user_stories/custom run shows only Review Gates + Workflow Settings."],
-  ["ND-AF", "Configure fabricated selections → live registries / empty-until-chosen",
-    'mock\'s "Currently using: Analytics Hub / Ink & Alabaster / 150 systems / 8 capabilities" are fabricated; ours bind to live /api/prototype/templates + /api/prototype/design-systems + /api/capabilities and read "None selected" until picked (ND-D specialization).'],
-  ["ND-AG", "Composer stays SAVE-first; no fabricated Run cost",
-    'mock\'s Summary rail shows "Est. cost $4.50" + a "Run once now" that launches from the composer. Ours omits fabricated cost (no metering — parallel to ND-AC) and routes Run through the real launch seam (SC-001); the composer\'s primary action is Save-to-catalogue. Duration IS derived live from per-agent estimated_duration.'],
-  ["ND-AH", "Composer 'Deliverable type' fixed at entry, not an in-composer selector",
-    "mock's identity card has an editable Deliverable-type dropdown; ours fixes base_pipeline_type at composer entry (the composer composes AGENTS; the deliverable family is chosen upstream on Home) → render read-only or omit the dropdown."],
-  ["ND-AI", "Voice affordance on the Configure brief box → Attach only",
-    "the mock's Configure Step-1 brief box shows a Voice button; there is no product voice-input capability (carry ND-X from Phase 40) — Attach file only."],
+  ["ND-AE", "Configure Templates/Design-System accordions",
+    "mock always renders all four accordions; ours renders Templates + Design System ONLY when the deliverable declares the `opendesign` context provider (a user_stories/custom run shows only Review Gates + Workflow Settings). SC-001 — ConfigureScreen already gates on the declared signal (`acceptsTemplateDs` :132)."],
+  ["ND-AF", "Configure selections → live registries / empty-until-chosen",
+    'mock\'s fabricated "Currently using: Analytics Hub / Ink & Alabaster / 150 systems / 8 capabilities" → bound to the LIVE template/DS/capability registries; reads "None selected" until picked. SC-001 (a specialization of ND-D).'],
+  ["ND-AG", "Composer Run cost + primary action",
+    'mock\'s Summary rail shows "Est. cost $4.50" + a "Run once now" launching from the composer → est. cost OMITTED (no metering — parallel to ND-AC); Run routes through the real onStartPipeline seam; est. DURATION is derived live from per-agent estimated_duration. SC-001 (never fabricate consumption numbers).'],
+  ["ND-AH", "Composer 'Deliverable type'",
+    "mock's editable identity-card dropdown → base_pipeline_type is fixed at composer entry and rendered read-only (the composer composes AGENTS; the deliverable family is chosen upstream on Home). SC-001 / composer scope."],
+  ["ND-AI", "Configure Step-1 brief affordances",
+    "the mock's brief box shows Attach + Voice → Attach only (there is no product voice-input capability; carries ND-X from Phase 40)."],
+  ["ND-AJ", "Composer Canvas reference",
+    "the Canvas view has NO shipped `.dc.html` mock → acceptance = match-the-APPROVED-PROPOSAL (composer-canvas-proposal.html, embedded live below), a design reference; the gate is a design-match HUMAN sign-off, not a mock-fidelity pixel-diff. The Canvas view was designed + user-approved as a proposal, not shipped in the DC mock."],
 ];
 
-/** The rebuild DECISIONS the orchestrator must settle before planning. */
+/** The rebuild DECISIONS (settled at planning — retained for provenance). */
 const DECISIONS = [
   ["D-CFG-ROUTE", "Configure unification target + routing",
     "The mock's ONE screen maps to THREE current impls across TWO routes: IdeaInputPage (LIVE, /dashboard mainView=input — brief path for user_stories/app_builder/custom/migration), LaunchWizard (LIVE, /workflow/create — od_prototype/od_ppt Template→DS→Discovery wizard), ConfigureScreen (DORMANT, /workflow/configure — the accordion surface structurally CLOSEST to the mock but reached by NO in-app nav and its Launch is a no-op). Decide: does the unified screen live on the /dashboard input surface, or on a route (adopt/rewire ConfigureScreen)? Whichever is chosen, the other two Configure impls' overlapping code is DELETED (INV-3, no dual implementations)."],
-  ["D-CFG-STUBS", "Unstubbed template / design-system / ppt-template APIs (harness blocker)",
-    "GET /api/prototype/templates, /api/prototype/design-systems, /api/ppt/templates are unstubbed in e2e/fixtures/mockApi.ts (catch-all returns {}), so the Templates + Design System accordions/overlays render empty in mocked mode (LaunchWizard shows a 'Couldn't load templates' path; ConfigureScreen's pickers stay empty). Phase 41 must stub them (representative rows) to capture + fidelity-review those two overlays — else there is no current analog to pair."],
+  ["D-CFG-STUBS", "Unstubbed template / design-system / ppt-template APIs (harness blocker — CLOSED by 41-01)",
+    "GET /api/prototype/templates, /api/prototype/design-systems, /api/ppt/templates were unstubbed in e2e/fixtures/mockApi.ts (catch-all returned {}), so the Templates + Design System accordions/overlays rendered empty in mocked mode. 41-01 stubs them (representative rows, opt-in seedConfigure()) so the two overlays render populated for the fidelity diff."],
   ["D-CMP-ENTRY", "Composer full-page routing + entry + Simple⇄Canvas toggle state",
     "Today AgentsPopup is a MODAL off 'Advanced' on the brief screen (IdeaInputPage + LaunchWizard). The mock is a FULL-PAGE surface reached from Home's 'Compose a custom workflow' card and editable from My Workflows. Decide the route/entry (e.g. a /workflow/compose route or a mainView=composer surface), how 'custom' + saved-workflow-edit re-target it, and where the Simple⇄Canvas toggle state lives (per-session vs persisted)."],
   ["D-CMP-CANVAS", "Canvas render approach — hand-rolled vs graph library",
-    "package.json has NO graph/dnd library (no reactflow/@xyflow/dagre/elkjs/cytoscape/d3/dnd-kit; only `motion` for animation). The APPROVED proposal is itself hand-rolled: absolute-positioned node divs + an <svg> edge layer with bezier paths + arrow markers, a left→right sequential chain. The existing AgentsPopup already hand-rolls native HTML5 drag-reorder + a dot-grid flow-grid. RECOMMENDATION: hand-roll (SVG edges + absolute nodes + native drag) — the graph is a linear sequential chain, a library (adds a dep, INV constraint 'extend don't replace') is unwarranted."],
+    "package.json has NO graph/dnd library (no reactflow/@xyflow/dagre/elkjs/cytoscape/d3/dnd-kit; only `motion` for animation). The APPROVED proposal is itself hand-rolled: absolute-positioned node divs + an <svg> edge layer with bezier paths + arrow markers, a left→right sequential chain. RECOMMENDATION (settled): hand-roll (SVG edges + absolute nodes + native drag) — the graph is a linear sequential chain, a library (adds a dep, INV constraint 'extend don't replace') is unwarranted."],
 ];
 
 /** Surface-map summary rows shown at the top (verified file:line anchors). */
@@ -113,11 +129,11 @@ const MAPROWS = [
 ];
 
 async function main() {
-  await mkdir(OUT_DIR, { recursive: true });
+  if (process.env.PHASE41_OUT) await mkdir(process.env.PHASE41_OUT, { recursive: true });
 
   const [
-    cfgMock, cfgCur, wTpl, wDs, wGates, wCfg, cfgGatesCur,
-    cmpMock, agentCur,
+    cfgMock, cfgCur, wTpl, wDs, wGates, wCfg, cfgGatesCur, cfgSettingsCur,
+    cmpMock, cmpSimpleCur, canvasCur,
   ] = await Promise.all([
     imgUri(TARGET, "config__shell"), imgUri(CURRENT, "config__shell"),
     imgUri(TARGET, "wizard-template__shell"),
@@ -125,85 +141,106 @@ async function main() {
     imgUri(TARGET, "wizard-gates__shell"),
     imgUri(TARGET, "wizard-workflowcfg__shell"),
     imgUri(CURRENT, "config-gates__shellfull"),
-    imgUri(TARGET, "composer__shell"), imgUri(CURRENT, "agent-detail__shell"),
+    imgUri(CURRENT, "config-settings__shellfull"),
+    imgUri(TARGET, "composer__shell"),
+    imgUri(CURRENT, "composer-simple__shell"),
+    imgUri(CURRENT, "composer-canvas__shell"),
   ]);
   const canvas = await canvasIframe();
 
+  // Each panel carries a `surface` for the --surface filter. Surface HEADERS
+  // render only when their section has ≥1 visible panel (computed below).
   const panels = [
     // ── SURFACE 1 — CONFIGURE ──────────────────────────────────────────────
-    { kind: "surface", title: "SURFACE 1 — CONFIGURE (unify the split flow into ONE screen)" },
+    { kind: "surface", surface: "config", title: "SURFACE 1 — CONFIGURE (unify the split flow into ONE screen)" },
     {
-      kind: "pair", tag: "config",
-      note: "MOCK = one 'Configure your run' screen: brief Step-1 box + 'ADVANCED CONFIGURATION' with FOUR accordion cards (Templates · Design System · Review Gates · Workflow Settings). OURS = IdeaInputPage 'Provide the brief' (mainView=input): brief-only + Advanced→popup + inline Review-gates row — NO Templates/Design-System accordions. Structurally-closest current impl is ConfigureScreen.tsx (accordions already exist) but it is DORMANT (no nav) and template-blocked in mocked mode — no current shot.",
+      kind: "pair", surface: "config", tag: "config",
+      note: "MOCK = one 'Configure your run' screen: brief Step-1 box + 'ADVANCED CONFIGURATION' with FOUR accordion cards (Templates · Design System · Review Gates · Workflow Settings). OURS (config__shell) = the unified Configure screen once built (Wave 2 revives ConfigureScreen). The template/DS overlays render POPULATED via the 41-01 mocked stubs (seedConfigure()).",
       mock: cfgMock, mockCap: "MOCK — Configure your run (brief + 4 accordions)",
-      cur: cfgCur, curCap: "OURS — IdeaInputPage 'Provide the brief'",
+      cur: cfgCur, curCap: "OURS — unified Configure (config__shell)",
     },
     {
-      kind: "pair", tag: "config ▸ Review Gates overlay",
-      note: "MOCK overlayGates 'Review gates' modal: per-agent avatar + name + toggle. OURS = the inline ReviewGatesSection on the brief screen (IdeaInputPage:789 / LaunchWizard:723 / ConfigureScreen 'Review Gates' accordion:309). Same data, different shell (modal vs inline).",
+      kind: "pair", surface: "config", tag: "config ▸ Review Gates overlay",
+      note: "MOCK overlayGates 'Review gates' modal: per-agent avatar + name + toggle. OURS = the ReviewGatesSection accordion (config-gates__shellfull). Same data, different shell (modal vs inline accordion).",
       mock: wGates, mockCap: "MOCK — Review gates overlay (per-agent toggles)",
-      cur: cfgGatesCur, curCap: "OURS — inline ReviewGatesSection (fullpage)",
+      cur: cfgGatesCur, curCap: "OURS — Review Gates accordion (config-gates)",
     },
     {
-      kind: "pair", tag: "config ▸ Workflow Settings modal",
-      note: "MOCK modalWorkflow 'Workflow configuration': left tab-rail Overview/Skills&Hooks/Capabilities/Context + '8 agents · Single-shot'. OURS = AgentsPopup 'Workflow configuration' MODAL (Agents/Workflow tabs) — the SAME component that is the Composer's data owner (see Surface 2). Tab sets differ.",
-      mock: wCfg, mockCap: "MOCK — Workflow configuration modal (4 tabs)",
-      cur: agentCur, curCap: "OURS — AgentsPopup 'Workflow configuration' modal",
+      kind: "pair", surface: "config", tag: "config ▸ Workflow Settings overlay",
+      note: "MOCK modalWorkflow 'Workflow configuration': left tab-rail Overview/Skills&Hooks/Capabilities/Context + '8 agents · Single-shot'. OURS = the Workflow Settings accordion (config-settings__shellfull) reusing AdvancedExpander — the per-step validator/gate/model/retry levers.",
+      mock: wCfg, mockCap: "MOCK — Workflow configuration overlay",
+      cur: cfgSettingsCur, curCap: "OURS — Workflow Settings accordion (config-settings)",
     },
     {
-      kind: "solo", tag: "config ▸ Templates overlay",
-      note: "MOCK overlayTemplate 'Choose a template': grid of template preview cards (No template/BLANK, blog-post, clinical-report [selected]…) + 'Use template'. CURRENT analog = TemplateGallery on LaunchWizard/ConfigureScreen — BLOCKED in mocked mode (GET /api/prototype/templates unstubbed → empty). No current shot (see D-CFG-STUBS).",
+      kind: "solo", surface: "config", tag: "config ▸ Templates overlay",
+      note: "MOCK overlayTemplate 'Choose a template': grid of template preview cards (No template/BLANK, blog-post, clinical-report…) + 'Use template'. OURS = TemplateGallery, now POPULATED in mocked mode via the 41-01 /api/prototype/templates stub (D-CFG-STUBS CLOSED). Captured once the Configure surface embeds it (Wave 2).",
       mock: wTpl, mockCap: "MOCK — Choose a template overlay",
     },
     {
-      kind: "solo", tag: "config ▸ Design System overlay",
-      note: "MOCK overlayDs 'Choose a design system': 150 systems grouped (AI&LLM/Automotive/…) as chips + 'Apply system'. CURRENT analog = DesignSystemPicker — BLOCKED in mocked mode (GET /api/prototype/design-systems unstubbed → empty). No current shot (see D-CFG-STUBS).",
+      kind: "solo", surface: "config", tag: "config ▸ Design System overlay",
+      note: "MOCK overlayDs 'Choose a design system': systems grouped (AI&LLM/Automotive/…) as chips + 'Apply system'. OURS = DesignSystemPicker, now POPULATED in mocked mode via the 41-01 /api/prototype/design-systems stub (D-CFG-STUBS CLOSED). Captured once the Configure surface embeds it (Wave 2).",
       mock: wDs, mockCap: "MOCK — Choose a design system overlay",
     },
     // ── SURFACE 2 — COMPOSER ───────────────────────────────────────────────
-    { kind: "surface", title: "SURFACE 2 — COMPOSER (full-page · Simple + Canvas views)" },
+    { kind: "surface", surface: "composer", title: "SURFACE 2 — COMPOSER (full-page · Simple + Canvas views)" },
     {
-      kind: "pair", tag: "composer ▸ Simple view",
-      note: "MOCK = FULL-PAGE Composer: identity card (Name/Deliverable-type/Description) + reorderable agent ROWS (avatar · name · Core badge · role · per-agent model picker · Validator/Gate/Retry override chips · Custom prompt) + right Summary rail (agents/gates/strategy/est · declared caps · Save-to-catalogue/Run-once). OURS = the AgentsPopup MODAL (Agents tab = a 3-col flow-GRID of agent cards; per-agent config lives behind each card's Info→AgentCapabilitiesModal; summary is absent). Same data model, different shell (full-page vs modal, rows vs grid).",
+      kind: "pair", surface: "composer", tag: "composer ▸ Simple view",
+      note: "MOCK = FULL-PAGE Composer: identity card (Name/Deliverable-type/Description) + reorderable agent ROWS (avatar · name · Core badge · role · per-agent model picker · Validator/Gate/Retry override chips · Custom prompt) + right Summary rail. OURS (composer-simple__shell) = the full-page Simple view once built (Wave 4), bound to the AgentsPopup shared data model.",
       mock: cmpMock, mockCap: "MOCK — Composer Simple view (full page)",
-      cur: agentCur, curCap: "OURS — AgentsPopup modal (Agents flow-grid)",
+      cur: cmpSimpleCur, curCap: "OURS — Composer Simple view (composer-simple__shell)",
     },
     {
-      kind: "canvas", tag: "composer ▸ Canvas view (APPROVED PROPOSAL)",
-      note: "The node-graph Canvas view — ALREADY DESIGNED + USER-APPROVED (composer-canvas-proposal.html, embedded live below). Agents = nodes on a dot-grid; Brief→agents left→right sequential edges; click-node → right config-rail (Model/Validator/Review-gate/Retry/Custom-prompt); +-insert on edges; docked Run summary. Maps 1:1 to the AgentsPopup data: nodes = the agent list, node config = the per-agent SelectionsMap (model/validators/gates/retry) + prompt override, edges = the sequential order, summary = the existing summary. Render approach: HAND-ROLLED SVG edges + absolute-positioned nodes (no graph lib — see D-CMP-CANVAS). NET-NEW: no current analog.",
-      iframe: canvas,
+      kind: "canvas", surface: "composer-canvas", tag: "composer ▸ Canvas view (APPROVED PROPOSAL · ND-AJ)",
+      note: "The node-graph Canvas view — ALREADY DESIGNED + USER-APPROVED (composer-canvas-proposal.html, the LEFT reference below). Agents = nodes on a dot-grid; Brief→agents left→right sequential edges; click-node → right config-rail (Model/Validator/Review-gate/Retry/Custom-prompt); +-insert on edges; docked Run summary. Maps 1:1 to the AgentsPopup data. Render approach: HAND-ROLLED SVG edges + absolute-positioned nodes (D-CMP-CANVAS). Acceptance (ND-AJ) = design-match to the proposal; OURS (composer-canvas__shell) captured once built (Wave 5).",
+      iframe: canvas, cur: canvasCur, curCap: "OURS — built Canvas (composer-canvas__shell)",
     },
   ];
 
-  const sections = panels.map((p) => {
-    if (p.kind === "surface") {
-      return `<h2 class="surface">${esc(p.title)}</h2>`;
+  // Compute which surface headers have a visible section (≥1 matching panel
+  // between this header and the next) so a filtered gallery drops empty sections.
+  const headerVisible = new Map();
+  for (let i = 0; i < panels.length; i++) {
+    if (panels[i].kind !== "surface") continue;
+    let any = false;
+    for (let j = i + 1; j < panels.length && panels[j].kind !== "surface"; j++) {
+      if (matchesSurface(panels[j].surface)) { any = true; break; }
     }
+    headerVisible.set(i, any);
+  }
+
+  const sections = panels.map((p, i) => {
+    if (p.kind === "surface") {
+      return headerVisible.get(i) ? `<h2 class="surface">${esc(p.title)}</h2>` : "";
+    }
+    if (!matchesSurface(p.surface)) return "";
     if (p.kind === "pair") {
       return `<section class="pair">
         <h3>${esc(p.tag)}</h3>
         <p class="note">${esc(p.note)}</p>
         <div class="cols">
           ${figure(p.mockCap, p.mock, "no target shot")}
-          ${figure(p.curCap, p.cur, "no current shot — dormant/blocked")}
+          ${figure(p.curCap, p.cur, "no current shot — surface not built yet")}
         </div>
       </section>`;
     }
     if (p.kind === "solo") {
       return `<section class="pair gap">
-        <h3>${esc(p.tag)} <span class="flag">MOCK-ONLY — current analog dormant/blocked</span></h3>
+        <h3>${esc(p.tag)} <span class="flag ok">STUBBED — renders populated in mocked mode</span></h3>
         <p class="note">${esc(p.note)}</p>
         <div class="cols">
           ${figure(p.mockCap, p.mock, "no target shot")}
-          <figure class="ph"><figcaption>OURS — no shot</figcaption><div class="missing">dormant / template-blocked in mocked mode<br><small>see DECISIONS · D-CFG-STUBS</small></div></figure>
+          <figure class="ph"><figcaption>OURS — no shot</figcaption><div class="missing">captured once the Configure surface embeds it (Wave 2)<br><small>APIs stubbed · D-CFG-STUBS CLOSED</small></div></figure>
         </div>
       </section>`;
     }
     if (p.kind === "canvas") {
       return `<section class="pair gap">
-        <h3>${esc(p.tag)} <span class="flag ok">APPROVED — build target</span></h3>
+        <h3>${esc(p.tag)} <span class="flag ok">APPROVED PROPOSAL — design-match gate</span></h3>
         <p class="note">${esc(p.note)}</p>
-        <div class="canvaswrap">${p.iframe}</div>
+        <div class="cols">
+          <div class="canvaswrap"><div class="canvascap">REFERENCE — approved proposal</div>${p.iframe}</div>
+          ${figure(p.curCap, p.cur, "no current shot — Canvas not built yet (Wave 5)")}
+        </div>
       </section>`;
     }
     return "";
@@ -212,10 +249,11 @@ async function main() {
   const ndRows = ND.map(([id, what, note]) => `<tr><td><b>${id}</b></td><td>${esc(what)}</td><td>${esc(note)}</td></tr>`).join("");
   const decRows = DECISIONS.map(([id, what, note]) => `<tr><td><b>${id}</b></td><td>${esc(what)}</td><td>${esc(note)}</td></tr>`).join("");
   const mapRows = MAPROWS.map(([s, f, d, has]) => `<tr><td>${esc(s)}</td><td><code>${esc(f)}</code></td><td>${esc(d)}</td><td class="has ${has.replace(/[^a-z]/g, "")}">${esc(has)}</td></tr>`).join("");
+  const scope = surfaceArg ? ` · surface: ${esc(surfaceArg)}` : "";
 
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<title>Phase 41 — Configure + Composer: SCOPING baseline</title>
+<title>Phase 41 — Configure + Composer Fidelity Gallery${scope}</title>
 <style>
   :root { color-scheme: light; }
   body { font: 14px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin: 0; background: #F4F3EE; color: #15161A; }
@@ -246,13 +284,14 @@ async function main() {
   .missing { padding: 46px 12px; text-align: center; color: #9A6B1E; }
   figure.ph { border-style: dashed; }
   .canvaswrap { background: #fff; border: 1px solid #E2DFD6; border-radius: 10px; overflow: hidden; }
+  .canvascap { font: 600 11px/1 "Manrope", sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #9A9B92; padding: 9px 12px; border-bottom: 1px solid #EDEBE3; background: #FBFAF6; }
   iframe.canvas { display: block; width: 100%; height: 760px; border: 0; }
 </style></head>
 <body>
 <header>
-  <h1>Phase 41 — Configure + Composer · SCOPING baseline</h1>
-  <p>The two rebuilds Phase 40 deferred. <b>Configure</b>: the mock's ONE "Configure your run" screen vs our 3-way split (IdeaInputPage · LaunchWizard · ConfigureScreen). <b>Composer</b>: the full-page Simple view + the approved node-graph Canvas view vs our AgentsPopup modal.</p>
-  <p>Mock (left) vs current app (right). Human review, no pixel-diff (ND-D live data ≠ mock values). Shots REUSED from the committed Phase-40 oracle (Configure/Composer were untouched by Phase 40) — reproduce via <code>capture-shell-mocks.mjs</code> + <code>SHELL_CAPTURE=1 … zzz-shell-baseline</code>, then this assembler.</p>
+  <h1>Phase 41 — Configure + Composer Fidelity Gallery${scope}</h1>
+  <p>The two rebuilds Phase 40 deferred. <b>Configure</b>: the mock's ONE "Configure your run" screen vs our unified surface. <b>Composer</b>: the full-page Simple view + the approved node-graph Canvas view vs our built surfaces.</p>
+  <p>Mock/reference (left) vs current app (right). Human review, no pixel-diff (ND-D live data ≠ mock values). Reproduce via <code>capture-shell-mocks.mjs</code> + <code>SHELL_CAPTURE=1 … zzz-shell-baseline</code>, then this assembler. See README.md for the surface→component map + commands.</p>
 
   <details open>
     <summary>Surface → current-component map (verified file:line)</summary>
@@ -260,23 +299,23 @@ async function main() {
   </details>
 
   <details open>
-    <summary>Intended-divergence CANDIDATES — continue at ND-AE (ND-A..D + ND-W..AD taken) — expected, confirm at planning</summary>
+    <summary>Intended divergences (ND-A..D carried + ND-W..AD Phase 40 + ND-AE..AJ Phase 41) — expected, IGNORE</summary>
     <table><tr><th>ID</th><th>Divergence</th><th>Rationale</th></tr>${ndRows}</table>
   </details>
 
-  <details open>
-    <summary>DECISIONS the orchestrator must settle before planning</summary>
+  <details>
+    <summary>Settled rebuild DECISIONS (provenance)</summary>
     <table><tr><th>ID</th><th>Decision</th><th>Context + recommendation</th></tr>${decRows}</table>
   </details>
 </header>
 <main>
-  ${sections}
+  ${sections || '<div class="missing">No panels for this --surface filter.</div>'}
 </main>
 </body></html>`;
 
   await writeFile(OUT, html, "utf8");
-  console.log(`[assemble-phase41-gallery] → ${OUT}`);
-  console.log(`  configure: mock=${!!cfgMock} cur=${!!cfgCur} | gates mock=${!!wGates} cur=${!!cfgGatesCur} | wfcfg mock=${!!wCfg} cur=${!!agentCur} | tpl=${!!wTpl} ds=${!!wDs}`);
-  console.log(`  composer:  simple mock=${!!cmpMock} cur=${!!agentCur} | canvas iframe=${canvas.startsWith("<iframe")}`);
+  console.log(`[assemble-phase41-gallery] ${surfaceArg ? `(surface=${surfaceArg}) ` : ""}→ ${OUT}`);
+  console.log(`  configure: mock=${!!cfgMock} cur=${!!cfgCur} | gates cur=${!!cfgGatesCur} | settings cur=${!!cfgSettingsCur} | tpl=${!!wTpl} ds=${!!wDs}`);
+  console.log(`  composer:  simple mock=${!!cmpMock} cur=${!!cmpSimpleCur} | canvas proposal=${canvas.startsWith("<iframe")} cur=${!!canvasCur}`);
 }
 main();

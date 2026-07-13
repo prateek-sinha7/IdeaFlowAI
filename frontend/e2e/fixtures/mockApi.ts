@@ -310,6 +310,116 @@ export const SEEDED_ANALYTICS: MockAnalyticsSummary = {
   type_avg_duration_sec: { prototype: 172.5, user_stories: 54.2, ppt: 61.0, app_builder: 320.7 },
 };
 
+// ── Opt-in Configure-capture scaffolding (Phase 41 / HARN-01 · D-CFG-STUBS) ────
+//
+// The three Configure data APIs (`/api/prototype/templates`,
+// `/api/prototype/design-systems`, `/api/ppt/templates`) are UNSTUBBED in the
+// mocked harness — the catch-all returns `{}`, so the Configure Templates +
+// Design-System accordions/overlays render empty in mocked mode and there is no
+// current analog to pair in the fidelity gallery (D-CFG-STUBS). These seed sets
+// stub them with representative rows so a capture opts in to POPULATED overlays.
+// NOT production data (labelled per SC-001/ND-D — production endpoints return
+// only the real owner-scoped registry). Install via `dashboard.seedConfigure()`
+// / the setters; the DEFAULT registries stay EMPTY so no existing spec regresses
+// (mirrors the 40-01 `/api/user-workflows` idiom — the GET handler always
+// returns an ARRAY, empty by default).
+
+/** GET /api/prototype/templates row — mirrors PrototypeTemplate (lib/prototype-api.ts).
+ *  `has_preview` MUST be true or TemplateGallery filters the row out (:59). */
+export interface MockPrototypeTemplate {
+  id: string;
+  name: string;
+  description: string;
+  mode: string | null;
+  platform: string | null; // DESKTOP | MOBILE — rendered as the card badge (:481)
+  scenario: string | null;
+  triggers: string[];
+  craft_required: string[];
+  example_prompt: string | null;
+  has_preview: boolean;
+}
+
+/** GET /api/prototype/design-systems row — mirrors DesignSystemListItem.
+ *  `category` groups the chips; the swatch band is fetched per-id (falls back to
+ *  a neutral placeholder in mocked mode — no token/preview needed to render). */
+export interface MockDesignSystem {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  has_preview: boolean;
+}
+
+/** GET /api/ppt/templates row — mirrors PPTTemplate (lib/ppt-api.ts).
+ *  `has_preview` MUST be true or PPTTemplateGallery filters the row out (:58). */
+export interface MockPPTTemplate {
+  id: string;
+  name: string;
+  description: string;
+  mode: string | null;
+  platform: string | null;
+  scenario: string | null;
+  triggers: string[];
+  craft_required: string[];
+  example_prompt: string | null;
+  has_preview: boolean;
+  design_system: { requires?: boolean; [key: string]: unknown };
+}
+
+/** ≥3 representative prototype templates (a "start blank" + web DESKTOP/MOBILE),
+ *  all `has_preview` so the TemplateGallery grid renders them. */
+export const DEFAULT_PROTOTYPE_TEMPLATES: MockPrototypeTemplate[] = [
+  {
+    id: "blank-canvas", name: "No template — start blank",
+    description: "A clean slate: the agents choose the visual DNA from your brief.",
+    mode: "web", platform: "DESKTOP", scenario: "general",
+    triggers: ["blank", "scratch"], craft_required: [], example_prompt: null, has_preview: true,
+  },
+  {
+    id: "saas-dashboard", name: "SaaS analytics dashboard",
+    description: "KPI cards, charts and a data table on a light shell — a product analytics look.",
+    mode: "web", platform: "DESKTOP", scenario: "dashboard",
+    triggers: ["dashboard", "analytics", "saas"], craft_required: ["charts"],
+    example_prompt: "A KPI dashboard for a 5-person growth squad.", has_preview: true,
+  },
+  {
+    id: "mobile-onboarding", name: "Mobile onboarding flow",
+    description: "A four-step mobile onboarding walkthrough — welcome, connect, invite, first run.",
+    mode: "web", platform: "MOBILE", scenario: "onboarding",
+    triggers: ["mobile", "onboarding", "app"], craft_required: [],
+    example_prompt: "A 4-step onboarding prototype.", has_preview: true,
+  },
+];
+
+/** Representative design systems across ≥2 grouped categories so the grouped
+ *  chip list renders category headers + rows (swatch dots via the per-id band). */
+export const DEFAULT_DESIGN_SYSTEMS: MockDesignSystem[] = [
+  { id: "analytics-hub", name: "Analytics Hub", category: "AI & LLM", description: "Cool neutrals with an electric-indigo accent; data-dense.", has_preview: true },
+  { id: "ink-alabaster", name: "Ink & Alabaster", category: "AI & LLM", description: "High-contrast editorial monochrome on a warm paper ground.", has_preview: true },
+  { id: "velocity-motors", name: "Velocity Motors", category: "Automotive", description: "Graphite + signal-orange; bold industrial type.", has_preview: true },
+  { id: "ledger-pro", name: "Ledger Pro", category: "Finance", description: "Trustworthy deep-teal with restrained gold; tabular clarity.", has_preview: false },
+];
+
+/** ≥2 deck templates for the PPT gallery. */
+export const DEFAULT_PPT_TEMPLATES: MockPPTTemplate[] = [
+  {
+    id: "exec-pitch", name: "Executive pitch",
+    description: "A crisp investor-grade narrative deck — problem, solution, traction, ask.",
+    mode: "deck", platform: null, scenario: "pitch",
+    triggers: ["pitch", "investor", "exec"], craft_required: ["charts"],
+    example_prompt: "A 12-slide Series B investor update.", has_preview: true,
+    design_system: { requires: false },
+  },
+  {
+    id: "quarterly-review", name: "Quarterly business review",
+    description: "A data-forward QBR template — KPIs, wins, risks, next-quarter plan.",
+    mode: "deck", platform: null, scenario: "review",
+    triggers: ["qbr", "review", "quarterly"], craft_required: ["charts", "tables"],
+    example_prompt: "A Q3 business review deck for the leadership team.", has_preview: true,
+    design_system: { requires: true },
+  },
+];
+
 export interface MockApiOptions {
   user?: Partial<MockUser>;
   runs?: RawRun[];
@@ -324,6 +434,12 @@ export interface MockApiOptions {
   analytics?: MockAnalyticsSummary;
   /** Revision family for GET /api/runs/{id}/family. */
   family?: (id: string) => MockRunFamily;
+  /** Prototype templates (GET /api/prototype/templates). Default []. */
+  prototypeTemplates?: MockPrototypeTemplate[];
+  /** Design systems (GET /api/prototype/design-systems). Default []. */
+  designSystems?: MockDesignSystem[];
+  /** PPT/deck templates (GET /api/ppt/templates). Default []. */
+  pptTemplates?: MockPPTTemplate[];
 }
 
 export class MockApi {
@@ -335,6 +451,12 @@ export class MockApi {
   userWorkflows: MockUserWorkflow[];
   /** Analytics rollup (GET /api/analytics/summary). */
   analytics: MockAnalyticsSummary;
+  /** Configure data registries (Phase 41 / HARN-01) — GET /api/prototype/templates
+   *  · /api/prototype/design-systems · /api/ppt/templates. Default EMPTY (opt-in
+   *  seeding via seedConfigure()/setters); production returns the real registry. */
+  prototypeTemplates: MockPrototypeTemplate[];
+  designSystems: MockDesignSystem[];
+  pptTemplates: MockPPTTemplate[];
   /** Which seeded audit set the 3 audit reads return (settled=clean, failed=blocked). */
   auditVariant: "settled" | "failed" = "settled";
   private family: (id: string) => MockRunFamily;
@@ -360,6 +482,11 @@ export class MockApi {
     // GET handler still returns an array, which fixes the Catalogue crash.
     this.userWorkflows = opts.userWorkflows ?? [];
     this.analytics = opts.analytics ?? DEFAULT_ANALYTICS;
+    // Default EMPTY (opt-in) so existing specs are byte-unchanged; the GET
+    // handlers still return an ARRAY (never the {} catch-all), fixing the shape.
+    this.prototypeTemplates = opts.prototypeTemplates ?? [];
+    this.designSystems = opts.designSystems ?? [];
+    this.pptTemplates = opts.pptTemplates ?? [];
     this.family = opts.family ?? defaultFamily;
     this.runDetail = opts.runDetail;
   }
@@ -378,6 +505,15 @@ export class MockApi {
   }
   setAnalytics(summary: MockAnalyticsSummary) {
     this.analytics = summary;
+  }
+  setPrototypeTemplates(rows: MockPrototypeTemplate[]) {
+    this.prototypeTemplates = rows;
+  }
+  setDesignSystems(rows: MockDesignSystem[]) {
+    this.designSystems = rows;
+  }
+  setPPTTemplates(rows: MockPPTTemplate[]) {
+    this.pptTemplates = rows;
   }
   setFamily(fn: (id: string) => MockRunFamily) {
     this.family = fn;
@@ -432,6 +568,18 @@ export class MockApi {
 
     // --- workflows catalog (home launch grid) — fixes `rows.filter` crash ---
     if (path.endsWith("/api/workflows")) return json(this.workflows);
+
+    // --- Configure data registries (Phase 41 / HARN-01 · D-CFG-STUBS) — the
+    //     Templates / Design-System / PPT accordions + overlays bind these. Stubbed
+    //     so the mocked Configure surface renders POPULATED overlays for the
+    //     fidelity gate; production returns the real owner-scoped registry
+    //     (SC-001/ND-D). Always an ARRAY (never the {} catch-all); EMPTY by default
+    //     until a capture opts in via seedConfigure()/the setters. The detail +
+    //     /preview subpaths (…/templates/{id}, …/design-systems/{id}[/preview]) do
+    //     NOT match these endsWith checks and fall through to the catch-all. ---
+    if (path.endsWith("/api/prototype/templates")) return json(this.prototypeTemplates);
+    if (path.endsWith("/api/prototype/design-systems")) return json(this.designSystems);
+    if (path.endsWith("/api/ppt/templates")) return json(this.pptTemplates);
 
     // --- saved workflows (Catalogue / My Workflows) — fixes the
     //     `userWorkflows.filter is not a function` crash (SavedWorkflowsPage:170).

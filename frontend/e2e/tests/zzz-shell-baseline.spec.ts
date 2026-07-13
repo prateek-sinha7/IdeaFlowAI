@@ -138,3 +138,62 @@ test("CAPTURE configure/brief + agent-details (Workflow configuration popup)", a
   await page.waitForTimeout(500);
   await shotFull(page, "agent-detail-expanded");
 });
+
+/**
+ * PHASE 41 (HARN-01) — Configure + Composer capture drivers, GUARDED.
+ *
+ * Drives OUR new Phase-41 surfaces (the unified Configure screen + its
+ * Workflow-Settings overlay, the Composer Simple view, the Composer Canvas view)
+ * into shots-shell/current under the tags the Phase-41 assembler reads:
+ *   config__shell · config-settings__shellfull · composer-simple__shell ·
+ *   composer-canvas__shell.
+ *
+ * These surfaces are built in Waves 2–6; this driver is TOLERANT — it best-effort
+ * navigates and only screenshots when the surface is actually reachable (`reached`
+ * guard), so it no-ops cleanly while the surfaces don't yet exist and the spec
+ * stays green. It installs the OPT-IN seeded template/DS/ppt data (seedConfigure)
+ * so the Templates/Design-System overlays render POPULATED once the surface lands.
+ */
+test("CAPTURE phase-41 configure + composer surfaces (guarded, no-op until built)", async ({ dashboard, page }) => {
+  test.setTimeout(120_000);
+  dashboard.seedConfigure(); // opt-in: populate the Templates/Design-System overlays
+  await dashboard.goto();
+
+  // Only shoot when a distinguishing marker is on screen, so an unbuilt surface
+  // writes NO shot (the assembler then shows a "not built yet" placeholder).
+  const reached = async (marker: RegExp) =>
+    page.getByText(marker).first().isVisible({ timeout: 1500 }).catch(() => false);
+
+  // 1) UNIFIED CONFIGURE — Wave 2/3 land it at mainView='configure' (or a route).
+  //    Best-effort: try an in-app entry, then check for the Configure marker.
+  await page.getByRole("button", { name: /Build an interactive prototype/i }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  if (await reached(/Configure your run|Set up your run|Set up /i)) {
+    await shot(page, "config");
+    await shotFull(page, "config");
+    // Workflow Settings accordion/overlay → config-settings__shellfull.
+    await clickText(page, /Workflow Settings/i);
+    await page.waitForTimeout(400);
+    await shotFull(page, "config-settings");
+  }
+
+  // 2) COMPOSER Simple view — Wave 4 lands a full-page mainView='composer'.
+  await dashboard.goto(); // reset to Home
+  await page.getByRole("button", { name: /Compose a custom workflow/i }).first().click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  if (await reached(/Compose|Composer|Add agents|Summary/i)) {
+    // Ensure the Simple view is active if a Simple⇄Canvas toggle exists.
+    await page.getByRole("button", { name: /^Simple$/ }).first().click({ timeout: 2500 }).catch(() => {});
+    await page.waitForTimeout(300);
+    await shot(page, "composer-simple");
+    await shotFull(page, "composer-simple");
+
+    // 3) COMPOSER Canvas view — Wave 5. Toggle to Canvas, then capture.
+    await page.getByRole("button", { name: /^Canvas$/ }).first().click({ timeout: 2500 }).catch(() => {});
+    await page.waitForTimeout(400);
+    if (await reached(/Canvas|Fit|Run summary/i)) {
+      await shot(page, "composer-canvas");
+      await shotFull(page, "composer-canvas");
+    }
+  }
+});

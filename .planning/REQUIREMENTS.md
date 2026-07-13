@@ -269,8 +269,24 @@ Composer rebuild defers to Phase 41):
 - [ ] **SHELL-01**: Shell chrome (dark top bar, nav pill Home·Library·My Workflows, profile menu, notifications) + reskin-only pages (Settings, pickers, Library) on the token layer
 - [x] **SHELL-02**: Fused Home (launcher+grid+recents); History grouping/sort/delete; **My Workflows** rename + kebab actions; `WorkflowCatalog`→`HomeLaunchGrid`; "Catalogue" reserved for future marketplace (D-11)
 - [x] **SHELL-03**: Run detail/reopen page off a run-summary endpoint aggregating existing data (agents, KPIs, failure banner, version timeline)
-- [ ] **SHELL-04**: Generic Configure surface (Describe/Templates/DS/Gates/Settings for every deliverable) + Agent drawer + Workflow dialog with `user_allowed` gating (ND-1/ND-7/ND-8 gated)
+- [ ] **SHELL-04**: Generic Configure surface (Describe/Templates/DS/Gates/Settings for every deliverable) + Agent drawer + Workflow dialog with `user_allowed` gating (ND-1/ND-7/ND-8 gated) — **closed-by-Phase-41 [B7]**: the mock-fidelity rebuild of the single Configure screen (CFGUI-01/02) + the Library agent-detail drawer (CMPUI-05) close this requirement's Configure-surface + Agent-drawer clauses.
 - [x] **SHELL-05**: Date-scoped analytics aggregations + chart components + per-deliverable estimates + notifications feed
+
+### Configure Unification + Composer Rebuild (Phase 41 [B7])
+
+The two structural REBUILDS Phase 40 deferred — the unified **Configure** screen
+and the full-page **Composer** (Simple + Canvas) — to mock/proposal fidelity, plus
+the harness that unblocks their fidelity gates. Closes SHELL-04. Intended
+divergences ND-AE..AJ (see `41-UI-SPEC.md` / `assemble-phase41-gallery.mjs`).
+
+- [ ] **CFGUI-01**: The unified one-screen Configure surface — Step-1 brief + four accordions (Templates · Design System · Review Gates · Workflow Settings) + overlays — matches the mock (screenshot-diff + HUMAN sign-off), closed to the ND-AE..AI register.
+- [ ] **CFGUI-02**: ConfigureScreen revived as the SINGLE Configure screen with a real `onLaunch` through the existing `onStartPipeline` seam + in-app nav; the overlapping Configure code in IdeaInputPage (brief-launch) + LaunchWizard + WizardStepper is DELETED — no dual Configure implementation survives (INV-3).
+- [ ] **CMPUI-01**: The Composer is a full-page surface with entry from Home + edit-from-My-Workflows and a Simple⇄Canvas toggle, bound to the AgentsPopup shared data model; the modal shell is replaced (INV-3).
+- [ ] **CMPUI-02**: The Simple view matches `Hexaware Composer.dc.html` — identity card + reorderable agent rows + model picker + override chips + custom prompt + capability palette + skills & hooks + summary rail (screenshot-diff + HUMAN sign-off).
+- [ ] **CMPUI-03**: The hand-rolled node-graph Canvas view matches the APPROVED proposal `composer-canvas-proposal.html` — design-match HUMAN sign-off (ND-AJ); no graph library (D-CMP-CANVAS).
+- [ ] **CMPUI-04**: Run-once launches through the existing `onStartPipeline` seam (functional test) + Save-to-catalogue reuses `createUserWorkflow`; no engine/backend/manifest change, no fabricated cost (ND-AG).
+- [ ] **CMPUI-05**: The Library agent-detail right-drawer rebuilt from AgentCapabilitiesModal — closes SHELL-04's Agent-drawer clause (ND-Z).
+- [ ] **HARN-01**: The Configure template/DS/ppt APIs stubbed + seeded (opt-in) + the Phase-41 fidelity oracle formalized (repo-relative, per-surface `--surface`-regenerable, carrying ND-AE..AJ + a Canvas design-match target).
 
 ## v2 Requirements
 
@@ -491,14 +507,22 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | SHELL-01 | Phase 35 [B1] | Pending |
 | SHELL-02 | Phase 36 [B2] | Complete |
 | SHELL-03 | Phase 36 [B2] | Complete |
-| SHELL-04 | Phase 37 [B3] | Pending |
+| SHELL-04 | Phase 37 [B3] → Phase 41 [B7] | Pending (closed-by-Phase-41) |
 | SHELL-05 | Phase 38 [B4] | Complete |
 | RUNUI-06 | Phase 39 [B5] | Complete |
 | RUNUI-07 | Phase 39 [B5] | Complete |
 | RUNUI-08 | Phase 39 [B5] | Complete |
 | RUNUI-09 | Phase 39 [B5] | Pending |
+| CFGUI-01 | Phase 41 [B7] | Pending |
+| CFGUI-02 | Phase 41 [B7] | Pending |
+| CMPUI-01 | Phase 41 [B7] | Pending |
+| CMPUI-02 | Phase 41 [B7] | Pending |
+| CMPUI-03 | Phase 41 [B7] | Pending |
+| CMPUI-04 | Phase 41 [B7] | Pending |
+| CMPUI-05 | Phase 41 [B7] | Pending |
+| HARN-01 | Phase 41 [B7] | Pending |
 
-**v2.0 counts:** P28=1 · P29=6 · P30=4 · P31=3 · P32=5 · P33=3 · P34=1 · P35=1 · P36=2 · P37=1 · P38=1 · P39=4 (= 32)
+**v2.0 counts:** P28=1 · P29=6 · P30=4 · P31=3 · P32=5 · P33=3 · P34=1 · P35=1 · P36=2 · P37=1 · P38=1 · P39=4 · P41=8 (= 40)
 
 ---
 *Requirements defined: 2026-06-06*
