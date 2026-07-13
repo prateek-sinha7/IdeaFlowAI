@@ -10,7 +10,7 @@
  *
  * These tests pin the `<behavior>` cases:
  *   - full-page surface: eyebrow "Custom workflow · Composer" + Save affordances
- *   - Simple ⇄ Canvas toggle (Simple active → agent rows; Canvas → placeholder)
+ *   - Simple ⇄ Canvas toggle (Simple active → agent rows; Canvas → node-graph, 41-05)
  *   - identity card: Name + Description editable, Deliverable-type READ-ONLY (ND-AH)
  *   - agent rows: index · avatar · name · Core badge (getRole) · role · inline model
  *     picker · Validator/Gate/Retry chips · Custom-prompt · remove; reorder
@@ -106,7 +106,7 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     ).toBeGreaterThanOrEqual(1);
   });
 
-  it("shows a Simple ⇄ Canvas toggle — Simple active renders agent rows, Canvas a placeholder", async () => {
+  it("shows a Simple ⇄ Canvas toggle — Simple active renders agent rows, Canvas mounts the node-graph", async () => {
     renderComposer();
     const simple = screen.getByRole("button", { name: /^Simple$/ });
     const canvas = screen.getByRole("button", { name: /^Canvas$/ });
@@ -116,10 +116,11 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     // Simple active → the first seeded agent row is visible.
     expect(screen.getByText("Domain Discovery Agent")).toBeInTheDocument();
 
-    // Canvas → placeholder (mounts in 41-05); the Simple agent rows disappear.
+    // Canvas → the hand-rolled node-graph mounts (41-05); the Simple agent ROWS
+    // disappear (the node-graph carries the agents as canvas nodes instead).
     await userEvent.click(canvas);
-    expect(screen.getByText(/Canvas view/i)).toBeInTheDocument();
-    expect(screen.queryByText("Domain Discovery Agent")).not.toBeInTheDocument();
+    expect(screen.getByTestId("canvas-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("agent-row-domain-analyst")).not.toBeInTheDocument();
   });
 
   it("identity card: Name + Description are editable, Deliverable-type is READ-ONLY (ND-AH)", async () => {

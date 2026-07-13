@@ -6,6 +6,7 @@ import { ArrowLeft, Save, Plus, Shield, GitBranch, LayoutList } from "lucide-rea
 import { IdentityCard } from "./IdentityCard";
 import { AgentRow } from "./AgentRow";
 import { SummaryRail } from "./SummaryRail";
+import { CanvasView } from "./CanvasView";
 import {
   CapabilityPaletteSection,
   SkillsHooksTab,
@@ -309,18 +310,26 @@ export function ComposerPage({
       </div>
 
       {/* Body */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1">
         {view === "canvas" ? (
-          <div className="mx-auto grid max-w-[1200px] place-items-center px-[34px] py-24 text-center">
-            <div>
-              <GitBranch className="mx-auto mb-3 h-8 w-8 text-ink-200" />
-              <p className="font-sans text-[15px] font-semibold text-ink-700">Canvas view</p>
-              <p className="mt-1 font-serif text-[12px] text-ink-400">
-                The node-graph Canvas editor lands in 41-05. Switch to Simple to compose now.
-              </p>
-            </div>
-          </div>
+          <CanvasView
+            pipelineAgents={pipelineAgents}
+            selections={selections}
+            pipelineType={workflowType}
+            onSelection={handleAgentSelection}
+            onRemoveAgent={removeAgent}
+            onAddAgent={() => setAddOpen(true)}
+            canAddMore={canAddMore}
+            gateCount={gateCount}
+            strategy={strategy}
+            estDurationLabel={estDurationLabel}
+            declaredCapabilities={declaredChips}
+            onSaveToCatalogue={() => setSaveOpen(true)}
+            // Run once is INERT here — its run wiring lands in 41-06.
+            onRunOnce={undefined}
+          />
         ) : (
+          <div className="h-full overflow-y-auto">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -428,6 +437,7 @@ export function ComposerPage({
               onRunOnce={undefined}
             />
           </motion.div>
+          </div>
         )}
       </div>
 
