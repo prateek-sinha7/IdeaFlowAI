@@ -1093,17 +1093,19 @@ Plans:
 3. Composer Run-once launches through the existing onStartPipeline seam (functional test) + Save-to-catalogue reuses createUserWorkflow — additive FE only, no engine/backend/manifest change, no fabricated cost (ND-AG). The Library agent-detail drawer (ND-Z) lands.
 4. Data stays real & live (SC-001/ND-D): live registries, "None selected" until picked (ND-AF), no fabricated cost; intended divergences preserved (ND-A/B/C/D carried + ND-AE..AJ new). The Configure template/DS/ppt APIs are stubbed + seeded and the Phase-41 fidelity oracle is formalized (per-surface regenerable + a canvas target).
 
+**Closeout (2026-07-14 — verifier PASSED 8/8, `41-VERIFICATION.md`):** SC-2/3/4 DELIVERED + human-signed-off (Simple mock-match · Canvas proposal-match · Run-once functional · Library drawer ND-Z resolved; ND register ND-AE..AM). **SC-1 REVERTED by user decision** (quick-260713-rcf, `131c4e30`): the unified Configure single-screen was abandoned because a bare `prototype` launch fails the backend `missing_template_context` guard — template/design-system selection stays in the intact `LaunchWizard`; INV-3 is honored via DELETION of ConfigureScreen (not unification). SC-2's "the modal shell is replaced" clause is SUPERSEDED — the AgentsPopup modal is RETAINED + REUSED (additive; not a dual implementation — the user-approved framing). Whole phase additive-FE-only (backend untouched, verified).
+
 **Plans:** 7 plans (6 waves: 41-01 harness → 41-02 Configure build → 41-03 Configure unify+delete → 41-04 Composer shell+Simple → {41-05 Canvas ‖ 41-07 Library drawer} → 41-06 Run wiring)
 
 Plans:
 
-- [ ] 41-01-PLAN.md — Harness: stub the template/DS/ppt APIs + seed; formalize the Phase-41 fidelity oracle (repo-relative, --surface, ND-AE..AJ, current-side tags + canvas target); own the B7 requirement docs (Wave 1)
-- [ ] 41-02-PLAN.md — Configure build: revive ConfigureScreen into the ONE screen (Step-1 brief + four summary-line accordions + overlays), reuse the shipped bodies; fidelity checkpoint (Wave 2)
-- [ ] 41-03-PLAN.md — Configure unify+delete: mainView='configure' + real onLaunch → onStartPipeline + repoint nav; DELETE IdeaInputPage brief-launch + LaunchWizard + WizardStepper (INV-3) (Wave 3)
-- [ ] 41-04-PLAN.md — Composer shell + Simple view: full-page mainView='composer' + entry + Simple⇄Canvas toggle + the Simple (mock) view via the reused sub-components; delete the modal wrapper; fidelity checkpoint (Wave 4)
-- [ ] 41-05-PLAN.md — Composer Canvas view: hand-rolled node-graph (SVG bezier edges + absolute nodes + config rail + docked run summary) to the approved proposal; design-match checkpoint (Wave 5)
-- [ ] 41-07-PLAN.md — Library agent-detail drawer: restructure AgentCapabilitiesModal into the mock's right drawer (ND-Z resolved / SHELL-04 agent-drawer clause); fidelity checkpoint (Wave 5)
-- [ ] 41-06-PLAN.md — Composer Run wiring: Run-once → onStartPipeline (Simple + Canvas) + Save-to-catalogue → createUserWorkflow; functional test (Wave 6)
+- [x] 41-01-PLAN.md — Harness: template/DS/ppt API stubs + the Phase-41 fidelity oracle (ND-AE..AM) + B7 requirement docs (Wave 1)
+- [x] 41-02-PLAN.md — Configure build — BUILT (d7a947e1) then REVERTED (quick-260713-rcf, 131c4e30): the unified Configure screen was abandoned; prototype/ppt kept on the wizard (a bare `prototype` launch fails the backend `missing_template_context` guard); INV-3 honored via DELETION of ConfigureScreen (+ accordions + /workflow/configure + lib/draft.ts).
+- [x] 41-03-PLAN.md — Configure unify+delete wiring — BUILT (88f4db97) then REVERTED with 41-02; LaunchWizard + IdeaInputPage RETAINED (the delete was never executed).
+- [x] 41-04-PLAN.md — Composer shell + Simple view (mock-fidelity, human-signed-off); the AgentsPopup modal is RETAINED + reused — additive (corrected from "delete the modal") (Wave 4; ND-AK)
+- [x] 41-05-PLAN.md — Composer Canvas view: hand-rolled SVG node-graph + inline config rail + 2×2 docked summary matching the approved proposal (design-match signed-off); extracted `applyLeverPatch`/`useAgentCapabilities` (Wave 5; ND-AL)
+- [x] 41-07-PLAN.md — Library agent-detail drawer: `AgentCapabilitiesModal` → right drawer via an `asDrawer` variant + Overview-body tightening (ND-Z RESOLVED, human-signed-off) (Wave 5; ND-AM)
+- [x] 41-06-PLAN.md — Composer Run wiring: Run-once → `onStartPipeline('custom')` + Save-to-catalogue → `createUserWorkflow`; functional mocked-e2e (Wave 6; CMPUI-04)
 
 ### v2.0 Progress
 
@@ -1122,4 +1124,4 @@ Plans:
 | 38. Analytics, Estimates & Notifications [B4] | 5/5 | Complete   | 2026-07-10 |
 | 39. Run Screen Mock Fidelity [B5] | 7/7 | Complete | 2026-07-12 |
 | 40. Shell Mock Fidelity (restyle) [B6] | 7/7 | Complete | 2026-07-12 |
-| 41. Configure Unification + Composer Rebuild [B7] | 0/7 | Not started | — |
+| 41. Configure Unification + Composer Rebuild [B7] | 7/7 | Complete (SC-1 Configure reverted) | 2026-07-14 |

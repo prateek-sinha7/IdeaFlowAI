@@ -3525,3 +3525,39 @@ INV-3 gates stayed armed throughout: no golden/snapshot files were re-baselined 
 - **Kept / untouched.** `LaunchWizard.tsx` (the retained launch surface) and its `lib/launchDraft.ts`. Backend `launch_context.py::resolve_launch_od_context` and its declared-signal seam are **unchanged** — this was FE-only.
 - **Restored to pre-41-03 (`88f4db97^`):** `DashboardLayout.tsx` (dropped the `ConfigureScreen` import, `handleConfigureFeature`/`handleConfigureLaunch`, the `mainView==="configure"` render block, and the `"configure"` member of the `MainView` union), `HomeLaunchGrid.tsx` (dropped the `onConfigure` prop so prototype/ppt cards route to the wizard), `e2e/tests/ts-b.selection.spec.ts` (back to wizard-asserting).
 - **Verification:** `tsc --noEmit` clean; `vitest run` 648 pass / 8 fail — all 8 fails PRE-EXISTING & out of scope (`PreviewPanel.switcher` ×3, `PreviewPanel.degraded` ×1, `FilesTab.runInput` ×2, `HomeLaunchGrid.inspect` ×2 — the last proven red against pristine HEAD too). Dead-ref grep over `frontend/src` + `frontend/e2e/tests` empty (only `e2e/fidelity/` gallery-doc prose still names ConfigureScreen). Record: `.planning/quick/260713-rcf-remove-configure-single-screen/260713-rcf-SUMMARY.md`.
+
+---
+
+## Phase 41 — Configure Unification + Composer Rebuild [B7]
+
+**Folder:** `.planning/phases/41-configure-composer-rebuild-b7/` (milestone **v2.0**, branch `feat/ui-2`).  ·  **Status:** Complete (2026-07-14) — `41-VERIFICATION.md` verdict **PASS**, 8/8 must-haves; whole phase **additive-FE-only** (backend untouched).  ·  **Plans:** 7 (41-01 harness → 41-02/03 Configure build+wire **[BUILT then REVERTED]** → 41-04 Composer Simple → {41-05 Canvas ‖ 41-07 Library drawer} → 41-06 Run wiring), each Composer wave with a per-surface HUMAN fidelity sign-off.  ·  **Plan-id → `CHAT-AND-UI-CONVERGENCE-PLAN.md` (v2.0 POR):** B7.
+
+**One-line outcome:** The Configure single-screen was BUILT then REVERTED (see the **quick-260713-rcf entry above** — prototype/ppt stay on the intact `LaunchWizard` because a bare `prototype` launch fails the backend `missing_template_context` guard; INV-3 honored via DELETION). The delivered phase is the full-page **Composer** — a `mainView="composer"` custom-workflow surface (entry: Home "Compose a custom workflow" + edit-from-My-Workflows) with a Simple ⇄ Canvas toggle bound to the shared AgentsPopup data model: the **Simple view** mock-fidelity to `Hexaware Composer.dc.html`, the **Canvas view** a hand-rolled SVG node-graph matching the user-approved `composer-canvas-proposal.html` (ND-AJ, no graph library) — plus the additive **Run-once** wiring through the existing `onStartPipeline('custom')` seam and the Library agent-detail **right drawer** (closes the Phase-40 ND-Z deferral). ADDITIVE throughout: the AgentsPopup modal + LaunchWizard + IdeaInputPage are RETAINED + REUSED (NOT replaced — the user-approved framing corrected the plan's "delete the modal"); INV-3 kept via a single shared inspector + extracted shared lever logic, no forks.
+
+### Where the code lives (as-built)
+
+- **Full-page Composer (41-04/05):** `frontend/src/components/workflow/composer/` — `ComposerPage.tsx` (shell + Simple⇄Canvas toggle + Run wiring), `IdentityCard.tsx`, `AgentRow.tsx`, `SummaryRail.tsx` (Simple); `CanvasView.tsx`, `CanvasNode.tsx`, `CanvasConfigRail.tsx` (Canvas). Reached via `mainView="composer"` in `DashboardLayout.tsx`; entry from `HomeLaunchGrid` (the "custom" card) + `SavedWorkflowsPage.onLaunchSaved`.
+- **Shared lever logic (extracted, 41-05):** `frontend/src/components/workflow/AgentsPopup.tsx` — `applyLeverPatch` (pure reducer: patch + clear-unset + EMP-04 validator→gate coupling) + `useAgentCapabilities` (fetch + `user_allowed` filter). Both `AdvancedExpander` AND the Canvas config rail consume them — single source of lever logic (INV-3), behavior-preserving (34/34 preservation tests).
+- **Run wiring (41-06):** `ComposerPage.onRun` → `DashboardLayout` → the EXISTING `onStartPipeline('custom', …)` seam → `dashboard/page.tsx` `startPipeline` → execution view. Functional test `frontend/e2e/tests/composer-run.spec.ts` (CR-01 Simple / CR-02 Canvas assert the `run_pipeline(custom, agent_ids)` frame). Save-to-catalogue reuses `createUserWorkflow`.
+- **Library drawer (41-07):** `AgentCapabilitiesModal` (in `AgentsPopup.tsx`) restructured with an `asDrawer` variant (right slide-in; Overview/Skills/Hooks/Config); opened from `LibraryPage.tsx`. Read-only (surface-only) — no editable Save-agent footer. The other 3 modal callers keep the default centered modal (variant default = modal).
+- **Fidelity oracle (41-01):** `frontend/e2e/fidelity/assemble-phase41-gallery.mjs` (the canonical ND register + gallery), `composer-canvas-proposal.html` (the vendored Canvas design reference), the `--surface`-tagged capture drivers.
+- **Configure removal (reverted 41-02/03):** see the **quick-260713-rcf entry above** — `ConfigureScreen` + accordions + `/workflow/configure` + `lib/draft.ts` DELETED; `LaunchWizard`/`IdeaInputPage` retained.
+
+### Key locked decisions / intended-divergence register
+
+- **ND register lives in `frontend/e2e/fidelity/assemble-phase41-gallery.mjs`** — **ND-AE..AM** (Phase 41's new divergences); per-surface HUMAN sign-off reads the gallery (no automated pixel-diff — ND-D live data ≠ the mock/proposal's fixed values).
+- **ADDITIVE not replacement (corrected from the plan headers):** the AgentsPopup modal + LaunchWizard + IdeaInputPage are RETAINED; the Composer REUSES the shared sub-components. NOT a dual implementation (shared parts, distinct entry/purpose).
+- **ND-AK:** the Simple-view per-agent levers open the reused `AdvancedExpander` one expand deeper than the mock's inline toggles (INV-3 reuse; the collapsed row matches). **ND-AL:** the Composer Custom-prompt reuses the collapsible `AgentPromptSection` vs an inline textarea. **ND-AM:** the Library drawer is READ-ONLY (no editable Save-agent footer — surface-only, ND-7/LOCK-E).
+- **ND-AJ:** the Canvas view has NO `.dc.html` mock — acceptance = design-match to the user-approved `composer-canvas-proposal.html` (hand-rolled SVG, no graph library, D-04). Its config rail + 2×2 docked summary were rebuilt to the proposal (reusing the extracted lever logic + summary data, not forking).
+- **SC-1 (Configure) REVERTED** by user decision — see the quick entry above + the ROADMAP closeout note.
+
+### Invariants & verification
+
+- **`41-VERIFICATION.md` = PASS, 8/8 must-haves.** Whole-phase additive-FE-only (`git diff 659e5e35..HEAD` = `frontend/` + `.planning/` only; zero backend/`*.py`/manifest/migration). INV-3 no forks (single `AgentsPopup` with the extractions + the `asDrawer` variant; modal + wizard retained). No dead Configure code. 45 phase-touched vitest green + `tsc --noEmit` 0 (the ~8 baseline failures are unrelated files: PreviewPanel/FilesTab/HomeLaunchGrid).
+- **4 human fidelity sign-offs:** Simple view (mock) · Canvas view (proposal, design-match) · Library drawer (mock) + the Run functional test.
+
+### Known follow-ups (deferred)
+
+- **setState-in-render cleanup** in the shared `AdvancedExpander`: `updateLever` calls `onSelectionsChange` inside `setSelections`'s updater (pre-existing anti-pattern, dev-warning-only, `selections`→`run_pipeline` contract intact). Now cheap to fix since `applyLeverPatch` is extracted; tracked, deferred.
+- **Live pass** — the mocked `composer-run.spec.ts` + any live Bedrock run deferred to the milestone-end live pass (offline mandate).
+- **Cosmetic** — a stale `ComposerPage.tsx` comment ("Canvas mounts in 41-05" though it is mounted).
