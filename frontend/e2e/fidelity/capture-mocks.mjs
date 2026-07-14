@@ -124,6 +124,37 @@ async function capture(state, file, browser, origin) {
       await page.waitForTimeout(500);
       await page.screenshot({ path: join(OUT, `leftlane__${phase.toLowerCase()}.png`), clip: { x: 0, y: 0, width: 400, height: VIEWPORT.height } });
     }
+
+    // Phase 42 (W0 oracle) — the PAUSED / PLANNING TARGET frames. The Live mock's
+    // phase scrubber (ND-F) is how it exposes these paused compositions:
+    //   Clarify  → clarify-awaiting (the `clarAwaiting` Steps card + status pill)
+    //   Gate     → gate-awaiting    (the `gateAwaiting` Steps row + review pill)
+    //   Building → planning proxy    — the mock has NO dedicated pre-agent planning
+    //              frame (planning = running & 0 agents in OUR screen); its running
+    //              `building` phase is the nearest reference, captured as the
+    //              planning target so the gallery has a paired left cell. Documented
+    //              in README + flagged in the assembler's W0 register row.
+    // `full__{tag}` = whole viewport (lane + right panel); `steps__{tag}` = the
+    // Steps surface active (clarify/gate only, mirroring our current side which
+    // emits no steps__planning); `leftlane__{tag}` = the conversation column clip.
+    const pausedPhases = [
+      { label: "Clarify", tag: "clarifyawaiting", steps: true },
+      { label: "Gate", tag: "gateawaiting", steps: true },
+      { label: "Building", tag: "planning", steps: false },
+    ];
+    for (const { label, tag, steps } of pausedPhases) {
+      const btn = page.getByRole("button", { name: new RegExp(`^${label}$`, "i") }).first();
+      if ((await btn.count()) === 0) continue;
+      await btn.click({ timeout: 4_000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: join(OUT, `full__${tag}.png`), fullPage: false });
+      if (steps) {
+        await page.getByRole("button", { name: /^Steps$/ }).first().click({ timeout: 4_000 }).catch(() => {});
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: join(OUT, `steps__${tag}.png`), fullPage: false });
+      }
+      await page.screenshot({ path: join(OUT, `leftlane__${tag}.png`), clip: { x: 0, y: 0, width: 400, height: VIEWPORT.height } });
+    }
   }
 
   await page.close();

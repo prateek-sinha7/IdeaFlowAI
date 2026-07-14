@@ -50,7 +50,37 @@ shots/
 ```
 
 - **surface** ∈ `preview` · `steps` · `steps-detail` · `files` · `audit` · `leftlane` · `full`
-- **state** ∈ `settled` · `live` · `failed`
+- **state** ∈ `settled` · `live` · `failed` · `planning` · `clarifyawaiting` · `gateawaiting`
+
+### Phase-42 paused/planning states (W0 oracle)
+
+Phase 42 re-aligns the run screen's **paused** states, so the harness pauses OUR
+run screen AT each state (via the mocked WS) and captures the matching TARGET
+mock frame, in addition to settled/live/failed:
+
+| state | our side (`zzz-baseline.spec.ts`) | target side (`capture-mocks.mjs`) |
+|-------|-----------------------------------|-----------------------------------|
+| `planning` | running & 0 agents — `plannerStart` then STOP → `full__planning` + `leftlane__planning` | the Live mock's `Building` running phase (the mock has **no** dedicated pre-agent planning frame; nearest reference) |
+| `clarifyawaiting` | `questionnaireReady` then STOP (not submitted) → `full`/`steps`/`leftlane__clarifyawaiting` | Live mock phase scrubber → **Clarify** (`clarAwaiting` Steps card) |
+| `gateawaiting` | `reviewGateReady` then STOP (not approved) → `full`/`steps`/`leftlane__gateawaiting` | Live mock phase scrubber → **Gate** (`gateAwaiting` Steps row) |
+
+> **W0 expectation:** at Wave 0 our side still shows the LEGACY full-screen
+> right-panel takeover (`PlanningOverlay`/`QuestionnairePanel`/`ReviewGatePanel`)
+> that shadows the mock-correct inline surfaces — so the `steps__*` and `full__*`
+> frames are identical and diverge heavily from the mock. That is the "before"
+> baseline (register row **W0-42** in the assembler, NOT a permanent ND); Phase-42
+> W1+ removes the takeovers and regenerates the "after".
+
+**Regenerate a single new state** without re-capturing everything:
+
+```bash
+# our side — one paused test (grep the test title)
+FIDELITY_CAPTURE=1 npm --prefix frontend run e2e -- zzz-baseline -g "clarify-awaiting"
+# target side — the Live mock carries all three paused frames
+node frontend/e2e/fidelity/capture-mocks.mjs --state live
+# pair just that surface's section
+node frontend/e2e/fidelity/assemble-gallery.mjs --surface full   # or steps / leftlane
+```
 
 ## How each surface checkpoint regenerates + reviews its section
 

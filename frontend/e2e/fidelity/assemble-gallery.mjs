@@ -60,6 +60,14 @@ const ND = [
   ["ND-T", "Audit static UI copy + derived coverage + no PDF", "the coverage chips are DERIVED one-per-fine-category-present (not the mock's fixed 7-word list); the violet 'What is this?' explainer is static per-category UI copy (a genuine affordance, not run data); and the Export menu's 'Compliance report' option is DISABLED — CSV/JSON only, no signed PDF path (ND-6)"],
   ["ND-U", "Failed-run keeps the four-tab row", "39-05: the mock's failed run omits Preview + adds per-tab counts + defaults to Audit; we keep ONE uniform tab model (Preview·Steps·Files·Audit, no counts, default Preview) across settled/live/failed — a state-dependent tab set is behavior, not styling (user ruling 2026-07-11); a failed run's Preview still shows DegradedRunAffordance"],
   ["ND-V", "Self-chromed renderers keep their own frame", "39-06: the mock frames every deliverable in ONE browser chrome, but our prototype/app_builder renderers bring their own frame — wrapping doubled it. Per the user's Option-B ruling (2026-07-11) self-chromed types render in their own frame with the 'Renders as' switch above; plain deliverables keep our chrome. No renderer edits (ND-G intact)"],
+  // Phase-42 W0 (NOT an intended divergence — a TEMPORARY pre-fix state the later
+  // waves close). The new paused/planning rows (planning, clarifyawaiting,
+  // gateawaiting) show, on OUR side, the LEGACY full-screen right-panel takeover
+  // (PlanningOverlay / QuestionnairePanel / ReviewGatePanel) that still shadows the
+  // mock-correct inline surfaces at Wave 0. Expect a large left(mock)↔right(ours)
+  // divergence on these rows until W1 removes the takeovers; it is the "before"
+  // baseline, resolved by Phase-42 W1+, not a permanent ND.
+  ["W0-42", "Paused/planning rows show the legacy takeover (pre-fix)", "the planning / clarifyawaiting / gateawaiting rows capture our CURRENT pre-fix legacy full-screen takeover — a known temporary state closed by Phase-42 W1+, NOT a permanent intended divergence"],
 ];
 
 const surfaceArg = process.argv.includes("--surface")
@@ -147,7 +155,7 @@ async function main() {
   <h1>Run-Screen Fidelity Gallery${surfaceArg ? ` — <code>${esc(surfaceArg)}</code>` : ""}</h1>
   <p>Mock (left) vs current (right), per <code>{surface}__{state}</code>. Human review only — no pixel-diff (ND-D live data ≠ mock values).</p>
   <details class="nd" open>
-    <summary>Intended divergences — expected, ignore (ND-A..ND-V)</summary>
+    <summary>Intended divergences — expected, ignore (ND-A..ND-V); + W0-42 = a TEMPORARY pre-fix state (not an ND)</summary>
     <table>${ndRows}</table>
   </details>
 </header>
