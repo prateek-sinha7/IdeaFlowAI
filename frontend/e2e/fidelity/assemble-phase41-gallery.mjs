@@ -26,7 +26,7 @@
  * `--surface composer-canvas` (just the Canvas design-match section).
  *
  * No new dependency (Node built-ins). No pixel-diff (ND-D live data ≠ the mock's
- * fixed values) — human review of the assembled gallery, closed to ND-AE..AL.
+ * fixed values) — human review of the assembled gallery, closed to ND-AE..AM.
  *
  * Usage: node e2e/fidelity/assemble-phase41-gallery.mjs [--surface <name>]
  */
@@ -87,12 +87,13 @@ function figure(caption, src, missing) {
   return `<figure><figcaption>${esc(caption)}</figcaption>${body}</figure>`;
 }
 
-/** The FINALIZED Phase-41 intended-divergence register (ND-AE..AL). Canonical
+/** The FINALIZED Phase-41 intended-divergence register (ND-AE..AM). Canonical
  *  source of truth (captioned "expected — ignore" in the gallery header). ND-A..D
  *  carry from Phase 39; ND-W..AD are Phase 40's (in assemble-shell-gallery.mjs,
  *  UNTOUCHED). Phase 41 continues the lettering at ND-AE and adds ND-AJ (the
  *  Composer Canvas design-match reference) + ND-AL (the shared Custom-prompt
- *  presentation). See 41-UI-SPEC.md. */
+ *  presentation) + ND-AM (the read-only Library agent-detail drawer). See
+ *  41-UI-SPEC.md. */
 const ND = [
   ["ND-AE", "Configure Templates/Design-System accordions",
     "mock always renders all four accordions; ours renders Templates + Design System ONLY when the deliverable declares the `opendesign` context provider (a user_stories/custom run shows only Review Gates + Workflow Settings). SC-001 — ConfigureScreen already gates on the declared signal (`acceptsTemplateDs` :132)."],
@@ -110,6 +111,8 @@ const ND = [
     "Composer Simple view — per-agent levers (Model / Validator / Gate / Retry / Custom prompt) open the REUSED AdvancedExpander + AgentPromptSection one expand deeper, rather than the mock's inline dropdown/toggles — deliberately reuse the shared levers (INV-3), not re-implement them. The collapsed row (pill + Overrides chips + Custom-prompt link) matches the mock pixel-for-pixel; only the interaction depth differs."],
   ["ND-AL", "Composer Custom-prompt presentation (Simple + Canvas)",
     "Composer Custom-prompt (Simple view AgentRow + Canvas config rail) reuses the shared `AgentPromptSection` (collapsible 'System Prompt / Base AGENT.md prompt') rather than the mock/proposal's inline editable textarea — deliberate INV-3 reuse of the shared prompt editor; the field is present, only the presentation is the shared component."],
+  ["ND-AM", "Library agent-detail drawer is READ-ONLY (inspect, not edit)",
+    "The Library agent-detail drawer omits the mock's editable 'Save agent' / 'Reset' footer + inline editable system prompt — agents are INSPECTED here, not edited (surface-only, ND-7 / LOCK-E). The system prompt is surfaced read-only in Overview via the collapsible AgentPromptSection (surfaceOnly: no textarea / Save / Revert; the durable PUT/DELETE path stays unreachable). The Skill-support chip binds to the agent's real has_skill (omitted when false, so it won't render for agents lacking skill support even though the mock's example shows it — ND-D: never fabricate)."],
 ];
 
 /** The rebuild DECISIONS (settled at planning — retained for provenance). */
@@ -324,7 +327,7 @@ async function main() {
   </details>
 
   <details open>
-    <summary>Intended divergences (ND-A..D carried + ND-W..AD Phase 40 + ND-AE..AL Phase 41) — expected, IGNORE</summary>
+    <summary>Intended divergences (ND-A..D carried + ND-W..AD Phase 40 + ND-AE..AM Phase 41) — expected, IGNORE</summary>
     <table><tr><th>ID</th><th>Divergence</th><th>Rationale</th></tr>${ndRows}</table>
   </details>
 
