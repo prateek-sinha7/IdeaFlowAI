@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
+import { discriminateArtifact, SpecPreview, AnalysisPreview } from "./artifactPreview";
 
 // ─── Shared context-source formatting (INV-12 — the single derivation the sticky
 //     panel + any future consumer share; was inline in the retired ContextSourcesRow).
@@ -41,6 +42,103 @@ export function formatContextSource(src: ContextSource): { name: string; meta: s
   const meta = [sizeK, compression != null && compression > 0 ? `-${compression}%` : null]
     .filter(Boolean).join(" · ") || "context";
   return { name, meta };
+}
+
+// ─── Settled artifact-card derivation (42-09, RUNUI-07/08) ────────────────────
+// The mock's per-agent artifact card (pages/sections · tasks · checks) + handoff
+// line render in the settled L2 detail between the reasoning block and the tool
+// calls. The card TYPE is chosen by the SHARED name-free discriminator
+// (`discriminateArtifact` — spec/tasks/analysis by the artifact's own wrapper
+// tag, never a workflow/agent-name literal — SC-001). Every branch keys on
+// GENERIC in-state data; nothing keys on the agent's id/name. Cards are
+// CONDITIONAL — an agent whose output carries no recognized artifact tag (and a
+// tasks agent with no completed tasks, e.g. single_shot) renders NO card, exactly
+// as today. All data flows on the §9-verified FRONTEND-ONLY path (protoCompletedTasks
+// / validation* / dagEdges) — zero backend/golden/transport dependency.
+
+/** In-state pipeline data the artifact cards + handoff consume (all §9-verified). */
+export interface ArtifactCardData {
+  protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
+  protoCompletedTaskCount?: number;
+  dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
+}
+
+/** The derived descriptor: which card to show, its data, and the handoff target. */
+export interface ArtifactCardModel {
+  /** Name-free discriminator result (spec/tasks/analysis) or null → no card. */
+  kind: "spec" | "tasks" | "analysis" | null;
+  /** pages/sections card (spec output present). */
+  showPages: boolean;
+  /** tasks card (tasks output AND protoCompletedTasks non-empty). */
+  showTasks: boolean;
+  /** checks card (analysis output). */
+  showChecks: boolean;
+  /** tasks-card rows from protoCompletedTasks (empty unless showTasks). */
+  tasks: Array<{ number: number; title: string }>;
+  /** "N planned" count for the tasks card. */
+  taskCount: number;
+  /** checks-card verdict: pass/fail derived from validationPassed/validationIssues. */
+  checksPassed: boolean;
+  checksIssueCount: number;
+  /** handoff target — producer→consumer from dagEdges, else next-agent name; null when last & no edge. */
+  handoff: { label: string | null; to: string } | null;
+}
+
+/** Handoff: the producer edge for this agent from dagEdges (label + consumer
+ *  name), else the next agent by order (SC-001 — only the live agent NAME, never
+ *  a workflow/agent-id literal); null when this is the last agent with no edge. */
+function deriveHandoff(
+  agent: AgentRunState,
+  index: number,
+  agents: AgentRunState[],
+  dagEdges?: Array<{ from: string; to: string; artifact_type: string }>,
+): { label: string | null; to: string } | null {
+  const edge = dagEdges?.find(e => e.from === agent.id);
+  if (edge) {
+    const toAgent = agents.find(a => a.id === edge.to);
+    return { label: edge.artifact_type || null, to: toAgent?.name ?? edge.to };
+  }
+  const next = agents[index + 1];
+  return next ? { label: null, to: next.name } : null;
+}
+
+/** Pure derivation (exported for the test): pick the card kind via the shared
+ *  discriminator, derive its data from in-state fields, and resolve the handoff.
+ *  Keys ONLY on generic state/props — never `agent.id`/`agent.name`. */
+export function deriveArtifactCardModel(
+  agent: AgentRunState,
+  index: number,
+  agents: AgentRunState[],
+  data: ArtifactCardData,
+): ArtifactCardModel {
+  const kind = discriminateArtifact(agent.output || "");
+
+  // tasks card — a tasks-artifact agent WITH completed tasks in state. Empty
+  // protoCompletedTasks (single_shot workflows) → NO card (correct, generic).
+  const allTasks = data.protoCompletedTasks ?? [];
+  const showTasks = kind === "tasks" && allTasks.length > 0;
+  const tasks = showTasks ? allTasks.map(t => ({ number: t.number, title: t.title })) : [];
+  const taskCount = showTasks ? (data.protoCompletedTaskCount ?? allTasks.length) : 0;
+
+  // checks card — an analysis-artifact agent; badge from validation* (structured).
+  const showChecks = kind === "analysis";
+  const checksIssueCount = agent.validationIssues?.length ?? 0;
+  const checksPassed = agent.validationPassed === true && checksIssueCount === 0;
+
+  // pages/sections card — a spec-artifact agent.
+  const showPages = kind === "spec";
+
+  return {
+    kind,
+    showPages,
+    showTasks,
+    showChecks,
+    tasks,
+    taskCount,
+    checksPassed,
+    checksIssueCount,
+    handoff: deriveHandoff(agent, index, agents, data.dagEdges),
+  };
 }
 
 // ─── Reasoning card (violet) ──────────────────────────────────────────────────
