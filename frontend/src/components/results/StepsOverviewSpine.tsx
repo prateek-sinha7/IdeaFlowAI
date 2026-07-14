@@ -12,7 +12,7 @@
 // reskinned off the Phase-32 tokens (no gray-* palette).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Check, ChevronRight, XCircle, Zap, ListChecks, RotateCw } from "lucide-react";
+import { Check, ChevronRight, XCircle, ListChecks, RotateCw } from "lucide-react";
 import type { AgentRunState, ClarifyRound, PipelineRunState } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
 import { InlineGateActions } from "@/components/chat/InlineGateActions";
@@ -133,6 +133,20 @@ export function StepsOverviewSpine({
   const failed = pipelineState?.failed || agents.some(a => a.status === "error");
 
   const statusLabel = failed ? "Run failed" : isRunning ? "Running" : "Run complete";
+
+  // Mock's Steps-overview phase PILL + LABEL, keyed on the GENERIC run state
+  // (SC-001 — no workflow-name literal): clarify awaiting → CLARIFY; active
+  // review gate → REVIEW; otherwise running → BUILDING with live N/M counts
+  // (Run - Live.dc.html :981). Failed/complete keep the plain statusLabel.
+  const hasClarify = !!(clarifyQuestions && clarifyQuestions.length > 0 && onSubmitClarify);
+  const gateActive = !!laneGate && isRunning && !!onApproveGate;
+  const phase =
+    failed ? null
+    : hasClarify ? { pill: "CLARIFY", label: "Waiting on your answers", live: false }
+    : gateActive ? { pill: "REVIEW", label: "Paused for your approval", live: false }
+    : isRunning ? { pill: "BUILDING", label: `Pipeline running · ${completedCount} / ${total}`, live: true }
+    : null;
+
   const totalDuration = pipelineState?.totalDuration;
   const metaBits = [
     total > 0 ? `${completedCount} / ${total} agents` : null,
@@ -169,7 +183,17 @@ export function StepsOverviewSpine({
           ) : (
             <span className="w-[18px] h-[18px] flex-none rounded-full bg-surface-near-black grid place-items-center"><Check className="h-2.5 w-2.5 text-white" /></span>
           )}
-          <span className="text-[15px] font-semibold text-ink-900 font-[Manrope]">{statusLabel}</span>
+          {phase ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 text-[9.5px] font-semibold uppercase tracking-[0.05em] text-brand bg-brand-fill border border-brand-border px-2 py-1 rounded-[6px] font-[Manrope]">
+                <span className={`w-1.5 h-1.5 rounded-full bg-brand ${phase.live ? "animate-pulse" : ""}`} />
+                {phase.pill}
+              </span>
+              <span className="text-[15px] font-semibold text-ink-900 font-[Manrope]">{phase.label}</span>
+            </>
+          ) : (
+            <span className="text-[15px] font-semibold text-ink-900 font-[Manrope]">{statusLabel}</span>
+          )}
           <span className="flex-1" />
           {metaBits && <span className="text-[11.5px] text-ink-300 font-mono">{metaBits}</span>}
         </div>
@@ -204,7 +228,7 @@ export function StepsOverviewSpine({
             <span className="text-[8.5px] font-semibold uppercase tracking-wider text-brand bg-brand-fill border border-brand-border px-1.5 py-1 rounded">Awaiting you</span>
           </div>
           <div className="p-3.5">
-            <InlineClarifyActions questions={clarifyQuestions} onSubmitAnswers={onSubmitClarify} onSkipAll={onSkipClarify} onCancelWorkflow={onCancelWorkflow} />
+            <InlineClarifyActions questions={clarifyQuestions} onSubmitAnswers={onSubmitClarify} onCancelWorkflow={onCancelWorkflow} />
           </div>
         </AwaitingCard>
       )}
@@ -231,21 +255,22 @@ export function StepsOverviewSpine({
               data-testid="steps-agent-row"
               onClick={() => navigable && onOpenAgent(agent.id)}
               disabled={!navigable}
-              className={`w-full flex items-center gap-2.5 rounded-[11px] px-3 py-2.5 mb-1.5 text-left transition-colors ${
+              className={`w-full flex items-center gap-2.5 rounded-[11px] border px-3 py-2.5 mb-1.5 text-left transition-colors ${
+                isRun ? "bg-[#F4F2FB] border-[#DED9F7]" : "border-transparent"
+              } ${
                 navigable ? "hover:bg-surface-warm cursor-pointer" : "cursor-default"
               }`}
             >
               {isDone ? (
                 <span className="w-[18px] h-[18px] flex-none rounded-full bg-surface-near-black grid place-items-center"><Check className="h-2.5 w-2.5 text-white" /></span>
               ) : isRun ? (
-                <span className="w-[18px] h-[18px] flex-none rounded-full bg-brand-fill border-[1.5px] border-brand grid place-items-center"><span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" /></span>
+                <span className="w-[18px] h-[18px] flex-none rounded-full bg-brand-fill border-[1.5px] border-brand grid place-items-center shadow-[0_0_0_4px_rgba(60,44,218,0.15)]"><span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" /></span>
               ) : isErr ? (
                 <span className="w-[18px] h-[18px] flex-none rounded-full bg-status-failed grid place-items-center"><XCircle className="h-2.5 w-2.5 text-white" /></span>
               ) : (
                 <span className="w-[18px] h-[18px] flex-none rounded-full border-[1.5px] border-line-faint bg-surface-white" />
               )}
               <span className={`text-[13px] font-medium font-[Manrope] ${isIdle ? "text-ink-300" : "text-ink-900"}`}>{agent.name}</span>
-              {isRun && <span className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-brand-fill text-brand"><Zap className="h-2.5 w-2.5" />Live</span>}
               {isIdle && failed && <span className="text-[9px] text-status-amber bg-status-amber-fill border border-status-amber-border px-1.5 py-0.5 rounded">Not run</span>}
               <span className="flex-1" />
               {rowMeta && <span className="text-[11.5px] text-ink-300 font-mono">{rowMeta}</span>}
