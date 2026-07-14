@@ -11,115 +11,133 @@ requires:
 provides:
   - "AgentProgressPanel deleted (controls already absorbed into RunChatLane; zero production mount)."
   - "TodoCard deleted (no `todo` block kind emitted — ISS-037; only importer was its own block test)."
-  - "blocks.test.tsx TodoCard coverage retired."
-affects: [42-run-screen dead-code follow-up, WaveTreePanel removal (blocked)]
+  - "WaveTreePanel deleted (superseded by AgentDetailPanel's inline construction/wave tree, Phase 39; its keep-alive test retired)."
+  - "Stale comments corrected to name AgentDetailPanel's inline construction/wave tree as the live wave renderer."
+affects: [42-run-screen dead-code follow-up]
 
 # Tech tracking
 tech-stack:
   added: []
   patterns:
-    - "Pre-delete grep guard (real import + JSX mount) gating each component deletion; a found importer aborts the delete (T-42-04-01 mitigation)."
+    - "Pre-delete grep guard (real import + JSX mount) gating each component deletion; a found importer aborts the delete pending reconciliation (T-42-04-01 mitigation)."
 
 key-files:
   created: []
   modified:
     - frontend/src/components/chat/blocks/blocks.test.tsx
+    - frontend/src/components/layout/DashboardLayout.tsx
+    - frontend/src/components/preview/PreviewPanel.tsx
+    - frontend/src/app/dashboard/page.tsx
+    - frontend/src/types/index.ts
   deleted:
     - frontend/src/components/workflow/AgentProgressPanel.tsx
     - frontend/src/components/workflow/AgentProgressPanel.test.tsx
+    - frontend/src/components/workflow/WaveTreePanel.tsx
+    - frontend/src/components/layout/DashboardLayout.waveMount.test.tsx
     - frontend/src/components/chat/blocks/TodoCard.tsx
 
 key-decisions:
-  - "WaveTreePanel NOT deleted — a real importer/mount was found (DashboardLayout.waveMount.test.tsx), contradicting the plan's zero-mounts precondition. Guard fired; component retained."
-  - "Task 2 (stale-comment cleanup) is a no-op: the WaveTreePanel relocation comments describe LIVE behavior since WaveTreePanel survives; editing them would misrepresent the code."
+  - "WaveTreePanel initially blocked by a keep-alive test (DashboardLayout.waveMount.test.tsx) that stubbed PreviewPanel to render the real component — a fiction; the orchestrator confirmed WaveTreePanel is production-dead (live wave tree is AgentDetailPanel's inline construction block, Phase 39) and directed retirement of the test. Removed."
+  - "Now-stale comments implying a live WaveTreePanel mount were rewritten to name AgentDetailPanel's inline construction/wave tree; AgentDetailPanel.tsx's 'former/retired' history comments left intact (accurate)."
 
 patterns-established:
-  - "Guard-before-delete: verify zero real importers/mounts per component; STOP-and-flag on any real importer even in a test."
+  - "Guard-before-delete: verify zero real importers/mounts per component; a keep-alive test whose only subject is the deleted component is retired with it."
 
-requirements-completed: []  # RUNUI-06 NOT fully satisfied — WaveTreePanel removal blocked.
+requirements-completed: [RUNUI-06]
 
 # Metrics
-duration: 18min
+duration: 30min
 completed: 2026-07-15
 ---
 
 # Phase 42 Plan 04: Delete dead code (Group E, INV-12) Summary
 
-**AgentProgressPanel and TodoCard deleted as confirmed-dead surfaces; WaveTreePanel deletion blocked by a live importer/mount in DashboardLayout.waveMount.test.tsx (guard fired).**
+**Removed the three superseded run-screen components — AgentProgressPanel, WaveTreePanel, TodoCard — plus their tests, and corrected the stale comments so the live wave renderer (AgentDetailPanel's inline construction tree) is named correctly. Group E fully done; INV-12 one-implementation-per-behavior holds.**
 
 ## Performance
 
-- **Duration:** ~18 min
-- **Tasks:** 1 of 2 partially complete (Task 1 partial; Task 2 no-op due to blocker)
-- **Files modified:** 1 modified, 3 deleted
+- **Duration:** ~30 min (two sessions — initial partial + blocker resolution)
+- **Tasks:** 2 of 2 complete (Group E)
+- **Files:** 5 deleted, 5 modified
 
 ## Accomplishments
-- Deleted `components/workflow/AgentProgressPanel.tsx` + its test — its Stop/revise/suggestion controls were already absorbed into RunChatLane (verified: zero production import, zero JSX mount).
-- Deleted `components/chat/blocks/TodoCard.tsx` and retired its `describe("TodoCard")` case in `blocks.test.tsx` — no `todo` block kind is emitted (ISS-037); the only importer was that test.
-- Verified `WaveGroup` type in `types/index.ts` and its legitimate type-importers are untouched.
+- Deleted `components/workflow/AgentProgressPanel.tsx` + its test — controls already absorbed into RunChatLane (zero production import/mount).
+- Deleted `components/chat/blocks/TodoCard.tsx` and retired its `describe("TodoCard")` case in `blocks.test.tsx` — no `todo` block kind is emitted (ISS-037).
+- Deleted `components/workflow/WaveTreePanel.tsx` and retired its keep-alive test `DashboardLayout.waveMount.test.tsx` — the live wave/subagent tree is AgentDetailPanel's inline construction block (Phase 39; the separate panel was already retired, INV-12).
+- Corrected 6 stale comments across 4 files to name AgentDetailPanel's inline construction/wave tree as the live renderer (kept the data-flow description; left AgentDetailPanel's accurate "former/retired" history).
+- `WaveGroup` type in `types/index.ts` and its legitimate type-importers untouched.
 
 ## Task Commits
 
-1. **Task 1 (partial): Delete AgentProgressPanel + TodoCard** — `23e05167` (refactor)
+1. **Task 1a: Delete AgentProgressPanel + TodoCard** — `23e05167` (refactor)
+2. **Task 1b: Delete WaveTreePanel + retire keep-alive test + fix stale comments** — `d0679f13` (refactor)
 
-WaveTreePanel deletion (part of Task 1) and Task 2 (comment cleanup) were NOT committed — see Blocker below.
+**Plan metadata:** `b73fd6a5` (docs: interim partial summary) + this final summary update.
 
 ## Files Created/Modified
-- `frontend/src/components/workflow/AgentProgressPanel.tsx` — DELETED (dead: controls absorbed into RunChatLane)
+- `frontend/src/components/workflow/AgentProgressPanel.tsx` — DELETED (controls absorbed into RunChatLane)
 - `frontend/src/components/workflow/AgentProgressPanel.test.tsx` — DELETED (test for deleted component)
-- `frontend/src/components/chat/blocks/TodoCard.tsx` — DELETED (dead: no `todo` block kind — ISS-037)
+- `frontend/src/components/workflow/WaveTreePanel.tsx` — DELETED (superseded by AgentDetailPanel inline tree, Phase 39)
+- `frontend/src/components/layout/DashboardLayout.waveMount.test.tsx` — DELETED (keep-alive test; sole subject was WaveTreePanel)
+- `frontend/src/components/chat/blocks/TodoCard.tsx` — DELETED (no `todo` block kind — ISS-037)
 - `frontend/src/components/chat/blocks/blocks.test.tsx` — MODIFIED (removed TodoCard import + describe block)
+- `frontend/src/components/layout/DashboardLayout.tsx` — MODIFIED (2 stale comments corrected)
+- `frontend/src/components/preview/PreviewPanel.tsx` — MODIFIED (1 stale comment corrected)
+- `frontend/src/app/dashboard/page.tsx` — MODIFIED (1 stale comment corrected)
+- `frontend/src/types/index.ts` — MODIFIED (2 stale comments corrected)
 
 ## Safety Guard — grep proof of zero live importers (per component)
 
 Precise grep over `frontend/src` for real `import` statements and JSX mounts (`<Name`), excluding comments and `WaveGroup` type-imports from `types/index`:
 
-- **AgentProgressPanel** — real import + JSX mount only in `AgentProgressPanel.test.tsx` (deleted with the component). No production importer. The two `vi.mock("@/components/workflow/AgentProgressPanel", …)` stubs in `DashboardLayout.waveMount.test.tsx:82` and `DashboardLayout.catalogHome.test.tsx:70` are inert (DashboardLayout no longer imports the path). **Empirically verified:** after deletion, both files pass (6/6 tests) — Vitest's factory `vi.mock` does not require the module to exist when nothing imports it. → SAFE, deleted.
-- **TodoCard** — real import + JSX mount only in `blocks.test.tsx` (in-scope; retired). No production importer. → SAFE, deleted.
-- **WaveTreePanel** — **REAL importer/mount found**: `DashboardLayout.waveMount.test.tsx:91` does `const { WaveTreePanel } = await import("@/components/workflow/WaveTreePanel")` and line 95 renders `<WaveTreePanel waves={waves ?? []} />`, with 4 live tests asserting its rendered output ("Wave / Subagent Tree", "Wave 0", "wave-worker-alpha", "No waves running."). → **GUARD FIRED — NOT deleted.**
+- **AgentProgressPanel** — real import + JSX mount only in its own test (deleted). No production importer. Two inert `vi.mock(".../AgentProgressPanel")` stubs in `DashboardLayout.waveMount.test.tsx` (since also deleted) and `catalogHome.test.tsx` (DashboardLayout no longer imports the path); catalogHome still passes after deletion. → DELETED.
+- **TodoCard** — real import + JSX mount only in `blocks.test.tsx` (retired). No production importer. → DELETED.
+- **WaveTreePanel** — after deletion, `grep -rn "import.*WaveTreePanel\|<WaveTreePanel" src` → **0 live references.** The only initial "importer", `DashboardLayout.waveMount.test.tsx`, stubbed PreviewPanel to `await import(".../WaveTreePanel")` and render it — a fiction (the real PreviewPanel never mounts WaveTreePanel; the live wave tree is AgentDetailPanel's inline block). Confirmed production-dead by the orchestrator; the test was retired with its subject. 4 remaining textual mentions (`AgentDetailPanel.tsx:12,266`, `StepsDrilldown.test.tsx:13`, `PreviewPanel.tsx:337`) are all accurate "former/retired" history. → DELETED.
 
 ## Verification
 
-- **tsc:** `npx tsc --noEmit` → 0 errors (excluding the known `mockApi` noise).
-- **blocks vitest:** `blocks.test.tsx` → 5 passed (TodoCard case retired; ThinkingBlock ×4 + FileOpsSummary ×1).
-- **Out-of-scope vi.mock tests:** `DashboardLayout.waveMount` + `DashboardLayout.catalogHome` → 6 passed after AgentProgressPanel deletion (no mock-resolution breakage).
-- **Full suite:** `npx vitest run` → 671 passed, 8 failed (4 files). **Net-new failures = 0.** The 8 failures are all pre-existing branch drift:
-  - `PreviewPanel.switcher.test.tsx` ×3 + `PreviewPanel.degraded.test.tsx` ×1 — the 4 the plan named.
-  - `HomeLaunchGrid.inspect.test.tsx` ×2 + `FilesTab.runInput.test.tsx` ×2 — **verified pre-existing at `HEAD~1`** via a throwaway worktree run (same 4 failed before my commit). These files have zero references to any deleted module (grep-confirmed). The plan's "4 pre-existing" count was written against an earlier branch state that has since drifted to 8.
-- **Fidelity harness:** not run (heavy playwright capture). Justified: both deleted components had zero JSX mounts, so rendered DOM is byte-identical; the only e2e references to them are historical comments ("the retired AgentProgressPanel…"), no live selectors or imports. Harness is unaffected.
+- **tsc:** `npx tsc --noEmit` → **0 errors** (excl. known `mockApi` noise).
+- **blocks vitest:** `blocks.test.tsx` → 5 passed (TodoCard case retired).
+- **Full suite:** `npx vitest run` → **667 passed, 8 failed** (96 files). **Net-new failures = 0.** The 8 are the confirmed pre-existing baseline (verified failing at the pre-Phase-42 commit `8c2f0b9d`):
+  - `PreviewPanel.switcher.test.tsx` ×3
+  - `PreviewPanel.degraded.test.tsx` ×1
+  - `HomeLaunchGrid.inspect.test.tsx` ×2
+  - `FilesTab.runInput.test.tsx` ×2
+  Passing count dropped 671→667 — exactly the 4 `waveMount.test.tsx` tests removed with the retired file (expected). Test-file count 97→96 (waveMount removed).
+- **Live-reference grep:** `import.*WaveTreePanel|<WaveTreePanel` → 0 across `frontend/src`.
+- **Fidelity harness:** not run (heavy playwright capture); justified — all three deleted components had zero JSX mounts, so rendered DOM is byte-identical; the only e2e references are historical comments, not live selectors. The waves→construction-tree forwarding stays covered by the AgentDetailPanel/AgentThinkingTab construction tests + the fidelity harness.
 
 ## Decisions Made
-- **WaveTreePanel retained.** The plan's precondition ("all three have zero mounts") is false for WaveTreePanel: it is dynamically imported and rendered by `DashboardLayout.waveMount.test.tsx` (a maintained DashboardLayout relocation test proving the `waves` passthrough reaches PreviewPanel). Deleting it would break 4 tests in an out-of-scope file (net-new failures, violating the hard verification constraint), and rewriting that test is out of the declared scope. Per the mandatory pre-delete guard, deletion was aborted and flagged.
-- **Task 2 is a no-op.** Task 2 targets the WaveTreePanel relocation comments (`DashboardLayout.tsx:1702-1705`, referenced as :1781-1784 in the plan's stale line numbers) and `app/dashboard/page.tsx:115`. Because WaveTreePanel survives, those comments describe LIVE behavior (the below-the-fold→PreviewPanel relocation is the current mount, proven by `waveMount.test.tsx`). They are not dangling references to a deleted symbol; editing them would misrepresent the code. No comment change made.
+- **WaveTreePanel removed after blocker resolution.** The initial pre-delete guard flagged `DashboardLayout.waveMount.test.tsx` as a live importer/mount. The orchestrator verified WaveTreePanel is production-dead (every non-test `frontend/src` reference is a comment; the live wave tree is AgentDetailPanel's inline construction block, Phase 39 — which explicitly retired the separate panel, INV-12) and that the keep-alive test was asserting against a fiction (a stubbed PreviewPanel importing + rendering the real component, which the production PreviewPanel never does). Directed: delete the component + retire the test exactly as AgentProgressPanel.test.tsx was retired with its component.
+- **Stale comments corrected, history preserved.** Comments implying a *live* WaveTreePanel mount (`DashboardLayout.tsx:~152, ~1702`, `PreviewPanel.tsx:~336`, `app/dashboard/page.tsx:~115`, `types/index.ts:~86, ~135`) were rewritten to name AgentDetailPanel's inline construction/wave tree, keeping the data-flow description. `AgentDetailPanel.tsx:12,266` and `StepsDrilldown.test.tsx:13` were left as-is — they already describe WaveTreePanel as the FORMER/retired component (accurate history).
 
 ## Deviations from Plan
 
-### Blocker (guard fired — component retained)
+### Blocker — RESOLVED
 
-**1. [Guard/STOP-and-flag] WaveTreePanel has a live importer/mount — NOT deleted**
+**1. [Guard/STOP-and-flag → resolved] WaveTreePanel keep-alive test**
 - **Found during:** Task 1 (pre-delete safety grep).
-- **Issue:** `frontend/src/components/layout/DashboardLayout.waveMount.test.tsx:91` dynamically imports the real `WaveTreePanel` and mounts it (`:95` `<WaveTreePanel waves={waves ?? []} />`); 4 tests (`:172,185,195,203`) assert its rendered output. The plan/CONTEXT §E asserted "zero mounts" — contradicted.
-- **Action:** Aborted the WaveTreePanel file-delete per the mandatory guard; retained the component. This cascades: Task 2's WaveTreePanel comment cleanup becomes invalid (comments now describe live behavior) → no comment change.
-- **Resolution required (out of this plan's scope):** Either (a) reconcile `DashboardLayout.waveMount.test.tsx` to no longer render WaveTreePanel (rewrite the relocation assertion against PreviewPanel's current wave surface / AgentDetailPanel inline tree per CONTEXT §E), then delete WaveTreePanel + its comments; or (b) confirm WaveTreePanel is still the intended wave-tree host and drop it from Group E. This is a planning/scope decision (touches an out-of-scope behavior test).
+- **Issue:** `DashboardLayout.waveMount.test.tsx` dynamically imported and rendered the real `WaveTreePanel` via a PreviewPanel stub, with 4 assertions on its output — a live importer that contradicted the "zero mounts" precondition and would have produced net-new failures if the component were deleted blind.
+- **Resolution:** Orchestrator confirmed WaveTreePanel is production-dead and the test asserts against a fiction. Deleted `WaveTreePanel.tsx` + retired `DashboardLayout.waveMount.test.tsx` (subject deleted), then corrected the now-stale comments. Grep confirms 0 live references; the 8-failure baseline held with 0 net-new.
 
 ---
 
-**Total deviations:** 1 blocker (guard fired). 0 auto-fixes.
-**Impact on plan:** 2 of the 3 dead components removed cleanly with zero net-new failures. WaveTreePanel removal + its comment cleanup remain open, pending reconciliation of an out-of-scope DashboardLayout test.
+**Total deviations:** 1 blocker (raised in session 1, resolved by orchestrator in session 2). 0 auto-fixes.
+**Impact on plan:** Group E fully delivered — all three dead components removed with zero net-new failures and one wave-tree implementation (INV-12). RUNUI-06 satisfied.
 
 ## Issues Encountered
-- The plan's cited line numbers for the stale comments (`DashboardLayout.tsx:1781-1784`) are stale; the actual WaveTreePanel relocation comments are at `:1702-1705`. Moot given the blocker (no edit made).
+- The plan's cited line numbers for the stale comments (`DashboardLayout.tsx:1781-1784`) were stale; the actual WaveTreePanel relocation comment is at `:1702-1705`. Located and corrected by content, not line number.
 
 ## Next Phase Readiness
-- AgentProgressPanel + TodoCard removal is complete and green.
-- **Blocked:** WaveTreePanel deletion + comment cleanup (RUNUI-06 not fully satisfied). Requires a decision on `DashboardLayout.waveMount.test.tsx` (out-of-scope test with a live WaveTreePanel mount) before the component can be removed.
+- Group E (dead-code removal) complete: AgentProgressPanel, WaveTreePanel, TodoCard and their tests removed; INV-12 one-implementation-per-behavior holds on the run screen.
+- No blockers remaining for this plan.
 
 ## Self-Check: PASSED
-- GONE: AgentProgressPanel.tsx, AgentProgressPanel.test.tsx, TodoCard.tsx
-- RETAINED (correct, guard fired): WaveTreePanel.tsx
-- Commit `23e05167` present on feat/ui-2
-- SUMMARY present on disk
+- GONE: AgentProgressPanel.tsx, AgentProgressPanel.test.tsx, TodoCard.tsx, WaveTreePanel.tsx, DashboardLayout.waveMount.test.tsx
+- 0 live (import/JSX) WaveTreePanel references in frontend/src
+- Commits `23e05167` + `d0679f13` present on feat/ui-2
+- tsc clean; vitest 8-failure baseline held (0 net-new)
 
 ---
 *Phase: 42-run-screen-state-fidelity-kill-legacy-full-screen-takeovers-*
-*Completed (partial): 2026-07-15*
+*Completed: 2026-07-15*
