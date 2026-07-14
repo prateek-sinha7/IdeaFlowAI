@@ -73,9 +73,6 @@ vi.mock("@/components/workflow/AgentProgressPanel", () => ({
 vi.mock("@/components/preview/PreviewPanel", () => ({
   PreviewPanel: () => <div data-testid="stub-preview" />,
 }));
-vi.mock("@/components/preview/ReviewGatePanel", () => ({
-  ReviewGatePanel: () => <div data-testid="stub-review-gate" />,
-}));
 vi.mock("@/components/ui/CompletionToast", () => ({
   CompletionToast: () => <div data-testid="stub-toast" />,
 }));
