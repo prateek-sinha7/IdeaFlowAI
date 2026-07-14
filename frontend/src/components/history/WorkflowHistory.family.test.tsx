@@ -187,6 +187,43 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
     // No "v{N}" count pill.
     expect(screen.queryByLabelText(/\d+ versions/)).toBeNull();
   });
+
+  it("KAN-105: a chained run (different base type) is shown as a separate workflow entry, not as a version of the source", async () => {
+    // Simulate: user ran a prototype (id="proto"), then chained to user_stories
+    // (id="chain"). Both share rootRunId="proto" because the backend's
+    // parent_run_id walk treats them the same. They must render as TWO
+    // independent entries in the history list, not as "v2" under the prototype.
+    const protoRun = makeRun({
+      id: "proto",
+      title: "My Prototype",
+      type: "prototype",
+      parentRunId: null,
+      rootRunId: "proto",
+      createdAt: t0,
+      output: "<html>proto</html>",
+    });
+    const chainedRun = makeRun({
+      id: "chain",
+      title: "Chained Stories",
+      type: "user_stories",
+      parentRunId: "proto",
+      rootRunId: "proto",   // ← same rootRunId as proto (the bug scenario)
+      createdAt: t1,
+      output: "## User Stories",
+    });
+    mockGetWorkflows.mockResolvedValue([protoRun, chainedRun]);
+
+    render(<WorkflowHistory onBack={vi.fn()} />);
+
+    // Both titles must appear as separate rows.
+    await screen.findByText("My Prototype");
+    await screen.findByText("Chained Stories");
+
+    // No "v2" count pill — the chained run must NOT be shown as a version of the prototype.
+    expect(screen.queryByLabelText(/\d+ versions/)).toBeNull();
+    // No expander on either row.
+    expect(screen.queryByLabelText("Show versions")).toBeNull();
+  });
 });
 
 describe("Revision Families (B2) — detail version timeline (D4)", () => {

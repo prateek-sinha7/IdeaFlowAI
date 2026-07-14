@@ -128,8 +128,44 @@ export function groupRunsByFamily(runs: WorkflowRun[]): FamilyGroup[] {
     // root = the member whose id IS the rootRunId; else the earliest present
     // (legacy NULL-parent / a family whose root fell outside the fetch window).
     const root = members.find((m) => m.id === rootRunId) ?? members[0];
+    const rootBaseType = baseWorkflowType(root.type);
     const latest = members[members.length - 1];
-    groups.push({ rootRunId, root, members, latest });
+
+    // KAN-105: Only revision runs (same base workflow type) belong in a family.
+    // A chained run produces a DIFFERENT base workflow type (e.g. prototype →
+    // user_stories). Even though the backend sets parent_run_id on chained runs
+    // too (making root_run_id resolve to the same ancestor), chained runs are
+    // NEW workflows — not versions of the source — and must appear as independent
+    // entries. Split any member whose base type differs from the root into its
+    // own standalone family. This is a FE display decision (SC-001: no
+    // pipeline_type branch in the engine; the backend root_run_id computation is
+    // unchanged). Only runs whose base type MATCHES the family root are treated
+    // as revision versions.
+    const revisionMembers: WorkflowRun[] = [];
+    const chainedStandalones: WorkflowRun[] = [];
+    for (const m of members) {
+      if (baseWorkflowType(m.type) === rootBaseType) {
+        revisionMembers.push(m);
+      } else {
+        // Different base type → chain run, not a revision → own standalone group.
+        chainedStandalones.push(m);
+      }
+    }
+
+    // Emit the revision family (may be a single-member family if the only member
+    // is the root itself — renders as a plain flat row, zero regression).
+    const revLatest = revisionMembers[revisionMembers.length - 1];
+    groups.push({ rootRunId, root, members: revisionMembers, latest: revLatest });
+
+    // Emit each chained run as its own standalone single-member family.
+    for (const standalone of chainedStandalones) {
+      groups.push({
+        rootRunId: standalone.id,
+        root: standalone,
+        members: [standalone],
+        latest: standalone,
+      });
+    }
   }
   // Newest family first (by latest member) — preserves today's newest-first list
   // order → zero ordering regression.
@@ -335,28 +371,52 @@ export function FamilyGroupCard({
             const parentIdx = group.members.findIndex((m) => m.id === member.parentRunId);
             const revisesN = (parentIdx >= 0 ? parentIdx : i - 1) + 1;
             return (
-              // Native <button> so each child version row is keyboard-focusable +
-              // Enter/Space-activatable for free (FIX 2 / §8 a11y). Keeps the exact
-              // row className + appends `w-full text-left` to reproduce the
-              // full-width flex row — no visual change. The ROOT family-card rows
-              // stay <div onClick> (audit-scoped out).
-              <button
+              // KAN-106: child version row is a flex container so it can host
+              // a hover-reveal RowMenu at the right edge. The clickable area
+              // covers the left portion (flex-1) so keyboard activation and
+              // pointer clicks still open the version as before.
+              <div
                 key={member.id}
-                type="button"
-                onClick={() => onSelectRun(member)}
-                aria-label={`Version ${i + 1}, ${member.status}`}
-                className="w-full text-left flex items-center gap-3 pl-8 pr-6 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors"
+                className="group relative flex items-center hover:bg-gray-50 transition-colors"
               >
-                <span className="text-[9px] font-semibold px-1 rounded bg-gray-200 text-gray-500">
-                  v{i + 1}
-                </span>
-                <span className={statusDotClass(member.status)} />
-                <span className="text-[12px] text-gray-700 truncate">{member.title}</span>
-                <span className="text-[10px] text-gray-400">{formatDate(member.createdAt)}</span>
-                {member.parentRunId && (
-                  <span className="text-[10px] text-gray-400">↳ revises v{revisesN}</span>
-                )}
-              </button>
+                {/* Clickable open-version area — keyboard accessible via role=button */}
+                <button
+                  type="button"
+                  onClick={() => onSelectRun(member)}
+                  aria-label={`Version ${i + 1}, ${member.status}`}
+                  className="flex-1 text-left flex items-center gap-3 pl-8 py-2.5 cursor-pointer min-w-0"
+                >
+                  <span className="text-[9px] font-semibold px-1 rounded bg-gray-200 text-gray-500 flex-shrink-0">
+                    v{i + 1}
+                  </span>
+                  <span className={`${statusDotClass(member.status)} flex-shrink-0`} />
+                  <span className="text-[12px] text-gray-700 truncate">{member.title}</span>
+                  <span className="text-[10px] text-gray-400 flex-shrink-0">{formatDate(member.createdAt)}</span>
+                  {member.parentRunId && (
+                    <span className="text-[10px] text-gray-400 flex-shrink-0">↳ revises v{revisesN}</span>
+                  )}
+                </button>
+                {/* Per-version delete menu — same RowMenu pattern as the root row.
+                    Use a "-child" suffix on the runId key so the child row's
+                    menu state never collides with the root card's menu (which
+                    uses runId={group.root.id} — the same id as v1's member.id).
+                    pr-2 aligns it with the root card's right padding. */}
+                <div className="pr-2 flex-shrink-0">
+                  <RowMenu
+                    runId={`${member.id}-child`}
+                    openMenuId={openMenuId}
+                    onToggleMenu={(id, e) => {
+                      // Strip the "-child" suffix before forwarding to the real handler
+                      // so handleDeleteClick / handleDeleteConfirm receive the real run id.
+                      onToggleMenu(id, e);
+                    }}
+                    onDeleteClick={(id, e) => {
+                      // Strip "-child" suffix to get the real run id for deletion.
+                      onDeleteClick(id.replace(/-child$/, ""), e);
+                    }}
+                  />
+                </div>
+              </div>
             );
           })}
         </div>
@@ -416,7 +476,13 @@ export function VersionTimeline({
   }, [activeRunId]);
 
   // Hide the chip row when this is not a family (single-member / absent).
+  // KAN-105: also hide when the active run is NOT a member of this family —
+  // this happens when a chained run's rootRunId points to the source family
+  // but the run itself was excluded from that family (different base type).
+  // In that case the family belongs to a different workflow; showing its chips
+  // on a chained run's detail would be incorrect.
   if (!family || family.members.length < 2) return null;
+  if (!members.find((m) => m.id === activeRunId)) return null;
 
   const select = (memberId: string) => {
     userSwitched.current = true;

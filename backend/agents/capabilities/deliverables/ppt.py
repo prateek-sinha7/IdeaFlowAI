@@ -3,9 +3,11 @@
 The PPT resolver owns the carousel-sanitize + artifact-unwrap transform as a
 declared capability (PARITY-07). The streamed deck IS the deliverable; before
 unwrapping it the resolver strips the slide-hiding CSS the od_ppt composer may
-hallucinate (so a horizontal-carousel deck renders all slides):
+hallucinate (so a horizontal-carousel deck renders all slides), and strips any
+QA checklist text the validator may have injected as body content before the
+first slide (KAN-107 / FIX-054):
 
-    return unwrap_artifact(sanitize_carousel_deck_html(last_streamed))
+    return unwrap_artifact(strip_pre_slide_body_text(sanitize_carousel_deck_html(last_streamed)))
 
 This resolver owns BOTH carousel-sanitize behaviors the engine performs today
 (Pitfall 3 / PARITY-07):
@@ -34,6 +36,7 @@ from typing import Any
 
 from agents.capabilities.deliverables._artifact import (
     sanitize_carousel_deck_html,
+    strip_pre_slide_body_text,
     unwrap_artifact,
 )
 from agents.capabilities.deliverables._mimetype import default_mimetype
@@ -62,4 +65,4 @@ class PptResolver:
 
     def resolve(self, ctx: Any) -> Any:
         last_streamed = getattr(ctx, "last_streamed", "") or ""
-        return unwrap_artifact(sanitize_carousel_deck_html(last_streamed))
+        return unwrap_artifact(strip_pre_slide_body_text(sanitize_carousel_deck_html(last_streamed)))

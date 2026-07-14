@@ -970,12 +970,37 @@ def get_run_family(
     # BFS-over-owned-children is exactly "all owned runs whose chain-root ==
     # root" because the owned walk terminates at any foreign link. A visited-id
     # set guards against a cyclic parent chain (threat T-A-04).
+    #
+    # KAN-105: only runs whose base workflow type matches the root's base type
+    # are revision family members. Chained runs (e.g. prototype chained from a
+    # user_stories revision) share the same parent_run_id link but are NEW
+    # distinct workflows — not versions of the source. The base type check is the
+    # single correct discriminator: a revision suffix type normalises to the same
+    # base as its root (user_stories_revision → user_stories); a chained run
+    # produces a different base type (prototype ≠ user_stories) and must not
+    # appear as a version in the family timeline.
+    #
+    # Base type normalisation (mirrors the FE baseWorkflowType helper):
+    _REVISION_ALIASES: dict[str, str] = {
+        "od_prototype": "prototype",
+        "od_ppt": "ppt",
+        "od_ppt_revision": "ppt",
+        "prototype_revision": "prototype",
+    }
+
+    def _base_type(wf_type: str) -> str:
+        if wf_type in _REVISION_ALIASES:
+            return _REVISION_ALIASES[wf_type]
+        return wf_type.replace("_revision", "")
+
     members: dict[str, WorkflowRun] = {}
     root_row = (
         db.query(WorkflowRun)
         .filter(WorkflowRun.id == root_id, WorkflowRun.user_id == current_user.id)
         .first()
     )
+    root_base = _base_type(root_row.type) if root_row is not None else None
+
     if root_row is not None:
         members[root_row.id] = root_row
     frontier = {root_id}
@@ -994,6 +1019,9 @@ def get_run_family(
             if child.id in visited:
                 continue  # cycle guard — never re-enqueue an already-seen run
             visited.add(child.id)
+            # KAN-105: skip chained runs (different base type from the root).
+            if root_base is not None and _base_type(child.type) != root_base:
+                continue
             members[child.id] = child
             frontier.add(child.id)
 
