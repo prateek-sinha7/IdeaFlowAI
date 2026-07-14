@@ -298,6 +298,82 @@ test("CAPTURE live — gate-awaiting lane", async ({ dashboard, mockWs, page }) 
   await page.screenshot({ path: `${OUT}/leftlane__gate.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
 });
 
+// ── Phase 42 (W0 oracle) — PAUSED / PLANNING states ──────────────────────────
+// These pause our run screen AT planning / clarify-awaiting / gate-awaiting and
+// screenshot WITHOUT advancing past them (the opposite of the settled/live flow
+// above, which answers clarify + approves the gate immediately). At Wave 1 our
+// screen is still PRE-fix: the legacy full-screen right-panel takeover
+// (PlanningOverlay / QuestionnairePanel / ReviewGatePanel) still owns the right
+// column during these phases, so the "Steps" tab is not mounted and the
+// `tab("Steps")` click best-effort no-ops — that captured legacy takeover IS the
+// correct "before" baseline the later waves regenerate against the mock.
+
+/** role="tab" locator (short per-click timeout so a miss fails fast, like the settled flow). */
+const stepsTab = (page: Page) => page.getByRole("tab", { name: /Steps/i }).first();
+
+test("CAPTURE paused — planning", async ({ dashboard, mockWs, page }) => {
+  test.setTimeout(120_000);
+  await dashboard.goto();
+  await launch(page, mockWs, "build prototype mimicking apple website just for reference");
+  const agents = AGENTS.od_prototype;
+  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
+  // running & 0 agents & no clarify & no gate → §2 branch 1 (PlanningOverlay).
+  // STOP here: do NOT call plannerComplete — capture the pre-agent planning state.
+  mockWs.plannerStart();
+  await page.waitForTimeout(1200);
+  await shot(page, "full", "planning");
+  // Best-effort Steps tab (dead during the pre-fix takeover — captures whatever shows).
+  await stepsTab(page).click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `${OUT}/leftlane__planning.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
+});
+
+test("CAPTURE paused — clarify-awaiting", async ({ dashboard, mockWs, page }) => {
+  test.setTimeout(120_000);
+  await dashboard.goto();
+  await launch(page, mockWs, "build prototype mimicking apple website just for reference");
+  const agents = AGENTS.od_prototype;
+  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
+  mockWs.plannerStart();
+  mockWs.plannerComplete("Build an Apple-style reference prototype", "CLARIFY_REQUIRED");
+  // Questions surface and the lane PAUSES in the clarify state — do NOT submit.
+  mockWs.questionnaireReady(CLARIFY_Q);
+  await page.getByTestId("chat-clarify-actions").waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  await shot(page, "full", "clarifyawaiting");
+  // Steps surface (inline clarify-in-Steps — dead behind the pre-fix takeover at W0).
+  await stepsTab(page).click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(900);
+  await shot(page, "steps", "clarifyawaiting");
+  await page.screenshot({ path: `${OUT}/leftlane__clarifyawaiting.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
+});
+
+test("CAPTURE paused — gate-awaiting", async ({ dashboard, mockWs, page }) => {
+  test.setTimeout(120_000);
+  await dashboard.goto();
+  await launch(page, mockWs, "build prototype mimicking apple website just for reference");
+  const agents = AGENTS.od_prototype;
+  mockWs.start(agents, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+  await seedBrief(mockWs, "build prototype mimicking apple website just for reference");
+  mockWs.plannerStart();
+  mockWs.plannerComplete("Build an Apple-style reference prototype", "PROCEED");
+  // The spec agent produces output and a review gate opens — the lane PAUSES in
+  // the gate state (do NOT approve — capture the Awaiting-you approval card + gate UI).
+  mockWs.agentStart("prototype-specify");
+  mockWs.agentChunk("prototype-specify", "# Apple Reference — Specification\n\nSix pages, one design system.");
+  mockWs.reviewGateReady({ gateKey: "spec", agentId: "prototype-specify", agentName: "Spec Writer", output: "Specification ready for your approval." });
+  await page.getByTestId("chat-gate-actions").waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  await shot(page, "full", "gateawaiting");
+  // Steps surface (inline gate-in-Steps — dead behind the pre-fix takeover at W0).
+  await stepsTab(page).click({ timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(900);
+  await shot(page, "steps", "gateawaiting");
+  await page.screenshot({ path: `${OUT}/leftlane__gateawaiting.png`, clip: { x: 0, y: 64, width: 360, height: 836 } });
+});
+
 test("CAPTURE failed run", async ({ dashboard, mockWs, mockApi, page }) => {
   test.setTimeout(120_000);
   // Seed the failed (blocked / denied / secrets-hit) audit set so the Audit tab
