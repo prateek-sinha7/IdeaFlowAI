@@ -15,8 +15,10 @@
  *      a Stop button (while running), the revise-as-chat textarea, and the
  *      "Suggested next steps" chain rendered as quick-reply CHIPS;
  *   4. switches COMPOSER MODE per the D-12 live-state (LIVE-STATE-CONTRACT §1):
- *      clarify → the plan-05 InlineClarifyActions, gate → the plan-05
- *      InlineGateActions, building → steering, complete → revision, terminal →
+ *      clarify/gate → a plain phase-hint FreeTextComposer (Group C — the Steps
+ *      panel is the sole answer surface after 42-02; the lane keeps only the
+ *      AwaitingCard status card + a hint composer whose free text routes as a
+ *      steering note), building → steering, complete → revision, terminal →
  *      relaunch. Free-text send goes through `sendMessage` (transport-agnostic,
  *      plan 03); quick-actions go through the SAME typed callbacks (plan 05).
  *
@@ -59,11 +61,7 @@ import {
   COMPACT_THRESHOLD_PCT,
   type ComposedContextTelemetry,
 } from "./ChatTokenWidget";
-import {
-  InlineClarifyActions,
-  type ClarifyResponse,
-} from "./InlineClarifyActions";
-import { InlineGateActions } from "./InlineGateActions";
+import type { ClarifyResponse } from "./InlineClarifyActions";
 import type { PendingAttachment } from "@/hooks/useChatAttachments";
 import { formatDuration } from "@/lib/runStats";
 import { Button } from "../ui/Button";
@@ -720,34 +718,23 @@ export function RunChatLane({
   const renderComposerBody = () => {
     switch (runState) {
       case "clarify":
+      case "gate": {
+        // Group C (CONTEXT §C) — during clarify/gate the LANE composer is a plain
+        // phase-HINT input, NOT a second answer surface. After 42-02 the sole
+        // answer surface is the Steps panel (its inline clarify/gate cards); the
+        // lane keeps only the AwaitingCard status card (renderTranscriptFooter)
+        // plus this hint composer. A free-text turn here is a steering note routed
+        // through the SHARED send seam (handleFreeText → sendMessage) — never a
+        // new channel and never a second answer form. Keyed on the GENERIC
+        // runState (SC-001); the per-state composerHint is the mock's phase cue.
+        const composerHint =
+          runState === "clarify"
+            ? "Answer the questions above to continue…"
+            : "Approve the plan above, or add a note…";
         return (
-          <InlineClarifyActions
-            questions={clarifyQuestions ?? []}
-            onSubmitAnswers={onSubmitAnswers ?? (() => {})}
-            onSkipAll={onSkipClarify}
-            onCancelWorkflow={onCancelWorkflow}
-          />
+          <FreeTextComposer placeholder={composerHint} onSend={handleFreeText} />
         );
-
-      case "gate":
-        return gate ? (
-          <InlineGateActions
-            agentId={gate.agentId}
-            agentName={gate.agentName}
-            output={gate.output}
-            gateKey={gate.gateKey}
-            redoable={gate.redoable}
-            updateSpecsEligible={gate.updateSpecsEligible}
-            approveLabel={gate.approveLabel}
-            // In gate mode the pipeline is live; the component fences itself on
-            // terminal (KAN-100) — the lane's terminal mode never mounts a gate.
-            isPipelineRunning
-            onApprove={onApprove ?? (() => {})}
-            onReject={onReject ?? (() => {})}
-            onRedo={onRedo}
-            onUpdateSpecs={onUpdateSpecs}
-          />
-        ) : null;
+      }
 
       case "complete":
         // Mock fidelity (D39-1): the settled composer is JUST the "Ask for a

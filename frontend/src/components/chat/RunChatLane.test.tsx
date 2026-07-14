@@ -103,30 +103,45 @@ describe("RunChatLane", () => {
     expect(tool).toHaveAttribute("data-tool-status", "success");
   });
 
-  it("clarify mode mounts InlineClarifyActions", () => {
+  it("clarify mode: lane composer is a plain phase-hint input (NOT a duplicate answer form) — Steps is the sole answer surface (Group C)", () => {
     const q: ClarifyQuestion = {
       id: "q1",
       question: "Which layout?",
       options: ["Grid", "List"],
       answerType: "single_choice",
     };
+    const sendMessage = vi.fn();
     render(
       <RunChatLane
         {...baseProps({
           runState: "clarify",
           clarifyQuestions: [q],
           onSubmitAnswers: vi.fn(),
+          sendMessage,
         })}
       />,
     );
-    expect(screen.getByTestId("chat-clarify-actions")).toBeInTheDocument();
+    // The full inline answer form is gone from the LANE composer (it now lives
+    // only in Steps).
+    expect(screen.queryByTestId("chat-clarify-actions")).toBeNull();
+    // The composer is the plain hint input with the clarify phase cue.
     expect(screen.getByTestId("chat-composer")).toHaveAttribute(
       "data-composer-mode",
       "clarify",
     );
+    const input = screen.getByLabelText("Chat message input");
+    expect(input).toHaveAttribute(
+      "placeholder",
+      "Answer the questions above to continue…",
+    );
+    // A free-text turn routes as a steering note through the shared send seam.
+    fireEvent.change(input, { target: { value: "one more thing" } });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(sendMessage).toHaveBeenCalledWith("one more thing", []);
   });
 
-  it("gate mode mounts InlineGateActions", () => {
+  it("gate mode: lane composer is a plain phase-hint input (NOT a duplicate approval form) — Steps is the sole answer surface (Group C)", () => {
+    const sendMessage = vi.fn();
     render(
       <RunChatLane
         {...baseProps({
@@ -139,11 +154,26 @@ describe("RunChatLane", () => {
           },
           onApprove: vi.fn(),
           onReject: vi.fn(),
+          sendMessage,
         })}
       />,
     );
-    expect(screen.getByTestId("chat-gate-actions")).toBeInTheDocument();
-    expect(screen.getByTestId("chat-gate-approve")).toBeInTheDocument();
+    // The full inline gate/approve form is gone from the LANE composer.
+    expect(screen.queryByTestId("chat-gate-actions")).toBeNull();
+    expect(screen.queryByTestId("chat-gate-approve")).toBeNull();
+    // The composer is the plain hint input with the gate phase cue.
+    expect(screen.getByTestId("chat-composer")).toHaveAttribute(
+      "data-composer-mode",
+      "gate",
+    );
+    const input = screen.getByLabelText("Chat message input");
+    expect(input).toHaveAttribute(
+      "placeholder",
+      "Approve the plan above, or add a note…",
+    );
+    fireEvent.change(input, { target: { value: "add a note" } });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(sendMessage).toHaveBeenCalledWith("add a note", []);
   });
 
   it("complete mode shows the revision composer and NO suggestion chips (mock fidelity)", () => {
