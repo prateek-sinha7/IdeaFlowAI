@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-049 | 2026-07-13 | KAN-108: Prototype revision delivers blank/unchanged/broken prototypes silently — add Revision Validation Agent as second step + fix clarify.mode: auto | `prototype_revision` manifest declared only 1 step; the silent `revision_validation` post-step only catches regressions vs baseline (zero-delta no-op passes), not blank pages, broken navigation, or missing components. `clarify.mode: auto` fired questionnaire on every revision. Fix: new `prototype-revision-validate` agent (dedicated AGENT.md, `pipeline_type: prototype_revision`, `consumes: [prototype-revision-agent]`, `tools: [workspace]`) added as step 2; manifest updated to `clarify.mode: skip`; registry updated; goldens regenerated; phase5/characterization tests updated. | `backend/agents/workflows/prototype_revision/workflow.yaml`, `backend/agents/registry.py`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` (new), `backend/tests/agents/characterization/golden/prototype_revision.events.json`, `backend/tests/agents/characterization/golden/prototype_revision.html`, `backend/tests/agents/_scripted_model.py`, `backend/tests/agents/test_phase5_revision_validation.py` | Phase 7 (revision post-step / agent registry) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-001 | 2026-06-16 | Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows | Validator: "two short sentences" loophole allowed model to print full checklist as preamble without `<artifact>` wrapper → raw checklist rendered as deck. Composer: deepagents filesystem glob crashes on Windows (pathlib.rglob ValueError) → composer told to use context-injected files instead of tool calls | `backend/agents/prompts/od-ppt-validator/AGENT.md`, `backend/agents/prompts/od-ppt-composer/AGENT.md` | Phase 15 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-002 | 2026-06-16 | Vellum template not applied — example.html not injected into PPT composer context | opendesign provider `is_builder` gate used `{"prototype_emit_only", "prototype"}` set; `workspace` tool set excluded so PPT composer never received `example.html`; SKILL.md workflow says "clone example.html" but agent had no copy | `backend/agents/capabilities/context_providers/opendesign.py` | Phase 7 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-003 | 2026-06-16 | PPT/Prototype wizard hides brief textarea — stale `chain.from` in sessionStorage | `chain.from` was never removed from sessionStorage after previous chained run; on fresh wizard open the page read it, set `isChaining=true`, and hid the brief textarea and showed "CHAINED PRESENTATION · STEP 1 OF 1" | `frontend/src/app/workflow/ppt/templates/page.tsx`, `frontend/src/app/workflow/prototype/templates/page.tsx` | Phase 21 | INV-1/3/12/SC-001 ✅ | Done |
@@ -70,7 +71,57 @@
 
 ---
 
-### FIX-001 — PPT Preview Broken: Checklist Text + Invalid Output (Two Issues, One Root Cause)
+### FIX-049 — KAN-108: Add Revision Validation Agent to prototype_revision pipeline
+
+**Date:** 2026-07-13
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-108`
+
+#### Root Cause
+
+`backend/agents/workflows/prototype_revision/workflow.yaml` declared only one step (`prototype-revision-agent`). The silent `revision_validation` post-step fires after this agent and runs a regression-only fix loop (max 2 attempts). It only catches issues that are NEW compared to the pre-edit baseline. A no-op edit (edit_file anchor miss → file unchanged), blank pages, missing requested components, and broken navigation all produce a baseline delta of zero → fix loop exits → broken/unchanged prototype delivered with `pipeline_complete`. Additionally `clarify.mode: auto` fired a questionnaire on every revision run — prototype and od_ppt were corrected to `skip` in FIX-010/FIX-015 but `prototype_revision` was not updated.
+
+The `prototype-validate` agent (final step of the base `prototype` pipeline) already implements the needed comprehensive checks (fills empty pages, verifies navigation, enforces DS tokens, etc.) but declares `consumes: [prototype-build]` and `injects: [template, design_system]` — contracts that are incompatible with the `prototype_revision` pipeline where there is no `prototype-build` and design context is seeded via `previous_run` from the sandbox. Reusing it directly would cause the DAG satisfiability check to fail hard.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 7 (07-10/CR-06 — `revision_validation` post-step + agent registry). FIX-010/FIX-015 (clarify.mode: skip precedent).
+- **Relevant register section:** `_register-parts/07-prototype-as-manifest-parity-proof-sc-001-2.md` §3 (capabilities added)
+- **Deleted code verified (not resurrected):** No deleted code resurrected. The new agent is a forward addition.
+- **Locked decisions respected:** D-01 (SC-001: no workflow-name literals; manifest + AGENT.md only). D-14 (planner: run stays on `prototype_revision` — it rides `run_pipeline`, not the `run_revision` dispatch path that requires `planner: skip`). FIX-010/015 precedent: `clarify.mode: skip` is the correct setting for any pipeline whose launch surface already provides the complete brief.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/prompts/prototype-revision-validate/AGENT.md` | New file — dedicated Revision Validation Agent with `pipeline_type: prototype_revision`, `consumes: [prototype-revision-agent]`, `injects: []`, `tools: [workspace]`, `order: 2`. Same prompt body as `prototype-validate` adapted to read `design.md` via workspace tools (no opendesign injection needed — design.md is seeded from the parent run sandbox). | Cannot reuse `prototype-validate` — its `consumes: [prototype-build]` makes the DAG unsatisfiable in `prototype_revision`; a dedicated agent with correct contracts is required |
+| `backend/agents/workflows/prototype_revision/workflow.yaml` | Added second step `prototype-revision-validate` (strategy: single_shot, gates: []). Changed `clarify.mode` from `auto` to `skip`. | Adds the visible validation step after the revision; eliminates the questionnaire friction |
+| `backend/agents/registry.py` | Updated `prototype_revision` list from `["prototype-revision-agent"]` to `["prototype-revision-agent", "prototype-revision-validate"]`. | Single source of truth for pipeline membership |
+| `backend/tests/agents/_scripted_model.py` | Added scripted branch for `prototype-revision-validate` returning a clean text-only turn `["Validated — 1 page checked, no issues found."]` | Harness needs a script for every declared agent in the pipeline |
+| `backend/tests/agents/characterization/golden/prototype_revision.events.json` | Regenerated (SNAPSHOT_UPDATE=1) — now includes `prototype-revision-validate` events: `pipeline_start` with 2 agents, `agent_start/input/chunk/complete` for both, `pipeline_complete` with `agents_total: 2`. | INV-3: golden must reflect the new 2-agent event stream |
+| `backend/tests/agents/characterization/golden/prototype_revision.html` | Regenerated — deliverable is still `prototype.html` from the revision agent (validation agent text-only in scripted harness). | Byte snapshot stays valid |
+| `backend/tests/agents/test_phase5_revision_validation.py` | Updated 4 `turns_for` callbacks in `TestFixPolicyEndToEnd` and `TestEventVocabularyUnchanged` to return `_clean_revision_turns()` for `prototype-revision-validate`. Updated `test_internal_fix_loop_leaks_no_phantom_second_agent` assertions: `agent_start == 2`, `agent_complete == 2`, `starts == ["prototype-revision-agent", "prototype-revision-validate"]`, `edit_file count == 2`. | Tests were written for a 1-agent pipeline; update to reflect the correct 2-agent contract |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): not affected — no `if pipeline_type ==` literals added anywhere. The new agent is dispatched generically by the engine via manifest steps.
+- **INV-3** (golden parity): `prototype_revision` golden intentionally regenerated (new second agent step changes the event stream). Other 4 goldens (`prototype`, `od_prototype`, `od_ppt`, `app_builder`) pass unchanged — verified 8/8.
+- **INV-12** (no duplication): the new `prototype-revision-validate` agent has different DAG contracts from `prototype-validate` (`consumes`, `injects`, `pipeline_type`, `tools` all differ) — not a duplicate; reuse of `prototype-validate` was explicitly rejected because its contracts are incompatible with this pipeline.
+- **SC-001** (zero engine edits for new workflows): no engine edits. Change is manifest + AGENT.md + registry + test update only.
+
+#### Verification
+
+- `pytest tests/agents/test_characterization_prototype_revision.py` — **2/2 passed**
+- `pytest tests/agents/test_characterization_prototype.py tests/agents/test_characterization_od_ppt.py tests/agents/test_characterization_od_prototype.py tests/agents/test_characterization_app_builder.py` — **8/8 passed** (other goldens byte-identical)
+- `pytest tests/agents/test_phase5_revision_validation.py tests/agents/test_manifest_parity.py::test_planner_run_everywhere tests/agents/test_manifest_parity.py::test_run_revision_manifests_declare_planner_skip tests/agents/test_manifest_parity.py::test_run_revision_revision_agents_declare_no_template_injects` — **26/26 passed**
+- `pytest tests/agents/test_registry_capabilities.py` — all passed (no capability count change — new agent uses existing registered capabilities only)
+
+#### Notes
+
+- The `clarify.mode: skip` change makes `prototype_revision` consistent with `prototype` and `od_ppt` (FIX-010/FIX-015). The `clarify.defaults` list is unchanged — it's irrelevant when mode is `skip` but the existing list already matches the `_CUSTOM_DEFAULTS` fallback in `test_clarify_defaults_match_engine`.
+- The `test_clarify_defaults_match_engine` failures for `prototype`, `ppt`, `app_builder`, etc. are **pre-existing** and unrelated to this fix (they predate this session).
+- On live Bedrock, `prototype-revision-validate` will receive `design.md` from the parent run's sandbox (seeded by `previous_run` provider) and read `prototype.html` via `workspace` tools — no opendesign injection needed, which is correct since the design context is already materialized in the sandbox.
+
+---
 
 **Date:** 2026-06-16
 **Triggered by:** `#velocity-ai-fix PPT preview not showing correctly, multiple issues`
