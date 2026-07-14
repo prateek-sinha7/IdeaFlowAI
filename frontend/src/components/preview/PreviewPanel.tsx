@@ -1129,6 +1129,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               <AuditTab
                 hookRuns={pipelineState?.hookRuns}
                 workflowRunId={pipelineState?.pipelineRunId}
+                isRunning={isStillRunning}
               />
             </motion.div>
           )}

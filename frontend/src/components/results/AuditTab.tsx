@@ -56,6 +56,17 @@ interface AuditTabProps {
    * is elided (never fabricated — ND-D / T-39-04-01).
    */
   runMeta?: AuditRunMeta;
+  /**
+   * Phase 42-07 (RUNUI-06, Group H) — LIVE signal. While the run is in flight the
+   * audit trail shows in-progress affordances (mock Hexaware Run - Live.dc.html):
+   * a pulsing "live" badge beside the records pill, an "Elapsed … · in progress"
+   * indicator in place of the settled "Duration", and a violet "monitoring live"
+   * banner in place of the settled/failed verdict banner. Bound to the generic
+   * running signal (SC-001), NOT a workflow name. Default undefined/false → the
+   * settled/failed surfaces render unchanged (KEEP — zero regression). The
+   * fetchers + export menu are untouched (INV-12 — presentation only).
+   */
+  isRunning?: boolean;
 }
 
 // ─── Unified audit-row model ─────────────────────────────────────────────────
@@ -377,7 +388,7 @@ function AuditRowCard({ row, index }: { row: AuditRow; index: number }) {
 
 // ─── Main AuditTab component ─────────────────────────────────────────────────
 
-export function AuditTab({ workflowRunId, runMeta }: AuditTabProps) {
+export function AuditTab({ workflowRunId, runMeta, isRunning }: AuditTabProps) {
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeGroup, setActiveGroup] = useState<"all" | FilterGroup>("all");
@@ -615,6 +626,17 @@ export function AuditTab({ workflowRunId, runMeta }: AuditTabProps) {
               >
                 {rows.length} records
               </span>
+              {/* Phase 42-07 Group H — pulsing "live" badge while the run executes
+                  (mock Run - Live:623). Settled runs omit it (KEEP). */}
+              {isRunning && (
+                <span
+                  data-testid="audit-live-badge"
+                  className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-brand bg-brand-fill border border-brand-border rounded-[var(--radius-pill)] px-2 py-1 leading-none"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulse" />
+                  live
+                </span>
+              )}
             </div>
             <p className="text-[12px] text-ink-500 leading-relaxed mt-1.5 max-w-[420px]">
               Full governance, security &amp; activity log — every gate, scan, validation and exec, attributed and exportable.
@@ -691,7 +713,15 @@ export function AuditTab({ workflowRunId, runMeta }: AuditTabProps) {
             {attribution.owner && <span>Owner <span className="text-ink-700">{attribution.owner}</span></span>}
             {attribution.workspace && <span>Workspace <span className="text-ink-700">{attribution.workspace}</span></span>}
             {attribution.started && <span>Started <span className="text-ink-700">{attribution.started}</span></span>}
-            {attribution.duration && <span>Duration <span className="text-ink-700">{attribution.duration}</span></span>}
+            {/* Phase 42-07 Group H — while running the settled "Duration" becomes a
+                live "Elapsed … · in progress" marker (mock Run - Live:649); the
+                elapsed value is the live row-derived span (elided when absent —
+                ND-D). Settled runs keep the plain "Duration" (KEEP). */}
+            {isRunning ? (
+              <span data-testid="audit-elapsed">Elapsed <span className="text-brand">{attribution.duration ? `${attribution.duration} · ` : ""}in progress</span></span>
+            ) : (
+              attribution.duration && <span>Duration <span className="text-ink-700">{attribution.duration}</span></span>
+            )}
           </div>
 
           {/* 6-stat compliance grid */}
@@ -720,25 +750,40 @@ export function AuditTab({ workflowRunId, runMeta }: AuditTabProps) {
             </div>
           )}
 
-          {/* Verdict banner — green when clean, red when governance stopped the run */}
-          <div
-            data-testid="audit-verdict-banner"
-            data-clean={clean ? "true" : "false"}
-            className={[
-              "flex items-center gap-2.5 px-3 py-2.5 rounded-[var(--radius-button)] border",
-              clean
-                ? "bg-[var(--status-done-fill)] border-[var(--status-done-border)]"
-                : "bg-[var(--status-failed-fill)] border-[var(--status-failed-border)]",
-            ].join(" ")}
-          >
-            {clean
-              ? <ShieldCheck className="h-[15px] w-[15px] text-status-done flex-none" />
-              : <XCircle className="h-[15px] w-[15px] text-status-failed flex-none" />}
-            <p className={`text-[12.5px] font-semibold leading-snug ${clean ? "text-status-done" : "text-status-failed"}`}>
-              {stats.blocked} blocked · {stats.denied} denied · {stats.critical} critical
-              {clean ? " — run passed all governance gates." : " — governance stopped this run."}
-            </p>
-          </div>
+          {/* Phase 42-07 Group H — while running the settled/failed verdict banner
+              is replaced by the violet "monitoring live" banner (mock Run -
+              Live:662). Counts are live (ND-D). Settled/failed runs keep the
+              green/red verdict banner unchanged (KEEP). */}
+          {isRunning ? (
+            <div
+              data-testid="audit-monitoring-banner"
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-[var(--radius-button)] border border-brand-border bg-brand-fill"
+            >
+              <ShieldCheck className="h-[15px] w-[15px] text-brand flex-none" />
+              <p className="text-[12.5px] font-semibold leading-snug text-brand">
+                {stats.blocked} blocked · {stats.denied} denied so far — monitoring live, no policy violations.
+              </p>
+            </div>
+          ) : (
+            <div
+              data-testid="audit-verdict-banner"
+              data-clean={clean ? "true" : "false"}
+              className={[
+                "flex items-center gap-2.5 px-3 py-2.5 rounded-[var(--radius-button)] border",
+                clean
+                  ? "bg-[var(--status-done-fill)] border-[var(--status-done-border)]"
+                  : "bg-[var(--status-failed-fill)] border-[var(--status-failed-border)]",
+              ].join(" ")}
+            >
+              {clean
+                ? <ShieldCheck className="h-[15px] w-[15px] text-status-done flex-none" />
+                : <XCircle className="h-[15px] w-[15px] text-status-failed flex-none" />}
+              <p className={`text-[12.5px] font-semibold leading-snug ${clean ? "text-status-done" : "text-status-failed"}`}>
+                {stats.blocked} blocked · {stats.denied} denied · {stats.critical} critical
+                {clean ? " — run passed all governance gates." : " — governance stopped this run."}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* ── Filter row: category groups + blocked-only + search ── */}
