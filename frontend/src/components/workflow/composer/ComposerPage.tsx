@@ -25,6 +25,22 @@ interface ComposerPageProps {
   /** base_pipeline_type — fixed at composer entry; the Deliverable-type is read-only (ND-AH). */
   workflowType: WorkflowType;
   onBack: () => void;
+  /**
+   * 41-06 — Run-once launch (D-05 / D-CMP-RUN). Threads the composed run through
+   * the EXISTING owner-scoped onStartPipeline → startPipeline seam (no new
+   * contract, no engine edit, SC-001). The parent maps this onto
+   * `onStartPipeline(base_pipeline_type, brief, agentIds, attachedSkills,
+   * attachedHooks, extraParams)` — the SAME arg convention the revision launch
+   * sites use. `base_pipeline_type` is the composer's fixed-at-entry workflowType
+   * ("custom" for the compose entry, ND-AH) — the SAME value Save-to-catalogue
+   * persists, so Run + Save carry an identical base. Absent ⇒ Run-once stays inert.
+   */
+  onRun?: (
+    base_pipeline_type: WorkflowType,
+    brief: string,
+    agentIds: string[],
+    extraParams?: Record<string, unknown>,
+  ) => void;
   /** Edit-from-My-Workflows: pre-load the saved composition (agents + selections + name). */
   initialAgentIds?: string[];
   initialSelections?: SelectionsMap;
@@ -51,6 +67,7 @@ const MAX_OPTIONAL = 8;
 export function ComposerPage({
   workflowType,
   onBack,
+  onRun,
   initialAgentIds,
   initialSelections,
   initialName,
@@ -250,6 +267,32 @@ export function ComposerPage({
     [workflowType, pipelineAgents, selections],
   );
 
+  // ── Run-once (D-05 / D-CMP-RUN — through the EXISTING launch seam, ND-AG) ─────
+  // Assemble the composed run and fire it through the parent `onRun` (which maps
+  // onto the unchanged onStartPipeline → startPipeline seam). The base_pipeline_type
+  // is the composer's fixed-at-entry `workflowType` ("custom" for the compose entry,
+  // ND-AH) — the SAME value handleSave persists, so Run + Save carry an identical
+  // base. The composed agent order → agent ids; the identity brief → the run message;
+  // the per-step SelectionsMap + review-gate agents → extraParams (the SAME shared
+  // data-model fields the existing launch already accepts — no fabricated cost).
+  const handleRunOnce = useCallback(() => {
+    if (!onRun) return;
+    const brief = description.trim() || name.trim() || "Custom workflow run";
+    const gateAgentIds = pipelineAgents
+      .filter((a) => (selections[a.id]?.gates?.length ?? 0) > 0 || !!a.gate)
+      .map((a) => a.id);
+    const extraParams: Record<string, unknown> = {
+      ...(Object.keys(selections).length > 0 ? { selections } : {}),
+      ...(gateAgentIds.length > 0 ? { gate_agent_ids: gateAgentIds } : {}),
+    };
+    onRun(
+      workflowType,
+      brief,
+      pipelineAgents.map((a) => a.id),
+      Object.keys(extraParams).length > 0 ? extraParams : undefined,
+    );
+  }, [onRun, description, name, pipelineAgents, selections, workflowType]);
+
   const segBtn = (id: "simple" | "canvas", label: string, Icon: typeof GitBranch) => (
     <button
       type="button"
@@ -325,8 +368,8 @@ export function ComposerPage({
             estDurationLabel={estDurationLabel}
             declaredCapabilities={declaredChips}
             onSaveToCatalogue={() => setSaveOpen(true)}
-            // Run once is INERT here — its run wiring lands in 41-06.
-            onRunOnce={undefined}
+            // 41-06 — Run-once now launches through the EXISTING onStartPipeline seam.
+            onRunOnce={onRun ? handleRunOnce : undefined}
           />
         ) : (
           <div className="h-full overflow-y-auto">
@@ -433,8 +476,8 @@ export function ComposerPage({
               estDurationLabel={estDurationLabel}
               declaredCapabilities={declaredChips}
               onSaveToCatalogue={() => setSaveOpen(true)}
-              // Run once is INERT here — its run wiring lands in 41-06.
-              onRunOnce={undefined}
+              // 41-06 — Run-once now launches through the EXISTING onStartPipeline seam.
+              onRunOnce={onRun ? handleRunOnce : undefined}
             />
           </motion.div>
           </div>

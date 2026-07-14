@@ -1684,6 +1684,19 @@ export function DashboardLayout({
               <ComposerPage
                 workflowType={workflowType}
                 onBack={handleGoHome}
+                // 41-06 (D-05 / D-CMP-RUN) — Run-once launches the composed workflow
+                // through the EXISTING onStartPipeline → startPipeline seam, mirroring
+                // the revision launch sites (reset → onStartPipeline with the SAME arg
+                // convention). `type` is the composer's fixed-at-entry base_pipeline_type
+                // ("custom" for the compose entry, ND-AH) — the SAME value Save persists.
+                // startPipeline flips pipelineState.isRunning → the surface auto-transitions
+                // to mainView='execution'. No new contract / endpoint / fabricated cost (ND-AG).
+                onRun={(type, brief, agentIds, extraParams) => {
+                  if (onResetPipeline) onResetPipeline();
+                  if (onStartPipeline) {
+                    onStartPipeline(type, brief, agentIds, attachedSkills, attachedHooks, extraParams);
+                  }
+                }}
                 initialAgentIds={savedComposition?.agentIds}
                 initialSelections={
                   savedComposition?.selections
