@@ -14,7 +14,7 @@
 // Token-reskinned off the Phase-32 tokens (no gray-* palette).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Brain, Wrench, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   Clock, Cpu, FileText, Copy, Check, Eye, EyeOff, AlertTriangle, Pencil,
@@ -44,8 +44,13 @@ export function formatContextSource(src: ContextSource): { name: string; meta: s
 }
 
 // ─── Reasoning card (violet) ──────────────────────────────────────────────────
-function ReasoningCard({ text, live }: { text: string; live: boolean }) {
+function ReasoningCard({ text, live, label = "Reasoning" }: { text: string; live: boolean; label?: string }) {
   const [open, setOpen] = useState(true);
+  const bodyRef = useRef<HTMLParagraphElement>(null);
+  // Follow the streaming tail while live (a terminal-style auto-scroll to bottom).
+  useEffect(() => {
+    if (live && open && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+  }, [text, live, open]);
   return (
     <div className="rounded-[11px] border border-[#E4E0F5] bg-[#F4F2FB] overflow-hidden">
       <button
@@ -57,12 +62,12 @@ function ReasoningCard({ text, live }: { text: string; live: boolean }) {
           <Brain className="h-3 w-3 text-[#6E5EDA]" />
         </span>
         <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5A4FC0]">
-          {live ? "Reasoning (live)" : "Reasoning"}
+          {live ? `${label} (live)` : label}
         </span>
         <ChevronDown className={`h-3.5 w-3.5 text-[#9A93C8] transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <p className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-[#4A4680] font-[Heebo] whitespace-pre-wrap">
+        <p ref={bodyRef} className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-[#4A4680] font-[Heebo] whitespace-pre-wrap max-h-[340px] overflow-y-auto">
           {text}
           {live && <span className="animate-pulse">▌</span>}
         </p>
@@ -547,9 +552,14 @@ export function AgentDetailPanel({ agent, onBack, construction, onOpenTask }: Ag
                 {isRevision && agent.toolCalls && agent.toolCalls.length > 0 && <EditSummaryCard toolCalls={agent.toolCalls} />}
                 <ValidationResultCard passed={agent.validationPassed} issues={agent.validationIssues} />
 
-                {/* reasoning */}
+                {/* reasoning — or the live output stream while running. The engine
+                    streams the model's output via agent_chunk (into agent.output) but
+                    emits no separate reasoning/thinking stream, so agent.thinkingText is
+                    always empty; surface the live output so every running agent
+                    (spec-writer, plan, analyze, build…) shows its work instead of a
+                    blank cursor. The completed output is shown by OutputPreviewSection. */}
                 {reasoning.trim().length > 0 && <ReasoningCard text={reasoning} live={isRunning} />}
-                {reasoning.trim().length === 0 && isRunning && <ReasoningCard text="" live />}
+                {reasoning.trim().length === 0 && isRunning && <ReasoningCard text={agent.output || ""} live label="Output" />}
 
                 {/* construction fan-out (build agent) */}
                 {construction && (
