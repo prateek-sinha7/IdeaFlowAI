@@ -139,6 +139,7 @@ async function main() {
   const [
     cfgMock, cfgCur, wTpl, wDs, wGates, wCfg, cfgGatesCur, cfgSettingsCur,
     cmpMock, cmpSimpleCur, canvasCur,
+    libMock, libCur,
   ] = await Promise.all([
     imgUri(TARGET, "config__shell"), imgUri(CURRENT, "config__shell"),
     imgUri(TARGET, "wizard-template__shell"),
@@ -158,6 +159,9 @@ async function main() {
     // approved proposal; fall back to the fresh 0-agent shot otherwise (41-05).
     (await imgUri(CURRENT, "composer-canvas-populated__shell")) ??
       (await imgUri(CURRENT, "composer-canvas__shell")),
+    // ── SURFACE 3 — LIBRARY agent-detail drawer (41-07, ND-Z resolved) ──
+    imgUri(TARGET, "agent-detail-drawer__shell"),
+    imgUri(CURRENT, "library-agent-detail__shell"),
   ]);
   const canvas = await canvasIframe();
 
@@ -206,6 +210,14 @@ async function main() {
       kind: "canvas", surface: "composer-canvas", tag: "composer ▸ Canvas view (APPROVED PROPOSAL · ND-AJ)",
       note: "The node-graph Canvas view — ALREADY DESIGNED + USER-APPROVED (composer-canvas-proposal.html, the LEFT reference below). Agents = nodes on a dot-grid; Brief→agents left→right sequential edges; click-node → right config-rail (Model/Validator/Review-gate/Retry/Custom-prompt); +-insert on edges; docked Run summary. Maps 1:1 to the AgentsPopup data. Render approach: HAND-ROLLED SVG edges + absolute-positioned nodes (D-CMP-CANVAS). Acceptance (ND-AJ) = design-match to the proposal; OURS (composer-canvas__shell) captured once built (Wave 5).",
       iframe: canvas, cur: canvasCur, curCap: "OURS — built Canvas, POPULATED (~5 agent nodes + bezier edges; one node Gate override ON — composer-canvas-populated__shell)",
+    },
+    // ── SURFACE 3 — LIBRARY agent-detail DRAWER (41-07 · ND-Z resolved) ─────
+    { kind: "surface", surface: "library", title: "SURFACE 3 — LIBRARY agent-detail DRAWER (restructured AgentCapabilitiesModal · ND-Z resolved)" },
+    {
+      kind: "pair", surface: "library", tag: "library ▸ agent-detail drawer",
+      note: "MOCK drawerOpen (Hexaware Workspace v2.dc.html :709): a right-side slide-in DRAWER — avatar/name/role header + Overview/Skills/Hooks/Config tab bar + Overview body (What it does · Role in pipeline · System prompt). OURS (library-agent-detail__shell) = the SHARED AgentCapabilitiesModal restructured IN PLACE into the drawer form (asDrawer variant; the composer inspector keeps the centered-modal form — not forked), opened from the Library agent card. Tab BODIES are the shipped per-agent sections, unchanged. Carries ND-A..D; ND-Z is now RESOLVED (the drawer is built).",
+      mock: libMock, mockCap: "MOCK — agent-detail drawer (drawerOpen, right slide-in · 4 tabs)",
+      cur: libCur, curCap: "OURS — Library agent-detail right drawer, OPEN (Overview active · Skills/Hooks/Config · library-agent-detail__shell)",
     },
   ];
 
@@ -330,5 +342,6 @@ async function main() {
   console.log(`[assemble-phase41-gallery] ${surfaceArg ? `(surface=${surfaceArg}) ` : ""}→ ${OUT}`);
   console.log(`  configure: mock=${!!cfgMock} cur=${!!cfgCur} | gates cur=${!!cfgGatesCur} | settings cur=${!!cfgSettingsCur} | tpl=${!!wTpl} ds=${!!wDs}`);
   console.log(`  composer:  simple mock=${!!cmpMock} cur=${!!cmpSimpleCur} | canvas proposal=${canvas.startsWith("<iframe")} cur=${!!canvasCur}`);
+  console.log(`  library:   agent-detail drawer mock=${!!libMock} cur=${!!libCur}`);
 }
 main();

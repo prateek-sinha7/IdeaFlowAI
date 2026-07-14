@@ -71,10 +71,14 @@ test("CAPTURE shell surfaces (home/library/catalogue/history/analytics/settings)
     await page.waitForTimeout(450);
     await shot(page, tag);
   }
-  // Agent-detail: click the first agent card/row in Library>Agents (best-effort).
+  // Agent-detail: click the first agent card in Library>Agents — this opens the
+  // 41-07 right-side DRAWER (restructured AgentCapabilitiesModal, ND-Z). The card
+  // is a clickable <div> (Card), so target it by its card classes, then wait for
+  // the drawer panel to slide in before shooting so the capture shows it OPEN.
   await page.getByRole("tab", { name: /Agents/i }).first().click({ timeout: 5000 }).catch(() => {});
   await page.waitForTimeout(400);
-  await page.getByRole("button", { name: /Writer|Planner|Analyzer|Builder|Agent/i }).first().click({ timeout: 4000 }).catch(() => {});
+  await page.locator("div.cursor-pointer.group").first().click({ timeout: 4000 }).catch(() => {});
+  await page.getByTestId("agent-drawer").waitFor({ state: "visible", timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(500);
   await shot(page, "library-agent-detail");
 

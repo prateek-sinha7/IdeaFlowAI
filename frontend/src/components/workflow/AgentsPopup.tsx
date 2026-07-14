@@ -420,6 +420,7 @@ export function AgentCapabilitiesModal({
   attachedSkills: propSkills, attachedHooks: propHooks,
   onAttachSkill: propAttachSkill, onAttachHook: propAttachHook,
   onSelectionsChange, initialSelections, token,
+  asDrawer = false,
 }: {
   agent: AgentDef;
   agentIndex: number;
@@ -432,6 +433,13 @@ export function AgentCapabilitiesModal({
   onSelectionsChange?: (selections: SelectionsMap) => void;
   initialSelections?: SelectionsMap;
   token?: string | null;
+  /**
+   * Render as a slide-in-from-right DRAWER (the Library agent-detail surface,
+   * mock `drawerOpen`) instead of the default centered modal. Only the shell
+   * (scrim layout + panel chrome + slide animation) changes — the four tab
+   * bodies (Overview/Skills/Hooks/Config) are identical across both forms.
+   */
+  asDrawer?: boolean;
 }) {
   // Always use context — works from Library page, Add agent modal, and AgentsPopup
   const ctx = useSkillsHooks();
@@ -481,16 +489,26 @@ export function AgentCapabilitiesModal({
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/30 backdrop-blur-sm"
+      className={asDrawer
+        ? "fixed inset-0 z-[80] flex justify-end bg-black/40"
+        : "fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/30 backdrop-blur-sm"}
       onClick={onClose}
     >
       <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 12 }}
-        transition={{ duration: 0.18 }}
+        data-testid={asDrawer ? "agent-drawer" : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${agent.name} details`}
+        initial={asDrawer ? { x: "100%" } : { opacity: 0, scale: 0.96, y: 12 }}
+        animate={asDrawer ? { x: 0 } : { opacity: 1, scale: 1, y: 0 }}
+        exit={asDrawer ? { x: "100%" } : { opacity: 0, scale: 0.96, y: 12 }}
+        transition={asDrawer
+          ? { duration: 0.32, ease: [0.32, 0.72, 0, 1] }
+          : { duration: 0.18 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col"
+        className={asDrawer
+          ? "bg-surface-paper shadow-[-24px_0_60px_rgba(17,17,20,0.22)] w-[472px] max-w-full h-full overflow-hidden flex flex-col"
+          : "bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col"}
       >
         {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">

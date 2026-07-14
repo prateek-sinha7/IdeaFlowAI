@@ -566,6 +566,7 @@ export function LibraryPage() {
             agent={selectedAgent.agent}
             agentIndex={selectedAgent.index}
             onClose={() => setSelectedAgent(null)}
+            asDrawer
           />
         )}
       </AnimatePresence>

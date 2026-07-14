@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
 
 // ─────────────────────────────────────────────────────────────────
 // Shell-fidelity contract for the Library page (plan 40-03).
@@ -55,5 +56,44 @@ describe("LibraryPage 40-03 — mock composition (header leads, tab grids)", () 
     fireEvent.click(screen.getByRole("tab", { name: /hooks/i }));
     // At least one hook event badge is visible in the hooks grid.
     expect(screen.getAllByText(/PreToolUse|PostToolUse|Stop|SessionStart|SessionEnd/).length).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Plan 41-07 — the Library agent-detail opens as a right-side DRAWER
+// (mock `drawerOpen`, Hexaware Workspace v2.dc.html :709). Clicking an
+// agent card opens the restructured shared AgentCapabilitiesModal in its
+// drawer form, surfacing the Overview / Skills / Hooks / Config tabs.
+// This closes the Phase-40 ND-Z deferral (SHELL-04 Agent-drawer clause).
+// ─────────────────────────────────────────────────────────────────
+
+describe("LibraryPage 41-07 — agent-detail right-side drawer (ND-Z resolved)", () => {
+  function openFirstAgentDrawer() {
+    render(
+      <SkillsHooksProvider>
+        <LibraryPage />
+      </SkillsHooksProvider>,
+    );
+    // Click the first agent card (the mock's agent-detail affordance).
+    fireEvent.click(screen.getByText(AGENT_A));
+    return screen.getByTestId("agent-drawer");
+  }
+
+  it("opens the agent-detail as a right-side drawer panel on agent-select", () => {
+    const drawer = openFirstAgentDrawer();
+    expect(drawer).toBeInTheDocument();
+    // The panel is a labelled dialog for the selected agent.
+    expect(drawer).toHaveAttribute("role", "dialog");
+    expect(drawer).toHaveAccessibleName(new RegExp(AGENT_A, "i"));
+  });
+
+  it("presents exactly the four tabs Overview / Skills / Hooks / Config in the drawer", () => {
+    const drawer = openFirstAgentDrawer();
+    const tabs = within(drawer);
+    expect(tabs.getByRole("tab", { name: /overview/i })).toBeInTheDocument();
+    expect(tabs.getByRole("tab", { name: /skills/i })).toBeInTheDocument();
+    expect(tabs.getByRole("tab", { name: /hooks/i })).toBeInTheDocument();
+    expect(tabs.getByRole("tab", { name: /config/i })).toBeInTheDocument();
+    expect(tabs.getAllByRole("tab")).toHaveLength(4);
   });
 });

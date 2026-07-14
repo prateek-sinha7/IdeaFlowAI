@@ -101,10 +101,17 @@ async function captureMainSurfaces(browser, origin) {
     await wait(page, 450);
     await shot(page, tag);
   }
-  // Agent-detail drawer: back to Agents, click the first agent card.
+  // Agent-detail drawer: back to Agents, click the first library agent card so
+  // openDrawer() fires the right-side drawerOpen surface. The card is a clickable
+  // <div> (mock :316) whose onClick bubbles from its heading — click the first
+  // agent's name text ("Architecture Agent", mock AGENTS[0]); an inline-style
+  // attribute selector fails here because the DC runtime normalizes `style` to
+  // spaced form. Wait for a drawer-only body label before shooting so the capture
+  // shows the drawer OPEN.
   await clickText(page, /^Agents$/);
   await wait(page, 400);
-  await page.locator("div[style*='cursor:pointer']").filter({ hasText: /Writer|Planner|Analyzer|Builder|Reviewer|Agent/ }).first().click({ timeout: 4000 }).catch(() => {});
+  await page.getByText("Architecture Agent", { exact: true }).first().click({ timeout: 4000 }).catch(() => {});
+  await page.getByText("What it does", { exact: true }).first().waitFor({ state: "visible", timeout: 6000 }).catch(() => {});
   await wait(page, 600);
   await shot(page, "agent-detail-drawer");
   await closeOverlay(page);
