@@ -1578,17 +1578,20 @@ export function AdvancedExpander({
   const updateLever = (
     agentId: string,
     patch: Partial<StepSelection>,
-  ) =>
-    setSelections((prev) => {
-      // Delegate to the shared pure reducer (patch + clear-unset + validator→gate
-      // coupling) — the single writer of the selection shape (INV-3).
-      const cur = applyLeverPatch(prev[agentId], patch);
-      const next: SelectionsMap = { ...prev };
-      if (Object.keys(cur).length === 0) delete next[agentId];
-      else next[agentId] = cur;
-      onSelectionsChange?.(next);
-      return next;
-    });
+  ) => {
+    // Delegate to the shared pure reducer (patch + clear-unset + validator→gate
+    // coupling) — the single writer of the selection shape (INV-3). A lever toggle
+    // is a single discrete click event, so the current-render `selections` closure
+    // is already the latest committed value (no functional-updater `prev` needed).
+    const cur = applyLeverPatch(selections[agentId], patch);
+    const next: SelectionsMap = { ...selections };
+    if (Object.keys(cur).length === 0) delete next[agentId];
+    else next[agentId] = cur;
+    setSelections(next);
+    // Notify the parent OUTSIDE the setState updater — the parent notify no longer
+    // fires during this child's render pass (setState-in-render cleanup).
+    onSelectionsChange?.(next);
+  };
 
   if (loading) {
     return (
