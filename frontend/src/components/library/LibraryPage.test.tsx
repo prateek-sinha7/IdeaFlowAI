@@ -96,4 +96,31 @@ describe("LibraryPage 41-07 — agent-detail right-side drawer (ND-Z resolved)",
     expect(tabs.getByRole("tab", { name: /config/i })).toBeInTheDocument();
     expect(tabs.getAllByRole("tab")).toHaveLength(4);
   });
+
+  it("Overview body matches the mock: 'What it does', Role-in-pipeline with the ROLE NAME, and a skill-support chip (bound to real data)", () => {
+    const drawer = openFirstAgentDrawer();
+    const body = within(drawer);
+    // Change 1: mock heading label.
+    expect(body.getByText(/what it does/i)).toBeInTheDocument();
+    // Change 2: "Role in pipeline" shows the agent's ROLE NAME (not "Step N").
+    // AGENT_A ("Domain Discovery Agent") has role "Market & Persona Research" —
+    // it appears in the header AND the Overview role-in-pipeline block.
+    expect(body.getByText(/role in pipeline/i)).toBeInTheDocument();
+    expect(body.getAllByText("Market & Persona Research").length).toBeGreaterThanOrEqual(2);
+    expect(body.queryByText(/^Step \d+$/)).toBeNull();
+    // Change 3: AGENT_A declares has_skill → the Skill-support chip renders.
+    expect(body.getByText(/skill support/i)).toBeInTheDocument();
+  });
+
+  it("Overview surfaces the system prompt READ-ONLY (ND-7/LOCK-E): no textarea, no Save/Reset", () => {
+    const drawer = openFirstAgentDrawer();
+    const body = within(drawer);
+    // Change 4: the shared read-only System Prompt surface (AgentPromptSection
+    // surfaceOnly) is present in the Overview.
+    expect(body.getByText(/system prompt/i)).toBeInTheDocument();
+    // Surface-only stance: no editable field and no write affordances.
+    expect(drawer.querySelector("textarea")).toBeNull();
+    expect(body.queryByRole("button", { name: /save (override|agent)/i })).toBeNull();
+    expect(body.queryByRole("button", { name: /revert to default/i })).toBeNull();
+  });
 });

@@ -82,12 +82,13 @@ describe("Agent drawer — 4-tab inspector", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(4);
   });
 
-  it("Overview tab is the default surface (what this agent does)", () => {
+  it("Overview tab is the default surface (what it does)", () => {
     renderDrawer();
     expect(
       screen.getByRole("tab", { name: /overview/i }),
     ).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText(/what this agent does/i)).toBeInTheDocument();
+    // 41-07: the shared Overview heading now matches the mock ("What it does").
+    expect(screen.getByText(/what it does/i)).toBeInTheDocument();
   });
 
   it("Config tab surfaces the per-agent prompt-override (System Prompt)", async () => {

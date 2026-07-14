@@ -527,16 +527,6 @@ export function AgentCapabilitiesModal({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="flex items-center gap-2 mt-3">
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-gray-100 text-gray-600 border-gray-200">{pipelineLabel}</span>
-            <span className="flex items-center gap-1 text-[10px] text-gray-400"><Clock className="h-3 w-3" />~{agent.estimated_duration}s</span>
-            {agent.has_skill && (
-              <span className="flex items-center gap-1 text-[10px] text-gray-600 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
-                <BookMarked className="h-2.5 w-2.5" />Skill support
-              </span>
-            )}
-          </div>
-
           {/* SHELL-04: 4-tab inspector (Overview/Skills/Hooks/Config) — reuses
               the shipped per-agent sections, distributed across tabs. */}
           <Tabs
@@ -558,11 +548,28 @@ export function AgentCapabilitiesModal({
           {/* Overview tab — what this agent does + pipeline step */}
           {drawerTab === "overview" && (
           <>
-          {/* 1. What this agent does */}
+          {/* Meta chip row — duration · pipeline-type · skill-support. Matches the
+              mock's Overview chip row (relocated out of the header, which now
+              mirrors the mock: avatar/name/role + tab bar only). Skill-support is
+              bound to the agent's REAL has_skill (SC-001/ND-D: never fabricate —
+              the chip is omitted when the agent declares no skill support). */}
+          <div className="flex items-center flex-wrap gap-2">
+            <span className="flex items-center gap-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 px-2.5 py-1 rounded-full">
+              <Clock className="h-3 w-3" />~{agent.estimated_duration}s
+            </span>
+            <span className="text-[11px] font-medium text-gray-700 bg-white border border-gray-200 px-2.5 py-1 rounded-full">{pipelineLabel}</span>
+            {agent.has_skill && (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-gray-700 bg-white border border-gray-200 px-2.5 py-1 rounded-full">
+                <BookMarked className="h-2.5 w-2.5" />Skill support
+              </span>
+            )}
+          </div>
+
+          {/* 1. What it does (mock heading) */}
           <div>
             <div className="flex items-center gap-2 mb-2.5">
               <Zap className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">What this agent does</p>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">What it does</p>
             </div>
             <div className="space-y-2">
               {capabilities.map((cap, i) => (
@@ -574,15 +581,22 @@ export function AgentCapabilitiesModal({
             </div>
           </div>
 
-          {/* Pipeline step */}
+          {/* 2. Role in pipeline — the agent's ROLE NAME (matches the mock's
+              "ROLE IN PIPELINE" block; the generic step index is dropped). */}
           <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Pipeline</p>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Role in pipeline</p>
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-medium px-2 py-0.5 rounded-md border bg-gray-100 text-gray-600 border-gray-200">{pipelineLabel}</span>
               <ChevronRight className="h-3 w-3 text-gray-300" />
-              <span className="text-[11px] text-gray-600 font-medium">Step {agent.order}</span>
+              <span className="text-[11px] text-gray-600 font-medium">{agent.role}</span>
             </div>
           </div>
+
+          {/* 3. System prompt (READ-ONLY) — mirror the mock's Overview "SYSTEM
+              PROMPT" block by reusing the SAME shared AgentPromptSection the Config
+              tab shows, with `surfaceOnly` (ND-7/LOCK-E: no textarea / Save /
+              Revert — the durable PUT/DELETE path stays unreachable). */}
+          <AgentPromptSection agent={agent} surfaceOnly />
           </>
           )}
 
