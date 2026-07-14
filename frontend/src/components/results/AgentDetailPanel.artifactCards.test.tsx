@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { deriveArtifactCardModel } from "./AgentDetailPanel";
+import { render, screen } from "@testing-library/react";
+import { AgentDetailPanel, deriveArtifactCardModel } from "./AgentDetailPanel";
 import type { AgentRunState } from "@/types/index";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,5 +162,53 @@ describe("deriveArtifactCardModel — handoff line", () => {
   it("yields no handoff for the last agent with no outgoing edge", () => {
     const m = deriveArtifactCardModel(a1, 1, [a0, a1], {});
     expect(m.handoff).toBeNull();
+  });
+});
+
+// ─── Task 2 — the rendered cards + handoff line ───────────────────────────────
+describe("AgentDetailPanel — settled artifact cards render", () => {
+  const planner = agent({ id: "planner", name: "Task Planner", output: TASKS_OUT });
+  const builder = agent({ id: "builder", name: "Build Agent", output: "<!DOCTYPE html>" });
+
+  it("renders the tasks card ('N planned' + task rows) + handoff for a settled task-planner", () => {
+    render(
+      <AgentDetailPanel
+        agent={planner}
+        onBack={() => {}}
+        agents={[planner, builder]}
+        agentIndex={0}
+        protoCompletedTasks={protoTasks}
+        protoCompletedTaskCount={3}
+        dagEdges={[{ from: "planner", to: "builder", artifact_type: "Validated plan" }]}
+      />,
+    );
+    expect(screen.getByText(/3 planned/)).toBeInTheDocument();
+    expect(screen.getByText(/Scaffold/)).toBeInTheDocument();
+    expect(screen.getByText(/Validated plan → Build Agent/)).toBeInTheDocument();
+  });
+
+  it("renders the checks card with a Passed verdict badge for a settled analyzer", () => {
+    const analyzer = agent({ id: "analyzer", name: "Analyzer", output: ANALYSIS_OUT, validationPassed: true });
+    render(
+      <AgentDetailPanel agent={analyzer} onBack={() => {}} agents={[analyzer]} agentIndex={0} />,
+    );
+    expect(screen.getByText(/Governance checks/)).toBeInTheDocument();
+    expect(screen.getByText(/Passed/)).toBeInTheDocument();
+  });
+
+  it("renders the pages/sections card for a settled spec agent", () => {
+    const spec = agent({ id: "spec", name: "Spec Writer", output: SPEC_OUT });
+    render(<AgentDetailPanel agent={spec} onBack={() => {}} agents={[spec]} agentIndex={0} />);
+    expect(screen.getByText(/Pages \/ sections/)).toBeInTheDocument();
+  });
+
+  it("renders NO artifact card (and no handoff) for a no-artifact build agent — unchanged", () => {
+    render(
+      <AgentDetailPanel agent={builder} onBack={() => {}} agents={[builder]} agentIndex={0} />,
+    );
+    expect(screen.queryByText(/Task plan/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Governance checks/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pages \/ sections/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Handoff →/)).not.toBeInTheDocument();
   });
 });

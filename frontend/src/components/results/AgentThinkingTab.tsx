@@ -163,6 +163,11 @@ export function AgentThinkingTab({
               tasks: pipelineState?.protoCompletedTasks,
             } : undefined}
             onOpenTask={isConstructionSelected ? (i) => setSelectedTaskIndex(i) : undefined}
+            agents={agents}
+            agentIndex={agents.findIndex(a => a.id === selectedAgent.id)}
+            protoCompletedTasks={pipelineState?.protoCompletedTasks}
+            protoCompletedTaskCount={pipelineState?.protoCompletedTaskCount}
+            dagEdges={pipelineState?.dagEdges}
           />
         ) : (
           // ── L1 — overview (mock order: stepper progress → starting-point /

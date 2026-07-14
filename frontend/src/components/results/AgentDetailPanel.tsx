@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Brain, Wrench, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   Clock, Cpu, FileText, Copy, Check, Eye, EyeOff, AlertTriangle, Pencil,
-  Layers, Zap, FileCode, BookText, GitBranch,
+  Layers, Zap, FileCode, BookText, GitBranch, ArrowDown, CheckCircle2 as CheckBadge,
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
@@ -567,6 +567,100 @@ function ContextReceivedPanel({ sources }: { sources: ContextSource[] }) {
   );
 }
 
+// ─── Settled artifact cards + handoff line (42-09) ────────────────────────────
+// Renders the descriptor from `deriveArtifactCardModel` as the mock's per-agent
+// artifact card (pages/sections · tasks · checks) + a handoff line, between the
+// reasoning block and the tool calls. Each card renders ONLY when its kind is
+// selected AND its data is present (conditional degrade). Text is escaped React
+// content (no raw-HTML injection). The KEEP construction card (build agent)
+// is a SEPARATE block — never duplicated here. Mock tokens: brand accent #3C2CDA,
+// checks green #1F7A4D on #E7F0EA. The pages + coverage bodies REUSE
+// SpecPreview/AnalysisPreview (no re-parse) — those parses are flagged BRITTLE
+// with their robust versions registered OUT OF SCOPE (F1/F2, see below).
+function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: ArtifactCardModel }) {
+  const hasCard = model.showPages || model.showTasks || model.showChecks;
+  if (!hasCard) return null;
+  return (
+    <>
+      {/* PAGES / SECTIONS card — reused SpecPreview (## headings).
+          BRITTLE (F2): the sections are parsed from the spec agent's <spec> output;
+          a robust typed extractor is Follow-up F2 (event-free `sections` extractor +
+          /artifacts?kind=sections — backend/additive), registered OUT OF SCOPE — do
+          NOT build a fetch/endpoint here (SC-001/LOCK-B). */}
+      {model.showPages && (
+        <div className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
+          <p className="m-0 mb-2.5 text-[11px] font-semibold text-ink-800">Pages / sections</p>
+          <SpecPreview content={agent.output} />
+        </div>
+      )}
+
+      {/* TASKS card — "N planned" + a row per task from protoCompletedTasks. */}
+      {model.showTasks && (
+        <div className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[11px] font-semibold text-ink-800">Task plan</span>
+            <span className="flex-1" />
+            <span className="text-[11px] font-mono" style={{ color: "#3C2CDA" }}>{model.taskCount} planned</span>
+          </div>
+          <div className="space-y-0.5">
+            {model.tasks.map(t => (
+              <div key={t.number} className="flex items-center gap-2.5 py-1">
+                <span className="w-1.5 h-1.5 flex-none rounded-full bg-line-faint" />
+                <span className="text-[12px] leading-snug text-ink-700">
+                  <span className="font-mono text-ink-200">{t.number}.</span> {t.title}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CHECKS card — pass/fail verdict badge from validation* + verdict/coverage
+          rows via the reused AnalysisPreview.
+          BRITTLE (F1): the coverage-%/verdict TEXT is parsed from the analyzer's
+          <analysis> output (structured coverage/counts are genuinely absent). The
+          robust version is Follow-up F1 (a `{coverage,counts{P0..P3}}` aggregate on
+          GET /runs/{id}/validation-results — backend/additive), registered OUT OF
+          SCOPE — do NOT add a fetch/endpoint here (SC-001/LOCK-B). */}
+      {model.showChecks && (
+        <div className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
+          <div className="flex items-center gap-2 mb-2.5">
+            <span className="text-[11px] font-semibold text-ink-800">Governance checks</span>
+            <span className="flex-1" />
+            {model.checksPassed ? (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md"
+                style={{ color: "#1F7A4D", background: "#E7F0EA", border: "1px solid #CFE3D6" }}
+              >
+                <CheckBadge className="h-3 w-3" /> Passed
+              </span>
+            ) : (
+              <span className="inline-flex items-center text-[10px] font-semibold px-2 py-1 rounded-md bg-status-amber-fill text-status-amber border border-status-amber-border">
+                {model.checksIssueCount > 0
+                  ? `${model.checksIssueCount} issue${model.checksIssueCount !== 1 ? "s" : ""}`
+                  : "Review"}
+              </span>
+            )}
+          </div>
+          <AnalysisPreview content={agent.output} />
+        </div>
+      )}
+
+      {/* HANDOFF line — producer→consumer from dagEdges, else next-agent name. */}
+      {model.handoff && (
+        <div className="flex items-center gap-2.5 mt-3 ml-1">
+          <ArrowDown className="h-3.5 w-3.5 flex-none text-line-faint" />
+          <span className="text-[11.5px] leading-snug text-ink-200">
+            {model.handoff.label
+              ? `${model.handoff.label} → ${model.handoff.to}`
+              : `Handoff → ${model.handoff.to}`}
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Main L2 panel ────────────────────────────────────────────────────────────
 export interface AgentDetailPanelProps {
   agent: AgentRunState;
@@ -579,9 +673,20 @@ export interface AgentDetailPanelProps {
     tasks?: Array<{ number: number; title: string; summary: string }>;
   };
   onOpenTask?: (taskIndex: number) => void;
+  // 42-09 — the ordered agent list + this agent's index for the handoff fallback,
+  // plus the in-state artifact-card data (protoCompletedTasks / dagEdges). All
+  // optional: absent → no cards (SC-001 generic degrade).
+  agents?: AgentRunState[];
+  agentIndex?: number;
+  protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
+  protoCompletedTaskCount?: number;
+  dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
 }
 
-export function AgentDetailPanel({ agent, onBack, construction, onOpenTask }: AgentDetailPanelProps) {
+export function AgentDetailPanel({
+  agent, onBack, construction, onOpenTask,
+  agents, agentIndex, protoCompletedTasks, protoCompletedTaskCount, dagEdges,
+}: AgentDetailPanelProps) {
   const isRunning = agent.status === "running" || agent.status === "thinking";
   const isDone = agent.status === "done";
   const isError = agent.status === "error";
@@ -593,6 +698,16 @@ export function AgentDetailPanel({ agent, onBack, construction, onOpenTask }: Ag
   // on the same marker; EditSummaryCard is gated here). SC-001: structural marker,
   // never a workflow-name literal.
   const isRevision = /===\s*REVISION REQUEST\s*===/i.test(agent.inputPrompt || "");
+
+  // 42-09 — the settled artifact-card descriptor (kind + data + handoff), keyed on
+  // the shared name-free discriminator. Renders conditionally between reasoning and
+  // tool calls; the KEEP construction card (build agent) is a separate block.
+  const cardModel = deriveArtifactCardModel(
+    agent,
+    agentIndex ?? agent.index,
+    agents ?? [],
+    { protoCompletedTasks, protoCompletedTaskCount, dagEdges },
+  );
 
   const metaBits = [
     isDone && agent.duration != null ? formatDuration(agent.duration) : null,
@@ -658,6 +773,11 @@ export function AgentDetailPanel({ agent, onBack, construction, onOpenTask }: Ag
                     blank cursor. The completed output is shown by OutputPreviewSection. */}
                 {reasoning.trim().length > 0 && <ReasoningCard text={reasoning} live={isRunning} />}
                 {reasoning.trim().length === 0 && isRunning && <ReasoningCard text={agent.output || ""} live label="Output" />}
+
+                {/* settled artifact cards (pages/sections · tasks · checks) + handoff
+                    line — conditional, generically keyed (42-09). Distinct from the
+                    KEEP construction card below. */}
+                <SettledArtifactCards agent={agent} model={cardModel} />
 
                 {/* construction fan-out (build agent) */}
                 {construction && (
