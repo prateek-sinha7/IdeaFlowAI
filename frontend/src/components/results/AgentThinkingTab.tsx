@@ -36,6 +36,8 @@ interface AgentThinkingTabProps {
   clarifyQuestions?: import("@/types/index").ClarifyQuestion[];
   onSubmitClarify?: (responses: ClarifyResponse[]) => void;
   onSkipClarify?: () => void;
+  /** Cancel the active pipeline from the inline Steps clarify (Phase 42-02 §A2 re-home). */
+  onCancelWorkflow?: () => void;
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
@@ -70,7 +72,7 @@ export function AgentThinkingTab({
   agents, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion,
   clarifications, clarificationsLoading,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
-  clarifyQuestions, onSubmitClarify, onSkipClarify,
+  clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
 }: AgentThinkingTabProps) {
   // ── The three-level Steps navigation (mirrors the mock's stepView/taskView) ──
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -187,6 +189,7 @@ export function AgentThinkingTab({
             clarifyQuestions={clarifyQuestions}
             onSubmitClarify={onSubmitClarify}
             onSkipClarify={onSkipClarify}
+            onCancelWorkflow={onCancelWorkflow}
           />
         )}
       </div>

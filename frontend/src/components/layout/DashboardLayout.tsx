@@ -1688,6 +1688,10 @@ export function DashboardLayout({
                       clarifyQuestions={questionnaireQuestions}
                       onSubmitAnswers={handleLaneSubmitAnswers}
                       onSkipClarify={handleQuestionnaireSkip}
+                      // Phase 42-02 (§A2 re-home) — Cancel-Workflow on the inline
+                      // clarify, bound to the existing owner-scoped handler (guarded
+                      // by an active run, matching the old QuestionnairePanel wiring).
+                      onCancelWorkflow={activePipelineRunId ? handleCancelWorkflow : undefined}
                     />
                   </ErrorBoundary>
                 </div>
@@ -1751,6 +1755,9 @@ export function DashboardLayout({
                       clarifyQuestions={questionnaireQuestions}
                       onSubmitClarify={handleLaneSubmitAnswers}
                       onSkipClarify={handleQuestionnaireSkip}
+                      // Phase 42-02 (§A2 re-home) — Cancel-Workflow on the Steps
+                      // inline clarify, bound to the existing owner-scoped handler.
+                      onCancelWorkflow={activePipelineRunId ? handleCancelWorkflow : undefined}
                       // Phase 32 (plan 08 / ISS-019) — the live wave/subagent tree
                       // now mounts INSIDE the Steps drill-down (relocated from the
                       // below-the-fold left slot). Forward the assembled groups.

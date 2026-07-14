@@ -204,6 +204,8 @@ export interface RunChatLaneProps {
   clarifyQuestions?: ClarifyQuestion[];
   onSubmitAnswers?: (responses: ClarifyResponse[]) => void;
   onSkipClarify?: () => void;
+  /** Cancel the active pipeline from the inline clarify (Phase 42-02 §A2 re-home). */
+  onCancelWorkflow?: () => void;
 }
 
 /**
@@ -624,6 +626,7 @@ export function RunChatLane({
   clarifyQuestions,
   onSubmitAnswers,
   onSkipClarify,
+  onCancelWorkflow,
 }: RunChatLaneProps) {
   // isRunning keys off the GENERIC runState only (SC-001) — no workflow branch.
   const isRunning =
@@ -722,6 +725,7 @@ export function RunChatLane({
             questions={clarifyQuestions ?? []}
             onSubmitAnswers={onSubmitAnswers ?? (() => {})}
             onSkipAll={onSkipClarify}
+            onCancelWorkflow={onCancelWorkflow}
           />
         );
 

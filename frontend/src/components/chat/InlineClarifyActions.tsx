@@ -31,6 +31,13 @@ interface InlineClarifyActionsProps {
   onSubmitAnswers: (responses: ClarifyResponse[]) => void;
   /** Optional: skip all questions and run directly. */
   onSkipAll?: () => void;
+  /**
+   * Optional: cancel the active pipeline run entirely. Re-homed here (Phase 42-02)
+   * from the deleted QuestionnairePanel so the Cancel-Workflow affordance is not
+   * lost when the legacy full-screen clarify takeover was removed. Bound by the
+   * caller to the existing owner-scoped `handleCancelWorkflow` (no new channel).
+   */
+  onCancelWorkflow?: () => void;
 }
 
 function isMultiQuestion(q: ClarifyQuestion): boolean {
@@ -49,6 +56,7 @@ export function InlineClarifyActions({
   questions,
   onSubmitAnswers,
   onSkipAll,
+  onCancelWorkflow,
 }: InlineClarifyActionsProps) {
   // answers keyed by question id → selected option strings (single or multi).
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
@@ -253,6 +261,21 @@ export function InlineClarifyActions({
           </button>
         )}
       </div>
+
+      {/* Cancel-Workflow — re-homed from the deleted QuestionnairePanel (Phase
+          42-02 §A2 / §8 decision 1). Subtle muted text affordance (final brand
+          tokens land in 42-10); fires the existing owner-scoped handler. */}
+      {onCancelWorkflow && (
+        <button
+          type="button"
+          data-testid="chat-clarify-cancel-workflow"
+          onClick={onCancelWorkflow}
+          disabled={submitted}
+          className="w-full text-center text-[10px] text-red-400 hover:text-red-600 transition-colors py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Cancel workflow
+        </button>
+      )}
     </div>
   );
 }

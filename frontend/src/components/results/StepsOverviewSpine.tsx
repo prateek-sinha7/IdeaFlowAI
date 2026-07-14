@@ -47,6 +47,8 @@ export interface StepsOverviewSpineProps {
   clarifyQuestions?: ClarifyQuestion[];
   onSubmitClarify?: (responses: ClarifyResponse[]) => void;
   onSkipClarify?: () => void;
+  /** Cancel the active pipeline from the inline Steps clarify (Phase 42-02 §A2 re-home). */
+  onCancelWorkflow?: () => void;
 }
 
 // The "Awaiting you" card chrome from the mock (brand-tinted, focus-ring shadow).
@@ -123,7 +125,7 @@ function GateApprovedStrip({ gate }: { gate: string }) {
 export function StepsOverviewSpine({
   agents, pipelineState, clarifications, clarificationsLoading, onOpenAgent, topSlot, gateEvents,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
-  clarifyQuestions, onSubmitClarify, onSkipClarify,
+  clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
 }: StepsOverviewSpineProps) {
   const total = agents.length;
   const completedCount = agents.filter(a => a.status === "done").length;
@@ -202,7 +204,7 @@ export function StepsOverviewSpine({
             <span className="text-[8.5px] font-semibold uppercase tracking-wider text-brand bg-brand-fill border border-brand-border px-1.5 py-1 rounded">Awaiting you</span>
           </div>
           <div className="p-3.5">
-            <InlineClarifyActions questions={clarifyQuestions} onSubmitAnswers={onSubmitClarify} onSkipAll={onSkipClarify} />
+            <InlineClarifyActions questions={clarifyQuestions} onSubmitAnswers={onSubmitClarify} onSkipAll={onSkipClarify} onCancelWorkflow={onCancelWorkflow} />
           </div>
         </AwaitingCard>
       )}

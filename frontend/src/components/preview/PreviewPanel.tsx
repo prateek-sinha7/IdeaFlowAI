@@ -330,6 +330,8 @@ interface PreviewPanelProps {
     responses: import("@/components/chat/InlineClarifyActions").ClarifyResponse[],
   ) => void;
   onSkipClarify?: () => void;
+  /** Cancel the active pipeline from the inline Steps clarify (Phase 42-02 §A2 re-home). */
+  onCancelWorkflow?: () => void;
   // Phase 32 (plan 08 / ISS-019) — the live wave/subagent groups, forwarded to
   // the Steps drill-down where WaveTreePanel now mounts (relocated from the
   // below-the-fold left-column slot). Optional/default-empty (tsc-identity).
@@ -444,7 +446,7 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, waves, onShare, onDownload }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   // ─── Plan 07 — manual typed-renderer switcher override ───────────────────────
   // null = follow the generic auto-dispatch (the PRIMARY route); a non-null value
@@ -1086,6 +1088,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 clarifyQuestions={clarifyQuestions}
                 onSubmitClarify={onSubmitClarify}
                 onSkipClarify={onSkipClarify}
+                onCancelWorkflow={onCancelWorkflow}
               />
             </motion.div>
           )}

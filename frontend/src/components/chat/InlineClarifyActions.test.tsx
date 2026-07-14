@@ -107,6 +107,24 @@ describe("InlineClarifyActions", () => {
     expect(onSubmitAnswers).toHaveBeenCalledTimes(1);
   });
 
+  it("omits the Cancel-Workflow affordance when onCancelWorkflow is not provided", () => {
+    renderClarify([Q1]);
+    expect(screen.queryByTestId("chat-clarify-cancel-workflow")).toBeNull();
+  });
+
+  it("Cancel-Workflow re-home (§A2): renders the affordance and fires onCancelWorkflow", () => {
+    const onCancelWorkflow = vi.fn();
+    render(
+      <InlineClarifyActions
+        questions={[Q1]}
+        onSubmitAnswers={vi.fn()}
+        onCancelWorkflow={onCancelWorkflow}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("chat-clarify-cancel-workflow"));
+    expect(onCancelWorkflow).toHaveBeenCalledTimes(1);
+  });
+
   it("SC-001: the source carries no workflow-name literal", () => {
     const src = readFileSync(
       join(process.cwd(), "src/components/chat/InlineClarifyActions.tsx"),
