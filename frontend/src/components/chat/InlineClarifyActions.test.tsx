@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ClarifyQuestion } from "@/types/index";
@@ -54,13 +54,22 @@ describe("InlineClarifyActions", () => {
     ]);
   });
 
-  it("'Use recommended' fills the recommended answer", () => {
-    const { onSubmitAnswers } = renderClarify([Q1]);
-    fireEvent.click(screen.getByText("Use recommended"));
-    fireEvent.click(screen.getByTestId("chat-clarify-submit"));
-    expect(onSubmitAnswers).toHaveBeenCalledWith([
-      { question_id: "q1", answer: "List" },
-    ]);
+  it("submit copy reads 'Submit answers & start the build' (mock, 42-06)", () => {
+    renderClarify([Q1]);
+    expect(screen.getByTestId("chat-clarify-submit")).toHaveTextContent(
+      "Submit answers & start the build",
+    );
+  });
+
+  it("omits the mock-dropped affordances (42-06 §G / decision 3)", () => {
+    renderClarify([Q1, Q_MULTI]);
+    // per-question Skip / "Use recommended" / "Rec." badge / "Anything else?"
+    // freeform / "Skip all" are removed to match the single-submit Live mock.
+    expect(screen.queryByText("Use recommended")).toBeNull();
+    expect(screen.queryByText("Skip")).toBeNull();
+    expect(screen.queryByText("Skip all")).toBeNull();
+    expect(screen.queryByText("Rec.")).toBeNull();
+    expect(screen.queryByLabelText("Additional notes")).toBeNull();
   });
 
   it("multi-select accumulates selected options into one joined answer", () => {
@@ -73,28 +82,12 @@ describe("InlineClarifyActions", () => {
     ]);
   });
 
-  it("skip marks the question skipped and omits it from the responses", () => {
+  it("unanswered questions are simply omitted from the responses", () => {
     const { onSubmitAnswers } = renderClarify([Q1, Q_MULTI]);
-    fireEvent.click(screen.getByText("Grid")); // answer q1
-    // Skip q2 via its own skip button.
-    const q2Block = screen.getByText("Which features?").closest("div")!;
-    fireEvent.click(within(q2Block).getByText("Skip"));
+    fireEvent.click(screen.getByText("Grid")); // answer q1 only
     fireEvent.click(screen.getByTestId("chat-clarify-submit"));
     expect(onSubmitAnswers).toHaveBeenCalledWith([
       { question_id: "q1", answer: "Grid" },
-    ]);
-  });
-
-  it("appends the global freeform as question_id 'freeform'", () => {
-    const { onSubmitAnswers } = renderClarify([Q1]);
-    fireEvent.click(screen.getByText("Grid"));
-    fireEvent.change(screen.getByLabelText("Additional notes"), {
-      target: { value: "keep it minimal" },
-    });
-    fireEvent.click(screen.getByTestId("chat-clarify-submit"));
-    expect(onSubmitAnswers).toHaveBeenCalledWith([
-      { question_id: "q1", answer: "Grid" },
-      { question_id: "freeform", answer: "keep it minimal" },
     ]);
   });
 
