@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ClarifyQuestion } from "../preview/QuestionnairePanel";
+import type { ClarifyQuestion } from "@/types/index";
 import { InlineClarifyActions } from "./InlineClarifyActions";
 
 // ─── InlineClarifyActions — in-lane mirror of the Steps QuestionnairePanel ────

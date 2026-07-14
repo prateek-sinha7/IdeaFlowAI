@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, within, fireEvent } from "@testing-library/react";
 import type { AgentRunState, PipelineRunState, WaveGroup } from "@/types/index";
 import type { GateContext } from "@/components/chat/RunChatLane";
-import type { ClarifyQuestion } from "@/components/preview/QuestionnairePanel";
+import type { ClarifyQuestion } from "@/types/index";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 32 plan 08 (SC-2, STEPS-ARTIFACT-DERIVATION-CONTRACT) — the Steps

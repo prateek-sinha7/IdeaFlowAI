@@ -5,7 +5,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ChatMessage } from "@/types/index";
-import type { ClarifyQuestion } from "../preview/QuestionnairePanel";
+import type { ClarifyQuestion } from "@/types/index";
 import { RunChatLane, type RunChatLaneProps } from "./RunChatLane";
 
 // ─── RunChatLane — the run-screen composition root ────────────────────────────

@@ -97,9 +97,6 @@ vi.mock("@/components/preview/PreviewPanel", async () => {
     ),
   };
 });
-vi.mock("@/components/preview/QuestionnairePanel", () => ({
-  QuestionnairePanel: () => <div data-testid="stub-questionnaire" />,
-}));
 vi.mock("@/components/preview/ReviewGatePanel", () => ({
   ReviewGatePanel: () => <div data-testid="stub-review-gate" />,
 }));

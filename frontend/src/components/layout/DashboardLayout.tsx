@@ -24,7 +24,6 @@ import { ComposerPage } from "@/components/workflow/composer/ComposerPage";
 import { RunChatLane, type RunLaneState, type GateContext, type LaneSuggestion } from "@/components/chat/RunChatLane";
 import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
-import { QuestionnairePanel } from "@/components/preview/QuestionnairePanel";
 import { ReviewGatePanel } from "@/components/preview/ReviewGatePanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
@@ -1809,15 +1808,6 @@ export function DashboardLayout({
                       // Update-Specs off the declared kind/flag, not agent-id.
                       artifactKind={reviewGateData.artifactKind}
                       updateSpecsEligible={reviewGateData.updateSpecsEligible}
-                    />
-                  ) : (questionnaireLoading || questionnaireQuestions.length > 0) && (pendingPipelineRun || activePipelineRunId) ? (
-                    <QuestionnairePanel
-                      questions={questionnaireQuestions}
-                      isLoading={questionnaireLoading}
-                      onSubmitAnswers={handleQuestionnaireSubmit}
-                      onSkip={handleQuestionnaireSkip}
-                      workflowType={workflowType}
-                      onCancelWorkflow={activePipelineRunId ? handleCancelWorkflow : undefined}
                     />
                   ) : (
                     <PreviewPanel

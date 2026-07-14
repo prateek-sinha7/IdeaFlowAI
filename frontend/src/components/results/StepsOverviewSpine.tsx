@@ -18,7 +18,7 @@ import type { GateEventRow } from "@/lib/api";
 import { InlineGateActions } from "@/components/chat/InlineGateActions";
 import { InlineClarifyActions } from "@/components/chat/InlineClarifyActions";
 import type { GateContext } from "@/components/chat/RunChatLane";
-import type { ClarifyQuestion } from "@/components/preview/QuestionnairePanel";
+import type { ClarifyQuestion } from "@/types/index";
 import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { ClarificationsCard } from "./ClarificationsCard";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";

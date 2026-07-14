@@ -50,7 +50,7 @@ import type {
   AgentEvent,
 } from "./runtime/blocks.types";
 import type { AgentRunState, ChatAttachment, ChatMessage, ClarifyRound, PipelineRunState } from "@/types/index";
-import type { ClarifyQuestion } from "../preview/QuestionnairePanel";
+import type { ClarifyQuestion } from "@/types/index";
 import { ChatPanel } from "./ChatPanel";
 import { ChatAttachments } from "./ChatAttachments";
 import { LaneRunHeader } from "./LaneRunHeader";

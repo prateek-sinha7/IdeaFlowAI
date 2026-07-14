@@ -566,6 +566,28 @@ export interface ToolCallEntry {
   timestamp: string;
 }
 
+/** A single clarify question surfaced to the user during a run's clarify pause.
+ *  Shared contract consumed by the inline clarify surfaces (InlineClarifyActions,
+ *  StepsOverviewSpine, RunChatLane, PreviewPanel/AgentThinkingTab). Relocated here
+ *  from the deleted QuestionnairePanel.tsx (Phase 42-02) so it survives the panel's
+ *  removal. */
+export interface ClarifyQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  allowMultiple?: boolean;
+  /** "single_choice" | "multi_select" | "short_text" | "hybrid" */
+  answerType?: string;
+  recommendedAnswer?: string;
+  recommendedReasoning?: string;
+  recommendedDisplay?: string;
+  ambiguityCategory?: string;
+  impactLevel?: string;
+}
+
+// Legacy alias — kept for callers that use the MCQQuestion type name.
+export type MCQQuestion = ClarifyQuestion;
+
 /** One answered clarify round (POR §6.5). Mirrors the backend kind="clarifications"
  *  artifact content — a JSON list of {question_id, question_text, impact_level,
  *  answer, round} grouped by round. Surfaced by C2's ClarificationsCard. */

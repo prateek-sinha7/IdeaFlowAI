@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Lightbulb, SkipForward, ArrowRight, Sparkles } from "lucide-react";
 
-import type { ClarifyQuestion } from "../preview/QuestionnairePanel";
+import type { ClarifyQuestion } from "@/types/index";
 
 export interface ClarifyResponse {
   question_id: string;

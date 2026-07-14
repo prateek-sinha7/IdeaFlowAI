@@ -33,7 +33,7 @@ interface AgentThinkingTabProps {
   onRejectGate?: (gateKey: string) => void;
   onRedoGate?: (gateKey: string, instructions: string) => void;
   onUpdateSpecsGate?: (gateKey: string, report: string) => void;
-  clarifyQuestions?: import("@/components/preview/QuestionnairePanel").ClarifyQuestion[];
+  clarifyQuestions?: import("@/types/index").ClarifyQuestion[];
   onSubmitClarify?: (responses: ClarifyResponse[]) => void;
   onSkipClarify?: () => void;
 }
