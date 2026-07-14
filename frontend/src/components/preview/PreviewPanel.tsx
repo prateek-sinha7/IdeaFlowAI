@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, type ReactNode } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Eye, FolderDown, Brain, Shield, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
@@ -458,6 +458,11 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // Phase-39 RunHeader Version menu (INV-12 — the old version-pill pulse tick is
   // retired with it).
   const [viewingVersion, setViewingVersion] = useState<{ id: string; content?: string } | null>(null);
+  // Phase 42-02 (§B / RUNUI-06) — latch for the state-keyed default-tab effect: the
+  // last generic run-state we auto-applied a tab for. Keyed on the state VALUE so the
+  // auto-select fires once per state transition and never overrides a later manual
+  // tab click within the same state (mirrors the initialTab effect idiom below).
+  const autoTabbedForState = useRef<RunLaneState | null>(null);
 
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
 
@@ -635,6 +640,34 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // The Steps tab shows a pulsing review dot while the run is paused on the user
   // (an open gate or clarify round) — mirrors the mock's Live "review gate" dot.
   const stepsReviewDot = headerRunState === "gate" || headerRunState === "clarify";
+
+  // ─── Phase 42-02 (§B / RUNUI-06) — state-keyed default tab ────────────────────
+  // Auto-select the correct tab whenever the run transitions to a new generic state
+  // (SC-001: keyed on headerRunState, NEVER a workflow/agent-name literal):
+  //   gate | clarify | building (live, incl. planning) → Steps ("thinking")
+  //   complete (settled deliverable)                    → Preview ("preview")
+  //   terminal (server failure signal) | idle           → leave as-is
+  // The autoTabbedForState latch makes this fire ONCE per state transition, so a
+  // user's manual tab click within the same state is never clobbered on re-render.
+  //
+  // NOTE (scope): the mock's Failed state defaults to Audit (Hexaware Run - Failed
+  // tab:'audit'), but that default is bundled with dropping the Preview tab +
+  // retiring DegradedRunAffordance in CONTEXT §D / Group D (plan 42-03, W2). Doing
+  // failed→Audit here — while the affordance still lives on the still-present
+  // Preview tab — would leave a failed run's own "did not complete" surface hidden
+  // by default (an incoherent half-migration). So terminal is intentionally left
+  // as-is (stays on Preview, showing the affordance) until Group D lands the whole
+  // failed-Audit surface together.
+  useEffect(() => {
+    if (autoTabbedForState.current === headerRunState) return;
+    autoTabbedForState.current = headerRunState;
+    const target: PanelTab | null =
+      headerRunState === "complete" ? "preview" :
+      (headerRunState === "gate" || headerRunState === "clarify" || headerRunState === "building") ? "thinking" :
+      null;
+    if (target) setActiveTab(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerRunState]);
   // Live version label — derived from the live family (active member index) or the
   // pipeline's deliverableVersion; default v1. NEVER the mock's fixed "v1"/"v2".
   const familyVersionCount = runFamily?.members.length ?? 0;

@@ -189,6 +189,9 @@ describe("PreviewPanel — Phase 39 Preview browser chrome", () => {
         isStreaming
       />,
     );
+    // Phase 42-02 (§B): a live/building run now auto-lands on the Steps tab, so
+    // select Preview to assert its streaming build chrome (still hosted there).
+    fireEvent.click(screen.getByTestId("tab-preview"));
     const chrome = screen.getByTestId("preview-chrome");
     expect(chrome).toHaveAttribute("data-streaming", "true");
     expect(screen.getByTestId("preview-url")).toHaveTextContent("building apple-reference-prototype.html");

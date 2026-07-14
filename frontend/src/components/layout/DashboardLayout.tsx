@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { WifiOff, RefreshCw, Brain, Sparkles, Loader2 } from "lucide-react";
+import { WifiOff, RefreshCw, Loader2 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
 import { HomeLaunchGrid } from "@/components/catalog/HomeLaunchGrid";
@@ -24,7 +24,6 @@ import { ComposerPage } from "@/components/workflow/composer/ComposerPage";
 import { RunChatLane, type RunLaneState, type GateContext, type LaneSuggestion } from "@/components/chat/RunChatLane";
 import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
-import { ReviewGatePanel } from "@/components/preview/ReviewGatePanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -171,87 +170,6 @@ export interface DashboardLayoutProps {
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
-
-// ─── Prep overlay — shown while we set up your run (planner + clarify), any workflow ───
-const PLANNING_STEPS = [
-  { icon: "🔍", label: "Reading your brief…" },
-  { icon: "🧠", label: "Understanding intent & context…" },
-  { icon: "📋", label: "Mapping out what's needed…" },
-  { icon: "✨", label: "Preparing your workflow…" },
-];
-
-function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
-  const [stepIdx, setStepIdx] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setStepIdx(i => (i + 1) % PLANNING_STEPS.length);
-    }, 1800);
-    return () => clearInterval(interval);
-  }, []);
-
-  const step = PLANNING_STEPS[stepIdx];
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full bg-white gap-6 px-8">
-      {/* Animated brain icon */}
-      <div className="relative">
-        <div className="w-16 h-16 rounded-2xl bg-brand flex items-center justify-center shadow-lg">
-          <Brain className="h-8 w-8 text-white" />
-        </div>
-        {/* Pulse rings */}
-        <div className="absolute inset-0 rounded-2xl bg-brand/20 animate-ping" style={{ animationDuration: "2s" }} />
-      </div>
-
-      {/* Status */}
-      <div className="text-center space-y-2">
-        <p className="text-[14px] font-bold text-gray-900">Getting things ready…</p>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={stepIdx}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.3 }}
-            className="flex items-center justify-center gap-2"
-          >
-            <span className="text-[16px]">{step.icon}</span>
-            <p className="text-[12px] text-gray-500 font-medium">{step.label}</p>
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      {/* What the planner is doing */}
-      <div className="w-full max-w-sm rounded-xl border border-gray-100 bg-gray-50 p-4 space-y-2.5">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-          <Sparkles className="h-3 w-3" /> Behind the scenes
-        </p>
-        {[
-          "Understanding your request",
-          "Inferring goals, tone & constraints",
-          "Spotting anything worth confirming",
-          "Setting up context for every step",
-        ].map((item, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${i <= stepIdx ? "bg-brand" : "bg-line-faint"}`} />
-            <p className={`text-[11px] ${i <= stepIdx ? "text-gray-700" : "text-gray-400"}`}>{item}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Loading dots */}
-      <div className="flex items-center gap-1.5">
-        {[0, 1, 2].map(i => (
-          <div
-            key={i}
-            className="w-1.5 h-1.5 rounded-full bg-brand/40 animate-bounce"
-            style={{ animationDelay: `${i * 0.15}s` }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function DashboardLayout({
   activeChatId,
@@ -1783,34 +1701,16 @@ export function DashboardLayout({
                     PreviewPanel below). INV-3 — one WaveTreePanel mount. */}
               </div>
 
-              {/* Right Panel — Planning overlay, Questionnaire, or Preview */}
+              {/* Right Panel — always PreviewPanel */}
               <div className="flex-1 h-[55vh] md:h-full min-w-0 bg-white rounded-none md:rounded-l-none">
                 <ErrorBoundary fallbackLabel="Preview">
-                  {/* Show planning overlay while planner or clarify is working (no domain agents yet) and no questionnaire yet */}
-                  {pipelineState?.isRunning &&
-                   (pipelineState?.agents?.length ?? 0) === 0 &&
-                   !questionnaireLoading &&
-                   questionnaireQuestions.length === 0 &&
-                   !reviewGateData ? (
-                    <PlanningOverlay plannerSummary={pipelineState?.plannerSummary} />
-                  ) : reviewGateData && isPipelineRunning ? (
-                    <ReviewGatePanel
-                      agentId={reviewGateData.agentId}
-                      agentName={reviewGateData.agentName}
-                      output={reviewGateData.output}
-                      gateKey={reviewGateData.gateKey}
-                      onApprove={onApproveReview || (() => {})}
-                      onReject={handleRejectReview}
-                      onRedo={onRedoReview}
-                      redoable={reviewGateData.redoable}
-                      onUpdateSpecs={onUpdateSpecsReview}
-                      // SC-001 (plan 08): drive the icon/label/renderer +
-                      // Update-Specs off the declared kind/flag, not agent-id.
-                      artifactKind={reviewGateData.artifactKind}
-                      updateSpecsEligible={reviewGateData.updateSpecsEligible}
-                    />
-                  ) : (
-                    <PreviewPanel
+                  {/* Phase 42-02 (§A1/§A2/§A3): the three legacy full-screen takeover
+                      branches (planning overlay / review-gate / questionnaire panels)
+                      were removed from this cascade so PreviewPanel — the sole host of
+                      the mock-matching inline Steps clarify/gate/planning surfaces —
+                      mounts during those very states. Gate/clarify still flow inline via
+                      the laneGate / clarifyQuestions passthrough below. */}
+                  <PreviewPanel
                       userStoryContent={userStoryContent || undefined}
                       pptContent={pptContent || undefined}
                       prototypeContent={prototypeContent || undefined}
@@ -1856,7 +1756,6 @@ export function DashboardLayout({
                       // below-the-fold left slot). Forward the assembled groups.
                       waves={waves}
                     />
-                  )}
                 </ErrorBoundary>
               </div>
             </motion.div>
