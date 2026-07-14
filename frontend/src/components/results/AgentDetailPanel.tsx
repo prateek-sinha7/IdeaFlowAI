@@ -577,6 +577,18 @@ function ContextReceivedPanel({ sources }: { sources: ContextSource[] }) {
 // checks green #1F7A4D on #E7F0EA. The pages + coverage bodies REUSE
 // SpecPreview/AnalysisPreview (no re-parse) — those parses are flagged BRITTLE
 // with their robust versions registered OUT OF SCOPE (F1/F2, see below).
+//
+// ── Registered OUT-OF-SCOPE follow-ups (42-09, do NOT build here) ─────────────
+//   F1 — structured coverage/counts: a `{coverage,counts{P0..P3}}` aggregate on
+//        GET /runs/{id}/validation-results (backend/additive, goldens untouched).
+//        Until then the checks card's coverage/verdict TEXT is a BRITTLE parse of
+//        the analyzer's <analysis> output via AnalysisPreview.
+//   F2 — event-free `sections` extractor + /artifacts?kind=sections
+//        (backend/additive). Until then the pages/sections card is a BRITTLE parse
+//        of the spec agent's <spec> `## ` headings via SpecPreview.
+//   Both are backend/additive — OUTSIDE this plan's FRONTEND-ONLY fence
+//   (SC-001/LOCK-B): a card needing them means OUT OF SCOPE → flag, never build.
+//   Recorded in 42-09-SUMMARY (deferred-items) for the 42-11 phase reconcile.
 function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: ArtifactCardModel }) {
   const hasCard = model.showPages || model.showTasks || model.showChecks;
   if (!hasCard) return null;
