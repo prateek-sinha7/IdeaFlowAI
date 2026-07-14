@@ -144,10 +144,24 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise, pipelineT
     if (artifactMatch) {
       htmlContent = artifactMatch[1].trim();
     }
-    // Always strip any text before the HTML doctype
-    const htmlStart = htmlContent.search(/<!DOCTYPE\s+html|<html[\s>]/i);
+    // Strip any text before the deck's HTML document. The Deck QA agent prepends a
+    // markdown validation report that itself QUOTES "<!DOCTYPE html>" inline (e.g.
+    // "✓ Single complete HTML file starting with `<!DOCTYPE html>`"), so a plain
+    // search lands on that quoted mention and the whole report leaks into the deck
+    // iframe (rendering faintly behind the slides). Anchor the doctype / `<html>`
+    // match to the START OF A LINE first — the real deck opens a line; the report's
+    // mention is mid-sentence. Fall back to a loose match if none is line-anchored.
+    let htmlStart = htmlContent.search(/^[ \t]*<!DOCTYPE\s+html|^[ \t]*<html[\s>]/im);
+    if (htmlStart < 0) htmlStart = htmlContent.search(/<!DOCTYPE\s+html|<html[\s>]/i);
     if (htmlStart > 0) {
       htmlContent = htmlContent.slice(htmlStart);
+    }
+    // …and drop any trailing text AFTER the deck's closing </html>, in case the
+    // report (or a verdict) is appended after the deck too. Only the deck document
+    // should reach the iframe.
+    const htmlEndIdx = htmlContent.toLowerCase().lastIndexOf("</html>");
+    if (htmlEndIdx >= 0) {
+      htmlContent = htmlContent.slice(0, htmlEndIdx + "</html>".length);
     }
   }
 

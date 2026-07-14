@@ -303,7 +303,7 @@ export function RunDetailPage({
             <ul className="space-y-2">
               {summary.agents.map((agent, idx) => (
                 <li
-                  key={agent.agent_id ?? idx}
+                  key={`${agent.agent_id ?? "agent"}-${idx}`}
                   className="flex items-center gap-3 rounded-[var(--radius-card)] border border-line-border bg-surface-white px-4 py-3"
                 >
                   <div
