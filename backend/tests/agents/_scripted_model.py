@@ -456,6 +456,12 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
     if agent_id == "prototype-validate":
         return [_ScriptedTurn(texts=["Validation passed. No P0 issues."], usage=(20, 10))]
 
+    # ── prototype-revision-validate (tools=workspace): reads prototype.html then
+    # emits a validation summary. Text-only — no file edits in the scripted harness
+    # (the golden just needs to see the agent fire; real edits happen on live Bedrock).
+    if agent_id == "prototype-revision-validate":
+        return [_ScriptedTurn(texts=["Validated — 1 page checked, no issues found."], usage=(20, 10))]
+
     # ── Code-gen agents (tools=workspace): write 2 files then a final text. ───
     # NEW world: native write_file(file_path=…, content=…).
     if agent_id in ("app-code-generator", "prototype-revision-agent"):
