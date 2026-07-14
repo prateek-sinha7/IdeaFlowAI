@@ -464,7 +464,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // last generic run-state we auto-applied a tab for. Keyed on the state VALUE so the
   // auto-select fires once per state transition and never overrides a later manual
   // tab click within the same state (mirrors the initialTab effect idiom below).
-  const autoTabbedForState = useRef<RunLaneState | null>(null);
+  const autoTabbedForState = useRef<string | null>(null);
 
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
 
@@ -604,6 +604,24 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
   // cancelled signal is the reopened server status only.
   const isCancelledTerminal = reopenedRunStatus === "cancelled";
+  // ─── Phase 42-03 (§D / Group D) — terminal-FAILED run surface ────────────────
+  // A terminal FAILED run (failed/degraded with NO deliverable, and NOT a
+  // deliberate cancel) matches the Failed mock: tabs become [Steps, Audit, Files]
+  // with NO Preview surface, the default tab is Audit, and the amber
+  // DegradedRunAffordance is retired on the run screen (red, not amber, lives in
+  // the lane + Steps + header — all §4 KEEP). Keyed on the generic terminal-
+  // failure signal (SC-001 — never a workflow/agent-name literal). A failed run
+  // that still carries content keeps its Preview tab (content wins), and a
+  // cancelled run keeps its Preview affordance (§8 decision 4 — history untouched).
+  const terminalFailureNoDeliverable = showFailureAffordance && !isCancelledTerminal;
+  // Cancelled-terminal is the ONLY remaining consumer of the in-Preview
+  // DegradedRunAffordance mount on the run screen (failed/degraded drop the tab).
+  const showCancelledAffordance = showFailureAffordance && isCancelledTerminal;
+  // Drop the Preview tab for a terminal-failed run; every other state keeps the
+  // full four-tab set (Preview · Steps · Files · Audit).
+  const visibleTabs = terminalFailureNoDeliverable
+    ? TAB_CONFIG.filter((t) => t.id !== "preview")
+    : TAB_CONFIG;
   // NOTE: these are agent IDs (failedAgents/degradedFailedAgents on live;
   // reopenedFailedAgents on history). They are resolved to human names inside
   // DegradedRunAffordance via the agentNameById map built below.
@@ -648,28 +666,29 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // (SC-001: keyed on headerRunState, NEVER a workflow/agent-name literal):
   //   gate | clarify | building (live, incl. planning) → Steps ("thinking")
   //   complete (settled deliverable)                    → Preview ("preview")
-  //   terminal (server failure signal) | idle           → leave as-is
+  //   terminal-failed (no deliverable)                  → Audit ("audit")
+  //   terminal-failed WITH content | idle               → leave as-is
   // The autoTabbedForState latch makes this fire ONCE per state transition, so a
   // user's manual tab click within the same state is never clobbered on re-render.
   //
-  // NOTE (scope): the mock's Failed state defaults to Audit (Hexaware Run - Failed
-  // tab:'audit'), but that default is bundled with dropping the Preview tab +
-  // retiring DegradedRunAffordance in CONTEXT §D / Group D (plan 42-03, W2). Doing
-  // failed→Audit here — while the affordance still lives on the still-present
-  // Preview tab — would leave a failed run's own "did not complete" surface hidden
-  // by default (an incoherent half-migration). So terminal is intentionally left
-  // as-is (stays on Preview, showing the affordance) until Group D lands the whole
-  // failed-Audit surface together.
+  // Phase 42-03 (§D / Group D): the Failed mock defaults to Audit (Hexaware Run -
+  // Failed tab:'audit') and has NO Preview surface. A terminal FAILED run with no
+  // deliverable now drops the Preview tab (visibleTabs) AND lands on Audit here.
+  // The latch keys on a generic discriminator that folds the failed-no-deliverable
+  // state into "failed" so the auto-select fires for it; a failed run that still
+  // carries content keeps Preview (content wins) and is left as-is.
+  const defaultTabDiscriminator = terminalFailureNoDeliverable ? "failed" : headerRunState;
   useEffect(() => {
-    if (autoTabbedForState.current === headerRunState) return;
-    autoTabbedForState.current = headerRunState;
+    if (autoTabbedForState.current === defaultTabDiscriminator) return;
+    autoTabbedForState.current = defaultTabDiscriminator;
     const target: PanelTab | null =
+      defaultTabDiscriminator === "failed" ? "audit" :
       headerRunState === "complete" ? "preview" :
       (headerRunState === "gate" || headerRunState === "clarify" || headerRunState === "building") ? "thinking" :
       null;
     if (target) setActiveTab(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [headerRunState]);
+  }, [defaultTabDiscriminator]);
   // Live version label — derived from the live family (active member index) or the
   // pipeline's deliverableVersion; default v1. NEVER the mock's fixed "v1"/"v2".
   const familyVersionCount = runFamily?.members.length ?? 0;
@@ -916,7 +935,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
           right cluster. */}
       <div className="flex-none px-[30px] pt-4 flex items-center justify-between gap-2 border-b border-line-divider">
         <Tabs
-          tabs={TAB_CONFIG.map((tab) => ({
+          tabs={visibleTabs.map((tab) => ({
             id: tab.id,
             label: tab.label,
             icon:
@@ -965,10 +984,15 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0 overflow-y-auto"
             >
-              {showFailureAffordance ? (
-                // Failed run — the mock shows the degraded card, NOT a chromed
-                // preview (Hexaware Run - Failed.dc.html has no Preview surface).
-                // Keep the existing affordance path exactly, unwrapped.
+              {showCancelledAffordance ? (
+                // Phase 42-03 (§D / Group D): the FAILED run's amber
+                // DegradedRunAffordance is RETIRED on the run screen — a terminal-
+                // failed run now drops the Preview tab entirely (visibleTabs) and
+                // defaults to Audit, so this branch is never reached for it. The
+                // ONLY remaining consumer is a CANCELLED-terminal run (a deliberate
+                // user Stop, §8 decision 4 keeps history/reopen behavior), which
+                // keeps its Preview tab and its cancelled-specific affordance copy.
+                // DegradedRunAffordance stays exported for RunDetailPage.tsx:296.
                 <DegradedRunAffordance
                   failedAgents={failedAgentNames}
                   agentNameById={failedAgentNameById}

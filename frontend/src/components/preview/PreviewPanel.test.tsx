@@ -200,7 +200,7 @@ describe("PreviewPanel — Phase 39 Preview browser chrome", () => {
     expect(screen.queryByTestId("renders-as-switch")).toBeNull();
   });
 
-  it("keeps the degraded affordance UNWRAPPED (no chrome) for a terminal-failed, empty run", () => {
+  it("Group D: a terminal-failed empty run drops the Preview tab, defaults to Audit, and retires the amber DegradedRunAffordance on the run screen", () => {
     const failedState = {
       isRunning: false,
       failed: true,
@@ -212,8 +212,35 @@ describe("PreviewPanel — Phase 39 Preview browser chrome", () => {
       failedAgents: ["prototype-build"],
     } as unknown as PipelineRunState;
     render(<PreviewPanel workflowType="prototype" pipelineState={failedState} />);
-    // The failed mock shows the degraded card, NOT a chromed preview.
+    // The Failed mock has NO Preview surface — the tab set is [Steps, Audit, Files].
+    expect(screen.queryByTestId("tab-preview")).toBeNull();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Steps", "Files", "Audit"]);
+    // It defaults to Audit (Hexaware Run - Failed tab:'audit').
+    expect(screen.getByTestId("tab-audit")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("audit-tab")).toBeInTheDocument();
+    // The amber DegradedRunAffordance is retired on the run screen (red lives in
+    // the lane/Steps/header per §4 KEEP); no chromed preview either.
+    expect(screen.queryByText(/did not complete successfully/i)).toBeNull();
     expect(screen.queryByTestId("preview-chrome")).toBeNull();
-    expect(screen.getByText(/did not complete successfully/i)).toBeInTheDocument();
+    // The RunHeader still reads the red failed state (§4 KEEP — unchanged).
+    expect(screen.getByTestId("run-header")).toHaveAttribute("data-run-state", "terminal");
+  });
+
+  it("Group D: a NON-failed settled run keeps all four tabs and defaults to Preview", () => {
+    const settled = {
+      isRunning: false,
+      pipeline_type: "prototype",
+      agents: [],
+      currentAgentIndex: 0,
+      totalDuration: null,
+      completedCount: 0,
+    } as unknown as PipelineRunState;
+    render(
+      <PreviewPanel workflowType="prototype" prototypeContent="<html>ok</html>" pipelineState={settled} />,
+    );
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Preview", "Steps", "Files", "Audit"]);
+    expect(screen.getByTestId("tab-preview")).toHaveAttribute("aria-selected", "true");
   });
 });
