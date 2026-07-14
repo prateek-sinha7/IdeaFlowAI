@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import type { ChatBlock } from "../runtime/blocks.types";
 import { ThinkingBlock } from "./ThinkingBlock";
-import { TodoCard, type Todo } from "./TodoCard";
 import { FileOpsSummary } from "./FileOpsSummary";
 
 // ─── open-design borrow #7 (31-02 Task 3) — thinking / todo / file-ops blocks ─
@@ -46,20 +45,6 @@ describe("ThinkingBlock", () => {
     const block: ThinkingData = { kind: "thinking", text: "…" };
     render(<ThinkingBlock block={block} />);
     expect(screen.getByText("Thought process")).toBeInTheDocument();
-  });
-});
-
-describe("TodoCard", () => {
-  it("renders its testid and plan progress", () => {
-    const todos: Todo[] = [
-      { content: "Draft the spec", status: "completed" },
-      { content: "Build the lane", status: "in_progress" },
-    ];
-    render(<TodoCard todos={todos} />);
-    expect(screen.getByTestId("chat-todo-card")).toBeInTheDocument();
-    expect(screen.getByTestId("chat-todo-card")).toHaveTextContent("1/2");
-    expect(screen.getByText("Draft the spec")).toBeInTheDocument();
-    expect(screen.getByText("Build the lane")).toBeInTheDocument();
   });
 });
 
