@@ -149,7 +149,8 @@ export interface DashboardLayoutProps {
   // Phase 12 (WAVE-03) — wave groups assembled from the live `wave_*` /
   // `subagent_*` WS events by dashboard/page.tsx. Optional + defaulted to []
   // so existing callers/tests that omit it are unaffected; a non-wave run
-  // feeds an empty list and WaveTreePanel renders its own empty state.
+  // feeds an empty list and AgentDetailPanel's inline construction/wave tree
+  // renders its own empty state.
   waves?: WaveGroup[];
   // Workstream C2 (POR §5 D3 / §6.2) — the live run's captured input (submittedBrief
   // in page.tsx, set in onStartPipeline). Threaded as PreviewPanel.runInput so the
@@ -1699,10 +1700,11 @@ export function DashboardLayout({
                     was REMOVED here — its Stop/revise/suggestions controls are fully
                     absorbed by the RunChatLane composer above, leaving ONE stop/revise
                     implementation. Per-agent detail relocates into Steps in plan 08. */}
-                {/* Phase 32 (plan 08 / ISS-019): the WaveTreePanel below-the-fold
-                    left-column mount is RELOCATED into the Steps drill-down (it now
-                    renders inside AgentThinkingTab via the `waves` passthrough to
-                    PreviewPanel below). INV-3 — one WaveTreePanel mount. */}
+                {/* Phase 32 (plan 08 / ISS-019) + Phase 39/42-04: the separate
+                    below-the-fold wave-tree panel is gone. The live wave/subagent
+                    tree renders inside AgentDetailPanel's inline construction block
+                    (Steps drill-down) via the `waves` passthrough to PreviewPanel
+                    below. INV-12 — one wave-tree implementation. */}
               </div>
 
               {/* Right Panel — always PreviewPanel */}

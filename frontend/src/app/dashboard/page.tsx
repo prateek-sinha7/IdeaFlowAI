@@ -112,7 +112,8 @@ export default function DashboardPage() {
   } | null>(null);
 
   // Phase 12 (§22 / RESUME-03) — wave/subagent tree state assembled from the
-  // additive wave_*/subagent_* lifecycle events, fed to the WaveTreePanel.
+  // additive wave_*/subagent_* lifecycle events, fed (via the `waves` passthrough)
+  // to AgentDetailPanel's inline construction/wave tree.
   const [waveGroups, setWaveGroups] = useState<WaveGroup[]>([]);
   // Per-run dedup substrate for the durable reconnect replay (RESUME-03 FE half):
   // every applied event_id is recorded so a replayed event is applied at most

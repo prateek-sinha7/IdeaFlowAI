@@ -332,9 +332,10 @@ interface PreviewPanelProps {
   onSkipClarify?: () => void;
   /** Cancel the active pipeline from the inline Steps clarify (Phase 42-02 §A2 re-home). */
   onCancelWorkflow?: () => void;
-  // Phase 32 (plan 08 / ISS-019) — the live wave/subagent groups, forwarded to
-  // the Steps drill-down where WaveTreePanel now mounts (relocated from the
-  // below-the-fold left-column slot). Optional/default-empty (tsc-identity).
+  // Phase 32 (plan 08 / ISS-019) + Phase 39/42-04 — the live wave/subagent
+  // groups, forwarded to the Steps drill-down where AgentDetailPanel's inline
+  // construction/wave tree renders them (the separate WaveTreePanel was retired,
+  // INV-12). Optional/default-empty (tsc-identity).
   waves?: import("@/types/index").WaveGroup[];
   // Phase 39 (RUNUI-06/07) — run-header action wiring. Both optional/default-
   // undefined so history + test renders are byte-unchanged (tsc-identity), and
