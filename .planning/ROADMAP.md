@@ -736,12 +736,12 @@ Plans:
 **Goal:** Every run state (planning · live · clarify · review-gate · complete · failed · revision) matches the three VelocityAI run mocks, by REMOVING the legacy full-screen right-panel takeovers so the already-built inline surfaces become reachable, plus the fidelity polish the mocks require, plus the settled agent-detail artifact cards — FRONTEND-ONLY (INV-3/LOCK-B), generically keyed (SC-001), closed on per-state screenshot-diff + human sign-off.
 **Requirements:** RUNUI-06, RUNUI-07, RUNUI-08, RUNUI-09
 **Depends on:** Phase 41
-**Plans:** 11 plans
+**Plans:** 2/11 plans executed
 
 Plans:
 
-- [ ] 42-01-PLAN.md — Fidelity harness: capture planning/clarify-awaiting/gate-awaiting states both sides (Wave 1)
-- [ ] 42-02-PLAN.md — Kill the 3 takeover branches + auto-tab per state + re-home Cancel + delete QuestionnairePanel (Wave 2)
+- [x] 42-01-PLAN.md — Fidelity harness: capture planning/clarify-awaiting/gate-awaiting states both sides (Wave 1)
+- [x] 42-02-PLAN.md — Kill the 3 takeover branches + auto-tab per state + re-home Cancel + delete QuestionnairePanel (Wave 2)
 - [ ] 42-03-PLAN.md — Lane composer = plain hint during clarify/gate + failed run drops Preview/defaults Audit/retires DegradedRunAffordance (Wave 3)
 - [ ] 42-04-PLAN.md — Delete dead code: AgentProgressPanel / WaveTreePanel / TodoCard + tests + stale comments (Wave 3)
 - [ ] 42-05-PLAN.md — Extract shared artifactPreview module (discriminator + Spec/Tasks/Analysis parsers) + delete ReviewGatePanel.tsx (Wave 3)
