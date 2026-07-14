@@ -54,6 +54,18 @@ interface FilesTabProps {
   // completed runs). The file list itself already reflects the reduced live
   // outputs (ND-D — never a fabricated planning-only list).
   runStatus?: "failed" | "degraded";
+  // Phase 42-07 (RUNUI-06, Group H) — LIVE building signal. While the run is in
+  // flight the dark "Final output" hero swaps to a BUILDING variant (spinner +
+  // indeterminate top bar + "task N of M · not yet validated") and the Download /
+  // Download-All actions are suppressed (nothing to download yet). Bound to the
+  // live pipelineState.isRunning (generic — SC-001), NOT a workflow name. Default
+  // undefined/false → the settled hero renders unchanged (zero regression). The
+  // task counts + in-progress filename are the SAME live values the run header
+  // uses (INV-12 — never the mock's fixed literal); each is elided when absent (ND-D).
+  isRunning?: boolean;
+  buildingTaskIndex?: number;
+  buildingTaskTotal?: number;
+  buildingFilename?: string;
 }
 
 // ─── Workstream C2 (POR §5 D7) — "Run input" file rows (module-level pure) ─────
@@ -301,7 +313,7 @@ function deriveDeliverableFiles(
   return files;
 }
 
-export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, parentRunId, parentVersionNumber, runInput, clarifications, onOpenPreview, runStatus }: FilesTabProps) {
+export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, parentRunId, parentVersionNumber, runInput, clarifications, onOpenPreview, runStatus, isRunning, buildingTaskIndex, buildingTaskTotal, buildingFilename }: FilesTabProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   // ─── B3 (POR §5 D6) — base-version "From v{n-1}" section state ────────────────
   // Collapsed by default; the parent run's files are fetched LAZILY on first
@@ -547,7 +559,10 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   const runInputRows = runInputFileRows(runInput, clarifications);
   const totalCount = files.length + appBuilderDocFiles.length + appBuilderCodeFiles.length + genericAgentFiles.length + runInputRows.length;
 
-  if (totalCount === 0) {
+  // While the run is live the building hero renders even before any deliverable /
+  // agent output has landed, so the empty-state only shows for a settled run with
+  // genuinely nothing (KEEP — zero regression when not running).
+  if (totalCount === 0 && !isRunning) {
     return (
       <div className="flex items-center justify-center h-full px-6 bg-surface-paper">
         <div className="text-center">
@@ -680,6 +695,47 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     </div>
   ) : null;
 
+  // ── Phase 42-07 (RUNUI-06, Group H) — BUILDING hero (mock Hexaware Run -
+  // Live.dc.html:568-578). Renders in place of the settled `finalOutputHero`
+  // while the run is live: an indeterminate top progress bar + a spinner + the
+  // "Final output · building" eyebrow + the in-progress filename (finalFile when
+  // the streamed deliverable already exists, else the live buildingFilename;
+  // elided when neither is known — never fabricated) + a live "task N of M · not
+  // yet validated" subline (counts elided when absent — ND-D). NO Download /
+  // Preview actions (nothing to download yet). Component-scoped keyframe (uniquely
+  // named to avoid a global collision — globals.css is out of scope), mirroring
+  // the PreviewChrome indeterminate-bar idiom (INV-12).
+  const BUILDING_BAR_KEYFRAMES =
+    "@keyframes files-hero-bar{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}";
+  const buildingName = finalFile?.name ?? buildingFilename;
+  const buildingSubline = [
+    finalFile?.format,
+    buildingTaskTotal && buildingTaskTotal > 0
+      ? `task ${Math.min(buildingTaskIndex ?? 1, buildingTaskTotal)} of ${buildingTaskTotal}`
+      : null,
+    "not yet validated",
+  ].filter(Boolean).join(" · ");
+  const buildingHero = (
+    <div data-testid="files-building-hero" className="relative overflow-hidden rounded-2xl bg-surface-ink-black px-6 py-[22px]">
+      <style>{BUILDING_BAR_KEYFRAMES}</style>
+      <div aria-hidden className="absolute inset-x-0 top-0 h-[3px] overflow-hidden bg-brand-border">
+        <div className="h-full w-[30%] bg-brand-on-dark" style={{ animation: "files-hero-bar 1.6s ease-in-out infinite" }} />
+      </div>
+      <div className="relative flex items-center gap-[18px]">
+        <div className="grid h-[52px] w-[52px] flex-none place-items-center rounded-xl border border-white/[0.12] bg-white/[0.08]">
+          <span aria-hidden className="h-6 w-6 rounded-full border-2 border-brand-on-dark border-t-transparent animate-spin" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="m-0 font-sans text-[9.5px] font-semibold uppercase tracking-[0.14em] text-brand-on-dark">Final output · building</p>
+          {buildingName && (
+            <p className="m-0 mt-1 truncate font-sans text-[17px] font-medium leading-[1.25] text-white">{buildingName}</p>
+          )}
+          <p className="m-0 mt-[5px] font-serif text-[12px] text-[#9FA0AE]">{buildingSubline}</p>
+        </div>
+      </div>
+    </div>
+  );
+
   // ── Phase 39-03 — "Run input" bordered card pair (mock :658-669). The same
   // live runInputRows (prompt.md / clarifications.md), one compact card each;
   // clicking a card downloads it (reuses handleDownload). Type-agnostic.
@@ -733,16 +789,24 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
               {deliverableCount > 0 ? ` · ${deliverableCount} deliverable${deliverableCount !== 1 ? "s" : ""}` : ""}
             </p>
           </div>
-          <button
-            onClick={downloadAll}
-            className="inline-flex flex-none items-center gap-2 rounded-[var(--radius-button)] border border-line-control bg-surface-card px-[15px] py-[9px] font-sans text-[13px] font-medium text-ink-700 transition-colors hover:border-line-faint hover:bg-surface-white"
-          >
-            <Download className="h-[15px] w-[15px]" strokeWidth={1.7} />
-            Download All
-          </button>
+          {/* Download All is suppressed while the run is building (nothing to
+              download yet) — Phase 42-07 Group H. */}
+          {!isRunning && (
+            <button
+              onClick={downloadAll}
+              className="inline-flex flex-none items-center gap-2 rounded-[var(--radius-button)] border border-line-control bg-surface-card px-[15px] py-[9px] font-sans text-[13px] font-medium text-ink-700 transition-colors hover:border-line-faint hover:bg-surface-white"
+            >
+              <Download className="h-[15px] w-[15px]" strokeWidth={1.7} />
+              Download All
+            </button>
+          )}
         </div>
 
         {buildIncompleteBanner}
+
+        {/* Phase 42-07 Group H — while running the BUILDING hero replaces the
+            settled deliverable hero (shown here so it precedes both layouts). */}
+        {isRunning && buildingHero}
 
         {/* ── App Builder layout (multi-section; token-reskinned) ─────────────── */}
         {isAppBuilder ? (
@@ -784,7 +848,9 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         ) : (
           /* ── Non-app-builder layout — hero + agent-outputs + run input ─────── */
           <>
-            {finalOutputHero}
+            {/* The settled deliverable hero is replaced by the building hero
+                (rendered above) while the run is live — Phase 42-07 Group H. */}
+            {!isRunning && finalOutputHero}
 
             {genericAgentFiles.length > 0 && (
               <div className="mt-7">

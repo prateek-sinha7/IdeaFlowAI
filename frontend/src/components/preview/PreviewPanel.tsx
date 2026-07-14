@@ -1078,7 +1078,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} />
+              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
             </motion.div>
           )}
           {activeTab === "thinking" && (
