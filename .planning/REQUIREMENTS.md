@@ -284,7 +284,7 @@ divergences ND-AE..AJ (see `41-UI-SPEC.md` / `assemble-phase41-gallery.mjs`).
 - [ ] **CMPUI-01**: The Composer is a full-page surface with entry from Home + edit-from-My-Workflows and a Simple⇄Canvas toggle, bound to the AgentsPopup shared data model; the modal shell is replaced (INV-3).
 - [ ] **CMPUI-02**: The Simple view matches `Hexaware Composer.dc.html` — identity card + reorderable agent rows + model picker + override chips + custom prompt + capability palette + skills & hooks + summary rail (screenshot-diff + HUMAN sign-off).
 - [ ] **CMPUI-03**: The hand-rolled node-graph Canvas view matches the APPROVED proposal `composer-canvas-proposal.html` — design-match HUMAN sign-off (ND-AJ); no graph library (D-CMP-CANVAS).
-- [ ] **CMPUI-04**: Run-once launches through the existing `onStartPipeline` seam (functional test) + Save-to-catalogue reuses `createUserWorkflow`; no engine/backend/manifest change, no fabricated cost (ND-AG).
+- [x] **CMPUI-04**: Run-once launches through the existing `onStartPipeline` seam (functional test) + Save-to-catalogue reuses `createUserWorkflow`; no engine/backend/manifest change, no fabricated cost (ND-AG). *(41-06, commit 19f9fdf7 — composer-run.spec.ts mocked 2/2 green)*
 - [ ] **CMPUI-05**: The Library agent-detail right-drawer rebuilt from AgentCapabilitiesModal — closes SHELL-04's Agent-drawer clause (ND-Z).
 - [ ] **HARN-01**: The Configure template/DS/ppt APIs stubbed + seeded (opt-in) + the Phase-41 fidelity oracle formalized (repo-relative, per-surface `--surface`-regenerable, carrying ND-AE..AJ + a Canvas design-match target).
 
@@ -518,7 +518,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | CMPUI-01 | Phase 41 [B7] | Pending |
 | CMPUI-02 | Phase 41 [B7] | Pending |
 | CMPUI-03 | Phase 41 [B7] | Pending |
-| CMPUI-04 | Phase 41 [B7] | Pending |
+| CMPUI-04 | Phase 41 [B7] | Complete (41-06) |
 | CMPUI-05 | Phase 41 [B7] | Pending |
 | HARN-01 | Phase 41 [B7] | Pending |
 
