@@ -34,6 +34,13 @@ deepagents==0.6.7
 # LangGraph Postgres checkpointer — durable HITL review gates + crash/disconnect
 # resume; uses the production DATABASE_URL=postgresql://... (manages its own tables).
 langgraph-checkpoint-postgres==3.1.0
+# langgraph-checkpoint-postgres depends transitively on bare `psycopg>=3.2.0`,
+# which resolves to the core package with NO pq wrapper bundled — it needs a
+# system libpq at import time or it raises "no pq wrapper available" the
+# moment get_checkpointer() runs (checkpointer.py). Pinning the [binary] extra
+# here bundles a self-contained libpq in the wheel so no OS-level Postgres
+# client library install is required on any dev machine or container.
+psycopg[binary]==3.2.4
 # Headless Chromium driver for prototype render-validation
 # (app/agents/render_check.py). The browser binary itself is installed in the
 # Dockerfile via `playwright install --with-deps chromium` (not in the wheel).

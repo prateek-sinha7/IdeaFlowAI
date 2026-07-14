@@ -3,111 +3,78 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Flowin — Interactive Architecture</title>
+<title>Interactive Map · Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
 <style>
 /* ════════════════════════════ theme ════════════════════════════ */
-:root {
-  --bg: #f6f7f9;
-  --bg-stage: #fcfcfd;
-  --dot: #e3e6ea;
+/* All component styles below are scoped under .iarch so they never
+   collide with the shared Flowin Docs design system (assets/styles.css). */
+.iarch {
+  /* scoped palette — aligned to the Flowin Docs blue/violet/cyan tokens */
+  --bg: #eef2f9;
+  --bg-stage: #f7faff;
+  --dot: #dbe3f3;
   --panel: #ffffff;
-  --ink: #16181d;
-  --ink-2: #3c4250;
-  --ink-3: #767e8c;
-  --line: #e2e5ea;
-  --edge: #9aa3b2;
-  --edge-label: #5b6472;
-  --shadow: 0 1px 2px rgba(20,24,32,.06), 0 8px 24px rgba(20,24,32,.07);
-  --shadow-node: 0 1px 1.5px rgba(20,24,32,.10);
+  --ink: #1b2440;
+  --ink-2: #3f4a6e;
+  --ink-3: #8592b3;
+  --line: #e4e9f3;
+  --edge: #9aa8c8;
+  --edge-label: #54608a;
+  --shadow: 0 8px 26px rgba(30,50,90,.10);
+  --shadow-node: 0 1px 1.5px rgba(30,50,90,.10);
 
-  --c-source: #4f5df0;  --c-source-bg: #eef0fe;  --c-source-ln: #c3c9fb;
-  --c-install: #0d8f83; --c-install-bg: #e6f6f4; --c-install-ln: #a9dfd9;
-  --c-runtime: #b25e09; --c-runtime-bg: #fdf2e3; --c-runtime-ln: #f2d4a8;
-  --c-plat: #8b3fd6;    --c-plat-bg: #f5edfd;    --c-plat-ln: #ddc3f5;
-  --c-hook: #cf3462;    --c-hook-bg: #fdeef2;    --c-hook-ln: #f6bfd0;
-  --c-out: #187a3a;     --c-out-bg: #e9f7ee;     --c-out-ln: #b4e2c4;
-  --c-neutral: #566070; --c-neutral-bg: #f1f3f5; --c-neutral-ln: #d7dbe1;
-  --c-danger: #cd2b41;  --c-success: #187a3a;
-}
-[data-theme="dark"] {
-  --bg: #0e1116;
-  --bg-stage: #12151b;
-  --dot: #232833;
-  --panel: #181c24;
-  --ink: #eef0f4;
-  --ink-2: #c3c9d4;
-  --ink-3: #828b9a;
-  --line: #262c37;
-  --edge: #59637a;
-  --edge-label: #97a1b3;
-  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px rgba(0,0,0,.45);
-  --shadow-node: 0 1px 2px rgba(0,0,0,.5);
+  --c-source: #3b6df6;  --c-source-bg: #e8effe;  --c-source-ln: #c5d8fb;
+  --c-install: #0e9aae; --c-install-bg: #e3f6f8; --c-install-ln: #b7e4ea;
+  --c-runtime: #b9820b; --c-runtime-bg: #fdf3dc; --c-runtime-ln: #f0dcac;
+  --c-plat: #7c5cff;    --c-plat-bg: #f0ebfe;    --c-plat-ln: #d5cbfb;
+  --c-hook: #d6469f;    --c-hook-bg: #fdeaf6;    --c-hook-ln: #f2c3e2;
+  --c-out: #12a06a;     --c-out-bg: #e5f6ee;     --c-out-ln: #bbe6d3;
+  --c-neutral: #54608a; --c-neutral-bg: #eef2fb; --c-neutral-ln: #d4ddec;
+  --c-danger: #e0405a;  --c-success: #12a06a;
 
-  --c-source: #93a0ff;  --c-source-bg: #1d2140;  --c-source-ln: #3b4380;
-  --c-install: #4fd3c4; --c-install-bg: #0f2c29; --c-install-ln: #1e5c55;
-  --c-runtime: #f0a355; --c-runtime-bg: #33230e; --c-runtime-ln: #6b4a1e;
-  --c-plat: #c99af0;    --c-plat-bg: #2a1c3d;    --c-plat-ln: #563a7d;
-  --c-hook: #f480a4;    --c-hook-bg: #3a1522;    --c-hook-ln: #74304a;
-  --c-out: #6fd695;     --c-out-bg: #10291a;     --c-out-ln: #245c38;
-  --c-neutral: #aab3c2; --c-neutral-bg: #1d222b; --c-neutral-ln: #333b49;
-  --c-danger: #ff7a8d;  --c-success: #6fd695;
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background: var(--bg); color: var(--ink);
+  /* card that hosts the interactive stage inside the docs page flow */
+  position: relative;
   display: flex; flex-direction: column;
-  -webkit-font-smoothing: antialiased;
+  height: 84vh; min-height: 620px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; background: var(--panel);
+  box-shadow: var(--shadow); margin: 6px 0 2px;
+  color: var(--ink);
 }
-
-/* ════════════════════════════ header ════════════════════════════ */
-.hdr {
-  padding: 18px 28px 0;
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
-  flex-wrap: wrap;
+/* .iarch-doc: the static Getting Started section — flows in the page,
+   no fixed-height stage card, but keeps the scoped .iarch variables. */
+.iarch.iarch-doc {
+  display: block; height: auto; min-height: 0; overflow: visible;
+  border: none; box-shadow: none; background: transparent; margin: 2px 0 8px;
 }
-.hdr h1 { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
-.hdr h1 span { color: var(--ink-3); font-weight: 500; }
-.hdr .sub { font-size: 13px; color: var(--ink-3); margin-top: 3px; max-width: 720px; line-height: 1.5; }
-.stats { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-.stat {
-  font-size: 11.5px; font-weight: 600; color: var(--ink-2);
-  background: var(--panel); border: 1px solid var(--line);
-  padding: 4px 10px; border-radius: 99px;
-}
-.stat b { color: var(--c-source); }
-.hdr-actions { display: flex; gap: 8px; align-items: center; }
-.btn {
-  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-2);
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  padding: 7px 12px; cursor: pointer; transition: all .15s;
-}
-.btn:hover { color: var(--ink); border-color: var(--edge); }
+.iarch-doc .doc-inner { max-width: none; margin: 0; padding: 4px 0 2px; }
+.iarch-doc .doc-inner h3:first-child { margin-top: 6px; }
 
 /* ════════════════════════════ tabs ════════════════════════════ */
 .tabs {
-  display: flex; gap: 2px; padding: 14px 28px 0; flex-wrap: wrap;
+  display: flex; gap: 2px; padding: 8px 12px 0; flex-wrap: nowrap;
+  overflow-x: auto; scrollbar-width: none;
   border-bottom: 1px solid var(--line);
 }
+.tabs::-webkit-scrollbar { display: none; }
 .tab {
-  font: inherit; font-size: 13px; font-weight: 550; color: var(--ink-3);
+  font: inherit; font-size: 12px; font-weight: 550; color: var(--ink-3);
   background: none; border: none; cursor: pointer;
-  padding: 9px 14px 11px; border-bottom: 2px solid transparent;
+  padding: 8px 9px 10px; border-bottom: 2px solid transparent;
   margin-bottom: -1px; transition: color .15s; white-space: nowrap;
 }
 .tab:hover { color: var(--ink-2); }
 .tab.active { color: var(--c-source); border-bottom-color: var(--c-source); font-weight: 650; }
 .tab kbd {
-  font-family: inherit; font-size: 10px; color: var(--ink-3);
-  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-right: 6px;
+  font-family: inherit; font-size: 9.5px; color: var(--ink-3);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 3px; margin-right: 5px;
   background: var(--panel);
 }
 .tab.active kbd { color: var(--c-source); border-color: var(--c-source-ln); }
 
 /* ════════════════════════════ stage ════════════════════════════ */
-.main { flex: 1; display: flex; min-height: 0; }
+.iarch-main { flex: 1; display: flex; min-height: 0; }
 .stage-wrap { flex: 1; position: relative; min-width: 0; }
 .stage {
   position: absolute; inset: 0;
@@ -149,7 +116,7 @@ body {
 }
 
 /* legend */
-.legend {
+.iarch-legend {
   position: absolute; bottom: 12px; right: 14px; display: flex; gap: 10px; flex-wrap: wrap;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   padding: 7px 12px; box-shadow: var(--shadow); max-width: 60%;
@@ -213,39 +180,59 @@ body {
 .tip .t-more { color: var(--ink-3); font-size: 10.5px; margin-top: 6px; }
 
 /* ════════════════════════════ svg pieces ════════════════════════════ */
-.grp-rect { fill: var(--panel); stroke: var(--line); stroke-width: 1; rx: 14; opacity: .55; }
-.grp-label { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.grp-rect { fill: var(--panel); stroke: var(--line); stroke-width: 1; rx: 16; opacity: .5; }
+.grp-rect.src  { fill: var(--c-source-bg);  stroke: var(--c-source-ln);  opacity: .3; }
+.grp-rect.ins  { fill: var(--c-install-bg); stroke: var(--c-install-ln); opacity: .3; }
+.grp-rect.run  { fill: var(--c-runtime-bg); stroke: var(--c-runtime-ln); opacity: .3; }
+.grp-rect.plat { fill: var(--c-plat-bg);    stroke: var(--c-plat-ln);    opacity: .3; }
+.grp-rect.hook { fill: var(--c-hook-bg);    stroke: var(--c-hook-ln);    opacity: .3; }
+.grp-rect.out  { fill: var(--c-out-bg);     stroke: var(--c-out-ln);     opacity: .3; }
+.grp-rect.neu  { fill: var(--c-neutral-bg); stroke: var(--c-neutral-ln); opacity: .3; }
+.grp-label { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
 .node { cursor: pointer; }
-.node rect { stroke-width: 1.25; filter: drop-shadow(0 1px 1.5px rgba(20,24,32,.13)); transition: filter .15s; }
-[data-theme="dark"] .node rect { filter: drop-shadow(0 1.5px 3px rgba(0,0,0,.55)); }
-.node:hover rect { stroke-width: 2; filter: drop-shadow(0 3px 8px rgba(20,24,32,.2)); }
-.node.pinned rect { stroke-width: 2.5; }
-.node .n-title { font-size: 13px; font-weight: 650; fill: var(--ink); }
-.node .n-sub { font-size: 11px; fill: var(--ink-3); font-weight: 480; }
+.node rect.n-card {
+  stroke-width: 1.25; transition: filter .16s, stroke .16s, stroke-width .16s;
+  filter: drop-shadow(0 1px 1px rgba(27,36,64,.05)) drop-shadow(0 4px 10px rgba(27,36,64,.07));
+}
+.node:hover rect.n-card {
+  filter: drop-shadow(0 2px 4px rgba(27,36,64,.10)) drop-shadow(0 12px 24px rgba(27,36,64,.16));
+}
+.node.pinned rect.n-card { stroke-width: 2.25; }
+.n-accent { opacity: .9; transition: opacity .16s; }
+.node:hover .n-accent { opacity: 1; }
+.node .n-title { font-size: 12.5px; font-weight: 600; fill: var(--ink); letter-spacing: -.005em; }
+.node .n-sub { font-size: 10.5px; fill: var(--ink-3); font-weight: 450; }
 .node .n-badge { font-size: 10px; font-weight: 700; }
 
-.src rect  { fill: var(--c-source-bg);  stroke: var(--c-source-ln); }  .src .n-badge  { fill: var(--c-source); }
-.ins rect  { fill: var(--c-install-bg); stroke: var(--c-install-ln); } .ins .n-badge  { fill: var(--c-install); }
-.run rect  { fill: var(--c-runtime-bg); stroke: var(--c-runtime-ln); } .run .n-badge  { fill: var(--c-runtime); }
-.plat rect { fill: var(--c-plat-bg);    stroke: var(--c-plat-ln); }    .plat .n-badge { fill: var(--c-plat); }
-.hook rect { fill: var(--c-hook-bg);    stroke: var(--c-hook-ln); }    .hook .n-badge { fill: var(--c-hook); }
-.out rect  { fill: var(--c-out-bg);     stroke: var(--c-out-ln); }     .out .n-badge  { fill: var(--c-out); }
-.neu rect  { fill: var(--c-neutral-bg); stroke: var(--c-neutral-ln); } .neu .n-badge  { fill: var(--c-neutral); }
+.src rect.n-card  { fill: var(--c-source-bg);  stroke: var(--c-source-ln); }  .src .n-badge  { fill: var(--c-source); }
+.ins rect.n-card  { fill: var(--c-install-bg); stroke: var(--c-install-ln); } .ins .n-badge  { fill: var(--c-install); }
+.run rect.n-card  { fill: var(--c-runtime-bg); stroke: var(--c-runtime-ln); } .run .n-badge  { fill: var(--c-runtime); }
+.plat rect.n-card { fill: var(--c-plat-bg);    stroke: var(--c-plat-ln); }    .plat .n-badge { fill: var(--c-plat); }
+.hook rect.n-card { fill: var(--c-hook-bg);    stroke: var(--c-hook-ln); }    .hook .n-badge { fill: var(--c-hook); }
+.out rect.n-card  { fill: var(--c-out-bg);     stroke: var(--c-out-ln); }     .out .n-badge  { fill: var(--c-out); }
+.neu rect.n-card  { fill: var(--c-neutral-bg); stroke: var(--c-neutral-ln); } .neu .n-badge  { fill: var(--c-neutral); }
+.src:hover  rect.n-card, .src.pinned  rect.n-card { stroke: var(--c-source); }
+.ins:hover  rect.n-card, .ins.pinned  rect.n-card { stroke: var(--c-install); }
+.run:hover  rect.n-card, .run.pinned  rect.n-card { stroke: var(--c-runtime); }
+.plat:hover rect.n-card, .plat.pinned rect.n-card { stroke: var(--c-plat); }
+.hook:hover rect.n-card, .hook.pinned rect.n-card { stroke: var(--c-hook); }
+.out:hover  rect.n-card, .out.pinned  rect.n-card { stroke: var(--c-out); }
+.neu:hover  rect.n-card, .neu.pinned  rect.n-card { stroke: var(--c-neutral); }
 
-.edge { fill: none; stroke: var(--edge); stroke-width: 1.6; }
-.edge.flow { stroke-dasharray: 7 5; animation: dash 1.1s linear infinite; }
-.edge.dashed { stroke-dasharray: 3 5; opacity: .75; }
-.edge.thick { stroke-width: 2.4; }
+.edge { fill: none; stroke: var(--edge); stroke-width: 1.5; opacity: .9; }
+.edge.flow { stroke-dasharray: 6 5; animation: dash 1.5s linear infinite; }
+.edge.dashed { stroke-dasharray: 3 5; opacity: .55; }
+.edge.thick { stroke-width: 2.2; }
 .edge.danger { stroke: var(--c-danger); }
 .edge.success { stroke: var(--c-success); }
-@keyframes dash { to { stroke-dashoffset: -12; } }
-.e-label { font-size: 10.5px; font-weight: 620; fill: var(--edge-label);
+@keyframes dash { to { stroke-dashoffset: -11; } }
+.e-label { font-size: 10px; font-weight: 600; fill: var(--edge-label);
   paint-order: stroke; stroke: var(--bg-stage); stroke-width: 4px; stroke-linejoin: round; }
 .e-label.danger { fill: var(--c-danger); }
 .e-label.success { fill: var(--c-success); }
 
-@media (max-width: 900px) { .panel { display: none !important; } .legend { display: none; } }
+@media (max-width: 900px) { .panel { display: none !important; } .iarch-legend { display: none; } }
 
 /* ════════════════════════════ getting-started doc view ════════════════════════════ */
 .docview {
@@ -288,13 +275,13 @@ body {
 }
 .code-block .copy-btn:hover { color: var(--ink); border-color: var(--edge); }
 .code-block .copy-btn.copied { color: var(--c-success); border-color: var(--c-out-ln); }
-.callout {
+.i-callout {
   border-radius: 10px; padding: 12px 16px; margin: 0 0 16px; font-size: 13px; line-height: 1.6;
   border: 1px solid var(--c-source-ln); background: var(--c-source-bg); color: var(--ink-2);
 }
-.callout b { color: var(--ink); }
-.callout.warn { border-color: var(--c-runtime-ln); background: var(--c-runtime-bg); }
-.callout.success { border-color: var(--c-out-ln); background: var(--c-out-bg); }
+.i-callout b { color: var(--ink); }
+.i-callout.warn { border-color: var(--c-runtime-ln); background: var(--c-runtime-bg); }
+.i-callout.success { border-color: var(--c-out-ln); background: var(--c-out-bg); }
 .doc-table { width: 100%; border-collapse: collapse; margin: 0 0 16px; font-size: 13px; }
 .doc-table th, .doc-table td {
   text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line);
@@ -303,30 +290,109 @@ body {
 .doc-table td code { background: var(--bg-stage); }
 </style>
 </head>
-<body>
-
-<div class="hdr">
-  <div>
-    <h1>Flowin <span>· Interactive Architecture</span></h1>
-    <div class="sub">Start with Getting Started to run it on your machine, then explore six zoomable views of the AI SaaS platform — hover any element for a plain-language explanation, click to pin the technical detail.</div>
-    <div class="stats">
-      <span class="stat"><b>84</b> agents</span>
-      <span class="stat"><b>14</b> pipeline types</span>
-      <span class="stat"><b>9</b> guardrails</span>
-      <span class="stat"><b>23</b> DB migrations</span>
-      <span class="stat"><b>2</b> LLM providers</span>
-      <span class="stat">FastAPI · LangChain · LangGraph · deepagents · Next.js</span>
+<body data-page="getting-started">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Getting Started</b></div>
+      <div class="spacer"></div>
     </div>
-  </div>
-  <div class="hdr-actions">
-    <button class="btn" id="theme-toggle" title="Toggle light/dark">◐ Theme</button>
-  </div>
-</div>
+    <div class="wrap">
 
-<div class="tabs" id="tabs"></div>
+      <div class="pagehead">
+        <div class="eyebrow">Start here</div>
+        <h1>Getting Started</h1>
+        <p>Get Flowin running on your machine from a clean checkout, then explore how it works through five zoomable, interactive architecture diagrams.</p>
+      </div>
 
-<div class="main">
-  <div class="stage-wrap">
+      <div class="iarch iarch-doc">
+        <div class="doc-inner">
+          <h3><span class="step-no">&#10003;</span>Prerequisites</h3>
+          <p><b>Python 3.12+</b>, <b>Node.js 20+</b>, and <b>git</b>. That's it.</p>
+
+          <h3><span class="step-no">1</span>Set up</h3>
+          <p>From the repo root — installs dependencies, creates your <code>backend/.env</code> &amp; <code>frontend/.env.local</code>, runs migrations, and seeds login users:</p>
+          <div class="code-block"><pre data-copy>./scripts/local-dev/install-prereqs.sh    # skip if you already have Python/Node/git
+./scripts/local-dev/setup-backend.sh      # deps, backend/.env, migrations, seed users
+./scripts/local-dev/setup-frontend.sh     # deps, frontend/.env.local</pre><button class="copy-btn">copy</button></div>
+
+          <h3><span class="step-no">2</span>Enable the LLM (backend/.env)</h3>
+          <p>Setup pre-filled <code>backend/.env</code>, so almost everything just works. Before running, give it an LLM.</p>
+          <div class="i-callout success"><b>Quickest start:</b> paste an Anthropic key into <code>ANTHROPIC_API_KEY</code> and you're done. Prefer AWS Bedrock? Fill the Bedrock rows instead.</div>
+          <div class="code-block"><pre data-copy>ENV=development
+SECRET_KEY=…auto-generated…
+DATABASE_URL=sqlite:///./dev.db
+CORS_ORIGINS=["http://localhost:3000"]
+RUNS_ROOT=./runs
+
+# Anthropic — easiest: paste a key here
+ANTHROPIC_API_KEY=
+
+# ...or use AWS Bedrock instead
+AWS_REGION=eu-central-1
+BEDROCK_MODEL_ID=anthropic.claude-haiku-4-5-20251001-v1:0
+BEDROCK_INFERENCE_PROFILE_ID=eu.anthropic.claude-haiku-4-5-20251001-v1:0
+AWS_BEARER_TOKEN_BEDROCK=</pre><button class="copy-btn">copy</button></div>
+
+          <table class="doc-table">
+            <tr><th>Variable</th><th>Setup</th><th>How to get it</th></tr>
+            <tr><td><code>ENV</code></td><td><span class="badge b-green">auto</span></td><td>Keep <code>development</code>.</td></tr>
+            <tr><td><code>SECRET_KEY</code></td><td><span class="badge b-green">auto</span></td><td>Generated for you.</td></tr>
+            <tr><td><code>DATABASE_URL</code></td><td><span class="badge b-green">auto</span></td><td>Local SQLite — nothing to do.</td></tr>
+            <tr><td><code>CORS_ORIGINS</code></td><td><span class="badge b-green">auto</span></td><td>Matches the local frontend.</td></tr>
+            <tr><td><code>RUNS_ROOT</code></td><td><span class="badge b-green">auto</span></td><td>Local run folder.</td></tr>
+            <tr><td><code>ANTHROPIC_API_KEY</code></td><td><span class="badge b-amber">set this</span></td><td>Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. Easiest way to enable the LLM.</td></tr>
+            <tr><td><code>AWS_REGION</code></td><td><span class="badge b-blue">Bedrock</span></td><td>Region where Bedrock is enabled.</td></tr>
+            <tr><td><code>BEDROCK_MODEL_ID</code></td><td><span class="badge b-blue">Bedrock</span></td><td>From Bedrock &rarr; Model access.</td></tr>
+            <tr><td><code>BEDROCK_INFERENCE_PROFILE_ID</code></td><td><span class="badge b-blue">Bedrock</span></td><td>From Bedrock &rarr; Inference profiles.</td></tr>
+            <tr><td><code>AWS_BEARER_TOKEN_BEDROCK</code></td><td><span class="badge b-blue">Bedrock</span></td><td>Bedrock API token — or leave empty to use your AWS credentials.</td></tr>
+          </table>
+          <p class="muted" style="font-size:12.5px;margin-top:-4px">Bedrock also needs AWS credentials (<code>aws configure</code> or <code>AWS_PROFILE</code>) unless you set <code>AWS_BEARER_TOKEN_BEDROCK</code>.</p>
+          <div class="i-callout warn"><b>No LLM set?</b> You can still log in, but pipeline runs will fail. Set one of the two above.</div>
+
+          <p style="margin-top:16px">The frontend's <code>frontend/.env.local</code> is written for you too — it just points at the backend, no account needed:</p>
+          <table class="doc-table">
+            <tr><th>Variable</th><th>Setup</th><th>Value</th></tr>
+            <tr><td><code>NEXT_PUBLIC_API_URL</code></td><td><span class="badge b-green">auto</span></td><td><code>http://localhost:8000</code></td></tr>
+            <tr><td><code>NEXT_PUBLIC_WS_URL</code></td><td><span class="badge b-green">auto</span></td><td><code>ws://localhost:8000/ws/chat</code></td></tr>
+          </table>
+
+          <h3><span class="step-no">3</span>Run</h3>
+          <p>Start both dev servers (each in its own terminal):</p>
+          <div class="code-block"><pre data-copy>./scripts/local-dev/run-backend.sh    # http://localhost:8000
+./scripts/local-dev/run-frontend.sh   # http://localhost:3000</pre><button class="copy-btn">copy</button></div>
+          <p class="muted" style="font-size:12.5px">Shortcut: <code>./scripts/local-dev/install-and-run-all.sh</code> does set up + run in one command. Handy once your LLM key is in <code>backend/.env</code>.</p>
+
+          <h3><span class="step-no">4</span>Open &amp; log in</h3>
+          <p>Open <a href="http://localhost:3000" target="_blank" rel="noopener"><code>http://localhost:3000</code></a>. Sign-up is disabled — log in with one of the seeded accounts below. Their shared password is set by <code>seed_test_users.py</code> during setup.</p>
+          <table class="doc-table">
+            <tr><th>Email</th><th>Tier</th></tr>
+            <tr><td><code>qa-admin@flowinqa.com</code></td><td>enterprise (admin)</td></tr>
+            <tr><td><code>qa-enterprise@flowinqa.com</code></td><td>enterprise</td></tr>
+            <tr><td><code>qa-pro@flowinqa.com</code></td><td>pro</td></tr>
+            <tr><td><code>qa-basic@flowinqa.com</code></td><td>basic</td></tr>
+          </table>
+
+          <h3><span class="step-no">&#8627;</span>Good to know</h3>
+          <ul>
+            <li><code>backend/.env</code> is the backend's env file — not a repo-root <code>.env</code>.</li>
+            <li><code>backend/dev.db</code> is your local SQLite database.</li>
+            <li>Stuck at login? Use the seeded QA accounts above — sign-up is disabled.</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>Explore the architecture</h3>
+      <p class="muted">Five interactive views, from the big picture down to auth &amp; persistence. Hover any box for a plain-language explanation; click it to pin the source file and detail.</p>
+
+      <div class="callout"><div class="t">&#128161; How to use</div><p>Scroll to zoom, drag to pan, and press keys <span class="kbd">1</span>&ndash;<span class="kbd">5</span> to switch views. Hover a box for a summary; click it to pin the source file and detail in the side panel.</p></div>
+
+      <div class="iarch">
+        <div class="tabs" id="tabs"></div>
+        <div class="iarch-main">
+          <div class="stage-wrap">
     <div class="stage" id="stage">
       <svg id="svg" xmlns="http://www.w3.org/2000/svg">
         <defs>
@@ -349,18 +415,25 @@ body {
         <button class="zbtn" id="z-in" title="Zoom in (+)">+</button>
         <button class="zbtn" id="z-fit" title="Fit to screen (0)" style="font-size:12px">⤢</button>
       </div>
-      <div class="hint" id="hint">scroll to zoom · drag to pan · click a box to pin details · keys 1–6 switch views</div>
-      <div class="legend" id="legend"></div>
+      <div class="hint" id="hint">scroll to zoom · drag to pan · click a box to pin details · keys 1–5 switch views</div>
+      <div class="iarch-legend" id="legend"></div>
     </div>
     <div class="docview" id="docview"></div>
   </div>
   <aside class="panel" id="panel">
     <button class="p-close" id="p-close">✕ close</button>
     <div id="p-body"><div class="p-empty">Click any element in the diagram to see what it is, where it lives in the repo, and why it matters.</div></div>
-  </aside>
-</div>
+          </aside>
+        </div>
+        <div class="tip" id="tip"></div>
+      </div>
 
-<div class="tip" id="tip"></div>
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin / VelocityAI Feature Atlas &middot; interactive architecture explorer &middot; self-contained page.</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
 
 <script>
 'use strict';
@@ -413,80 +486,6 @@ const LISTS = {
 /* edge: [fromId, fromSide, toId, toSide, cls, label] — sides: l r t b (+optional :offset 0..1) */
 
 const DIAGRAMS = [
-
-/* ── 0 · Getting Started (doc tab, not a diagram) ─────────── */
-{
-  id: 'getting-started', tab: 'Getting Started', title: 'Run Flowin locally', type: 'doc',
-  html: `
-    <div class="doc-inner">
-      <h2>Run Flowin locally</h2>
-      <div class="doc-lede">FastAPI backend + Next.js frontend. No Docker required for local dev — SQLite by default. This is the fastest path from a clean checkout to a working login.</div>
-
-      <h3><span class="step-no">✓</span>Prerequisites</h3>
-      <ul>
-        <li><b>Python 3.12+</b>, <b>Node.js 20+</b>, <b>git</b></li>
-        <li>Optional: an AWS account with Bedrock access <i>or</i> an Anthropic API key — either works for LLM calls (see the note below)</li>
-      </ul>
-
-      <h3><span class="step-no">⚡</span>Fastest path — one script</h3>
-      <p>From the repo root, this installs prerequisites, sets up both apps, and starts both dev servers:</p>
-      <div class="code-block"><pre data-copy>./scripts/local-dev/install-and-run-all.sh</pre><button class="copy-btn">copy</button></div>
-      <p>Already have Python/Node/git installed and just want to skip the OS-level install step:</p>
-      <div class="code-block"><pre data-copy>SKIP_PREREQS=1 ./scripts/local-dev/install-and-run-all.sh</pre><button class="copy-btn">copy</button></div>
-
-      <h3><span class="step-no">1</span>Or run each step yourself</h3>
-      <p>Useful if you want to see what's happening, or only need one side running.</p>
-      <div class="code-block"><pre data-copy># prerequisites (Python 3.12+, Node 20+, git)
-./scripts/local-dev/install-prereqs.sh
-
-# backend: venv, deps, backend/.env, alembic migrations, seed QA users
-./scripts/local-dev/setup-backend.sh
-
-# frontend: npm install, frontend/.env.local
-./scripts/local-dev/setup-frontend.sh</pre><button class="copy-btn">copy</button></div>
-
-      <h3><span class="step-no">2</span>Start both dev servers (separate terminals)</h3>
-      <div class="code-block"><pre data-copy>./scripts/local-dev/run-backend.sh   # http://localhost:8000
-./scripts/local-dev/run-frontend.sh  # http://localhost:3000</pre><button class="copy-btn">copy</button></div>
-
-      <table class="doc-table">
-        <tr><th>Service</th><th>URL</th><th>Notes</th></tr>
-        <tr><td>Frontend</td><td><code>http://localhost:3000</code></td><td>Next.js dev server</td></tr>
-        <tr><td>Backend</td><td><code>http://localhost:8000</code></td><td>FastAPI — must run with cwd = <code>backend/</code></td></tr>
-        <tr><td>Health check</td><td><code>http://localhost:8000/health</code></td><td>Should return <code>{"status":"healthy",...}</code></td></tr>
-      </table>
-
-      <h3><span class="step-no">3</span>Log in</h3>
-      <div class="callout success">
-        <b>Self-registration is permanently disabled</b> — <code>POST /api/auth/register</code> always returns 403, in every environment. <code>setup-backend.sh</code> seeds QA login users automatically via <code>seed_test_users.py</code>.
-      </div>
-      <table class="doc-table">
-        <tr><th>Email</th><th>Password</th><th>Tier</th></tr>
-        <tr><td><code>qa-admin@flowinqa.com</code></td><td rowspan="4"><code>flowin-e2e-pass</code></td><td>enterprise (admin)</td></tr>
-        <tr><td><code>qa-enterprise@flowinqa.com</code></td><td>enterprise</td></tr>
-        <tr><td><code>qa-pro@flowinqa.com</code></td><td>pro</td></tr>
-        <tr><td><code>qa-basic@flowinqa.com</code></td><td>basic</td></tr>
-      </table>
-
-      <h3><span class="step-no">4</span>Enable real LLM calls</h3>
-      <p>The app calls an LLM unconditionally once you start a pipeline. Pick one, in <code>backend/.env</code>:</p>
-      <ul>
-        <li><b>AWS Bedrock</b> (default/production path) — needs valid credentials via the boto3 default chain (<code>~/.aws/credentials</code>, <code>AWS_PROFILE</code>, or env vars) with Bedrock access in the configured region.</li>
-        <li><b>Anthropic API directly</b> (simplest for local dev) — set <code>ANTHROPIC_API_KEY</code> in <code>backend/.env</code>; <code>model_factory.build_model()</code> prefers this over Bedrock when set.</li>
-      </ul>
-      <div class="callout warn">Without either configured, the backend still boots and you can log in — but any pipeline run will fail with an LLM auth error (e.g. <code>UnrecognizedClientException</code>).</div>
-
-      <h3><span class="step-no">↳</span>Where things live</h3>
-      <ul>
-        <li><code>backend/.env</code> — NOT a repo-root <code>.env</code>. <code>app/core/config.py</code> resolves it as <code>backend/.env</code> specifically.</li>
-        <li><code>backend/dev.db</code> — SQLite database (created by the alembic migrations in setup-backend.sh).</li>
-        <li><code>backend/runs/</code> — per-run sandbox disk (<code>RUNS_ROOT</code>), overridden from the prod-only <code>/app/runs</code> default.</li>
-        <li><code>frontend/.env.local</code> — <code>NEXT_PUBLIC_API_URL</code> / <code>NEXT_PUBLIC_WS_URL</code>.</li>
-      </ul>
-      <p style="margin-top:24px;color:var(--ink-3);font-size:12.5px;">See the <b>Local Dev &amp; Deploy Pipeline</b> tab for how this maps to the production AWS deployment, or the other tabs for how a request actually flows through the system once it's running.</p>
-    </div>
-  `,
-},
 
 /* ── 1 · The Big Picture ─────────────────────────────────── */
 {
@@ -661,7 +660,7 @@ const DIAGRAMS = [
     ['ld5','ins', 540, 200, 220, 58, 'run-frontend.sh', ['next dev'], {k:'Script', p:'scripts/local-dev/run-frontend.sh', d:'Starts the Next.js dev server on :3000.'}],
     ['ld6','ins', 40, 300, 240, 76, 'install-and-run-all.sh', ['orchestrates all of the above,', 'runs both dev servers concurrently'], {k:'Script', p:'scripts/local-dev/install-and-run-all.sh', d:'One-shot bootstrap. SKIP_PREREQS=1 skips the OS-level install step if you already have Python/Node/git.'}],
     ['ld7','run', 300, 300, 220, 58, 'dev.db (SQLite) + ./runs/', [], {k:'Local state', p:'backend/dev.db, backend/runs/', d:'SQLite by default (no Postgres/Docker needed); RUNS_ROOT overridden to a writable local dir since /app/runs is prod-only.'}],
-    ['ld8','run', 540, 300, 220, 58, 'qa-admin@flowinqa.com', ['+ qa-basic/pro/enterprise'], {k:'Seeded login', p:'backend/scripts/seed_test_users.py', d:'Password flowin-e2e-pass for all. The only way in locally, since /api/auth/register is a hard-coded 403.'}],
+    ['ld8','run', 540, 300, 220, 58, 'qa-admin@flowinqa.com', ['+ qa-basic/pro/enterprise'], {k:'Seeded login', p:'backend/scripts/seed_test_users.py', d:'Seeded during setup (shared password set by seed_test_users.py). The only way in locally, since /api/auth/register is a hard-coded 403.'}],
 
     ['pr1','plat', 840, 90, 220, 58, 'docker-compose.yml', ['flowin-backend / flowin-frontend'], {k:'Compose', p:'docker-compose.yml', d:'Defines the two app containers pulled from ECR by tag at deploy time.'}],
     ['pr2','plat', 1080, 90, 220, 58, 'ECR (shared layer, once)', [], {k:'Registry', p:'infra/terraform/shared/', d:'Built once, images promoted by tag across dev/stage/prod — not rebuilt per environment.'}],
@@ -705,7 +704,7 @@ const DIAGRAMS = [
   ],
   nodes: [
     ['a1','hook', 40, 90, 320, 58, 'Self-registration: always 403', [], {k:'Auth', p:'backend/app/api/auth.py', d:'POST /api/auth/register is a hard-coded 403 in every environment — not just prod. The endpoint exists only so legacy clients get a clean error, not a 404.'}],
-    ['a2','hook', 40, 164, 320, 58, 'seed_test_users.py', ['qa-basic/pro/enterprise/admin@flowinqa.com'], {k:'Auth', p:'backend/scripts/seed_test_users.py', d:'The only way to get a working local login: idempotently upserts 4 QA users (password flowin-e2e-pass) via direct DB insert using the app\'s own password hasher.'}],
+    ['a2','hook', 40, 164, 320, 58, 'seed_test_users.py', ['qa-basic/pro/enterprise/admin@flowinqa.com'], {k:'Auth', p:'backend/scripts/seed_test_users.py', d:'The only way to get a working local login: idempotently upserts 4 QA users (shared password set in the seed script) via direct DB insert using the app\'s own password hasher.'}],
     ['a3','hook', 40, 238, 320, 58, 'JWT via Sec-WebSocket-Protocol', [], {k:'Auth', p:'frontend/src/hooks/useWebSocket.ts', d:'new WebSocket(url, ["bearer.<jwt>", "flowin.v1"]) — the token is never on the URL. Server echoes flowin.v1 to complete the handshake.'}],
     ['a4','hook', 40, 312, 320, 58, 'Close code 4001 → re-login', [], {k:'Auth', p:'frontend/src/hooks/useWebSocket.ts', d:'An expired/invalid JWT closes the socket with 4001; the frontend clears the token and redirects to /login.'}],
 
@@ -735,50 +734,6 @@ const DIAGRAMS = [
   ],
 },
 
-/* ── 6 · Sample Run (activity diagram — node = actual source component, grouped by phase) ── */
-{
-  id: 'sample-run', tab: 'Sample Run', title: 'One real od_ppt run, traced to the actual source file that handled each step',
-  w: 1180, h: 1000,
-  legend: [['src','Frontend (Next.js)'],['ins','Backend API (FastAPI)'],['run','Agent / engine component'],['out','Terminal outcome']],
-  groups: [
-    ['g1', 20,  50, 560, 170, 'Phase 1 — Request intake',              'src'],
-    ['g2', 20, 240, 560, 170, 'Phase 2 — Planning & clarification',     'run'],
-    ['g3', 20, 430, 820, 170, 'Phase 3 — Agent execution (od_ppt)',     'run'],
-    ['g4', 20, 620, 340, 170, 'Phase 4 — Completion',                   'out'],
-    ['g5', 20, 810, 1120,170, 'Phase 5 — Revision run (FR-014)',        'plat'],
-  ],
-  nodes: [
-    ['n1', 'src', 60,  90, 220, 100, 'useWorkflow.ts', ['Submit brief', '→ sends run_pipeline'], {k:'Phase 1 · Frontend', p:'frontend/src/hooks/useWorkflow.ts', d:'User picks agents/template, types the brief, hits submit — this hook builds and sends the run_pipeline WS message.'}],
-    ['n2', 'ins', 320, 90, 220, 100, 'websocket.py', ['Validate request,', 'create WorkflowRun row'], {k:'Phase 1 · Backend', p:'backend/app/api/websocket.py', d:'Authenticates the socket, validates the request, and persists a WorkflowRun(status=running) row before any engine work starts.'}],
-
-    ['n3', 'run', 60, 280, 220, 100, 'smart_planner.py', ['SmartPlanner — 15.7s', 'gate: CLARIFY_REQUIRED'], {k:'Phase 2 · Engine', p:'backend/agents/planner/smart_planner.py', d:'One-shot LLM intent classification against the brief. Verdict came back CLARIFY_REQUIRED, with a short list of missing-info items.'}],
-    ['n4', 'run', 320, 280, 220, 100, 'clarify_engine.py', ['ClarifyEngine — round 1', 'answered ~81s later'], {k:'Phase 2 · Engine', p:'backend/agents/execution_engine/clarify_engine.py', d:'Streams a 5-question questionnaire (questionnaire_ready), pauses the run, and resumes on submit_questionnaire — about 81 seconds later in this trace.'}],
-
-    ['n5', 'run', 60,  470, 220, 100, 'factory.py', ['od-ppt-brief-analyst', '86.1s — slide plan'], {k:'Phase 3 · Agent 1/3', p:'backend/agents/factory.py → DeepAgentRunner', d:'create_runner() composes this agent\'s prompt/tools; DeepAgentRunner streams its model+tool loop. Produces the slide plan the next agent builds from.'}],
-    ['n6', 'run', 320, 470, 220, 100, 'factory.py', ['od-ppt-composer', '197.6s — HTML deck'], {k:'Phase 3 · Agent 2/3', p:'backend/agents/factory.py → DeepAgentRunner', d:'Same entry point, different AGENT.md — the longest step by far, building the actual HTML/JSON deck from the brief-analyst\'s plan.'}],
-    ['n7', 'run', 580, 470, 220, 100, 'factory.py', ['od-ppt-validator', '66.0s — validation'], {k:'Phase 3 · Agent 3/3', p:'backend/agents/factory.py → DeepAgentRunner', d:'Final agent in the compiled sequence — validates deck structure and delivery before the run is marked complete.'}],
-
-    ['n8', 'out', 60, 660, 260, 100, 'websocket.py', ['pipeline_complete', '29,790 chars · 619K tokens'], {k:'Phase 4 · Backend', p:'backend/app/api/websocket.py', d:'All three agents succeeded — the deliverable and token usage are written back onto the WorkflowRun row.'}],
-
-    ['n9', 'run', 60,  850, 220, 100, 'engine.py', ['FR-014 lookup', '→ resolved: deliverable'], {k:'Phase 5 · Engine', p:'backend/agents/execution_engine/engine.py', d:'~2 minutes later, a revision was requested. This resolves the requested ppt_output kind to the actual "deliverable" artifact from the parent run.'}],
-    ['n10','run', 320, 850, 240, 100, 'engine.py', ['ppt_revision created', 'planner + clarify skipped'], {k:'Phase 5 · Engine', p:'backend/agents/execution_engine/engine.py', d:'Because this run is seeded from a resolved parent artifact, the engine explicitly bypasses SmartPlanner and ClarifyEngine entirely.'}],
-    ['n11','run', 600, 850, 220, 100, 'factory.py', ['ppt-revision-agent', '57.5s'], {k:'Phase 5 · Agent', p:'backend/agents/factory.py → DeepAgentRunner', d:'Applies the requested revision against the parent deliverable.'}],
-    ['n12','out', 860, 850, 240, 100, 'factory.py', ['ppt-revision-assembler', 'reassembles final deck'], {k:'Phase 5 · Agent (final)', p:'backend/agents/factory.py → DeepAgentRunner', d:'Reassembles the revised deck — the last step in this trace; still running when the log excerpt was captured.'}],
-  ],
-  edges: [
-    ['n1','r','n2','l','flow',''],
-    ['n2','b','n3','t','dashed','compiled → SmartPlanner'],
-    ['n3','r','n4','l','flow','CLARIFY_REQUIRED'],
-    ['n4','b','n5','t','flow','questionnaire answered'],
-    ['n5','r','n6','l','flow','86.1s'],
-    ['n6','r','n7','l','flow','197.6s'],
-    ['n7','b','n8','t','success','66.0s → deliverable'],
-    ['n8','b','n9','t','dashed','~2 min later — revision requested'],
-    ['n9','r','n10','l','flow','resolved: deliverable'],
-    ['n10','r','n11','l','flow','skip planner + clarify'],
-    ['n11','r','n12','l','flow','57.5s'],
-  ],
-},
 ];
 
 /* ═══════════════════════ svg helpers ═══════════════════════ */
@@ -824,6 +779,8 @@ let current = 0;
 let pinnedEl = null;
 const viewState = DIAGRAMS.map(() => null);
 
+const HUE = { src:'source', ins:'install', run:'runtime', plat:'plat', hook:'hook', out:'out', neu:'neutral' };
+
 function renderDiagram(d) {
   vp.innerHTML = '';
   const nodesById = {};
@@ -831,10 +788,13 @@ function renderDiagram(d) {
 
   for (const [gid, x, y, w, h, label, cls] of d.groups) {
     const g = el('g', {}, vp);
-    el('rect', { x, y, width: w, height: h, rx: 14, class: 'grp-rect' }, g);
-    const t = el('text', { x: x + 14, y: y + 24, class: 'grp-label' }, g);
+    const hue = HUE[cls] || 'neutral';
+    el('rect', { x, y, width: w, height: h, rx: 16, class: 'grp-rect ' + cls }, g);
+    const dot = el('circle', { cx: x + 16, cy: y + 19.5, r: 3.5 }, g);
+    dot.style.fill = `var(--c-${hue})`;
+    const t = el('text', { x: x + 27, y: y + 24, class: 'grp-label' }, g);
     t.textContent = label;
-    t.style.fill = `var(--c-${{src:'source',ins:'install',run:'runtime',plat:'plat',hook:'hook',out:'out',neu:'neutral'}[cls] || 'neutral'})`;
+    t.style.fill = `var(--c-${hue})`;
   }
 
   const labels = [];
@@ -851,7 +811,9 @@ function renderDiagram(d) {
   for (const n of d.nodes) {
     const [id, cls, x, y, w, h, title, subs, info] = n;
     const g = el('g', { class: 'node ' + cls, 'data-id': id }, vp);
-    el('rect', { x, y, width: w, height: h, rx: 10 }, g);
+    el('rect', { x, y, width: w, height: h, rx: 12, class: 'n-card' }, g);
+    const acc = el('rect', { x: x + 1.5, y: y + 9, width: 3, height: Math.max(6, h - 18), rx: 1.5, class: 'n-accent' }, g);
+    acc.style.fill = `var(--c-${HUE[cls.split(' ')[0]] || 'neutral'})`;
     const hasSubs = subs && subs.length;
     const titleY = hasSubs ? y + 22 : y + h / 2 + 4.5;
     const tt = el('text', { x: x + w / 2, y: titleY, 'text-anchor': 'middle', class: 'n-title' }, g);
@@ -1059,29 +1021,26 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Escape') unpin();
 });
 
-const themeBtn = $('theme-toggle');
-function setTheme(t) {
-  if (t) document.documentElement.setAttribute('data-theme', t);
-  else document.documentElement.removeAttribute('data-theme');
-  try { localStorage.setItem('flowin-diagram-theme', t || ''); } catch (_) {}
-}
-themeBtn.addEventListener('click', () => {
-  const cur = document.documentElement.getAttribute('data-theme');
-  const dark = cur ? cur === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-  setTheme(dark ? 'light' : 'dark');
-});
-try {
-  const saved = localStorage.getItem('flowin-diagram-theme');
-  if (saved) setTheme(saved);
-  else if (matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
-} catch (_) {}
-
 window.addEventListener('resize', () => { if (state()) apply(); });
 
 /* ═══════════════════════ boot ═══════════════════════ */
 const wanted = new URL(window.location.href).searchParams.get('view');
 const idx = Math.max(0, DIAGRAMS.findIndex(d => d.id === wanted));
 show(idx === -1 ? 0 : idx);
+
+/* wire copy buttons in the static Getting Started section (not part of the stage) */
+document.querySelectorAll('.iarch-doc .code-block').forEach(block => {
+  const pre = block.querySelector('pre'), btn = block.querySelector('.copy-btn');
+  if (!pre || !btn) return;
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(pre.textContent);
+      btn.textContent = 'copied'; btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1400);
+    } catch (_) {}
+  });
+});
 </script>
+<script src="assets/app.js"></script>
 </body>
 </html>

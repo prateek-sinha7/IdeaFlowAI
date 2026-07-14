@@ -64,3 +64,4 @@ skills/opendesign/design-templates/*/thumbnail.jpg
 .kiro/*
 !.kiro/steering/
 !.kiro/skills/
+.run
