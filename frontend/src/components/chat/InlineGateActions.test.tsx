@@ -42,14 +42,34 @@ function renderGate(overrides: Record<string, unknown> = {}) {
 }
 
 describe("InlineGateActions", () => {
-  it("renders the four actions when eligible", () => {
+  it("renders exactly two primary buttons — Approve & build + Request changes", () => {
     renderGate();
     expect(screen.getByTestId("chat-gate-actions")).toBeInTheDocument();
-    expect(screen.getByTestId("chat-gate-approve")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-gate-approve")).toHaveTextContent(
+      "Approve & build",
+    );
+    expect(screen.getByTestId("chat-gate-request-changes")).toHaveTextContent(
+      "Request changes",
+    );
+    // The change channels are collapsed until "Request changes" is opened.
+    expect(screen.queryByTestId("chat-gate-update-specs")).toBeNull();
+    expect(screen.queryByText("Reject & cancel")).toBeNull();
+    expect(screen.queryByText("Redo with instructions")).toBeNull();
+  });
+
+  it("Request changes reveals the preserved redo/update-specs/reject channels", () => {
+    renderGate();
+    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     expect(screen.getByTestId("chat-gate-update-specs")).toBeInTheDocument();
-    // Reject/redo are behind a reveal step but their entry points exist.
     expect(screen.getByText("Reject & cancel")).toBeInTheDocument();
     expect(screen.getByText("Redo with instructions")).toBeInTheDocument();
+  });
+
+  it("renders the plan preview via the shared artifactPreview module", () => {
+    // OUTPUT is an <analysis> artifact — the shared discriminator selects the
+    // AnalysisPreview renderer (INV-12: one parser, reused here).
+    renderGate();
+    expect(screen.getByTestId("chat-gate-preview")).toBeInTheDocument();
   });
 
   it("approve fires onApprove once with undefined when there are no edits", () => {
@@ -95,6 +115,7 @@ describe("InlineGateActions", () => {
 
   it("KAN-95: reject requires the confirm step before firing onReject", () => {
     const { onReject } = renderGate();
+    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     fireEvent.click(screen.getByText("Reject & cancel"));
     // Not fired yet — confirm dialog is shown.
     expect(onReject).not.toHaveBeenCalled();
@@ -105,6 +126,7 @@ describe("InlineGateActions", () => {
 
   it("redo carries the free-text instructions on the shared channel", () => {
     const { onRedo } = renderGate();
+    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     fireEvent.click(screen.getByText("Redo with instructions"));
     fireEvent.change(screen.getByLabelText("Additional instructions for redo"), {
       target: { value: "tighten spacing" },
@@ -116,6 +138,7 @@ describe("InlineGateActions", () => {
 
   it("KAN-101: update_specs fires onUpdateSpecs with the raw analysis report", () => {
     const { onUpdateSpecs } = renderGate();
+    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     fireEvent.click(screen.getByTestId("chat-gate-update-specs"));
     expect(onUpdateSpecs).toHaveBeenCalledTimes(1);
     expect(onUpdateSpecs).toHaveBeenCalledWith("gate-1", OUTPUT);
@@ -127,10 +150,11 @@ describe("InlineGateActions", () => {
     expect(screen.queryByTestId("chat-gate-actions")).toBeNull();
   });
 
-  it("SC-001: hides only the update_specs action when not eligible", () => {
+  it("SC-001: hides only the update_specs channel when not eligible", () => {
     renderGate({ updateSpecsEligible: false });
+    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     expect(screen.queryByTestId("chat-gate-update-specs")).toBeNull();
-    // The other three affordances remain.
+    // Approve stays primary; the other two change channels remain.
     expect(screen.getByTestId("chat-gate-approve")).toBeInTheDocument();
     expect(screen.getByText("Reject & cancel")).toBeInTheDocument();
     expect(screen.getByText("Redo with instructions")).toBeInTheDocument();
@@ -138,6 +162,7 @@ describe("InlineGateActions", () => {
 
   it("hides redo when the server did not mark the gate redoable", () => {
     renderGate({ redoable: false });
+    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     expect(screen.queryByText("Redo with instructions")).toBeNull();
   });
 

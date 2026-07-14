@@ -184,12 +184,15 @@ describe("Steps drill-down — inline gate/clarify (SC-2, KAN cluster)", () => {
   });
 
   it("shows Update-the-Specs ONLY when updateSpecsEligible (KAN-101, generic flag)", () => {
+    // 42-08: the change channels are collapsed under "Request changes".
     renderGate({ updateSpecsEligible: true });
+    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     expect(screen.getByTestId("chat-gate-update-specs")).toBeInTheDocument();
   });
 
   it("hides Update-the-Specs when NOT eligible", () => {
     renderGate({ updateSpecsEligible: false });
+    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     expect(screen.queryByTestId("chat-gate-update-specs")).toBeNull();
   });
 

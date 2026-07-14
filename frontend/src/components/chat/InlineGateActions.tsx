@@ -10,8 +10,17 @@
  * channel (LIVE-STATE-CONTRACT §1). This component never mints a new command
  * path; it reuses the channel the caller already owns.
  *
+ * Gate fidelity (42-08, CONTEXT §F): the mock's review gate is TWO primary
+ * buttons — "Approve & build" / "Request changes" — plus a task-plan PREVIEW
+ * block. The redo / update-specs / reject CHANNELS are preserved verbatim,
+ * only collapsed under the single "Request changes" affordance (they still
+ * ride `approve_review {approved, action}`). The plan preview REUSES the
+ * shared `artifactPreview` module (INV-12 — no second parser); the
+ * discriminator keys only on the output + wrapper tag (SC-001), never a
+ * workflow/agent-name literal.
+ *
  * Behaviors carried (post-merge KAN cluster):
- * - KAN-101: the FOURTH action "Update the Specs" — rendered off the GENERIC
+ * - KAN-101: the "Update the Specs" action — rendered off the GENERIC
  *   caller-supplied `updateSpecsEligible` flag, NEVER a workflow/agent-name
  *   literal (SC-001, the CONTEXT invariant). A renamed workflow cannot smuggle
  *   a hidden action; the server still fences the actual command.
@@ -33,7 +42,15 @@ import {
   RotateCcw,
   AlertTriangle,
   RefreshCw,
+  MessageSquarePlus,
 } from "lucide-react";
+
+import {
+  discriminateArtifact,
+  SpecPreview,
+  TasksPreview,
+  AnalysisPreview,
+} from "@/components/results/artifactPreview";
 
 interface InlineGateActionsProps {
   agentId: string;
@@ -76,6 +93,8 @@ export function InlineGateActions({
   const [editedContent, setEditedContent] = useState(output);
   const [hasEdits, setHasEdits] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  // "Request changes" affordance: reveals the redo/update-specs/reject channels.
+  const [showRequestChanges, setShowRequestChanges] = useState(false);
   // KAN-95: two-step reject confirm.
   const [showRejectConfirm, setShowRejectConfirm] = useState(false);
   // Free-text instructions for the redo re-run.
@@ -91,6 +110,7 @@ export function InlineGateActions({
     setEditedContent(output);
     setHasEdits(false);
     setShowEdit(false);
+    setShowRequestChanges(false);
     setShowRejectConfirm(false);
     setRedoInstructions("");
     setShowRedo(false);
@@ -137,10 +157,15 @@ export function InlineGateActions({
   // KAN-100 terminal fence: post-terminal, no actions are available.
   if (!isPipelineRunning) return null;
 
+  // Plan-preview block — reuse the shared artifactPreview discriminator +
+  // renderers (INV-12: no second parser). The discriminator keys only on the
+  // output's own wrapper tag (SC-001); an ordinary output renders no preview.
+  const artifactKind = discriminateArtifact(output);
+
   return (
     <div
       data-testid="chat-gate-actions"
-      className="rounded-2xl border border-gray-200 bg-white px-4 py-3 space-y-2"
+      className="rounded-2xl border border-gray-200 bg-white px-4 py-3 space-y-2.5"
     >
       <div className="flex items-center gap-2">
         <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#1B2A4A] to-violet-600 flex items-center justify-center flex-shrink-0">
@@ -171,116 +196,150 @@ export function InlineGateActions({
         />
       )}
 
+      {/* Task-plan PREVIEW block — reused artifactPreview renderers (no parser). */}
+      {artifactKind && !showEdit && (
+        <div
+          data-testid="chat-gate-preview"
+          className="rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2.5 max-h-64 overflow-y-auto"
+        >
+          {artifactKind === "spec" && <SpecPreview content={output} />}
+          {artifactKind === "tasks" && <TasksPreview content={output} />}
+          {artifactKind === "analysis" && <AnalysisPreview content={output} />}
+        </div>
+      )}
+
       {hasEdits && (
         <p className="text-[10px] text-amber-700">
           You have unsaved edits — approving will use your edited version.
         </p>
       )}
 
-      {/* 1. Approve — the shared approve_review channel. */}
-      <button
-        type="button"
-        data-testid="chat-gate-approve"
-        onClick={handleApprove}
-        disabled={submitted}
-        className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1B2A4A] text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-[#2a3d5e] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <CheckCircle2 className="h-4 w-4" />
-        {approveLabel ??
-          (hasEdits ? "Approve with edits & continue" : "Approve & continue")}
-      </button>
-
-      {/* 2. KAN-101 Update the Specs — rendered off the GENERIC flag (SC-001). */}
-      {canUpdateSpecs && (
+      {/* The mock's TWO primary buttons — Approve & build / Request changes. */}
+      <div className="flex gap-2">
+        {/* 1. Approve — the shared approve_review channel (approved:true). */}
         <button
           type="button"
-          data-testid="chat-gate-update-specs"
-          onClick={handleUpdateSpecs}
+          data-testid="chat-gate-approve"
+          onClick={handleApprove}
           disabled={submitted}
-          className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#1B2A4A]/30 text-[#1B2A4A] px-4 py-2 text-[11px] font-semibold hover:bg-[#E8EDF5] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#1B2A4A] text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-[#2a3d5e] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Update the Specs
+          <CheckCircle2 className="h-4 w-4" />
+          {approveLabel ??
+            (hasEdits ? "Approve with edits & build" : "Approve & build")}
         </button>
-      )}
 
-      {/* 3. Redo — rendered IFF onRedo AND server-set redoable (generic fence). */}
-      {canRedo && (
-        <div className="space-y-1.5">
-          {showRedo ? (
-            <>
-              <textarea
-                value={redoInstructions}
-                onChange={(e) => setRedoInstructions(e.target.value)}
-                disabled={submitted}
-                placeholder="Optional instructions — leave blank to just regenerate"
-                aria-label="Additional instructions for redo"
-                className="w-full min-h-[52px] rounded-lg border border-violet-200 bg-white px-3 py-2 text-[11px] text-gray-900 leading-relaxed focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 resize-none disabled:opacity-50"
-                spellCheck={false}
-              />
-              <button
-                type="button"
-                data-testid="chat-gate-redo"
-                onClick={handleRedo}
-                disabled={submitted}
-                className="w-full flex items-center justify-center gap-2 rounded-xl border border-violet-300 text-violet-700 px-4 py-2 text-[11px] font-semibold hover:bg-violet-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Redo this step
-              </button>
-            </>
+        {/* 2. Request changes — reveals the redo/update-specs/reject channels. */}
+        <button
+          type="button"
+          data-testid="chat-gate-request-changes"
+          onClick={() => setShowRequestChanges((v) => !v)}
+          disabled={submitted}
+          className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-gray-300 text-gray-700 px-4 py-2.5 text-[12px] font-semibold hover:border-gray-400 hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <MessageSquarePlus className="h-4 w-4" />
+          Request changes
+        </button>
+      </div>
+
+      {/* The collapsed change channels — redo / update-specs / reject. These
+          fire the EXACT same handlers/channels as before; only the presentation
+          is folded under "Request changes" (CONTEXT §F preserve-the-channels). */}
+      {showRequestChanges && (
+        <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5">
+          {/* KAN-101 Update the Specs — rendered off the GENERIC flag (SC-001). */}
+          {canUpdateSpecs && (
+            <button
+              type="button"
+              data-testid="chat-gate-update-specs"
+              onClick={handleUpdateSpecs}
+              disabled={submitted}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#1B2A4A]/30 text-[#1B2A4A] px-4 py-2 text-[11px] font-semibold hover:bg-[#E8EDF5] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Update the Specs
+            </button>
+          )}
+
+          {/* Redo — rendered IFF onRedo AND server-set redoable (generic fence). */}
+          {canRedo && (
+            <div className="space-y-1.5">
+              {showRedo ? (
+                <>
+                  <textarea
+                    value={redoInstructions}
+                    onChange={(e) => setRedoInstructions(e.target.value)}
+                    disabled={submitted}
+                    placeholder="Optional instructions — leave blank to just regenerate"
+                    aria-label="Additional instructions for redo"
+                    className="w-full min-h-[52px] rounded-lg border border-violet-200 bg-white px-3 py-2 text-[11px] text-gray-900 leading-relaxed focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 resize-none disabled:opacity-50"
+                    spellCheck={false}
+                  />
+                  <button
+                    type="button"
+                    data-testid="chat-gate-redo"
+                    onClick={handleRedo}
+                    disabled={submitted}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl border border-violet-300 text-violet-700 px-4 py-2 text-[11px] font-semibold hover:bg-violet-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Redo this step
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowRedo(true)}
+                  disabled={submitted}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-violet-200 text-violet-700 px-4 py-2 text-[11px] font-medium hover:bg-violet-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Redo with instructions
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Reject — KAN-95 two-step confirm. */}
+          {showRejectConfirm ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-[11px] font-medium text-red-700">
+                  Cancel this pipeline? This stops execution and discards progress.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRejectConfirm(false)}
+                  className="flex-1 rounded-lg border border-gray-200 bg-white text-gray-600 px-3 py-1.5 text-[11px] font-medium hover:bg-gray-50 transition-all"
+                >
+                  Keep reviewing
+                </button>
+                <button
+                  type="button"
+                  data-testid="chat-gate-reject"
+                  onClick={handleReject}
+                  disabled={submitted}
+                  className="flex-1 rounded-lg bg-red-600 text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Yes, cancel
+                </button>
+              </div>
+            </div>
           ) : (
             <button
               type="button"
-              onClick={() => setShowRedo(true)}
+              onClick={() => setShowRejectConfirm(true)}
               disabled={submitted}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border border-violet-200 text-violet-700 px-4 py-2 text-[11px] font-medium hover:bg-violet-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 text-red-600 px-4 py-2 text-[11px] font-medium hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Redo with instructions
+              <XCircle className="h-3.5 w-3.5" />
+              Reject & cancel
             </button>
           )}
         </div>
-      )}
-
-      {/* 4. Reject — KAN-95 two-step confirm. */}
-      {showRejectConfirm ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 space-y-2">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0 mt-0.5" />
-            <p className="text-[11px] font-medium text-red-700">
-              Cancel this pipeline? This stops execution and discards progress.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setShowRejectConfirm(false)}
-              className="flex-1 rounded-lg border border-gray-200 bg-white text-gray-600 px-3 py-1.5 text-[11px] font-medium hover:bg-gray-50 transition-all"
-            >
-              Keep reviewing
-            </button>
-            <button
-              type="button"
-              data-testid="chat-gate-reject"
-              onClick={handleReject}
-              disabled={submitted}
-              className="flex-1 rounded-lg bg-red-600 text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Yes, cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowRejectConfirm(true)}
-          disabled={submitted}
-          className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 text-red-600 px-4 py-2 text-[11px] font-medium hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <XCircle className="h-3.5 w-3.5" />
-          Reject & cancel
-        </button>
       )}
     </div>
   );
