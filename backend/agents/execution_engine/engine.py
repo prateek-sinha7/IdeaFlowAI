@@ -39,6 +39,17 @@ from agents.authz import ScopedStore
 # ``chat_narrator.persist_milestone_card(store, run_id, event) -> (created, seq, card) | None``;
 # typed here as a generic awaitable callback so no app symbol crosses the import boundary.
 MilestoneSink = Callable[[ScopedStore, str, dict], Awaitable[object]]
+
+# A.3 (Phase 43): the app-layer live-ectx registrar, INJECTED into ``execute()`` (never
+# imported — the kernel must not import ``app.*``, import-linter 4/0). At run start the
+# engine REGISTERS the run's in-process ``ExecutionContext`` keyed by run_id so the app-layer
+# ``_live_ectx_for_run`` can resolve it for mid-run steering (=== USER GUIDANCE ===) + per-turn
+# images; on teardown it UNREGISTERS (no leak). Typed as generic callables so no app symbol
+# crosses the import boundary. Both ``None`` (the goldens + every current WS caller) keeps the
+# seam DORMANT — byte/event-identical (the drain fires only when a note/image was queued for a
+# resolvable running run). Keyed on run_id ONLY (SC-001/INV-1 — no workflow/agent literal).
+LiveEctxRegister = Callable[[str, "ExecutionContext"], None]
+LiveEctxUnregister = Callable[[str], None]
 from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
@@ -881,6 +892,8 @@ class ExecutionEngine:
         selections: dict | None = None,
         event_queue: "asyncio.Queue | None" = None,
         milestone_sink: "MilestoneSink | None" = None,
+        live_ectx_register: "LiveEctxRegister | None" = None,
+        live_ectx_unregister: "LiveEctxUnregister | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
 
@@ -908,50 +921,76 @@ class ExecutionEngine:
         caller, incl. the 5 characterization goldens) keeps the seam DORMANT — byte/event-
         identical. It is injected LIVE only at the supervised SSE transport cutover
         (CONTEXT §A.0 / Part C / B.3), never here and never by the golden harness.
+
+        ``live_ectx_register`` / ``live_ectx_unregister`` (A.3, Phase 43): an OPTIONAL app-layer
+        register/unregister callback PAIR. When ``live_ectx_register`` is provided, the engine
+        registers this run's in-process ``ExecutionContext`` (keyed by ``pipeline_run_id``) right
+        after it is constructed, so the app-layer ``_live_ectx_for_run`` resolves the RUNNING ectx
+        for mid-run steering + per-turn images; ``live_ectx_unregister`` runs in the ``finally``
+        below (ALWAYS — on normal completion, exception, or an early ``GeneratorExit`` if the
+        consumer stops draining) so the registry never leaks. Both ``None`` (the goldens + every
+        current WS caller) keeps the seam DORMANT — byte/event-identical. Keyed on
+        ``pipeline_run_id`` ONLY (SC-001/INV-1), so two concurrent runs never cross-deliver.
         """
         sink = _RunEventSink(milestone_sink=milestone_sink)
         counter = itertools.count(1)
-        async for event in self._execute_impl(
-            agents=agents,
-            user_message=user_message,
-            pipeline_run_id=pipeline_run_id,
-            pipeline_type=pipeline_type,
-            cancel_event=cancel_event,
-            user_id=user_id,
-            session_id=session_id,
-            attached_skills=attached_skills,
-            attached_hooks=attached_hooks,
-            model_id=model_id,
-            od_context=od_context,
-            images=images,
-            gate_agent_ids=gate_agent_ids,
-            parent_run_id=parent_run_id,
-            model_overrides=model_overrides,
-            selections=selections,
-            _sink=sink,
-            event_queue=event_queue,
-        ):
-            # Stamp exactly once, at the boundary, so seq is contiguous across the
-            # nondeterministically-interleaved build loop. Events always carry a
-            # "data" dict in this engine; guard defensively anyway.
-            data = event.get("data")
-            if not isinstance(data, dict):
-                data = {}
-                event["data"] = data
-            seq = next(counter)
-            event_id = str(uuid.uuid4())
-            data["seq"] = seq
-            data["event_id"] = event_id
-            # Durable sink (best-effort — see docstring). Persist the now-stamped
-            # event; a DB/FK failure must not break the live stream.
-            await sink.persist(seq, event_id, event.get("type", ""), data)
-            # A.4: project + persist a chat_reply milestone card for this event via the
-            # INJECTED narrator callback (self-filtering; DORMANT when milestone_sink is
-            # None — every current caller + the goldens). Passes the stamped event ({type,
-            # data:{event_id,seq,…}}) so the card's idempotency key anchors on the source
-            # event_id. Best-effort — a card write must never perturb the live stream.
-            await sink.emit_milestone_card(event)
-            yield event
+        try:
+            async for event in self._execute_impl(
+                agents=agents,
+                user_message=user_message,
+                pipeline_run_id=pipeline_run_id,
+                pipeline_type=pipeline_type,
+                cancel_event=cancel_event,
+                user_id=user_id,
+                session_id=session_id,
+                attached_skills=attached_skills,
+                attached_hooks=attached_hooks,
+                model_id=model_id,
+                od_context=od_context,
+                images=images,
+                gate_agent_ids=gate_agent_ids,
+                parent_run_id=parent_run_id,
+                model_overrides=model_overrides,
+                selections=selections,
+                _sink=sink,
+                event_queue=event_queue,
+                live_ectx_register=live_ectx_register,
+            ):
+                # Stamp exactly once, at the boundary, so seq is contiguous across the
+                # nondeterministically-interleaved build loop. Events always carry a
+                # "data" dict in this engine; guard defensively anyway.
+                data = event.get("data")
+                if not isinstance(data, dict):
+                    data = {}
+                    event["data"] = data
+                seq = next(counter)
+                event_id = str(uuid.uuid4())
+                data["seq"] = seq
+                data["event_id"] = event_id
+                # Durable sink (best-effort — see docstring). Persist the now-stamped
+                # event; a DB/FK failure must not break the live stream.
+                await sink.persist(seq, event_id, event.get("type", ""), data)
+                # A.4: project + persist a chat_reply milestone card for this event via the
+                # INJECTED narrator callback (self-filtering; DORMANT when milestone_sink is
+                # None — every current caller + the goldens). Passes the stamped event ({type,
+                # data:{event_id,seq,…}}) so the card's idempotency key anchors on the source
+                # event_id. Best-effort — a card write must never perturb the live stream.
+                await sink.emit_milestone_card(event)
+                yield event
+        finally:
+            # A.3: ALWAYS deregister the run's live ectx (normal completion, exception, or an
+            # early GeneratorExit if the consumer stops draining) so the process-local registry
+            # never leaks a terminated run's context. DORMANT when live_ectx_unregister is None
+            # (the goldens + WS callers) — a no-op that cannot perturb the event stream (INV-3).
+            if live_ectx_unregister is not None:
+                try:
+                    live_ectx_unregister(pipeline_run_id)
+                except Exception:  # noqa: BLE001 — teardown must never mask the real outcome
+                    logger.warning(
+                        "live_ectx_unregister failed for run %s",
+                        pipeline_run_id,
+                        exc_info=True,
+                    )
 
     async def _execute_impl(
         self,
@@ -975,6 +1014,7 @@ class ExecutionEngine:
         _resume_from: int = 0,
         _is_resume: bool = False,
         event_queue: "asyncio.Queue | None" = None,
+        live_ectx_register: "LiveEctxRegister | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
@@ -1098,6 +1138,23 @@ class ExecutionEngine:
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,
         )
+        # ── A.3 (Phase 43): register the RUNNING run's live in-process ExecutionContext ──
+        # Keyed by run_id into the app-layer process-local registry via the INJECTED callback
+        # (no engine→app import — import-linter 4/0). Once registered, the app-layer
+        # ``_live_ectx_for_run(run_id)`` resolves THIS ectx, so a mid-run chat steering note
+        # (=== USER GUIDANCE ===) or a per-turn image posted to POST /messages drains onto the
+        # NEXT agent dispatch (via ectx.steering_notes / ectx.pending_turn_images, consumed in
+        # _compose_context_message / _drain_turn_images below). The matching UNREGISTER runs in
+        # the execute() wrapper's finally (ALWAYS — no leak). DORMANT when the callback is None
+        # (the goldens + every current caller): a no-op ⇒ byte/event-identical (INV-3). Keyed on
+        # run_id ONLY (SC-001/INV-1) so two concurrent runs never cross-deliver steering/images.
+        if live_ectx_register is not None:
+            try:
+                live_ectx_register(pipeline_run_id, ectx)
+            except Exception:  # noqa: BLE001 — a registry failure must never break the run
+                logger.warning(
+                    "live_ectx_register failed for run %s", pipeline_run_id, exc_info=True
+                )
         # ISS-033 (43-04): run-usage accumulator for the DIRECT one-shot model calls
         # that run OUTSIDE the per-agent stream — the SmartPlanner and the clarify
         # question-generation call. Their tokens historically dropped on the floor

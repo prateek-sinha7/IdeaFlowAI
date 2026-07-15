@@ -39,6 +39,7 @@ import logging
 import time
 import uuid as _uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -358,19 +359,60 @@ class MessageCommand(BaseModel):
     images: list | None = None
 
 
-def _live_ectx_for_run(run_id: str):
-    """Best-effort resolve the LIVE in-process ``ExecutionContext`` for ``run_id``.
+# ---------------------------------------------------------------------------
+# A.3 (Phase 43) — live-ectx registry: the run_id → in-process ExecutionContext map
+# ---------------------------------------------------------------------------
+# The process-local registry that lets a mid-run chat turn reach the RUNNING run's live
+# in-process context. Mirrors the ``_PIPELINE_TASKS`` / ``_CANCEL_EVENTS`` per-run registries
+# (websocket.py) — a plain module-level dict, safe for the single-process asyncio runtime (all
+# access is on the event loop thread; no cross-thread mutation). The engine REGISTERS a run's
+# ExecutionContext at run start (``register_live_ectx``, via an INJECTED callback so no
+# engine→app import edge is created) and UNREGISTERS it on teardown (``unregister_live_ectx``,
+# the engine's finally-block — no leak). Keyed by run_id ONLY (SC-001/INV-1); a lookup returns
+# exactly that run's ectx, so two concurrent runs never cross-deliver steering/images.
+_LIVE_ECTX: dict[str, Any] = {}
 
-    The per-turn image carrier (30-03) delivers cap-validated images onto the running
-    run's ``ectx.pending_turn_images`` via ``chat_router.apply_turn_images``. That
-    requires the live in-process context handle — the SAME deferred wiring the 29-08
-    steering seam needs (DEF-29-09-1: engine-side drain / run_events re-derivation).
-    No live-ectx registry exists yet, so this returns ``None`` today — ``apply_turn_images``
-    then no-ops (the durable ``chat_message`` row keeps the record; images are
-    payload-transient, ND-10). The seam + engine drain are proven offline
-    (test_run_message_images); the live handle lands with the DEF-29-09-1 follow-up.
+
+def register_live_ectx(run_id: str, ectx: "Any") -> None:
+    """Register a RUNNING run's live in-process ``ExecutionContext`` (A.3).
+
+    Injected into ``ExecutionEngine.execute(live_ectx_register=…)`` and called once at run
+    start, right after the per-run context is constructed. Keyed by run_id so
+    ``_live_ectx_for_run`` can resolve it for the duration of the run. Idempotent: a second
+    register for the same run_id simply overwrites (a resumed run re-registers its rebuilt ctx).
     """
-    return None
+    _LIVE_ECTX[run_id] = ectx
+
+
+def unregister_live_ectx(run_id: str) -> None:
+    """Deregister a run's live ectx on teardown (A.3) — no leak.
+
+    Injected into ``ExecutionEngine.execute(live_ectx_unregister=…)`` and called from the
+    engine wrapper's finally-block (ALWAYS — normal completion, error, or early GeneratorExit).
+    ``pop`` with a default so a never-registered / double-unregister run_id is a safe no-op.
+    """
+    _LIVE_ECTX.pop(run_id, None)
+
+
+def _live_ectx_for_run(run_id: str):
+    """Resolve the LIVE in-process ``ExecutionContext`` for ``run_id`` (A.3), or ``None``.
+
+    Returns the ``ExecutionContext`` the running engine registered for ``run_id`` (via
+    ``register_live_ectx``), so a mid-run steering note (``chat_router.apply_steering`` →
+    ``ectx.steering_notes`` → the engine's ``=== USER GUIDANCE ===`` drain) or a per-turn image
+    (``chat_router.apply_turn_images`` → ``ectx.pending_turn_images`` → the engine's
+    ``_drain_turn_images`` one-shot carrier) reaches the NEXT agent dispatch. This ONE handle
+    closes both the steering deferral (DEF-29-09-1) and the per-turn-image deferral
+    (DEF-30-03-1) — a single registry, a single seam (INV-12).
+
+    Degrade-safe: a run NOT live in THIS process (never registered, already terminated, or
+    running behind a different worker) resolves to ``None`` → ``apply_steering`` /
+    ``apply_turn_images`` no-op, and the durable ``chat_message`` row remains the record (the
+    note is re-derived on resume from ``run_events``; images are payload-transient, ND-10).
+    Keyed by run_id ONLY (SC-001/INV-1) — the endpoint already owner-gated the run (404) BEFORE
+    reaching here, so a caller only ever resolves their own run's ectx (T-43-05-XINJECT).
+    """
+    return _LIVE_ECTX.get(run_id)
 
 
 def _chat_event_id(message_id: str) -> str:
@@ -687,6 +729,7 @@ async def post_message(
         CHANNEL_STEERING,
         ChatTurn,
         RunState,
+        apply_steering,
         apply_turn_images,
         derive_open_gate,
         route_chat_turn,
@@ -807,23 +850,27 @@ async def post_message(
         else:  # approve (default)
             await art_store.set_review_response(_gk, approved=True)
     elif dispatch.channel == CHANNEL_STEERING:
-        # 29-08 seam: the note is queued for the NEXT agent dispatch (ND-11 — base
-        # thread, next dispatch, no fork). The durable chat_message row above IS the
-        # record; the running engine re-derives pending steering from run_events (ND-9)
-        # and the injector consumes it via apply_steering into ectx.steering_notes. The
-        # live in-process ectx handle lookup (engine-side drain) is out of this plan's
-        # LOCK-B allow-list — proven at the seam by test_mechanical_router.apply_steering.
+        # A.3 (Phase 43): resolve the RUNNING run's live in-process ectx ONCE (the live-ectx
+        # registry now populates it at run start — DEF-29-09-1 closed) and drain BOTH the
+        # steering note AND any per-turn images through that SINGLE handle (INV-12 — one
+        # registry, one seam).
         #
-        # 30-03: a RUNNING-turn's cap-validated per-turn images ride the SAME
-        # live-delivery seam — apply_turn_images enqueues them onto
-        # ectx.pending_turn_images and the engine drains them onto the one-shot
-        # ectx.turn_images_once carrier at the next dispatch (payload-transient, ND-10;
-        # rendered once, then cleared). The live in-process ectx handle is the
-        # DEF-29-09-1 deferred wiring (no live-ectx registry yet), so this is best-effort
-        # (a no-op until the handle lands); the seam + drain are proven offline by
-        # test_run_message_images. Keyed on the generic queue only (SC-001/INV-1).
+        # 29-08 seam: the note is queued onto ectx.steering_notes for the NEXT agent dispatch
+        # (ND-11 — base thread, next dispatch, no fork); the engine's _compose_context_message
+        # renders + consume-once-clears it as a === USER GUIDANCE === block. The durable
+        # chat_message row above IS the record (a run NOT live in this process resolves to None
+        # → apply_steering no-ops; the note is re-derived on resume from run_events, ND-9).
+        #
+        # 30-03: a RUNNING-turn's cap-validated per-turn images ride the SAME live handle —
+        # apply_turn_images enqueues them onto ectx.pending_turn_images and the engine drains
+        # them onto the one-shot ectx.turn_images_once carrier at the next dispatch (payload-
+        # transient, ND-10; rendered once, then cleared) — closing DEF-30-03-1. Keyed on the
+        # generic queues only (SC-001/INV-1). Dormant when nothing is queued (INV-3).
+        ectx = _live_ectx_for_run(run_id)
+        if dispatch.note is not None:
+            apply_steering(ectx, dispatch.note)
         if validated_turn_images:
-            apply_turn_images(_live_ectx_for_run(run_id), validated_turn_images)
+            apply_turn_images(ectx, validated_turn_images)
     elif dispatch.channel == CHANNEL_REVISION:
         # revision → mint + drive the shipped family child run (D-02), the exact seam
         # POST /{id}/revisions uses. A generic target derives from the run type when the
@@ -860,8 +907,10 @@ async def post_message(
     elif dispatch.channel == CHANNEL_CONCIERGE:
         # ── Free-form → Concierge (D-04, Phase 33). The router CLASSIFIED this turn as
         #    free-form; the model INVOCATION happens HERE (never in the pure router). ──
-        # Best-effort live in-process ectx handle (None today — DEF-29-09-1): a disposed
-        # steering_note rides the SAME 29-08 seam as the mechanical steering channel.
+        # A.3 (Phase 43): the live in-process ectx handle now resolves via the live-ectx
+        # registry (DEF-29-09-1 closed) — a disposed steering_note rides the SAME 29-08 seam
+        # as the mechanical steering channel. Degrade-safe: None for a run not live in this
+        # process → apply_steering no-ops (the durable row remains the record).
         ectx = _live_ectx_for_run(run_id)
 
         # A CONFIRM turn carries a previously-HELD proposal to EXECUTE (the FE confirm
@@ -1258,6 +1307,14 @@ async def _drive_launch_to_queue(
             model_overrides=model_overrides,
             selections=selections,
             event_queue=event_queue,
+            # A.3 (Phase 43): register this run's live in-process ExecutionContext so a
+            # mid-run chat steering note / per-turn image posted to POST /messages resolves
+            # via _live_ectx_for_run and drains onto the NEXT agent dispatch. This SSE/REST
+            # launch path is the seam that goes LIVE at the Part-C transport cutover; the WS
+            # run_pipeline launch (websocket.py, LOCK-B — not modified here) wires the same
+            # pair at Part C. unregister runs in the engine wrapper's finally — no leak.
+            live_ectx_register=register_live_ectx,
+            live_ectx_unregister=unregister_live_ectx,
         ):
             await event_queue.put({"type": update["type"], "data": update.get("data", {})})
             utype = update["type"]
