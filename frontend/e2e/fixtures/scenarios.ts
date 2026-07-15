@@ -4,7 +4,7 @@
  * live run would show. Use the granular MockWs.* methods for interleaved
  * assertions; use these presets for "just get to a terminal state" setups.
  */
-import type { MockWs, AgentSeed } from "./mockWs";
+import type { MockSse, AgentSeed } from "./mockSse";
 
 export const AGENTS: Record<string, AgentSeed[]> = {
   user_stories: [
@@ -47,7 +47,7 @@ export const SAMPLE_DECK = `<!DOCTYPE html><html><body>${Array.from({ length: 5 
 export const SAMPLE_BACKLOG = `# Product Backlog\n\n## Epic: Refunds\n\n### Story: Issue refund\nAs a user I want a refund.\n\n**Given** an order **When** I request a refund **Then** it is processed.\n`;
 
 /** Drive an agent through start → thinking → chunk → complete. */
-export async function runAgent(ws: MockWs, id: string, opts: { thinking?: string; chunk?: string } = {}) {
+export async function runAgent(ws: MockSse, id: string, opts: { thinking?: string; chunk?: string } = {}) {
   ws.agentStart(id);
   ws.agentThinking(id, opts.thinking ?? `Working on ${id}…`);
   ws.agentChunk(id, opts.chunk ?? `output from ${id}`);
@@ -55,7 +55,7 @@ export async function runAgent(ws: MockWs, id: string, opts: { thinking?: string
 }
 
 /** Full green run: start → all agents → pipeline_complete. */
-export async function playGreenRun(ws: MockWs, pipelineType: keyof typeof AGENTS, finalOutput: string, deliverable?: { mimetype?: string; filename?: string }) {
+export async function playGreenRun(ws: MockSse, pipelineType: keyof typeof AGENTS, finalOutput: string, deliverable?: { mimetype?: string; filename?: string }) {
   const agents = AGENTS[pipelineType];
   ws.start(agents, { pipelineType });
   for (const a of agents) await runAgent(ws, a.id);
@@ -63,7 +63,7 @@ export async function playGreenRun(ws: MockWs, pipelineType: keyof typeof AGENTS
 }
 
 /** Full failed run: every agent errors → pipeline_failed (the ISS-016 shape). */
-export async function playFailedRun(ws: MockWs, pipelineType: keyof typeof AGENTS = "user_stories") {
+export async function playFailedRun(ws: MockSse, pipelineType: keyof typeof AGENTS = "user_stories") {
   const agents = AGENTS[pipelineType];
   ws.start(agents, { pipelineType });
   for (const a of agents) { ws.agentStart(a.id); ws.agentError(a.id, "The model rejected this request."); }
