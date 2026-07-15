@@ -1098,6 +1098,15 @@ class ExecutionEngine:
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,
         )
+        # ISS-033 (43-04): run-usage accumulator for the DIRECT one-shot model calls
+        # that run OUTSIDE the per-agent stream — the SmartPlanner and the clarify
+        # question-generation call. Their tokens historically dropped on the floor
+        # (uncounted). Each call routes through the shared cached_invoke; this sink
+        # collects their usage dicts, folded into the run totals at pipeline_complete
+        # (below). Empty on the offline characterization goldens (the planner is
+        # neutralised and clarify.mode="off"), so the golden token totals — and thus
+        # the byte/event snapshots — are unchanged (INV-3).
+        aux_token_usage: list[dict] = []
         # KAN-73: wire the live WS queue onto ectx so KernelServices.emit_hook_event
         # can push hook_run events into the real-time stream. The queue is the same
         # asyncio.Queue the WS drainer reads from (created in _get_or_create_queue
@@ -1595,7 +1604,7 @@ class ExecutionEngine:
             planner_start_ms = time.time() * 1000
             planning_context, gate_verdict = await self._run_planner(
                 user_message, pipeline_run_id, model_id, cancel_event, pipeline_type,
-                ectx=ectx,
+                ectx=ectx, usage_sink=aux_token_usage.append,
             )
 
             # ── Clarify-mode routing concern — sourced from the compiled plan ─────
@@ -1708,6 +1717,9 @@ class ExecutionEngine:
             from agents.execution_engine.clarify_engine import ClarifyEngine
 
             clarify = ClarifyEngine()
+            # ISS-033: count the clarify question-generation model-call tokens in the
+            # run accounting (via the shared cached_invoke inside the engine).
+            clarify._usage_sink = aux_token_usage.append
 
             # Use a Queue so ClarifyEngine events (questionnaire_ready, etc.)
             # are streamed to the client in real-time while clarify.run()
@@ -2369,6 +2381,15 @@ class ExecutionEngine:
         # cost math is unchanged and the goldens stay byte/event-identical).
         _cache_read = sum(r.get("cache_read_tokens", 0) or 0 for r in results)
         _cache_write = sum(r.get("cache_write_tokens", 0) or 0 for r in results)
+        # ISS-033 (43-04): fold in the DIRECT one-shot model calls that run OUTSIDE the
+        # per-agent stream (SmartPlanner + clarify question-generation) so their tokens
+        # are COUNTED in the run totals instead of being silently dropped. Empty on the
+        # goldens (planner neutralised, clarify.mode="off") → the totals and the
+        # byte/event snapshots are unchanged (INV-3).
+        _tok_in += sum(u.get("input_tokens", 0) or 0 for u in aux_token_usage)
+        _tok_out += sum(u.get("output_tokens", 0) or 0 for u in aux_token_usage)
+        _cache_read += sum(u.get("cache_read_tokens", 0) or 0 for u in aux_token_usage)
+        _cache_write += sum(u.get("cache_write_tokens", 0) or 0 for u in aux_token_usage)
         # ── ISS-021 (18-01): the DECLARED deliverable shape hint ────────────────
         # Surface a type-driven deliverable contract on EVERY pipeline_complete so
         # the FE renderer (18-03) dispatches on a mimetype, never a workflow name
@@ -2483,11 +2504,12 @@ class ExecutionEngine:
         cancel_event: asyncio.Event | None,
         pipeline_type: str = "custom",
         ectx: ExecutionContext | None = None,
+        usage_sink=None,
     ) -> tuple[dict, str]:
         """Run the Deep_Planner_Agent with a timeout. Returns (planning_context, gate)."""
         try:
             planning_context = await asyncio.wait_for(
-                self._invoke_planner(user_message, model_id, pipeline_type),
+                self._invoke_planner(user_message, model_id, pipeline_type, usage_sink=usage_sink),
                 timeout=PLANNER_TIMEOUT_SECONDS,
             )
             gate = planning_context.get("execution_gate", "PROCEED")
@@ -2518,11 +2540,15 @@ class ExecutionEngine:
             ctx["planner_error"] = str(exc)
             return ctx, "PROCEED"
 
-    async def _invoke_planner(self, user_message: str, model_id: str | None, pipeline_type: str = "custom") -> dict:
+    async def _invoke_planner(
+        self, user_message: str, model_id: str | None, pipeline_type: str = "custom", usage_sink=None
+    ) -> dict:
         """Invoke the SmartPlanner — single structured LLM call, 2-5 seconds."""
         from agents.planner.smart_planner import SmartPlanner
 
-        planner = SmartPlanner(model_id=model_id)
+        # ISS-033: thread the run-usage sink so the planner's model-call tokens are
+        # counted in the run accounting (via the shared cached_invoke inside plan()).
+        planner = SmartPlanner(model_id=model_id, usage_sink=usage_sink)
         return await planner.plan(user_message, pipeline_type)
 
     def _default_planning_context(self, user_message: str, timed_out: bool = False) -> dict:

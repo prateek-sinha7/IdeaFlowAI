@@ -183,6 +183,10 @@ class ClarifyEngine:
         # run() has validated owner_id); None only before the gate runs.
         self._owner_id: str | None = None
         self._workspace_id: str | None = None
+        # ISS-033: optional run-usage sink. When the engine sets it, the clarify
+        # question-generation model call routes its tokens into the run's usage
+        # accounting (via the shared cached_invoke). None → counting is a no-op.
+        self._usage_sink = None
 
     async def run(
         self,
@@ -486,12 +490,21 @@ OUTPUT FORMAT (strict): return ONLY the raw JSON array. No markdown code fences,
 prose before or after. Your response MUST start with `[` and end with `]`."""
 
         try:
-            from app.agents.model_factory import build_model
             from langchain_core.messages import HumanMessage
 
-            llm = build_model(max_tokens=1500)
-            response = await llm.ainvoke([HumanMessage(content=prompt)])
-            raw = response.content if hasattr(response, "content") else str(response)
+            from app.agents.cached_invoke import cached_invoke
+
+            # ISS-033: route the direct build_model().ainvoke through the ONE shared
+            # cached-invoke helper — Bedrock-cache-eligible + tokens counted. The
+            # message + parse are unchanged (INV-3: same model text → same parsed
+            # output); only the invoke path changes. build_model(max_tokens=1500) is
+            # done inside the helper (identical to before), so a provider-misconfig
+            # still degrades to the static fallback via this try/except.
+            raw, _usage = await cached_invoke(
+                [HumanMessage(content=prompt)],
+                max_tokens=1500,
+                usage_sink=self._usage_sink,
+            )
 
             # Tolerant extract + repair (fences / trailing+missing commas / smart
             # quotes / truncation), json.loads-only. None -> static fallback (INV-3).

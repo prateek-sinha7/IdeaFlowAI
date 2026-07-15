@@ -254,12 +254,18 @@ async def test_smart_planner_delegates_and_counts(monkeypatch):
 async def test_classifier_delegates(monkeypatch):
     import app.agents.handoff.classifier as clf
 
+    # build_model runs OUTSIDE the try (ModelConfigurationError propagation preserved);
+    # it can't build a real provider offline, so stub it. cached_invoke is stubbed too,
+    # so the stub model is only passed through, never invoked.
+    sentinel_model = object()
+    monkeypatch.setattr(clf, "build_model", lambda max_tokens=None: sentinel_model)
+
     captured: dict[str, Any] = {}
 
     async def _fake_cached_invoke(messages, *, system=None, model=None, max_tokens=None, usage_sink=None):
         captured["system"] = system
         captured["messages"] = messages
-        captured["max_tokens"] = max_tokens
+        captured["model"] = model
         if usage_sink is not None:
             usage_sink({"input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 0, "cache_write_tokens": 0})
         return "test", {"input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 0, "cache_write_tokens": 0}
@@ -268,9 +274,10 @@ async def test_classifier_delegates(monkeypatch):
     sunk: list[dict] = []
     mode = await clf.classify_task("write missing unit tests", usage_sink=sunk.append)
     assert mode == "test"
-    # System prefix is the stable classifier prompt; max_tokens preserved.
+    # Stable classifier prompt is the cache-eligible system prefix; the pre-built model
+    # (build_model(max_tokens=8), built outside the try) is passed through.
     assert captured["system"] == clf._CLASSIFIER_SYSTEM_PROMPT
-    assert captured["max_tokens"] == 8
+    assert captured["model"] is sentinel_model
     assert len(sunk) == 1
 
 
@@ -281,9 +288,14 @@ async def test_compliance_agent_delegates(monkeypatch):
     captured: dict[str, Any] = {}
     report = {"verdict": "approve", "summary": "ok", "findings": [], "positives": []}
 
+    # build_model stays in compliance_agent (built outside, passed through); stub it
+    # offline. cached_invoke is stubbed too, so the stub model is never invoked.
+    sentinel_model = object()
+    monkeypatch.setattr(comp, "build_model", lambda max_tokens=None: sentinel_model)
+
     async def _fake_cached_invoke(messages, *, system=None, model=None, max_tokens=None, usage_sink=None):
         captured["system"] = system
-        captured["max_tokens"] = max_tokens
+        captured["model"] = model
         if usage_sink is not None:
             usage_sink({"input_tokens": 5, "output_tokens": 2, "cache_read_tokens": 0, "cache_write_tokens": 0})
         return json.dumps(report), {"input_tokens": 5, "output_tokens": 2, "cache_read_tokens": 0, "cache_write_tokens": 0}
@@ -294,5 +306,5 @@ async def test_compliance_agent_delegates(monkeypatch):
     out = await agent.review("task", "tree", {"a.py": "code"})
     assert out["verdict"] == "approve"
     assert captured["system"] == agent.system_prompt
-    assert captured["max_tokens"] == agent._max_tokens
+    assert captured["model"] is sentinel_model
     assert len(sunk) == 1
