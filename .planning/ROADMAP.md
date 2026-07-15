@@ -736,7 +736,7 @@ Plans:
 **Goal:** Every run state (planning · live · clarify · review-gate · complete · failed · revision) matches the three VelocityAI run mocks, by REMOVING the legacy full-screen right-panel takeovers so the already-built inline surfaces become reachable, plus the fidelity polish the mocks require, plus the settled agent-detail artifact cards — FRONTEND-ONLY (INV-3/LOCK-B), generically keyed (SC-001), closed on per-state screenshot-diff + human sign-off.
 **Requirements:** RUNUI-06, RUNUI-07, RUNUI-08, RUNUI-09
 **Depends on:** Phase 41
-**Plans:** 11/11 plans executed — **COMPLETE (2026-07-15)**; frontend-only (INV-3/LOCK-B); per-state gallery sign-off closed the phase. **RUNUI-09 NOT yet met** — see the closeout note (33 mocked-e2e specs assert the pre-Phase-42 UI and need a dedicated reconciliation pass; deferred).
+**Plans:** 11/11 plans complete — frontend-only (INV-3/LOCK-B); per-state gallery sign-off closed the phase. **RUNUI-09 NOT yet met** — see the closeout note (33 mocked-e2e specs assert the pre-Phase-42 UI; dedicated reconciliation pass deferred, `42-.../deferred-items.md` D-42-1).
 
 Plans:
 
