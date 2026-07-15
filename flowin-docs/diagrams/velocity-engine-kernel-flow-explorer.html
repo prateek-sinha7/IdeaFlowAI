@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Velocity AI — Engine & Kernel Runtime Explorer</title>
+<style>
+/* ════════════════════════════ page shell (delete/replace if embedding in a larger docs site) ════════════════════════════ */
+html,body { margin:0; padding:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { background:#f3f5fa; color:#1b2440; }
+@media (prefers-color-scheme: dark) { body { background:#12141c; color:#e7eaf3; } }
+:root[data-theme="dark"] body { background:#12141c; color:#e7eaf3; }
+:root[data-theme="light"] body { background:#f3f5fa; color:#1b2440; }
+.page-wrap { max-width: 1680px; margin: 0 auto; padding: 28px 24px 60px; }
+.page-wrap h1 { font-size: 22px; margin: 0 0 6px; }
+.page-wrap .lede { font-size: 13.5px; opacity: .72; margin: 0 0 20px; max-width: 1120px; line-height:1.6; }
+
+/* ════════════════════════════ .iarch — scope every diagram-engine style under this class ════════════════════════════
+   so it can be dropped into any host page (a docs site, an artifact, a wiki export) without colliding
+   with that page's own CSS. Only edit the --c-* palette below to reskin; don't rename the 7 semantic
+   role tokens (source/install/runtime/plat/hook/out/neutral) — the JS looks them up by these names in
+   three places (search for "{src:'source'" to find all three). */
+.iarch {
+  --bg: #eef2f9;         --bg-stage: #f7faff;   --dot: #dbe3f3;
+  --panel: #ffffff;      --ink: #1b2440;        --ink-2: #3f4a6e;   --ink-3: #8592b3;
+  --line: #e4e9f3;       --edge: #9aa8c8;       --edge-label: #54608a;
+  --radius: 14px;
+  --shadow: 0 8px 26px rgba(30,50,90,.10);
+
+  /* the 7 semantic roles — rename the hex values freely, keep the 3 vars per role */
+  --c-source: #3b6df6;  --c-source-bg: #e8effe;  --c-source-ln: #c5d8fb;   /* src  = frontend / input / entry point */
+  --c-install: #0e9aae; --c-install-bg: #e3f6f8; --c-install-ln: #b7e4ea; /* ins  = API / backend layer */
+  --c-runtime: #b9820b; --c-runtime-bg: #fdf3dc; --c-runtime-ln: #f0dcac; /* run  = execution / runtime core */
+  --c-plat: #7c5cff;    --c-plat-bg: #f0ebfe;    --c-plat-ln: #d5cbfb;    /* plat = data / storage / platform */
+  --c-hook: #d6469f;    --c-hook-bg: #fdeaf6;    --c-hook-ln: #f2c3e2;    /* hook = failure / side-effect / auth */
+  --c-out: #12a06a;     --c-out-bg: #e5f6ee;     --c-out-ln: #bbe6d3;     /* out  = external / terminal / success */
+  --c-neutral: #54608a; --c-neutral-bg: #eef2fb; --c-neutral-ln: #d4ddec;/* neu  = uncategorized */
+  --c-danger: #e0405a;  --c-success: #12a06a;
+
+  position: relative; display: flex; flex-direction: column;
+  height: 82vh; min-height: 600px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; background: var(--panel); box-shadow: var(--shadow);
+  color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  .iarch {
+    --bg:#1a1d29; --bg-stage:#14161f; --dot:#242838; --panel:#1c1f2b;
+    --ink:#e7eaf3; --ink-2:#b7bfd6; --ink-3:#7d859f; --line:#2a2e40; --edge:#4b5372; --edge-label:#9aa4c4;
+    --c-source-bg:#182338; --c-source-ln:#233256;
+    --c-install-bg:#122a2c; --c-install-ln:#1c3f42;
+    --c-runtime-bg:#2c220f; --c-runtime-ln:#3f3016;
+    --c-plat-bg:#221a3a; --c-plat-ln:#332752;
+    --c-hook-bg:#33172a; --c-hook-ln:#492239;
+    --c-out-bg:#132a20; --c-out-ln:#1c3d2e;
+    --c-neutral-bg:#1e2233; --c-neutral-ln:#2c3149;
+  }
+}
+
+/* ── tabs ── */
+.tabs { display:flex; gap:2px; padding:8px 12px 0; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--line); }
+.tabs::-webkit-scrollbar { display:none; }
+.tab { font:inherit; font-size:12px; font-weight:550; color:var(--ink-3); background:none; border:none; cursor:pointer;
+  padding:8px 9px 10px; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s; white-space:nowrap; }
+.tab:hover { color: var(--ink-2); }
+.tab.active { color: var(--c-source); border-bottom-color: var(--c-source); font-weight:650; }
+.tab kbd { font-family:inherit; font-size:9.5px; color:var(--ink-3); border:1px solid var(--line); border-radius:4px; padding:0 3px; margin-right:5px; background:var(--panel); }
+.tab.active kbd { color: var(--c-source); border-color: var(--c-source-ln); }
+
+/* ── stage ── */
+.iarch-main { flex:1; display:flex; min-height:0; }
+.stage-wrap { flex:1; position:relative; min-width:0; }
+.stage { position:absolute; inset:0; background-color:var(--bg-stage);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size:22px 22px;
+  overflow:hidden; cursor:grab; touch-action:none; }
+.stage.panning { cursor:grabbing; }
+.stage svg { display:block; width:100%; height:100%; }
+
+.view-title { position:absolute; top:14px; left:18px; pointer-events:none; font-size:12px; font-weight:650;
+  color:var(--ink-3); text-transform:uppercase; letter-spacing:.08em; }
+
+.zoombar { position:absolute; top:12px; right:14px; display:flex; gap:4px; background:var(--panel);
+  border:1px solid var(--line); border-radius:10px; padding:4px; box-shadow:var(--shadow); align-items:center; }
+.zbtn { font:inherit; font-size:14px; font-weight:600; color:var(--ink-2); background:none; border:none;
+  border-radius:7px; cursor:pointer; width:30px; height:28px; display:grid; place-items:center; transition:background .12s; }
+.zbtn:hover { background: var(--bg); color: var(--ink); }
+.zpct { font-size:11.5px; font-weight:600; color:var(--ink-3); min-width:44px; text-align:center; user-select:none; }
+.hint { position:absolute; bottom:12px; left:18px; pointer-events:none; font-size:11.5px; color:var(--ink-3);
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:5px 10px; opacity:.9; }
+
+.iarch-legend { position:absolute; bottom:12px; right:14px; display:flex; gap:10px; flex-wrap:wrap;
+  background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:7px 12px;
+  box-shadow:var(--shadow); max-width:60%; pointer-events:none; }
+.lg { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:550; color:var(--ink-2); }
+.lg i { width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+/* ── detail panel (click-to-pin) ── */
+.panel { width:380px; border-left:1px solid var(--line); background:var(--panel); padding:20px;
+  overflow-y:auto; display:none; flex-shrink:0; }
+.panel.open { display:block; }
+.panel .p-kicker { font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+.panel h2 { font-size:16px; font-weight:700; margin:6px 0 10px; letter-spacing:-.01em; }
+.panel .p-path { display:inline-block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+  color:var(--ink-2); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:3px 8px;
+  margin-bottom:12px; word-break:break-all; }
+.panel p { font-size:13px; line-height:1.65; color:var(--ink-2); }
+.panel .p-close { float:right; font:inherit; font-size:12px; color:var(--ink-3); background:none;
+  border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; }
+.panel .p-close:hover { color: var(--ink); }
+.panel .p-empty { font-size:12.5px; color:var(--ink-3); line-height:1.6; margin-top:8px; }
+
+.p-list { margin-top:16px; border-top:1px solid var(--line); padding-top:4px; }
+.p-list-count { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin:10px 0 2px; }
+.p-list-group { font-size:11px; font-weight:700; color:var(--c-source); margin:14px 0 4px; padding-top:2px; }
+.p-list-group:first-of-type { margin-top:8px; }
+.p-item { padding:5px 0; border-bottom:1px solid var(--line); }
+.p-item:last-child { border-bottom:none; }
+.p-item-name { font-size:12px; font-weight:650; color:var(--ink); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.p-item-desc { font-size:11.5px; color:var(--ink-3); line-height:1.4; margin-top:1px; }
+
+/* ── tooltip (hover) ── */
+.tip { position:fixed; z-index:50; pointer-events:none; display:none; max-width:320px; background:var(--panel);
+  color:var(--ink); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); padding:10px 12px;
+  font-size:12px; line-height:1.55; }
+.tip .t-name { font-weight:700; font-size:12.5px; margin-bottom:2px; }
+.tip .t-path { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--ink-3); margin-bottom:5px; }
+.tip .t-desc { color: var(--ink-2); }
+.tip .t-more { color: var(--ink-3); font-size:10.5px; margin-top:6px; }
+
+/* ── svg pieces ── */
+.grp-rect { fill: var(--panel); stroke: var(--line); stroke-width:1; rx:14; opacity:.55; }
+.grp-label { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+
+.node { cursor:pointer; }
+.node rect { stroke-width:1.25; filter: drop-shadow(0 1px 1.5px rgba(20,24,32,.13)); transition: filter .15s; }
+@media (prefers-color-scheme: dark) { .node rect { filter: drop-shadow(0 1.5px 3px rgba(0,0,0,.55)); } }
+.node:hover rect { stroke-width:2; filter: drop-shadow(0 3px 8px rgba(20,24,32,.2)); }
+.node.pinned rect { stroke-width:2.5; }
+.node .n-title { font-size:13px; font-weight:650; fill: var(--ink); }
+.node .n-sub { font-size:11px; fill: var(--ink-3); font-weight:480; }
+
+.src rect  { fill: var(--c-source-bg);  stroke: var(--c-source-ln); }
+.ins rect  { fill: var(--c-install-bg); stroke: var(--c-install-ln); }
+.run rect  { fill: var(--c-runtime-bg); stroke: var(--c-runtime-ln); }
+.plat rect { fill: var(--c-plat-bg);    stroke: var(--c-plat-ln); }
+.hook rect { fill: var(--c-hook-bg);    stroke: var(--c-hook-ln); }
+.out rect  { fill: var(--c-out-bg);     stroke: var(--c-out-ln); }
+.neu rect  { fill: var(--c-neutral-bg); stroke: var(--c-neutral-ln); }
+
+.edge { fill:none; stroke: var(--edge); stroke-width:1.6; }
+.edge.flow { stroke-dasharray:7 5; animation: dash 1.1s linear infinite; }
+.edge.dashed { stroke-dasharray:3 5; opacity:.75; }
+.edge.thick { stroke-width:2.4; }
+.edge.danger { stroke: var(--c-danger); }
+.edge.success { stroke: var(--c-success); }
+@keyframes dash { to { stroke-dashoffset:-12; } }
+.e-label { font-size:10.5px; font-weight:620; fill: var(--edge-label); paint-order:stroke;
+  stroke: var(--bg-stage); stroke-width:4px; stroke-linejoin:round; }
+.e-label.danger { fill: var(--c-danger); }
+.e-label.success { fill: var(--c-success); }
+
+@media (max-width: 900px) { .panel { display:none !important; } .iarch-legend { display:none; } }
+
+.back-btn { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--ink-2, #3f4a6e);
+  text-decoration:none; background:var(--panel, #fff); border:1px solid var(--line, #e4e9f3); border-radius:20px;
+  padding:6px 13px 6px 11px; margin-bottom:14px; transition:background .12s, color .12s; }
+.back-btn:hover { color:#3b6df6; border-color:#c5d8fb; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+    <a class="back-btn" href="./index.html">&larr; Diagram Library</a>
+  <h1>Velocity AI — Engine &amp; Kernel Runtime Explorer</h1>
+  <p class="lede">A source-backed deep trace of the execution engine only: ingress, per-run state, context reads, prompt and tool binding, tool-call streaming, capability dispatch, fan-out, terminals, and restart replay. Surrounding systems appear only where they cross the kernel boundary. Scroll to zoom, drag to pan, and click any box for evidence.</p>
+
+  <div class="iarch">
+    <div class="tabs" id="tabs"></div>
+    <div class="iarch-main">
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--edge)"/>
+              </marker>
+              <marker id="arr-danger" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-danger)"/>
+              </marker>
+              <marker id="arr-success" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-success)"/>
+              </marker>
+            </defs>
+            <g id="vp"></g>
+          </svg>
+          <div class="view-title" id="view-title"></div>
+          <div class="zoombar">
+            <button class="zbtn" id="z-out" title="Zoom out (−)">−</button>
+            <span class="zpct" id="z-pct">100%</span>
+            <button class="zbtn" id="z-in" title="Zoom in (+)">+</button>
+            <button class="zbtn" id="z-fit" title="Fit to screen (0)" style="font-size:12px">⤢</button>
+          </div>
+          <div class="hint" id="hint">scroll to zoom · drag to pan · click a box to pin details · keys 1–9 switch views</div>
+          <div class="iarch-legend" id="legend"></div>
+        </div>
+      </div>
+      <aside class="panel" id="panel">
+        <button class="p-close" id="p-close">✕ close</button>
+        <div id="p-body"><div class="p-empty">Click any box to see what it is, where it lives, and why it matters.</div></div>
+      </aside>
+    </div>
+    <div class="tip" id="tip"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ═══════════════════════ EDIT BELOW: your diagram data ═══════════════════════
+   node:  [id, colorClass, x, y, w, h, title, subLines[], info{k,p,d,list?}]
+   edge:  [fromId, fromSide, toId, toSide, edgeClasses, label]
+   group: [id, x, y, w, h, label, colorClass]
+   colorClass ∈ src|ins|run|plat|hook|out|neu — the 7 semantic roles defined in the CSS above.
+   fromSide/toSide ∈ l|r|t|b, optionally 'side:0.0-1.0' to offset along that edge.
+   edgeClasses: space-separated subset of flow|dashed|thick|danger|success (or '' for a plain solid line).
+   This ONE example diagram below is a placeholder — replace nodes/edges/groups with the real domain,
+   and add more entries to DIAGRAMS for additional tabbed views. Everything after this data block is
+   generic rendering/interaction engine — leave it alone unless changing interaction behavior itself. */
+const DIAGRAMS = [
+  {
+    id: 'engine-boundary', tab: 'Engine Boundary', title: 'What crosses the engine/kernel boundary — inputs, owned state, and terminal outputs',
+    w: 1800, h: 780,
+    legend: [['src','External input'], ['ins','Composition boundary'], ['run','Engine / kernel'], ['plat','State & persistence'], ['hook','Control / failure'], ['out','Output']],
+    groups: [
+      ['b-in', 20, 45, 310, 680, 'Inputs crossing inward', 'src'],
+      ['b-core', 365, 45, 875, 680, 'Engine and kernel-owned runtime', 'run'],
+      ['b-out', 1275, 45, 500, 680, 'Outputs crossing outward', 'out'],
+    ],
+    nodes: [
+      ['b-ws','src', 50, 100, 250, 76, 'Workflow run request', ['brief, pipeline, selections,', 'images, gates, models'],
+        { k:'External / app boundary', p:'backend/app/api/websocket.py::_handle_workflow_execution', d:'The WebSocket handler validates untrusted run inputs, creates the WorkflowRun row and cooperative cancel event, then calls engine.execute. It is outside the kernel and is shown only as the primary ingress.', list:[{n:'user_message',d:'The user brief; persisted without transient image bytes.'},{n:'pipeline_type',d:'Legacy label resolved to a compiled manifest id inside the engine.'},{n:'model_overrides / selections',d:'Ingress-validated controls rechecked by engine compilation.'},{n:'images',d:'Validated out-of-band and normalized onto ExecutionContext.run_images.'}] }],
+      ['b-resume','src', 50, 265, 250, 76, 'Startup resume signal', ['non-terminal WorkflowRun', 'plus durable run state'],
+        { k:'External / startup boundary', p:'backend/agents/execution_engine/engine.py::restore_non_terminal_runs', d:'Backend startup asks the engine to classify durable non-terminal runs. Resumable runs re-enter the same execution implementation; abandoned or clarification-waiting runs are failed explicitly.' }],
+      ['b-ndjson','src', 50, 430, 250, 76, 'NDJSON adapter request', ['template/design context', 'plus brief'],
+        { k:'External / REST boundary', p:'backend/agents/execution_engine/ndjson_adapter.py::run_od_prototype_pipeline', d:'The REST adapter loads OpenDesign context, calls the same engine singleton, and flattens the engine event envelope. It does not own a second execution path.' }],
+      ['b-execute','ins', 405, 95, 250, 76, 'execute()', ['single outward emit boundary', 'seq + event_id stamping'],
+        { k:'Kernel entry', p:'backend/agents/execution_engine/engine.py::ExecutionEngine.execute', d:'The public async generator wraps _execute_impl. Every event is stamped exactly once with a contiguous per-run sequence and UUID event_id, persisted through _RunEventSink, then yielded.' }],
+      ['b-impl','run', 700, 95, 250, 76, '_execute_impl()', ['constructs the run, compiles,', 'dispatches, terminates'],
+        { k:'Engine core', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'This is the end-to-end sequencer: create per-run state, bind storage/checkpoint resources, compile and validate the workflow, execute declared step capabilities, resolve the deliverable, and choose one terminal outcome.' }],
+      ['b-ectx','plat', 700, 245, 250, 86, 'ExecutionContext', ['one mutable object per run', 'explicitly threaded'],
+        { k:'Per-run state', p:'backend/agents/execution_engine/context.py::ExecutionContext', d:'All run-scoped mutable data lives here, not on the process-wide engine singleton. The engine explicitly passes this object through the call tree; it is distinct from the per-agent AgentContext.', list:{groups:[{label:'Identity and scope',items:[{n:'run_id / owner_id',d:'Durable run and DB principal.'},{n:'disk_principal / workspace_id',d:'Disk identity is deliberately decoupled from DB ownership.'}]},{label:'Live execution',items:[{n:'artifacts / scoped_store',d:'Typed in-memory handoff plus owner-scoped durable store.'},{n:'checkpointer / runner',d:'Shared LangGraph saver and KernelServices handle.'},{n:'budget / depth / cancel_event',d:'Per-run fan-out ceilings and cooperative cancellation.'},{n:'current_step / task scratch',d:'Consume-once step/task context used during invocation.'}]}]} }],
+      ['b-kernel','run', 990, 245, 220, 86, 'KernelServices', ['one capability-to-kernel seam', 'attached as ctx.runner'],
+        { k:'Kernel port', p:'backend/agents/execution_engine/kernel_services.py::KernelServices', d:'Capabilities never import the engine or app layer. They dynamically call this per-run handle for run_agent, fan-out, sandbox access, validation, HITL, artifact reads/writes, merge, audit, and exec workspace services.' }],
+      ['b-events','out', 1315, 95, 420, 76, 'Stamped runtime event stream', ['agent/tool/gate/merge/terminal', 'events to queue or NDJSON'],
+        { k:'Output', p:'External/System: WebSocket queue or NDJSON consumer', d:'The outward contract is a stream of typed event envelopes. The engine owns event meaning and sequencing; the app boundary drains or flattens them.' }],
+      ['b-artifacts','plat', 1315, 245, 420, 76, 'Typed ArtifactRefs', ['in-memory graph + best-effort', 'owner-scoped DB rows'],
+        { k:'Output / durable handoff', p:'backend/agents/execution_engine/engine.py::_dual_write_artifact', d:'Every genuine produced artifact is written first to ExecutionContext.artifacts for immediate downstream reads and then, best-effort, to artifact_refs through ScopedStore.' }],
+      ['b-sandbox','plat', 1315, 395, 420, 76, 'Run sandbox files', ['shared per run; isolated only', 'for fan-out workers'],
+        { k:'Output / filesystem side effect', p:'backend/app/agents/sandbox.py::RunSandbox', d:'Agents with filesystem tools write into one per-run sandbox. Sequential agents share it; a fan-out worker may receive an engine-allocated isolated sandbox override before merge.' }],
+      ['b-store','plat', 1315, 545, 420, 76, 'Durable run records', ['run_events, capabilities, gates,', 'hooks, workers, budget, status'],
+        { k:'Output / persistence', p:'backend/agents/authz.py::ScopedStore', d:'Kernel persistence crosses one default-deny owner/workspace-scoped helper. Event and artifact DB failures degrade only for database exceptions; non-DB programming or authorization failures are re-raised at key boundaries.' }],
+    ],
+    edges: [
+      ['b-ws','r','b-execute','l','flow thick','execute(...)'],
+      ['b-resume','r','b-impl','l:0.72','flow','resume offset'],
+      ['b-ndjson','r','b-execute','l:0.82','flow','same engine'],
+      ['b-execute','r','b-impl','l','flow thick',''],
+      ['b-impl','b:0.42','b-ectx','t','flow','construct + thread'],
+      ['b-impl','b:0.80','b-kernel','t','flow','attach handle'],
+      ['b-ectx','r','b-kernel','l','dashed','ctx.runner'],
+      ['b-execute','r:0.28','b-events','l','flow success','yield stamped'],
+      ['b-impl','r:0.45','b-artifacts','l','flow','dual-write'],
+      ['b-kernel','r:0.62','b-sandbox','l','flow','read / write'],
+      ['b-execute','r:0.72','b-store','l','dashed','event sink'],
+      ['b-kernel','r:0.85','b-store','l:0.7','dashed','audit + scope'],
+    ],
+  },
+  {
+    id: 'run-bootstrap', tab: 'Run Bootstrap', title: 'Fresh-run construction: isolation, compilation, validation, state, and dispatch readiness',
+    w: 1840, h: 820,
+    legend: [['src','Ingress'], ['ins','Composition'], ['run','Kernel control'], ['plat','Per-run state'], ['hook','Validation / halt'], ['out','Ready / terminal']],
+    groups: [
+      ['rb-a', 20, 45, 345, 710, '1 · Isolate the run', 'ins'],
+      ['rb-b', 395, 45, 345, 710, '2 · Bind durable state', 'plat'],
+      ['rb-c', 770, 45, 345, 710, '3 · Compile and validate', 'run'],
+      ['rb-d', 1145, 45, 320, 710, '4 · Build policy objects', 'run'],
+      ['rb-e', 1495, 45, 320, 710, '5 · Enter dispatch', 'out'],
+    ],
+    nodes: [
+      ['rb-entry','src', 55, 95, 275, 68, 'execute(...) inputs', ['validated by caller'],
+        { k:'Ingress', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The implementation receives resolved AgentSpecs plus user/run parameters. It derives separate disk and database principals before creating any agent runner.' }],
+      ['rb-sandbox','ins', 55, 215, 275, 76, 'RunSandbox.ensure()', ['<runs>/<disk principal>/<run>', 'shared across agents'],
+        { k:'Isolation', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The engine creates the per-run disk root and seeds declared template files. disk_principal remains user_id or anon and is never replaced by the anon session DB principal.' }],
+      ['rb-context','plat', 55, 345, 275, 88, 'ExecutionContext(...)', ['run identity, artifacts,', 'cancel, images, gates'],
+        { k:'Per-run container', p:'backend/agents/execution_engine/context.py::ExecutionContext', d:'A new context is allocated for every invocation. Mutable lists, dicts, sets and the ArtifactGraph use default factories so concurrent runs do not share state.' }],
+      ['rb-store','plat', 430, 95, 275, 88, 'ScopedStore + workspace', ['owner/workspace default deny', 'scope stamped on run'],
+        { k:'Durable scope', p:'backend/agents/authz.py::ScopedStore', d:'The engine creates or recovers a workspace, stamps workflow_runs with owner/workspace scope, and records the runtime, model overrides, integrations and MCP server capability audit row.' }],
+      ['rb-sink','plat', 430, 235, 275, 76, '_RunEventSink.arm()', ['same scoped store', 'used by execute wrapper'],
+        { k:'Durable event boundary', p:'backend/agents/execution_engine/engine.py::_RunEventSink', d:'The holder is armed only after owner/workspace binding exists. execute later persists each already-stamped event through this same scoped store.' }],
+      ['rb-checkpoint','plat', 430, 365, 275, 76, 'get_checkpointer()', ['one cached process saver', 'unique thread per invocation'],
+        { k:'Graph durability', p:'backend/app/agents/checkpointer.py::get_checkpointer', d:'The engine acquires the cached Postgres or in-memory LangGraph saver once per run and keeps it on ExecutionContext. It is not closed per run.' }],
+      ['rb-compile','run', 805, 95, 275, 88, 'compile_for_run()', ['alias → manifest → typed', 'CompiledWorkflow'],
+        { k:'Routing', p:'backend/agents/execution_engine/engine.py::compile_for_run', d:'The engine resolves the legacy run label to a manifest id, loads workflow.yaml, and compiles a typed plan. Sequence, per-step capabilities, deliverable, clarify mode, planner mode, limits and providers are sourced from this result.' }],
+      ['rb-dag','run', 805, 245, 275, 76, 'WorkflowResolver.validate()', ['contracts + cycles + topo DAG'],
+        { k:'Validation', p:'backend/agents/execution_engine/resolver.py::WorkflowResolver.validate', d:'Exact produces/consumes contracts are resolved, unresolved inputs and dependency cycles make the run unsatisfiable, and a topological execution order is produced.' }],
+      ['rb-unsat','hook', 805, 395, 275, 76, 'Unsatisfiable terminal', ['workflow_validated + error', 'then return'],
+        { k:'Halt path', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The engine emits workflow_validated in both cases. If validation is false, it emits a non-recoverable workflow_unsatisfiable error and returns before planner or agent dispatch.' }],
+      ['rb-model','run', 1180, 95, 250, 82, 'ModelResolver', ['override > step > spec >', 'workflow > session/default'],
+        { k:'Per-run policy', p:'backend/agents/model_policy.py::ModelResolver', d:'Constructed after compilation so workflow and step model declarations participate in deterministic precedence. The same resolver also owns the bounded fallback chain cursor.' }],
+      ['rb-budget','run', 1180, 235, 250, 82, 'BudgetManager', ['limits + defaults +', 'workspace ceiling'],
+        { k:'Per-run policy', p:'backend/agents/execution_engine/budget.py::BudgetManager.from_limits', d:'The compiled limits produce a per-run enforcement object. Non-fan-out workflows leave it dormant; fan-out must reserve before spawning.' }],
+      ['rb-prewarm','ins', 1180, 375, 250, 82, 'Async pre-warm', ['constitution + MCP tools', 'before sync factory calls'],
+        { k:'Async-to-sync seam', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The engine awaits user Constitution content and active MCP tool discovery once at run entry, then stores results on ExecutionContext so synchronous create_runner never re-enters the event loop.' }],
+      ['rb-kernel','run', 1530, 95, 250, 88, 'KernelServices attach', ['ctx.runner = one per-run', 'capability handle'],
+        { k:'Ready state', p:'backend/agents/execution_engine/kernel_services.py::KernelServices.__init__', d:'After planner/clarifier and pipeline_start, the engine creates the handle with the exact run arguments, sandbox, results accumulator, ordered agents and allow-listed fan-out workers.' }],
+      ['rb-state','run', 1530, 245, 250, 76, 'StateMachine → generating', ['planning / clarifying /', 'waiting / generating'],
+        { k:'Lifecycle state', p:'backend/agents/execution_engine/state_machine.py::StateMachine.transition', d:'Run state is held in memory and best-effort mirrored to workflow_runs.status. Terminal states reject further transitions.' }],
+      ['rb-dispatch','out', 1530, 395, 250, 88, 'Compiled step loop ready', ['pre-gates → hooks → strategy', '→ post-gates / post-step'],
+        { k:'Dispatch handoff', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'Steps are matched by agent_id to the topologically ordered AgentSpecs. Strategy names are resolved from the capability registry; optional resume offsets skip completed indices.' }],
+    ],
+    edges: [
+      ['rb-entry','b','rb-sandbox','t','flow thick',''],
+      ['rb-sandbox','b','rb-context','t','flow thick',''],
+      ['rb-context','r:0.35','rb-store','l:0.45','flow','bind scope'],
+      ['rb-store','b','rb-sink','t','flow','arm'],
+      ['rb-sink','b','rb-checkpoint','t','flow',''],
+      ['rb-store','r:0.35','rb-compile','l:0.35','flow',''],
+      ['rb-compile','b','rb-dag','t','flow thick',''],
+      ['rb-dag','b','rb-unsat','t','danger','false'],
+      ['rb-dag','r:0.35','rb-model','l:0.35','flow success','true'],
+      ['rb-compile','r:0.72','rb-budget','l:0.45','flow','limits'],
+      ['rb-context','r:0.8','rb-prewarm','l:0.7','dashed','per-run fields'],
+      ['rb-model','r','rb-kernel','l:0.25','flow',''],
+      ['rb-budget','r','rb-kernel','l:0.6','flow',''],
+      ['rb-prewarm','r','rb-kernel','l:0.85','flow',''],
+      ['rb-kernel','b','rb-state','t','flow thick',''],
+      ['rb-state','b','rb-dispatch','t','flow success',''],
+    ],
+  },
+  {
+    id: 'context-read', tab: 'Context Read Path', title: 'Exactly what an agent reads, where it comes from, and how it becomes model input',
+    w: 1900, h: 860,
+    legend: [['src','Run / declared input'], ['plat','Stored context'], ['ins','Provider / assembly'], ['run','Kernel composer'], ['hook','Authorization / isolation'], ['out','Agent-visible output']],
+    groups: [
+      ['cr-sources', 20, 45, 620, 760, 'Context sources', 'src'],
+      ['cr-compose', 675, 45, 630, 760, 'Kernel read and composition', 'run'],
+      ['cr-output', 1340, 45, 535, 760, 'Per-agent products', 'out'],
+    ],
+    nodes: [
+      ['cr-user','src', 55, 95, 250, 74, 'User brief + planner', ['original request and', 'Deep Planner analysis'],
+        { k:'Run input', p:'backend/agents/execution_engine/engine.py::_compose_context_message', d:'Every context message begins with the effective original request. When planner analysis did not time out, intent, constraints, personas, NFRs, quality targets and domain insights are appended.' }],
+      ['cr-plan','src', 350, 95, 250, 74, 'Compiled declarations', ['context/input providers,', 'Step.injects + spec.injects'],
+        { k:'Declared input', p:'backend/agents/workflows/plan.py::CompiledWorkflow', d:'The compiled workflow names context_provider and input_provider capabilities. AgentSpec.injects and the current Step.injects gate which blocks a particular invocation receives.' }],
+      ['cr-artifacts','plat', 55, 245, 250, 86, 'ArtifactGraph reads', ['produces ∩ consumes, then', 'latest producer version'],
+        { k:'Typed upstream context', p:'backend/agents/execution_engine/engine.py::_filter_consumed_outputs', d:'For each earlier agent whose produces contract intersects the current agent consumes contract, the engine reads only the newest version from ExecutionContext.artifacts. There is no legacy prior-output dict fallback.' }],
+      ['cr-providers','ins', 350, 245, 250, 86, 'Context providers', ['opendesign, previous_run, repo', 'resolved in declared order'],
+        { k:'Capability input', p:'backend/agents/capabilities/context_providers/', d:'Providers expose named text blocks or seed sandbox state without importing the kernel. PermissionError from cross-owner reads propagates; ordinary missing-context errors generally degrade to an empty block.', list:[{n:'opendesign.load',d:'Builds design-system, template, example and pre-wrapped reference blocks from od_context and KernelServices reads.'},{n:'previous_run.load',d:'Ownership-checks a declared revision, seeds prior files/artifact, and slims the run message; returns no injected text blocks.'},{n:'repo.load',d:'Ownership-checks and renders a targeted ContextPack when declared.'}] }],
+      ['cr-task','plat', 55, 405, 250, 86, 'Task-loop scratch', ['CURRENT TASK, skeleton,', 'task number / total'],
+        { k:'Per-invocation context', p:'backend/agents/execution_engine/kernel_services.py::KernelServices.run_agent', d:'For a task-loop invocation, KernelServices temporarily sets build_task_number, build_task_total, current_task_block and current_prototype_skeleton on ExecutionContext, then resets every value in finally.' }],
+      ['cr-images','src', 350, 405, 250, 86, 'Transient run images', ['normalized base64 carrier', 'only for opted-in agents'],
+        { k:'Multimodal input', p:'backend/agents/capabilities/input_providers/run_images.py::RunImagesProvider.load', d:'Images live out-of-band on ExecutionContext.run_images. _compose_input_blocks uses a local per-agent union of spec and step injects, preventing an opted-in agent image set from leaking to a later non-opted agent.' }],
+      ['cr-prev-auth','hook', 55, 565, 545, 74, 'Ownership gate before cross-run context', ['ScopedStore.assert_owns; fail closed on uncertainty'],
+        { k:'Security boundary', p:'backend/agents/capabilities/context_providers/previous_run.py::PreviousRunProvider.load', d:'A declared revision may read a parent only after the scoped store confirms ownership. Cross-owner PermissionError is never swallowed; unexpected lookup errors skip the seed instead of failing open.' }],
+      ['cr-filter','run', 710, 95, 260, 78, '_filter_consumed_outputs()', ['typed-only handoff map'],
+        { k:'Kernel read', p:'backend/agents/execution_engine/engine.py::_filter_consumed_outputs', d:'This helper is reused by context-message composition, context-source observability and AgentContext.agent_outputs, so all three views of upstream context derive from the same typed graph read.' }],
+      ['cr-compose','run', 1005, 95, 260, 88, '_compose_context_message()', ['one generic text composer', 'deterministic block order'],
+        { k:'Kernel composition', p:'backend/agents/execution_engine/engine.py::_compose_context_message', d:'The sole message composer appends: request, planner context, declared provider blocks, consumed outputs, consume-once redo/spec-revision notes, CURRENT TASK, optional prototype skeleton, and template-compliance block.' }],
+      ['cr-load','ins', 710, 260, 260, 82, 'provider.load(ectx)', ['resolved from registry', 'per declared provider'],
+        { k:'Capability call', p:'backend/agents/execution_engine/engine.py::_compose_context_message', d:'The engine sets opaque current tool/inject sets on the run context, resolves providers by name, and appends their block maps. Raw-prefixed blocks are already wrapped and are appended verbatim.' }],
+      ['cr-input','run', 1005, 260, 260, 82, '_compose_input_blocks()', ['local image gate; no stale', 'current_spec_injects read'],
+        { k:'Kernel composition', p:'backend/agents/execution_engine/engine.py::_compose_input_blocks', d:'This creates model content blocks separately from the text context. A missing images inject or provider returns an empty list; PermissionError still propagates.' }],
+      ['cr-sources-ob','ins', 710, 425, 260, 82, '_build_context_sources()', ['observability metadata only'],
+        { k:'Observability', p:'backend/agents/execution_engine/engine.py::_build_context_sources', d:'The engine describes user/template/design sources for the first agent and typed upstream summaries for later agents. This metadata is emitted with agent_input but is not itself fed to the model.' }],
+      ['cr-agentctx','ins', 1005, 425, 260, 88, 'AgentContext', ['fresh per invocation', 'filtered outputs + prewarms'],
+        { k:'Per-agent context', p:'backend/agents/factory.py::AgentContext', d:'The engine rebuilds this dataclass for each agent. It contains only the filtered upstream output map, skills/hooks, resolved model, planning/OD context, disk/run ids, prewarmed Constitution and MCP tools, and current step injects.' }],
+      ['cr-msg','out', 1380, 95, 455, 82, 'context_message text', ['authoritative agent_input prompt', 'and first model content block'],
+        { k:'Agent-visible input', p:'backend/agents/execution_engine/engine.py::_dispatch_payload', d:'Text-only dispatch passes the exact string. Multimodal dispatch creates a list whose first block is {type:text,text:context_message}, followed by the locally composed image blocks.' }],
+      ['cr-event','out', 1380, 260, 455, 82, 'agent_input event', ['context_message + sources', '+ optional image_count'],
+        { k:'Observable input', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'Before runner construction the engine emits the full text message, source metadata and empty tool_calls list. Image bytes are not copied into the event; only an optional count is added.' }],
+      ['cr-system','out', 1380, 425, 455, 82, 'Per-agent system prompt inputs', ['AgentContext enters factory', 'separate from context_message'],
+        { k:'Runner composition input', p:'backend/agents/factory.py::_compose_system_prompt', d:'AgentContext is used to compose the system prompt—injects, guardrails, skills, hooks, Constitution and AGENT.md body. This is distinct from the user-turn context_message assembled by the engine.' }],
+      ['cr-dispatch','out', 1380, 590, 455, 82, 'HumanMessage(content=...)', ['string or text+image list', 'into LangGraph'],
+        { k:'Model boundary', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.astream_events', d:'DeepAgentRunner wraps the dispatch payload in a LangChain HumanMessage and drives the deepagents graph with the invocation-specific checkpoint config.' }],
+    ],
+    edges: [
+      ['cr-user','r','cr-compose','l:0.2','flow','request + planning'],
+      ['cr-plan','r','cr-load','l:0.35','flow','declared names'],
+      ['cr-artifacts','r','cr-filter','l','flow thick','typed reads'],
+      ['cr-providers','r','cr-load','l:0.7','flow',''],
+      ['cr-task','r','cr-compose','l:0.78','flow','scratch blocks'],
+      ['cr-images','r','cr-input','l','flow','provider carrier'],
+      ['cr-prev-auth','r','cr-load','l:0.9','danger dashed','deny before read'],
+      ['cr-filter','r','cr-compose','l:0.42','flow','consumed outputs'],
+      ['cr-filter','b','cr-sources-ob','t','dashed','same map'],
+      ['cr-load','r','cr-compose','l:0.68','flow','named blocks'],
+      ['cr-plan','r:0.75','cr-input','l:0.25','flow','inject/provider gate'],
+      ['cr-filter','r:0.85','cr-agentctx','l:0.35','flow','agent_outputs'],
+      ['cr-compose','r','cr-msg','l','flow success','text'],
+      ['cr-sources-ob','r','cr-event','l','dashed','metadata'],
+      ['cr-msg','b:0.3','cr-event','t:0.3','flow','observed'],
+      ['cr-agentctx','r','cr-system','l','flow','factory input'],
+      ['cr-msg','b:0.78','cr-dispatch','t:0.25','flow thick','dispatch payload'],
+      ['cr-input','r:0.65','cr-dispatch','l:0.7','flow','optional blocks'],
+    ],
+  },
+  {
+    id: 'prompt-tools', tab: 'Prompt & Tool Bind', title: 'Per-agent composition: specification, prompt blocks, model, sandbox, and callable tool surface',
+    w: 1840, h: 840,
+    legend: [['src','Per-agent input'], ['ins','Factory composition'], ['run','Runtime adapter'], ['plat','Sandbox / checkpoint'], ['hook','Security / gap'], ['out','Constructed runner']],
+    groups: [
+      ['pt-in', 20, 45, 340, 730, 'Invocation inputs', 'src'],
+      ['pt-factory', 395, 45, 690, 730, 'Factory composition root', 'ins'],
+      ['pt-runtime', 1120, 45, 690, 730, 'Deepagents runtime', 'run'],
+    ],
+    nodes: [
+      ['pt-ctx','src', 55, 95, 270, 88, 'AgentContext', ['filtered outputs, model,', 'skills/hooks/prewarms'],
+        { k:'Per-agent input', p:'backend/agents/factory.py::AgentContext', d:'Constructed fresh by _run_agent. It carries only the current invocation inputs; ExecutionContext remains the run-level owner of mutable runtime state.' }],
+      ['pt-thread','plat', 55, 245, 270, 88, 'Invocation thread id', ['run:agent[:task]', ':redoN / :retryN'],
+        { k:'Checkpoint isolation', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'The base checkpoint thread isolates each agent, task-loop task, redo and fallback retry. The disk sandbox remains keyed only by run id and is therefore still shared across normal agents.' }],
+      ['pt-spec','src', 55, 395, 270, 82, 'AgentSpec / AGENT.md', ['prompt body, tools, injects,', 'guardrails, contracts'],
+        { k:'Declared agent', p:'backend/agents/loader.py::load_agent_spec', d:'create_runner reloads the canonical specification by agent id. The spec drives prompt body, tool-set provider names, guardrails and runtime metadata.' }],
+      ['pt-create','ins', 430, 95, 280, 82, 'create_runner()', ['load → tools → prompt →', 'sandbox → runtime adapter'],
+        { k:'Composition root', p:'backend/agents/factory.py::create_runner', d:'This synchronous factory is the only composition point permitted to import the app runtime. It prepares a fully bound DeepAgentRunner constructor and passes it through the registered runtime adapter.' }],
+      ['pt-tools','ins', 430, 245, 280, 96, '_resolve_runner_tools()', ['ToolProvider keys + MCP tools', 'native built-ins AND policy'],
+        { k:'Tool binding', p:'backend/agents/factory.py::_resolve_runner_tools', d:'Each AgentSpec.tools name resolves to a ToolProvider that returns custom-tool keys and whether deepagents built-ins should be excluded. Concrete app-layer tools are resolved here and prewarmed MCP tools are appended.', list:[{n:'workspace',d:'Native filesystem tools; no custom tool.'},{n:'prototype / prototype_emit_only',d:'Native filesystem plus report_task_complete.'},{n:'planning',d:'Planning tools only; all built-ins excluded.'},{n:'spawn_subagents',d:'Privileged request emitter; actual spawn still occurs only in the kernel.'},{n:'MCP tools',d:'Pre-instantiated at async run entry and appended here.'}] }],
+      ['pt-prompt','ins', 755, 95, 290, 96, '_compose_system_prompt()', ['tool availability → injects →', 'guardrails → skills → hooks → constitution → body'],
+        { k:'Prompt binding', p:'backend/agents/factory.py::_compose_system_prompt', d:'The factory builds named prompt blocks and delegates deterministic ordering to the default PromptAssemblyPolicy. Pure text-only agents receive an anti-fabrication preamble because they have zero callable tools.' }],
+      ['pt-sandbox','plat', 755, 265, 290, 82, 'RunSandbox selection', ['shared run root or isolated', 'fan-out override'],
+        { k:'Filesystem binding', p:'backend/agents/factory.py::create_runner', d:'Normal invocations construct RunSandbox(user_id, run_id). A fan-out step may pass a RunSandbox-shaped isolated workspace, causing only that runner to write into the worker root.' }],
+      ['pt-gap','hook', 430, 470, 615, 96, '[OPEN] binding-time permission intersection', ['factory currently resolves spec.tools', 'without intersecting Step.tools'],
+        { k:'Verified open boundary', p:'backend/agents/factory.py::_resolve_runner_tools', d:'The function docstring explicitly says the designed Step ToolPermissions intersection is not yet enforced at this binding point. Current privileged controls are elsewhere: compiler trust restrictions, exec-workspace provisioning from compiled grants, and spawn_subagents grant checking at fulfilment.' }],
+      ['pt-adapter','run', 1155, 95, 280, 82, 'LangChainDeepAgentsRuntime', ['registry selects, then invokes', 'factory build closure'],
+        { k:'Runtime adapter', p:'backend/agents/capabilities/runtimes/langchain_deepagents.py::LangChainDeepAgentsRuntime.create', d:'The capability remains import-clean: it does not import app or call create_deep_agent. It selects the default runtime and invokes the factory-supplied build closure.' }],
+      ['pt-runner','run', 1480, 95, 290, 96, 'DeepAgentRunner(...)', ['model + tools + prompt +', 'backend + saver + thread'],
+        { k:'Constructed runner', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.__init__', d:'Builds the model if needed, chooses the built-in exclusion set, creates a FilesystemBackend for the chosen sandbox, and constructs the canonical deepagents graph.' }],
+      ['pt-filter','hook', 1155, 265, 280, 88, '_ToolFilterMiddleware', ['always removes task;', 'text-only removes all built-ins'],
+        { k:'Runtime tool boundary', p:'backend/app/agents/deep_agent_runner.py::_ToolFilterMiddleware', d:'create_deep_agent injects built-ins, so late middleware filters the actual request.tools list. The library task tool is always removed so the model cannot bypass the engine fan-out path.' }],
+      ['pt-graph','run', 1480, 265, 290, 88, 'create_deep_agent graph', ['FilesystemBackend + cache', 'middleware + checkpointer'],
+        { k:'Canonical runtime', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.__init__', d:'The only create_deep_agent call lives here. The graph receives the composed system prompt, custom tools, filesystem backend, checkpointer, interrupt configuration, tool filter and Bedrock cache middleware.' }],
+      ['pt-surface','out', 1155, 470, 615, 110, 'Callable surface presented to the model', ['custom tools ∪ allowed built-ins; no library task', 'plus execution config with recursion backstop'],
+        { k:'Runner output', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner', d:'The finished runner exposes astream_events and a sanitized output method to the engine. Its graph config carries configurable.thread_id and AGENT_RECURSION_LIMIT; there is no per-agent iteration timeout in the engine.', list:[{n:'Text-only',d:'No custom tools and built-ins fully filtered.'},{n:'Workspace/prototype',d:'Filesystem tools retained; report_task_complete optionally added.'},{n:'Planning',d:'Only explicit planning tools.'},{n:'MCP/integrations',d:'Prewarmed LangChain tools augment the runtime.'}]}],
+    ],
+    edges: [
+      ['pt-ctx','r','pt-create','l:0.25','flow thick','ctx'],
+      ['pt-thread','r','pt-create','l:0.72','flow','thread/checkpointer'],
+      ['pt-spec','r','pt-create','l:0.88','flow','load spec'],
+      ['pt-create','b:0.22','pt-tools','t','flow',''],
+      ['pt-create','r:0.25','pt-prompt','l:0.25','flow',''],
+      ['pt-create','r:0.75','pt-sandbox','l:0.4','flow',''],
+      ['pt-tools','r:0.25','pt-prompt','l:0.72','dashed','no_tools flag'],
+      ['pt-tools','b','pt-gap','t:0.25','danger dashed','documented gap'],
+      ['pt-prompt','r','pt-adapter','l:0.25','flow','build closure'],
+      ['pt-sandbox','r','pt-runner','l:0.72','flow','backend root'],
+      ['pt-adapter','r','pt-runner','l:0.25','flow thick','build()'],
+      ['pt-tools','r:0.85','pt-filter','l:0.45','flow','exclusion policy'],
+      ['pt-runner','b','pt-graph','t','flow','construct'],
+      ['pt-filter','r','pt-graph','l:0.75','flow','late filter'],
+      ['pt-graph','b','pt-surface','t:0.78','flow success','ready'],
+      ['pt-gap','r','pt-surface','l:0.78','dashed danger','not claimed as enforced'],
+    ],
+  },
+  {
+    id: 'tool-event-loop', tab: 'Tool-Call Loop', title: 'One agent invocation: model streaming, tool calls/results, special engine reactions, and output capture',
+    w: 1920, h: 900,
+    legend: [['src','Model / graph event'], ['run','Engine loop'], ['ins','Adapter mapping'], ['plat','Side effect / state'], ['hook','Error / special control'], ['out','Emitted output']],
+    groups: [
+      ['tl-graph', 20, 45, 520, 800, 'DeepAgentRunner / LangGraph', 'ins'],
+      ['tl-engine', 575, 45, 730, 800, 'ExecutionEngine._run_agent consume loop', 'run'],
+      ['tl-effects', 1340, 45, 555, 800, 'Events, state, and terminal effects', 'out'],
+    ],
+    nodes: [
+      ['tl-human','src', 55, 95, 450, 72, 'HumanMessage(content=dispatch)', ['context string or text+image list'],
+        { k:'Graph input', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.astream_events', d:'The runner wraps the engine dispatch payload in HumanMessage and calls graph.astream_events with version=v2 and the invocation checkpoint config.' }],
+      ['tl-stream','ins', 55, 220, 210, 84, 'Model stream mapping', ['start / stream / end', '→ chunk + usage'],
+        { k:'Adapter', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.astream_events', d:'on_chat_model_stream text becomes chunk events. on_chat_model_end emits total input/output plus cache-read/write counts; if a turn produced no deltas, end-message text is emitted as a fallback chunk.' }],
+      ['tl-toolstart','ins', 295, 220, 210, 84, 'on_tool_start', ['name + input → tool_call'],
+        { k:'Adapter', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.astream_events', d:'The LangGraph tool name is passed through unchanged and data.input becomes args. This preserves exact sentinels such as report_task_complete and spawn_subagents.' }],
+      ['tl-toolend','ins', 295, 360, 210, 84, 'on_tool_end', ['ToolMessage.content', '→ tool_result'],
+        { k:'Adapter', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.astream_events', d:'The result is normalized from ToolMessage.content when present, otherwise the raw output value, then stringified without renaming the tool.' }],
+      ['tl-done','ins', 55, 500, 450, 78, 'Stream end', ['gate inspection or done;', 'non-throttle error event'],
+        { k:'Adapter terminal', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.astream_events', d:'After the stream, an armed HITL graph is inspected for a pending interrupt; otherwise done is emitted. Transient throttles are re-raised for engine fallback, while other exceptions become error events.' }],
+      ['tl-loop','run', 610, 95, 300, 84, 'async for event in', ['agent.astream_events(dispatch)', 'cancel checked each event'],
+        { k:'Kernel loop', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'The engine is the consumer of the adapter vocabulary. It resets output and usage accumulators for every fallback attempt and checks the cooperative cancel event on every incoming event.' }],
+      ['tl-chunk','run', 610, 240, 300, 84, 'chunk arm', ['raw join + straddle-safe', 'live sanitizer'],
+        { k:'Kernel mapping', p:'backend/agents/execution_engine/engine.py::_ChunkStreamSanitizer', d:'Raw chunks accumulate for authoritative output. A buffer prevents fabricated tool XML split across deltas from leaking to live agent_chunk output; the runner sanitizer is reused for final joined text.' }],
+      ['tl-toolcall','run', 955, 240, 310, 96, 'tool_call arm', ['emit call + audit;', 'capture progress args'],
+        { k:'Kernel mapping', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'The engine emits the call, best-effort records hook-run audit, and appends report_task_complete arguments to the run-level completed_tasks list. It does not execute the tool itself; deepagents already owns execution between start and end.' }],
+      ['tl-toolresult','run', 955, 390, 310, 106, 'tool_result arm', ['emit truncated preview + audit;', 'derive progress or fan-out'],
+        { k:'Kernel mapping', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'The engine emits at most 500 characters of result to the main event, audits a preview, emits task_progress for report_task_complete, and routes spawn_subagents JSON to the single kernel run_fanout fulfilment path.' }],
+      ['tl-output','run', 610, 545, 655, 100, 'Authoritative output capture', ['join → sanitize → declared single-file readback', '→ optional deck sanitize → before_write hooks'],
+        { k:'Kernel output', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'After a clean stream the engine joins chunks and calls runner.sanitize_output. For a forward single_file deliverable it prefers a longer named sandbox file over tool confirmation text; then declared before_write hooks may block persistence.' }],
+      ['tl-live','out', 1380, 95, 475, 78, 'agent_chunk + usage accumulation', ['live text and token counters'],
+        { k:'Outward events', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'Safe non-empty chunk deltas are yielded as agent_chunk. Usage remains internal until agent_complete and pipeline_complete totals are emitted.' }],
+      ['tl-audit','plat', 1380, 230, 475, 78, 'tool_call / tool_result + hook audit', ['WS event plus best-effort', 'hook_runs record/live audit event'],
+        { k:'Tool observability', p:'backend/agents/execution_engine/kernel_services.py::record_hook_run', d:'Each tool event is re-exposed to the app and separately recorded as audit_logger hook activity. Audit failure is deliberately non-fatal.' }],
+      ['tl-progress','out', 1380, 365, 225, 88, 'task_progress', ['cumulative run-level', 'completed_tasks'],
+        { k:'Special tool result', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'A report_task_complete result emits the cumulative task list and count. The list lives on ExecutionContext so repeated task-loop invocations remain monotonic.' }],
+      ['tl-fanout','hook', 1630, 365, 225, 88, 'run_fanout', ['spawn_subagents result', 'grant checked first'],
+        { k:'Special tool result', p:'backend/agents/execution_engine/engine.py::_derive_fanout', d:'The JSON request is parsed only after the current compiled step grants tools.spawn_subagents. Tasks are shaped into worker requests and passed to KernelServices.run_fanout.' }],
+      ['tl-artifact','plat', 1380, 530, 225, 96, 'Artifact dual-write', ['typed graph first, then', 'ScopedStore best-effort'],
+        { k:'Persisted output', p:'backend/agents/execution_engine/engine.py::_dual_write_artifact', d:'Non-empty output produces the primary typed ref plus one ref for each declared produces kind. A blocked before_write hook sets output empty and skips persistence.' }],
+      ['tl-complete','out', 1630, 530, 225, 96, 'agent_complete', ['result row + duration +', 'usage/cache counters'],
+        { k:'Invocation terminal', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'Successful output is appended to the run-local results accumulator and agent_complete is yielded. A runner error returns before this node, which is essential to later failed/degraded terminal semantics.' }],
+    ],
+    edges: [
+      ['tl-human','b:0.3','tl-stream','t','flow','model turns'],
+      ['tl-human','b:0.75','tl-toolstart','t','flow','tool request'],
+      ['tl-toolstart','b','tl-toolend','t','flow','deepagents executes'],
+      ['tl-stream','b','tl-done','t:0.25','flow','end'],
+      ['tl-toolend','b','tl-done','t:0.75','flow','end'],
+      ['tl-stream','r','tl-loop','l:0.25','flow','chunk / usage'],
+      ['tl-toolstart','r','tl-loop','l:0.55','flow','tool_call'],
+      ['tl-toolend','r','tl-loop','l:0.8','flow','tool_result'],
+      ['tl-loop','b:0.25','tl-chunk','t','flow','chunk'],
+      ['tl-loop','r:0.25','tl-toolcall','l:0.3','flow','tool_call'],
+      ['tl-toolcall','b','tl-toolresult','t','flow','matching result'],
+      ['tl-chunk','r','tl-live','l','flow success','agent_chunk'],
+      ['tl-toolcall','r','tl-audit','l:0.3','flow',''],
+      ['tl-toolresult','r:0.25','tl-audit','l:0.75','flow',''],
+      ['tl-toolresult','r:0.6','tl-progress','l','flow success','report_task_complete'],
+      ['tl-toolresult','r:0.82','tl-fanout','l','flow','spawn_subagents'],
+      ['tl-done','r','tl-output','l:0.85','flow','clean stream'],
+      ['tl-chunk','b','tl-output','t:0.25','flow thick','raw joined output'],
+      ['tl-output','r:0.35','tl-artifact','l','flow','persist'],
+      ['tl-output','r:0.75','tl-complete','l','flow success','complete'],
+    ],
+  },
+  {
+    id: 'step-kernel', tab: 'Step Kernel', title: 'How a compiled Step moves through gates, hooks, strategy, KernelServices, artifacts, and deliverable resolution',
+    w: 1900, h: 860,
+    legend: [['src','Compiled declaration'], ['run','Kernel control'], ['ins','Capability'], ['hook','Gate / hook'], ['plat','Artifact / sandbox'], ['out','Run output']],
+    groups: [
+      ['sk-dispatch', 20, 45, 520, 760, 'Per-step dispatch', 'run'],
+      ['sk-seam', 575, 45, 700, 760, 'KernelServices capability seam', 'ins'],
+      ['sk-finish', 1310, 45, 565, 760, 'Post-step and run output', 'out'],
+    ],
+    nodes: [
+      ['sk-step','src', 55, 95, 450, 78, 'Compiled Step', ['strategy, gates, hooks, validators,', 'tools, retry, post_step, model'],
+        { k:'Declaration', p:'backend/agents/workflows/plan.py::Step', d:'The engine avoids workflow-name routing: the compiled Step names the capability implementations and policies used at each boundary.' }],
+      ['sk-pre','hook', 55, 225, 210, 88, 'Pre-step gates', ['security / approval / human', 'ordered evaluation'],
+        { k:'Control gate', p:'backend/agents/execution_engine/engine.py::_evaluate_gates', d:'Declared pre-gates run before strategy dispatch. Reject maps to pipeline_cancelled; block or wait_human prevents the step strategy from running. Inline legacy human gates are deduplicated.' }],
+      ['sk-before','hook', 295, 225, 210, 88, 'before_step hooks', ['declaration-driven', 'block can skip strategy'],
+        { k:'Hook boundary', p:'backend/agents/execution_engine/engine.py::_fire_hooks', d:'Only hooks named on the current Step and bound to before_step or wildcard execute. A blocking result skips the step.' }],
+      ['sk-strategy','ins', 55, 385, 450, 88, 'CapabilityRegistry.resolve(strategy)', ['single_shot / task_loop / fanout_batch /', 'wave_scheduler'],
+        { k:'Strategy dispatch', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The engine resolves the Step.strategy name and drives strategy.run(step, ectx). An optional retry wrapper adds content-hash reuse and bounded transient retries only when declared.' }],
+      ['sk-retry','run', 55, 545, 450, 88, '_dispatch_step_with_retry()', ['dormant unless max_attempts > 0', 'reuse → retry → step_completed'],
+        { k:'Retry / reuse', p:'backend/agents/execution_engine/engine.py::_dispatch_step_with_retry', d:'When enabled, the engine computes a stable hash from sorted upstream content hashes and resolved input, reuses a matching durable completion if its artifact still exists, otherwise retries only classified transient errors within the declared bound.' }],
+      ['sk-handle','run', 610, 95, 630, 100, 'KernelServices (ctx.runner)', ['the only capability-facing handle into kernel + app primitives', 'constructed once per run with exact invocation arguments'],
+        { k:'Kernel seam', p:'backend/agents/execution_engine/kernel_services.py::KernelServices', d:'Strategies, gates, validators, context providers, deliverable resolvers and merge capabilities reach the engine through this object instead of importing execution_engine or app modules.', list:{groups:[{label:'Execution',items:[{n:'run_agent / run_worker / run_fanout',d:'Delegate to the existing engine invocation and fan-out primitives.'},{n:'run_validation_fix_loop',d:'Bounded internal validation repair without re-emitting child events.'}]},{label:'State and files',items:[{n:'sandbox / workspace',d:'Run disk root and optional exec-enabled workspace.'},{n:'latest_typed_content',d:'Read the newest producer content from the typed graph.'},{n:'template_* / read_parent_file',d:'Heavy context reads exposed to import-pure providers.'}]},{label:'Controls and audit',items:[{n:'run_human_gate / fire_hooks',d:'One HITL delegate and executable hook bridge.'},{n:'record_*',d:'Gate, hook, validation, exec, worker, wave and budget persistence.'}]}]} }],
+      ['sk-runagent','run', 610, 260, 300, 94, 'run_agent(step, ctx)', ['bind current_step + task scratch', 'delegate engine._run_agent'],
+        { k:'Execution delegate', p:'backend/agents/execution_engine/kernel_services.py::KernelServices.run_agent', d:'Resolves the AgentSpec, temporarily publishes the compiled Step and optional task metadata onto ExecutionContext, delegates _run_agent with the original run arguments, and restores scratch in finally.' }],
+      ['sk-validators','ins', 940, 260, 300, 94, 'Validation / deliverable targets', ['DeliverableContext + checks', 'plus fix policy'],
+        { k:'Capability target', p:'backend/agents/execution_engine/kernel_services.py::DeliverableContext', d:'Validators receive a stable target containing named path/content, step/task metadata and the KernelServices handle, allowing static/render/exec checks and scoped persistence without importing the kernel.' }],
+      ['sk-artifacts','plat', 610, 430, 300, 94, 'Sandbox + typed ArtifactGraph', ['files and versioned refs', 'kept in sync by kernel writes'],
+        { k:'State side effects', p:'backend/agents/execution_engine/engine.py::_dual_write_artifact', d:'Agent output and task-loop deliverables become versioned typed refs. Downstream context and retry hashes read this graph; sandbox files remain the source for declared file deliverables.' }],
+      ['sk-audit','plat', 940, 430, 300, 94, 'ScopedStore audit surface', ['events, gates, hooks, validation,', 'workers, exec, budget'],
+        { k:'Durable side effects', p:'backend/agents/execution_engine/kernel_services.py', d:'The handle delegates audit writes to the run-scoped ScopedStore and usually degrades failures so observability cannot break execution. Ownership and security boundaries remain fail-closed where stated.' }],
+      ['sk-after','hook', 1345, 95, 235, 88, 'after_step hooks', ['output already available', 'audit-oriented'],
+        { k:'Post execution hook', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'After strategy completion the engine refreshes ectx.last_streamed and fires declared after_step hooks.' }],
+      ['sk-postgate','hook', 1605, 95, 235, 88, 'Post-step gates', ['validation warnings and', 'gate events'],
+        { k:'Post execution gate', p:'backend/agents/execution_engine/engine.py::_evaluate_gates', d:'Declared post-gates run after the deliverable exists. They surface validation and gate events; the terminal sentinel itself is not forwarded.' }],
+      ['sk-poststep','ins', 1345, 255, 495, 88, 'Declared post_step capability', ['side effects only; e.g. revision validation', 'resolved by name, no workflow branch'],
+        { k:'Post-step capability', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'If Step.post_step is set, its capability runs after gates. The in-place revision baseline and bounded repair path live here rather than in a workflow-name branch inside the kernel.' }],
+      ['sk-deliverable','ins', 1345, 420, 495, 96, 'Declared deliverable resolver', ['single_file / serialized_sandbox /', 'streamed_text / ppt'],
+        { k:'Run output resolution', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'At run completion the engine resolves compiled.deliverable.strategy through the registry. A resolver may return None, in which case streamed_text is the effective fallback and drives the default mimetype.' }],
+      ['sk-terminal','out', 1345, 585, 495, 104, 'pipeline_complete', ['final_output + mimetype/name + usage/cost', 'optional degraded status and agents_failed'],
+        { k:'Successful terminal', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The final payload includes the resolved bytes, declared/effective shape, counts, cache split, cost estimate and model id. Degraded fields appear only when an invocation failed without a matching completed result.' }],
+    ],
+    edges: [
+      ['sk-step','b:0.25','sk-pre','t','flow',''],
+      ['sk-step','b:0.75','sk-before','t','flow',''],
+      ['sk-pre','b','sk-strategy','t:0.25','flow','allow'],
+      ['sk-before','b','sk-strategy','t:0.75','flow','continue'],
+      ['sk-strategy','b','sk-retry','t','flow','optional wrapper'],
+      ['sk-strategy','r','sk-handle','l:0.65','flow thick','ctx.runner'],
+      ['sk-handle','b:0.28','sk-runagent','t','flow','execution'],
+      ['sk-handle','b:0.75','sk-validators','t','flow','validation'],
+      ['sk-runagent','b','sk-artifacts','t','flow','output writes'],
+      ['sk-validators','b','sk-audit','t','dashed','results/audit'],
+      ['sk-runagent','r:0.25','sk-after','l:0.5','flow','events complete'],
+      ['sk-after','r','sk-postgate','l','flow',''],
+      ['sk-postgate','b','sk-poststep','t:0.75','flow',''],
+      ['sk-artifacts','r','sk-deliverable','l:0.35','flow thick','resolve bytes'],
+      ['sk-poststep','b','sk-deliverable','t:0.75','flow',''],
+      ['sk-deliverable','b','sk-terminal','t','flow success','final_output'],
+      ['sk-audit','r:0.8','sk-terminal','l:0.82','dashed','usage + persistence'],
+    ],
+  },
+  {
+    id: 'fanout-budget', tab: 'Fan-out & Budget', title: 'The single spawn path: grant fulfilment, reserve-before-spawn, isolation, worker collection, fragments, and merge',
+    w: 1960, h: 920,
+    legend: [['src','Fan-out request'], ['run','Kernel fan-out'], ['hook','Policy / abort'], ['plat','Worker state / fragments'], ['ins','Merge capability'], ['out','Lifecycle output']],
+    groups: [
+      ['fb-entry', 20, 45, 400, 820, 'Two entries, one fulfilment', 'src'],
+      ['fb-spawn', 455, 45, 760, 820, 'Kernel-controlled spawn', 'run'],
+      ['fb-merge', 1250, 45, 685, 820, 'Collect, merge, and terminate', 'ins'],
+    ],
+    nodes: [
+      ['fb-declared','src', 55, 95, 330, 82, 'fanout_batch strategy', ['declarative requests from Step', 'strategy calls ctx.runner'],
+        { k:'Entry A', p:'backend/agents/capabilities/strategies/fanout_batch.py', d:'A compiled step strategy shapes worker requests and calls KernelServices.run_fanout. It does not spawn workers itself.' }],
+      ['fb-tool','src', 55, 245, 330, 92, 'spawn_subagents tool result', ['JSON request emitter only;', 'no spawn inside tool'],
+        { k:'Entry B', p:'backend/app/agents/tools/runner_tools.py::spawn_subagents', d:'The tool returns a structured fanout_request and mode. Engine _derive_fanout verifies the current Step grant, parses the result, and funnels the requests to the same KernelServices method.' }],
+      ['fb-derive','run', 55, 405, 330, 88, '_derive_fanout()', ['grant check + mode copy', 'then runner.run_fanout'],
+        { k:'Tool fulfilment', p:'backend/agents/execution_engine/engine.py::_derive_fanout', d:'Fulfilment is conditional on current_step.tools.spawn_subagents. The requested parallel/sequential mode is applied to a copy of the Step view, never the shared compiled object.' }],
+      ['fb-onepath','run', 490, 95, 330, 88, 'run_fanout()', ['single kernel spawn path', 'workflow-name agnostic'],
+        { k:'Kernel spawn owner', p:'backend/agents/execution_engine/fanout.py::run_fanout', d:'Both declared and runtime requests arrive here. The function owns worker validation, budget, isolation, bounded execution, durable fragments, merge and teardown.' }],
+      ['fb-select','hook', 850, 95, 330, 88, 'Select workers', ['self or allow-listed named', 'worker; reject before side effects'],
+        { k:'Pre-spawn policy', p:'backend/agents/execution_engine/fanout.py::_select_workers', d:'Named workers must be present in compiled.allowed_workers and resolve through KernelServices.agent_exists. Unknown or disallowed names raise FanoutError before rows or workspaces exist.' }],
+      ['fb-budget','hook', 490, 260, 330, 104, 'BudgetManager.reserve()', ['subagents + concurrency + depth', '+ workspace aggregate'],
+        { k:'Pre-spawn enforcement', p:'backend/agents/execution_engine/budget.py::BudgetManager.reserve', d:'The wall-clock deadline is armed, then all countable ceilings are checked before allocation or spawn. A refusal emits budget_warning and raises BudgetExceeded with zero new worker side effects.' }],
+      ['fb-isolate','run', 850, 260, 330, 104, 'Engine selects isolation', ['git → worktree; otherwise sub_sandbox;', 'no allocator → shared_read'],
+        { k:'Isolation policy', p:'backend/agents/execution_engine/fanout.py::_select_isolation_scope', d:'Isolation is derived from the base workspace, never from the manifest. Each allocated worker gets a RunSandbox-shaped root; all allocations are remembered for finally teardown.' }],
+      ['fb-spawn','run', 490, 445, 330, 104, 'Bounded worker execution', ['sequential or Semaphore(min(declared,4))', 'depth propagated and cancel checked'],
+        { k:'Spawn control', p:'backend/agents/execution_engine/fanout.py::run_fanout', d:'Parallel spawned events are emitted in deterministic order, but worker tasks run under the engine cap. Sequential mode checks cancel and wall clock between workers. Nested fan-out sees depth+1.' }],
+      ['fb-worker','plat', 850, 445, 330, 104, 'Worker lifecycle row + run_worker', ['running → complete/failed/cancelled', 'child chunks suppressed'],
+        { k:'Worker execution', p:'backend/agents/execution_engine/fanout.py::run_fanout._run_one', d:'A subagent_runs row is recorded before KernelServices.run_worker. Only lifecycle results escape; child agent chunks are intentionally not forwarded. Reported token usage is checked at collection.' }],
+      ['fb-fragment','plat', 490, 630, 690, 100, 'Persist every completed worker file as typed fragment refs', ['before merge; artifact_ref plus full artifact_refs list', 'so abort/cancel can surface partial results'],
+        { k:'Durable partial output', p:'backend/agents/execution_engine/fanout.py::run_fanout._run_one', d:'Completed worker files are persisted before merge through KernelServices.write_fragment_artifact. Worktree workers commit first; multi-file workers preserve every relative path.' }],
+      ['fb-events','out', 1285, 95, 610, 82, 'subagent_spawned / subagent_result / budget_warning', ['lifecycle only; ordered summaries'],
+        { k:'Fan-out events', p:'backend/agents/execution_engine/fanout.py::run_fanout', d:'The kernel emits spawn and terminal worker summaries plus warnings at failed reserve or at least 80% consumption. Worker result order is normalized after parallel gather.' }],
+      ['fb-merge','ins', 1285, 255, 610, 100, 'Engine-selected MergeStrategy', ['worktree → git_3way; sub_sandbox → copy_disjoint', 'merge_started → completed or failed/conflict'],
+        { k:'Merge dispatch', p:'backend/agents/execution_engine/fanout.py::_merge_fragments', d:'Only completed worker fragments participate. A missing strategy or empty set is a clean no-op completion; an exception emits merge_failed rather than pretending success.' }],
+      ['fb-conflict','hook', 1285, 430, 610, 110, 'Conflict resolution policy', ['merge_conflict ref/event → human_gate default,', 'bounded merge_agent, partial, or abort'],
+        { k:'Conflict control', p:'backend/agents/execution_engine/fanout.py::_resolve_conflict', d:'Conflicts are first-class and never silently overwritten. human_gate uses the single durable KernelServices HITL delegate; merge_agent is bounded to two attempts before falling back to human review.' }],
+      ['fb-abort','hook', 1285, 610, 290, 100, 'BudgetExceeded', ['engine emits budget_aborted', 'with completed fragment refs'],
+        { k:'Abort terminal', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The outer engine catches a budget breach, transitions failed, force-persists the budget snapshot, and emits the breached dimension plus partial fragment metadata.' }],
+      ['fb-clean','out', 1605, 610, 290, 100, 'finally teardown', ['restore depth; remove every', 'worktree/sub-sandbox allocation'],
+        { k:'Cleanup', p:'backend/agents/execution_engine/fanout.py::_teardown_allocated', d:'Cleanup runs for success, cancellation, worker exception and budget abort. Each reclaim is best-effort so cleanup cannot mask the original outcome.' }],
+    ],
+    edges: [
+      ['fb-declared','r','fb-onepath','l:0.3','flow thick','ctx.runner.run_fanout'],
+      ['fb-tool','b','fb-derive','t','flow','tool_result'],
+      ['fb-derive','r','fb-onepath','l:0.75','flow thick','same path'],
+      ['fb-onepath','r','fb-select','l','flow','first'],
+      ['fb-select','b:0.25','fb-budget','t:0.7','flow thick','validated set'],
+      ['fb-budget','r','fb-isolate','l','flow','reserve passed'],
+      ['fb-budget','r:0.75','fb-abort','l:0.3','danger','breach'],
+      ['fb-isolate','b:0.25','fb-spawn','t:0.75','flow','allocated roots'],
+      ['fb-spawn','r','fb-worker','l','flow thick','bounded'],
+      ['fb-worker','b','fb-fragment','t:0.75','flow','completed files'],
+      ['fb-spawn','r:0.15','fb-events','l:0.65','flow success','spawn/result'],
+      ['fb-fragment','r','fb-merge','l:0.65','flow thick','completed fragments'],
+      ['fb-merge','b','fb-conflict','t','danger dashed','conflicts'],
+      ['fb-conflict','b:0.3','fb-abort','t:0.7','danger','abort policy'],
+      ['fb-conflict','b:0.8','fb-clean','t:0.4','flow','resolved/partial'],
+      ['fb-merge','b:0.85','fb-clean','t:0.2','flow success','clean'],
+      ['fb-abort','r','fb-clean','l','flow','finally'],
+    ],
+  },
+  {
+    id: 'errors-terminals', tab: 'Errors & Terminals', title: 'Failure classification, fallback, cancellation, gates, state transitions, and exactly one outward terminal',
+    w: 1920, h: 900,
+    legend: [['src','Fault / signal'], ['run','Kernel classification'], ['hook','Control / failure'], ['plat','Recorded state'], ['out','Terminal / recovery event'], ['ins','Fallback']],
+    groups: [
+      ['et-signals', 20, 45, 490, 800, 'Signals entering control flow', 'src'],
+      ['et-classify', 545, 45, 760, 800, 'Engine classification and bookkeeping', 'run'],
+      ['et-terminal', 1340, 45, 555, 800, 'Outward result', 'out'],
+    ],
+    nodes: [
+      ['et-throttle','src', 55, 95, 420, 78, 'Transient model throttle', ['runner re-raises classified fault'],
+        { k:'Model signal', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.astream_events', d:'Only classified transient throttles escape the runner as exceptions. Non-transient runner failures stay in the adapter vocabulary as error events.' }],
+      ['et-error','src', 55, 220, 420, 78, 'Runner error event', ['raw exception string server-side only'],
+        { k:'Runner signal', p:'backend/app/agents/deep_agent_runner.py::DeepAgentRunner.astream_events', d:'Generic validation, auth or model faults are logged by the runner and emitted as {type:error}. The engine later replaces raw text with a fixed leak-free client message.' }],
+      ['et-cancel','src', 55, 345, 420, 78, 'Cooperative cancel_event', ['checked before steps and per stream event'],
+        { k:'Control signal', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'The Stop button sets an asyncio.Event. The engine observes it at step boundaries and inside the agent event loop; fan-out checks it before waves, between sequential workers and before merge.' }],
+      ['et-gate','src', 55, 470, 420, 78, 'Human / approval rejection', ['declared or inline durable HITL'],
+        { k:'Control signal', p:'backend/agents/execution_engine/engine.py::_run_review_gate', d:'Reject is normalized to cancellation. Approve-with-edits creates a newer artifact version; redo re-enters the same agent in a flat loop with a fresh checkpoint thread.' }],
+      ['et-budget','src', 55, 595, 420, 78, 'BudgetExceeded', ['reserve or token/wall-clock boundary'],
+        { k:'Policy signal', p:'backend/agents/execution_engine/budget.py::BudgetExceeded', d:'The exception names subagents, concurrency, depth, workspace, tokens or wall_clock. It propagates to the engine outer dispatch catch.' }],
+      ['et-fallback','ins', 580, 95, 330, 88, 'Model fallback loop', ['advance chain; rebuild runner;', 'fresh :retryN thread'],
+        { k:'Recovery', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'On a transient throttle, the engine rolls back attempt-local task progress, advances the ModelResolver, rebuilds via create_runner and emits agent_model_fallback with reset_output=true. Exhaustion re-raises.' }],
+      ['et-agenterr','run', 945, 95, 325, 96, 'agent_error classification', ['sanitized event; no result/complete', 'for runner hard error'],
+        { k:'Failure classification', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'A runner error event sets agent_errored, emits a sanitized recoverable agent_error, records (agent_id, task_number), and returns before results.append or agent_complete.' }],
+      ['et-failedpairs','plat', 580, 260, 330, 96, 'failed_invocations set', ['(agent_id, task_number)', 'matched against completed pairs'],
+        { k:'Per-run bookkeeping', p:'backend/agents/execution_engine/context.py::ExecutionContext.failed_invocations', d:'Task granularity prevents a successful earlier task of one agent id from masking a later failed task. A recovered timeout shares the same pair as completion and is subtracted at terminal evaluation.' }],
+      ['et-cancelclass','run', 945, 260, 325, 96, 'Canonical cancellation path', ['state → cancelled; snapshot;', 'yield once and return'],
+        { k:'Control classification', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'Pre-step, per-chunk and gate-reject paths all converge on pipeline_cancelled. Cooperative cancellation returns normally after the one event so the WebSocket task does not enqueue a duplicate.' }],
+      ['et-budgetclass','run', 580, 425, 690, 96, 'Budget abort catch', ['state → failed; force snapshot;', 'surface typed partial fragments'],
+        { k:'Policy classification', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The engine catches BudgetExceeded around the step loop and emits budget_aborted with the dimension, message and completed file_bundle/fragment refs. No deliverable resolution follows.' }],
+      ['et-state','plat', 580, 590, 330, 96, 'StateMachine', ['terminal states reject transitions', 'best-effort DB mirror'],
+        { k:'Lifecycle state', p:'backend/agents/execution_engine/state_machine.py::StateMachine', d:'Valid states are tracked per run in memory and mirrored to workflow_runs.status. A terminal state cannot transition again, protecting cancelled and failed runs from later completion.' }],
+      ['et-terminalchoice','run', 945, 590, 325, 112, 'Terminal decision', ['0 results + errors → failed;', 'some results + unrecovered → degraded;', 'else clean complete'],
+        { k:'Run classification', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The engine distinguishes total collapse from partial degradation and clean completion. Deliverable resolution is skipped for total failure and all explicit abort/cancel returns.' }],
+      ['et-fallbackev','out', 1375, 95, 480, 78, 'agent_model_fallback', ['client discards stale prior chunks'],
+        { k:'Recovery event', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._run_agent', d:'The event names the fallback model and attempt and sets reset_output so live consumers can replace rather than append the restarted stream.' }],
+      ['et-agentterm','out', 1375, 220, 480, 78, 'agent_error', ['generic leak-free message', 'recoverable flag'],
+        { k:'Agent event', p:'backend/agents/execution_engine/engine.py::_sanitize_agent_error', d:'Raw provider details remain in server logs. The client receives a stable bounded message, avoiding disclosure of provider identifiers, ARNs or internal configuration.' }],
+      ['et-cancelterm','out', 1375, 345, 480, 78, 'pipeline_cancelled', ['one canonical cooperative terminal'],
+        { k:'Run terminal', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'The event includes run id and may include a gate-rejection reason. The app background task persists WorkflowRun.status=cancelled when it observes it.' }],
+      ['et-budgetterm','out', 1375, 470, 480, 78, 'budget_aborted', ['dimension + message + partial_results'],
+        { k:'Run terminal', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'This is a failed terminal specific to enforced fan-out ceilings. It includes durable fragment metadata so completed work remains discoverable.' }],
+      ['et-runterm','out', 1375, 595, 480, 112, 'pipeline_failed or pipeline_complete', ['complete may be status=degraded;', 'event sink stamps and persists exactly once'],
+        { k:'Final terminal', p:'backend/agents/execution_engine/engine.py::ExecutionEngine.execute', d:'Total collapse emits pipeline_failed. Otherwise pipeline_complete carries the final deliverable and only adds degraded fields for unrecovered invocation pairs. execute stamps and persists whichever terminal is chosen.' }],
+    ],
+    edges: [
+      ['et-throttle','r','et-fallback','l','flow','re-raised'],
+      ['et-fallback','r','et-fallbackev','l','flow success','retry available'],
+      ['et-fallback','r:0.8','et-agenterr','l:0.25','danger dashed','exhausted'],
+      ['et-error','r','et-agenterr','l:0.72','danger','error arm'],
+      ['et-agenterr','r','et-agentterm','l','flow danger','emit'],
+      ['et-agenterr','b','et-failedpairs','t:0.8','danger dashed','record pair'],
+      ['et-cancel','r','et-cancelclass','l:0.3','flow danger',''],
+      ['et-gate','r','et-cancelclass','l:0.75','flow danger','reject'],
+      ['et-cancelclass','r','et-cancelterm','l','flow danger',''],
+      ['et-budget','r','et-budgetclass','l:0.25','danger',''],
+      ['et-budgetclass','r','et-budgetterm','l','flow danger',''],
+      ['et-cancelclass','b','et-state','t:0.75','dashed','cancelled'],
+      ['et-budgetclass','b:0.25','et-state','t:0.25','dashed','failed'],
+      ['et-failedpairs','r','et-terminalchoice','l:0.25','flow','compare'],
+      ['et-state','r','et-terminalchoice','l:0.8','flow','guard terminal'],
+      ['et-terminalchoice','r','et-runterm','l','flow success',''],
+    ],
+  },
+  {
+    id: 'resume-replay', tab: 'Resume & Replay', title: 'Backend-restart recovery: classify, bind the original scope, hydrate state, continue sequence numbers, and re-enter the same loop',
+    w: 1960, h: 900,
+    legend: [['src','Startup / durable input'], ['run','Engine recovery'], ['plat','Durable state'], ['hook','Non-resumable branch'], ['ins','Live bridge'], ['out','Resumed output']],
+    groups: [
+      ['rr-scan', 20, 45, 440, 800, 'Startup classification', 'src'],
+      ['rr-rebuild', 495, 45, 850, 800, 'Rebuild and re-enter', 'run'],
+      ['rr-output', 1380, 45, 555, 800, 'Live and durable continuation', 'out'],
+    ],
+    nodes: [
+      ['rr-start','src', 55, 95, 370, 78, 'restore_non_terminal_runs()', ['query running/planning/clarifying/', 'waiting/generating/analyzing/revising'],
+        { k:'Startup hook', p:'backend/agents/execution_engine/engine.py::restore_non_terminal_runs', d:'Startup scans WorkflowRun rows in non-terminal states and classifies each without creating a second orchestration implementation.' }],
+      ['rr-classify','run', 55, 230, 370, 96, '_is_resumable_in_flight()', ['manifest compiles and durable events,', 'artifacts, or wave state exist'],
+        { k:'Recovery classification', p:'backend/agents/execution_engine/engine.py::_is_resumable_in_flight', d:'A run is resumable only when its pipeline compiles and the owner-scoped store contains evidence of progress. Reads are bound to the recorded owner/workspace when available.' }],
+      ['rr-wait','hook', 55, 405, 175, 112, 'waiting_for_user', ['marked failed:', 'clarifier coroutine is gone'],
+        { k:'Non-resumable', p:'backend/agents/execution_engine/engine.py::restore_non_terminal_runs', d:'A clarification wait cannot be restored because the coroutine awaiting the event disappeared with the process. The row is failed with an explicit restart message.' }],
+      ['rr-stateless','hook', 250, 405, 175, 112, 'No durable progress', ['marked failed:', 'no driver state to resume'],
+        { k:'Non-resumable', p:'backend/agents/execution_engine/engine.py::restore_non_terminal_runs', d:'A compiled or legacy run without events, artifacts or wave rows has no safe continuation point and is marked abandoned/failed rather than left phantom-running.' }],
+      ['rr-marker','plat', 530, 95, 350, 88, '_stamp_resume_marker()', ['append run_resuming at max seq + 1', 'under recovered workspace'],
+        { k:'Double-drive guard / audit', p:'backend/agents/execution_engine/engine.py::_stamp_resume_marker', d:'Before creating the resume task, the engine appends a durable marker using the original owner/workspace and next sequence. Failure is logged but does not prevent the drive.' }],
+      ['rr-bridge','ins', 920, 95, 390, 88, 'Register live queue + resume task', ['injected app callbacks; no kernel→app.api import'],
+        { k:'Live bridge', p:'backend/agents/execution_engine/engine.py::ExecutionEngine.__init__', d:'The app injects three callbacks for queue registration, task registration and cleanup. They default to None so offline/kernel paths stay decoupled.' }],
+      ['rr-resume','run', 530, 250, 350, 88, 'resume_run(run_id)', ['read durable WorkflowRun identity', 'and launch-time selections'],
+        { k:'Recovery driver', p:'backend/agents/execution_engine/engine.py::resume_run', d:'The driver reloads pipeline type, brief, user/session, parent id and persisted selections. Selections are later recompiled with trust=user through the same overlay seam.' }],
+      ['rr-scope','plat', 920, 250, 390, 96, 'Recover original workspace + tail seq', ['run_events → artifact_refs → wave_runs', 'start counter at max(seq)+1'],
+        { k:'Scope continuity', p:'backend/agents/execution_engine/engine.py::_recover_workspace_id', d:'A resume must not mint a new workspace for old durable rows. The engine recovers the id by owner/run, then reads the existing event tail so new events continue monotonically.' }],
+      ['rr-offset','run', 530, 420, 350, 96, '_compute_resume_offset()', ['first incomplete step from durable', 'artifacts/events/waves'],
+        { k:'Continuation point', p:'backend/agents/execution_engine/engine.py::_compute_resume_offset', d:'A minimal scoped ExecutionContext is built solely to find the first incomplete compiled step. Any failure falls back to offset 0, where content-hash reuse can still avoid duplicate work.' }],
+      ['rr-hydrate','plat', 920, 420, 390, 96, '_hydrate_artifacts_from_store()', ['adopt ids, hashes, versions and lineage', 'into fresh ArtifactGraph'],
+        { k:'State hydration', p:'backend/agents/execution_engine/engine.py::_hydrate_artifacts_from_store', d:'A fresh process has an empty in-memory graph. Durable artifact_refs are adopted verbatim so skipped producers remain available to downstream consumes and stable retry hashes.' }],
+      ['rr-reenter','run', 530, 590, 780, 104, '_execute_impl(... _resume_from=offset, _is_resume=True)', ['same construction and dispatch loop; planner/clarifier skipped', 'i < offset skipped; waves may filter completed workers'],
+        { k:'Shared execution path', p:'backend/agents/execution_engine/engine.py::ExecutionEngine._execute_impl', d:'Resume is not a fork. The engine rebuilds its full per-run context through the normal entry, binds the recovered workspace, hydrates artifacts, skips completed step indices and lets retry/wave logic reuse durable completions.' }],
+      ['rr-live','out', 1415, 95, 485, 92, 'Live queue continuation', ['resumed events pushed to reconnecting', 'WebSocket drainer'],
+        { k:'Live output', p:'backend/agents/execution_engine/engine.py::resume_run', d:'When the bridge is wired, every newly stamped resumed event is also placed on the live queue. A None sentinel terminates the drainer at end of stream.' }],
+      ['rr-durable','plat', 1415, 265, 485, 92, 'Durable run_events continuation', ['same sink; seq never restarts at 1', 'after_seq replay remains valid'],
+        { k:'Replay output', p:'backend/agents/execution_engine/engine.py::resume_run', d:'The resume driver recreates _RunEventSink and seeds its counter after the durable tail. Persisted event ids remain unique, and reconnect replay can request only events newer than its last sequence.' }],
+      ['rr-terminal','out', 1415, 435, 485, 92, 'Resumed terminal event', ['pipeline_complete / failed / cancelled /', 'budget_aborted through normal semantics'],
+        { k:'Recovered outcome', p:'backend/agents/execution_engine/engine.py::resume_run', d:'Because _execute_impl is shared, resumed runs use the same deliverable, failure, cancellation and budget terminal logic as fresh runs.' }],
+      ['rr-clean','ins', 1415, 605, 485, 92, 'Bridge cleanup', ['queue sentinel + registry cleanup', 'even if registration partially failed'],
+        { k:'Process cleanup', p:'backend/agents/execution_engine/engine.py::_fire_resume_cleanup', d:'Finally sends the queue sentinel when present and calls the injected cleanup hook regardless, preventing stale queue or finished-task registry entries.' }],
+    ],
+    edges: [
+      ['rr-start','b','rr-classify','t','flow thick',''],
+      ['rr-classify','b:0.2','rr-wait','t','danger','waiting'],
+      ['rr-classify','b:0.8','rr-stateless','t','danger','not resumable'],
+      ['rr-classify','r:0.25','rr-marker','l:0.4','flow success','resumable'],
+      ['rr-marker','r','rr-bridge','l','flow','before task'],
+      ['rr-marker','b','rr-resume','t','flow thick','create task'],
+      ['rr-resume','r','rr-scope','l','flow','durable identity'],
+      ['rr-resume','b','rr-offset','t','flow',''],
+      ['rr-scope','b','rr-hydrate','t','flow','refs'],
+      ['rr-offset','b','rr-reenter','t:0.25','flow thick','offset'],
+      ['rr-hydrate','b','rr-reenter','t:0.75','flow thick','artifact state'],
+      ['rr-bridge','r','rr-live','l','dashed','queue'],
+      ['rr-scope','r','rr-durable','l','flow','next seq'],
+      ['rr-reenter','r:0.35','rr-live','l:0.75','flow','push'],
+      ['rr-reenter','r:0.55','rr-durable','l:0.75','flow','persist'],
+      ['rr-reenter','r:0.75','rr-terminal','l','flow success',''],
+      ['rr-live','b:0.8','rr-clean','t:0.8','flow','sentinel'],
+      ['rr-terminal','b','rr-clean','t:0.25','flow','finally'],
+    ],
+  },
+];
+
+/* ═══════════════════════ svg helpers ═══════════════════════ */
+const NS = 'http://www.w3.org/2000/svg';
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function port(node, spec) {
+  const [side, offRaw] = spec.split(':');
+  const t = offRaw === undefined ? 0.5 : parseFloat(offRaw);
+  const [, , x, y, w, h] = node;
+  switch (side) {
+    case 'l': return { x, y: y + h * t, dx: -1, dy: 0 };
+    case 'r': return { x: x + w, y: y + h * t, dx: 1, dy: 0 };
+    case 't': return { x: x + w * t, y, dx: 0, dy: -1 };
+    case 'b': return { x: x + w * t, y: y + h, dx: 0, dy: 1 };
+  }
+}
+function edgeGeom(a, b) {
+  const dist = Math.hypot(b.x - a.x, b.y - a.y);
+  const k = Math.max(36, Math.min(dist * 0.42, 150));
+  const c1 = { x: a.x + a.dx * k, y: a.y + a.dy * k };
+  const c2 = { x: b.x + b.dx * k, y: b.y + b.dy * k };
+  const mid = {
+    x: 0.125 * a.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * b.x,
+    y: 0.125 * a.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * b.y,
+  };
+  return { d: `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`, mid };
+}
+
+/* the semantic-role lookup — used in 3 places (group labels, legend swatches, panel kicker color).
+   if you add a colorClass, add it here too or it silently falls back to 'neutral'. */
+const ROLE = { src:'source', ins:'install', run:'runtime', plat:'plat', hook:'hook', out:'out', neu:'neutral' };
+
+/* ═══════════════════════ render ═══════════════════════ */
+const vp = $('vp'), stage = $('stage'), svg = $('svg'), tip = $('tip');
+let current = 0, pinnedEl = null;
+const viewState = DIAGRAMS.map(() => null);
+
+function renderDiagram(d) {
+  vp.innerHTML = '';
+  const nodesById = {};
+  d.nodes.forEach(n => { nodesById[n[0]] = n; });
+
+  for (const [gid, x, y, w, h, label, cls] of d.groups) {
+    const g = el('g', {}, vp);
+    el('rect', { x, y, width: w, height: h, rx: 14, class: 'grp-rect' }, g);
+    const t = el('text', { x: x + 14, y: y + 24, class: 'grp-label' }, g);
+    t.textContent = label;
+    t.style.fill = `var(--c-${ROLE[cls] || 'neutral'})`;
+  }
+
+  const labels = [];
+  for (const [from, fs, to, ts, cls, label] of d.edges) {
+    const a = port(nodesById[from], fs);
+    const b = port(nodesById[to], ts);
+    const isDanger = /danger/.test(cls), isSuccess = /success/.test(cls);
+    const marker = isDanger ? 'url(#arr-danger)' : isSuccess ? 'url(#arr-success)' : 'url(#arr)';
+    const geo = edgeGeom(a, b);
+    el('path', { d: geo.d, class: 'edge ' + cls, 'marker-end': marker }, vp);
+    if (label) labels.push({ x: geo.mid.x, y: geo.mid.y, label, isDanger, isSuccess });
+  }
+
+  for (const n of d.nodes) {
+    const [id, cls, x, y, w, h, title, subs, info] = n;
+    const g = el('g', { class: 'node ' + cls, 'data-id': id }, vp);
+    el('rect', { x, y, width: w, height: h, rx: 10 }, g);
+    const hasSubs = subs && subs.length;
+    const titleY = hasSubs ? y + 22 : y + h / 2 + 4.5;
+    const tt = el('text', { x: x + w / 2, y: titleY, 'text-anchor': 'middle', class: 'n-title' }, g);
+    tt.textContent = title;
+    if (hasSubs) {
+      subs.forEach((s, i) => {
+        const st = el('text', { x: x + w / 2, y: y + 40 + i * 15, 'text-anchor': 'middle', class: 'n-sub' }, g);
+        st.textContent = s;
+      });
+    }
+    g.__data = { title, info: info || {}, cls };
+    g.addEventListener('mouseenter', () => showTip(g));
+    g.addEventListener('mousemove', moveTip);
+    g.addEventListener('mouseleave', hideTip);
+  }
+
+  for (const { x, y, label, isDanger, isSuccess } of labels) {
+    const lt = el('text', { x, y: y - 5, 'text-anchor': 'middle',
+      class: 'e-label' + (isDanger ? ' danger' : isSuccess ? ' success' : '') }, vp);
+    lt.textContent = label;
+  }
+}
+
+/* ═══════════════════════ tooltip + panel ═══════════════════════ */
+function showTip(g) {
+  const { title, info } = g.__data;
+  tip.innerHTML = `<div class="t-name">${esc(title)}</div>` +
+    (info.p ? `<div class="t-path">${esc(info.p)}</div>` : '') +
+    (info.d ? `<div class="t-desc">${esc(info.d)}</div>` : '') +
+    `<div class="t-more">click to pin</div>`;
+  tip.style.display = 'block';
+}
+function moveTip(e) {
+  const pad = 14;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const r = tip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+
+function itemHtml(it) {
+  return `<div class="p-item"><div class="p-item-name">${esc(it.n)}</div>` +
+    (it.d ? `<div class="p-item-desc">${esc(it.d)}</div>` : '') + `</div>`;
+}
+function renderList(list) {
+  if (Array.isArray(list)) {
+    return `<div class="p-list"><div class="p-list-count">${list.length} items</div>` +
+      list.map(itemHtml).join('') + `</div>`;
+  }
+  const total = list.groups.reduce((s, g) => s + g.items.length, 0);
+  return `<div class="p-list"><div class="p-list-count">${total} items</div>` +
+    list.groups.map(g => `<div class="p-list-group">${esc(g.label)}</div>` + g.items.map(itemHtml).join('')).join('') +
+    `</div>`;
+}
+
+const panel = $('panel'), pBody = $('p-body');
+function pin(g) {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = g; g.classList.add('pinned');
+  const { title, info, cls } = g.__data;
+  const hue = ROLE[cls.split(' ')[0]] || 'neutral';
+  pBody.innerHTML =
+    `<div class="p-kicker" style="color:var(--c-${hue})">${esc(info.k || 'Component')}</div>` +
+    `<h2>${esc(title)}</h2>` +
+    (info.p ? `<span class="p-path">${esc(info.p)}</span>` : '') +
+    `<p>${esc(info.d || 'No further detail — this element is illustrative.')}</p>` +
+    (info.list ? renderList(info.list) : '');
+  panel.classList.add('open');
+  panel.scrollTop = 0;
+}
+function unpin() {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = null;
+  panel.classList.remove('open');
+}
+$('p-close').addEventListener('click', unpin);
+
+/* ═══════════════════════ pan & zoom ═══════════════════════ */
+const MINK = 0.3, MAXK = 3.2;
+function state() { return viewState[current]; }
+function apply() {
+  const s = state();
+  vp.setAttribute('transform', `translate(${s.tx},${s.ty}) scale(${s.k})`);
+  $('z-pct').textContent = Math.round(s.k * 100) + '%';
+}
+function fit() {
+  const d = DIAGRAMS[current];
+  const r = stage.getBoundingClientRect();
+  const k = Math.min(r.width / d.w, r.height / d.h) * 0.94;
+  viewState[current] = { k, tx: (r.width - d.w * k) / 2, ty: (r.height - d.h * k) / 2 };
+  apply();
+}
+function zoomAt(px, py, factor) {
+  const s = state();
+  const k2 = Math.min(MAXK, Math.max(MINK, s.k * factor));
+  const real = k2 / s.k;
+  s.tx = px - (px - s.tx) * real;
+  s.ty = py - (py - s.ty) * real;
+  s.k = k2;
+  apply();
+}
+stage.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const r = stage.getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0016));
+}, { passive: false });
+
+let drag = null;
+stage.addEventListener('pointerdown', (e) => {
+  drag = { x: e.clientX, y: e.clientY, tx: state().tx, ty: state().ty, moved: false, target: e.target };
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; stage.classList.add('panning'); }
+  if (drag.moved) { const s = state(); s.tx = drag.tx + dx; s.ty = drag.ty + dy; apply(); }
+});
+stage.addEventListener('pointerup', (e) => {
+  if (drag && !drag.moved) {
+    const g = drag.target.closest && drag.target.closest('.node');
+    if (g) pin(g); else unpin();
+  }
+  drag = null; stage.classList.remove('panning');
+});
+function centerZoom(factor) {
+  const r = stage.getBoundingClientRect();
+  zoomAt(r.width / 2, r.height / 2, factor);
+}
+$('z-in').addEventListener('click', () => centerZoom(1.25));
+$('z-out').addEventListener('click', () => centerZoom(0.8));
+$('z-fit').addEventListener('click', fit);
+
+/* ═══════════════════════ tabs / views ═══════════════════════ */
+const tabsEl = $('tabs');
+DIAGRAMS.forEach((d, i) => {
+  const b = document.createElement('button');
+  b.className = 'tab';
+  b.innerHTML = `<kbd>${i + 1}</kbd>${esc(d.tab)}`;
+  b.addEventListener('click', () => show(i));
+  tabsEl.appendChild(b);
+});
+
+function show(i) {
+  current = i;
+  document.querySelectorAll('.tab').forEach((t, j) => t.classList.toggle('active', j === i));
+  unpin(); hideTip();
+  const d = DIAGRAMS[i];
+  $('view-title').textContent = (i + 1) + ' · ' + d.title;
+  renderDiagram(d);
+  if (!viewState[i]) fit(); else apply();
+  const legend = $('legend');
+  legend.innerHTML = d.legend.map(([cls, label]) => {
+    const hue = ROLE[cls];
+    return `<span class="lg"><i style="background:var(--c-${hue}-bg);border:1.5px solid var(--c-${hue}-ln)"></i>${esc(label)}</span>`;
+  }).join('');
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', d.id);
+  history.replaceState(null, '', url);
+}
+
+/* ═══════════════════════ keyboard ═══════════════════════ */
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey) return;
+  if (e.key >= '1' && e.key <= String(Math.min(9, DIAGRAMS.length))) show(parseInt(e.key, 10) - 1);
+  else if (e.key === '+' || e.key === '=') centerZoom(1.25);
+  else if (e.key === '-') centerZoom(0.8);
+  else if (e.key === '0') fit();
+  else if (e.key === 'Escape') unpin();
+});
+window.addEventListener('resize', () => { if (state()) apply(); });
+
+/* ═══════════════════════ boot ═══════════════════════ */
+const wanted = new URL(window.location.href).searchParams.get('view');
+const idx = Math.max(0, DIAGRAMS.findIndex(d => d.id === wanted));
+show(idx === -1 ? 0 : idx);
+</script>
+</body>
+</html>

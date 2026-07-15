@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VELOCITY-AI — Platform Layer Stack</title>
+<style>
+html,body { margin:0; padding:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { background:#f3f5fa; color:#1b2440; }
+@media (prefers-color-scheme: dark) { body { background:#12141c; color:#e7eaf3; } }
+:root[data-theme="dark"] body { background:#12141c; color:#e7eaf3; }
+:root[data-theme="light"] body { background:#f3f5fa; color:#1b2440; }
+.page-wrap { max-width: 1500px; margin: 0 auto; padding: 28px 24px 60px; }
+.page-wrap h1 { font-size: 22px; margin: 0 0 6px; }
+.page-wrap .lede { font-size: 13.5px; opacity: .65; margin: 0 0 20px; max-width: 900px; line-height:1.6; }
+
+.iarch {
+  --bg: #eef2f9;         --bg-stage: #f7faff;   --dot: #dbe3f3;
+  --panel: #ffffff;      --ink: #1b2440;        --ink-2: #3f4a6e;   --ink-3: #8592b3;
+  --line: #e4e9f3;       --edge: #9aa8c8;       --edge-label: #54608a;
+  --radius: 14px;
+  --shadow: 0 8px 26px rgba(30,50,90,.10);
+
+  --c-source: #3b6df6;  --c-source-bg: #e8effe;  --c-source-ln: #c5d8fb;
+  --c-install: #0e9aae; --c-install-bg: #e3f6f8; --c-install-ln: #b7e4ea;
+  --c-runtime: #b9820b; --c-runtime-bg: #fdf3dc; --c-runtime-ln: #f0dcac;
+  --c-plat: #7c5cff;    --c-plat-bg: #f0ebfe;    --c-plat-ln: #d5cbfb;
+  --c-hook: #d6469f;    --c-hook-bg: #fdeaf6;    --c-hook-ln: #f2c3e2;
+  --c-out: #12a06a;     --c-out-bg: #e5f6ee;     --c-out-ln: #bbe6d3;
+  --c-neutral: #54608a; --c-neutral-bg: #eef2fb; --c-neutral-ln: #d4ddec;
+  --c-danger: #e0405a;  --c-success: #12a06a;
+
+  position: relative; display: flex; flex-direction: column;
+  height: 84vh; min-height: 640px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; background: var(--panel); box-shadow: var(--shadow);
+  color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  .iarch {
+    --bg:#1a1d29; --bg-stage:#14161f; --dot:#242838; --panel:#1c1f2b;
+    --ink:#e7eaf3; --ink-2:#b7bfd6; --ink-3:#7d859f; --line:#2a2e40; --edge:#4b5372; --edge-label:#9aa4c4;
+    --c-source-bg:#182338; --c-source-ln:#233256;
+    --c-install-bg:#122a2c; --c-install-ln:#1c3f42;
+    --c-runtime-bg:#2c220f; --c-runtime-ln:#3f3016;
+    --c-plat-bg:#221a3a; --c-plat-ln:#332752;
+    --c-hook-bg:#33172a; --c-hook-ln:#492239;
+    --c-out-bg:#132a20; --c-out-ln:#1c3d2e;
+    --c-neutral-bg:#1e2233; --c-neutral-ln:#2c3149;
+  }
+}
+
+.tabs { display:flex; gap:2px; padding:8px 12px 0; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--line); }
+.tabs::-webkit-scrollbar { display:none; }
+.tab { font:inherit; font-size:12px; font-weight:550; color:var(--ink-3); background:none; border:none; cursor:pointer;
+  padding:8px 9px 10px; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s; white-space:nowrap; }
+.tab:hover { color: var(--ink-2); }
+.tab.active { color: var(--c-source); border-bottom-color: var(--c-source); font-weight:650; }
+.tab kbd { font-family:inherit; font-size:9.5px; color:var(--ink-3); border:1px solid var(--line); border-radius:4px; padding:0 3px; margin-right:5px; background:var(--panel); }
+.tab.active kbd { color: var(--c-source); border-color: var(--c-source-ln); }
+
+.iarch-main { flex:1; display:flex; min-height:0; }
+.stage-wrap { flex:1; position:relative; min-width:0; }
+.stage { position:absolute; inset:0; background-color:var(--bg-stage);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size:22px 22px;
+  overflow:hidden; cursor:grab; touch-action:none; }
+.stage.panning { cursor:grabbing; }
+.stage svg { display:block; width:100%; height:100%; }
+
+.view-title { position:absolute; top:14px; left:18px; pointer-events:none; font-size:12px; font-weight:650;
+  color:var(--ink-3); text-transform:uppercase; letter-spacing:.08em; }
+
+.zoombar { position:absolute; top:12px; right:14px; display:flex; gap:4px; background:var(--panel);
+  border:1px solid var(--line); border-radius:10px; padding:4px; box-shadow:var(--shadow); align-items:center; }
+.zbtn { font:inherit; font-size:14px; font-weight:600; color:var(--ink-2); background:none; border:none;
+  border-radius:7px; cursor:pointer; width:30px; height:28px; display:grid; place-items:center; transition:background .12s; }
+.zbtn:hover { background: var(--bg); color: var(--ink); }
+.zpct { font-size:11.5px; font-weight:600; color:var(--ink-3); min-width:44px; text-align:center; user-select:none; }
+.hint { position:absolute; bottom:12px; left:18px; pointer-events:none; font-size:11.5px; color:var(--ink-3);
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:5px 10px; opacity:.9; }
+
+.iarch-legend { position:absolute; bottom:12px; right:14px; display:flex; gap:10px; flex-wrap:wrap;
+  background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:7px 12px;
+  box-shadow:var(--shadow); max-width:60%; pointer-events:none; }
+.lg { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:550; color:var(--ink-2); }
+.lg i { width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+.panel { width:400px; border-left:1px solid var(--line); background:var(--panel); padding:20px;
+  overflow-y:auto; display:none; flex-shrink:0; }
+.panel.open { display:block; }
+.panel .p-kicker { font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+.panel h2 { font-size:16px; font-weight:700; margin:6px 0 10px; letter-spacing:-.01em; }
+.panel .p-path { display:inline-block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+  color:var(--ink-2); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:3px 8px;
+  margin-bottom:12px; word-break:break-all; }
+.panel p { font-size:13px; line-height:1.65; color:var(--ink-2); }
+.panel .p-close { float:right; font:inherit; font-size:12px; color:var(--ink-3); background:none;
+  border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; }
+.panel .p-close:hover { color: var(--ink); }
+.panel .p-empty { font-size:12.5px; color:var(--ink-3); line-height:1.6; margin-top:8px; }
+
+.p-list { margin-top:16px; border-top:1px solid var(--line); padding-top:4px; }
+.p-list-count { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin:10px 0 2px; }
+.p-list-group { font-size:11px; font-weight:700; color:var(--c-source); margin:14px 0 4px; padding-top:2px; }
+.p-list-group:first-of-type { margin-top:8px; }
+.p-item { padding:5px 0; border-bottom:1px solid var(--line); }
+.p-item:last-child { border-bottom:none; }
+.p-item-name { font-size:12px; font-weight:650; color:var(--ink); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.p-item-desc { font-size:11.5px; color:var(--ink-3); line-height:1.4; margin-top:1px; }
+
+.tip { position:fixed; z-index:50; pointer-events:none; display:none; max-width:340px; background:var(--panel);
+  color:var(--ink); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); padding:10px 12px;
+  font-size:12px; line-height:1.55; }
+.tip .t-name { font-weight:700; font-size:12.5px; margin-bottom:2px; }
+.tip .t-path { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--ink-3); margin-bottom:5px; }
+.tip .t-desc { color: var(--ink-2); }
+.tip .t-more { color: var(--ink-3); font-size:10.5px; margin-top:6px; }
+
+.grp-rect { fill: var(--panel); stroke: var(--line); stroke-width:1; rx:14; opacity:.55; }
+.grp-label { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.grp-sub { font-size:10.5px; font-weight:550; fill: var(--ink-3); }
+
+.node { cursor:pointer; }
+.node rect { stroke-width:1.25; filter: drop-shadow(0 1px 1.5px rgba(20,24,32,.13)); transition: filter .15s; }
+@media (prefers-color-scheme: dark) { .node rect { filter: drop-shadow(0 1.5px 3px rgba(0,0,0,.55)); } }
+.node:hover rect { stroke-width:2; filter: drop-shadow(0 3px 8px rgba(20,24,32,.2)); }
+.node.pinned rect { stroke-width:2.5; }
+.node .n-title { font-size:13px; font-weight:650; fill: var(--ink); }
+.node .n-sub { font-size:11px; fill: var(--ink-3); font-weight:480; }
+
+.src rect  { fill: var(--c-source-bg);  stroke: var(--c-source-ln); }
+.ins rect  { fill: var(--c-install-bg); stroke: var(--c-install-ln); }
+.run rect  { fill: var(--c-runtime-bg); stroke: var(--c-runtime-ln); }
+.plat rect { fill: var(--c-plat-bg);    stroke: var(--c-plat-ln); }
+.hook rect { fill: var(--c-hook-bg);    stroke: var(--c-hook-ln); }
+.out rect  { fill: var(--c-out-bg);     stroke: var(--c-out-ln); }
+.neu rect  { fill: var(--c-neutral-bg); stroke: var(--c-neutral-ln); }
+
+.edge { fill:none; stroke: var(--edge); stroke-width:1.6; }
+.edge.flow { stroke-dasharray:7 5; animation: dash 1.1s linear infinite; }
+.edge.dashed { stroke-dasharray:3 5; opacity:.75; }
+.edge.thick { stroke-width:2.4; }
+.edge.danger { stroke: var(--c-danger); }
+.edge.success { stroke: var(--c-success); }
+@keyframes dash { to { stroke-dashoffset:-12; } }
+.e-label { font-size:10.5px; font-weight:620; fill: var(--edge-label); paint-order:stroke;
+  stroke: var(--bg-stage); stroke-width:4px; stroke-linejoin:round; }
+.e-label.danger { fill: var(--c-danger); }
+.e-label.success { fill: var(--c-success); }
+
+@media (max-width: 900px) { .panel { display:none !important; } .iarch-legend { display:none; } }
+
+.back-btn { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--ink-2, #3f4a6e);
+  text-decoration:none; background:var(--panel, #fff); border:1px solid var(--line, #e4e9f3); border-radius:20px;
+  padding:6px 13px 6px 11px; margin-bottom:14px; transition:background .12s, color .12s; }
+.back-btn:hover { color:#3b6df6; border-color:#c5d8fb; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+    <a class="back-btn" href="./index.html">&larr; Diagram Library</a>
+  <h1>VELOCITY-AI — Platform Layer Stack</h1>
+  <p class="lede">A cross-section of the whole system: third-party frameworks sit as the foundation, VELOCITY's own kernel/orchestration code is built on top of them, and the API + frontend sit above that as the client-facing surface. Scroll to zoom, drag to pan, click a box for sourced detail. Press 1–2 to switch views.</p>
+
+  <div class="iarch">
+    <div class="tabs" id="tabs"></div>
+    <div class="iarch-main">
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--edge)"/>
+              </marker>
+              <marker id="arr-danger" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-danger)"/>
+              </marker>
+              <marker id="arr-success" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-success)"/>
+              </marker>
+            </defs>
+            <g id="vp"></g>
+          </svg>
+          <div class="view-title" id="view-title"></div>
+          <div class="zoombar">
+            <button class="zbtn" id="z-out" title="Zoom out (−)">−</button>
+            <span class="zpct" id="z-pct">100%</span>
+            <button class="zbtn" id="z-in" title="Zoom in (+)">+</button>
+            <button class="zbtn" id="z-fit" title="Fit to screen (0)" style="font-size:12px">⤢</button>
+          </div>
+          <div class="hint" id="hint">scroll to zoom · drag to pan · click a box to pin details · keys 1–2 switch views</div>
+          <div class="iarch-legend" id="legend"></div>
+        </div>
+      </div>
+      <aside class="panel" id="panel">
+        <button class="p-close" id="p-close">✕ close</button>
+        <div id="p-body"><div class="p-empty">Click any box to see what it is, where it lives, and why it matters.</div></div>
+      </aside>
+    </div>
+    <div class="tip" id="tip"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const DIAGRAMS = [
+  {
+    id: 'stack', tab: 'Platform Stack (all layers)', title: 'Bottom-up: 3rd-party frameworks → VELOCITY kernel → API → frontend',
+    w: 1560, h: 1240,
+    legend: [
+      ['src','Frontend framework'], ['ins','API / HTTP layer'],
+      ['run','Kernel / execution engine (custom)'], ['hook','Workflow & orchestration (custom)'],
+      ['plat','Agent framework (3rd-party)'], ['out','LLM provider layer'],
+      ['neu','Platform foundation (persistence + infra)'],
+    ],
+    groups: [
+      ['g1', 20, 40,  1520, 150, 'Layer 1 — Frontend Framework', 'src'],
+      ['g2', 20, 206, 1520, 150, 'Layer 2 — API / HTTP Boundary', 'ins'],
+      ['g3', 20, 372, 1520, 150, 'Layer 3 — Kernel / Execution Engine (VELOCITY custom)', 'run'],
+      ['g4', 20, 538, 1520, 150, 'Layer 4 — Workflow & Agent Orchestration (VELOCITY custom)', 'hook'],
+      ['g5', 20, 704, 1520, 150, 'Layer 5 — Agent Framework (3rd-party)', 'plat'],
+      ['g6', 20, 870, 1520, 150, 'Layer 6 — LLM Provider', 'out'],
+      ['g7', 20, 1036,1520, 150, 'Layer 7 — Platform Foundation (persistence + deploy)', 'neu'],
+    ],
+    nodes: [
+      // Layer 1 — Frontend
+      ['fe1','src', 40, 86, 700, 90, 'Next.js 16.2.4 — App Router', ['dashboard / workflow / chat / admin routes'],
+        { k:'Frontend framework', p:'frontend/package.json:12-20 · frontend/src/app/*',
+          d:'The App Router structure under frontend/src/app (dashboard, workflow, chat, admin) is the outermost layer a user actually loads. Everything below it is invisible to the browser.' }],
+      ['fe2','src', 820, 86, 700, 90, 'React 19.2.4 + Tailwind v4', ['component runtime & styling'],
+        { k:'Frontend framework', p:'frontend/package.json',
+          d:'React 19 renders the App Router pages; Tailwind v4 handles styling. This is pure client-side framework — no VELOCITY-specific orchestration logic lives here.' }],
+
+      // Layer 2 — API
+      ['api1','ins', 40, 252, 470, 90, 'FastAPI 0.115.6 app', ['CORS middleware, app bootstrap'],
+        { k:'API / HTTP layer', p:'backend/app/main.py:1-20,146-183',
+          d:'The FastAPI application instance is where every HTTP/WS request enters the backend. CORS and other middleware are registered here before any router runs.' }],
+      ['api2','ins', 530, 252, 470, 90, '17 APIRouters', ['/api/auth, /api/chats, /api/agents,', '/api/workflows, /api/runs, /api/handoff, /mcp …'],
+        { k:'API / HTTP layer', p:'backend/app/api/*.py (e.g. admin.py:18, agents.py:40, mcp.py:48)',
+          d:'Each domain has its own APIRouter with its own prefix, registered onto the app via app.include_router(...). This is the boundary layer — it translates HTTP/WS into calls on the kernel below, and does not itself run agents or workflows.',
+          list: [
+            { n:'/api/auth', d:'Login/session/token endpoints' },
+            { n:'/api/chats', d:'Chat session + message endpoints' },
+            { n:'/api/agents', d:'Agent registry/listing endpoints' },
+            { n:'/api/workflows', d:'Workflow definition endpoints' },
+            { n:'/api/runs', d:'Workflow run lifecycle endpoints' },
+            { n:'/api/handoff', d:'Handoff pipeline endpoints' },
+            { n:'/mcp', d:'MCP server/tool endpoints' },
+          ] }],
+      ['api3','ins', 1020, 252, 470, 90, 'Uvicorn 0.34.0', ['ASGI server process'],
+        { k:'API / HTTP layer', p:'backend/requirements.txt',
+          d:'Uvicorn is the ASGI server that actually terminates HTTP/WebSocket connections and hands them to the FastAPI app — the true bottom of the "framework" a request touches before VELOCITY code runs.' }],
+
+      // Layer 3 — Kernel
+      ['k1','run', 40, 418, 470, 90, 'ExecutionEngine (singleton)', ['DAG execution, gates, WS events'],
+        { k:'Kernel / execution engine', p:'backend/agents/execution_engine/engine.py:707 (get_execution_engine() at :6514)',
+          d:'A 6500+ line class that is the single orchestration entry point: validates the workflow DAG, runs the planner agent, evaluates gate/clarify logic, executes agents in topological order, emits WS events, and persists artifacts. This is where "the kernel layer" starts.' }],
+      ['k2','run', 530, 418, 470, 90, "KernelServices — “this module IS the kernel”", ['sole seam for capability code'],
+        { k:'Kernel / execution engine', p:'backend/agents/execution_engine/kernel_services.py:1-25',
+          d:'Explicitly documented in its own module docstring as the kernel. It is the only seam that capability/runtime code above it is allowed to use to reach kernel or app primitives — a deliberate boundary enforced in code, not just convention.' }],
+      ['k3','run', 1020, 418, 470, 90, 'WorkflowResolver + StateMachine', ['DAG validation, gate/clarify state'],
+        { k:'Kernel / execution engine', p:'backend/agents/execution_engine/resolver.py · state_machine.py',
+          d:'Resolves the compiled workflow DAG into an executable order and tracks run state transitions (gates, clarifications, retries) that ExecutionEngine drives.' }],
+
+      // Layer 4 — Workflow & orchestration
+      ['w1','hook', 40, 584, 470, 90, 'WorkflowCompiler', ['manifest → typed CompiledWorkflow DAG'],
+        { k:'Workflow & orchestration', p:'backend/agents/workflows/compiler.py:1-24',
+          d:'Pure data transform (no eval/exec): turns a WorkflowManifest into a typed CompiledWorkflow DAG by resolving capability names against the CapabilityRegistry. This is the layer between the kernel and the declarative workflow.yaml files.' }],
+      ['w2','hook', 530, 584, 470, 90, 'workflow.yaml manifests', ['app_builder, chat, custom, ppt,', 'prototype, dotnet_to_azure …'],
+        { k:'Workflow & orchestration', p:'backend/agents/workflows/*/workflow.yaml',
+          d:'Each product surface (chat, app_builder, ppt, prototype, mulesoft_to_springboot, dotnet_to_azure, …) is declared as a YAML manifest of steps, not code — the compiler above turns these into DAGs the kernel can run.' }],
+      ['w3','hook', 1020, 584, 470, 90, 'Capabilities registry', ['tools · hooks · validators · gates · mcp_servers'],
+        { k:'Workflow & orchestration', p:'backend/agents/capabilities/*',
+          d:'A registry of pluggable step behaviors (tool providers, lifecycle hooks, output validators, human/security gates, MCP server catalogs) that compiled workflow steps bind to. Sits directly above the agent framework layer.' }],
+
+      // Layer 5 — Agent framework (3rd party)
+      ['af1','plat', 40, 750, 470, 90, 'LangChain 1.3.4 + LangGraph 1.2.4', ['agent graph execution runtime'],
+        { k:'Agent framework (3rd-party)', p:'backend/requirements.txt: langchain==1.3.4, langchain-core==1.4.0, langgraph==1.2.4',
+          d:'The underlying agent-graph framework VELOCITY builds its own orchestration on top of. This is the first fully third-party "framework" layer below the custom kernel/workflow code.' }],
+      ['af2','plat', 530, 750, 470, 90, 'deepagents + LangChainDeepAgentsRuntime', ['DeepAgentRunner — sole caller of', 'deepagents.create_deep_agent'],
+        { k:'Agent framework (3rd-party)', p:'backend/agents/capabilities/runtimes/langchain_deepagents.py:33-60 · runtime/base.py:1-30',
+          d:'LangChainDeepAgentsRuntime is a registered AgentRuntimeAdapter wrapping DeepAgentRunner, documented as the only allow-listed caller of deepagents.create_deep_agent (invariant INV-13). runtime/base.py defines the hexagonal port (ExecutionPolicy/Workspace) a sandbox implementation satisfies.' }],
+      ['af3','plat', 1020, 750, 470, 90, 'langchain-mcp-adapters + MCP SDK', ['MultiServerMCPClient → LangChain BaseTools'],
+        { k:'Agent framework (3rd-party)', p:'backend/app/agents/mcp/client.py:1-30 · requirements.txt: langchain-mcp-adapters>=0.2.2,<0.3',
+          d:'McpClientAdapter wraps langchain_mcp_adapters.client.MultiServerMCPClient, converting MCP tools into LangChain BaseTools that get unioned into the deepagents tool set via AgentContext.prewarmed_mcp_tools.' }],
+
+      // Layer 6 — LLM provider
+      ['llm1','out', 40, 916, 470, 90, 'ChatAnthropic → Anthropic API', ['default model provider'],
+        { k:'LLM provider', p:'backend/app/agents/model_factory.py:build_model() lines 29-53 · langchain-anthropic==1.4.3',
+          d:'build_model() picks ChatAnthropic when ANTHROPIC_API_KEY is set — this is the primary path for actual model calls out of the system.' }],
+      ['llm2','out', 530, 916, 470, 90, 'ChatBedrockConverse → AWS Bedrock', ['fallback provider'],
+        { k:'LLM provider', p:'backend/app/agents/model_factory.py · langchain-aws==1.4.6, boto3==1.43.2',
+          d:'When no Anthropic key is configured, build_model() falls back to ChatBedrockConverse over AWS Bedrock via langchain-aws/boto3.' }],
+      ['llm3','out', 1020, 916, 470, 90, 'LangSmith tracing', ['observability alongside LLM calls'],
+        { k:'LLM provider / observability', p:'backend/app/main.py:56-73',
+          d:'LangSmith tracing is wired at app startup alongside the LLM layer, giving visibility into every LangChain/LangGraph call made through the agent framework above.' }],
+
+      // Layer 7 — Platform foundation
+      ['pf1','neu', 40, 1082, 340, 90, 'SQLAlchemy 2.0.36 + Alembic', ['ORM + migrations'],
+        { k:'Platform foundation', p:'backend/app/models/database.py:1-16 · backend/alembic/versions/0001_initial_schema.py',
+          d:'SQLAlchemy 2.0 models with Alembic migrations. Default dev DB is sqlite:///./dev.db; pool_pre_ping usage indicates Postgres in production.' }],
+      ['pf2','neu', 400, 1082, 340, 90, 'langgraph-checkpoint-postgres', ['durable HITL checkpointing'],
+        { k:'Platform foundation', p:'backend/requirements.txt: langgraph-checkpoint-postgres==3.1.0',
+          d:'Gives LangGraph durable checkpoints in Postgres, which is what makes human-in-the-loop gates survive process restarts.' }],
+      ['pf3','neu', 760, 1082, 340, 90, 'Docker (3-stage build) + compose', ['builder → pptx-builder → slim runtime'],
+        { k:'Platform foundation / deploy', p:'backend/Dockerfile:22-30 · docker-compose.yml (backend:43, frontend:140)',
+          d:'Backend is built in 3 Docker stages (builder, pptx-builder, slim non-root runtime); docker-compose.yml wires backend + frontend services together for local/deployed runs.' }],
+      ['pf4','neu', 1120, 1082, 340, 90, 'Single EC2 instance (Terraform)', ['S3-hosted compose bootstrap'],
+        { k:'Platform foundation / deploy', p:'infra/terraform/modules/compute/main.tf:72 · infra/terraform/app/main.tf:79-134',
+          d:'Deploy target is one aws_instance (EBS + EIP), not ECS/Fargate/Lambda — bootstrapped by uploading docker-compose.yml + env files to S3 and pulling them down on boot.' }],
+    ],
+    edges: [
+      ['fe1','b','api1','t','flow thick', 'HTTP + WS (JWT)'],
+      ['fe2','b','api2','t','dashed', ''],
+      ['api3','r:0.3','api1','r:0.7','dashed', 'serves'],
+      ['api2','b','k2','t','flow thick', 'via KernelServices seam'],
+      ['api1','b','k1','t','dashed', ''],
+      ['k3','l','k1','r','dashed', 'resolves DAG for'],
+      ['k2','l','k1','r:0.3','dashed', ''],
+      ['k1','b','w1','t','flow', 'loads compiled workflow'],
+      ['w1','r','w2','l','dashed', 'parses'],
+      ['k1','b:0.7','w3','t','flow', 'runs capability steps'],
+      ['w3','b','af2','t','flow thick', 'AgentRuntimeAdapter'],
+      ['af2','l','af1','r','dashed', 'built on'],
+      ['af2','r','af3','l','dashed', 'tool source'],
+      ['af1','b','llm1','t','flow thick', 'build_model()'],
+      ['af1','b:0.5','llm2','t','dashed', 'fallback (no ANTHROPIC_API_KEY)'],
+      ['af1','r:0.8','llm3','t','dashed', 'trace spans'],
+      ['k1','b:0.15','pf1','t','flow', 'persist runs & artifacts'],
+      ['af1','b:0.8','pf2','t','dashed', 'HITL checkpoint'],
+      ['api1','b:0.9','pf3','t','dashed', 'containerized as'],
+      ['pf3','r','pf4','l','dashed', 'deployed to'],
+    ],
+  },
+  {
+    id: 'trace', tab: 'One request traced', title: 'A single chat message crossing every layer boundary',
+    w: 900, h: 1240,
+    legend: [
+      ['src','Frontend framework'], ['ins','API / HTTP layer'],
+      ['run','Kernel / execution engine'], ['hook','Workflow & orchestration'],
+      ['plat','Agent framework'], ['out','LLM provider'], ['neu','Platform foundation'],
+    ],
+    groups: [
+      ['tg1', 20, 40,  860, 150, 'Layer 1 — Frontend', 'src'],
+      ['tg2', 20, 206, 860, 150, 'Layer 2 — API / HTTP', 'ins'],
+      ['tg3', 20, 372, 860, 150, 'Layer 3 — Kernel', 'run'],
+      ['tg4', 20, 538, 860, 150, 'Layer 4 — Orchestration', 'hook'],
+      ['tg5', 20, 704, 860, 150, 'Layer 5 — Agent framework', 'plat'],
+      ['tg6', 20, 870, 860, 150, 'Layer 6 — LLM provider', 'out'],
+      ['tg7', 20, 1036,860, 150, 'Layer 7 — Platform foundation', 'neu'],
+    ],
+    nodes: [
+      ['t1','src', 230, 86, 440, 90, 'Chat UI sends a message', ['frontend/src/app/chat'],
+        { k:'Frontend', p:'frontend/src/app/chat/* (Next.js App Router)',
+          d:'The user types a message; the Next.js/React chat page opens/uses a connection to the backend. This is where the request originates — nothing below this line is visible to the browser directly.' }],
+      ['t2','ins', 230, 252, 440, 90, 'FastAPI receives it, checks auth', ['api/chats or a WS route'],
+        { k:'API / HTTP layer', p:'backend/app/main.py · backend/app/api/*.py (one of 17 APIRouters)',
+          d:'The matching APIRouter authenticates the request and translates it into a call through the KernelServices seam. The HTTP/WS framework layer ends here — nothing past this point knows about HTTP.' }],
+      ['t3','run', 230, 418, 440, 90, 'ExecutionEngine.run(...) starts the workflow', ['loads the compiled DAG'],
+        { k:'Kernel / execution engine', p:'backend/agents/execution_engine/engine.py:707',
+          d:'The kernel takes over: validates the DAG via WorkflowResolver, begins topological execution, and starts emitting WS run/agent-state events back toward the frontend as work progresses.' }],
+      ['t4','hook', 230, 584, 440, 90, "The compiled 'chat' workflow runs its steps", ['workflow.yaml → capabilities'],
+        { k:'Workflow & orchestration', p:'backend/agents/workflows/chat/workflow.yaml · capabilities/*',
+          d:'Each declarative step in chat/workflow.yaml was already resolved by WorkflowCompiler against the CapabilityRegistry; the kernel now runs each step’s bound capability (tool/hook/validator).' }],
+      ['t5','plat', 230, 750, 440, 90, 'LangChainDeepAgentsRuntime invokes the agent graph', ['DeepAgentRunner → deepagents → LangGraph'],
+        { k:'Agent framework', p:'backend/agents/capabilities/runtimes/langchain_deepagents.py:33-60',
+          d:'The step’s capability hands off to the LangChain/LangGraph-based deepagents runtime, which is where VELOCITY’s custom orchestration ends and the third-party agent framework takes over execution.' }],
+      ['t6','out', 230, 916, 440, 90, 'The agent graph calls the model', ['ChatAnthropic (or ChatBedrockConverse)'],
+        { k:'LLM provider', p:'backend/app/agents/model_factory.py:build_model()',
+          d:'The actual network call to Anthropic’s API (or AWS Bedrock as fallback) happens here — the true bottom of the stack for this request, outside VELOCITY’s process entirely.' }],
+      ['t7','neu', 230, 1082, 440, 90, 'Response streams back; run + artifacts persisted', ['SQLAlchemy · WS events · checkpoints'],
+        { k:'Platform foundation', p:'backend/app/models/database.py · agents/artifact_store/store.py · langgraph-checkpoint-postgres',
+          d:'As tokens stream back up through the same layers via WS events, ExecutionEngine persists run state and artifacts through SQLAlchemy, and LangGraph checkpoints any HITL gate state to Postgres.' }],
+    ],
+    edges: [
+      ['t1','b','t2','t','flow thick', ''],
+      ['t2','b','t3','t','flow thick', ''],
+      ['t3','b','t4','t','flow thick', ''],
+      ['t4','b','t5','t','flow thick', ''],
+      ['t5','b','t6','t','flow thick', ''],
+      ['t6','b','t7','t','flow thick', ''],
+      ['t7','r','t1','r','flow success', 'streamed response (WS events)'],
+    ],
+  },
+];
+
+/* ═══════════════════════ svg helpers ═══════════════════════ */
+const NS = 'http://www.w3.org/2000/svg';
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function port(node, spec) {
+  const [side, offRaw] = spec.split(':');
+  const t = offRaw === undefined ? 0.5 : parseFloat(offRaw);
+  const [, , x, y, w, h] = node;
+  switch (side) {
+    case 'l': return { x, y: y + h * t, dx: -1, dy: 0 };
+    case 'r': return { x: x + w, y: y + h * t, dx: 1, dy: 0 };
+    case 't': return { x: x + w * t, y, dx: 0, dy: -1 };
+    case 'b': return { x: x + w * t, y: y + h, dx: 0, dy: 1 };
+  }
+}
+function edgeGeom(a, b) {
+  const dist = Math.hypot(b.x - a.x, b.y - a.y);
+  const k = Math.max(36, Math.min(dist * 0.42, 150));
+  const c1 = { x: a.x + a.dx * k, y: a.y + a.dy * k };
+  const c2 = { x: b.x + b.dx * k, y: b.y + b.dy * k };
+  const mid = {
+    x: 0.125 * a.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * b.x,
+    y: 0.125 * a.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * b.y,
+  };
+  return { d: `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`, mid };
+}
+
+const ROLE = { src:'source', ins:'install', run:'runtime', plat:'plat', hook:'hook', out:'out', neu:'neutral' };
+
+/* ═══════════════════════ render ═══════════════════════ */
+const vp = $('vp'), stage = $('stage'), svg = $('svg'), tip = $('tip');
+let current = 0, pinnedEl = null;
+const viewState = DIAGRAMS.map(() => null);
+
+function renderDiagram(d) {
+  vp.innerHTML = '';
+  const nodesById = {};
+  d.nodes.forEach(n => { nodesById[n[0]] = n; });
+
+  for (const [gid, x, y, w, h, label, cls] of d.groups) {
+    const g = el('g', {}, vp);
+    el('rect', { x, y, width: w, height: h, rx: 14, class: 'grp-rect' }, g);
+    const t = el('text', { x: x + 14, y: y + 24, class: 'grp-label' }, g);
+    t.textContent = label;
+    t.style.fill = `var(--c-${ROLE[cls] || 'neutral'})`;
+  }
+
+  const labels = [];
+  for (const [from, fs, to, ts, cls, label] of d.edges) {
+    const a = port(nodesById[from], fs);
+    const b = port(nodesById[to], ts);
+    const isDanger = /danger/.test(cls), isSuccess = /success/.test(cls);
+    const marker = isDanger ? 'url(#arr-danger)' : isSuccess ? 'url(#arr-success)' : 'url(#arr)';
+    const geo = edgeGeom(a, b);
+    el('path', { d: geo.d, class: 'edge ' + cls, 'marker-end': marker }, vp);
+    if (label) labels.push({ x: geo.mid.x, y: geo.mid.y, label, isDanger, isSuccess });
+  }
+
+  for (const n of d.nodes) {
+    const [id, cls, x, y, w, h, title, subs, info] = n;
+    const g = el('g', { class: 'node ' + cls, 'data-id': id }, vp);
+    el('rect', { x, y, width: w, height: h, rx: 10 }, g);
+    const hasSubs = subs && subs.length;
+    const titleY = hasSubs ? y + 22 : y + h / 2 + 4.5;
+    const tt = el('text', { x: x + w / 2, y: titleY, 'text-anchor': 'middle', class: 'n-title' }, g);
+    tt.textContent = title;
+    if (hasSubs) {
+      subs.forEach((s, i) => {
+        const st = el('text', { x: x + w / 2, y: y + 40 + i * 15, 'text-anchor': 'middle', class: 'n-sub' }, g);
+        st.textContent = s;
+      });
+    }
+    g.__data = { title, info: info || {}, cls };
+    g.addEventListener('mouseenter', () => showTip(g));
+    g.addEventListener('mousemove', moveTip);
+    g.addEventListener('mouseleave', hideTip);
+  }
+
+  for (const { x, y, label, isDanger, isSuccess } of labels) {
+    const lt = el('text', { x, y: y - 5, 'text-anchor': 'middle',
+      class: 'e-label' + (isDanger ? ' danger' : isSuccess ? ' success' : '') }, vp);
+    lt.textContent = label;
+  }
+}
+
+/* ═══════════════════════ tooltip + panel ═══════════════════════ */
+function showTip(g) {
+  const { title, info } = g.__data;
+  tip.innerHTML = `<div class="t-name">${esc(title)}</div>` +
+    (info.p ? `<div class="t-path">${esc(info.p)}</div>` : '') +
+    (info.d ? `<div class="t-desc">${esc(info.d)}</div>` : '') +
+    `<div class="t-more">click to pin</div>`;
+  tip.style.display = 'block';
+}
+function moveTip(e) {
+  const pad = 14;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const r = tip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+
+function itemHtml(it) {
+  return `<div class="p-item"><div class="p-item-name">${esc(it.n)}</div>` +
+    (it.d ? `<div class="p-item-desc">${esc(it.d)}</div>` : '') + `</div>`;
+}
+function renderList(list) {
+  if (Array.isArray(list)) {
+    return `<div class="p-list"><div class="p-list-count">${list.length} items</div>` +
+      list.map(itemHtml).join('') + `</div>`;
+  }
+  const total = list.groups.reduce((s, g) => s + g.items.length, 0);
+  return `<div class="p-list"><div class="p-list-count">${total} items</div>` +
+    list.groups.map(g => `<div class="p-list-group">${esc(g.label)}</div>` + g.items.map(itemHtml).join('')).join('') +
+    `</div>`;
+}
+
+const panel = $('panel'), pBody = $('p-body');
+function pin(g) {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = g; g.classList.add('pinned');
+  const { title, info, cls } = g.__data;
+  const hue = ROLE[cls.split(' ')[0]] || 'neutral';
+  pBody.innerHTML =
+    `<div class="p-kicker" style="color:var(--c-${hue})">${esc(info.k || 'Component')}</div>` +
+    `<h2>${esc(title)}</h2>` +
+    (info.p ? `<span class="p-path">${esc(info.p)}</span>` : '') +
+    `<p>${esc(info.d || 'No further detail — this element is illustrative.')}</p>` +
+    (info.list ? renderList(info.list) : '');
+  panel.classList.add('open');
+  panel.scrollTop = 0;
+}
+function unpin() {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = null;
+  panel.classList.remove('open');
+}
+$('p-close').addEventListener('click', unpin);
+
+/* ═══════════════════════ pan & zoom ═══════════════════════ */
+const MINK = 0.3, MAXK = 3.2;
+function state() { return viewState[current]; }
+function apply() {
+  const s = state();
+  vp.setAttribute('transform', `translate(${s.tx},${s.ty}) scale(${s.k})`);
+  $('z-pct').textContent = Math.round(s.k * 100) + '%';
+}
+function fit() {
+  const d = DIAGRAMS[current];
+  const r = stage.getBoundingClientRect();
+  const k = Math.min(r.width / d.w, r.height / d.h) * 0.94;
+  viewState[current] = { k, tx: (r.width - d.w * k) / 2, ty: (r.height - d.h * k) / 2 };
+  apply();
+}
+function zoomAt(px, py, factor) {
+  const s = state();
+  const k2 = Math.min(MAXK, Math.max(MINK, s.k * factor));
+  const real = k2 / s.k;
+  s.tx = px - (px - s.tx) * real;
+  s.ty = py - (py - s.ty) * real;
+  s.k = k2;
+  apply();
+}
+stage.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const r = stage.getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0016));
+}, { passive: false });
+
+let drag = null;
+stage.addEventListener('pointerdown', (e) => {
+  drag = { x: e.clientX, y: e.clientY, tx: state().tx, ty: state().ty, moved: false, target: e.target };
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; stage.classList.add('panning'); }
+  if (drag.moved) { const s = state(); s.tx = drag.tx + dx; s.ty = drag.ty + dy; apply(); }
+});
+stage.addEventListener('pointerup', (e) => {
+  if (drag && !drag.moved) {
+    const g = drag.target.closest && drag.target.closest('.node');
+    if (g) pin(g); else unpin();
+  }
+  drag = null; stage.classList.remove('panning');
+});
+function centerZoom(factor) {
+  const r = stage.getBoundingClientRect();
+  zoomAt(r.width / 2, r.height / 2, factor);
+}
+$('z-in').addEventListener('click', () => centerZoom(1.25));
+$('z-out').addEventListener('click', () => centerZoom(0.8));
+$('z-fit').addEventListener('click', fit);
+
+/* ═══════════════════════ tabs / views ═══════════════════════ */
+const tabsEl = $('tabs');
+DIAGRAMS.forEach((d, i) => {
+  const b = document.createElement('button');
+  b.className = 'tab';
+  b.innerHTML = `<kbd>${i + 1}</kbd>${esc(d.tab)}`;
+  b.addEventListener('click', () => show(i));
+  tabsEl.appendChild(b);
+});
+
+function show(i) {
+  current = i;
+  document.querySelectorAll('.tab').forEach((t, j) => t.classList.toggle('active', j === i));
+  unpin(); hideTip();
+  const d = DIAGRAMS[i];
+  $('view-title').textContent = (i + 1) + ' · ' + d.title;
+  renderDiagram(d);
+  if (!viewState[i]) fit(); else apply();
+  const legend = $('legend');
+  legend.innerHTML = d.legend.map(([cls, label]) => {
+    const hue = ROLE[cls];
+    return `<span class="lg"><i style="background:var(--c-${hue}-bg);border:1.5px solid var(--c-${hue}-ln)"></i>${esc(label)}</span>`;
+  }).join('');
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', d.id);
+  history.replaceState(null, '', url);
+}
+
+/* ═══════════════════════ keyboard ═══════════════════════ */
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey) return;
+  if (e.key >= '1' && e.key <= String(Math.min(9, DIAGRAMS.length))) show(parseInt(e.key, 10) - 1);
+  else if (e.key === '+' || e.key === '=') centerZoom(1.25);
+  else if (e.key === '-') centerZoom(0.8);
+  else if (e.key === '0') fit();
+  else if (e.key === 'Escape') unpin();
+});
+window.addEventListener('resize', () => { if (state()) apply(); });
+
+/* ═══════════════════════ boot ═══════════════════════ */
+const wanted = new URL(window.location.href).searchParams.get('view');
+const idx = Math.max(0, DIAGRAMS.findIndex(d => d.id === wanted));
+show(idx === -1 ? 0 : idx);
+</script>
+</body>
+</html>

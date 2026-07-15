@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VELOCITY-AI — Auth &amp; Security Path</title>
+<style>
+html,body { margin:0; padding:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { background:#f3f5fa; color:#1b2440; }
+@media (prefers-color-scheme: dark) { body { background:#12141c; color:#e7eaf3; } }
+:root[data-theme="dark"] body { background:#12141c; color:#e7eaf3; }
+:root[data-theme="light"] body { background:#f3f5fa; color:#1b2440; }
+.page-wrap { max-width: 1500px; margin: 0 auto; padding: 28px 24px 60px; }
+.page-wrap h1 { font-size: 22px; margin: 0 0 6px; }
+.page-wrap .lede { font-size: 13.5px; opacity: .65; margin: 0 0 20px; max-width: 900px; line-height:1.6; }
+
+.iarch {
+  --bg: #eef2f9;         --bg-stage: #f7faff;   --dot: #dbe3f3;
+  --panel: #ffffff;      --ink: #1b2440;        --ink-2: #3f4a6e;   --ink-3: #8592b3;
+  --line: #e4e9f3;       --edge: #9aa8c8;       --edge-label: #54608a;
+  --radius: 14px;
+  --shadow: 0 8px 26px rgba(30,50,90,.10);
+
+  --c-source: #3b6df6;  --c-source-bg: #e8effe;  --c-source-ln: #c5d8fb;
+  --c-install: #0e9aae; --c-install-bg: #e3f6f8; --c-install-ln: #b7e4ea;
+  --c-runtime: #b9820b; --c-runtime-bg: #fdf3dc; --c-runtime-ln: #f0dcac;
+  --c-plat: #7c5cff;    --c-plat-bg: #f0ebfe;    --c-plat-ln: #d5cbfb;
+  --c-hook: #d6469f;    --c-hook-bg: #fdeaf6;    --c-hook-ln: #f2c3e2;
+  --c-out: #12a06a;     --c-out-bg: #e5f6ee;     --c-out-ln: #bbe6d3;
+  --c-neutral: #54608a; --c-neutral-bg: #eef2fb; --c-neutral-ln: #d4ddec;
+  --c-danger: #e0405a;  --c-success: #12a06a;
+
+  position: relative; display: flex; flex-direction: column;
+  height: 84vh; min-height: 640px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; background: var(--panel); box-shadow: var(--shadow);
+  color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  .iarch {
+    --bg:#1a1d29; --bg-stage:#14161f; --dot:#242838; --panel:#1c1f2b;
+    --ink:#e7eaf3; --ink-2:#b7bfd6; --ink-3:#7d859f; --line:#2a2e40; --edge:#4b5372; --edge-label:#9aa4c4;
+    --c-source-bg:#182338; --c-source-ln:#233256;
+    --c-install-bg:#122a2c; --c-install-ln:#1c3f42;
+    --c-runtime-bg:#2c220f; --c-runtime-ln:#3f3016;
+    --c-plat-bg:#221a3a; --c-plat-ln:#332752;
+    --c-hook-bg:#33172a; --c-hook-ln:#492239;
+    --c-out-bg:#132a20; --c-out-ln:#1c3d2e;
+    --c-neutral-bg:#1e2233; --c-neutral-ln:#2c3149;
+  }
+}
+
+.tabs { display:flex; gap:2px; padding:8px 12px 0; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--line); }
+.tabs::-webkit-scrollbar { display:none; }
+.tab { font:inherit; font-size:12px; font-weight:550; color:var(--ink-3); background:none; border:none; cursor:pointer;
+  padding:8px 9px 10px; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s; white-space:nowrap; }
+.tab:hover { color: var(--ink-2); }
+.tab.active { color: var(--c-source); border-bottom-color: var(--c-source); font-weight:650; }
+.tab kbd { font-family:inherit; font-size:9.5px; color:var(--ink-3); border:1px solid var(--line); border-radius:4px; padding:0 3px; margin-right:5px; background:var(--panel); }
+.tab.active kbd { color: var(--c-source); border-color: var(--c-source-ln); }
+
+.iarch-main { flex:1; display:flex; min-height:0; }
+.stage-wrap { flex:1; position:relative; min-width:0; }
+.stage { position:absolute; inset:0; background-color:var(--bg-stage);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size:22px 22px;
+  overflow:hidden; cursor:grab; touch-action:none; }
+.stage.panning { cursor:grabbing; }
+.stage svg { display:block; width:100%; height:100%; }
+
+.view-title { position:absolute; top:14px; left:18px; pointer-events:none; font-size:12px; font-weight:650;
+  color:var(--ink-3); text-transform:uppercase; letter-spacing:.08em; }
+
+.zoombar { position:absolute; top:12px; right:14px; display:flex; gap:4px; background:var(--panel);
+  border:1px solid var(--line); border-radius:10px; padding:4px; box-shadow:var(--shadow); align-items:center; }
+.zbtn { font:inherit; font-size:14px; font-weight:600; color:var(--ink-2); background:none; border:none;
+  border-radius:7px; cursor:pointer; width:30px; height:28px; display:grid; place-items:center; transition:background .12s; }
+.zbtn:hover { background: var(--bg); color: var(--ink); }
+.zpct { font-size:11.5px; font-weight:600; color:var(--ink-3); min-width:44px; text-align:center; user-select:none; }
+.hint { position:absolute; bottom:12px; left:18px; pointer-events:none; font-size:11.5px; color:var(--ink-3);
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:5px 10px; opacity:.9; }
+
+.iarch-legend { position:absolute; bottom:12px; right:14px; display:flex; gap:10px; flex-wrap:wrap;
+  background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:7px 12px;
+  box-shadow:var(--shadow); max-width:60%; pointer-events:none; }
+.lg { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:550; color:var(--ink-2); }
+.lg i { width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+.panel { width:400px; border-left:1px solid var(--line); background:var(--panel); padding:20px;
+  overflow-y:auto; display:none; flex-shrink:0; }
+.panel.open { display:block; }
+.panel .p-kicker { font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+.panel h2 { font-size:16px; font-weight:700; margin:6px 0 10px; letter-spacing:-.01em; }
+.panel .p-path { display:inline-block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+  color:var(--ink-2); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:3px 8px;
+  margin-bottom:12px; word-break:break-all; }
+.panel p { font-size:13px; line-height:1.65; color:var(--ink-2); }
+.panel .p-close { float:right; font:inherit; font-size:12px; color:var(--ink-3); background:none;
+  border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; }
+.panel .p-close:hover { color: var(--ink); }
+.panel .p-empty { font-size:12.5px; color:var(--ink-3); line-height:1.6; margin-top:8px; }
+
+.p-list { margin-top:16px; border-top:1px solid var(--line); padding-top:4px; }
+.p-list-count { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin:10px 0 2px; }
+.p-list-group { font-size:11px; font-weight:700; color:var(--c-source); margin:14px 0 4px; padding-top:2px; }
+.p-list-group:first-of-type { margin-top:8px; }
+.p-item { padding:5px 0; border-bottom:1px solid var(--line); }
+.p-item:last-child { border-bottom:none; }
+.p-item-name { font-size:12px; font-weight:650; color:var(--ink); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.p-item-desc { font-size:11.5px; color:var(--ink-3); line-height:1.4; margin-top:1px; }
+
+.tip { position:fixed; z-index:50; pointer-events:none; display:none; max-width:340px; background:var(--panel);
+  color:var(--ink); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); padding:10px 12px;
+  font-size:12px; line-height:1.55; }
+.tip .t-name { font-weight:700; font-size:12.5px; margin-bottom:2px; }
+.tip .t-path { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--ink-3); margin-bottom:5px; }
+.tip .t-desc { color: var(--ink-2); }
+.tip .t-more { color: var(--ink-3); font-size:10.5px; margin-top:6px; }
+
+.grp-rect { fill: var(--panel); stroke: var(--line); stroke-width:1; rx:14; opacity:.55; }
+.grp-label { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.grp-sub { font-size:10.5px; font-weight:550; fill: var(--ink-3); }
+
+.node { cursor:pointer; }
+.node rect { stroke-width:1.25; filter: drop-shadow(0 1px 1.5px rgba(20,24,32,.13)); transition: filter .15s; }
+@media (prefers-color-scheme: dark) { .node rect { filter: drop-shadow(0 1.5px 3px rgba(0,0,0,.55)); } }
+.node:hover rect { stroke-width:2; filter: drop-shadow(0 3px 8px rgba(20,24,32,.2)); }
+.node.pinned rect { stroke-width:2.5; }
+.node .n-title { font-size:13px; font-weight:650; fill: var(--ink); }
+.node .n-sub { font-size:11px; fill: var(--ink-3); font-weight:480; }
+
+.src rect  { fill: var(--c-source-bg);  stroke: var(--c-source-ln); }
+.ins rect  { fill: var(--c-install-bg); stroke: var(--c-install-ln); }
+.run rect  { fill: var(--c-runtime-bg); stroke: var(--c-runtime-ln); }
+.plat rect { fill: var(--c-plat-bg);    stroke: var(--c-plat-ln); }
+.hook rect { fill: var(--c-hook-bg);    stroke: var(--c-hook-ln); }
+.out rect  { fill: var(--c-out-bg);     stroke: var(--c-out-ln); }
+.neu rect  { fill: var(--c-neutral-bg); stroke: var(--c-neutral-ln); }
+
+.edge { fill:none; stroke: var(--edge); stroke-width:1.6; }
+.edge.flow { stroke-dasharray:7 5; animation: dash 1.1s linear infinite; }
+.edge.dashed { stroke-dasharray:3 5; opacity:.75; }
+.edge.thick { stroke-width:2.4; }
+.edge.danger { stroke: var(--c-danger); }
+.edge.success { stroke: var(--c-success); }
+@keyframes dash { to { stroke-dashoffset:-12; } }
+.e-label { font-size:10.5px; font-weight:620; fill: var(--edge-label); paint-order:stroke;
+  stroke: var(--bg-stage); stroke-width:4px; stroke-linejoin:round; }
+.e-label.danger { fill: var(--c-danger); }
+.e-label.success { fill: var(--c-success); }
+
+@media (max-width: 900px) { .panel { display:none !important; } .iarch-legend { display:none; } }
+
+.back-btn { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--ink-2, #3f4a6e);
+  text-decoration:none; background:var(--panel, #fff); border:1px solid var(--line, #e4e9f3); border-radius:20px;
+  padding:6px 13px 6px 11px; margin-bottom:14px; transition:background .12s, color .12s; }
+.back-btn:hover { color:#3b6df6; border-color:#c5d8fb; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+  <a class="back-btn" href="./index.html">&larr; Diagram Library</a>
+  <h1>VELOCITY-AI — Auth &amp; Security Path</h1>
+  <p class="lede">JWT/session lifecycle, the WebSocket Sec-WebSocket-Protocol auth handshake, and the gate/ownership security boundary that guards exec grants, human approval, and MCP credentials. Scroll to zoom, drag to pan, click a box for sourced detail. Press 1–3 to switch views.</p>
+
+  <div class="iarch">
+    <div class="tabs" id="tabs"></div>
+    <div class="iarch-main">
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--edge)"/>
+              </marker>
+              <marker id="arr-danger" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-danger)"/>
+              </marker>
+              <marker id="arr-success" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-success)"/>
+              </marker>
+            </defs>
+            <g id="vp"></g>
+          </svg>
+          <div class="view-title" id="view-title"></div>
+          <div class="zoombar">
+            <button class="zbtn" id="z-out" title="Zoom out (−)">−</button>
+            <span class="zpct" id="z-pct">100%</span>
+            <button class="zbtn" id="z-in" title="Zoom in (+)">+</button>
+            <button class="zbtn" id="z-fit" title="Fit to screen (0)" style="font-size:12px">⤢</button>
+          </div>
+          <div class="hint" id="hint">scroll to zoom · drag to pan · click a box to pin details · keys 1–3 switch views</div>
+          <div class="iarch-legend" id="legend"></div>
+        </div>
+      </div>
+      <aside class="panel" id="panel">
+        <button class="p-close" id="p-close">✕ close</button>
+        <div id="p-body"><div class="p-empty">Click any box to see what it is, where it lives, and why it matters.</div></div>
+      </aside>
+    </div>
+    <div class="tip" id="tip"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const DIAGRAMS = [
+  {
+    id: 'login-session', tab: 'Login & Session', title: 'JWT issuance, revocation, and the long-lived API-key sidepath',
+    w: 1560, h: 660,
+    legend: [
+      ['ins','HTTP endpoint'], ['run','Token issuance & validation'],
+      ['hook','Revocation'], ['plat','Long-lived API keys (IDE/MCP)'],
+    ],
+    groups: [
+      ['g1', 20, 40,  730, 280, 'HTTP endpoints — backend/app/api/auth.py', 'ins'],
+      ['g2', 770, 40, 770, 280, 'Token issuance & validation — core/security.py, core/dependencies.py', 'run'],
+      ['g3', 20, 340, 730, 280, 'Revocation — models/revoked_token.py, models/user.py', 'hook'],
+      ['g4', 770, 340, 770, 280, 'Long-lived API keys — api/api_key_auth.py', 'plat'],
+    ],
+    nodes: [
+      ['n1','ins', 50, 90, 330, 100, 'POST /api/auth/login', ['bcrypt verify, generic 401'],
+        { k:'API endpoint', p:'backend/app/api/auth.py:42-70',
+          d:'Looks up the user by email, verifies the password via bcrypt (verify_password), then calls create_access_token(user.id). Deliberately returns the SAME generic 401 for both "no such user" and "wrong password" so a failed login never leaks which case occurred.' }],
+      ['n2','ins', 410, 90, 330, 100, 'GET /api/auth/me', ['returns current_user via JWT'],
+        { k:'API endpoint', p:'backend/app/api/auth.py:73-76',
+          d:'A trivial read of whatever get_current_user resolved from the Authorization header — exists mainly so the frontend can rehydrate session state on page load.' }],
+      ['n3','ins', 50, 210, 690, 100, 'POST /api/auth/register → 403 by design', ['self-registration disabled; accounts are admin-only'],
+        { k:'API endpoint', p:'backend/app/api/auth.py:23-39',
+          d:'The endpoint is kept (not removed) purely so legacy or malformed clients get a clear, documented 403 with the request body still Pydantic-validated — a malformed body still 422s first, judged the more helpful failure mode than a bare 404.' }],
+
+      ['n4','run', 800, 90, 330, 100, 'create_access_token()', ['HS256, 24h expiry, fresh jti'],
+        { k:'Token issuance', p:'backend/app/core/security.py:47-65',
+          d:'Encodes sub (user id), exp (now + ACCESS_TOKEN_EXPIRE_HOURS), iat, and a fresh uuid4 jti into an HS256 JWT signed with settings.SECRET_KEY. That jti is what makes single-token revocation on logout possible.' }],
+      ['n5','run', 1160, 90, 330, 100, 'get_current_user_with_payload()', ['decode → lookup → 2 revocation gates'],
+        { k:'Token validation', p:'backend/app/core/dependencies.py',
+          d:'The dependency every authenticated route pulls in: decodes the bearer JWT, loads the User row, then runs two independent revocation checks (per-token jti and the blanket password-change cutoff) before the request is allowed through.' }],
+      ['n6','run', 800, 210, 690, 100, '_check_password_change_revocation()', ['iat < password_changed_at (whole-second) → 401'],
+        { k:'Token validation', p:'backend/app/core/dependencies.py',
+          d:'A "revoke every outstanding JWT for this user" trick that needs zero enumeration: rotating a password stamps password_changed_at, and any token whose iat predates that instant is rejected. The comparison is truncated to whole seconds specifically so a token issued in the same wall-clock second as the rotation isn’t incorrectly revoked.' }],
+
+      ['n7','hook', 50, 390, 330, 100, 'RevokedToken table', ['keyed by JWT jti, per-token logout'],
+        { k:'Revocation', p:'backend/app/models/revoked_token.py:20-45',
+          d:'One row per revoked JWT. user_id is denormalised onto the row for cheap "all tokens for this user" queries, and expires_at mirrors the JWT’s own exp so the row can be lazily garbage-collected once the token could no longer be presented anyway.' }],
+      ['n8','hook', 410, 390, 330, 100, 'POST /api/auth/logout', ['idempotent, uses get_user_for_logout'],
+        { k:'Revocation', p:'backend/app/api/auth.py:79-128',
+          d:'Inserts a RevokedToken row for the caller’s own jti. Deliberately uses get_user_for_logout instead of the standard dependency so an already-revoked token can still successfully hit /logout (204) rather than 401’ing on itself.' }],
+      ['n9','hook', 50, 510, 690, 100, 'Lazy GC — cleanup_expired_revocations()', ['fires on roughly 1 in 1000 authenticated requests'],
+        { k:'Revocation', p:'backend/app/models/revoked_token.py:47-64',
+          d:'Deletes revoked-token rows whose JWT has already expired. Explicitly documented as a stopgap: fine at current scale with zero extra infrastructure, but should move behind a real cron/sidecar in a high-traffic deployment.' }],
+
+      ['n10','plat', 800, 390, 690, 100, 'X-Flowin-API-Key (long-lived)', ['for the IDE slash command + MCP server'],
+        { k:'Long-lived credential', p:'backend/app/api/api_key_auth.py:1-45',
+          d:'A separate credential type for clients that can’t do a 24h browser JWT dance. mint_api_key() generates a flowin_-prefixed token shown to the user exactly once; only its SHA-256 (token_hash) and an 8-char display prefix are ever stored — the plaintext is never retrievable again.' }],
+      ['n11','plat', 800, 510, 690, 100, 'get_user_via_api_key()', ['uniform 401 for missing/unknown/revoked'],
+        { k:'Long-lived credential', p:'backend/app/api/api_key_auth.py:49-79',
+          d:'Hashes the presented X-Flowin-API-Key header and looks up UserApiKey by token_hash. Returns the identical 401 for a missing header, an unknown key, or a revoked key — no enumeration signal — and stamps last_used_at on every successful hit for dead-key auditing.' }],
+    ],
+    edges: [
+      ['n1','r','n4','l','flow thick', 'issues on success'],
+      ['n1','b','n5','l:0.1','dashed', 'client now carries this token'],
+      ['n2','r','n5','l:0.7','dashed', 'protected by'],
+      ['n5','b','n6','t','flow', 'runs'],
+      ['n5','l','n7','r:0.3','flow', 'checks jti against'],
+      ['n8','l','n7','r:0.7','flow thick', 'inserts revocation'],
+      ['n5','b:0.9','n9','t:0.2','dashed', 'occasionally triggers'],
+      ['n10','b','n11','t','flow thick', 'authenticated via'],
+      ['n11','l','n5','r:0.9','dashed', 'parallel path for IDE/MCP clients'],
+    ],
+  },
+  {
+    id: 'ws-auth', tab: 'WebSocket Auth', title: 'The Sec-WebSocket-Protocol handshake, step by step',
+    w: 900, h: 1260,
+    legend: [
+      ['src','Client (frontend)'], ['ins','WS endpoint'], ['run','Validation logic'],
+      ['neu','Deprecated fallback'], ['hook','Rejection'], ['out','Success'],
+    ],
+    groups: [],
+    nodes: [
+      ['s1','src', 170, 40, 560, 100, 'Frontend opens the WS with two subprotocols', ['new WebSocket(url, ["bearer.<jwt>", "flowin.v1"])'],
+        { k:'Client', p:'frontend — see the Frontend Component Architecture diagram for the client side',
+          d:'The browser cannot set arbitrary headers on a WebSocket open, but it can declare subprotocols via the second constructor argument — the frontend piggybacks the JWT there instead of the URL.' }],
+      ['s2','ins', 170, 160, 560, 100, '/ws/chat receives the connection', ['reads the header BEFORE calling accept()'],
+        { k:'WS endpoint', p:'backend/app/api/websocket.py:702-725',
+          d:'@router.websocket("/ws/chat"). The handler reads Sec-WebSocket-Protocol before calling accept() — once accept() runs, the chosen subprotocol is locked in, so token extraction has to happen first.' }],
+      ['s3','run', 170, 280, 560, 100, 'Extract token from the bearer.<jwt> entry', ['splits the header on commas, strips the prefix'],
+        { k:'Validation logic', p:'backend/app/api/websocket.py:727-739',
+          d:'Splits the raw Sec-WebSocket-Protocol header on commas and looks for an entry starting with "bearer."; everything after that prefix is the JWT. This keeps the token off the URL, off nginx access logs, and off any Referer header.' }],
+      ['s4','neu', 170, 400, 560, 100, 'Fallback: ?token= query param', ['deprecated — logs a warning on every use'],
+        { k:'Deprecated fallback', p:'backend/app/api/websocket.py:740-751',
+          d:'Only consulted if no bearer. subprotocol was found. Kept for one release so in-flight client tabs at deploy time keep working — the frontend itself never sends this path anymore.' }],
+      ['s5','hook', 170, 520, 560, 100, 'Reject before accept() if still missing', ['close(code=4001, reason="Missing authentication token")'],
+        { k:'Rejection', p:'backend/app/api/websocket.py:754-757',
+          d:'Rejecting before accept() means the browser sees a clean connect failure rather than a connection that opens and then immediately dies — a deliberate UX choice.' }],
+      ['s6','run', 170, 640, 560, 100, 'Echo a subprotocol back', ['always "flowin.v1" when offered — never the credential'],
+        { k:'Validation logic', p:'backend/app/api/websocket.py:759-769',
+          d:'RFC 6455 plus browser strict mode require the server to echo back one of the client’s offered subprotocols. The backend always echoes the "flowin.v1" selector when it was offered, and never echoes the bearer.<jwt> value — that would put the credential back in the handshake response too.' }],
+      ['s7','run', 170, 760, 560, 100, 'websocket.accept(subprotocol=...)', ['handshake completes'],
+        { k:'Validation logic', p:'backend/app/api/websocket.py:767-771',
+          d:'The connection is now open at the transport level, but not yet authenticated at the application level — token validation happens next.' }],
+      ['s8','run', 170, 880, 560, 100, '_authenticate_token(token, db)', ['same decode + lookup + revocation checks as HTTP'],
+        { k:'Validation logic', p:'backend/app/api/websocket.py:774-783',
+          d:'Runs the identical JWT decode, user lookup, and revocation checks the HTTP get_current_user dependency chain uses — this is not a separate, weaker auth path for WebSockets.' }],
+      ['s9','hook', 170, 1000, 560, 100, 'close(4001) on invalid/expired/revoked', ['same close code as the missing-token case'],
+        { k:'Rejection', p:'backend/app/api/websocket.py:774-783',
+          d:'Bad signature, expired exp, a revoked jti, or a blanket password-change revocation all collapse to the same 4001 close — matching the HTTP layer’s "don’t leak which case failed" posture.' }],
+      ['s10','out', 170, 1120, 560, 100, 'Authenticated — message loop begins', ['routes to ChatRunner, streams phase/stream/complete events'],
+        { k:'Success terminal', p:'backend/app/api/websocket.py:781-800',
+          d:'The connection is now bound to a real User; the endpoint enters its receive loop, routing incoming JSON messages to ChatRunner and streaming phase_start / stream / phase_end / complete events back to the client.' }],
+    ],
+    edges: [
+      ['s1','b','s2','t','flow thick', ''],
+      ['s2','b','s3','t','flow thick', ''],
+      ['s3','b','s6','t','flow', 'token found → proceed'],
+      ['s3','r','s4','r','dashed', 'no bearer. entry found'],
+      ['s4','b','s6','t','flow', 'token found → proceed'],
+      ['s4','r','s5','r','dashed', 'still missing'],
+      ['s6','b','s7','t','flow thick', ''],
+      ['s7','b','s8','t','flow thick', ''],
+      ['s8','b','s9','t','danger', 'invalid / expired / revoked'],
+      ['s8','r','s10','r','success', 'valid token'],
+    ],
+  },
+  {
+    id: 'gates', tab: 'Gates & Approval Security', title: 'Exec grants, human review, and the single ownership boundary',
+    w: 1560, h: 760,
+    legend: [
+      ['run','Gate outcome contract & security tier'], ['hook','Human review gate'], ['neu','Ownership boundary'],
+    ],
+    groups: [
+      ['g1', 20, 40,  730, 320, 'Gate outcome contract & 3-tier exec stack — capabilities/gates/base.py, security.py', 'run'],
+      ['g2', 770, 40, 770, 320, 'Human-in-the-loop review gate — capabilities/gates/human.py', 'hook'],
+      ['g3', 20, 380, 1520, 300, 'Ownership boundary — single enforced default-deny path — agents/authz.py, models/mcp_credential.py', 'neu'],
+    ],
+    nodes: [
+      ['n1','run', 50, 90, 670, 110, 'GateOutcome contract', ['pass | block | wait_human — single source'],
+        { k:'Gate contract', p:'backend/agents/capabilities/gates/base.py:1-38',
+          d:'The shared vocabulary every GateHandler returns. A block or wait_human halts the step at the kernel boundary; events are additive engine event dicts the kernel yields verbatim, never renaming or removing an existing event (INV-3, additive-only).' }],
+      ['n2','run', 50, 220, 670, 130, 'SecurityGate — 3-tier exec stack', ['compiler ceiling → security gate → workspace ExecutionPolicy'],
+        { k:'Runtime security gate', p:'backend/agents/capabilities/gates/security.py:1-45',
+          d:'The runtime SECOND line of defense for exec grants. A step requesting exec passes only if: (a) its trust level is file/builtin — the compiler already hard-fails a user/db exec grant at compile time; (b) an approval gate is explicitly declared on the SAME step (defense-in-depth — a missing approval BLOCKS, it is never a silent pass); and (c) a constrained exec allow-list profile is attached. network/secrets grants are still hard-BLOCKed entirely. Registered user_allowed=False — this gate can never be granted by an end user, only an engineer.' }],
+
+      ['n3','hook', 800, 90, 690, 110, "HumanGate ('human')", ['delegates to the existing _run_review_gate'],
+        { k:'Human review gate', p:'backend/agents/capabilities/gates/human.py:1-60',
+          d:'Routes a declared gates:[human] step through the SAME review-gate machinery the engine already used for prototype/od_* human gates, so the emitted review_gate_* event sequence stays byte-identical. Adds no second HITL mechanism — it’s a registry-driven entry point onto the unchanged path. Registered user_allowed=True: a human review gate is considered safe enough for an end user to opt into.' }],
+      ['n4','hook', 800, 220, 690, 130, 'Internal engine signals → GateOutcome', ['_gate_rejected → block · _gate_redo consumed, never re-surfaced'],
+        { k:'Human review gate', p:'backend/agents/capabilities/gates/human.py',
+          d:'_gate_rejected maps to a block outcome. A stray _gate_redo signal (e.g. from a scripted client sending action:"redo") is deliberately consumed and never mapped to pass or re-surfaced on the wire — the declared human-gate path isn’t wired for redo in v1; only the legacy inline path is.' }],
+
+      ['n5','neu', 50, 420, 730, 130, 'ScopedStore — single enforced read/write path', ['default-deny filter on every read'],
+        { k:'Ownership boundary', p:'backend/agents/authz.py:1-40',
+          d:'THE one enforced path for artifacts, runs, workspaces, events, and capabilities (§19). Constructed with the caller principal (owner_id, workspace_id); every read applies WHERE owner_id = :owner AND (workspace_id = :ws OR visibility IN (\'workspace\',\'public\')) for artifacts, or a plain owner+workspace match for models with no visibility column. A cross-owner read returns nothing → surfaces as 404, never 403 — no enumeration signal.' }],
+      ['n6','neu', 800, 420, 730, 130, 'assert_owns() — real-lookup ownership check', ['reads the TRUE owner_id, raises typed PermissionError on mismatch'],
+        { k:'Ownership boundary', p:'backend/agents/authz.py',
+          d:'Reads the parent run’s actual owner_id from the store — regardless of what principal the caller claims — and raises PermissionError on mismatch. Replaced an earlier by-convention parent_owner_id argument with a real store lookup while keeping the same denial message shape.' }],
+      ['n7','neu', 50, 560, 1490, 100, 'McpCredential — per-owner, Fernet-encrypted', ['owner_id + workspace_id NOT NULL (AUTHZ-01) · never global · never returns plaintext'],
+        { k:'Ownership boundary', p:'backend/app/models/mcp_credential.py:1-45',
+          d:'One row per (owner, mcp_server): the PAT/token/API key is Fernet-encrypted in encrypted_secret and never round-tripped in plaintext through the API. owner_id + workspace_id are both mandatory so the ScopedStore default-deny filter scopes every read — a credential is never readable cross-owner.' }],
+    ],
+    edges: [
+      ['n1','r','n2','l','dashed', 'implements'],
+      ['n1','r','n3','l','dashed', 'implements'],
+      ['n2','r','n3','l:0.8','dashed', 'requires a declared approval gate on the same step'],
+      ['n3','b','n4','t','flow', 'internal signals'],
+      ['n2','b','n5','t','flow thick', 'exec-grant enforcement reads through'],
+      ['n3','b','n5','t:0.7','dashed', 'HITL pause/resume state scoped via'],
+      ['n5','r','n6','l','flow', 'ownership check'],
+      ['n5','b','n7','t','flow', 'scopes every credential row'],
+      ['n6','b','n7','t:0.8','dashed', 'protects'],
+    ],
+  },
+];
+
+/* ═══════════════════════ svg helpers ═══════════════════════ */
+const NS = 'http://www.w3.org/2000/svg';
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function port(node, spec) {
+  const [side, offRaw] = spec.split(':');
+  const t = offRaw === undefined ? 0.5 : parseFloat(offRaw);
+  const [, , x, y, w, h] = node;
+  switch (side) {
+    case 'l': return { x, y: y + h * t, dx: -1, dy: 0 };
+    case 'r': return { x: x + w, y: y + h * t, dx: 1, dy: 0 };
+    case 't': return { x: x + w * t, y, dx: 0, dy: -1 };
+    case 'b': return { x: x + w * t, y: y + h, dx: 0, dy: 1 };
+  }
+}
+function edgeGeom(a, b) {
+  const dist = Math.hypot(b.x - a.x, b.y - a.y);
+  const k = Math.max(36, Math.min(dist * 0.42, 150));
+  const c1 = { x: a.x + a.dx * k, y: a.y + a.dy * k };
+  const c2 = { x: b.x + b.dx * k, y: b.y + b.dy * k };
+  const mid = {
+    x: 0.125 * a.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * b.x,
+    y: 0.125 * a.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * b.y,
+  };
+  return { d: `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`, mid };
+}
+
+const ROLE = { src:'source', ins:'install', run:'runtime', plat:'plat', hook:'hook', out:'out', neu:'neutral' };
+
+/* ═══════════════════════ render ═══════════════════════ */
+const vp = $('vp'), stage = $('stage'), svg = $('svg'), tip = $('tip');
+let current = 0, pinnedEl = null;
+const viewState = DIAGRAMS.map(() => null);
+
+function renderDiagram(d) {
+  vp.innerHTML = '';
+  const nodesById = {};
+  d.nodes.forEach(n => { nodesById[n[0]] = n; });
+
+  for (const [gid, x, y, w, h, label, cls] of d.groups) {
+    const g = el('g', {}, vp);
+    el('rect', { x, y, width: w, height: h, rx: 14, class: 'grp-rect' }, g);
+    const t = el('text', { x: x + 14, y: y + 24, class: 'grp-label' }, g);
+    t.textContent = label;
+    t.style.fill = `var(--c-${ROLE[cls] || 'neutral'})`;
+  }
+
+  const labels = [];
+  for (const [from, fs, to, ts, cls, label] of d.edges) {
+    const a = port(nodesById[from], fs);
+    const b = port(nodesById[to], ts);
+    const isDanger = /danger/.test(cls), isSuccess = /success/.test(cls);
+    const marker = isDanger ? 'url(#arr-danger)' : isSuccess ? 'url(#arr-success)' : 'url(#arr)';
+    const geo = edgeGeom(a, b);
+    el('path', { d: geo.d, class: 'edge ' + cls, 'marker-end': marker }, vp);
+    if (label) labels.push({ x: geo.mid.x, y: geo.mid.y, label, isDanger, isSuccess });
+  }
+
+  for (const n of d.nodes) {
+    const [id, cls, x, y, w, h, title, subs, info] = n;
+    const g = el('g', { class: 'node ' + cls, 'data-id': id }, vp);
+    el('rect', { x, y, width: w, height: h, rx: 10 }, g);
+    const hasSubs = subs && subs.length;
+    const titleY = hasSubs ? y + 22 : y + h / 2 + 4.5;
+    const tt = el('text', { x: x + w / 2, y: titleY, 'text-anchor': 'middle', class: 'n-title' }, g);
+    tt.textContent = title;
+    if (hasSubs) {
+      subs.forEach((s, i) => {
+        const st = el('text', { x: x + w / 2, y: y + 40 + i * 15, 'text-anchor': 'middle', class: 'n-sub' }, g);
+        st.textContent = s;
+      });
+    }
+    g.__data = { title, info: info || {}, cls };
+    g.addEventListener('mouseenter', () => showTip(g));
+    g.addEventListener('mousemove', moveTip);
+    g.addEventListener('mouseleave', hideTip);
+  }
+
+  for (const { x, y, label, isDanger, isSuccess } of labels) {
+    const lt = el('text', { x, y: y - 5, 'text-anchor': 'middle',
+      class: 'e-label' + (isDanger ? ' danger' : isSuccess ? ' success' : '') }, vp);
+    lt.textContent = label;
+  }
+}
+
+/* ═══════════════════════ tooltip + panel ═══════════════════════ */
+function showTip(g) {
+  const { title, info } = g.__data;
+  tip.innerHTML = `<div class="t-name">${esc(title)}</div>` +
+    (info.p ? `<div class="t-path">${esc(info.p)}</div>` : '') +
+    (info.d ? `<div class="t-desc">${esc(info.d)}</div>` : '') +
+    `<div class="t-more">click to pin</div>`;
+  tip.style.display = 'block';
+}
+function moveTip(e) {
+  const pad = 14;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const r = tip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+
+function itemHtml(it) {
+  return `<div class="p-item"><div class="p-item-name">${esc(it.n)}</div>` +
+    (it.d ? `<div class="p-item-desc">${esc(it.d)}</div>` : '') + `</div>`;
+}
+function renderList(list) {
+  if (Array.isArray(list)) {
+    return `<div class="p-list"><div class="p-list-count">${list.length} items</div>` +
+      list.map(itemHtml).join('') + `</div>`;
+  }
+  const total = list.groups.reduce((s, g) => s + g.items.length, 0);
+  return `<div class="p-list"><div class="p-list-count">${total} items</div>` +
+    list.groups.map(g => `<div class="p-list-group">${esc(g.label)}</div>` + g.items.map(itemHtml).join('')).join('') +
+    `</div>`;
+}
+
+const panel = $('panel'), pBody = $('p-body');
+function pin(g) {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = g; g.classList.add('pinned');
+  const { title, info, cls } = g.__data;
+  const hue = ROLE[cls.split(' ')[0]] || 'neutral';
+  pBody.innerHTML =
+    `<div class="p-kicker" style="color:var(--c-${hue})">${esc(info.k || 'Component')}</div>` +
+    `<h2>${esc(title)}</h2>` +
+    (info.p ? `<span class="p-path">${esc(info.p)}</span>` : '') +
+    `<p>${esc(info.d || 'No further detail — this element is illustrative.')}</p>` +
+    (info.list ? renderList(info.list) : '');
+  panel.classList.add('open');
+  panel.scrollTop = 0;
+}
+function unpin() {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = null;
+  panel.classList.remove('open');
+}
+$('p-close').addEventListener('click', unpin);
+
+/* ═══════════════════════ pan & zoom ═══════════════════════ */
+const MINK = 0.3, MAXK = 3.2;
+function state() { return viewState[current]; }
+function apply() {
+  const s = state();
+  vp.setAttribute('transform', `translate(${s.tx},${s.ty}) scale(${s.k})`);
+  $('z-pct').textContent = Math.round(s.k * 100) + '%';
+}
+function fit() {
+  const d = DIAGRAMS[current];
+  const r = stage.getBoundingClientRect();
+  const k = Math.min(r.width / d.w, r.height / d.h) * 0.94;
+  viewState[current] = { k, tx: (r.width - d.w * k) / 2, ty: (r.height - d.h * k) / 2 };
+  apply();
+}
+function zoomAt(px, py, factor) {
+  const s = state();
+  const k2 = Math.min(MAXK, Math.max(MINK, s.k * factor));
+  const real = k2 / s.k;
+  s.tx = px - (px - s.tx) * real;
+  s.ty = py - (py - s.ty) * real;
+  s.k = k2;
+  apply();
+}
+stage.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const r = stage.getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0016));
+}, { passive: false });
+
+let drag = null;
+stage.addEventListener('pointerdown', (e) => {
+  drag = { x: e.clientX, y: e.clientY, tx: state().tx, ty: state().ty, moved: false, target: e.target };
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; stage.classList.add('panning'); }
+  if (drag.moved) { const s = state(); s.tx = drag.tx + dx; s.ty = drag.ty + dy; apply(); }
+});
+stage.addEventListener('pointerup', (e) => {
+  if (drag && !drag.moved) {
+    const g = drag.target.closest && drag.target.closest('.node');
+    if (g) pin(g); else unpin();
+  }
+  drag = null; stage.classList.remove('panning');
+});
+function centerZoom(factor) {
+  const r = stage.getBoundingClientRect();
+  zoomAt(r.width / 2, r.height / 2, factor);
+}
+$('z-in').addEventListener('click', () => centerZoom(1.25));
+$('z-out').addEventListener('click', () => centerZoom(0.8));
+$('z-fit').addEventListener('click', fit);
+
+/* ═══════════════════════ tabs / views ═══════════════════════ */
+const tabsEl = $('tabs');
+DIAGRAMS.forEach((d, i) => {
+  const b = document.createElement('button');
+  b.className = 'tab';
+  b.innerHTML = `<kbd>${i + 1}</kbd>${esc(d.tab)}`;
+  b.addEventListener('click', () => show(i));
+  tabsEl.appendChild(b);
+});
+
+function show(i) {
+  current = i;
+  document.querySelectorAll('.tab').forEach((t, j) => t.classList.toggle('active', j === i));
+  unpin(); hideTip();
+  const d = DIAGRAMS[i];
+  $('view-title').textContent = (i + 1) + ' · ' + d.title;
+  renderDiagram(d);
+  if (!viewState[i]) fit(); else apply();
+  const legend = $('legend');
+  legend.innerHTML = d.legend.map(([cls, label]) => {
+    const hue = ROLE[cls];
+    return `<span class="lg"><i style="background:var(--c-${hue}-bg);border:1.5px solid var(--c-${hue}-ln)"></i>${esc(label)}</span>`;
+  }).join('');
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', d.id);
+  history.replaceState(null, '', url);
+}
+
+/* ═══════════════════════ keyboard ═══════════════════════ */
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey) return;
+  if (e.key >= '1' && e.key <= String(Math.min(9, DIAGRAMS.length))) show(parseInt(e.key, 10) - 1);
+  else if (e.key === '+' || e.key === '=') centerZoom(1.25);
+  else if (e.key === '-') centerZoom(0.8);
+  else if (e.key === '0') fit();
+  else if (e.key === 'Escape') unpin();
+});
+window.addEventListener('resize', () => { if (state()) apply(); });
+
+/* ═══════════════════════ boot ═══════════════════════ */
+const wanted = new URL(window.location.href).searchParams.get('view');
+const idx = Math.max(0, DIAGRAMS.findIndex(d => d.id === wanted));
+show(idx === -1 ? 0 : idx);
+</script>
+</body>
+</html>
