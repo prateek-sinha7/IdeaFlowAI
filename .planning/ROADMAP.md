@@ -1145,7 +1145,7 @@ Plans:
 
 **Wave 2 — Part A offline wiring (autonomous)**
 
-- [ ] 43-05-PLAN.md — Steering live-drain + per-turn images: live-ectx registry (_live_ectx_for_run resolves the running ectx) + engine === USER GUIDANCE === drain (closes DEF-29-09-1 / DEF-30-03-1) [A.3] (depends 43-01, 43-03 — shared run_commands.py / engine.py)
+- [x] 43-05-PLAN.md — Steering live-drain + per-turn images: live-ectx registry (_live_ectx_for_run resolves the running ectx) + engine === USER GUIDANCE === drain (closes DEF-29-09-1 / DEF-30-03-1) [A.3] (depends 43-01, 43-03 — shared run_commands.py / engine.py)
 
 **Wave 3 — Part C SSE cutover (supervised)**
 
