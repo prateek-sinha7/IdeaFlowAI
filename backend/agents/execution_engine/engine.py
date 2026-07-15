@@ -350,8 +350,16 @@ class _RunEventSink:
         self._store = store
         self._run_id = run_id
 
-    async def emit_milestone_card(self, event: dict) -> None:
-        """Persist a ``chat_reply`` milestone card for one stamped engine event (A.4).
+    async def emit_milestone_card(self, event: dict) -> "tuple[bool, int, dict] | None":
+        """Project + persist a ``chat_reply`` milestone card for one stamped engine event (A.4).
+
+        Returns the injected sink's ``(created, seq, card)`` result — or ``None`` when there is
+        no injected ``milestone_sink``, the event is not a projectable milestone, or the DB
+        write degraded. The engine loop (:meth:`execute`) uses the returned ``seq`` to advance
+        its OWN allocator PAST the card so the next engine event can never reuse the card's seq
+        (which would collide on the 0024 per-run-seq constraint → the engine's best-effort
+        persist would drop that event → a durable-log gap on reconnect, DEF-43-03-1), and to
+        yield the card into the live stream (emit LIVE).
 
         DORMANT unless an app-layer ``milestone_sink`` was injected AND the sink is armed.
         The injected callback (``chat_narrator.persist_milestone_card(store, run_id, event)``)
@@ -363,9 +371,9 @@ class _RunEventSink:
         leak or write a cross-owner row.
         """
         if self._milestone_sink is None or self._store is None or self._run_id is None:
-            return
+            return None
         try:
-            await self._milestone_sink(self._store, self._run_id, event)
+            return await self._milestone_sink(self._store, self._run_id, event)
         except Exception as exc:  # noqa: BLE001 — a card must never break the live stream
             from sqlalchemy.exc import SQLAlchemyError
 
@@ -376,6 +384,7 @@ class _RunEventSink:
                 "(offline harness / schema unavailable); stream unaffected (A.4 best-effort)",
                 self._run_id, exc,
             )
+            return None
 
     async def persist(
         self, seq: int, event_id: str, type: str, payload_json: dict
@@ -933,7 +942,14 @@ class ExecutionEngine:
         ``pipeline_run_id`` ONLY (SC-001/INV-1), so two concurrent runs never cross-deliver.
         """
         sink = _RunEventSink(milestone_sink=milestone_sink)
-        counter = itertools.count(1)
+        # Manual monotonic allocator (NOT itertools.count): a milestone card projected below
+        # is drawn from this SAME per-run seq space, so the loop must be able to advance the
+        # counter PAST the card's persisted seq — otherwise the engine's next event would reuse
+        # the card's seq, collide on the 0024 (run_id, seq) constraint, and (persist being
+        # best-effort) silently DROP that engine event → a durable-log gap on reconnect
+        # (DEF-43-03-1). DORMANT-neutral: with no milestone_sink the card branch never fires,
+        # so next_seq increments 1,2,3,… exactly like the old itertools.count (goldens identical).
+        next_seq = 1
         try:
             async for event in self._execute_impl(
                 agents=agents,
@@ -963,20 +979,37 @@ class ExecutionEngine:
                 if not isinstance(data, dict):
                     data = {}
                     event["data"] = data
-                seq = next(counter)
+                seq = next_seq
+                next_seq += 1
                 event_id = str(uuid.uuid4())
                 data["seq"] = seq
                 data["event_id"] = event_id
                 # Durable sink (best-effort — see docstring). Persist the now-stamped
                 # event; a DB/FK failure must not break the live stream.
                 await sink.persist(seq, event_id, event.get("type", ""), data)
-                # A.4: project + persist a chat_reply milestone card for this event via the
-                # INJECTED narrator callback (self-filtering; DORMANT when milestone_sink is
-                # None — every current caller + the goldens). Passes the stamped event ({type,
-                # data:{event_id,seq,…}}) so the card's idempotency key anchors on the source
-                # event_id. Best-effort — a card write must never perturb the live stream.
-                await sink.emit_milestone_card(event)
                 yield event
+                # A.4 (Phase 43, DEF-43-03-1): project + persist a chat_reply milestone card for
+                # this event via the INJECTED narrator callback (self-filtering; DORMANT when
+                # milestone_sink is None — the 5 goldens + every non-cutover caller). The card is
+                # persisted at the store's next contiguous seq (max+1), so we ADVANCE next_seq
+                # PAST it — the engine's next event can then never reuse the card's seq (a collision
+                # would drop that engine event → durable-log gap). The card is ALSO yielded so it
+                # reaches the live event_queue → SSE (emit LIVE), stamped with the SAME event_id
+                # (chat_reply:{source}) the persisted row carries so a reconnect replay dedups it.
+                card_result = await sink.emit_milestone_card(event)
+                if card_result is not None:
+                    _created, _card_seq, _card = card_result
+                    if _card_seq >= next_seq:
+                        next_seq = _card_seq + 1
+                    if _created:
+                        yield {
+                            "type": "chat_reply",
+                            "data": {
+                                **_card,
+                                "seq": _card_seq,
+                                "event_id": f"chat_reply:{event_id}",
+                            },
+                        }
         finally:
             # A.3: ALWAYS deregister the run's live ectx (normal completion, exception, or an
             # early GeneratorExit if the consumer stops draining) so the process-local registry

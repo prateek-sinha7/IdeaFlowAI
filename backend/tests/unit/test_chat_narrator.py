@@ -532,3 +532,78 @@ class TestEngineSinkWiring:
             if re.match(r"\s*(import |from )", ln)
         ]
         assert not any("chat_narrator" in ln for ln in import_lines)
+
+    def test_emit_milestone_card_returns_created_seq_card(self, store_env):
+        # DEF-43-03-1: emit_milestone_card RETURNS the sink's (created, seq, card) — the
+        # engine loop relies on the returned seq to advance its own allocator past the card.
+        sink, run_id = self._armed_sink(store_env, "owner-ret", with_narrator=True)
+        result = _run(sink.emit_milestone_card(self._stamped(run_id, "pipeline_start", "e-r")))
+        assert result is not None
+        created, seq, card = result
+        assert created is True and isinstance(seq, int) and card["card_kind"] == "pipeline"
+        # A non-milestone (self-filtered) and the dormant default both return None.
+        assert _run(sink.emit_milestone_card(self._stamped(run_id, "agent_chunk", "e-r2"))) is None
+
+
+class TestEngineLoopCardSeqAllocation:
+    """DEF-43-03-1 — the engine loop draws the milestone card from its OWN contiguous seq
+    allocator: the card never steals the engine's next seq (which would collide on the 0024
+    (run_id, seq) constraint and, persist being best-effort, DROP that engine event → a
+    durable-log gap on reconnect), and the card is YIELDED so it reaches the live stream."""
+
+    async def _drive_execute(self, engine, *, run_id, store, milestone_sink):
+        # Stub _execute_impl to yield a controlled stream incl. two milestones (pipeline_start
+        # / pipeline_complete) around a non-milestone (agent_chunk). Arm the injected sink with
+        # the test store exactly as the real _execute_impl does at run entry.
+        async def fake_impl(*_args, _sink=None, **_kwargs):
+            _sink.arm(store, run_id)
+            yield {"type": "pipeline_start", "data": {"pipeline_run_id": run_id}}
+            yield {"type": "agent_chunk", "data": {"pipeline_run_id": run_id, "chunk": "x"}}
+            yield {"type": "pipeline_complete",
+                   "data": {"pipeline_run_id": run_id, "deliverable_filename": "p.html"}}
+
+        engine._execute_impl = fake_impl  # type: ignore[method-assign]
+        out = []
+        async for ev in engine.execute(
+            agents=[], user_message="", pipeline_run_id=run_id,
+            milestone_sink=milestone_sink,
+        ):
+            out.append(ev)
+        return out
+
+    def test_card_drawn_from_engine_counter_no_gap_no_collision(self, store_env):
+        from agents.authz import ScopedStore
+        from agents.execution_engine.engine import ExecutionEngine
+        from app.agents.chat_narrator import persist_milestone_card
+
+        owner = "owner-loop"
+        run_id = _seed_run(store_env, owner_id=owner, workspace_id="ws-1")
+        store = ScopedStore(owner_id=owner, workspace_id="ws-1")
+        engine = ExecutionEngine()
+
+        out = _run(self._drive_execute(
+            engine, run_id=run_id, store=store, milestone_sink=persist_milestone_card,
+        ))
+
+        # (a) LIVE: two chat_reply cards were YIELDED into the stream (emit live).
+        yielded = [(e["type"], e["data"].get("seq")) for e in out]
+        cards = [s for (t, s) in yielded if t == "chat_reply"]
+        assert len(cards) == 2, yielded
+
+        # (b) NO COLLISION / NO GAP: the engine's non-milestone event (agent_chunk) got a seq
+        #     STRICTLY PAST the first card — proving next_seq advanced past the card (else the
+        #     agent_chunk would have reused the card's seq and been dropped).
+        chunk_seq = next(s for (t, s) in yielded if t == "agent_chunk")
+        assert chunk_seq == 3, yielded  # ps@1, card@2, chunk@3 — chunk is NOT 2
+
+        # (c) the DURABLE LOG holds every event at a UNIQUE, CONTIGUOUS seq (no drop, no dup):
+        #     the run_events rows are exactly seqs 1..5 (3 engine events + 2 cards).
+        from app.models.run_event import RunEvent
+        db = store_env["Session"]()
+        try:
+            seqs = [r.seq for r in db.query(RunEvent)
+                    .filter(RunEvent.run_id == run_id)
+                    .order_by(RunEvent.seq.asc()).all()]
+        finally:
+            db.close()
+        assert seqs == [1, 2, 3, 4, 5], seqs  # contiguous, no gap, no duplicate seq

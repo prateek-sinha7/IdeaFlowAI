@@ -1276,6 +1276,10 @@ async def _drive_launch_to_queue(
     from agents.execution_engine.engine import get_execution_engine
 
     engine = get_execution_engine()
+    # A.4 (Phase 43, DEF-43-03-1): the app-layer narrator projector, injected into the engine as
+    # milestone_sink below (the kernel never imports app.* — import-linter). Local import keeps
+    # module load clean and mirrors the file's other lazy-import pattern.
+    from app.agents.chat_narrator import persist_milestone_card
     final_output = ""
     agent_outputs_collector: list[dict] = []
     current_agent: dict = {}
@@ -1315,6 +1319,13 @@ async def _drive_launch_to_queue(
             # pair at Part C. unregister runs in the engine wrapper's finally — no leak.
             live_ectx_register=register_live_ectx,
             live_ectx_unregister=unregister_live_ectx,
+            # A.4 (Phase 43, DEF-43-03-1): wire the narrator LIVE on the SSE/REST launch path —
+            # the engine projects a chat_reply milestone card per generic lifecycle event, draws
+            # its seq from the engine's own contiguous allocator (no durable-log gap), and yields
+            # it into this loop → event_queue → SSE. Self-filtering + best-effort (a card never
+            # perturbs the deterministic stream). The WS run_pipeline launch stays dormant (LOCK-B,
+            # deleted at 43-09). `persist_milestone_card` lives in the app layer (no kernel import).
+            milestone_sink=persist_milestone_card,
         ):
             await event_queue.put({"type": update["type"], "data": update.get("data", {})})
             utype = update["type"]
