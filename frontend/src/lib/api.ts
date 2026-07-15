@@ -42,9 +42,9 @@ export function clearToken(): void {
  * post-logout redirect at the call site (the dashboard's handleLogout does so).
  *
  * Pass an empty string when no token is available; the request will 401 and
- * the catch will swallow it. (See the WS-expired close handler in
- * useWebSocket.ts which legitimately calls clearToken() directly — the token
- * is already invalid, so /logout would just 401.)
+ * the catch will swallow it. (See the JWT-expired close handler in
+ * useHandoffSocket.ts which legitimately calls clearToken() directly — the
+ * token is already invalid, so /logout would just 401.)
  */
 export async function logout(token: string): Promise<void> {
   try {

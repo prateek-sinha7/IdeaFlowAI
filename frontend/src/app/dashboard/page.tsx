@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate } from "@/lib/api";
-import { ENV } from "@/lib/env";
-import { useWebSocket, type ConnectionStatus } from "@/hooks/useWebSocket";
+import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
 import { useWorkflow } from "@/hooks/useWorkflow";
 // Phase 31 (CHATUI-01/02/03) — the chat-lane DATA layer + the nonce'd deep-link
@@ -28,10 +27,9 @@ import type { ChatMode } from "@/components/chat/ChatInput";
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
 
 /**
- * W1 (44-01) — map the SSE connection phase (RunConnectionPhase) onto the
- * existing ConnectionStatus shape at the boundary, so the header / reconnect UI
- * reflects the SSE connection when SSE is the active transport WITHOUT widening
- * the global ConnectionStatus enum (its migration is W4's useWebSocket deletion).
+ * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
+ * shape (re-exported from useHandoffSocket) at the boundary, so the header /
+ * reconnect UI reflects the SSE connection — the sole run transport (44-06).
  * `replaying`/`live` are "attached" → connected; `idle` (no active run) is
  * treated as connected so an idle SSE app never shows a false disconnect banner.
  */
@@ -147,24 +145,6 @@ export default function DashboardPage() {
   // once, and the max-seen seq is tracked so the reconnect can send after_seq.
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const lastSeqRef = useRef<number>(0);
-  // Stable getter so DashboardLayout's reconnect effect reads the current
-  // last-received seq without re-subscribing.
-  const getLastSeq = useCallback(() => lastSeqRef.current, []);
-
-  // Phase 31 (CHATUI-03) — transport-agnostic chat transcript fan-out. When the
-  // SSE transport is OFF (the active path today), the legacy WS chat frames
-  // (chat_message / chat_reply / stream_attached) are routed into `useRunChat`
-  // through this local pub-sub. LOCK-B additive: those three frame types were
-  // previously UNHANDLED by handleWebSocketMessage (they fell through to a
-  // no-op), so routing them changes NO existing behavior on the legacy path —
-  // and useWorkflow.ts / useWebSocket.ts are untouched (FIX-039 / LOCK-B).
-  const chatFrameListenersRef = useRef<Set<(f: RunChatFrame) => void>>(new Set());
-  const chatWsSubscribe = useCallback((fn: (f: RunChatFrame) => void) => {
-    chatFrameListenersRef.current.add(fn);
-    return () => {
-      chatFrameListenersRef.current.delete(fn);
-    };
-  }, []);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
@@ -350,28 +330,18 @@ export default function DashboardPage() {
       lastSeqRef.current = evSeq;
     }
 
-    // Phase 31 (CHATUI-03) — route the ADDITIVE Phase-29 chat frames into the
-    // transcript fan-out (deduped once above by the shared seen-set; useRunChat
-    // dedups again by event_id, idempotent). These frame types were previously
-    // unhandled (no-op) on the legacy WS path, so this is purely additive
-    // (LOCK-B) and leaves every existing frame's handling byte-identical.
-    // `msg.type` is the legacy StreamMessage union which does not enumerate the
-    // additive Phase-29 chat frame names; widen to string for the membership test
-    // (the type is untouched — types/index.ts is out of scope, LOCK-B).
+    // Phase 31 (CHATUI-03) — the Phase-29 chat frames feed the transcript, not
+    // the pipeline reducer. The chat transcript subscribes to the SSE fan-out
+    // directly (chatSubscribe → useRunChat); here we simply early-return so these
+    // frame types don't fall through into the pipeline switch below.
+    // `msg.type` is the StreamMessage union which does not enumerate the chat
+    // frame names; widen to string for the membership test.
     const frameType = msg.type as string;
     if (
       frameType === "chat_message" ||
       frameType === "chat_reply" ||
       frameType === "stream_attached"
     ) {
-      const frame: RunChatFrame = { type: frameType, data: evData ?? {} };
-      chatFrameListenersRef.current.forEach((fn) => {
-        try {
-          fn(frame);
-        } catch {
-          /* a bad listener must not break the WS handler */
-        }
-      });
       return;
     }
 
@@ -900,44 +870,18 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // ─── Phase 31/44 — the app-level SSE run connection (flag-selected) ──────────
-  // `enabled` follows NEXT_PUBLIC_SSE_TRANSPORT (LOCK-B). When ON, the pipeline /
-  // questionnaire / review down-channel is sourced from runConnection.subscribe
-  // (W1, below) and the chat transcript from chatSubscribe; when OFF this is the
-  // inert default (`enabled === false`) and the legacy WS transport is the sole
-  // feed, byte-identical to before. Declared ABOVE useWebSocket so the WS
-  // onMessage can be gated on the active transport.
+  // ─── Phase 31/44 — the app-level SSE run connection (sole transport) ─────────
+  // The pipeline / questionnaire / review down-channel is sourced from
+  // runConnection.subscribe (below) and the chat transcript from chatSubscribe.
+  // SSE + REST is the only transport (44-06 hard cutoff) — no WebSocket client.
   const runConnection = useRunConnection();
-  const sseEnabled = runConnection.enabled;
 
-  // WebSocket connection. W1 (44-01): when SSE is the active transport the WS
-  // copy of the down-channel is ignored (flag-selected — the SSE subscribe below
-  // feeds the SAME reducer), mirroring the chatSubscribe flag-select so the
-  // pipeline reducer is fed from exactly one transport. The WS socket still
-  // exists this wave because commands ride it until W2/W3.
-  const wsOnMessage = useCallback(
-    (msg: StreamMessage) => {
-      if (sseEnabled) return;
-      handleWebSocketMessage(msg);
-    },
-    [sseEnabled, handleWebSocketMessage],
+  // The status/reconnect the header UI reflects, sourced from the SSE connection
+  // phase; reconnect routes through the provider's server-derived reattach.
+  const effectiveConnectionStatus: ConnectionStatus = phaseToConnectionStatus(
+    runConnection.phase,
   );
-  const { send, connectionStatus, reconnect } = useWebSocket({
-    url: ENV.WS_URL,
-    token,
-    onMessage: wsOnMessage,
-  });
-
-  // W1 (44-01) — the status/reconnect the header UI reflects. When SSE is the
-  // active transport, source them from runConnection.phase (the SSE connection)
-  // and route reconnect through the provider's server-derived reattach; the WS
-  // `connectionStatus`/`reconnect` still drive the dashboard's own WS effects
-  // (od_prototype auto-fire) unchanged. Flag-OFF is byte-identical (the WS
-  // values pass straight through).
-  const effectiveConnectionStatus: ConnectionStatus = sseEnabled
-    ? phaseToConnectionStatus(runConnection.phase)
-    : connectionStatus;
-  const effectiveReconnect = sseEnabled ? runConnection.reattach : reconnect;
+  const effectiveReconnect = runConnection.reattach;
 
   // Workflow pipeline state
   const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow();
@@ -954,52 +898,34 @@ export default function DashboardPage() {
   }, [handlePipelineMsg]);
 
   // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
-  // (runConnection / sseEnabled are declared above, next to useWebSocket, so the
-  // WS onMessage can be gated on the active transport — W1.)
 
-  // W1 (44-01) — SSE is the LIVE pipeline down-channel when the flag is ON. Feed
-  // the SAME handleWebSocketMessage router (pipeline / wave / questionnaire /
-  // review-gate switch, which dispatches to handlePipelineMsgRef) from the per-run
-  // SSE fan-out. The WS onMessage is gated off (above) while this is active, so
-  // the reducer sees exactly one transport (idempotent by event_id regardless).
-  // `runConnection.subscribe` is a stable provider callback → no resubscribe churn.
+  // SSE is the LIVE pipeline down-channel. Feed the SAME handleWebSocketMessage
+  // router (pipeline / wave / questionnaire / review-gate switch, which
+  // dispatches to handlePipelineMsgRef) from the per-run SSE fan-out. The reducer
+  // is idempotent by event_id. `runConnection.subscribe` is a stable provider
+  // callback → no resubscribe churn.
   const runSubscribe = runConnection.subscribe;
   useEffect(() => {
-    if (!sseEnabled) return;
     const unsubscribe = runSubscribe((m) =>
       handleWebSocketMessage({ type: m.type, data: m.data } as unknown as StreamMessage),
     );
     return unsubscribe;
-  }, [sseEnabled, runSubscribe, handleWebSocketMessage]);
+  }, [runSubscribe, handleWebSocketMessage]);
 
-  // Transport-agnostic frame subscription: SSE fan-out when enabled, else the
-  // local legacy-WS chat-frame fan-out. SAME transcript either way (CONTEXT).
+  // The chat transcript frame subscription — the SSE per-run fan-out.
   const chatSubscribe = useCallback(
     (fn: (f: RunChatFrame) => void) => {
-      if (sseEnabled) {
-        return runConnection.subscribe((m) =>
-          fn({ type: m.type, data: (m.data as Record<string, unknown>) ?? {} }),
-        );
-      }
-      return chatWsSubscribe(fn);
+      return runConnection.subscribe((m) =>
+        fn({ type: m.type, data: (m.data as Record<string, unknown>) ?? {} }),
+      );
     },
-    [sseEnabled, runConnection, chatWsSubscribe],
-  );
-
-  // Flag-OFF up-channel (LOCK-B): send the legacy `user_message` WS frame.
-  const legacyChatSend = useCallback(
-    (payload: Record<string, unknown>) => {
-      send(JSON.stringify(payload));
-    },
-    [send],
+    [runConnection],
   );
 
   const { messages: runChatMessages, sendMessage: sendRunChatMessage } = useRunChat({
     // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
     // path hits the in-flight run instead of null-then-fresh-POST; fall back to
     // the clarify-only activePipelineRunId when the build id is not yet set.
-    // Pure FE prop change — SSE stays dormant (LOCK-B: no provider mount, no
-    // NEXT_PUBLIC_SSE_TRANSPORT, legacy WS remains the active transport).
     runId: pipelineState.pipelineRunId ?? activePipelineRunId,
     subscribe: chatSubscribe,
     // W1 (44-01): sendCommand now resolves to the launched run_id (for
@@ -1008,19 +934,20 @@ export default function DashboardPage() {
     sendCommand: (runId, payload) => {
       void runConnection.sendCommand(runId, payload);
     },
-    // flag-ON uses sendCommand (REST up-channel); flag-OFF uses the legacy WS send.
-    legacyWsSend: sseEnabled ? undefined : legacyChatSend,
+    // SSE + REST is the sole transport (44-06) — the up-channel is sendCommand;
+    // there is no legacy WS send.
+    legacyWsSend: undefined,
   });
 
   // The nonce'd deep-link seam (borrow #6): the lane's result cards call
   // requestOpenTab; PreviewPanel consumes the pending {tab, nonce} (all tabs).
   const runTabDeepLink = useTabDeepLink();
 
-  // Fire a staged od_prototype run as soon as the WebSocket is open.
-  // Re-reads from sessionStorage on every connect so backend restarts
-  // don't lose the pending run.
+  // Fire a staged od_prototype run once the SSE connection is ready (idle maps
+  // to "connected" — an idle app with no live run is still ready to launch over
+  // REST). Re-reads from sessionStorage so a staged run survives a reload.
   useEffect(() => {
-    if (connectionStatus !== "connected") return;
+    if (effectiveConnectionStatus !== "connected") return;
 
     let pending = pendingOdProtoRef.current;
     if (!pending) {
@@ -1085,15 +1012,14 @@ export default function DashboardPage() {
       ...(pending.agentIds && pending.agentIds.length > 0 ? { agentIds: pending.agentIds } : {}),
       ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
     });
-  // send and connectionStatus drive the re-run.
+  // effectiveConnectionStatus drives the re-run.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionStatus]);
+  }, [effectiveConnectionStatus]);
 
-  // Fire a staged od_ppt run as soon as the WebSocket is open.
-  // Re-reads from sessionStorage on every connect so backend restarts
-  // don't lose the pending run.
+  // Fire a staged od_ppt run once the SSE connection is ready (idle → connected).
+  // Re-reads from sessionStorage so a staged run survives a reload.
   useEffect(() => {
-    if (connectionStatus !== "connected") return;
+    if (effectiveConnectionStatus !== "connected") return;
 
     // Try ref first, then fall back to sessionStorage (handles reconnects)
     let pending = pendingOdPptRef.current;
@@ -1159,117 +1085,7 @@ export default function DashboardPage() {
       ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionStatus]);
-
-  // Send a message via WebSocket (for refinement chat)
-  const sendingRef = useRef(false);
-
-  const handleSendMessage = useCallback(
-    async (content: string) => {
-      if (sendingRef.current) return;
-      sendingRef.current = true;
-
-      try {
-        let chatId = activeChatId;
-
-        if (!chatId) {
-          const currentToken = getToken();
-          if (!currentToken) { sendingRef.current = false; return; }
-          try {
-            const newSession = await createChat(currentToken, content.slice(0, 50));
-            chatId = newSession.id;
-            setActiveChatId(chatId);
-          } catch (err) {
-            console.error("Failed to auto-create chat:", err);
-            sendingRef.current = false;
-            return;
-          }
-        }
-
-        const userMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          chatSessionId: chatId,
-          role: "user",
-          content,
-          createdAt: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, userMessage]);
-
-        setIsStreaming(true);
-        setStreamingContent("");
-        setCurrentMode("default");
-        setProcessSteps([]);
-        activePreviewSectionRef.current = null;
-        pptContentRef.current = "";
-        prototypeContentRef.current = "";
-        userStoryContentRef.current = "";
-        setUserStoryContent("");
-        setPptContent("");
-        setPrototypeContent("");
-
-        send(
-          JSON.stringify({
-            type: "user_message",
-            content,
-            chat_session_id: chatId,
-          })
-        );
-      } finally {
-        setTimeout(() => { sendingRef.current = false; }, 500);
-      }
-    },
-    [activeChatId, send]
-  );
-
-  // Send a message with a specific mode
-  const handleSendMessageWithMode = useCallback(
-    async (content: string, mode: ChatMode) => {
-      let chatId = activeChatId;
-
-      if (!chatId) {
-        const currentToken = getToken();
-        if (!currentToken) return;
-        try {
-          const newSession = await createChat(currentToken, content.slice(0, 50));
-          chatId = newSession.id;
-          setActiveChatId(chatId);
-        } catch (err) {
-          console.error("Failed to auto-create chat:", err);
-          return;
-        }
-      }
-
-      const userMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        chatSessionId: chatId,
-        role: "user",
-        content,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, userMessage]);
-
-      setIsStreaming(true);
-      setStreamingContent("");
-      setCurrentMode(mode);
-      setProcessSteps([]);
-      pptContentRef.current = "";
-      prototypeContentRef.current = "";
-      userStoryContentRef.current = "";
-      setUserStoryContent("");
-      setPptContent("");
-      setPrototypeContent("");
-
-      send(
-        JSON.stringify({
-          type: "user_message",
-          content,
-          chat_session_id: chatId,
-          mode,
-        })
-      );
-    },
-    [activeChatId, send]
-  );
+  }, [effectiveConnectionStatus]);
 
   // Select a chat session and load its messages
   const handleSelectChat = useCallback(
@@ -1499,8 +1315,6 @@ export default function DashboardPage() {
       prototypeContent={prototypeContent}
       genericDeliverable={genericDeliverable}
       connectionStatus={effectiveConnectionStatus}
-      onSendMessage={handleSendMessage}
-      onSendMessageWithMode={handleSendMessageWithMode}
       onSelectChat={handleSelectChat}
       onNewChat={handleNewChat}
       onDeleteChat={handleDeleteChat}
@@ -1509,7 +1323,6 @@ export default function DashboardPage() {
       messageMode={currentMode}
       chatTitleUpdate={chatTitleUpdate}
       processSteps={processSteps}
-      websocketSend={send}
       pipelineState={pipelineState}
       reopenedRunStatus={reopenedRunStatus}
       reopenedFailedAgents={reopenedFailedAgents}
@@ -1564,7 +1377,6 @@ export default function DashboardPage() {
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}
-      getLastSeq={getLastSeq}
       onSubmitQuestionnaire={submitQuestionnaire}
       onRetainClarifyRound={retainClarifyRound}
       reviewGateData={reviewGateData}
@@ -1576,44 +1388,31 @@ export default function DashboardPage() {
         if (editedContent && reviewGateData) {
           pendingGateEditRef.current = { agentId: reviewGateData.agentId, editedContent };
         }
-        // W2 (44-04): flag-selected transport. SSE ON → POST /{id}/gate (carries
-        // edited_content, WR-03 — /messages CHANNEL_GATE would drop it); OFF →
-        // the existing WS approve_review frame (kept byte-identical until W4).
-        if (sseEnabled) {
-          void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
-            gate_key: gateKey,
-            action: "approve",
-            approved: true,
-            edited_content: editedContent ?? null,
-          }).catch((e) => console.error("postGate approve failed", e));
-        } else {
-          send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: true, edited_content: editedContent ?? null }));
-        }
+        // W2 (44-04): POST /{id}/gate carries edited_content (WR-03 — /messages
+        // CHANNEL_GATE would drop it). REST is the sole up-channel (44-06).
+        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+          gate_key: gateKey,
+          action: "approve",
+          approved: true,
+          edited_content: editedContent ?? null,
+        }).catch((e) => console.error("postGate approve failed", e));
       }}
       onRejectReview={(gateKey) => {
-        if (sseEnabled) {
-          void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
-            gate_key: gateKey,
-            action: "reject",
-            approved: false,
-          }).catch((e) => console.error("postGate reject failed", e));
-        } else {
-          send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: false }));
-        }
+        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+          gate_key: gateKey,
+          action: "reject",
+          approved: false,
+        }).catch((e) => console.error("postGate reject failed", e));
         setReviewGateData(null);
       }}
       onRedoReview={(gateKey, instructions) => {
         // REDO-GATE (F-fe3): re-run the gated agent in place. Rides the SAME
         // owner-gated gate seam as approve/reject — action="redo".
-        if (sseEnabled) {
-          void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
-            gate_key: gateKey,
-            action: "redo",
-            instructions,
-          }).catch((e) => console.error("postGate redo failed", e));
-        } else {
-          send(JSON.stringify({ type: "approve_review", gate_key: gateKey, action: "redo", instructions }));
-        }
+        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+          gate_key: gateKey,
+          action: "redo",
+          instructions,
+        }).catch((e) => console.error("postGate redo failed", e));
         // Clear the panel; the re-run re-emits a fresh review_gate_ready (same
         // gate_key, redoable=true) that re-opens it with the new output.
         setReviewGateData(null);
@@ -1623,20 +1422,11 @@ export default function DashboardPage() {
         // with the analysis report as context. Rides the SAME owner-gated gate
         // seam — action="update_specs", analysis_report carries the text. The
         // backend re-emits review_gate_ready when the analyze gate re-opens.
-        if (sseEnabled) {
-          void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
-            gate_key: gateKey,
-            action: "update_specs",
-            analysis_report: analysisReport,
-          }).catch((e) => console.error("postGate update_specs failed", e));
-        } else {
-          send(JSON.stringify({
-            type: "approve_review",
-            gate_key: gateKey,
-            action: "update_specs",
-            analysis_report: analysisReport,
-          }));
-        }
+        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+          gate_key: gateKey,
+          action: "update_specs",
+          analysis_report: analysisReport,
+        }).catch((e) => console.error("postGate update_specs failed", e));
         // Clear the panel immediately; it will re-open when the backend
         // emits review_gate_ready with the new analysis output.
         setReviewGateData(null);

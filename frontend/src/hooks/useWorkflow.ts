@@ -173,7 +173,7 @@ export function useWorkflow(): UseWorkflowReturn {
   // Thinking tab displays the edited content (e.g. the reduced task list) rather
   // than the original pre-edit output from agent_complete. Called when
   // review_gate_approved arrives with edited:true, using the editedContent that
-  // was sent in the approve_review WS message.
+  // was sent on the gate approve command.
   const retainAgentEdit = useCallback((agentId: string, editedContent: string) => {
     setPipelineState((prev) => {
       const agentIdx = prev.agents.findIndex((a) => a.id === agentId);

@@ -33,7 +33,7 @@ import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOU
 import { parseRunInput } from "@/lib/runInput";
 import { getToken, getChainContext, getRunFamily, postCancel, postRevision } from "@/lib/api";
 import type { UserWorkflowSummary } from "@/lib/api";
-import type { ConnectionStatus } from "@/hooks/useWebSocket";
+import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
@@ -52,7 +52,9 @@ export interface DashboardLayoutProps {
   // generic fallback renderer (SC-001 — never a workflow-name branch).
   genericDeliverable?: GenericDeliverable;
   connectionStatus: ConnectionStatus;
-  onSendMessage: (content: string) => void;
+  // Legacy chat-sidebar send seam — the run chat lane rides onRunChatSend (REST);
+  // this remains as an optional fallback for the settled-run ASK path.
+  onSendMessage?: (content: string) => void;
   onSendMessageWithMode?: (content: string, mode: ChatMode) => void;
   onSelectChat: (chatId: string) => void;
   onNewChat: (chatSession: ChatSession) => void;
@@ -62,7 +64,6 @@ export interface DashboardLayoutProps {
   messageMode?: ChatMode;
   chatTitleUpdate?: { chat_session_id: string; title: string } | null;
   processSteps?: ProcessStep[];
-  websocketSend?: (msg: string) => void;
   pipelineState?: PipelineRunState;
   onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedSkills?: import("@/types/index").AttachedSkill[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void;
   onResetPipeline?: () => void;
@@ -96,10 +97,6 @@ export interface DashboardLayoutProps {
   } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
-  // Phase 12 (RESUME-03) — reads the last-received seq for the active run so the
-  // reconnect_pipeline send can include `after_seq` for the durable replay
-  // (12-03). Returns 0 on a fresh load (no recorded seq ⇒ full-tail replay).
-  getLastSeq?: () => number;
   onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
   // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
   // state before the questionnaire panel clears (consumed by C2's ClarificationsCard).
@@ -203,7 +200,6 @@ export function DashboardLayout({
   messageMode,
   chatTitleUpdate,
   processSteps,
-  websocketSend,
   pipelineState,
   reopenedRunStatus,
   reopenedFailedAgents,
@@ -215,7 +211,6 @@ export function DashboardLayout({
   onSelectWorkflowRun,
   questionnaireData,
   activePipelineRunId,
-  getLastSeq,
   onSubmitQuestionnaire,
   onRetainClarifyRound,
   reviewGateData,
@@ -237,9 +232,8 @@ export function DashboardLayout({
   deepLinkTarget,
 }: DashboardLayoutProps) {
   const router = useRouter();
-  // W1 (44-01) — the app-level SSE connection (inert when the flag is OFF). Used
-  // only to make the WS-specific reconnect_pipeline frame dormant while SSE is the
-  // active transport (useRunStream owns Last-Event-ID replay there).
+  // The app-level SSE connection — the sole run transport (44-06). Commands ride
+  // its REST up-channel; useRunStream owns Last-Event-ID replay.
   const runConnection = useRunConnection();
   const [mainView, setMainView] = useState<MainView>(() => {
     // If an od_prototype or od_ppt run is staged (user came from the wizard),
@@ -492,41 +486,31 @@ export function DashboardLayout({
   // orphaned every history-launched revision. Parent linkage now comes from the
   // contentSourceRunId prop (page.tsx tracks the actual on-screen run).
 
-  // Handle PPT revision — Phase 3: send run_revision WS message when a
-  // completed run exists; fall back to the legacy text-injection pattern
-  // for backward compat with pre-Phase3 runs.
+  // Handle PPT revision — Phase 3: launch the revision over REST (POST
+  // /{id}/revisions) when a completed run exists; fall back to the legacy
+  // text-injection pattern for backward compat with pre-Phase3 runs.
   const handleRevisePpt = useCallback((instruction: string) => {
     if (!pptxCode && !pptContent) return;
 
     const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
 
     // W3b (44-05): launch the revision when we have a completed parent run id.
-    // Flag-selected transport (mirrors W2/44-04): SSE ON → POST /{id}/revisions
-    // (Strategy A — the byte-twin of engine._handle_revision: server-side artifact
-    // seed + planning-context prepend + exact-kind derived_from lineage), then
-    // attach the returned run so it streams over SSE (W1). OFF → the existing WS
-    // run_revision frame, kept byte-identical until the BE handler deletion (44-07).
-    // Either branch passes contentSourceRunId as the explicit parent (bug (b): no
-    // orphaned run — source_workflow_run_id is written server-side from it).
-    if (contentSourceRunId && (runConnection.enabled || websocketSend)) {
+    // POST /{id}/revisions (Strategy A — the byte-twin of engine._handle_revision:
+    // server-side artifact seed + planning-context prepend + exact-kind
+    // derived_from lineage), then attach the returned run so it streams over SSE
+    // (W1). REST is the sole up-channel (44-06). contentSourceRunId is the
+    // explicit parent (bug (b): no orphaned run — source_workflow_run_id is
+    // written server-side from it).
+    if (contentSourceRunId) {
       const targetType = isOdPpt ? "od_ppt_output" : "ppt_output";
-      if (runConnection.enabled) {
-        void postRevision(getToken() ?? "", contentSourceRunId, {
-          target_artifact_type: targetType,
-          instruction,
+      void postRevision(getToken() ?? "", contentSourceRunId, {
+        target_artifact_type: targetType,
+        instruction,
+      })
+        .then(({ run_id }) => {
+          if (run_id) runConnection.attachRun(run_id);
         })
-          .then(({ run_id }) => {
-            if (run_id) runConnection.attachRun(run_id);
-          })
-          .catch((e) => console.error("postRevision failed", e));
-      } else if (websocketSend) {
-        websocketSend(JSON.stringify({
-          type: "run_revision",
-          parent_run_id: contentSourceRunId,
-          target_artifact_type: targetType,
-          instruction,
-        }));
-      }
+        .catch((e) => console.error("postRevision failed", e));
       setWorkflowType((isOdPpt ? "od_ppt_revision" : "ppt_revision") as WorkflowType);
       if (onResetPipeline) onResetPipeline();
       return;
@@ -550,7 +534,7 @@ export function DashboardLayout({
         onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
       }
     }
-  }, [workflowType, pptxCode, pptContent, contentSourceRunId, websocketSend, runConnection, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [workflowType, pptxCode, pptContent, contentSourceRunId, runConnection, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {
@@ -632,57 +616,9 @@ export function DashboardLayout({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);
 
-  // When the WebSocket reconnects while a pipeline is running, send
-  // reconnect_pipeline so the backend attaches the new WS to the running queue.
-  const activePipelineRunIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    activePipelineRunIdRef.current = activePipelineRunId ?? null;
-  }, [activePipelineRunId]);
-
-  // Also track pipelineState.pipelineRunId for reconnection
-  const pipelineRunIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (pipelineState?.pipelineRunId) {
-      pipelineRunIdRef.current = pipelineState.pipelineRunId;
-    }
-  }, [pipelineState?.pipelineRunId]);
-
-  useEffect(() => {
-    // W1 (44-01) — under SSE this WS reconnect_pipeline frame is redundant:
-    // useRunStream reconnects natively and replays from Last-Event-ID. Guard it
-    // to a no-op while SSE is the active transport (its full removal + the
-    // ConnectionStatus migration is W4's useWebSocket deletion). Flag-OFF path
-    // is unchanged.
-    if (runConnection.enabled) return;
-    if (connectionStatus !== "connected") return;
-    // If a pipeline was running when we disconnected, reconnect to it.
-    // Check both in-memory state and sessionStorage (handles tab close/reopen).
-    const runId = pipelineRunIdRef.current
-      ?? activePipelineRunIdRef.current
-      ?? (typeof window !== "undefined" ? sessionStorage.getItem("active_pipeline_run_id") : null);
-
-    const isRunning = pipelineState?.isRunning
-      || (typeof window !== "undefined" && !!sessionStorage.getItem("active_pipeline_run_id"));
-
-    if (runId && isRunning && websocketSend) {
-      // Phase 12 (RESUME-03) — send the last-received seq as after_seq so the
-      // durable replay (12-03) delivers exactly the missed tail. 0 on a fresh
-      // load (no recorded seq) ⇒ the backend replays the full tail from 0; a
-      // legacy client that never recorded a seq is byte-identical (after_seq 0).
-      const afterSeq = getLastSeq ? getLastSeq() : 0;
-      websocketSend(JSON.stringify({
-        type: "reconnect_pipeline",
-        pipeline_run_id: runId,
-        after_seq: afterSeq,
-      }));
-      // If we recovered from sessionStorage but pipelineState doesn't know,
-      // at least update the run ID ref so future reconnects work
-      if (!pipelineRunIdRef.current) {
-        pipelineRunIdRef.current = runId;
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionStatus]);
+  // Reconnection is owned by the SSE transport (useRunStream) — it reconnects
+  // natively and replays from Last-Event-ID, so there is no client-side
+  // re-attach frame to send (44-06 hard cutoff).
 
   // When pendingOdProtoParams arrives (set by dashboard/page.tsx after the
   // When pendingOdProtoParams arrives, immediately start the od_prototype pipeline.
@@ -1117,7 +1053,7 @@ export function DashboardLayout({
         pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [] };
       }
     }
-  }, [websocketSend, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Handle questionnaire answers.
   //
@@ -1241,8 +1177,8 @@ export function DashboardLayout({
   }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Cancel the active pipeline from the clarification step and navigate to dashboard.
-  // Two-step sequence: submit_questionnaire(skip=true) unblocks the gate, then
-  // cancel_pipeline terminates the now-running pipeline. All state resets to initial.
+  // Two-step sequence: submit_questionnaire(skip=true) unblocks the gate, then a
+  // REST cancel terminates the now-running pipeline. All state resets to initial.
   // KAN-90: "Cancel Workflow" button in QuestionnairePanel confirmation dialog.
   const handleCancelWorkflow = useCallback(() => {
     // Set the flag BEFORE navigating so the isRunning effect doesn't fight us
@@ -1258,20 +1194,15 @@ export function DashboardLayout({
       // Step 1: unblock the clarify gate (fire and forget)
       onSubmitQuestionnaire(activePipelineRunId, [], true);
       // Step 2: cancel the now-unblocked pipeline after a short delay.
-      // W2 (44-04): flag-selected transport. SSE ON → POST /{id}/cancel with the
-      // run id threaded (the WS frame was connection-scoped, carried no id); OFF
-      // → the existing WS cancel_pipeline frame (kept byte-identical until W4).
+      // W2 (44-04): POST /{id}/cancel with the run id threaded — REST is the sole
+      // up-channel (44-06).
       setTimeout(() => {
-        if (runConnection.enabled) {
-          void postCancel(getToken() ?? "", activePipelineRunId).catch((e) =>
-            console.error("postCancel (cancel workflow) failed", e),
-          );
-        } else if (websocketSend) {
-          websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
-        }
+        void postCancel(getToken() ?? "", activePipelineRunId).catch((e) =>
+          console.error("postCancel (cancel workflow) failed", e),
+        );
       }, 200);
     }
-  }, [activePipelineRunId, onSubmitQuestionnaire, websocketSend, onResetPipeline, runConnection]);
+  }, [activePipelineRunId, onSubmitQuestionnaire, onResetPipeline]);
 
   // Handle "Reject & cancel pipeline" from the ReviewGatePanel.
   // KAN-95: the raw onRejectReview prop (from page.tsx) only sends the WS message
@@ -1319,7 +1250,7 @@ export function DashboardLayout({
       options?: SendMessageOptions,
     ) => {
       if (onRunChatSend) onRunChatSend(text, attachments, options);
-      else onSendMessage(text);
+      else onSendMessage?.(text);
     },
     [onRunChatSend, onSendMessage],
   );
@@ -1359,21 +1290,16 @@ export function DashboardLayout({
   }, []);
 
   // Stop (absorbed) — the SAME cooperative cancel the AgentProgressPanel fired.
-  // The pipeline_cancelled WS event drives the state reset (no eager onReset).
+  // The pipeline_cancelled event drives the state reset (no eager onReset).
   const handleStopPipeline = useCallback(() => {
-    // W2 (44-04): flag-selected transport — REST cancel (run id threaded) when
-    // SSE is ON, else the existing connection-scoped WS cancel_pipeline frame.
-    if (runConnection.enabled) {
-      const runId = pipelineState?.pipelineRunId ?? activePipelineRunId;
-      if (runId) {
-        void postCancel(getToken() ?? "", runId).catch((e) =>
-          console.error("postCancel (stop) failed", e),
-        );
-      }
-    } else if (websocketSend) {
-      websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
+    // W2 (44-04): REST cancel (run id threaded) — the sole up-channel (44-06).
+    const runId = pipelineState?.pipelineRunId ?? activePipelineRunId;
+    if (runId) {
+      void postCancel(getToken() ?? "", runId).catch((e) =>
+        console.error("postCancel (stop) failed", e),
+      );
     }
-  }, [websocketSend, runConnection, pipelineState, activePipelineRunId]);
+  }, [pipelineState, activePipelineRunId]);
 
   // GENERIC live-run state that drives the D-12 composer mode (SC-001 — never a
   // workflow name). Priority: gate > clarify > building > terminal-failure >

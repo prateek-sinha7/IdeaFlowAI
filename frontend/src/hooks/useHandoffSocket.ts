@@ -2,21 +2,19 @@
 
 /**
  * useHandoffSocket — the dedicated WebSocket client for the SURVIVING
- * `/ws/handoff/{token}` surface (decision 2 / D10). This is the external-IDE
- * handoff live channel and is intentionally NOT part of the `/ws/chat` deletion:
- * the run/pipeline/chat transports moved to SSE + REST, but `/ws/handoff` stays a
- * token-authenticated WebSocket.
+ * handoff socket surface (`/ws/handoff/{token}`, decision 2 / D10). This is the
+ * external-IDE handoff live channel and was intentionally NOT part of the chat
+ * socket retirement: the run/pipeline/chat transports moved to SSE + REST, but
+ * the handoff surface stays a token-authenticated WebSocket.
  *
- * Extracted verbatim (behavior byte-identical) from the retired shared
- * `useWebSocket` hook so that hook could be deleted: connect + exponential
- * backoff (no retry cap, 30s ceiling) + the JWT-expired 4001 close handling +
- * the client-side keepalive ping. `ConnectionStatus` is RE-EXPORTED from here so
- * remaining type-only consumers (DashboardLayout / dashboard) keep a single
- * source after the `useWebSocket` deletion.
+ * Behavior byte-identical to the retired shared chat socket hook it was
+ * extracted from: connect + exponential backoff (no retry cap, 30s ceiling) +
+ * the JWT-expired 4001 close handling + the client-side keepalive ping.
+ * `ConnectionStatus` is RE-EXPORTED from here so remaining type-only consumers
+ * (DashboardLayout / dashboard) keep a single source.
  *
- * The caller supplies its own `url` (HandoffWorkflow derives
- * `ws(s)://…/ws/handoff/{token}` from `ENV.API_URL`) — this hook has no default
- * URL and never references a `/ws/chat` endpoint.
+ * The caller supplies its own `url` (HandoffWorkflow derives the handoff socket
+ * URL from `ENV.API_URL`) — this hook has no default URL.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
