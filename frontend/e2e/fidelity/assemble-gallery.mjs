@@ -8,7 +8,7 @@
  * RIGHT, per `{surface}__{state}` tag. Images are inlined as base64 data-URIs so
  * the file is a single portable artifact a reviewer can open anywhere.
  *
- * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-V) as
+ * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-Y) as
  * "expected — ignore" so a reviewer never mistakes a registered divergence for a
  * fidelity gap. There is deliberately NO automated pixel-diff: ND-D (our live
  * data never equals the mock's hardcoded values) would make a pixel compare
@@ -34,7 +34,11 @@ const OUT = join(HERE, "gallery.html");
  *  ND-K/ND-L added 39-02 for the Steps tab; ND-M resolved in 39-02; ND-N/ND-O
  *  added 39-02 for the L3 task-detail live-data limits; ND-P added 39-02 for the
  *  task↔wave mapping fallback after the construction split was reconciled into ONE
- *  nested block; ND-Q added 39-03 for the Files hero's static 'validated' label). */
+ *  nested block; ND-Q added 39-03 for the Files hero's static 'validated' label;
+ *  ND-R..T added 39-04 (Audit); ND-U 39-05 SUPERSEDED by Phase-42 Group D (failed
+ *  now drops Preview/defaults Audit to match the mock); ND-V 39-06 (self-chromed
+ *  renderers); ND-W/ND-X/ND-Y added Phase-42 for the paused/planning + Steps-default
+ *  + settled artifact-card live-derived (F1/F2) divergences; W0-42 RESOLVED Phase-42). */
 const ND = [
   ["ND-A", "Brand wordmark", 'mock "HEXAWARE" → we ship "VelocityAI"'],
   ["ND-B", "Nav label", 'mock "Catalogue" → we ship "My Workflows" (D-11)'],
@@ -58,16 +62,26 @@ const ND = [
   ["ND-R", "Audit filter row — no severity buttons", "39-04: the mock's Audit filter row is the category-group set (All / Governance / Security / Activity) + a 'Blocked / denied only' toggle + a search box — it has NO standalone severity filter. We adopt the mock's row exactly and RETIRE the prior CRITICAL/HIGH/MEDIUM/LOW filter buttons; severity stays visible as a per-row chip and the blocked-only toggle covers the 'show me the problems' need (INV-12 — no dual filter row)"],
   ["ND-S", "Audit attribution — elided owner/workspace", "the mock hardcodes Run f3a1c9…e42 · Owner ak@hexaware.com · Workspace default · Started/Duration. The three owner-scoped audit fetches do NOT carry owner/workspace/started/duration, so we render the live Run id (truncated) + Started/Duration DERIVED from the row timestamps, and ELIDE owner/workspace rather than fabricate them (ND-D / T-39-04-01). A later wave may thread a live runMeta prop"],
   ["ND-T", "Audit static UI copy + derived coverage + no PDF", "the coverage chips are DERIVED one-per-fine-category-present (not the mock's fixed 7-word list); the violet 'What is this?' explainer is static per-category UI copy (a genuine affordance, not run data); and the Export menu's 'Compliance report' option is DISABLED — CSV/JSON only, no signed PDF path (ND-6)"],
-  ["ND-U", "Failed-run keeps the four-tab row", "39-05: the mock's failed run omits Preview + adds per-tab counts + defaults to Audit; we keep ONE uniform tab model (Preview·Steps·Files·Audit, no counts, default Preview) across settled/live/failed — a state-dependent tab set is behavior, not styling (user ruling 2026-07-11); a failed run's Preview still shows DegradedRunAffordance"],
+  // ND-U SUPERSEDED (Phase-42 Group D): the earlier "keep ONE uniform tab model"
+  // ruling was REVERSED (user 2026-07-14) — a failed run now DROPS Preview and
+  // DEFAULTS to Audit to match the mock's failed composition, and the alert chroma
+  // is red (not amber). The failed tab set now MATCHES the mock, so this is no
+  // longer a divergence; the row is retained for provenance.
+  ["ND-U", "Failed-run tab set (SUPERSEDED Phase-42)", "39-05 kept a uniform four-tab model on failed; Phase-42 Group D REVERSED it — the failed run now DROPS Preview + DEFAULTS to Audit + uses red (not amber) to MATCH the mock. No longer a divergence (superseded); a failed run still shows DegradedRunAffordance on the run screen only (the history/reopen surface is untouched — §8.4)"],
   ["ND-V", "Self-chromed renderers keep their own frame", "39-06: the mock frames every deliverable in ONE browser chrome, but our prototype/app_builder renderers bring their own frame — wrapping doubled it. Per the user's Option-B ruling (2026-07-11) self-chromed types render in their own frame with the 'Renders as' switch above; plain deliverables keep our chrome. No renderer edits (ND-G intact)"],
-  // Phase-42 W0 (NOT an intended divergence — a TEMPORARY pre-fix state the later
-  // waves close). The new paused/planning rows (planning, clarifyawaiting,
-  // gateawaiting) show, on OUR side, the LEGACY full-screen right-panel takeover
-  // (PlanningOverlay / QuestionnairePanel / ReviewGatePanel) that still shadows the
-  // mock-correct inline surfaces at Wave 0. Expect a large left(mock)↔right(ours)
-  // divergence on these rows until W1 removes the takeovers; it is the "before"
-  // baseline, resolved by Phase-42 W1+, not a permanent ND.
-  ["W0-42", "Paused/planning rows show the legacy takeover (pre-fix)", "the planning / clarifyawaiting / gateawaiting rows capture our CURRENT pre-fix legacy full-screen takeover — a known temporary state closed by Phase-42 W1+, NOT a permanent intended divergence"],
+  // Phase-42 intended divergences (continue the ND lettering from ND-V). W1+ removed
+  // the legacy full-screen takeovers and unshadowed the inline surfaces, so the
+  // paused/planning rows now render the mock-correct inline compositions — the three
+  // rows below capture what remains legitimately divergent after that fix.
+  ["ND-W", "Paused planning frame — no dedicated pre-agent overlay", "the mock has NO dedicated pre-agent planning frame; OUR planning state (running & 0 agents) surfaces as the lane phase-pill + the Steps 'Running' head rather than a full-screen prep overlay. The TARGET cell uses the Live mock's running `building` phase as the nearest reference (documented in the README W0 table) — expect the paired planning cells to differ in the pipeline detail, not the composition (Phase-42 W1)"],
+  ["ND-X", "Clarify/gate default to the Steps tab", "the paused clarify + gate compositions land on the Steps tab — the Live mock's canonical `state.tab:'steps'` (component :726; lane cards captioned 'status only; the questions/plan live in Steps' :90/:99). The left lane carries a status-only paused card (the 'Awaiting you' card / 'task plan needs approval' card); the questions and the plan-preview + approve controls live in Steps. Our inline clarify/gate mirror this (auto-tab per state, Phase-42 W1/Group B) (Phase-42)"],
+  ["ND-Y", "Settled agent-detail artifact cards use LIVE-derived values", "42-09 (decision 2): the settled agent-detail pages/sections · tasks · checks cards + handoff line render LIVE-derived counts (specializes ND-D), never the mock's fixed numbers, keyed on the generic `<spec>/<tasks>/<analysis>` discriminator (no agent-name literal). Two parses are BRITTLE pending backend/additive follow-ups: F1 (structured coverage/counts aggregate on `/runs/{id}/validation-results` — the checks card's coverage/verdict text) + F2 (event-free `sections` extractor + `/artifacts?kind=sections` — the pages/sections card). Both flagged in code + registered OUT OF SCOPE (Phase-42)"],
+  // W0-42 RESOLVED (Phase-42 W1+): the paused/planning rows no longer show the
+  // legacy full-screen takeover — the QuestionnairePanel/ReviewGatePanel/PlanningOverlay
+  // branches were removed (W1) + the panels deleted (W1/W4), so the rows now render
+  // the mock-correct inline Steps-active composition (see ND-W/ND-X). Row retained for
+  // provenance; it is a CLOSED temporary state, not a permanent divergence.
+  ["W0-42", "Paused/planning legacy takeover (RESOLVED Phase-42)", "the pre-fix legacy full-screen takeover that shadowed the paused/planning inline surfaces at Wave 0 — RESOLVED by Phase-42 W1+ (takeover branches removed, QuestionnairePanel + ReviewGatePanel deleted). The planning / clarifyawaiting / gateawaiting rows now render the inline Steps-active composition (ND-W/ND-X). CLOSED temporary state, NOT a permanent ND"],
 ];
 
 const surfaceArg = process.argv.includes("--surface")
@@ -155,7 +169,7 @@ async function main() {
   <h1>Run-Screen Fidelity Gallery${surfaceArg ? ` — <code>${esc(surfaceArg)}</code>` : ""}</h1>
   <p>Mock (left) vs current (right), per <code>{surface}__{state}</code>. Human review only — no pixel-diff (ND-D live data ≠ mock values).</p>
   <details class="nd" open>
-    <summary>Intended divergences — expected, ignore (ND-A..ND-V); + W0-42 = a TEMPORARY pre-fix state (not an ND)</summary>
+    <summary>Intended divergences — expected, ignore (ND-A..ND-Y); ND-U SUPERSEDED + W0-42 RESOLVED by Phase-42</summary>
     <table>${ndRows}</table>
   </details>
 </header>

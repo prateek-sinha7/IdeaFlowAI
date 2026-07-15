@@ -60,16 +60,26 @@ mock frame, in addition to settled/live/failed:
 
 | state | our side (`zzz-baseline.spec.ts`) | target side (`capture-mocks.mjs`) |
 |-------|-----------------------------------|-----------------------------------|
-| `planning` | running & 0 agents — `plannerStart` then STOP → `full__planning` + `leftlane__planning` | the Live mock's `Building` running phase (the mock has **no** dedicated pre-agent planning frame; nearest reference) |
-| `clarifyawaiting` | `questionnaireReady` then STOP (not submitted) → `full`/`steps`/`leftlane__clarifyawaiting` | Live mock phase scrubber → **Clarify** (`clarAwaiting` Steps card) |
-| `gateawaiting` | `reviewGateReady` then STOP (not approved) → `full`/`steps`/`leftlane__gateawaiting` | Live mock phase scrubber → **Gate** (`gateAwaiting` Steps row) |
+| `planning` | running & 0 agents — `plannerStart` then STOP → `full__planning` + `leftlane__planning` | the Live mock's `Building` running phase (the mock has **no** dedicated pre-agent planning frame; nearest reference — ND-W) |
+| `clarifyawaiting` | `questionnaireReady` then STOP (not submitted) → `full`/`steps`/`leftlane__clarifyawaiting` | Live mock phase scrubber → **Clarify**, **Steps-active** (`state.tab:'steps'`; the paused "Awaiting you" card in the lane, the questions in Steps — ND-X) |
+| `gateawaiting` | `reviewGateReady` then STOP (not approved) → `full`/`steps`/`leftlane__gateawaiting` | Live mock phase scrubber → **Gate**, **Steps-active** (`state.tab:'steps'`; the paused "task plan needs approval" card in the lane, the plan + approve in Steps — ND-X) |
 
-> **W0 expectation:** at Wave 0 our side still shows the LEGACY full-screen
-> right-panel takeover (`PlanningOverlay`/`QuestionnairePanel`/`ReviewGatePanel`)
-> that shadows the mock-correct inline surfaces — so the `steps__*` and `full__*`
-> frames are identical and diverge heavily from the mock. That is the "before"
-> baseline (register row **W0-42** in the assembler, NOT a permanent ND); Phase-42
-> W1+ removes the takeovers and regenerates the "after".
+> **TARGET clarify/gate = Steps-active.** The Live mock's canonical state is
+> `tab:'steps'` (component `:726`) and its lane cards are captioned "status only;
+> the questions/plan live in Steps" (`:90`/`:99`). `setPhase` (`:850`) does NOT
+> reset `tab`, so the earlier SURFACES pass (which ends on Preview) would leave the
+> paused `full__` frames Preview-active — a capture artifact. `capture-mocks.mjs`
+> therefore selects **Steps before** the paused full-viewport shot so the clarify/
+> gate TARGET frames render the mock's real composition (Steps panel + the paused
+> status card in the lane) for a fair side-by-side.
+>
+> **W0-42 RESOLVED (Phase-42 W1+).** At Wave 0 our side showed the LEGACY
+> full-screen right-panel takeover (`PlanningOverlay`/`QuestionnairePanel`/
+> `ReviewGatePanel`) that shadowed the mock-correct inline surfaces. Phase-42 W1+
+> **removed** those takeovers (branches removed W1; `QuestionnairePanel` +
+> `ReviewGatePanel` deleted W1/W4), so the paused/planning rows now render the
+> inline Steps-active composition. Register row **W0-42** in the assembler is now a
+> CLOSED temporary state (see ND-W/ND-X), NOT a permanent ND.
 
 **Regenerate a single new state** without re-capturing everything:
 
@@ -96,10 +106,14 @@ then opens `gallery.html` and confirms every visible difference is a registered
 ND divergence below. Any **other** departure is a fidelity gap to fix before
 approving.
 
-## Intended-divergence register (ND-A..ND-H) — expected, IGNORE
+## Intended-divergence register (ND-A..ND-Y) — expected, IGNORE
 
 Captioned in the gallery header as "expected — ignore". Source: `39-01-PLAN.md`
-(ND-A..ND-G) + `39-07-PLAN.md` (ND-H).
+(ND-A..ND-G) + `39-07-PLAN.md` (ND-H); ND-I..ND-V added across 39-01..39-06 (the
+canonical list is the `ND` array in `assemble-gallery.mjs`); ND-W..ND-Y added in
+Phase 42. The table below carries the Phase-39 baseline (ND-A..ND-H) plus the
+Phase-42 additions + reconciliations — the assembler's `ND` array is authoritative
+for the full ND-A..ND-Y set.
 
 | # | Divergence | Mock says | We ship | Why |
 |---|-----------|-----------|---------|-----|
@@ -111,6 +125,10 @@ Captioned in the gallery header as "expected — ignore". Source: `39-01-PLAN.md
 | ND-F | Prototype scrubber / image-slot | left-lane segmented scrubber + "drop a screenshot" | NOT reproduced | demo-only affordances |
 | ND-G | Deliverable renderers | mock's hardcoded website/deck/doc | REUSE existing renderers | D39-3 |
 | ND-H | Share action | — | client-only Share link (v1) | additive, client-only in v1 |
+| ND-U | Failed-run tab set — **SUPERSEDED Phase-42** | failed drops Preview + defaults Audit + red alert | Phase-42 Group D adopts the mock: failed **drops Preview + defaults Audit + red** (39-05's uniform-tab ruling REVERSED, user 2026-07-14) — no longer a divergence | Group D (matches the mock; DegradedRunAffordance retired on the run screen only) |
+| ND-W | Paused **planning** frame | *(no dedicated pre-agent frame)* | planning (running & 0 agents) = lane phase-pill + Steps "Running" head; target uses the Live mock's running `building` phase as the nearest reference | Phase-42 W1 (the mock has no prep overlay) |
+| ND-X | Clarify/gate **default to Steps** | canonical `state.tab:'steps'`; lane card is "status only; the questions/plan live in Steps" | inline clarify/gate auto-tab to Steps; lane carries a status-only paused card | Phase-42 W1 / Group B (auto-tab per state) |
+| ND-Y | Settled agent-detail **artifact cards** | fixed pages/tasks/checks numbers | LIVE-derived counts, generic `<spec>/<tasks>/<analysis>` discriminator; two BRITTLE parses pending **F1** (coverage/counts aggregate on `/runs/{id}/validation-results`) + **F2** (event-free `sections` extractor) — both registered OUT OF SCOPE | Phase-42 42-09 (decision 2; specializes ND-D) |
 
 ## Optional: self-regression baseline (NOT built here)
 

@@ -147,10 +147,20 @@ async function capture(state, file, browser, origin) {
       if ((await btn.count()) === 0) continue;
       await btn.click({ timeout: 4_000 }).catch(() => {});
       await page.waitForTimeout(500);
-      await page.screenshot({ path: join(OUT, `full__${tag}.png`), fullPage: false });
+      // Clarify/Gate render STEPS-active in the Live mock — its canonical state is
+      // `tab:'steps'` (component :726) and the lane cards are captioned "status
+      // only; the questions/plan live in Steps" (:90/:99). `setPhase` (:850) does
+      // NOT reset `tab`, so the earlier SURFACES pass (which ends on Preview) would
+      // otherwise leave these paused `full__` frames Preview-active — a capture
+      // artifact, not the mock's intent. Select Steps BEFORE the full-viewport shot
+      // so the paused TARGET frame shows the mock's real clarify/gate composition
+      // (Steps panel + the paused status card in the lane) for a fair side-by-side.
       if (steps) {
         await page.getByRole("button", { name: /^Steps$/ }).first().click({ timeout: 4_000 }).catch(() => {});
         await page.waitForTimeout(400);
+      }
+      await page.screenshot({ path: join(OUT, `full__${tag}.png`), fullPage: false });
+      if (steps) {
         await page.screenshot({ path: join(OUT, `steps__${tag}.png`), fullPage: false });
       }
       await page.screenshot({ path: join(OUT, `leftlane__${tag}.png`), clip: { x: 0, y: 0, width: 400, height: VIEWPORT.height } });
