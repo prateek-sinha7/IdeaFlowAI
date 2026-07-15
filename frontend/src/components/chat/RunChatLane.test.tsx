@@ -221,7 +221,12 @@ describe("RunChatLane", () => {
     expect(sendMessage).toHaveBeenCalledWith("keep going", []);
   });
 
-  it("complete-mode free text routes through onRevise (revision turn)", () => {
+  // ─── 44-02 (W3a) — the confirm-first refinement chip ─────────────────────────
+  // On a SETTLED run a CHANGE request no longer auto-launches a revision: it is
+  // HELD behind a "Run a refinement with this change?" confirm chip. onRevise
+  // fires ONLY on explicit confirm; dismiss launches nothing (T-44-02-01).
+
+  it("settled-run CHANGE holds a confirm chip and does NOT auto-launch onRevise (44-02)", () => {
     const onRevise = vi.fn();
     const sendMessage = vi.fn();
     render(
@@ -233,8 +238,84 @@ describe("RunChatLane", () => {
       target: { value: "make it shorter" },
     });
     fireEvent.click(screen.getByTestId("chat-send"));
+    // The confirm chip surfaces with the held instruction; nothing launched yet.
+    const chip = screen.getByTestId("chat-refinement-chip");
+    expect(chip).toHaveTextContent("Run a refinement with this change?");
+    expect(chip).toHaveTextContent("make it shorter");
+    expect(onRevise).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("settled-run CHANGE → confirm chip → Confirm launches onRevise exactly once (44-02)", () => {
+    const onRevise = vi.fn();
+    const sendMessage = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({ runState: "complete", onRevise, sendMessage })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "make it shorter" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    fireEvent.click(screen.getByTestId("chat-refinement-confirm"));
+    // The *_revision launch fires exactly once, only after confirm.
+    expect(onRevise).toHaveBeenCalledTimes(1);
     expect(onRevise).toHaveBeenCalledWith("make it shorter");
     expect(sendMessage).not.toHaveBeenCalled();
+    // The chip clears after confirming.
+    expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
+  });
+
+  it("settled-run CHANGE → confirm chip → Dismiss launches nothing (44-02)", () => {
+    const onRevise = vi.fn();
+    const sendMessage = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({ runState: "complete", onRevise, sendMessage })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "make it shorter" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    fireEvent.click(screen.getByTestId("chat-refinement-dismiss"));
+    // Dismiss clears the hold — no revision, no message.
+    expect(onRevise).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
+  });
+
+  it("settled-run CHANGE with no onRevise falls back to a plain sendMessage (no chip)", () => {
+    const sendMessage = vi.fn();
+    render(
+      <RunChatLane {...baseProps({ runState: "complete", sendMessage })} />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "make it shorter" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(sendMessage).toHaveBeenCalledWith("make it shorter", []);
+    expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
+  });
+
+  it("settled-run ASK still routes to the Concierge with NO refinement chip (43-02 unchanged)", () => {
+    const onRevise = vi.fn();
+    const sendMessage = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({ runState: "complete", onRevise, sendMessage })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "what's the status?" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(sendMessage).toHaveBeenCalledWith("what's the status?", [], {
+      concierge: true,
+    });
+    expect(onRevise).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
   });
 
   // ─── 43-02 (A.1 CRUX) — settled-run ask-vs-change routing matrix ─────────────
@@ -274,12 +355,15 @@ describe("RunChatLane", () => {
       fireEvent.click(screen.getByTestId("chat-send"));
 
       if (c.expect === "ask") {
-        // Answered by the Concierge — NOT launched as a revision.
+        // Answered by the Concierge — NOT launched as a revision, no chip.
         expect(sendMessage).toHaveBeenCalledWith(c.text, [], { concierge: true });
         expect(onRevise).not.toHaveBeenCalled();
+        expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
       } else {
-        // Still routes to the revision pipeline — NOT the Concierge.
-        expect(onRevise).toHaveBeenCalledWith(c.text);
+        // A CHANGE is HELD behind the confirm chip — NOT auto-launched (44-02).
+        // The revision fires only on confirm; classification still routes here.
+        expect(screen.getByTestId("chat-refinement-chip")).toBeInTheDocument();
+        expect(onRevise).not.toHaveBeenCalled();
         expect(sendMessage).not.toHaveBeenCalled();
       }
     });
