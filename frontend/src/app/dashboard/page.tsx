@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe } from "@/lib/api";
+import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { useWebSocket, type ConnectionStatus } from "@/hooks/useWebSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
@@ -1576,33 +1576,67 @@ export default function DashboardPage() {
         if (editedContent && reviewGateData) {
           pendingGateEditRef.current = { agentId: reviewGateData.agentId, editedContent };
         }
-        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: true, edited_content: editedContent ?? null }));
+        // W2 (44-04): flag-selected transport. SSE ON → POST /{id}/gate (carries
+        // edited_content, WR-03 — /messages CHANNEL_GATE would drop it); OFF →
+        // the existing WS approve_review frame (kept byte-identical until W4).
+        if (sseEnabled) {
+          void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+            gate_key: gateKey,
+            action: "approve",
+            approved: true,
+            edited_content: editedContent ?? null,
+          }).catch((e) => console.error("postGate approve failed", e));
+        } else {
+          send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: true, edited_content: editedContent ?? null }));
+        }
       }}
       onRejectReview={(gateKey) => {
-        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: false }));
+        if (sseEnabled) {
+          void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+            gate_key: gateKey,
+            action: "reject",
+            approved: false,
+          }).catch((e) => console.error("postGate reject failed", e));
+        } else {
+          send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: false }));
+        }
         setReviewGateData(null);
       }}
       onRedoReview={(gateKey, instructions) => {
         // REDO-GATE (F-fe3): re-run the gated agent in place. Rides the SAME
-        // approve_review owner-gated handler/resume channel as approve/reject —
-        // matches the Wave-1 wire contract (websocket.py: action="redo").
-        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, action: "redo", instructions }));
+        // owner-gated gate seam as approve/reject — action="redo".
+        if (sseEnabled) {
+          void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+            gate_key: gateKey,
+            action: "redo",
+            instructions,
+          }).catch((e) => console.error("postGate redo failed", e));
+        } else {
+          send(JSON.stringify({ type: "approve_review", gate_key: gateKey, action: "redo", instructions }));
+        }
         // Clear the panel; the re-run re-emits a fresh review_gate_ready (same
         // gate_key, redoable=true) that re-opens it with the new output.
         setReviewGateData(null);
       }}
       onUpdateSpecsReview={(gateKey, analysisReport) => {
         // KAN-101: trigger the spec revision sub-pipeline (specify → plan → analyze)
-        // with the analysis report as context. Rides the SAME approve_review
-        // owner-gated handler — action="update_specs", analysis_report carries
-        // the text. The panel stays open; the backend will re-emit review_gate_ready
-        // when the sub-pipeline completes and the analyze gate re-opens.
-        send(JSON.stringify({
-          type: "approve_review",
-          gate_key: gateKey,
-          action: "update_specs",
-          analysis_report: analysisReport,
-        }));
+        // with the analysis report as context. Rides the SAME owner-gated gate
+        // seam — action="update_specs", analysis_report carries the text. The
+        // backend re-emits review_gate_ready when the analyze gate re-opens.
+        if (sseEnabled) {
+          void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+            gate_key: gateKey,
+            action: "update_specs",
+            analysis_report: analysisReport,
+          }).catch((e) => console.error("postGate update_specs failed", e));
+        } else {
+          send(JSON.stringify({
+            type: "approve_review",
+            gate_key: gateKey,
+            action: "update_specs",
+            analysis_report: analysisReport,
+          }));
+        }
         // Clear the panel immediately; it will re-open when the backend
         // emits review_gate_ready with the new analysis output.
         setReviewGateData(null);
