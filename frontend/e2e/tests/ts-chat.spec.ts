@@ -77,13 +77,22 @@ test.describe("TS-CHAT — run chat lane (mounted live, mocked)", () => {
   test("TS-CHAT-03 a gate surfaces chat-gate-actions, Approve fires the command, terminal hides the actions (KAN-100)", async ({ dashboard, mockWs }) => {
     const page = dashboard.page;
 
-    // Arm a review gate on the running pipeline → the lane switches to gate mode.
+    // The Steps spine (which now hosts the gate quick-actions) mounts once the run
+    // has activity; seed a running agent so the tab leaves its empty "Pipeline
+    // trace" state (a real gated run always has an active agent + brief).
+    mockWs.agentStart(AGENTS.user_stories[0].id);
+
+    // Arm a review gate on the running pipeline. Phase 42-02 (§C) moved the gate
+    // quick-actions OUT of the lane (its composer is now a plain phase-hint input)
+    // and INTO the Steps spine (InlineGateActions after the paused agent's row).
+    // The run auto-tabs to Steps on a gate; open it explicitly to be robust.
     mockWs.reviewGateReady({
       gateKey: "spec-gate",
       agentId: "story-writer",
       agentName: "Story Writer",
       output: "Draft spec ready for review.",
     });
+    await dashboard.thinkingTab().click();
     const gate = page.getByTestId("chat-gate-actions");
     await expect(gate).toBeVisible();
 
@@ -104,10 +113,19 @@ test.describe("TS-CHAT — run chat lane (mounted live, mocked)", () => {
   test("TS-CHAT-04 a clarify state surfaces chat-clarify-actions and the chips submit answers", async ({ dashboard, mockWs }) => {
     const page = dashboard.page;
 
-    // A mid-run clarify gate → the lane switches to clarify mode.
+    // The Steps spine (which now hosts the clarify quick-actions) mounts once the
+    // run has activity; seed a running agent so the tab leaves its empty "Pipeline
+    // trace" state (a real clarify always pauses an active planner + brief).
+    mockWs.agentStart(AGENTS.user_stories[0].id);
+
+    // A mid-run clarify gate. Phase 42-02 (§C) moved the clarify quick-actions OUT
+    // of the lane (its composer is now a plain phase-hint input) and INTO the Steps
+    // spine (InlineClarifyActions in the "Clarifications" card). The run auto-tabs
+    // to Steps on a clarify; open it explicitly to be robust.
     mockWs.questionnaireReady([
       { id: "q1", text: "Which platform?", options: ["Web", "Mobile"] },
     ]);
+    await dashboard.thinkingTab().click();
     const clarify = page.getByTestId("chat-clarify-actions");
     await expect(clarify).toBeVisible();
 
