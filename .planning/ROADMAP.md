@@ -1161,4 +1161,16 @@ Plans:
 
 **Wave 6 — Part C closure (supervised)**
 
-- [ ] 43-09-PLAN.md — WS→SSE deletion (INV-12 exit gate) after live validation + register/deferred-items reconciliation + /gsd-complete-milestone v2.0 [C.1, C.2, C.3, C.4]
+- [~] 43-09-PLAN.md — WS→SSE deletion (INV-12 exit gate) + register reconciliation + /gsd-complete-milestone v2.0 [C.1, C.2, C.3, C.4] — **SUPERSEDED BY PHASE 44** (re-scoped to a hard cutoff; the C.3 deletion + run_revision retirement move to Phase 44; the milestone close becomes a separate later step). Not executed as 43-09.
+
+### Phase 44: SSE-only hard cutoff run_revision retirement and Part-B automation
+
+**Goal:** The **hard** WS→SSE cutoff (supersedes 43-09's flag-branch scope). Remove the `NEXT_PUBLIC_SSE_TRANSPORT`/`SSE_TRANSPORT_ENABLED` flags entirely, make SSE the sole transport, and delete `/ws/chat` — keeping `/ws/handoff` (D10 survivor). This is a FE-rewiring + BE-relocation project (the backend REST/SSE twin was built additively in Phase 29; the gap is the FE still emitting WS frames + the pipeline down-channel being WS-only). **W1** re-source the pipeline reducer from SSE + launch→attach bootstrap (the enabler); **W2** rewire gate/cancel/questionnaire to REST (gates → `POST /{id}/gate` to preserve `edited_content`); **W3** retire `run_revision` via Strategy A (`handleRevisePpt` → REST `/revisions`, full parity) + the confirm-first refinement chip + 2 pre-existing bug fixes; **W4** relocate the shared transport-neutral infra out of `websocket.py` + delete `/ws/chat` + `useWebSocket` + the flag; **W5** re-point the mocked e2e harness to SSE + a CI banned-pattern gate; **W6** a scripted Part-B live-smoke suite (B.6b + ISS-033 live tail). Grounded worklist + verified file:line seams in `44-CONTEXT.md`.
+**Requirements**: carries 43-09's C.3 (WS deletion / INV-12 exit gate) — re-scoped to a hard cutoff — + the run_revision retirement (D1/CTX-04) + the Part-B live re-confirm tail. LOCK-B precondition ("human validates the live cutover") is SATISFIED per `43-LIVE-EVIDENCE.md`.
+**Depends on:** Phase 43 (the supervised SSE cutover this deletes behind), Phase 29 (the additive REST/SSE twin). **Supersedes Phase 43-09.**
+**Status:** SUPERVISED — offline FE-rewire + BE-relocation + tests, then a live SSE smoke + a live-Bedrock Part-B lane. **Does NOT close the v2.0 milestone** (separate later step).
+**Plans:** 0 plans (run `/gsd-plan-phase 44`)
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 44 to break down)
