@@ -1117,7 +1117,7 @@ Plans:
 | 32. Run-Screen Redesign [A4] | 10/10 | Complete   | 2026-07-08 |
 | 33. Concierge + Compaction [A5] | 5/5 | Verified⚠ (P34 live) | — |
 | 34. Live Pass & Closure [A6] | 0/? | Superseded → Phase 43 | 2026-07-15 |
-| 43. Concierge Live Wiring & Live-Pass Closure [A6-redux] | 1/9 | In Progress|  |
+| 43. Concierge Live Wiring & Live-Pass Closure [A6-redux] | 2/9 | In Progress|  |
 | 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
 | 37. Configure Unification [B3] | 5/6 | In Progress|  |
@@ -1132,14 +1132,14 @@ Plans:
 **Requirements:** carries Phase-34 SC (live chat/images/steering/Concierge/cache/launch/analytics/Playwright) + the exhaustive live-deferred register (CONTEXT §5).
 **Depends on:** Phase 33 (the `chat:concierge` subsystem this wires), Phase 29 (chat backbone / SSE / steering / narrator seams), Phase 42 (the run-screen restructure that moved the FE integration points), Phase 30/37/38 (offline halves whose live-confirm folds in). **Supersedes Phase 34 [A6].**
 **Status:** SUPERVISED — Part A offline-doable; Part B needs live AWS Bedrock + the supervised SSE cutover; Part C is the exit gate. NOT autonomous.
-**Plans:** 1/9 plans executed
+**Plans:** 2/9 plans executed
 
 Plans:
 
 **Wave 1 — Part A offline wiring (autonomous)**
 
 - [x] 43-01-PLAN.md — Backend Concierge defects: M2 (serialize read-tool ORM rows) + M3 (thread compiled onto _ConciergeCtx) + drain (drain_proposals) + H1 (durable-row confirm disposal, IDOR→404) + M1 (non-approve gate default) [A.1]
-- [ ] 43-02-PLAN.md — FE Concierge composer re-routing: extend the useRunChat send contract + generic ask-vs-change classifier + attach the RunChatLane Concierge props at the mount [A.1]
+- [x] 43-02-PLAN.md — FE Concierge composer re-routing: extend the useRunChat send contract + generic ask-vs-change classifier + attach the RunChatLane Concierge props at the mount [A.1]
 - [ ] 43-03-PLAN.md — Narrator live call-site (engine event sink) + deep-link nonce hardening (WR-02: additive 0025 table, owner-scoped, single-use) [A.4]
 - [ ] 43-04-PLAN.md — Shared cached-invoke helper (ISS-033/034): route SmartPlanner/ClarifyEngine/handoff Test+Compliance through cache-eligible, token-counted calls [A.x]
 
