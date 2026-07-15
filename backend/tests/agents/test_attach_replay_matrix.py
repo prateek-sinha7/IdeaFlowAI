@@ -96,7 +96,10 @@ def matrix(monkeypatch):
     # The WS gate predicates (_review_gate_owned_by / _review_gate_run_is_terminal,
     # read-only imports into run_commands.py) open their OWN session — bind it to the
     # SAME in-memory connection so ownership/terminal checks see the seeded run.
-    from app.api import websocket as ws_module
+    # W4a (44-03): the WS gate predicates + _get_db relocated to app.api.run_engine
+    # (INV-12 extract-before-delete). Patch the seam at its new home so the REST
+    # gate/answer path's relocated predicates observe the in-memory DB.
+    from app.api import run_engine as ws_module
 
     monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
 
@@ -233,7 +236,7 @@ def _assert_contiguous_deduped_ordered(parsed_replay: list[dict]) -> None:
 
     # Projection-exact: reference-render each reconstructed row and compare the {type,data}
     # body the endpoint emitted against the canonical 29-01 projection's body.
-    for p, row in zip(parsed_replay, _rows_from_replay(parsed_replay)):
+    for p, row in zip(parsed_replay, _rows_from_replay(parsed_replay), strict=False):
         ref_frame = run_event_to_sse_frame(row)
         ref_body = None
         for line in ref_frame.splitlines():

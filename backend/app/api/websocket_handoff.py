@@ -23,7 +23,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
-from app.api.websocket import _authenticate_token, _get_db
+from app.api.run_engine import _authenticate_token, _get_db
 from app.models.handoff import HandoffSession
 
 logger = logging.getLogger("app.api.websocket_handoff")

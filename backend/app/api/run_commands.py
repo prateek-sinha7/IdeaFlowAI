@@ -68,7 +68,7 @@ from app.models.workflow import WorkflowRun
 # here (sanctioned LOCK-B duplication — the WS `run_pipeline`/`run_revision`
 # handlers keep their own copies; the de-dup is the deferred supervised follow-up)
 # because the WS copies are nested socket-coupled closures, not importable.
-from app.api.websocket import (
+from app.api.run_engine import (
     _CANCEL_EVENTS,
     _PIPELINE_TASKS,
     _cleanup_pipeline,

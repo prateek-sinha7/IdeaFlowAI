@@ -138,7 +138,7 @@ async def lifespan(app: FastAPI):
         # WS pipeline registry and a reconnect mid-resume live-attaches. This
         # is the SINGLE wiring site — the engine never imports app.api (the
         # import-linter forbidden direction); the app layer injects callbacks.
-        from app.api import websocket as _ws_bridge
+        from app.api import run_engine as _ws_bridge
         engine_instance._resume_register_queue = _ws_bridge._register_resume_queue
         engine_instance._resume_register_task = _ws_bridge._register_resume_task
         engine_instance._resume_cleanup = _ws_bridge._cleanup_pipeline

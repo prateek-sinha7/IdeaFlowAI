@@ -56,7 +56,7 @@ from app.models.workflow import WorkflowRun
 # uses, so the two upload/command paths cannot diverge on ownership (LOCK — no
 # symbol is added to websocket.py; the endpoint is monkeypatch-testable via this
 # module reference exactly like run_commands).
-from app.api.websocket import _get_db
+from app.api.run_engine import _get_db
 
 logger = logging.getLogger("app.api.run_files")
 

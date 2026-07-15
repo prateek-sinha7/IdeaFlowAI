@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import base64
 
-from app.api.websocket import (
+from app.api.run_engine import (
     _IMAGE_MAX_AGGREGATE_BYTES,
     _IMAGE_MAX_BYTES_PER_IMAGE,
     _IMAGE_MAX_COUNT,

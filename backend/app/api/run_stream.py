@@ -59,7 +59,7 @@ from app.models.workflow import WorkflowRun
 # is NOT modified and NO new symbol is added there). ``_get_or_create_queue`` returns
 # the same ``asyncio.Queue`` the WS drainer feeds; membership in ``_PIPELINE_QUEUES``
 # is the liveness signal (a registered queue == a live/attached run).
-from app.api.websocket import _PIPELINE_QUEUES, _get_or_create_queue
+from app.api.run_engine import _PIPELINE_QUEUES, _get_or_create_queue
 
 router = APIRouter(prefix="/api/runs", tags=["runs-stream"])
 

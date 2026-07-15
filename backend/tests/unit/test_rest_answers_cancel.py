@@ -38,7 +38,9 @@ class _FakeUser:
 
 @pytest.fixture
 def env(monkeypatch):
-    from app.api import websocket as ws_module
+    # W4a (44-03): _get_db + _CANCEL_EVENTS relocated to app.api.run_engine
+    # (INV-12 extract-before-delete). Patch the seam at its new home.
+    from app.api import run_engine as ws_module
     from app.models.database import Base
 
     db_engine = create_engine(

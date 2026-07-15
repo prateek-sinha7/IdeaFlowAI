@@ -49,7 +49,10 @@ class _FakeUser:
 
 @pytest.fixture
 def env(monkeypatch):
-    from app.api import websocket as ws_module
+    # W4a (44-03): the shared owner/terminal predicates + _get_db were relocated
+    # to app.api.run_engine (INV-12 extract-before-delete). Patch the seam at its
+    # new home so the relocated _review_gate_* predicates read the in-memory DB.
+    from app.api import run_engine as ws_module
     from app.models.database import Base
 
     db_engine = create_engine(
@@ -364,6 +367,7 @@ def test_gate_handler_gates_set_review_response_on_ownership():
         "the redo/update_specs set_review_response must also be after ownership "
         "(redo rides the same IDOR boundary)"
     )
-    # The read-only import of the WS seam is present (LOCK-B).
-    assert "from app.api.websocket import" in source
+    # The read-only import of the relocated run-engine seam is present (W4a: the
+    # shared predicates moved to app.api.run_engine — INV-12 extract-before-delete).
+    assert "from app.api.run_engine import" in source
     assert "_review_gate_owned_by" in source
