@@ -164,6 +164,23 @@ class TestGateDisposal:
         assert kwargs["instructions"] == "RPT"
 
     @pytest.mark.asyncio
+    async def test_missing_gate_action_defaults_to_request_changes_not_approve(self):
+        # M1: a gate intent with NO `action` key (e.g. a durable row missing it) must
+        # degrade to request_changes (→ redo), NEVER silently approve.
+        art = _SpyArtStore()
+        gk = "run-1:agent"
+        art.arm(gk)
+        intent = ProposalIntent(channel="gate_action", params={})  # no "action" key
+        res = await (_dispose(
+            intent, confirmed=True, art_store=art, gate_key=gk,
+            wr_status="waiting_for_user",
+        )[0])
+        assert res["action"] == "redo"  # request_changes → redo (non-consequential)
+        _, kwargs = art.review_calls[0]
+        assert kwargs.get("action") == "redo"
+        assert kwargs.get("approved") is False  # NEVER a silent approve
+
+    @pytest.mark.asyncio
     async def test_terminal_run_gate_proposal_is_fenced(self):
         # KAN-100: a proposed gate resolution never resolves a stopped run.
         art = _SpyArtStore()
@@ -458,9 +475,10 @@ class TestConciergeEndpoint:
         assert env["store"]._questionnaire_responses == {}
 
     def test_confirm_round_trip_executes_gate_seam(self, env, monkeypatch):
-        # The FE confirm round-trip (33-04): a concierge turn carrying confirm_proposal
-        # executes the held intent through store.set_review_response.
-        fake = _FakeConcierge()
+        # The FE confirm round-trip (33-04 / H1): the held intent is disposed from the
+        # DURABLE pending row (written by the ask turn), through set_review_response.
+        gate_intent = propose_gate_action.func(action="approve")
+        fake = _FakeConcierge(answer="I suggest approving", proposals=[gate_intent])
         monkeypatch.setattr(rc, "_resolve_concierge", lambda: fake)
 
         owner = _seed_user(env, "owner")
@@ -471,19 +489,35 @@ class TestConciergeEndpoint:
         _arm_review(env, gate_key)
         env["state"]["user"] = owner
 
+        # ── Ask turn: surface + HOLD the proposal (writes the durable pending row). ──
+        ask = _post(env, run_id, text="should I approve?", concierge=True, message_id="mA")
+        assert ask.status_code == 200, ask.text
+        assert len(_rows(env, run_id, "concierge_proposal")) >= 1
+        seen_after_ask = list(fake.seen)
+
+        # ── Confirm turn reuses the ask message_id (locates the pending row). ──
         resp = _post(
-            env, run_id, concierge=True, message_id="c1",
+            env, run_id, concierge=True, message_id="mA",
             confirm_proposal={"channel": "gate_action", "params": {"action": "approve"}},
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["proposal"]["disposed"] == "gate"
         recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
         assert recorded and recorded[0]["approved"] is True
-        # No live model call happened on the confirm turn.
-        assert fake.seen == []
+        # No live model call happened on the confirm turn (converse untouched).
+        assert fake.seen == seen_after_ask
+        # The durable row is now marked resolved (a replayed confirm would 404).
+        resolved = [
+            r for r in _rows(env, run_id, "concierge_proposal")
+            if r.payload_json.get("status") == "resolved"
+        ]
+        assert len(resolved) == 1
 
     def test_confirm_round_trip_executes_revision_seam(self, env, monkeypatch):
-        fake = _FakeConcierge()
+        rev_intent = propose_revision.func(
+            instruction="make it pop", target="prototype_output"
+        )
+        fake = _FakeConcierge(answer="v2?", proposals=[rev_intent])
         monkeypatch.setattr(rc, "_resolve_concierge", lambda: fake)
 
         async def _noop_drive(**kwargs):
@@ -495,8 +529,13 @@ class TestConciergeEndpoint:
         run_id = _seed_run(env, owner.id, status="completed")
         env["state"]["user"] = owner
 
+        # ── Ask turn: surface + HOLD the revision proposal (durable pending row). ──
+        ask = _post(env, run_id, text="revise please", concierge=True, message_id="mB")
+        assert ask.status_code == 200, ask.text
+        assert len(_rows(env, run_id, "concierge_proposal")) >= 1
+
         resp = _post(
-            env, run_id, concierge=True, message_id="c2",
+            env, run_id, concierge=True, message_id="mB",
             confirm_proposal={
                 "channel": "revision",
                 "params": {"instruction": "make it pop", "target": "prototype_output"},
@@ -515,3 +554,93 @@ class TestConciergeEndpoint:
             assert child.type.endswith("_revision")
         finally:
             db.close()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# H1 — the confirm-hold is SERVER-ENFORCED: dispose ONLY from the durable
+# owner-scoped pending row; the client body locates, never supplies, the intent.
+# ════════════════════════════════════════════════════════════════════════════
+class TestConfirmHoldServerEnforced:
+    def test_confirm_without_pending_row_is_404(self, env, monkeypatch):
+        # No durable pending row for this message_id/channel → 404 (nothing executes).
+        fake = _FakeConcierge()
+        monkeypatch.setattr(rc, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="waiting_for_user")
+        gate_key = f"{run_id}:prototype-specify"
+        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
+                     owner_id=owner.id)
+        _arm_review(env, gate_key)
+        env["state"]["user"] = owner
+
+        resp = _post(
+            env, run_id, concierge=True, message_id="ghost",
+            confirm_proposal={"channel": "gate_action", "params": {"action": "approve"}},
+        )
+        assert resp.status_code == 404, resp.text
+        # The gate was NOT resolved (no forged confirm executed).
+        assert env["store"]._questionnaire_responses.get(f"review:{gate_key}") is None
+
+    def test_confirm_cross_owner_is_404(self, env, monkeypatch):
+        # A forged/replayed confirm for a run the caller does NOT own → 404 (IDOR).
+        gate_intent = propose_gate_action.func(action="approve")
+        fake = _FakeConcierge(proposals=[gate_intent])
+        monkeypatch.setattr(rc, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        attacker = _seed_user(env, "attacker")
+        run_id = _seed_run(env, owner.id, status="waiting_for_user")
+        gate_key = f"{run_id}:prototype-specify"
+        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
+                     owner_id=owner.id)
+        _arm_review(env, gate_key)
+
+        # The owner surfaces + holds a real pending proposal.
+        env["state"]["user"] = owner
+        ask = _post(env, run_id, text="?", concierge=True, message_id="mV")
+        assert ask.status_code == 200, ask.text
+
+        # The attacker tries to confirm the victim's proposal → 404 (never sees the run).
+        env["state"]["user"] = attacker
+        resp = _post(
+            env, run_id, concierge=True, message_id="mV",
+            confirm_proposal={"channel": "gate_action", "params": {"action": "approve"}},
+        )
+        assert resp.status_code == 404, resp.text
+        # The gate was NOT resolved by the attacker.
+        assert env["store"]._questionnaire_responses.get(f"review:{gate_key}") is None
+
+    def test_confirm_durable_params_win_over_forged_body(self, env, monkeypatch):
+        # H1: the DURABLE row (request_changes) wins over a FORGED update_specs body.
+        rc_intent = propose_gate_action.func(action="request_changes", rationale="tighten")
+        fake = _FakeConcierge(answer="hold on", proposals=[rc_intent])
+        monkeypatch.setattr(rc, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="waiting_for_user")
+        gate_key = f"{run_id}:prototype-specify"
+        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
+                     owner_id=owner.id)
+        _arm_review(env, gate_key)
+        env["state"]["user"] = owner
+
+        # Ask surfaces + holds a request_changes proposal (durable params).
+        ask = _post(env, run_id, text="what should I do?", concierge=True, message_id="mR")
+        assert ask.status_code == 200, ask.text
+
+        # Confirm forges update_specs; the durable request_changes (→ redo) wins.
+        resp = _post(
+            env, run_id, concierge=True, message_id="mR",
+            confirm_proposal={
+                "channel": "gate_action",
+                "params": {"action": "update_specs", "rationale": "FORGED"},
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["proposal"]["action"] == "redo"  # durable request_changes wins
+        recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
+        assert recorded and recorded[0]["action"] == "redo"
+        assert recorded[0]["approved"] is False
+        # The forged instructions never reached the seam (durable rationale used).
+        assert recorded[0]["instructions"] == "tighten"

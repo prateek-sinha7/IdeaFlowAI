@@ -496,6 +496,41 @@ def _drain_concierge_proposals(concierge, ctx=None) -> list:
         return list(drain() or [])
 
 
+def _load_pending_proposal(events, *, message_id: str, channel: str) -> dict | None:
+    """Locate the DURABLE pending ``concierge_proposal`` row for a confirm turn (H1/IDOR).
+
+    The ask turn wrote it as event_id ``concierge-proposal:{message_id}:{channel}`` with
+    status ``pending`` (``_dispose_concierge_proposal`` hold path). ``events`` is the
+    caller's OWNER-SCOPED read (``ScopedStore.read_events`` default-deny), so a
+    cross-owner / other-run pending row is simply NOT in the list → this returns ``None``
+    → the caller raises 404 (IDOR → 404, never 403, never a 409 existence-leak).
+
+    Idempotent-replay guard: a later ``concierge-proposal-resolved:{message_id}:{channel}``
+    row means the intent was already disposed → treated as not-pending → ``None`` (a
+    replayed confirm executes nothing twice). Returns the pending row's payload dict
+    (carrying the DURABLE ``channel`` + ``params`` — the ONLY trusted source of the
+    intent to execute) when a live pending row exists; else ``None``.
+    """
+    if not channel or not message_id:
+        return None
+    pending_id = f"concierge-proposal:{message_id}:{channel}"
+    resolved_id = f"concierge-proposal-resolved:{message_id}:{channel}"
+    pending_payload: dict | None = None
+    resolved_seen = False
+    for ev in events or []:
+        if getattr(ev, "type", None) != "concierge_proposal":
+            continue
+        eid = getattr(ev, "event_id", None)
+        payload = getattr(ev, "payload_json", None) or {}
+        if eid == pending_id and payload.get("status") == "pending":
+            pending_payload = payload
+        elif eid == resolved_id:
+            resolved_seen = True
+    if pending_payload is None or resolved_seen:
+        return None
+    return pending_payload
+
+
 async def _dispose_concierge_proposal(
     intent,
     *,
@@ -575,7 +610,10 @@ async def _dispose_concierge_proposal(
                     "recoverable": False,
                 },
             )
-        raw_action = params.get("action", "approve")
+        # M1: a MISSING action must NEVER silently approve a gate. Default to the
+        # non-consequential ``request_changes`` (→ the seam's ``redo``), matching the
+        # same safe-degrade the Concierge tool itself uses (concierge.py _gate_intent).
+        raw_action = params.get("action", "request_changes")
         action = _CONCIERGE_GATE_ACTION_MAP.get(raw_action, raw_action)
         rationale = params.get("rationale") or None
         if action == "redo":
@@ -827,20 +865,49 @@ async def post_message(
         ectx = _live_ectx_for_run(run_id)
 
         # A CONFIRM turn carries a previously-HELD proposal to EXECUTE (the FE confirm
-        # round-trip, 33-04): reconstruct the intent and dispose it CONFIRMED through its
-        # Phase-29 seam. No model call — the answer was already given on the ask turn.
+        # round-trip, 33-04). H1 (server-enforce the confirm-hold): STOP trusting the
+        # client body as the intent. The client ``{channel}`` only LOCATES the durable
+        # pending row (``concierge-proposal:{message_id}:{channel}``, owner-scoped read);
+        # the intent's ``params`` come EXCLUSIVELY from that DURABLE row, never the body.
+        # Missing / cross-owner (default-deny → absent) / already-resolved → 404 (IDOR →
+        # 404, never 403). No model call — the answer was already given on the ask turn.
         if body.confirm_proposal:
             from app.agents.chat.concierge import ProposalIntent
 
+            confirm_channel = str(body.confirm_proposal.get("channel", "") or "")
+            pending = _load_pending_proposal(
+                events, message_id=body.message_id, channel=confirm_channel
+            )
+            if pending is None:
+                # IDOR → 404: never reveal whether the run/proposal exists for another
+                # owner, and never resolve a non-pending / replayed proposal.
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Unknown proposal"
+                )
             intent = ProposalIntent(
-                channel=body.confirm_proposal.get("channel", ""),
-                params=dict(body.confirm_proposal.get("params", {}) or {}),
+                channel=pending.get("channel") or confirm_channel,
+                params=dict(pending.get("params") or {}),  # DURABLE params, not body
             )
             result = await _dispose_concierge_proposal(
                 intent, confirmed=True, store=store, art_store=art_store,
                 run_id=run_id, message_id=body.message_id, current_user=current_user,
                 wr_status=wr_status, wr_type=wr_type, gate_key=resolved_gate_key,
                 ectx=ectx,
+            )
+            # Mark the durable pending row RESOLVED (additive; namespaced event_id so a
+            # replayed confirm is idempotent — the resolved row makes _load_pending_proposal
+            # return None next time). owner_id+workspace_id stamped by ScopedStore.
+            await store.append_event_next_seq(
+                run_id,
+                event_id=f"concierge-proposal-resolved:{body.message_id}:{intent.channel}",
+                type="concierge_proposal",
+                payload_json={
+                    "pipeline_run_id": run_id,
+                    "message_id": body.message_id,
+                    "channel": intent.channel,
+                    "params": intent.params,
+                    "status": "resolved",
+                },
             )
             return {
                 "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
