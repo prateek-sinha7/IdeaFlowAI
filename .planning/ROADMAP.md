@@ -1131,9 +1131,34 @@ Plans:
 **Goal:** The milestone-end live pass — **carries/supersedes Phase 34** (never executed), updated for Phases 35–42. **Part A** (offline wiring): decide the transport fork (A.0 — SSE-activation vs WS-routed Concierge), then wire the dormant Concierge to a live caller (A.1 — attach the `RunChatLane` Concierge props + **re-route the settled-run free-text path so a status question is answered, not launched as a `*_revision`** + fix H1/M2/M3/M1 + the dead proposal-drain), mount the SSE provider (A.2), the steering live-drain (A.3 — also delivers per-turn images, DEF-30-03-1), and the narrator live call-site (A.4). **Part B** (needs Bedrock SSO): the 7 live checks (multi-turn chat+images · mid-run steering · Concierge Q&A · `cache_read>0` incl. multi-turn cache placement · LaunchWizard live launch · analytics/notification live · live Playwright chat suite) + the `default`-profile live re-confirms. **Part C** (closure): register/deferred-items sweeps, the WS→SSE deletion + INV-12 exit gate (LOCK-B), `/gsd-complete-milestone` v2.0. Full worklist + verified current file:line integration points + the stale-ref map in `43-CONTEXT.md`.
 **Requirements:** carries Phase-34 SC (live chat/images/steering/Concierge/cache/launch/analytics/Playwright) + the exhaustive live-deferred register (CONTEXT §5).
 **Depends on:** Phase 33 (the `chat:concierge` subsystem this wires), Phase 29 (chat backbone / SSE / steering / narrator seams), Phase 42 (the run-screen restructure that moved the FE integration points), Phase 30/37/38 (offline halves whose live-confirm folds in). **Supersedes Phase 34 [A6].**
-**Status:** SUPERVISED — Part A/C offline-doable; Part B needs live AWS Bedrock. NOT autonomous.
-**Plans:** 0 plans (run `/gsd-plan-phase 43`)
+**Status:** SUPERVISED — Part A offline-doable; Part B needs live AWS Bedrock + the supervised SSE cutover; Part C is the exit gate. NOT autonomous.
+**Plans:** 9 plans (6 waves)
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 43 to break down)
+**Wave 1 — Part A offline wiring (autonomous)**
+
+- [ ] 43-01-PLAN.md — Backend Concierge defects: M2 (serialize read-tool ORM rows) + M3 (thread compiled onto _ConciergeCtx) + drain (drain_proposals) + H1 (durable-row confirm disposal, IDOR→404) + M1 (non-approve gate default) [A.1]
+- [ ] 43-02-PLAN.md — FE Concierge composer re-routing: extend the useRunChat send contract + generic ask-vs-change classifier + attach the RunChatLane Concierge props at the mount [A.1]
+- [ ] 43-03-PLAN.md — Narrator live call-site (engine event sink) + deep-link nonce hardening (WR-02: additive 0025 table, owner-scoped, single-use) [A.4]
+- [ ] 43-04-PLAN.md — Shared cached-invoke helper (ISS-033/034): route SmartPlanner/ClarifyEngine/handoff Test+Compliance through cache-eligible, token-counted calls [A.x]
+
+**Wave 2 — Part A offline wiring (autonomous)**
+
+- [ ] 43-05-PLAN.md — Steering live-drain + per-turn images: live-ectx registry (_live_ectx_for_run resolves the running ectx) + engine === USER GUIDANCE === drain (closes DEF-29-09-1 / DEF-30-03-1) [A.3] (depends 43-01, 43-03 — shared run_commands.py / engine.py)
+
+**Wave 3 — Part C SSE cutover (supervised)**
+
+- [ ] 43-06-PLAN.md — Mount RunConnectionProvider behind the SSE flag (A.2) + flip NEXT_PUBLIC_SSE_TRANSPORT ON + verify B.3 live Concierge Q&A (grounded, confirm-gated) [A.0, A.2, B.3]
+
+**Wave 4 — Part B live checks: chat/steering/cache (supervised)**
+
+- [ ] 43-07-PLAN.md — Live: B.1 (multi-turn chat + per-turn/document images) · B.2 (mid-run steering in next agent's live prompt) · B.4 (cache_read>0 + multi-turn placement + ISS-033 counted) [B.1, B.2, B.4]
+
+**Wave 5 — Part B live checks: launch/analytics/e2e (supervised)**
+
+- [ ] 43-08-PLAN.md — Live: B.5 (LaunchWizard live launch prototype+ppt) · B.6 (analytics round-trip + notification push) · B.7 (live Playwright chat suite) + default-profile re-confirms [B.5, B.6, B.7] (depends 43-07 — shared 43-LIVE-EVIDENCE.md)
+
+**Wave 6 — Part C closure (supervised)**
+
+- [ ] 43-09-PLAN.md — WS→SSE deletion (INV-12 exit gate) after live validation + register/deferred-items reconciliation + /gsd-complete-milestone v2.0 [C.1, C.2, C.3, C.4]
