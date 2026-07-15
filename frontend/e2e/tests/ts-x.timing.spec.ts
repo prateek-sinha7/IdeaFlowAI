@@ -36,14 +36,14 @@ test.describe("TS-X — timing budgets", () => {
   // long (2-4 min) build tasks alive through idle-dropping proxies. The only
   // honest way to assert it is to wait one interval for the frame to actually
   // arrive — so this is slow (≈21s) by nature. test.slow() grants the 3× timeout.
-  test("TS-X-01 client sends a keepalive ping ~every 20s while the WS is open", async ({ dashboard, mockWs }) => {
+  test("TS-X-01 client sends a keepalive ping ~every 20s while the WS is open", async ({ dashboard, mockSse }) => {
     test.slow(); // 3× timeout — the first ping only fires after the full 20s interval.
 
     await dashboard.goto();
     // No run needed — the ping interval is armed on socket open, independent of
     // any pipeline. Wait just past one 20000ms interval for the first ping frame.
     const start = Date.now();
-    const ping = await mockWs.waitForClientFrame("ping", 25000);
+    const ping = await mockSse.waitForClientFrame("ping", 25000);
     const elapsedMs = Date.now() - start;
 
     expect(ping.type).toBe("ping");
@@ -62,16 +62,16 @@ test.describe("TS-X — timing budgets", () => {
   // affordance was retired with the mock's run-header redesign — the mock header
   // carries Version/Share/Download, not a per-deliverable Copy — so only the
   // renderer-level Copy is exercised here.)
-  test("TS-X-05 copy toast shows a success state then reverts (UserStoryPreview text)", async ({ dashboard, mockWs }) => {
+  test("TS-X-05 copy toast shows a success state then reverts (UserStoryPreview text)", async ({ dashboard, mockSse }) => {
     // Navigate + trigger a run so the WS is open and we're on the execution view.
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
 
     // Drive a green user_stories run so the backlog (with content) renders.
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
 
     // The parsed backlog renders the UserStoryPreview with its "Copy MD" button.
     const copyMd = dashboard.page.getByRole("button", { name: /Copy MD/ });
@@ -101,16 +101,16 @@ test.describe("TS-X — timing budgets", () => {
       await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
     });
 
-    test("complete → terminal: Stop disappears and 'Done in …s' appears", async ({ dashboard, mockWs }) => {
+    test("complete → terminal: Stop disappears and 'Done in …s' appears", async ({ dashboard, mockSse }) => {
       const agents = AGENTS.user_stories;
-      mockWs.start(agents, { pipelineType: "user_stories" });
+      mockSse.start(agents, { pipelineType: "user_stories" });
       // While running, the Stop affordance (isRunning && !isCancelled) is present.
-      mockWs.agentStart(agents[0].id);
+      mockSse.agentStart(agents[0].id);
       await expect(dashboard.stopButton()).toBeVisible();
 
       // Complete the whole pipeline (Done-in requires completedCount === total).
-      for (const a of agents) await runAgent(mockWs, a.id);
-      mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
+      for (const a of agents) await runAgent(mockSse, a.id);
+      mockSse.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
 
       // Terminal: Phase 39 retired the AgentProgressPanel "Done in …s" header; the
       // settled run now surfaces the Done status token (lane-run-status, done tone)
@@ -120,9 +120,9 @@ test.describe("TS-X — timing budgets", () => {
       await expect(dashboard.runningBadge()).toHaveCount(0);
     });
 
-    test("failed → terminal: new failed chrome appears (no stuck RUNNING)", async ({ dashboard, mockWs }) => {
+    test("failed → terminal: new failed chrome appears (no stuck RUNNING)", async ({ dashboard, mockSse }) => {
       // playFailedRun: start → every agent errors → pipeline_failed (ISS-016).
-      await playFailedRun(mockWs, "user_stories");
+      await playFailedRun(mockSse, "user_stories");
 
       await expect(dashboard.errorBadge().first()).toBeVisible();
       // Phase 42-03 (§D) RETIRED the amber DegradedRunAffordance on the run screen;
@@ -134,16 +134,16 @@ test.describe("TS-X — timing budgets", () => {
       await expect(dashboard.runningBadge()).toHaveCount(0);
     });
 
-    test("cancelled → terminal: 'Pipeline stopped' appears after the Stop ack", async ({ dashboard, mockWs }) => {
+    test("cancelled → terminal: 'Pipeline stopped' appears after the Stop ack", async ({ dashboard, mockSse }) => {
       const agents = AGENTS.user_stories;
-      mockWs.start(agents, { pipelineType: "user_stories" });
-      mockWs.agentStart(agents[0].id);
+      mockSse.start(agents, { pipelineType: "user_stories" });
+      mockSse.agentStart(agents[0].id);
       await expect(dashboard.runningBadge().first()).toBeVisible();
 
       // User stops the run; app sends cancel_pipeline, then the server acks.
       await dashboard.stopButton().click();
-      await mockWs.waitForClientFrame("cancel_pipeline");
-      mockWs.cancelled({ duration: 8 });
+      await mockSse.waitForClientFrame("cancel_pipeline");
+      mockSse.cancelled({ duration: 8 });
 
       // Terminal: Phase 39 replaced the "Pipeline stopped" header with the
       // RunChatLane terminal "Cancelled by you" card and running cards clear.
@@ -183,16 +183,16 @@ test.describe("TS-X-03 — questionnaire auto-advance (cross-ref)", () => {
 test.describe("TS-X-04 — prototype tweaks debounce → iframe rebuild", () => {
   test("a Tweaks change rebuilds the prototype iframe (token change debounced 400ms; preset immediate)", async ({
     dashboard,
-    mockWs,
+    mockSse,
   }) => {
     // ── Reach the prototype preview (mirror TS-O-05) ──────────────────────────
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "A todo app" });
 
     const agents = AGENTS.od_prototype;
-    mockWs.start(agents, { pipelineType: "od_prototype" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_prototype", finalOutput: PROTOTYPE_HTML });
+    mockSse.start(agents, { pipelineType: "od_prototype" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_prototype", finalOutput: PROTOTYPE_HTML });
 
     // PrototypePreview builds the Blob URL on an effect tick — poll for the iframe.
     const iframe = dashboard.prototypeIframe();

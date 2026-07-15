@@ -21,17 +21,17 @@ test.describe("TS-CHAT-CARDS — result cards, deep-link, attachments (mocked)",
   // baseline, DEF-29-06-1): a `pipeline_start` flips `isRunning` → the execution
   // view mounts. Seeding agents also keeps the right panel on the PreviewPanel
   // (tabs), not the planning overlay, and the lane in "building" composer mode.
-  test.beforeEach(async ({ dashboard, mockWs }) => {
+  test.beforeEach(async ({ dashboard, mockSse }) => {
     await dashboard.goto();
-    mockWs.start(AGENTS.user_stories, { pipelineType: "user_stories" });
+    mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });
     await expect(dashboard.page.getByTestId("run-chat-lane")).toBeVisible();
   });
 
   // ── TS-CHAT-CARDS-01 — deliverable card (LOCK-F) + deep-link tab switch ──────
-  test("TS-CHAT-CARDS-01 a deliverable card is labeled 'Deliverable' and its deep-link switches the Preview tab", async ({ dashboard, mockWs }) => {
+  test("TS-CHAT-CARDS-01 a deliverable card is labeled 'Deliverable' and its deep-link switches the Preview tab", async ({ dashboard, mockSse }) => {
     const page = dashboard.page;
 
-    mockWs.chatReply({ cardKind: "deliverable", text: "Your output is ready to view." });
+    mockSse.chatReply({ cardKind: "deliverable", text: "Your output is ready to view." });
 
     const card = page.getByTestId("chat-result-card");
     await expect(card).toBeVisible();
@@ -54,10 +54,10 @@ test.describe("TS-CHAT-CARDS — result cards, deep-link, attachments (mocked)",
   });
 
   // ── TS-CHAT-CARDS-02 — spec_revision card reads "Revising spec — cycle N" ────
-  test("TS-CHAT-CARDS-02 a spec_revision card reads 'Revising spec — cycle N' (KAN-101 loop, distinct from a family revision)", async ({ dashboard, mockWs }) => {
+  test("TS-CHAT-CARDS-02 a spec_revision card reads 'Revising spec — cycle N' (KAN-101 loop, distinct from a family revision)", async ({ dashboard, mockSse }) => {
     const page = dashboard.page;
 
-    mockWs.chatReply({ cardKind: "spec_revision", text: "Reworking the specification from the analysis." });
+    mockSse.chatReply({ cardKind: "spec_revision", text: "Reworking the specification from the analysis." });
 
     const card = page.getByTestId("chat-result-card");
     await expect(card).toBeVisible();

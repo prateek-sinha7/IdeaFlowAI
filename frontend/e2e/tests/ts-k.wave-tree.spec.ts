@@ -21,9 +21,9 @@ test.describe("TS-K — wave / subagent tree", () => {
     // the Build Agent) are driven by ws.start below (the mocked WS is the source
     // of truth for the rendered pipeline, independent of the launched row).
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Build an Apple-style reference prototype" });
-    dashboard.ws.start(AGENTS.od_prototype, { pipelineType: "od_prototype", runId: "run-e2e-1" });
+    dashboard.sse.start(AGENTS.od_prototype, { pipelineType: "od_prototype", runId: "run-e2e-1" });
     // Make the Build Agent navigable (a running row → opens L2), then drill in.
-    dashboard.ws.agentStart("prototype-build");
+    dashboard.sse.agentStart("prototype-build");
     await dashboard.thinkingTab().click();
     await dashboard.page.getByRole("button", { name: /Build Agent/i }).first().click();
   });
@@ -35,11 +35,11 @@ test.describe("TS-K — wave / subagent tree", () => {
     await expect(dashboard.waveEmpty()).toBeVisible();
   });
 
-  test("TS-K-03/04/05 wave group + nested task rows + status transitions", async ({ dashboard, mockWs }) => {
+  test("TS-K-03/04/05 wave group + nested task rows + status transitions", async ({ dashboard, mockSse }) => {
     // A wave over three tasks; two concurrent subagents => the wave ran in parallel.
-    mockWs.waveStarted(0, "fanout", ["t1", "t2", "t3"]);
-    mockWs.subagentSpawned(0, "fanout", "ui-proto-researcher", 0);
-    mockWs.subagentSpawned(0, "fanout", "ui-proto-researcher", 1);
+    mockSse.waveStarted(0, "fanout", ["t1", "t2", "t3"]);
+    mockSse.subagentSpawned(0, "fanout", "ui-proto-researcher", 0);
+    mockSse.subagentSpawned(0, "fanout", "ui-proto-researcher", 1);
 
     // The wave header (1-based) with its parallel kind, and the three tasks nested
     // under it as navigable rows (the mock's model — tasks under waves, not workers).
@@ -47,17 +47,17 @@ test.describe("TS-K — wave / subagent tree", () => {
     await expect(dashboard.page.getByText("parallel").first()).toBeVisible();
     await expect(dashboard.page.getByTestId("construction-task-row")).toHaveCount(3);
 
-    mockWs.subagentResult(0, "fanout", "ui-proto-researcher", 0);
-    mockWs.subagentResult(0, "fanout", "ui-proto-researcher", 1);
-    mockWs.waveCompleted(0, "fanout");
+    mockSse.subagentResult(0, "fanout", "ui-proto-researcher", 0);
+    mockSse.subagentResult(0, "fanout", "ui-proto-researcher", 1);
+    mockSse.waveCompleted(0, "fanout");
     // Once a wave exists the empty affordance is gone and the wave reads completed.
     await expect(dashboard.waveEmpty()).toHaveCount(0);
     await expect(dashboard.page.getByText("completed").first()).toBeVisible();
   });
 
-  test("TS-K-01 wave heading is visible once drilled into the Build Agent", async ({ dashboard, mockWs }) => {
-    mockWs.waveStarted(0, "fanout", ["t1"]);
-    mockWs.subagentSpawned(0, "fanout", "ui-proto-researcher", 0);
+  test("TS-K-01 wave heading is visible once drilled into the Build Agent", async ({ dashboard, mockSse }) => {
+    mockSse.waveStarted(0, "fanout", ["t1"]);
+    mockSse.subagentSpawned(0, "fanout", "ui-proto-researcher", 0);
 
     const heading = dashboard.waveHeading();
     await expect(heading).toBeVisible();

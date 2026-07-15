@@ -133,7 +133,7 @@ test.describe("TS-G — pre-run Review-gates section", () => {
     await expect(header).toContainText("1 agent pause for review");
   });
 
-  test("TS-G-03a toggle → run_pipeline carries gate_agent_ids (because the section was touched)", async ({ dashboard, mockWs }) => {
+  test("TS-G-03a toggle → run_pipeline carries gate_agent_ids (because the section was touched)", async ({ dashboard, mockSse }) => {
     const page = dashboard.page;
     const header = gatesHeader(page);
 
@@ -151,19 +151,19 @@ test.describe("TS-G — pre-run Review-gates section", () => {
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
 
-    const f = await mockWs.waitForClientFrame("run_pipeline");
+    const f = await mockSse.waitForCommand("run_pipeline");
     // Touched ⇒ gate_agent_ids present (TOP-LEVEL) as an array of the checked ids.
     expect(Array.isArray(f.gate_agent_ids)).toBe(true);
     // Domain Discovery Agent → id "domain-analyst" (the row we checked).
     expect(f.gate_agent_ids).toEqual(["domain-analyst"]);
   });
 
-  test("TS-G-03b run without touching the section → gate_agent_ids omitted", async ({ dashboard, mockWs }) => {
+  test("TS-G-03b run without touching the section → gate_agent_ids omitted", async ({ dashboard, mockSse }) => {
     // Do NOT touch the Review-gates section at all. Run straight away.
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
 
-    const f = await mockWs.waitForClientFrame("run_pipeline");
+    const f = await mockSse.waitForCommand("run_pipeline");
     // Untouched ⇒ the field is omitted entirely (backend uses its static default).
     expect(f.gate_agent_ids).toBeUndefined();
   });

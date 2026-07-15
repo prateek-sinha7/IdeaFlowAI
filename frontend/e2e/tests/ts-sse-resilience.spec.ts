@@ -24,7 +24,7 @@
  * (DEF-29-06-1).
  */
 import { test, expect } from "../fixtures/test";
-import { installMockSse, MockSse, SSE_URL_RE } from "../fixtures/mockSse";
+import { SSE_URL_RE } from "../fixtures/mockSse";
 
 interface WireEvent {
   seq: number;
@@ -90,12 +90,13 @@ async function readCursor(
 test.describe("TS-SSE-RESILIENCE — sse-resilience transport (D-14)", () => {
   test("TS-SSE-RESILIENCE-01 sse-resilience: page reload resumes the transcript via native Last-Event-ID", async ({
     dashboard,
-    mockWs,
+    mockSse,
     page,
   }) => {
+    mockSse.autoAttach = false; // drive the transport by hand (no competing app stream)
     await dashboard.goto();
-    const sse = await installMockSse(page, mockWs);
-    const runId = mockWs.currentRunId;
+    const sse = mockSse;
+    const runId = mockSse.currentRunId;
     const streamPath = `/api/runs/${runId}/events/stream`;
 
     // Seed + attach: the durable transcript so far.
@@ -113,9 +114,6 @@ test.describe("TS-SSE-RESILIENCE — sse-resilience transport (D-14)", () => {
     sse.chatReply({ cardKind: "deliverable", text: "done" }); // seq 4
 
     await page.reload();
-    // Re-install the transport route (page.route is cleared by a reload) onto the
-    // SAME Node-side driver + seq space, and re-arm the WS mock for the reload.
-    await page.route(SSE_URL_RE, (route) => sse.handle(route));
 
     // Native resume: reattach carrying Last-Event-ID = the persisted cursor.
     const resumeFrom = await readCursor(page, runId);
@@ -137,12 +135,13 @@ test.describe("TS-SSE-RESILIENCE — sse-resilience transport (D-14)", () => {
 
   test("TS-SSE-RESILIENCE-02 sse-resilience: route-change keeps the resume cursor (app-level ownership)", async ({
     dashboard,
-    mockWs,
+    mockSse,
     page,
   }) => {
+    mockSse.autoAttach = false; // drive the transport by hand (no competing app stream)
     await dashboard.goto();
-    const sse = await installMockSse(page, mockWs);
-    const runId = mockWs.currentRunId;
+    const sse = mockSse;
+    const runId = mockSse.currentRunId;
     const streamPath = `/api/runs/${runId}/events/stream`;
 
     sse.streamAttached({ live: true }); // seq 1
@@ -169,12 +168,13 @@ test.describe("TS-SSE-RESILIENCE — sse-resilience transport (D-14)", () => {
 
   test("TS-SSE-RESILIENCE-03 sse-resilience: auto-reconnect after a drop replays only past-cursor frames", async ({
     dashboard,
-    mockWs,
+    mockSse,
     page,
   }) => {
+    mockSse.autoAttach = false; // drive the transport by hand (no competing app stream)
     await dashboard.goto();
-    const sse = await installMockSse(page, mockWs);
-    const runId = mockWs.currentRunId;
+    const sse = mockSse;
+    const runId = mockSse.currentRunId;
     const streamPath = `/api/runs/${runId}/events/stream`;
 
     sse.streamAttached({ live: true }); // seq 1
@@ -207,20 +207,19 @@ test.describe("TS-SSE-RESILIENCE — sse-resilience transport (D-14)", () => {
 
   test("TS-SSE-RESILIENCE-04 sse-resilience: multi-tab consumers ride ONE monotonic seq/event_id space", async ({
     dashboard,
-    mockWs,
+    mockSse,
     page,
   }) => {
+    mockSse.autoAttach = false; // drive the transport by hand (no competing app stream)
     await dashboard.goto();
-    const runId = mockWs.currentRunId;
+    const runId = mockSse.currentRunId;
     const streamPath = `/api/runs/${runId}/events/stream`;
 
-    // One shared driver on the shared MockWs seq/event_id source, routed onto
-    // BOTH tabs (real separate pages in the same context) — no second seq space.
-    const sse = new MockSse(mockWs);
-    await page.route(SSE_URL_RE, (route) => sse.handle(route));
-
+    // One shared driver (the fixture's MockSse), its SSE route projected onto BOTH
+    // tabs (real separate pages in the same context) — one monotonic seq space.
+    const sse = mockSse;
     const tab2 = await page.context().newPage();
-    await tab2.route(SSE_URL_RE, (route) => sse.handle(route));
+    await tab2.route(SSE_URL_RE, (route) => sse.route(route));
     await tab2.goto("/login", { waitUntil: "domcontentloaded" });
 
     sse.streamAttached({ live: true }); // seq 1
@@ -238,7 +237,7 @@ test.describe("TS-SSE-RESILIENCE — sse-resilience transport (D-14)", () => {
 
     // One monotonic seq space shared with MockWs; event_ids globally unique so
     // each tab dedups deterministically.
-    expect(mockWs.currentSeq).toBe(3);
+    expect(mockSse.currentSeq).toBe(3);
     const eventIds = a.map((e) => e.data.event_id);
     expect(new Set(eventIds).size).toBe(eventIds.length);
     // The two tabs saw identical event_ids for identical seqs (one space).

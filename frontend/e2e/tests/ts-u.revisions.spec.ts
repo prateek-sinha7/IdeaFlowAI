@@ -44,7 +44,7 @@ const REVISED_DECK = `<!DOCTYPE html><html><body>${Array.from({ length: 6 })
   .join("")}</body></html>`;
 
 test.describe("TS-U — revision runs", () => {
-  test("TS-U-01 od_ppt revise sends run_revision and renders the revised deck", async ({ dashboard, mockWs, mockApi }) => {
+  test("TS-U-01 od_ppt revise sends run_revision and renders the revised deck", async ({ dashboard, mockSse, mockApi }) => {
     // A completed parent run so currentWorkflowRunId resolves. After the od_ppt
     // run the workflowType normalises to "ppt", so the parent lookup matches a
     // run of type "ppt" (or "ppt_revision"). type:"ppt" is the match.
@@ -59,9 +59,9 @@ test.describe("TS-U — revision runs", () => {
 
     // ── Complete an od_ppt run ───────────────────────────────────────────────
     const agents = AGENTS.od_ppt;
-    mockWs.start(agents, { pipelineType: "od_ppt" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
+    mockSse.start(agents, { pipelineType: "od_ppt" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
 
     // The PPT preview renders the deck iframe.
     await expect(dashboard.deckIframe()).toBeVisible();
@@ -78,20 +78,20 @@ test.describe("TS-U — revision runs", () => {
     // confirm-first refinement chip; confirm to launch the revision (decision 5).
     await dashboard.page.getByTestId("chat-refinement-confirm").click();
 
-    const frame = await mockWs.waitForClientFrame("run_revision");
+    const frame = await mockSse.waitForClientFrame("run_revision");
     // Phase 39: revising through the lane composer dispatches handleRevisePpt, which
     // links the parent to `contentSourceRunId` — the ON-SCREEN run (the od_ppt run
-    // just completed = mockWs.currentRunId), not the seeded history run. This is the
+    // just completed = mockSse.currentRunId), not the seeded history run. This is the
     // faithful parent of the deck being revised.
-    expect(frame.parent_run_id).toBe(mockWs.currentRunId);
+    expect(frame.parent_run_id).toBe(mockSse.currentRunId);
     // od_ppt normalised → ppt ⇒ target is "ppt_output" (see header note).
     expect(frame.target_artifact_type).toBe("ppt_output");
     expect(frame.instruction).toBe("Add a slide about ROI");
 
     // ── Drive the revision run → revised deck shows ──────────────────────────
-    mockWs.start(agents, { pipelineType: "od_ppt_revision" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
+    mockSse.start(agents, { pipelineType: "od_ppt_revision" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
 
     // The deck iframe is still present and now carries the revised content.
     const deck = dashboard.deckIframe();
@@ -101,16 +101,16 @@ test.describe("TS-U — revision runs", () => {
       .toContain("Revised Slide");
   });
 
-  test("TS-U-02 a revision run shows NO clarify questionnaire", async ({ dashboard, mockWs, mockApi }) => {
+  test("TS-U-02 a revision run shows NO clarify questionnaire", async ({ dashboard, mockSse, mockApi }) => {
     mockApi.setRuns([makeRun({ id: "parent-ppt-2", title: "Deck", type: "ppt", status: "completed" })]);
 
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "An ROI deck" });
 
     const agents = AGENTS.od_ppt;
-    mockWs.start(agents, { pipelineType: "od_ppt" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
+    mockSse.start(agents, { pipelineType: "od_ppt" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
 
     await expect(dashboard.deckIframe()).toBeVisible();
     // Phase 39: revise via the settled lane composer (absorbed the per-preview bar).
@@ -118,29 +118,29 @@ test.describe("TS-U — revision runs", () => {
     await dashboard.page.getByTestId("chat-send").click();
     // 44-02: confirm the held refinement chip to launch the revision (decision 5).
     await dashboard.page.getByTestId("chat-refinement-confirm").click();
-    await mockWs.waitForClientFrame("run_revision");
+    await mockSse.waitForClientFrame("run_revision");
 
     // Drive the revision run to completion WITHOUT ever emitting questionnaire_ready
     // (revisions skip clarify — manifest planner: skip). The Quick Setup
     // questionnaire must never appear.
-    mockWs.start(agents, { pipelineType: "od_ppt_revision" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
+    mockSse.start(agents, { pipelineType: "od_ppt_revision" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
 
     await expect(dashboard.deckIframe()).toBeVisible();
     // No clarify form at any point of the revision run.
     await expect(dashboard.questionnaireTitle()).toHaveCount(0);
   });
 
-  test("TS-U-07 user-story revise sends a user_stories_revision run_pipeline frame", async ({ dashboard, mockWs }) => {
+  test("TS-U-07 user-story revise sends a user_stories_revision run_pipeline frame", async ({ dashboard, mockSse }) => {
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
 
     // ── Complete a user_stories run so the backlog + Revise bar render ───────
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
 
     await expect(dashboard.page.getByText("Product Backlog").first()).toBeVisible();
     // Phase 39: the per-preview Revise bar was absorbed into the run lane composer,
@@ -157,7 +157,7 @@ test.describe("TS-U — revision runs", () => {
     // 44-02: confirm the held refinement chip to launch the revision (decision 5).
     await dashboard.page.getByTestId("chat-refinement-confirm").click();
 
-    const frame = await mockWs.waitForClientFrame(
+    const frame = await mockSse.waitForClientFrame(
       (f) => f.type === "run_pipeline" && f.pipeline_type === "user_stories_revision",
     );
     expect(frame.pipeline_type).toBe("user_stories_revision");

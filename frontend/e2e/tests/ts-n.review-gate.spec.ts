@@ -22,7 +22,7 @@
  * Both share the type `approve_review`; they are disambiguated by `approved`.
  *
  * Setup: select a workflow + Run + a `pipeline_start` (so the surface is live and
- * the Steps spine has data), fire `mockWs.reviewGateReady({...})`, then open the
+ * the Steps spine has data), fire `mockSse.reviewGateReady({...})`, then open the
  * Steps tab. The gate's `agentId` (prototype-specify / prototype-plan) does not
  * match the seeded user_stories agents, so the gate renders via the spine's
  * foot-of-list fallback — the panel is workflow-agnostic.
@@ -55,9 +55,9 @@ function gate(page: Page) {
 }
 
 /** Run + pipeline_start so the execution surface is mounted and live. */
-async function liveRun(dashboard: import("../fixtures/dashboard").DashboardPage, mockWs: import("../fixtures/mockWs").MockWs) {
+async function liveRun(dashboard: import("../fixtures/dashboard").DashboardPage, mockSse: import("../fixtures/mockSse").MockSse) {
   await dashboard.runWith({ workflow: WORKFLOW, idea: IDEA });
-  mockWs.start(AGENTS.user_stories, { pipelineType: "user_stories" });
+  mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });
 }
 
 test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
@@ -65,9 +65,9 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await dashboard.goto();
   });
 
-  test("TS-N-01 spec gate renders the inline gate header", async ({ dashboard, mockWs }) => {
-    await liveRun(dashboard, mockWs);
-    mockWs.reviewGateReady({
+  test("TS-N-01 spec gate renders the inline gate header", async ({ dashboard, mockSse }) => {
+    await liveRun(dashboard, mockSse);
+    mockSse.reviewGateReady({
       gateKey: "g1",
       agentId: "prototype-specify",
       agentName: "Spec Writer",
@@ -81,9 +81,9 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await expect(g.getByText("Spec Writer · review before continuing")).toBeVisible();
   });
 
-  test("TS-N-01 tasks gate renders the inline gate header", async ({ dashboard, mockWs }) => {
-    await liveRun(dashboard, mockWs);
-    mockWs.reviewGateReady({
+  test("TS-N-01 tasks gate renders the inline gate header", async ({ dashboard, mockSse }) => {
+    await liveRun(dashboard, mockSse);
+    mockSse.reviewGateReady({
       gateKey: "g1",
       agentId: "prototype-plan",
       agentName: "Task Planner",
@@ -96,9 +96,9 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await expect(g.getByText("Task Planner · review before continuing")).toBeVisible();
   });
 
-  test("TS-N-02 preview mode: spec sections render as cards", async ({ dashboard, mockWs }) => {
-    await liveRun(dashboard, mockWs);
-    mockWs.reviewGateReady({
+  test("TS-N-02 preview mode: spec sections render as cards", async ({ dashboard, mockSse }) => {
+    await liveRun(dashboard, mockSse);
+    mockSse.reviewGateReady({
       gateKey: "g1",
       agentId: "prototype-specify",
       agentName: "Spec Writer",
@@ -115,9 +115,9 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await expect(dashboard.page.getByText("The spec.")).toBeVisible();
   });
 
-  test("TS-N-02 preview mode: tasks render via the TasksPreview list", async ({ dashboard, mockWs }) => {
-    await liveRun(dashboard, mockWs);
-    mockWs.reviewGateReady({
+  test("TS-N-02 preview mode: tasks render via the TasksPreview list", async ({ dashboard, mockSse }) => {
+    await liveRun(dashboard, mockSse);
+    mockSse.reviewGateReady({
       gateKey: "g1",
       agentId: "prototype-plan",
       agentName: "Task Planner",
@@ -136,9 +136,9 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await expect(dashboard.page.getByText("Wire the API")).toBeVisible();
   });
 
-  test("TS-N-03 edit mode: toggle reveals a prefilled mono textarea", async ({ dashboard, mockWs }) => {
-    await liveRun(dashboard, mockWs);
-    mockWs.reviewGateReady({
+  test("TS-N-03 edit mode: toggle reveals a prefilled mono textarea", async ({ dashboard, mockSse }) => {
+    await liveRun(dashboard, mockSse);
+    mockSse.reviewGateReady({
       gateKey: "g1",
       agentId: "prototype-specify",
       agentName: "Spec Writer",
@@ -161,9 +161,9 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await expect(textarea).toHaveValue(SPEC_OUTPUT);
   });
 
-  test("TS-N-04 approve: sends approve_review(approved:true) then the gate clears on ack", async ({ dashboard, mockWs }) => {
-    await liveRun(dashboard, mockWs);
-    mockWs.reviewGateReady({
+  test("TS-N-04 approve: sends approve_review(approved:true) then the gate clears on ack", async ({ dashboard, mockSse }) => {
+    await liveRun(dashboard, mockSse);
+    mockSse.reviewGateReady({
       gateKey: "g1",
       agentId: "prototype-specify",
       agentName: "Spec Writer",
@@ -177,7 +177,7 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await g.getByTestId("chat-gate-approve").click();
 
     // Disambiguate the shared `approve_review` type by `approved: true`.
-    const f = await mockWs.waitForClientFrame(
+    const f = await mockSse.waitForClientFrame(
       (frame) => frame.type === "approve_review" && frame.approved === true,
     );
     expect(f.gate_key).toBe("g1");
@@ -186,13 +186,13 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     expect(f.edited_content).toBeNull();
 
     // Server acks → review_gate_approved clears reviewGateData → the gate unmounts.
-    mockWs.reviewGateApproved();
+    mockSse.reviewGateApproved();
     await expect(g).toHaveCount(0);
   });
 
-  test("TS-N-04b approve with edits: sends the edited content", async ({ dashboard, mockWs }) => {
-    await liveRun(dashboard, mockWs);
-    mockWs.reviewGateReady({
+  test("TS-N-04b approve with edits: sends the edited content", async ({ dashboard, mockSse }) => {
+    await liveRun(dashboard, mockSse);
+    mockSse.reviewGateReady({
       gateKey: "g1",
       agentId: "prototype-specify",
       agentName: "Spec Writer",
@@ -212,16 +212,16 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await expect(g.getByTestId("chat-gate-approve")).toHaveText(/Approve with edits & build/);
     await g.getByTestId("chat-gate-approve").click();
 
-    const f = await mockWs.waitForClientFrame(
+    const f = await mockSse.waitForClientFrame(
       (frame) => frame.type === "approve_review" && frame.approved === true,
     );
     expect(f.gate_key).toBe("g1");
     expect(f.edited_content).toBe(edited);
   });
 
-  test("TS-N-05 reject: Request changes → two-step confirm sends approve_review(approved:false)", async ({ dashboard, mockWs }) => {
-    await liveRun(dashboard, mockWs);
-    mockWs.reviewGateReady({
+  test("TS-N-05 reject: Request changes → two-step confirm sends approve_review(approved:false)", async ({ dashboard, mockSse }) => {
+    await liveRun(dashboard, mockSse);
+    mockSse.reviewGateReady({
       gateKey: "g1",
       agentId: "prototype-specify",
       agentName: "Spec Writer",
@@ -240,7 +240,7 @@ test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
     await g.getByTestId("chat-gate-reject").click();
 
     // Reject is the SAME type with approved:false and no edited_content.
-    const f = await mockWs.waitForClientFrame(
+    const f = await mockSse.waitForClientFrame(
       (frame) => frame.type === "approve_review" && frame.approved === false,
     );
     expect(f.gate_key).toBe("g1");

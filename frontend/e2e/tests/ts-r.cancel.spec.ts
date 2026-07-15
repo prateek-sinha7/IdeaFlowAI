@@ -10,29 +10,29 @@ import { test, expect } from "../fixtures/test";
 import { AGENTS, runAgent } from "../fixtures/scenarios";
 
 test.describe("TS-R — cancel", () => {
-  test.beforeEach(async ({ dashboard, mockWs }) => {
+  test.beforeEach(async ({ dashboard, mockSse }) => {
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Generate epics for a refunds workflow" });
-    mockWs.start(AGENTS.user_stories, { pipelineType: "user_stories" });
+    mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });
     // An agent is in flight when the user hits Stop.
-    mockWs.agentStart(AGENTS.user_stories[0].id);
+    mockSse.agentStart(AGENTS.user_stories[0].id);
   });
 
-  test("TS-R-01 Stop sends a cancel_pipeline frame", async ({ dashboard, mockWs }) => {
+  test("TS-R-01 Stop sends a cancel_pipeline frame", async ({ dashboard, mockSse }) => {
     await expect(dashboard.runningBadge().first()).toBeVisible();
     await expect(dashboard.stopButton()).toBeVisible();
 
     await dashboard.stopButton().click();
     // The only outbound effect of Stop is the cancel_pipeline frame; reset is
     // driven by the inbound pipeline_cancelled event, not the click.
-    await mockWs.waitForClientFrame("cancel_pipeline");
+    await mockSse.waitForClientFrame("cancel_pipeline");
   });
 
-  test("TS-R-02 cancelled clears in-flight cards but preserves DONE agents", async ({ dashboard, mockWs }) => {
+  test("TS-R-02 cancelled clears in-flight cards but preserves DONE agents", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
     // Finish one agent (stays DONE), leave another in flight (clears to idle).
-    await runAgent(mockWs, agents[0].id);
-    mockWs.agentStart(agents[1].id);
+    await runAgent(mockSse, agents[0].id);
+    mockSse.agentStart(agents[1].id);
     // Run-level running badge is present while building.
     await expect(dashboard.runningBadge()).toHaveCount(1);
 
@@ -44,9 +44,9 @@ test.describe("TS-R — cancel", () => {
     await expect(dashboard.stepsAgentRow(agents[0].name)).toBeEnabled();
 
     await dashboard.stopButton().click();
-    await mockWs.waitForClientFrame("cancel_pipeline");
+    await mockSse.waitForClientFrame("cancel_pipeline");
 
-    mockWs.cancelled({ duration: 8 });
+    mockSse.cancelled({ duration: 8 });
 
     // Phase 39 redesign: the retired AgentProgressPanel "Pipeline stopped" header is
     // replaced by the RunChatLane terminal "Cancelled by you" card (runState=terminal,
@@ -62,11 +62,11 @@ test.describe("TS-R — cancel", () => {
     await expect(dashboard.stepsAgentRow(agents[0].name)).toBeEnabled();
   });
 
-  test("TS-R-03 a live cancel shows neutral preview chrome, not failure chrome", async ({ dashboard, mockWs }) => {
+  test("TS-R-03 a live cancel shows neutral preview chrome, not failure chrome", async ({ dashboard, mockSse }) => {
     await dashboard.stopButton().click();
-    await mockWs.waitForClientFrame("cancel_pipeline");
+    await mockSse.waitForClientFrame("cancel_pipeline");
 
-    mockWs.cancelled({ duration: 8 });
+    mockSse.cancelled({ duration: 8 });
     // Phase 39 redesign: "Cancelled by you" (RunChatLane terminal card) is the heir
     // of the retired "Pipeline stopped" header for a live cancel.
     await expect(dashboard.page.getByText("Cancelled by you")).toBeVisible();

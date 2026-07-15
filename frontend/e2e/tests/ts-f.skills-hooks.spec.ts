@@ -161,7 +161,7 @@ test.describe("TS-F — Skills & Hooks", () => {
     await expect(page.getByText("Format + Typecheck on Stop", { exact: true }).first()).toBeVisible();
   });
 
-  test("TS-F-05 attached skill + hook are persisted into the run_pipeline payload", async ({ dashboard, mockWs }) => {
+  test("TS-F-05 attached skill + hook are persisted into the run_pipeline payload", async ({ dashboard, mockSse }) => {
     const page = dashboard.page;
     await openSkillsHooksTab(dashboard);
 
@@ -192,7 +192,7 @@ test.describe("TS-F — Skills & Hooks", () => {
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
 
-    const f = await mockWs.waitForClientFrame("run_pipeline");
+    const f = await mockSse.waitForCommand("run_pipeline");
 
     // attached_skills: non-empty, each item carries id/name/content.
     expect(Array.isArray(f.attached_skills)).toBe(true);

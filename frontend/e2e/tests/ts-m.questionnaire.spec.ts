@@ -18,7 +18,7 @@
  * The `submit_questionnaire` resume channel is UNCHANGED.
  *
  * Setup: home → "Generate product requirements" (→ user_stories) → Run, drive
- * `mockWs.questionnaireReady([...])`, then open the Steps tab.
+ * `mockSse.questionnaireReady([...])`, then open the Steps tab.
  */
 import { test, expect } from "../fixtures/test";
 import type { Page } from "@playwright/test";
@@ -34,8 +34,8 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
   });
 
-  test("TS-M-02 renders the clarify questions as chips + a single submit", async ({ dashboard, mockWs }) => {
-    mockWs.questionnaireReady([
+  test("TS-M-02 renders the clarify questions as chips + a single submit", async ({ dashboard, mockSse }) => {
+    mockSse.questionnaireReady([
       { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
       { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
     ]);
@@ -51,8 +51,8 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
     await expect(clarify.getByTestId("chat-clarify-submit")).toHaveText(/Submit answers & start the build/);
   });
 
-  test("TS-M-03 selecting a chip marks it selected (inverted brand fill)", async ({ dashboard, mockWs }) => {
-    mockWs.questionnaireReady([
+  test("TS-M-03 selecting a chip marks it selected (inverted brand fill)", async ({ dashboard, mockSse }) => {
+    mockSse.questionnaireReady([
       { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
       { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
     ]);
@@ -108,8 +108,8 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
     // surface: components/chat/InlineClarifyActions.tsx (chat-clarify-submit).
   });
 
-  test("TS-M-06 submit sends submit_questionnaire; questionnaire_complete dismisses the clarify", async ({ dashboard, mockWs }) => {
-    mockWs.questionnaireReady([
+  test("TS-M-06 submit sends submit_questionnaire; questionnaire_complete dismisses the clarify", async ({ dashboard, mockSse }) => {
+    mockSse.questionnaireReady([
       { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
       { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
     ]);
@@ -124,8 +124,8 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
     await clarify.getByTestId("chat-clarify-submit").click();
 
     // Outbound frame: { type:"submit_questionnaire", pipeline_run_id, responses }.
-    const frame = await mockWs.waitForClientFrame("submit_questionnaire");
-    expect(frame.pipeline_run_id).toBe(mockWs.currentRunId);
+    const frame = await mockSse.waitForClientFrame("submit_questionnaire");
+    expect(frame.pipeline_run_id).toBe(mockSse.currentRunId);
     const responses = frame.responses as Array<{ question_id: string; answer: string }>;
     expect(responses).toEqual(
       expect.arrayContaining([
@@ -135,7 +135,7 @@ test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
     );
 
     // Resolving the gate clears the inline clarify.
-    mockWs.questionnaireComplete();
+    mockSse.questionnaireComplete();
     await expect(clarify).toHaveCount(0);
   });
 });

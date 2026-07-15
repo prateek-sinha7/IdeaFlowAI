@@ -11,18 +11,18 @@ test.describe("TS-Q — terminal states", () => {
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
   });
 
-  test("TS-Q-01 success renders the deliverable, no failure chrome", async ({ dashboard, mockWs }) => {
+  test("TS-Q-01 success renders the deliverable, no failure chrome", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
 
     await expect(dashboard.page.getByText("Product Backlog").first()).toBeVisible();
     await expect(dashboard.degradedHeading()).toHaveCount(0);
   });
 
-  test("TS-Q-02 model error → pipeline_failed → new failed chrome (Audit-default + red lane card)", async ({ dashboard, mockWs }) => {
-    await playFailedRun(mockWs, "user_stories");
+  test("TS-Q-02 model error → pipeline_failed → new failed chrome (Audit-default + red lane card)", async ({ dashboard, mockSse }) => {
+    await playFailedRun(mockSse, "user_stories");
 
     // Run-level failed token (lane-run-status, failed tone).
     await expect(dashboard.errorBadge().first()).toBeVisible();
@@ -43,12 +43,12 @@ test.describe("TS-Q — terminal states", () => {
     await expect(dashboard.previewEmpty()).toHaveCount(0);
   });
 
-  test("TS-Q-05 clean empty completion shows neutral state, NOT the affordance", async ({ dashboard, mockWs }) => {
+  test("TS-Q-05 clean empty completion shows neutral state, NOT the affordance", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockWs, a.id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
     // Completes with no content and NO failure signal.
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: "" });
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: "" });
 
     await expect(dashboard.previewEmpty()).toBeVisible();
     await expect(dashboard.degradedHeading()).toHaveCount(0);

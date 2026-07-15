@@ -74,7 +74,7 @@ test.describe("TS-C — idea input & trigger", () => {
     await expect(run).toHaveText(/Run workflow/);
   });
 
-  test("TS-C-04 Cmd/Ctrl+Enter from the textarea triggers the run", async ({ dashboard, mockWs, page }) => {
+  test("TS-C-04 Cmd/Ctrl+Enter from the textarea triggers the run", async ({ dashboard, mockSse, page }) => {
     await dashboard.selectWorkflow("Generate product requirements");
     // Phase-39 "Fused Home" mounts its OWN launcher <textarea> (#home-launch-prompt),
     // so `ideaTextarea().first()` can land on the home field mid-transition. Wait for
@@ -93,11 +93,11 @@ test.describe("TS-C — idea input & trigger", () => {
     await ta.press("ControlOrMeta+Enter");
 
     // The app dispatches a run_pipeline frame (proves the keyboard path runs).
-    const frame = await mockWs.waitForClientFrame("run_pipeline");
+    const frame = await mockSse.waitForCommand("run_pipeline");
     expect(frame.pipeline_type).toBe("user_stories");
   });
 
-  test("TS-C-06 attach file shows a chip and injects the filename into the brief", async ({ dashboard, page, mockWs }) => {
+  test("TS-C-06 attach file shows a chip and injects the filename into the brief", async ({ dashboard, page, mockSse }) => {
     await dashboard.selectWorkflow("Generate product requirements");
     // Wait for the input view — the Phase-39 "Fused Home" launcher <textarea> would
     // otherwise steal `ideaTextarea().first()` mid-transition (see TS-C-04).
@@ -124,7 +124,7 @@ test.describe("TS-C — idea input & trigger", () => {
     // outbound run_pipeline `message` carries an "=== Attached: spec.txt ===" block
     // (IdeaInputPage.handleRun fileBlocks). Run it and assert that injection.
     await dashboard.runButton().click();
-    const frame = await mockWs.waitForClientFrame("run_pipeline");
+    const frame = await mockSse.waitForCommand("run_pipeline");
     expect(String(frame.message)).toContain("Attached: spec.txt");
   });
 
@@ -179,7 +179,7 @@ test.describe("TS-C — idea input & trigger", () => {
     await expect(run).toHaveText(/Run workflow/);
   });
 
-  test("TS-C-10 trigger swaps to the execution view and emits run_pipeline", async ({ dashboard, mockWs, page }) => {
+  test("TS-C-10 trigger swaps to the execution view and emits run_pipeline", async ({ dashboard, mockSse, page }) => {
     // runWith: select user_stories, type a brief, click Run, await the frame.
     await dashboard.runWith({
       workflow: "Generate product requirements",
@@ -193,11 +193,11 @@ test.describe("TS-C — idea input & trigger", () => {
     // instead (the reliable input-view-unmounted signal).
     await expect(page.getByRole("heading", { name: /Provide the brief/i })).toHaveCount(0);
     // And the run_pipeline frame was sent for this pipeline type.
-    expect(mockWs.framesOfType("run_pipeline").length).toBeGreaterThan(0);
+    expect(mockSse.framesOfType("run_pipeline").length).toBeGreaterThan(0);
 
     // Seed the agent cards via pipeline_start and assert one renders on the
     // execution surface (cards come from pipeline_start, not the pre-run seed).
-    mockWs.start(AGENTS.user_stories, { pipelineType: "user_stories" });
+    mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });
     await expect(dashboard.agentCardByName("Domain Discovery Agent").first()).toBeVisible();
   });
 });

@@ -9,7 +9,7 @@
  * formatCost:   0 → `—` (em dash), <0.001 → `<$0.001`, else `~$X.XXX` (3dp).
  * The summary renders only when (totalTokens || totalInputTokens) is truthy
  * AND the panel isComplete. The cost label model name comes from model_id
- * (mockWs.complete sends the Haiku 4.5 id → `Est. cost (Haiku 4.5)`).
+ * (mockSse.complete sends the Haiku 4.5 id → `Est. cost (Haiku 4.5)`).
  */
 import { test, expect } from "../fixtures/test";
 import { AGENTS, runAgent } from "../fixtures/scenarios";
@@ -28,16 +28,16 @@ test.describe("TS-L — token usage summary", () => {
     dashboard.page.locator("div").filter({ hasText: /^Est\. cost/ }).last();
 
   /** Start the canned user_stories run and run every agent to done. */
-  async function runAllAgents(mockWs: import("../fixtures/mockWs").MockWs) {
+  async function runAllAgents(mockSse: import("../fixtures/mockSse").MockSse) {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockWs, a.id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
     return agents;
   }
 
-  test("TS-L-01 summary card: total, input/output breakdown, cost label + value", async ({ dashboard, mockWs }) => {
-    await runAllAgents(mockWs);
-    mockWs.complete({
+  test("TS-L-01 summary card: total, input/output breakdown, cost label + value", async ({ dashboard, mockSse }) => {
+    await runAllAgents(mockSse);
+    mockSse.complete({
       pipelineType: "user_stories",
       finalOutput: "# Product Backlog\n",
       inputTokens: 5000,
@@ -61,9 +61,9 @@ test.describe("TS-L — token usage summary", () => {
     // cost row removed in the KAN-83 token-summary restyle (total/input/output only)
   });
 
-  test("TS-L-02 number format: 1.5M total", async ({ dashboard, mockWs }) => {
-    await runAllAgents(mockWs);
-    mockWs.complete({
+  test("TS-L-02 number format: 1.5M total", async ({ dashboard, mockSse }) => {
+    await runAllAgents(mockSse);
+    mockSse.complete({
       pipelineType: "user_stories",
       finalOutput: "# Product Backlog\n",
       totalTokens: 1_500_000,
@@ -72,9 +72,9 @@ test.describe("TS-L — token usage summary", () => {
     await expect(dashboard.page.getByText("1.5M total", { exact: true })).toBeVisible();
   });
 
-  test("TS-L-02 number format: raw 950 total", async ({ dashboard, mockWs }) => {
-    await runAllAgents(mockWs);
-    mockWs.complete({
+  test("TS-L-02 number format: raw 950 total", async ({ dashboard, mockSse }) => {
+    await runAllAgents(mockSse);
+    mockSse.complete({
       pipelineType: "user_stories",
       finalOutput: "# Product Backlog\n",
       totalTokens: 950,
@@ -90,9 +90,9 @@ test.describe("TS-L — token usage summary", () => {
   // mounted anywhere. These test only the removed cost display, so they are
   // marked test.fixme (skipped) to preserve the exact assertions for re-enable
   // if cost estimation returns — see each test.fixme reason below.
-  test.fixme("TS-L-03 cost format: zero → em dash — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockWs }) => {
-    await runAllAgents(mockWs);
-    mockWs.complete({
+  test.fixme("TS-L-03 cost format: zero → em dash — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockSse }) => {
+    await runAllAgents(mockSse);
+    mockSse.complete({
       pipelineType: "user_stories",
       finalOutput: "# Product Backlog\n",
       totalTokens: 8000, // keep card visible; only the cost is under test
@@ -103,9 +103,9 @@ test.describe("TS-L — token usage summary", () => {
     await expect(costRow(dashboard)).toContainText("—");
   });
 
-  test.fixme("TS-L-03 cost format: sub-cent → <$0.001 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockWs }) => {
-    await runAllAgents(mockWs);
-    mockWs.complete({
+  test.fixme("TS-L-03 cost format: sub-cent → <$0.001 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockSse }) => {
+    await runAllAgents(mockSse);
+    mockSse.complete({
       pipelineType: "user_stories",
       finalOutput: "# Product Backlog\n",
       totalTokens: 8000,
@@ -115,9 +115,9 @@ test.describe("TS-L — token usage summary", () => {
     await expect(costRow(dashboard)).toContainText("<$0.001");
   });
 
-  test.fixme("TS-L-03 cost format: 0.042 → ~$0.042 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockWs }) => {
-    await runAllAgents(mockWs);
-    mockWs.complete({
+  test.fixme("TS-L-03 cost format: 0.042 → ~$0.042 — cost display removed in KAN-83 restyle; re-enable if cost estimation returns", async ({ dashboard, mockSse }) => {
+    await runAllAgents(mockSse);
+    mockSse.complete({
       pipelineType: "user_stories",
       finalOutput: "# Product Backlog\n",
       totalTokens: 8000,
@@ -134,12 +134,12 @@ test.describe("TS-L — token usage summary", () => {
   // sets status:"done" and totalTokens ATOMICALLY (useWorkflow.ts:383-388), so a
   // done agent always carries its tokens in production (where the panel opens on a
   // settled run). Quarantined pending a robust drill-in sync; body preserved verbatim.
-  test.fixme("TS-L-04 per-agent token count: DONE agent detail shows 3.1K tok (flaky drill-in — see note above)", async ({ dashboard, mockWs }) => {
+  test.fixme("TS-L-04 per-agent token count: DONE agent detail shows 3.1K tok (flaky drill-in — see note above)", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
     // Complete the first agent with an explicit per-agent total.
-    mockWs.agentStart(agents[0].id);
-    mockWs.agentComplete(agents[0].id, { totalTokens: 3100 });
+    mockSse.agentStart(agents[0].id);
+    mockSse.agentComplete(agents[0].id, { totalTokens: 3100 });
 
     // Phase 39 retired the AgentProgressPanel's per-agent "3.1K tokens" pill. The
     // per-agent token count now lives in the Steps L2 detail (AgentDetailPanel),

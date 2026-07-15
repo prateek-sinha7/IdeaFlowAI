@@ -22,10 +22,10 @@ test.describe("TS-I — live agent panels", () => {
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Generate epics for a refunds workflow" });
   });
 
-  test("TS-I-01/02/03 per-agent RUNNING → DONE → ERROR states surface in Steps", async ({ dashboard, mockWs }) => {
+  test("TS-I-01/02/03 per-agent RUNNING → DONE → ERROR states surface in Steps", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
 
     await dashboard.openSteps();
     await expect(dashboard.stepsAgentRow("Domain Discovery Agent")).toBeVisible();
@@ -35,47 +35,47 @@ test.describe("TS-I — live agent panels", () => {
 
     // DONE + next RUNNING — agent0 completes, agent1 starts: the single "Live"
     // badge moves to agent1 (agent0's row is no longer live).
-    mockWs.agentComplete(agents[0].id);
-    mockWs.agentStart(agents[1].id);
+    mockSse.agentComplete(agents[0].id);
+    mockSse.agentStart(agents[1].id);
     await expect(dashboard.stepsLiveBadge()).toHaveCount(1);
 
     // ERROR — agent1 errors: the overview flips to "Run failed" and the agent's
     // L2 detail surfaces the sanitized failure message.
-    mockWs.agentError(agents[1].id, "The model rejected this request.");
+    mockSse.agentError(agents[1].id, "The model rejected this request.");
     await expect(dashboard.page.getByText("Run failed", { exact: true })).toBeVisible();
 
     await dashboard.openAgentDetail("Story Writer");
     await expect(dashboard.page.getByText("The model rejected this request.").first()).toBeVisible();
   });
 
-  test("TS-I-05 run header reflects progress then completion", async ({ dashboard, mockWs }) => {
+  test("TS-I-05 run header reflects progress then completion", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
-    mockWs.agentComplete(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
+    mockSse.agentComplete(agents[0].id);
     // The lane run-header meta shows "{completed}/{total} agents" while building.
     await expect(dashboard.page.getByText(/\d+\/\d+ agents/)).toBeVisible();
 
-    for (const a of agents.slice(1)) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
+    for (const a of agents.slice(1)) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
     // Completion → the run header status settles into the "Done" token.
     await expect(dashboard.doneBadge()).toBeVisible();
   });
 
-  test("TS-I-07 + TS-R Stop sends cancel and clears the running state", async ({ dashboard, mockWs }) => {
+  test("TS-I-07 + TS-R Stop sends cancel and clears the running state", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
     await expect(dashboard.runningBadge().first()).toBeVisible();
 
     await expect(dashboard.stopButton()).toBeVisible();
     await dashboard.stopButton().click();
     // The app sends a cancel_pipeline frame.
-    await mockWs.waitForClientFrame("cancel_pipeline");
+    await mockSse.waitForClientFrame("cancel_pipeline");
 
     // Server acks the cancel → the terminal "Cancelled by you" ack shows and the
     // run-header running token clears (replaces the old "Pipeline stopped").
-    mockWs.cancelled({ duration: 8 });
+    mockSse.cancelled({ duration: 8 });
     await expect(dashboard.page.getByText("Cancelled by you")).toBeVisible();
     await expect(dashboard.runningBadge()).toHaveCount(0);
   });
@@ -87,16 +87,16 @@ test.describe("TS-I — extended", () => {
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Generate epics for a refunds workflow" });
   });
 
-  test("TS-I-04 a completed agent's output is reachable in its Steps detail", async ({ dashboard, mockWs }) => {
+  test("TS-I-04 a completed agent's output is reachable in its Steps detail", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
 
     // agent_chunk accumulates onto the agent's output; agent_complete settles it.
     // Use a distinctive marker to assert on.
     const marker = "Refunds discovery findings: 3 epics, 7 stories.";
-    mockWs.agentStart(agents[0].id);
-    mockWs.agentChunk(agents[0].id, marker);
-    mockWs.agentComplete(agents[0].id);
+    mockSse.agentStart(agents[0].id);
+    mockSse.agentChunk(agents[0].id, marker);
+    mockSse.agentComplete(agents[0].id);
 
     // Drill into the agent's L2 detail → the "Agent output" disclosure holds the
     // streamed output (Phase 39 relocated it from the in-lane card to Steps L2).
@@ -109,20 +109,20 @@ test.describe("TS-I — extended", () => {
     await expect(dashboard.page.getByText(marker)).toBeVisible();
   });
 
-  test("TS-I-06 progress advances as agents complete", async ({ dashboard, mockWs }) => {
+  test("TS-I-06 progress advances as agents complete", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
 
     // The lane run-header count is the load-bearing progress signal; it grows as
     // agents complete (replaces the old motion-fill h-0.5 bar in the run lane).
     await expect(dashboard.page.getByText("0/3 agents")).toBeVisible();
 
-    mockWs.agentStart(agents[0].id);
-    mockWs.agentComplete(agents[0].id);
+    mockSse.agentStart(agents[0].id);
+    mockSse.agentComplete(agents[0].id);
     await expect(dashboard.page.getByText("1/3 agents")).toBeVisible();
 
-    mockWs.agentStart(agents[1].id);
-    mockWs.agentComplete(agents[1].id);
+    mockSse.agentStart(agents[1].id);
+    mockSse.agentComplete(agents[1].id);
     await expect(dashboard.page.getByText("2/3 agents")).toBeVisible();
 
     // The Steps overview renders a segmented progress track (one segment/agent).
@@ -130,11 +130,11 @@ test.describe("TS-I — extended", () => {
     await expect(dashboard.stepsProgressTrack()).toBeVisible();
   });
 
-  test("TS-I-08 a completed run settles into the Done state with a follow-up composer", async ({ dashboard, mockWs }) => {
+  test("TS-I-08 a completed run settles into the Done state with a follow-up composer", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
 
     // The completion affordance is now the settled "Done" status + a follow-up
     // composer (the old footer "New Pipeline" button is retired with the panel).
@@ -142,9 +142,9 @@ test.describe("TS-I — extended", () => {
     await expect(dashboard.ideaTextarea()).toBeVisible();
   });
 
-  test("TS-I-09 seed-then-transition: agents seed idle, then exactly one runs", async ({ dashboard, mockWs }) => {
+  test("TS-I-09 seed-then-transition: agents seed idle, then exactly one runs", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
     await dashboard.openSteps();
 
     // All three agents seeded in the spine (idle), before any agent_start; none live.
@@ -152,21 +152,21 @@ test.describe("TS-I — extended", () => {
     await expect(dashboard.stepsLiveBadge()).toHaveCount(0);
 
     // Start one — exactly one agent goes Live; all three rows remain.
-    mockWs.agentStart(agents[0].id);
+    mockSse.agentStart(agents[0].id);
     await expect(dashboard.stepsLiveBadge()).toHaveCount(1);
     for (const a of agents) await expect(dashboard.stepsAgentRow(a.name)).toBeVisible();
 
     // Complete it — no agent live; all three rows remain (transitioned in place).
-    mockWs.agentComplete(agents[0].id);
+    mockSse.agentComplete(agents[0].id);
     await expect(dashboard.stepsLiveBadge()).toHaveCount(0);
     for (const a of agents) await expect(dashboard.stepsAgentRow(a.name)).toBeVisible();
   });
 
-  test("TS-I-10 a completed agent shows a wall-clock duration in its Steps row", async ({ dashboard, mockWs }) => {
+  test("TS-I-10 a completed agent shows a wall-clock duration in its Steps row", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
-    mockWs.agentComplete(agents[0].id, { duration: 2 });
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
+    mockSse.agentComplete(agents[0].id, { duration: 2 });
 
     await dashboard.openSteps();
     const row = dashboard.stepsAgentRow("Domain Discovery Agent");

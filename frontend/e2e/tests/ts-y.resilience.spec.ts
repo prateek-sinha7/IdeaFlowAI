@@ -8,10 +8,10 @@
  * JWT-expiry close (4001) must clear the token and bounce to /login.
  *
  * Mechanics that make these pass in mocked mode (NO backend):
- *   - page.routeWebSocket persists for the page → after `mockWs.drop()` closes
+ *   - the SSE stream reattaches after `mockSse.drop()` closes it —
  *     the socket (code 1006), useWebSocket.onclose schedules connect() with
  *     backoff `min(1000*2^n, 30000)` — first retry ~1s. That re-open re-fires
- *     MockWs._attach, so `mockWs.connectionCount` increments (1 → ≥ 2).
+ *     MockSse._attach, so `mockSse.connectionCount` increments (1 → ≥ 2).
  *   - During that ~1s backoff window useWebSocket sets connectionStatus
  *     "reconnecting", which renders the DashboardLayout banner `Reconnecting...`
  *     (the only "reconnecting"-branch markup; the red `Connection lost.` +
@@ -32,24 +32,24 @@ import { test, expect } from "../fixtures/test";
 import { AGENTS } from "../fixtures/scenarios";
 
 test.describe("TS-Y — resilience / long-run", () => {
-  test("TS-Y-01 WS drop → reconnect banner + socket auto-reopens (backoff)", async ({ dashboard, mockWs, page }) => {
+  test("TS-Y-01 WS drop → reconnect banner + socket auto-reopens (backoff)", async ({ dashboard, mockSse, page }) => {
     const agents = AGENTS.user_stories;
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Generate epics for a refunds workflow" });
 
     // Keep the run mid-flight so the reconnect path has a live run to resume.
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
     await expect(dashboard.runningBadge().first()).toBeVisible();
 
     // The app opened exactly one socket so far (dashboard.goto awaited ready()).
-    expect(mockWs.connectionCount).toBe(1);
-    const connectionsBefore = mockWs.connectionCount;
+    expect(mockSse.connectionCount).toBe(1);
+    const connectionsBefore = mockSse.connectionCount;
 
     // Drop the socket (close 1006). useWebSocket.onclose (not JWT, not
     // intentional) → connectionStatus "reconnecting" + a 1s backoff timer.
     const droppedAt = Date.now();
-    mockWs.drop();
+    mockSse.drop();
 
     // The reconnect banner appears during the backoff window. EXACT copy is
     // `Reconnecting...` (DashboardLayout connectionStatus === "reconnecting").
@@ -58,27 +58,27 @@ test.describe("TS-Y — resilience / long-run", () => {
     // The socket re-opens on the first backoff retry (~1s) → connectionCount
     // increments. expect.poll auto-retries; NO hard sleep.
     await expect
-      .poll(() => mockWs.connectionCount, { timeout: 5000 })
+      .poll(() => mockSse.connectionCount, { timeout: 5000 })
       .toBeGreaterThan(connectionsBefore);
-    expect(mockWs.connectionCount).toBeGreaterThanOrEqual(2);
+    expect(mockSse.connectionCount).toBeGreaterThanOrEqual(2);
 
     // Diagnostic: how long the reconnect took (first backoff is ~1s).
-    console.log(`[TS-Y-01] reconnect observed after ${Date.now() - droppedAt}ms (connectionCount=${mockWs.connectionCount})`);
+    console.log(`[TS-Y-01] reconnect observed after ${Date.now() - droppedAt}ms (connectionCount=${mockSse.connectionCount})`);
   });
 
-  test("TS-Y-04 JWT expiry (close 4001) clears the token and redirects to /login", async ({ dashboard, mockWs, page }) => {
+  test("TS-Y-04 JWT expiry (close 4001) clears the token and redirects to /login", async ({ dashboard, mockSse, page }) => {
     const agents = AGENTS.user_stories;
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
 
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
     await expect(dashboard.runningBadge().first()).toBeVisible();
 
     // Server closes with code 4001 → useWebSocket.onclose calls clearToken()
     // (localStorage.removeItem("auth_token")) and sets window.location = "/login"
     // (NO backoff reconnect on JWT expiry).
-    mockWs.expireJwt();
+    mockSse.expireJwt();
 
     // The redirect fires.
     await page.waitForURL(/\/login/, { timeout: 15000 });

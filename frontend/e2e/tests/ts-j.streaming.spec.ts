@@ -24,14 +24,14 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
     });
   });
 
-  test("TS-J-01 Steps opens on the overview spine after pipeline_start", async ({ dashboard, mockWs }) => {
+  test("TS-J-01 Steps opens on the overview spine after pipeline_start", async ({ dashboard, mockSse }) => {
     // The redesign mounts the run screen on server pipeline_start (not
     // optimistically) with the run's data already present, so the Steps tab opens
     // on the glanceable overview SPINE (status line + navigable agent rows) rather
     // than the defensive EmptyState (which the unit test covers). Assert the spine
     // mounted: the status line + the first agent's row are visible.
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
     await expect(dashboard.page.getByText("Running", { exact: true })).toBeVisible();
     await expect(
@@ -39,11 +39,11 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
     ).toBeVisible();
   });
 
-  test("TS-J-02 Reasoning (live) stream with blinking cursor (drilled into the running agent)", async ({ dashboard, mockWs }) => {
+  test("TS-J-02 Reasoning (live) stream with blinking cursor (drilled into the running agent)", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
-    mockWs.agentThinking(agents[0].id, "analyzing the brief in detail ...");
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
+    mockSse.agentThinking(agents[0].id, "analyzing the brief in detail ...");
     await dashboard.thinkingTab().click();
 
     // Drill into the running agent's L2 detail, where the live reasoning renders.
@@ -53,73 +53,73 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
     await expect(dashboard.page.getByText("analyzing the brief in detail ...", { exact: false })).toBeVisible();
   });
 
-  test("TS-J-03 running row is highlighted in the overview spine", async ({ dashboard, mockWs }) => {
+  test("TS-J-03 running row is highlighted in the overview spine", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
 
     // Phase 42 REMOVED the spine's "Live" text pill (it now lives ONLY in the L2
     // agent-detail header). The running row is instead marked by its violet
     // highlight + a pulsing brand dot → exactly one running spine row.
-    mockWs.agentStart(agents[0].id);
+    mockSse.agentStart(agents[0].id);
     await expect(dashboard.stepsLiveBadge()).toHaveCount(1);
     await expect(dashboard.stepsLiveBadge()).toContainText(agents[0].name);
 
     // Completed → no running row highlighted; the row's node flips to the done
     // check and it stays navigable.
-    mockWs.agentComplete(agents[0].id);
+    mockSse.agentComplete(agents[0].id);
     await expect(dashboard.stepsLiveBadge()).toHaveCount(0);
     await expect(dashboard.page.getByRole("button", { name: new RegExp(agents[0].name, "i") })).toBeVisible();
   });
 
-  test("TS-J-04 status line: Running → Run complete", async ({ dashboard, mockWs }) => {
+  test("TS-J-04 status line: Running → Run complete", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
 
     // While running → "Running".
-    mockWs.agentStart(agents[0].id);
+    mockSse.agentStart(agents[0].id);
     await expect(dashboard.page.getByText("Running", { exact: true })).toBeVisible();
 
     // All complete + pipeline_complete → "Run complete".
     for (const a of agents) {
-      mockWs.agentStart(a.id);
-      mockWs.agentComplete(a.id);
+      mockSse.agentStart(a.id);
+      mockSse.agentComplete(a.id);
     }
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
     // Phase 42-02 (§B) auto-tabs a COMPLETED run to Preview, so the Steps overview
     // status line unmounts on completion. Re-open Steps to read its settled line.
     await dashboard.thinkingTab().click();
     await expect(dashboard.page.getByText("Run complete", { exact: true })).toBeVisible();
   });
 
-  test("TS-J-04 status line: Run failed", async ({ dashboard, mockWs }) => {
+  test("TS-J-04 status line: Run failed", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
 
     // One agent errors, the rest complete, then pipeline_complete (not running)
     // → the status line reads "Run failed".
-    mockWs.agentStart(agents[0].id);
-    mockWs.agentError(agents[0].id, "The model rejected this request.");
+    mockSse.agentStart(agents[0].id);
+    mockSse.agentError(agents[0].id, "The model rejected this request.");
     for (const a of agents.slice(1)) {
-      mockWs.agentStart(a.id);
-      mockWs.agentComplete(a.id);
+      mockSse.agentStart(a.id);
+      mockSse.agentComplete(a.id);
     }
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: "" });
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: "" });
     // Phase 42-03 (§D) auto-tabs a terminal-FAILED run to Audit, so the Steps
     // overview status line unmounts. Re-open Steps to read its settled line.
     await dashboard.thinkingTab().click();
     await expect(dashboard.page.getByText("Run failed", { exact: true })).toBeVisible();
   });
 
-  test("TS-J-05 Deep-Planner card is NOT surfaced on the Steps overview (PROCEED)", async ({ dashboard, mockWs }) => {
+  test("TS-J-05 Deep-Planner card is NOT surfaced on the Steps overview (PROCEED)", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
     // pipeline_start first so the run is "active" and the run screen mounts.
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
-    mockWs.plannerStart();
-    mockWs.plannerComplete("Build a refunds backlog", "PROCEED");
+    mockSse.plannerStart();
+    mockSse.plannerComplete("Build a refunds backlog", "PROCEED");
 
     // Phase 39 plan 02 (human ruling): the Deep-Planner card was DROPPED from the
     // Steps overview to match the mock's clean spine. The run still renders — the
@@ -128,24 +128,24 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
     await expect(dashboard.page.getByText("Deep Planner")).toHaveCount(0);
   });
 
-  test("TS-J-05 Deep-Planner card is NOT surfaced on the Steps overview (CLARIFY)", async ({ dashboard, mockWs }) => {
+  test("TS-J-05 Deep-Planner card is NOT surfaced on the Steps overview (CLARIFY)", async ({ dashboard, mockSse }) => {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
+    mockSse.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
-    mockWs.plannerStart();
-    mockWs.plannerComplete("Build a refunds backlog", "CLARIFY_REQUIRED");
+    mockSse.plannerStart();
+    mockSse.plannerComplete("Build a refunds backlog", "CLARIFY_REQUIRED");
 
     await expect(dashboard.page.getByRole("button", { name: new RegExp(agents[0].name, "i") })).toBeVisible();
     await expect(dashboard.page.getByText("Deep Planner")).toHaveCount(0);
   });
 
-  test("TS-J-06 generic overview renders the prototype pipeline (SC-001, no name gate)", async ({ dashboard, mockWs }) => {
+  test("TS-J-06 generic overview renders the prototype pipeline (SC-001, no name gate)", async ({ dashboard, mockSse }) => {
     // AGENTS.od_prototype carries the prototype-specify/-plan/-build/-validate
     // ids; the bespoke PrototypePipelineView was retired (Phase 32 / SC-001), so
     // prototype runs now render through the SAME generic overview spine.
     const agents = AGENTS.od_prototype;
-    mockWs.start(agents, { pipelineType: "od_prototype" });
-    mockWs.agentStart(agents[0].id); // prototype-specify (Spec Writer) running
+    mockSse.start(agents, { pipelineType: "od_prototype" });
+    mockSse.agentStart(agents[0].id); // prototype-specify (Spec Writer) running
     await dashboard.thinkingTab().click();
 
     // The generic spine shows the Spec Writer row (navigable → opens its detail).

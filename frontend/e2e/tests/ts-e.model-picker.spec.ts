@@ -113,7 +113,7 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
     expect(optionTexts).toHaveLength(ALLOWED_LABELS.length + 2);
   });
 
-  test("TS-E-03 picking a non-default model emits it under selections on run_pipeline", async ({ dashboard, page, mockWs }) => {
+  test("TS-E-03 picking a non-default model emits it under selections on run_pipeline", async ({ dashboard, page, mockSse }) => {
     // Drill into the FIRST agent (Domain Discovery Agent) Config → Model lever and
     // choose "Sonnet 4.6". Select by VALUE (the model id) — robust to the option's
     // new "{label} ({tier})" text format.
@@ -127,7 +127,7 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
 
-    const f = await mockWs.waitForClientFrame("run_pipeline");
+    const f = await mockSse.waitForCommand("run_pipeline");
     expect(f.pipeline_type).toBe("user_stories");
 
     // Phase 39: per-agent model now threads via the top-level `selections` object
@@ -140,7 +140,7 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
     expect(Object.values(selections!).map((s) => s.model)).toContain(SONNET_46_ID);
   });
 
-  test("TS-E-04 re-selecting Default removes the per-agent model (selections omitted)", async ({ dashboard, page, mockWs }) => {
+  test("TS-E-04 re-selecting Default removes the per-agent model (selections omitted)", async ({ dashboard, page, mockSse }) => {
     // Pick a model, then put it back to Default for the same (first) agent.
     const model = await openFirstAgentModelLever(page);
     await model.selectOption(SONNET_46_ID);
@@ -151,7 +151,7 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
     await expect(dashboard.runButton()).toBeEnabled();
     await dashboard.runButton().click();
 
-    const f = await mockWs.waitForClientFrame("run_pipeline");
+    const f = await mockSse.waitForCommand("run_pipeline");
 
     // Clearing the agent's only lever empties its selection → the agent key is
     // dropped → `selections` is omitted entirely (byte-identical plain-run payload).

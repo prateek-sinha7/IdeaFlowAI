@@ -1,8 +1,9 @@
 /**
  * Shared constants for the Flowin E2E suite.
- * The app's defaults point REST → http://localhost:8000 and WS →
- * ws://localhost:8000/ws/chat (see frontend/src/lib/env.ts). In mocked mode
- * Playwright intercepts BOTH from the browser, so no backend is required and no
+ * The app's defaults point REST → http://localhost:8000 and it streams runs over
+ * SSE from `GET /api/runs/{id}/events/stream` (SSE is the sole transport, 44-06;
+ * see frontend/src/hooks/useRunStream.ts). In mocked mode Playwright intercepts
+ * the REST + SSE calls from the browser, so no backend is required and no
  * NEXT_PUBLIC_* env wiring is needed — the Next app is served on :3000 and its
  * calls to :8000 are routed by our fixtures.
  */
@@ -10,9 +11,6 @@
 export const APP_ORIGIN = "http://localhost:3000";
 export const TOKEN_KEY = "auth_token"; // localStorage key — frontend/src/lib/api.ts
 export const TEST_JWT = "e2e.test.jwt-token"; // any non-empty string; the backend never sees it in mocked mode
-
-/** Regex that matches the WS endpoint regardless of host/port. */
-export const WS_URL_RE = /\/ws\/chat(\?|$)/;
 
 /** The 5 catalog models surfaced by GET /api/capabilities → model_catalog.
  *  Mirrors backend agents/capabilities/model_catalog.py (user_allowed filtered

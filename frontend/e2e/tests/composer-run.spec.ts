@@ -40,7 +40,7 @@ async function addOneAgent(dashboard: DashboardPage) {
 }
 
 test.describe("Composer Run-once — launch through the existing seam", () => {
-  test("CR-01 Simple Run-once fires run_pipeline(custom, agent_ids) and lands on the run screen", async ({ dashboard, mockWs, page }) => {
+  test("CR-01 Simple Run-once fires run_pipeline(custom, agent_ids) and lands on the run screen", async ({ dashboard, mockSse, page }) => {
     await openComposer(dashboard);
 
     // Compose a small pipeline (the composer opens empty for 'custom').
@@ -53,7 +53,7 @@ test.describe("Composer Run-once — launch through the existing seam", () => {
     // The composed run crosses the EXISTING onStartPipeline → startPipeline seam:
     // the outbound run_pipeline frame carries the composed base_pipeline_type +
     // agent ids (no new contract, no fabricated cost — ND-AG).
-    const frame = await mockWs.waitForClientFrame("run_pipeline");
+    const frame = await mockSse.waitForCommand("run_pipeline");
     expect(frame.pipeline_type).toBe("custom");
     expect(Array.isArray(frame.agent_ids)).toBe(true);
     expect((frame.agent_ids as string[]).length).toBe(2);
@@ -69,7 +69,7 @@ test.describe("Composer Run-once — launch through the existing seam", () => {
     await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
   });
 
-  test("CR-02 Canvas docked Run-once also launches through the seam", async ({ dashboard, mockWs, page }) => {
+  test("CR-02 Canvas docked Run-once also launches through the seam", async ({ dashboard, mockSse, page }) => {
     await openComposer(dashboard);
 
     // One node is enough for the Canvas launch (the composed id must reach the wire).
@@ -83,7 +83,7 @@ test.describe("Composer Run-once — launch through the existing seam", () => {
     // "Run once now" — match exactly).
     await page.getByRole("button", { name: "Run once", exact: true }).click();
 
-    const frame = await mockWs.waitForClientFrame("run_pipeline");
+    const frame = await mockSse.waitForCommand("run_pipeline");
     expect(frame.pipeline_type).toBe("custom");
     expect(Array.isArray(frame.agent_ids)).toBe(true);
     expect((frame.agent_ids as string[]).length).toBe(1);

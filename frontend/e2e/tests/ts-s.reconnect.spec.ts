@@ -11,9 +11,9 @@
  * survives the same-tab reload (set on pipeline_start in useWorkflow).
  *
  * Mechanics that make reload-based reconnect work in mocked mode:
- *   - page.routeWebSocket persists for the page → after reload MockWs._attach
- *     fires again, so `mockWs.connectionCount` increments (>= 2).
- *   - The `sent` array + the MockWs instance live node-side → they survive the
+ *   - the SSE stream re-attaches after reload
+ *     fires again, so `mockSse.connectionCount` increments (>= 2).
+ *   - The `sent` array + the MockSse instance live node-side → they survive the
  *     reload, so waitForClientFrame still resolves the post-reload frame.
  *   - For the reconnect to fire, the run must NOT have terminated before reload
  *     — we emit pipeline_start + ≥1 agent event but NEVER pipeline_complete
@@ -22,7 +22,7 @@
  *     state is fresh (lastSeqRef resets to 0) → after_seq is 0 (a valid >= 0
  *     full-tail replay offset). We only assert it is numeric and >= 0.
  *
- * After the handshake the backend would durably replay the tail; MockWs models
+ * After the handshake the backend would durably replay the tail; MockSse models
  * that by re-emitting pipeline_start (re-seeds cards) + the agent events, then
  * the `pipeline_reconnected{live,status}` verdict — so the UI assertions below
  * exercise the real post-replay state, not an empty fresh page.
@@ -31,117 +31,117 @@ import { test, expect } from "../fixtures/test";
 import { AGENTS } from "../fixtures/scenarios";
 
 test.describe("TS-S — reconnect / replay", () => {
-  test("TS-S-01 reconnect handshake on reload sends reconnect_pipeline with after_seq", async ({ dashboard, mockWs, page }) => {
+  test("TS-S-01 reconnect handshake on reload sends reconnect_pipeline with after_seq", async ({ dashboard, mockSse, page }) => {
     const agents = AGENTS.user_stories;
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Generate epics for a refunds workflow" });
 
     // pipeline_start persists active_pipeline_run_id to sessionStorage; at least
     // one agent event keeps the run mid-flight (NOT terminated) before reload.
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
-    mockWs.agentComplete(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
+    mockSse.agentComplete(agents[0].id);
     // Phase 39: the run-level done badge only appears once the WHOLE run settles;
     // a single completed agent (run still mid-flight) is now reflected by the
     // lane header's completed/total agents count. This is the pre-reload sync
     // barrier: one agent event processed, run NOT terminated.
     await expect(dashboard.page.getByText("1/3 agents")).toBeVisible();
 
-    const connectionsBefore = mockWs.connectionCount;
+    const connectionsBefore = mockSse.connectionCount;
 
     // Reload — re-auth (token via addInitScript) + reconnect. The dashboard's
     // reconnect effect re-emits reconnect_pipeline on the next "connected".
     await page.reload();
 
     // The socket reopens at least once more (stabilize the reload race).
-    await expect.poll(() => mockWs.connectionCount, { timeout: 15000 }).toBeGreaterThan(connectionsBefore);
-    expect(mockWs.connectionCount).toBeGreaterThanOrEqual(2);
+    await expect.poll(() => mockSse.connectionCount, { timeout: 15000 }).toBeGreaterThan(connectionsBefore);
+    expect(mockSse.connectionCount).toBeGreaterThanOrEqual(2);
 
-    const frame = await mockWs.waitForClientFrame("reconnect_pipeline");
-    expect(frame.pipeline_run_id).toBe(mockWs.currentRunId);
+    const frame = await mockSse.waitForClientFrame("reconnect_pipeline");
+    expect(frame.pipeline_run_id).toBe(mockSse.currentRunId);
     expect(typeof frame.after_seq).toBe("number");
     expect(frame.after_seq as number).toBeGreaterThanOrEqual(0);
   });
 
-  test("TS-S-03 live:false + terminal 'completed' resolves the run (no stuck spinner)", async ({ dashboard, mockWs, page }) => {
+  test("TS-S-03 live:false + terminal 'completed' resolves the run (no stuck spinner)", async ({ dashboard, mockSse, page }) => {
     const agents = AGENTS.user_stories;
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
 
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
     await expect(dashboard.runningBadge().first()).toBeVisible();
 
-    const connectionsBefore = mockWs.connectionCount;
+    const connectionsBefore = mockSse.connectionCount;
     await page.reload();
-    await expect.poll(() => mockWs.connectionCount, { timeout: 15000 }).toBeGreaterThan(connectionsBefore);
-    await mockWs.waitForClientFrame("reconnect_pipeline");
+    await expect.poll(() => mockSse.connectionCount, { timeout: 15000 }).toBeGreaterThan(connectionsBefore);
+    await mockSse.waitForClientFrame("reconnect_pipeline");
 
     // Backend durably replays the tail: re-seed cards + put one agent running so
     // the run is visibly in-flight again, THEN the terminal verdict.
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
     await expect(dashboard.runningBadge().first()).toBeVisible();
     await expect(dashboard.stopButton()).toBeVisible();
 
     // live:false + terminal 'completed' → handler sweeps agents to done and
     // resolves isRunning=false (the anti-hang contract). No perpetual spinner.
-    mockWs.reconnected({ live: false, status: "completed" });
+    mockSse.reconnected({ live: false, status: "completed" });
 
     await expect(dashboard.stopButton()).toHaveCount(0);
     await expect(dashboard.runningBadge()).toHaveCount(0);
     await expect(dashboard.doneBadge().first()).toBeVisible();
   });
 
-  test("TS-S-02 live:true keeps streaming the live tail to a normal completion", async ({ dashboard, mockWs, page }) => {
+  test("TS-S-02 live:true keeps streaming the live tail to a normal completion", async ({ dashboard, mockSse, page }) => {
     const agents = AGENTS.user_stories;
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Live-tail refunds backlog" });
 
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
-    mockWs.agentComplete(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
+    mockSse.agentComplete(agents[0].id);
     // Phase 39: run mid-flight (1 of 3 done) reads via the lane header agent count,
     // not the now run-level done badge.
     await expect(dashboard.page.getByText("1/3 agents")).toBeVisible();
 
-    const connectionsBefore = mockWs.connectionCount;
+    const connectionsBefore = mockSse.connectionCount;
     await page.reload();
-    await expect.poll(() => mockWs.connectionCount, { timeout: 15000 }).toBeGreaterThan(connectionsBefore);
-    await mockWs.waitForClientFrame("reconnect_pipeline");
+    await expect.poll(() => mockSse.connectionCount, { timeout: 15000 }).toBeGreaterThan(connectionsBefore);
+    await mockSse.waitForClientFrame("reconnect_pipeline");
 
     // Durable replay re-seeds cards; the first agent already finished.
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentComplete(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentComplete(agents[0].id);
 
     // live:true (12-09 engine→WS attach) — keep running; the live task streams
     // the remaining tail through the queue.
-    mockWs.reconnected({ live: true });
+    mockSse.reconnected({ live: true });
 
     // Continue the live tail to a normal terminal completion.
     for (const a of agents.slice(1)) {
-      mockWs.agentStart(a.id);
-      mockWs.agentComplete(a.id);
+      mockSse.agentStart(a.id);
+      mockSse.agentComplete(a.id);
     }
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
 
     // Phase 39 retired the "Done in …s" header; a settled run surfaces the Done
     // status token (lane-run-status, done tone).
     await expect(dashboard.doneBadge()).toBeVisible();
   });
 
-  test("TS-S/TS-Y-04 JWT expiry (close 4001) clears the token and redirects to /login", async ({ dashboard, mockWs, page }) => {
+  test("TS-S/TS-Y-04 JWT expiry (close 4001) clears the token and redirects to /login", async ({ dashboard, mockSse, page }) => {
     const agents = AGENTS.user_stories;
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
 
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    mockWs.agentStart(agents[0].id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    mockSse.agentStart(agents[0].id);
     await expect(dashboard.runningBadge().first()).toBeVisible();
 
     // Server closes with code 4001 → useWebSocket.onclose clears the token and
     // sets window.location = "/login" (NO backoff reconnect on JWT expiry).
-    mockWs.expireJwt();
+    mockSse.expireJwt();
 
     await expect(page).toHaveURL(/\/login/, { timeout: 15000 });
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();

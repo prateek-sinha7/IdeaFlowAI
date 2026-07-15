@@ -6,7 +6,7 @@
  */
 import type { Page, Locator } from "@playwright/test";
 import { expect } from "@playwright/test";
-import type { MockWs } from "./mockWs";
+import type { MockSse } from "./mockSse";
 import type { MockApi, Tier } from "./mockApi";
 import {
   DEFAULT_USER_WORKFLOWS, SEEDED_HISTORY_RUNS, SEEDED_ANALYTICS, seededHistoryFamily,
@@ -15,7 +15,7 @@ import {
 import { TOKEN_KEY, TEST_JWT } from "./constants";
 
 export class DashboardPage {
-  constructor(readonly page: Page, readonly ws: MockWs, readonly api: MockApi) {}
+  constructor(readonly page: Page, readonly sse: MockSse, readonly api: MockApi) {}
 
   // ── navigation ──────────────────────────────────────────────────────────────
 
@@ -55,7 +55,10 @@ export class DashboardPage {
     await this.page.addInitScript(([k, t]) => localStorage.setItem(k, t), [TOKEN_KEY, TEST_JWT]);
     await this.page.goto("/dashboard");
     await expect(this.homeHeading()).toBeVisible({ timeout: 15000 });
-    await this.ws.ready();
+    // SSE is the sole transport (44-06): the app attaches a run's stream only once
+    // a run is live (boot GET /api/runs non-terminal, or attachRun after launch) —
+    // there is no always-open socket to await here. The mock's lazy attach wires
+    // the stream when the spec launches (runWith) or emits (mockSse.start).
   }
 
   homeHeading(): Locator {
@@ -96,7 +99,9 @@ export class DashboardPage {
     await brief.fill(opts.idea);
     await expect(this.runButton()).toBeEnabled({ timeout: 10000 });
     await this.runButton().click();
-    if (opts.waitForFrame !== false) await this.ws.waitForClientFrame("run_pipeline", 20000);
+    // The app launches over REST (POST /api/runs, body { type:"run_pipeline", … });
+    // wait for the recorded up-channel command instead of a WS frame.
+    if (opts.waitForFrame !== false) await this.sse.waitForCommand("run_pipeline", 20000);
   }
 
   // ── composer / model picker ──────────────────────────────────────────────────
