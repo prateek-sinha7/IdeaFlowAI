@@ -8,6 +8,7 @@ import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook, Clar
 // path below is byte-for-byte unchanged. The shared handlePipelineMessage reducer
 // is transport-agnostic and untouched.
 import { ENV } from "@/lib/env";
+import { getToken, postAnswers } from "@/lib/api";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
 
 export interface UseWorkflowReturn {
@@ -159,19 +160,25 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   // ClarifyEngine force-proceeds immediately instead of re-asking up to 3 rounds.
   const submitQuestionnaire = useCallback(
     (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification = false) => {
-      const questionnairePayload = {
-        type: "submit_questionnaire",
-        pipeline_run_id: pipelineRunId,
-        responses,
-        skip_clarification: skipClarification,
-      };
-      // Flag-selected transport: SSE path posts the answers to the run
-      // (POST /api/runs/{id}/messages); flag-OFF path is the existing
-      // websocketSend, unchanged.
+      // Flag-selected transport. SSE path posts the answers to
+      // POST /api/runs/{id}/answers (AnswersCommand) — which takes `responses`
+      // with NO `message_id`, closing the R4 422 the /messages (MessageCommand)
+      // path raised. The ISS-027 `skip_clarification` force-proceed rides along.
+      // Flag-OFF path is the existing websocketSend WS frame, unchanged.
       if (ENV.SSE_TRANSPORT && runConnection.enabled) {
-        void runConnection.sendCommand(pipelineRunId, questionnairePayload);
+        void postAnswers(getToken() ?? "", pipelineRunId, {
+          responses,
+          skip_clarification: skipClarification,
+        }).catch((e) => console.error("postAnswers failed", e));
       } else {
-        websocketSend(JSON.stringify(questionnairePayload));
+        websocketSend(
+          JSON.stringify({
+            type: "submit_questionnaire",
+            pipeline_run_id: pipelineRunId,
+            responses,
+            skip_clarification: skipClarification,
+          }),
+        );
       }
     },
     [websocketSend, runConnection]

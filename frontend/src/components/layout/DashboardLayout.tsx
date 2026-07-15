@@ -31,7 +31,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { parseRunInput } from "@/lib/runInput";
-import { getToken, getChainContext, getRunFamily } from "@/lib/api";
+import { getToken, getChainContext, getRunFamily, postCancel } from "@/lib/api";
 import type { UserWorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -1239,14 +1239,21 @@ export function DashboardLayout({
     if (activePipelineRunId && onSubmitQuestionnaire) {
       // Step 1: unblock the clarify gate (fire and forget)
       onSubmitQuestionnaire(activePipelineRunId, [], true);
-      // Step 2: cancel the now-unblocked pipeline after a short delay
+      // Step 2: cancel the now-unblocked pipeline after a short delay.
+      // W2 (44-04): flag-selected transport. SSE ON → POST /{id}/cancel with the
+      // run id threaded (the WS frame was connection-scoped, carried no id); OFF
+      // → the existing WS cancel_pipeline frame (kept byte-identical until W4).
       setTimeout(() => {
-        if (websocketSend) {
+        if (runConnection.enabled) {
+          void postCancel(getToken() ?? "", activePipelineRunId).catch((e) =>
+            console.error("postCancel (cancel workflow) failed", e),
+          );
+        } else if (websocketSend) {
           websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
         }
       }, 200);
     }
-  }, [activePipelineRunId, onSubmitQuestionnaire, websocketSend, onResetPipeline]);
+  }, [activePipelineRunId, onSubmitQuestionnaire, websocketSend, onResetPipeline, runConnection]);
 
   // Handle "Reject & cancel pipeline" from the ReviewGatePanel.
   // KAN-95: the raw onRejectReview prop (from page.tsx) only sends the WS message
@@ -1336,8 +1343,19 @@ export function DashboardLayout({
   // Stop (absorbed) — the SAME cooperative cancel the AgentProgressPanel fired.
   // The pipeline_cancelled WS event drives the state reset (no eager onReset).
   const handleStopPipeline = useCallback(() => {
-    if (websocketSend) websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
-  }, [websocketSend]);
+    // W2 (44-04): flag-selected transport — REST cancel (run id threaded) when
+    // SSE is ON, else the existing connection-scoped WS cancel_pipeline frame.
+    if (runConnection.enabled) {
+      const runId = pipelineState?.pipelineRunId ?? activePipelineRunId;
+      if (runId) {
+        void postCancel(getToken() ?? "", runId).catch((e) =>
+          console.error("postCancel (stop) failed", e),
+        );
+      }
+    } else if (websocketSend) {
+      websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
+    }
+  }, [websocketSend, runConnection, pipelineState, activePipelineRunId]);
 
   // GENERIC live-run state that drives the D-12 composer mode (SC-001 — never a
   // workflow name). Priority: gate > clarify > building > terminal-failure >
