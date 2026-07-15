@@ -3080,7 +3080,7 @@ INV-3 gates stayed armed throughout: no golden/snapshot files were re-baselined 
 - **Code review (`32-REVIEW.md`, deep, 20 files):** 0 critical/high, 2 medium, 3 low. **MD-01** is the KAN-101 scope-widening described above — fixed by commit `bab42693` (ISS-038). **MD-02** — `specRevisionCount` became write-only dead state once `PrototypePipelineView` (its sole reader) was deleted, AND its bump guard was silently generalized from `wasAlreadyDone && agentId==="prototype-specify"` to plain `wasAlreadyDone` — a live ~3x-overcount bug waiting for the day something reads it again; the FIX-039 reset block itself stayed intact throughout. Fixed by dropping the dead state entirely, commit `621a406d` (ISS-039). **LW-01/LW-02** (`Button` had no default `type`, so it defaults to form-submitting `submit`; `Badge` fell back to the raw un-normalized `status` string when `label` was omitted) fixed together in `9df1960a` (ISS-040/041).
 - **UI audit (`32-UI-REVIEW.md`, 6-pillar, offline code-read against evidence-11 §B):** verdict **FLAG, 18/24** — 1 BLOCKER + 3 WARNING. The BLOCKER: `ReviewGatePanel.tsx` / `PreviewPanel.tsx` / `DashboardLayout.tsx` — files this very phase touched for SC-001/gate-wiring — still hardcoded the retired navy `#1B2A4A` (13×) + `#f5f5f0` (2×) + 77 retired `gray-*`/`blue-*` utilities, violating the one-blue mandate on in-scope surfaces. Fixed same-day, commit `6aab6804` ("Finish the Phase-32 reskin") — role-mapped to brand/ink/surface/line tokens, with semantic status colors and the self-contained Redo violet accent preserved and zero new hardcoded palette introduced. The WARNING-level cancelled-color split (`WaveTreePanel` red vs `Badge` amber, LW-03) was fixed by `650af67c` (ISS-042).
 - All 6 findings — ISS-038 through ISS-043 (the 6th being the `REQUIREMENTS.md` RUNUI-01/02/04/05 staleness `32-VERIFICATION.md` itself flagged, fixed by `7b2aa701`) — were logged and flipped `OPEN`→`FIXED` in `.planning/ISSUES-REGISTER.md` by commit `a0411597`.
-- **Tracking gap surfaced while writing this register entry:** ISS-035 and ISS-036 — the 2 Phase-31 HIGHs this phase's plan 32-05 fixed in code (proven live in `32-VERIFICATION.md` Truth #8 and `32-05-SUMMARY.md`) — are still marked `OPEN` in `.planning/ISSUES-REGISTER.md`. The code landed but the register rows were never reconciled; a one-line follow-up for whoever next touches that file.
+- **Tracking gap surfaced while writing this register entry:** ISS-035 and ISS-036 — the 2 Phase-31 HIGHs this phase's plan 32-05 fixed in code (proven live in `32-VERIFICATION.md` Truth #8 and `32-05-SUMMARY.md`) — were still marked `OPEN` in `.planning/ISSUES-REGISTER.md`. The code landed but the register rows were never reconciled. **RECONCILED in Phase 42 (plan 42-11):** both rows flipped `OPEN`→`RESOLVED` with the deciding commits (ISS-035 `8b478161`+32-06 render; ISS-036 `03997db3`) + the `32-VERIFICATION.md` Truth #8 evidence.
 
 ### Known follow-ups (out of scope)
 
@@ -3561,3 +3561,63 @@ INV-3 gates stayed armed throughout: no golden/snapshot files were re-baselined 
 - **setState-in-render cleanup** in the shared `AdvancedExpander`: `updateLever` calls `onSelectionsChange` inside `setSelections`'s updater (pre-existing anti-pattern, dev-warning-only, `selections`→`run_pipeline` contract intact). Now cheap to fix since `applyLeverPatch` is extracted; tracked, deferred.
 - **Live pass** — the mocked `composer-run.spec.ts` + any live Bedrock run deferred to the milestone-end live pass (offline mandate).
 - **Cosmetic** — a stale `ComposerPage.tsx` comment ("Canvas mounts in 41-05" though it is mounted).
+
+---
+
+## Phase 42 — Run Screen State Fidelity: kill legacy full-screen takeovers [B8]
+
+**Folder:** `.planning/phases/42-run-screen-state-fidelity-kill-legacy-full-screen-takeovers-/` (milestone **v2.0**, branch `feat/ui-2`).  ·  **Status:** Complete (2026-07-15) — 11/11 plans executed; whole phase **FRONTEND-ONLY** (INV-3 / LOCK-B: zero backend / `useWorkflow` / `useRunStream` / transport / manifest / golden change).  ·  **Plans:** 11 (42-01 harness → 42-02 kill-takeovers+auto-tab → 42-03 lane-hint+failed-tabs → 42-04 dead-code → 42-05 extract artifactPreview+delete ReviewGatePanel → 42-06 Steps header/clarify copy → 42-07 live Files/Audit → 42-08 gate 2-button → 42-09 artifact cards → 42-10 inline reskin → 42-11 gallery regen + register reconcile).  ·  **Plan-id → `CHAT-AND-UI-CONVERGENCE-PLAN.md` (v2.0 POR):** B8.
+
+**One-line outcome:** Every run state (planning · live · clarify · review-gate · complete · failed) now matches the three VelocityAI run mocks by **REMOVING the legacy full-screen right-panel takeovers** (`PlanningOverlay` / `QuestionnairePanel` / `ReviewGatePanel`) that shadowed the already-built inline surfaces — so the inline clarify/gate/result cards become reachable — plus the mock-required fidelity polish and the settled agent-detail artifact cards. Generically keyed (SC-001 — every render branch keys on `runState` / `laneGate` / `clarifyQuestions` / `artifactKind`, never a workflow/agent name), closed on per-state screenshot-diff + human sign-off via the regenerated fidelity gallery (not prose).
+
+### What shipped (by group)
+
+- **Takeovers removed + auto-tab (Group A/B, 42-02, `14fd527b`/`c1673fa0`/`94707834`):** the three full-screen panel BRANCHES removed from the cascade; the run screen auto-selects the correct tab per state (clarify/gate → Steps; failed → Audit); `Cancel-Workflow` re-homed onto the inline clarify (lane status card + Steps `InlineClarifyActions`, binding the existing `handleCancelWorkflow` — NOT dropped silently, §8.1). `ClarifyQuestion` type relocated to `types/index`.
+- **Lane composer hint + failed tabs (Group C/D, 42-03, `995e5907`/`2fd421b6`):** the lane composer is a plain phase-hint during clarify/gate; the **failed run drops Preview + defaults to Audit + red (not amber)** to match the mock (REVERSES 39-05's uniform-tab ND-U — user ruling 2026-07-14); `DegradedRunAffordance` retired on the RUN screen only (the history/reopen surface `RunDetailPage.tsx` untouched, §8.4).
+- **Dead code deleted (Group E, INV-12, 42-04, `23e05167`/`d0679f13`):** `AgentProgressPanel.tsx`, `WaveTreePanel.tsx`, `TodoCard.tsx` + their tests + stale comments. (TodoCard closes the ISS-037 TodoCard clause.)
+- **Shared artifactPreview extraction (INV-12, 42-05, `0571950f`/`f7052874`):** the `<spec>/<tasks>/<analysis>` name-free discriminator + Spec/Tasks/Analysis parsers extracted OUT of `ReviewGatePanel.tsx` into `frontend/src/components/results/artifactPreview.tsx`, then **`ReviewGatePanel.tsx` DELETED** (one parser, ≥2 consumers: the gate plan-preview + the settled artifact cards).
+- **Steps header + clarify copy (Group G, 42-06, `35a97705`/`9b5cae2e`):** Steps overview phase-pill + label + violet running-row highlight; clarify single-submit copy; **dropped the extra clarify affordances** (per-question Skip / "Use recommended" / "Rec." badge / "Anything else?" freeform / "Skip all") to match the mock's single "Submit answers & start the build" (§8.3).
+- **Live Files/Audit polish (Group H, 42-07, `150d58de`/`6c9d563d`):** Files hero building variant while running; live Audit badge + in-progress elapsed + monitoring banner.
+- **Gate 2-button + plan-preview (Group F, 42-08, `5e5efd48`):** the review gate collapsed to 2 buttons (Approve & build / Request changes) + a plan-preview reusing `artifactPreview`.
+- **Settled agent-detail artifact cards (Group H / decision 2, 42-09, `662d4d98`/`0da355a5`):** three conditional, generically-keyed cards (pages/sections · tasks · checks) + a `dagEdges`-derived handoff line in the settled L2 agent detail (`AgentDetailPanel.tsx`), reusing the shared `artifactPreview` module — LIVE-derived values (specializes ND-D), zero backend/golden/transport change.
+- **Inline reskin (Group I, 42-10, `47b32c4a`/`2fbd6c88`):** InlineClarify + InlineGate + ResultCard reskinned navy→Phase-32 brand tokens (look-only; behavior/data preserved, D-15).
+
+### Deletions ledger (INV-12 — no dual implementation)
+
+| File | Deleted in | Why |
+|------|-----------|-----|
+| `components/preview/QuestionnairePanel.tsx` | 42-02 (`94707834`) | legacy full-screen clarify takeover; inline Steps clarify supersedes it. State + submit handlers KEPT (feed the inline path). |
+| `components/workflow/AgentProgressPanel.tsx` (+ test) | 42-04 (`23e05167`) | controls already absorbed into RunChatLane; zero production mount. |
+| `components/chat/blocks/TodoCard.tsx` | 42-04 (`23e05167`) | no `todo` block kind emitted (ISS-037 clause). |
+| `components/workflow/WaveTreePanel.tsx` (+ keep-alive test) | 42-04 (`d0679f13`) | superseded by AgentDetailPanel's inline construction/wave tree (Phase 39). |
+| `components/preview/ReviewGatePanel.tsx` | 42-05 (`f7052874`) | full-screen gate takeover; its parsers extracted to `artifactPreview.tsx` FIRST, then deleted. |
+
+### Key files (as-built)
+
+- **Extracted shared module:** `frontend/src/components/results/artifactPreview.tsx` (discriminator + Spec/Tasks/Analysis previews) — consumed by the gate plan-preview (42-08) AND the settled artifact cards (42-09).
+- **Settled artifact cards + handoff:** `frontend/src/components/results/AgentDetailPanel.tsx` (`deriveArtifactCardModel` + `deriveHandoff` + `SettledArtifactCards`).
+- **Fidelity oracle:** `frontend/e2e/fidelity/{capture-mocks.mjs, assemble-gallery.mjs, README.md}` + the env-gated `e2e/tests/zzz-baseline.spec.ts` paused-state captures. ND register lives in `assemble-gallery.mjs` (**ND-A..ND-Y**; Phase-42 adds ND-W/ND-X/ND-Y, SUPERSEDES ND-U, RESOLVES W0-42).
+
+### Intended-divergence register (Phase-42 additions)
+
+- **ND-W** — planning has no dedicated pre-agent overlay (the mock has none; planning surfaces as the lane phase-pill + Steps "Running" head; the TARGET cell uses the Live mock's running `building` phase as the nearest reference).
+- **ND-X** — clarify/gate default to the Steps tab (the Live mock's canonical `state.tab:'steps'`; the lane carries a status-only paused card, the questions/plan live in Steps). The `capture-mocks.mjs` TARGET capture was corrected in 42-11 to select Steps before the paused full-viewport shot (it previously rendered the Preview-active capture artifact).
+- **ND-Y** — settled agent-detail artifact cards use LIVE-derived values (specializes ND-D), with two BRITTLE parses pending the F1/F2 follow-ups below.
+- **ND-U SUPERSEDED** (Group D — failed now drops Preview/defaults Audit/red to match the mock) + **W0-42 RESOLVED** (the pre-fix takeover state, closed by W1+).
+
+### Deferred follow-ups (OUT OF SCOPE — backend/additive, INV-3 fence)
+
+- **F1 — structured coverage/counts aggregate.** A `{coverage, counts{P0..P3}}` aggregate on `GET /runs/{id}/validation-results` (backend/additive, goldens untouched). Until then the settled **checks card**'s coverage/verdict TEXT is a BRITTLE parse of the analyzer's `<analysis>` output via the reused `AnalysisPreview`. Flagged in code at the checks card (`AgentDetailPanel.tsx`). Registered 42-09 (`2c33a6ff`).
+- **F2 — event-free `sections` extractor.** An additive `sections` extractor + `/artifacts?kind=sections` (backend/additive). Until then the **pages/sections card** is a BRITTLE parse of the spec agent's `<spec>` `## ` headings via the reused `SpecPreview`. Flagged in code at the pages card. Registered 42-09 (`2c33a6ff`).
+
+### Register reconciliation (42-11)
+
+- **ISS-035** (no "Cancelled by you" ack) + **ISS-036** (latent SSE-only `runId` bug) — the 2 Phase-31 HIGHs — were stale-`OPEN` though their code landed in Phase 32 plan 32-05 (`8b478161` + 32-06 render; `03997db3`), VERIFIED in `32-VERIFICATION.md` Truth #8. **Flipped `OPEN`→`RESOLVED`** with evidence; the Phase-32 tracking-gap note above marked reconciled.
+- **ISS-037** — the TodoCard clause CLOSED (deleted 42-04, `23e05167`); the remaining M/L advisory items stay OPEN.
+
+### Invariants & verification (42-11)
+
+- **FRONTEND-ONLY held (INV-3 / LOCK-B):** zero backend / `useWorkflow` / `useRunStream` / transport / manifest / golden change across the phase.
+- **`npx tsc --noEmit` clean.** `npx vitest run` failure set is EXACTLY the 8 pre-existing baseline (`PreviewPanel.switcher` ×3, `PreviewPanel.degraded` ×1, `HomeLaunchGrid.inspect` ×2, `FilesTab.runInput` ×2 — zero net-new). The fidelity harness regenerates both sides across all states + assembles the gallery (37 pairs).
+- **RUNUI-09 NOT met (deferred).** `playwright --project=mocked` = 112 passed / **33 failed** / 29 skipped at HEAD. The 33 reds are the `ts-*` mocked-e2e specs asserting the **pre-Phase-42** run-screen UI: the deleted full-screen `ReviewGatePanel` (ts-n ×9) + `QuestionnairePanel` "Quick Setup" (ts-m ×7) takeovers, the changed terminal/cancel/streaming/clarify-gate chrome (ts-i/j/q/r/x/chat), and some pre-existing stale assertions that predate Phase 42 (e.g. ts-a TS-A-06's retired "NEW" pill, self-documented in the spec). Waves 42-02..42-10 changed the run-screen `src` but never reconciled these specs (`git diff add18741..HEAD -- e2e/tests/` = only `zzz-baseline.spec.ts`). 42-11 (docs + harness only) did not touch `src`/specs, so it neither caused nor fixed them. **A dedicated e2e-reconciliation pass is required** (re-anchor selectors / `test.fixme` the deleted-panel specs onto the inline surfaces — never delete a spec); tracked in `42-.../deferred-items.md`. RUNUI-09 stays Pending until it lands.
+- **Acceptance = per-state human sign-off** of the regenerated gallery (planning · live · clarify · gate · complete · failed) against each mock, closed to the ND-A..ND-Y register — performed by the phase orchestrator (screenshot-diff, not prose; the discipline that stopped 12 phases of drift before Phase 39).

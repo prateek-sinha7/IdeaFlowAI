@@ -736,7 +736,7 @@ Plans:
 **Goal:** Every run state (planning · live · clarify · review-gate · complete · failed · revision) matches the three VelocityAI run mocks, by REMOVING the legacy full-screen right-panel takeovers so the already-built inline surfaces become reachable, plus the fidelity polish the mocks require, plus the settled agent-detail artifact cards — FRONTEND-ONLY (INV-3/LOCK-B), generically keyed (SC-001), closed on per-state screenshot-diff + human sign-off.
 **Requirements:** RUNUI-06, RUNUI-07, RUNUI-08, RUNUI-09
 **Depends on:** Phase 41
-**Plans:** 9/11 plans executed
+**Plans:** 11/11 plans executed — **COMPLETE (2026-07-15)**; frontend-only (INV-3/LOCK-B); per-state gallery sign-off closed the phase. **RUNUI-09 NOT yet met** — see the closeout note (33 mocked-e2e specs assert the pre-Phase-42 UI and need a dedicated reconciliation pass; deferred).
 
 Plans:
 
@@ -749,8 +749,12 @@ Plans:
 - [x] 42-07-PLAN.md — Live Files-building hero + live Audit badge/monitoring banner (Wave 3)
 - [x] 42-08-PLAN.md — Gate = 2 buttons + plan-preview reusing artifactPreview (Wave 4)
 - [x] 42-09-PLAN.md — Settled agent-detail artifact cards (pages/tasks/checks + handoff) + F1/F2 deferrals (Wave 4)
-- [ ] 42-10-PLAN.md — Inline reskin navy→brand (InlineClarify / InlineGate / ResultCard) (Wave 5)
-- [ ] 42-11-PLAN.md — Full gallery regen + per-state human sign-off + ISS-035/036/037 + F1/F2 + register/ROADMAP reconcile (Wave 6)
+- [x] 42-10-PLAN.md — Inline reskin navy→brand (InlineClarify / InlineGate / ResultCard) (Wave 5)
+- [x] 42-11-PLAN.md — Full gallery regen + per-state human sign-off + ISS-035/036/037 + F1/F2 + register/ROADMAP reconcile (Wave 6)
+
+> **Closeout (42-11):** full run-screen fidelity gallery regenerated across every state (planning · live · clarify · gate · complete · failed), each paired against its mock; the clarify/gate TARGET frames corrected to the Live mock's canonical Steps-active state; ND register carries the Phase-42 divergences (**ND-W/ND-X/ND-Y**, ND-U SUPERSEDED, W0-42 RESOLVED). Registers reconciled: **ISS-035/036** flipped `OPEN`→`RESOLVED` (code landed 32-05, VERIFIED `32-VERIFICATION.md` Truth #8); **ISS-037** TodoCard clause closed (42-04); **F1** (coverage/counts aggregate) + **F2** (event-free `sections` extractor) recorded as deferred backend/additive follow-ups; the Phase-42 IMPLEMENTATION-REGISTER entry (deletions ledger + ND register + F1/F2) added. `tsc --noEmit` clean; `vitest` failure set = the 8 pre-existing baseline (zero net-new).
+>
+> **RUNUI-09 deferred (mocked-e2e reconciliation).** 33 `ts-*` mocked-e2e specs are red at HEAD because they assert the **pre-Phase-42** run-screen UI — the deleted full-screen `ReviewGatePanel` (ts-n ×9) / `QuestionnairePanel` "Quick Setup" (ts-m ×7) takeovers, the changed terminal/cancel/streaming/clarify-gate chrome (ts-i/j/q/r/x/chat), plus some pre-existing stale assertions that predate Phase 42 (e.g. ts-a TS-A-06's retired "NEW" pill, self-documented). Waves 42-02..42-10 changed the run-screen `src` but never reconciled these specs (only `zzz-baseline.spec.ts` was touched in-phase). This is a dedicated e2e-reconciliation pass (re-anchor selectors / `test.fixme` the deleted-panel specs to the inline surfaces — **never delete a spec**), tracked in `42-.../deferred-items.md`. RUNUI-09 stays **Pending** until that pass lands.
 
 ---
 
