@@ -75,7 +75,7 @@ class _StubEngine:
 
 @pytest.fixture
 def env(monkeypatch):
-    from app.api import websocket as ws_module
+    from app.api import run_engine as ws_module
     import app.api.run_commands as rc_module
 
     db_engine = create_engine(

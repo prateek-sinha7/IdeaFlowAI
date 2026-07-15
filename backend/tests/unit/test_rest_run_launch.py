@@ -66,7 +66,7 @@ class _RecordingEngine:
 
 @pytest.fixture
 def env(monkeypatch):
-    from app.api import websocket as ws_module
+    from app.api import run_engine as ws_module
     from app.models.database import Base
 
     db_engine = create_engine(
@@ -77,9 +77,9 @@ def env(monkeypatch):
     TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
     Base.metadata.create_all(bind=db_engine)
     # Patch _get_db on BOTH modules: run_commands binds its OWN reference at import
-    # (``from app.api.websocket import _get_db``), so patching ws_module alone would
-    # miss the REST endpoints' direct calls. The queue registries + validators are
-    # shared object references, so they need no patch.
+    # (``from app.api.run_engine import _get_db`` — the transport-neutral seam, 44-03),
+    # so patching ws_module alone would miss the REST endpoints' direct calls. The
+    # queue registries + validators are shared object references, so they need no patch.
     monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
     import app.api.run_commands as rc_module
     monkeypatch.setattr(rc_module, "_get_db", lambda: TestingSession())
