@@ -153,3 +153,39 @@ async def test_notes_without_text_consume_but_emit_no_block() -> None:
     out = await _compose(engine, ectx)
     assert _GUIDANCE_OPEN not in out
     assert ectx.steering_notes == []  # still consumed
+
+
+# ---------------------------------------------------------------------------
+# (4) A.3 (Phase 43) — the FULL live path: a note applied to the RUNNING run's ectx via
+#     the live-ectx registry (_live_ectx_for_run) drains as === USER GUIDANCE === on the
+#     next dispatch. Ties register → apply_steering → _compose_context_message.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_note_via_live_registry_renders_guidance_on_next_dispatch() -> None:
+    from app.api import run_commands as rc
+    from app.api.chat_router import apply_steering
+
+    rc._LIVE_ECTX.clear()
+    engine = ExecutionEngine()
+    ectx = ExecutionContext(run_id="r-live-steer", owner_id="o-live")
+
+    # The engine registered this ectx at run start; the app layer resolves it (not None).
+    rc.register_live_ectx("r-live-steer", ectx)
+    try:
+        resolved = rc._live_ectx_for_run("r-live-steer")
+        assert resolved is ectx
+
+        # A mid-run steering turn appends to the RESOLVED live ectx (the CHANNEL_STEERING seam).
+        apply_steering(resolved, {"text": "Prefer a minimalist layout", "sticky": False})
+        assert ectx.steering_notes == [{"text": "Prefer a minimalist layout", "sticky": False}]
+
+        # The NEXT dispatch renders it as a === USER GUIDANCE === block and consumes it once.
+        out = await _compose(engine, ectx)
+        assert _GUIDANCE_OPEN in out
+        assert "Prefer a minimalist layout" in out
+        assert ectx.steering_notes == []  # consume-once
+    finally:
+        rc.unregister_live_ectx("r-live-steer")
+    assert rc._live_ectx_for_run("r-live-steer") is None  # no leak

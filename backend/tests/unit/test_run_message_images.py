@@ -463,3 +463,169 @@ class TestDormancy:
         ctx_msg = "=== CONTEXT ===\nbuild it"
         assert _dispatch_payload(ctx_msg, []) == ctx_msg
         assert _dispatch_payload(ctx_msg, []) is ctx_msg  # same object, zero re-wrap
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# A.3 (Phase 43) — the LIVE-ECTX REGISTRY: _live_ectx_for_run resolves the running
+# in-process ectx (no longer always None), so mid-run steering + per-turn images reach
+# the NEXT dispatch. Closes DEF-29-09-1 (steering) + DEF-30-03-1 (per-turn image) — ONE
+# registry, ONE seam (INV-12).
+# ════════════════════════════════════════════════════════════════════════════
+class TestLiveEctxRegistry:
+    """The process-local run_id → ExecutionContext registry + _live_ectx_for_run resolver."""
+
+    def _fresh_registry(self):
+        """Return the run_commands module with a cleared registry (isolate from other tests)."""
+        from app.api import run_commands as rc
+        rc._LIVE_ECTX.clear()
+        return rc
+
+    def test_register_then_resolve_returns_the_same_ectx(self):
+        from agents.execution_engine.context import ExecutionContext
+        rc = self._fresh_registry()
+
+        ectx = ExecutionContext(run_id="run-A", owner_id="o")
+        assert rc._live_ectx_for_run("run-A") is None  # not live yet
+        rc.register_live_ectx("run-A", ectx)
+        # The SAME instance the running engine registered is resolved (identity, not a copy).
+        assert rc._live_ectx_for_run("run-A") is ectx
+
+    def test_unregister_removes_the_ectx_no_leak(self):
+        from agents.execution_engine.context import ExecutionContext
+        rc = self._fresh_registry()
+
+        ectx = ExecutionContext(run_id="run-B", owner_id="o")
+        rc.register_live_ectx("run-B", ectx)
+        assert rc._live_ectx_for_run("run-B") is ectx
+        rc.unregister_live_ectx("run-B")
+        # After teardown the run is no longer resolvable — the registry does not leak.
+        assert rc._live_ectx_for_run("run-B") is None
+        assert "run-B" not in rc._LIVE_ECTX
+
+    def test_cross_run_isolation_no_cross_delivery(self):
+        """Two concurrent runs each resolve ONLY their own ectx — a steering note applied to
+        run-1's handle can never reach run-2 (T-43-05-XINJECT — keyed by run_id only)."""
+        from agents.execution_engine.context import ExecutionContext
+
+        from app.api.chat_router import apply_steering
+        rc = self._fresh_registry()
+
+        ectx1 = ExecutionContext(run_id="run-1", owner_id="o1")
+        ectx2 = ExecutionContext(run_id="run-2", owner_id="o2")
+        rc.register_live_ectx("run-1", ectx1)
+        rc.register_live_ectx("run-2", ectx2)
+
+        # Each run resolves strictly its own context.
+        assert rc._live_ectx_for_run("run-1") is ectx1
+        assert rc._live_ectx_for_run("run-2") is ectx2
+
+        # A note steered at run-1 lands ONLY on run-1's queue — run-2 is untouched.
+        apply_steering(rc._live_ectx_for_run("run-1"), {"text": "for run 1", "sticky": False})
+        assert ectx1.steering_notes == [{"text": "for run 1", "sticky": False}]
+        assert ectx2.steering_notes == []
+
+    def test_unregister_unknown_run_is_noop(self):
+        rc = self._fresh_registry()
+        rc.unregister_live_ectx("never-registered")  # must not raise
+        rc.unregister_live_ectx("never-registered")  # double-unregister also safe
+        assert rc._LIVE_ECTX == {}
+
+    def test_resolve_unregistered_run_is_none_degrade_safe(self):
+        rc = self._fresh_registry()
+        # A run not live in THIS process resolves to None → apply_steering / apply_turn_images
+        # no-op (the durable chat_message row remains the record).
+        assert rc._live_ectx_for_run("some-other-worker-run") is None
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# A.3 — the ENGINE seam: execute() registers the run's live ectx at run start and
+# UNREGISTERS it on teardown (no leak), via the INJECTED callback (no engine→app import).
+# ════════════════════════════════════════════════════════════════════════════
+class TestLiveEctxEngineSeam:
+    @pytest.mark.asyncio
+    async def test_execute_registers_running_ectx_and_unregisters_on_teardown(self):
+        """Drive a REAL scripted run end-to-end with the live-ectx register/unregister pair
+        injected. Assert: (1) the engine registered THIS run's ExecutionContext during the run
+        (resolvable via the real registry mid-flight), and (2) the wrapper's finally
+        unregistered it on completion — the registry is empty (no leak)."""
+        from agents.execution_engine.context import ExecutionContext
+
+        from app.api import run_commands as rc
+        from tests.agents._scripted_model import _drive
+
+        rc._LIVE_ECTX.clear()
+        captured: dict = {}
+
+        def _reg(run_id: str, ectx) -> None:
+            # Delegate to the REAL registry, then snapshot what the app layer resolves NOW —
+            # proving _live_ectx_for_run resolves the running ectx MID-RUN (not None).
+            rc.register_live_ectx(run_id, ectx)
+            captured["run_id"] = run_id
+            captured["ectx"] = ectx
+            captured["resolved_mid_run"] = rc._live_ectx_for_run(run_id)
+
+        events = await _drive(
+            "prototype",
+            live_ectx_register=_reg,
+            live_ectx_unregister=rc.unregister_live_ectx,
+        )
+
+        # The run actually ran (produced events) and registered exactly one ectx.
+        assert events, "the scripted run yielded no events"
+        assert isinstance(captured.get("ectx"), ExecutionContext)
+        assert captured["ectx"].run_id == captured["run_id"]
+        # Mid-run, the app-layer resolver returned the SAME live context instance.
+        assert captured["resolved_mid_run"] is captured["ectx"]
+        # Teardown ran the unregister (finally) — the registry leaks nothing.
+        assert rc._live_ectx_for_run(captured["run_id"]) is None
+        assert captured["run_id"] not in rc._LIVE_ECTX
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# A.3 — END-TO-END through the REST endpoint: a RUNNING-phase steering turn (text +
+# per-turn image) posted to POST /messages reaches the REGISTERED live ectx, so BOTH the
+# === USER GUIDANCE === note and the per-turn image drain onto the next dispatch.
+# ════════════════════════════════════════════════════════════════════════════
+class TestSteeringAndImageReachLiveEctx:
+    def _register(self, run_id):
+        from agents.execution_engine.context import ExecutionContext
+
+        from app.api import run_commands as rc
+        ectx = ExecutionContext(run_id=run_id, owner_id="o")
+        rc._LIVE_ECTX.clear()
+        rc.register_live_ectx(run_id, ectx)
+        return rc, ectx
+
+    def test_running_steering_turn_lands_note_and_image_on_live_ectx(self, env):
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="running")
+        env["state"]["user"] = owner
+        rc, ectx = self._register(run_id)
+        try:
+            resp = _post(env, run_id, text="Use a dark theme",
+                         images=[_valid_image()], message_id="m-live")
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["channel"] == "steering"
+            # The steering note reached the LIVE ectx's consume-once queue (=== USER GUIDANCE ===
+            # is rendered from here at the next dispatch).
+            assert ectx.steering_notes == [{"text": "Use a dark theme", "sticky": False}]
+            # The per-turn image reached the SAME live handle's pending queue (drained onto the
+            # one-shot turn_images_once carrier at the next dispatch).
+            assert ectx.pending_turn_images == [{"mime_type": "image/png", "data": _IMG_B64}]
+        finally:
+            rc.unregister_live_ectx(run_id)
+
+    def test_not_live_run_is_degrade_safe_no_crash(self, env):
+        """When the run is NOT registered (not live in this process), the endpoint still 200s
+        and durably records the turn — apply_steering/apply_turn_images no-op on the None handle."""
+        from app.api import run_commands as rc
+        rc._LIVE_ECTX.clear()  # nothing registered
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="running")
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, text="steer me", message_id="m-nolive")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["channel"] == "steering"
+        assert resp.json()["persisted"] is True  # the durable record still lands
