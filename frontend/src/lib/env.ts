@@ -17,6 +17,11 @@
  *                                                  ws(s)://<host>/ws/chat).
  *   3. Otherwise (local dev without .env.local,
  *      or server-side render)                  -> localhost:8000 defaults.
+ *
+ * The run transport is SSE + REST only (44-06 hard cutoff): there is no
+ * transport feature flag. `WS_URL` survives solely for the legacy `/ws/chat`
+ * client until its deletion completes; the `/ws/handoff` survivor derives its
+ * own URL from `API_URL` in useHandoffSocket.
  */
 
 function isLocalHost(hostname: string): boolean {
@@ -45,33 +50,9 @@ function resolveWsUrl(): string {
   return "ws://localhost:8000/ws/chat";
 }
 
-/**
- * Phase 29 (CHAT-07 / LOCK-B) transport flag. When ON, the FE consumes the
- * per-run SSE down-channel (`GET /api/runs/{id}/events/stream`) through
- * `useRunStream` + `RunConnectionProvider` and sends commands over REST; when
- * OFF (the default), the legacy `useWebSocket` `/ws/chat` transport is used,
- * byte-for-byte unchanged. This is a reversible, additive cutover switch —
- * NEVER a code deletion (the WS path is intact behind the flag).
- *
- * Accepts "1" or "true" (case-insensitive) as ON; anything else (incl. unset)
- * is OFF, so a production image built with the var EMPTY keeps the WS path.
- */
-function resolveSseTransport(): boolean {
-  const raw = process.env.NEXT_PUBLIC_SSE_TRANSPORT;
-  if (!raw) return false;
-  const v = raw.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "on" || v === "yes";
-}
-
 export const ENV = {
   /** Base URL for REST API calls. "" means same-origin (relative). */
   API_URL: resolveApiUrl(),
-  /** Base URL for WebSocket connections. */
+  /** Base URL for WebSocket connections (legacy `/ws/chat` client only). */
   WS_URL: resolveWsUrl(),
-  /**
-   * Feature flag: consume the SSE transport (Phase 29 D-13/D-14) instead of the
-   * legacy `/ws/chat` WebSocket. OFF by default — flipping it selects the
-   * `useRunStream` twin in `useWorkflow`; the WS path stays fully intact.
-   */
-  SSE_TRANSPORT: resolveSseTransport(),
 } as const;

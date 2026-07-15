@@ -940,7 +940,7 @@ export default function DashboardPage() {
   const effectiveReconnect = sseEnabled ? runConnection.reattach : reconnect;
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow(send);
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow();
   // KAN-98: store pending gate edits so review_gate_approved can apply them to
   // the live agent state (planAgent.output etc.) for the Thinking tab display.
   const pendingGateEditRef = useRef<{ agentId: string; editedContent: string } | null>(null);

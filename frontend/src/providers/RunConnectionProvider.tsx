@@ -2,10 +2,9 @@
 
 /**
  * RunConnectionProvider — app-level ownership of the SSE run connection (Phase
- * 29, CHAT-07, D-14 a/b/c/e). ADDITIVE + flag-gated per LOCK-B: it only attaches
- * when `NEXT_PUBLIC_SSE_TRANSPORT` is ON; when OFF the legacy
- * `dashboard/page.tsx` WebSocket-ownership path is untouched and this provider
- * is an inert pass-through.
+ * 29, CHAT-07, D-14 a/b/c/e). SSE is the sole, unconditional run transport
+ * (44-06 hard cutoff): this provider always attaches. There is no transport flag
+ * and no legacy WebSocket ownership path anymore.
  *
  * Why app-level (D-14a): today the connection is owned inside
  * `dashboard/page.tsx`, so navigating away from the dashboard (wizard / handoff
@@ -50,7 +49,10 @@ import {
 const NON_TERMINAL_STATUSES = new Set(["running", "revising"]);
 
 export interface RunConnectionContextValue {
-  /** Whether the SSE transport is active (flag on + provider mounted). */
+  /**
+   * Whether the SSE transport is active. Always true under the provider (SSE is
+   * the sole transport, 44-06); the no-provider inert default is false.
+   */
   enabled: boolean;
   /** Aggregate connection phase across all attached runs (D-14d). */
   phase: RunConnectionPhase;
@@ -127,9 +129,7 @@ function writeCursor(runId: string, seq: number): void {
  */
 function aggregatePhase(
   phases: RunConnectionPhase[],
-  enabled: boolean,
 ): RunConnectionPhase {
-  if (!enabled) return "idle";
   if (phases.length === 0) return "idle";
   if (phases.includes("live")) return "live";
   if (phases.includes("replaying")) return "replaying";
@@ -186,14 +186,13 @@ function RunStreamConnection({
 
 export interface RunConnectionProviderProps {
   children: ReactNode;
-  /** Override the flag (tests / staged rollout). Defaults to the env flag. */
-  enabled?: boolean;
 }
 
 export function RunConnectionProvider({
   children,
-  enabled = ENV.SSE_TRANSPORT,
 }: RunConnectionProviderProps) {
+  // SSE is the sole run transport (44-06) — always enabled under the provider.
+  const enabled = true;
   const [token, setTokenState] = useState<string | null>(null);
   const [liveRunIds, setLiveRunIds] = useState<string[]>([]);
   const [phases, setPhases] = useState<Record<string, RunConnectionPhase>>({});
@@ -202,7 +201,6 @@ export function RunConnectionProvider({
 
   // Server-derived reattach (D-14b): query the user's live runs and attach each.
   const refreshLiveRuns = useCallback(async () => {
-    if (!enabled) return;
     const t = getToken();
     setTokenState(t);
     if (!t) {
@@ -224,20 +222,19 @@ export function RunConnectionProvider({
     } catch {
       /* keep the prior attach set on a transient query failure */
     }
-  }, [enabled]);
+  }, []);
 
   // Boot: resolve the token client-side and do the first server-derived attach.
   useEffect(() => {
-    if (!enabled) return;
     setTokenState(getToken());
     void refreshLiveRuns();
-  }, [enabled, refreshLiveRuns]);
+  }, [refreshLiveRuns]);
 
   // D-14e: reconnect on tab focus / network online. A wake re-queries live runs
   // (the set may have changed while backgrounded) AND bumps the epoch so already
   // attached streams reconnect immediately from their cursor.
   useEffect(() => {
-    if (!enabled || typeof window === "undefined") return;
+    if (typeof window === "undefined") return;
     const onWake = () => {
       if (document.visibilityState === "visible") {
         setEpoch((e) => e + 1);
@@ -254,7 +251,7 @@ export function RunConnectionProvider({
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("online", onOnline);
     };
-  }, [enabled, refreshLiveRuns]);
+  }, [refreshLiveRuns]);
 
   const fanout = useCallback((msg: RunStreamMessage) => {
     subscribersRef.current.forEach((fn) => {
@@ -327,8 +324,8 @@ export function RunConnectionProvider({
   );
 
   const phase = useMemo(
-    () => aggregatePhase(Object.values(phases), enabled),
-    [phases, enabled],
+    () => aggregatePhase(Object.values(phases)),
+    [phases],
   );
 
   const value = useMemo<RunConnectionContextValue>(
@@ -338,7 +335,7 @@ export function RunConnectionProvider({
 
   return (
     <RunConnectionContext.Provider value={value}>
-      {enabled && token
+      {token
         ? liveRunIds.map((runId) => (
             <RunStreamConnection
               key={runId}

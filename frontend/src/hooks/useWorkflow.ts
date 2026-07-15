@@ -2,23 +2,18 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook, ClarifyRound } from "@/types/index";
-// Phase 29 (CHAT-07 / LOCK-B) flag-selected transport: when NEXT_PUBLIC_SSE_TRANSPORT
-// is ON, commands are sent up-channel over REST through the RunConnectionProvider
-// (the useRunStream SSE twin); when OFF, the existing useWebSocket `websocketSend`
-// path below is byte-for-byte unchanged. The shared handlePipelineMessage reducer
-// is transport-agnostic and untouched.
-import { ENV } from "@/lib/env";
+// Commands are sent up-channel over REST through the RunConnectionProvider (the
+// SSE transport). SSE + REST is the sole transport (44-06 hard cutoff). The
+// shared handlePipelineMessage reducer is transport-agnostic and untouched.
 import { getToken, postAnswers } from "@/lib/api";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
 
 export interface UseWorkflowReturn {
   pipelineState: PipelineRunState;
-  // W1 (44-01): on the SSE path returns the POST /api/runs promise resolving to
-  // the created run_id (so the caller can attachRun it for launch->attach, R4);
-  // on the flag-OFF/WS path returns null SYNCHRONOUSLY (the run_id arrives later
-  // in pipeline_start there) — staying a non-thenable keeps the existing sync
-  // `act(() => startPipeline(...))` callers byte-identical.
-  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => Promise<string | null> | null;
+  // Returns the POST /api/runs promise resolving to the created run_id (so the
+  // caller can attachRun it for launch->attach, R4). SSE + REST is the sole
+  // transport (44-06).
+  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => Promise<string | null>;
   resetPipeline: () => void;
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;
@@ -42,22 +37,22 @@ const INITIAL_STATE: PipelineRunState = {
 };
 
 /**
- * Custom hook that manages workflow pipeline state and WebSocket communication.
- * Sends `run_pipeline` messages and handles incoming pipeline status updates.
- * Now includes `handleMessage` so the parent can route pipeline WebSocket messages here.
+ * Custom hook that manages workflow pipeline state. Launches runs over REST
+ * (POST /api/runs via the RunConnectionProvider) and handles incoming pipeline
+ * status updates. Includes `handleMessage` so the parent can route the SSE
+ * pipeline down-channel events here.
  */
-export function useWorkflow(websocketSend: (msg: string) => boolean | void): UseWorkflowReturn {
+export function useWorkflow(): UseWorkflowReturn {
   const [pipelineState, setPipelineState] = useState<PipelineRunState>(INITIAL_STATE);
   const startTimeRef = useRef<number | null>(null);
   const agentStartTimesRef = useRef<Record<string, number>>({});
 
-  // Flag-selected transport (LOCK-B additive). `useRunConnection()` is inert
-  // (disabled) when the provider is not mounted or the flag is off — so the
-  // flag-OFF path never diverges from the legacy `websocketSend` behavior.
+  // The app-level SSE run connection — commands ride its REST up-channel
+  // (POST /api/runs, POST /api/runs/{id}/answers). SSE is the sole transport.
   const runConnection = useRunConnection();
 
   const startPipeline = useCallback(
-    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>): Promise<string | null> | null => {
+    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>): Promise<string | null> => {
       startTimeRef.current = Date.now();
       agentStartTimesRef.current = {};
 
@@ -125,19 +120,12 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
         Object.assign(payload, context);
       }
 
-      // Flag-selected transport: SSE path sends the SAME `run_pipeline` payload
-      // up-channel over REST (POST /api/runs); the flag-OFF path is the existing
-      // websocketSend, unchanged. Same payload → same run, transport-agnostic.
-      // W1 (44-01): return the POST /api/runs promise (→ created run_id) on the
-      // SSE path so the caller can attachRun it (launch->attach, R4); WS path
-      // returns null synchronously (run_id lands in the pipeline_start echo there).
-      if (ENV.SSE_TRANSPORT && runConnection.enabled) {
-        return runConnection.sendCommand(null, payload);
-      }
-      websocketSend(JSON.stringify(payload));
-      return null;
+      // Send the `run_pipeline` payload up-channel over REST (POST /api/runs).
+      // W1 (44-01): return the POST /api/runs promise (→ created run_id) so the
+      // caller can attachRun it (launch->attach, R4).
+      return runConnection.sendCommand(null, payload);
     },
-    [websocketSend, runConnection]
+    [runConnection]
   );
 
   const resetPipeline = useCallback(() => {
@@ -160,28 +148,16 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   // ClarifyEngine force-proceeds immediately instead of re-asking up to 3 rounds.
   const submitQuestionnaire = useCallback(
     (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification = false) => {
-      // Flag-selected transport. SSE path posts the answers to
-      // POST /api/runs/{id}/answers (AnswersCommand) — which takes `responses`
-      // with NO `message_id`, closing the R4 422 the /messages (MessageCommand)
-      // path raised. The ISS-027 `skip_clarification` force-proceed rides along.
-      // Flag-OFF path is the existing websocketSend WS frame, unchanged.
-      if (ENV.SSE_TRANSPORT && runConnection.enabled) {
-        void postAnswers(getToken() ?? "", pipelineRunId, {
-          responses,
-          skip_clarification: skipClarification,
-        }).catch((e) => console.error("postAnswers failed", e));
-      } else {
-        websocketSend(
-          JSON.stringify({
-            type: "submit_questionnaire",
-            pipeline_run_id: pipelineRunId,
-            responses,
-            skip_clarification: skipClarification,
-          }),
-        );
-      }
+      // Post the answers to POST /api/runs/{id}/answers (AnswersCommand) — which
+      // takes `responses` with NO `message_id`, closing the R4 422 the /messages
+      // (MessageCommand) path raised. The ISS-027 `skip_clarification`
+      // force-proceed rides along.
+      void postAnswers(getToken() ?? "", pipelineRunId, {
+        responses,
+        skip_clarification: skipClarification,
+      }).catch((e) => console.error("postAnswers failed", e));
     },
-    [websocketSend, runConnection]
+    []
   );
 
   // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
@@ -648,11 +624,10 @@ export function handlePipelineMessage(
       // task-registered-before-queue race at the source — the live queue is
       // now registered synchronously with the driver task in
       // restore_non_terminal_runs — so this shape only occurs while the
-      // restore scan has not yet reached the run. A later transition of
-      // connectionStatus to "connected" re-sends reconnect_pipeline (the
-      // DashboardLayout reconnect effect); heartbeats alone do NOT re-trigger
-      // it (they are only emitted by an already-attached drainer). No new
-      // retry loop here (T-12-08-02).
+      // restore scan has not yet reached the run. The SSE transport
+      // (useRunStream) reconnects natively and replays from Last-Event-ID, so
+      // the tail arrives without any client-side re-attach frame. No new retry
+      // loop here (T-12-08-02).
       return true;
     }
 

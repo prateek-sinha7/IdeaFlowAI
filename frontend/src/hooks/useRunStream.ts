@@ -1,10 +1,9 @@
 "use client";
 
 /**
- * useRunStream — the SSE transport twin of `useWebSocket` (Phase 29, CHAT-07,
- * D-14 a/c/f). ADDITIVE per LOCK-B: `useWebSocket.ts` is untouched and remains
- * the transport when `NEXT_PUBLIC_SSE_TRANSPORT` is OFF; this hook is its
- * flag-selected twin.
+ * useRunStream — the SSE run transport (Phase 29, CHAT-07, D-14 a/c/f). SSE is
+ * the sole run transport (44-06 hard cutoff); this hook owns the per-run
+ * down-channel and its Last-Event-ID reconnect/replay.
  *
  * It consumes the per-run SSE down-channel
  * (`GET /api/runs/{id}/events/stream`) and mirrors the WS path's contract so the
@@ -162,9 +161,8 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
   }, [onCursor]);
 
   // The whole connect/reconnect lifecycle lives inside one effect keyed on the
-  // identity inputs (runId/token/enabled), mirroring useWebSocket's connect
-  // effect. Helpers are closures; `connectRef` exposes the latest `connect` to
-  // the imperative `reconnect()` handle.
+  // identity inputs (runId/token/enabled). Helpers are closures; `connectRef`
+  // exposes the latest `connect` to the imperative `reconnect()` handle.
   useEffect(() => {
     stoppedRef.current = false;
 

@@ -36,12 +36,9 @@ export default function RootLayout({
         <SkillsHooksProvider>
           {/*
             43-06 (A.2): mount the app-level SSE run connection ABOVE the router
-            so per-run streams survive route changes (D-14a). Self-gating per
-            LOCK-B — `enabled` follows NEXT_PUBLIC_SSE_TRANSPORT; when the flag is
-            OFF this is an inert pass-through and the legacy WS transport stays
-            active (byte-identical). Flipping the flag ON is the supervised Part-C
-            cutover — no other FE change needed (dashboard/page.tsx already selects
-            subscribe/sendCommand on runConnection.enabled).
+            so per-run streams survive route changes (D-14a). SSE is the sole,
+            unconditional run transport (44-06 hard cutoff) — the provider always
+            attaches; there is no transport flag and no legacy WS path.
           */}
           <RunConnectionProvider>
             {children}
