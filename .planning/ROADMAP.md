@@ -1173,7 +1173,7 @@ Plans:
 
 Plans:
 
-- [ ] 44-01-PLAN.md — W1: re-source the pipeline down-channel from SSE + launch->attach bootstrap [wave 1]
+- [x] 44-01-PLAN.md — W1: re-source the pipeline down-channel from SSE + launch->attach bootstrap [wave 1]
 - [ ] 44-02-PLAN.md — W3a: confirm-first refinement chip (RunChatLane) [wave 1]
 - [ ] 44-03-PLAN.md — W4a: relocate shared transport-neutral infra to app/api/run_engine.py (endpoint stays) [wave 1]
 - [ ] 44-04-PLAN.md — W2: rewire gate(->/gate, WR-03)/cancel/questionnaire to REST [wave 2]
