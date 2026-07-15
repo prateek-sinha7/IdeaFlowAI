@@ -165,23 +165,23 @@ export function InlineGateActions({
   return (
     <div
       data-testid="chat-gate-actions"
-      className="rounded-2xl border border-gray-200 bg-white px-4 py-3 space-y-2.5"
+      className="rounded-2xl border border-line-border bg-surface-white px-4 py-3 space-y-2.5"
     >
       <div className="flex items-center gap-2">
-        <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#1B2A4A] to-violet-600 flex items-center justify-center flex-shrink-0">
+        <div className="w-6 h-6 rounded-lg bg-brand flex items-center justify-center flex-shrink-0">
           <CheckCircle2 className="h-3.5 w-3.5 text-white" />
         </div>
-        <p className="text-[11px] font-semibold text-gray-900 flex-1 min-w-0 truncate">
+        <p className="text-[11px] font-semibold text-ink-900 flex-1 min-w-0 truncate">
           {agentName} · review before continuing
         </p>
         <button
           type="button"
           onClick={() => setShowEdit((v) => !v)}
           disabled={submitted}
-          className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1 text-[10px] text-ink-500 hover:text-ink-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Edit3 className="h-3 w-3" /> Edit
-          {hasEdits && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+          {hasEdits && <span className="w-1.5 h-1.5 rounded-full bg-status-amber" />}
         </button>
       </div>
 
@@ -191,7 +191,7 @@ export function InlineGateActions({
           onChange={(e) => handleEdit(e.target.value)}
           disabled={submitted}
           aria-label="Edit gate content"
-          className="w-full min-h-[120px] rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] text-gray-900 font-mono leading-relaxed focus:outline-none focus:border-[#1B2A4A]/40 focus:ring-1 focus:ring-[#1B2A4A]/20 resize-none disabled:opacity-50"
+          className="w-full min-h-[120px] rounded-lg border border-line-border bg-surface-warm px-3 py-2 text-[11px] text-ink-900 font-mono leading-relaxed focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/20 resize-none disabled:opacity-50"
           spellCheck={false}
         />
       )}
@@ -200,7 +200,7 @@ export function InlineGateActions({
       {artifactKind && !showEdit && (
         <div
           data-testid="chat-gate-preview"
-          className="rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2.5 max-h-64 overflow-y-auto"
+          className="rounded-lg border border-line-border bg-surface-warm/60 px-3 py-2.5 max-h-64 overflow-y-auto"
         >
           {artifactKind === "spec" && <SpecPreview content={output} />}
           {artifactKind === "tasks" && <TasksPreview content={output} />}
@@ -209,7 +209,7 @@ export function InlineGateActions({
       )}
 
       {hasEdits && (
-        <p className="text-[10px] text-amber-700">
+        <p className="text-[10px] text-status-amber">
           You have unsaved edits — approving will use your edited version.
         </p>
       )}
@@ -222,7 +222,7 @@ export function InlineGateActions({
           data-testid="chat-gate-approve"
           onClick={handleApprove}
           disabled={submitted}
-          className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#1B2A4A] text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-[#2a3d5e] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-brand-pressed transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <CheckCircle2 className="h-4 w-4" />
           {approveLabel ??
@@ -235,7 +235,7 @@ export function InlineGateActions({
           data-testid="chat-gate-request-changes"
           onClick={() => setShowRequestChanges((v) => !v)}
           disabled={submitted}
-          className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-gray-300 text-gray-700 px-4 py-2.5 text-[12px] font-semibold hover:border-gray-400 hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-line-control text-ink-700 px-4 py-2.5 text-[12px] font-semibold hover:border-ink-300 hover:bg-surface-warm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <MessageSquarePlus className="h-4 w-4" />
           Request changes
@@ -246,7 +246,7 @@ export function InlineGateActions({
           fire the EXACT same handlers/channels as before; only the presentation
           is folded under "Request changes" (CONTEXT §F preserve-the-channels). */}
       {showRequestChanges && (
-        <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5">
+        <div className="space-y-2 rounded-xl border border-line-border bg-surface-warm/60 px-3 py-2.5">
           {/* KAN-101 Update the Specs — rendered off the GENERIC flag (SC-001). */}
           {canUpdateSpecs && (
             <button
@@ -254,7 +254,7 @@ export function InlineGateActions({
               data-testid="chat-gate-update-specs"
               onClick={handleUpdateSpecs}
               disabled={submitted}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#1B2A4A]/30 text-[#1B2A4A] px-4 py-2 text-[11px] font-semibold hover:bg-[#E8EDF5] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-brand/30 text-brand px-4 py-2 text-[11px] font-semibold hover:bg-brand-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               Update the Specs
@@ -272,7 +272,7 @@ export function InlineGateActions({
                     disabled={submitted}
                     placeholder="Optional instructions — leave blank to just regenerate"
                     aria-label="Additional instructions for redo"
-                    className="w-full min-h-[52px] rounded-lg border border-violet-200 bg-white px-3 py-2 text-[11px] text-gray-900 leading-relaxed focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 resize-none disabled:opacity-50"
+                    className="w-full min-h-[52px] rounded-lg border border-brand-border bg-surface-white px-3 py-2 text-[11px] text-ink-900 leading-relaxed focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/40 resize-none disabled:opacity-50"
                     spellCheck={false}
                   />
                   <button
@@ -280,7 +280,7 @@ export function InlineGateActions({
                     data-testid="chat-gate-redo"
                     onClick={handleRedo}
                     disabled={submitted}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl border border-violet-300 text-violet-700 px-4 py-2 text-[11px] font-semibold hover:bg-violet-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full flex items-center justify-center gap-2 rounded-xl border border-brand-border text-brand px-4 py-2 text-[11px] font-semibold hover:bg-brand-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     Redo this step
@@ -291,7 +291,7 @@ export function InlineGateActions({
                   type="button"
                   onClick={() => setShowRedo(true)}
                   disabled={submitted}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-violet-200 text-violet-700 px-4 py-2 text-[11px] font-medium hover:bg-violet-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-brand-border text-brand px-4 py-2 text-[11px] font-medium hover:bg-brand-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   Redo with instructions
@@ -302,10 +302,10 @@ export function InlineGateActions({
 
           {/* Reject — KAN-95 two-step confirm. */}
           {showRejectConfirm ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 space-y-2">
+            <div className="rounded-xl border border-status-failed-border bg-status-failed-fill px-3 py-2.5 space-y-2">
               <div className="flex items-start gap-2">
-                <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-[11px] font-medium text-red-700">
+                <AlertTriangle className="h-3.5 w-3.5 text-status-failed flex-shrink-0 mt-0.5" />
+                <p className="text-[11px] font-medium text-status-failed-strong">
                   Cancel this pipeline? This stops execution and discards progress.
                 </p>
               </div>
@@ -313,7 +313,7 @@ export function InlineGateActions({
                 <button
                   type="button"
                   onClick={() => setShowRejectConfirm(false)}
-                  className="flex-1 rounded-lg border border-gray-200 bg-white text-gray-600 px-3 py-1.5 text-[11px] font-medium hover:bg-gray-50 transition-all"
+                  className="flex-1 rounded-lg border border-line-border bg-surface-white text-ink-600 px-3 py-1.5 text-[11px] font-medium hover:bg-surface-warm transition-all"
                 >
                   Keep reviewing
                 </button>
@@ -322,7 +322,7 @@ export function InlineGateActions({
                   data-testid="chat-gate-reject"
                   onClick={handleReject}
                   disabled={submitted}
-                  className="flex-1 rounded-lg bg-red-600 text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 rounded-lg bg-status-failed text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-status-failed-strong transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Yes, cancel
                 </button>
@@ -333,7 +333,7 @@ export function InlineGateActions({
               type="button"
               onClick={() => setShowRejectConfirm(true)}
               disabled={submitted}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 text-red-600 px-4 py-2 text-[11px] font-medium hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-status-failed-border text-status-failed px-4 py-2 text-[11px] font-medium hover:bg-status-failed-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <XCircle className="h-3.5 w-3.5" />
               Reject & cancel

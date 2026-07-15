@@ -92,18 +92,18 @@ export function InlineClarifyActions({
   return (
     <div
       data-testid="chat-clarify-actions"
-      className="rounded-2xl border border-gray-200 bg-white px-4 py-3 space-y-3"
+      className="rounded-2xl border border-line-border bg-surface-white px-4 py-3 space-y-3"
     >
       {questions.map((q) => {
         const selected = answers[q.id] || [];
         const multi = isMultiQuestion(q);
         return (
           <div key={q.id} className="space-y-1.5">
-            <p className="text-[12px] font-semibold text-gray-900 leading-snug">
+            <p className="text-[12px] font-semibold text-ink-900 leading-snug">
               {q.question}
             </p>
             {multi && (
-              <p className="text-[10px] text-gray-400">Select all that apply</p>
+              <p className="text-[10px] text-ink-400">Select all that apply</p>
             )}
             <div className="flex flex-wrap gap-1.5">
               {q.options?.map((option, oi) => {
@@ -117,8 +117,8 @@ export function InlineClarifyActions({
                     disabled={submitted}
                     className={`rounded-full px-3 py-1.5 text-[11px] font-medium border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                       active
-                        ? "border-[#1B2A4A] bg-[#1B2A4A] text-white"
-                        : "border-gray-200 bg-gray-50 text-gray-700 hover:border-[#1B2A4A]/30 hover:bg-white"
+                        ? "border-brand bg-brand text-white"
+                        : "border-line-border bg-surface-warm text-ink-700 hover:border-brand/30 hover:bg-surface-white"
                     }`}
                   >
                     {option}
@@ -135,22 +135,22 @@ export function InlineClarifyActions({
         data-testid="chat-clarify-submit"
         onClick={handleSubmit}
         disabled={submitted}
-        className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1B2A4A] text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-[#2a3d5e] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-brand-pressed transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <ArrowRight className="h-3.5 w-3.5" />
         Submit answers & start the build
       </button>
 
       {/* Cancel-Workflow — re-homed from the deleted QuestionnairePanel (Phase
-          42-02 §A2 / §8 decision 1). Subtle muted text affordance (final brand
-          tokens land in 42-10); fires the existing owner-scoped handler. */}
+          42-02 §A2 / §8 decision 1). Subtle muted text affordance on the brand
+          status-failed token (42-10 reskin); fires the existing owner-scoped handler. */}
       {onCancelWorkflow && (
         <button
           type="button"
           data-testid="chat-clarify-cancel-workflow"
           onClick={onCancelWorkflow}
           disabled={submitted}
-          className="w-full text-center text-[10px] text-red-400 hover:text-red-600 transition-colors py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full text-center text-[10px] text-status-failed/70 hover:text-status-failed transition-colors py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Cancel workflow
         </button>
