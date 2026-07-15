@@ -200,7 +200,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
       getWorkflows(token, { limit: 500 }),
       getPreferences(token).catch(() => null),
     ])
-      .then(([wf, prefs]) => {
+      .then(([{ runs: wf }, prefs]) => {
         setRuns(wf);
         if (prefs) setPreferredModelId(prefs.preferred_model);
       })

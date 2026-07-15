@@ -254,14 +254,16 @@ interface RawWorkflowRun {
   title: string;
   type: string;
   status: string;
-  input: string;
-  output: string | null;
-  agent_outputs: string | null;
+  // KAN-110: input/output/agent_outputs are absent from the slim list response.
+  // They are present in the full single-run response (GET /api/runs/{id}).
+  input?: string | null;
+  output?: string | null;
+  agent_outputs?: string | null;
   agent_count: number;
   duration: number | null;
   error: string | null;
   token_usage: string | null;
-  model_id: string | null;
+  model_id?: string | null;
   // UXFIX-02 (22-03 / D-19): persisted declared/resolved deliverable shape.
   deliverable_mimetype?: string | null;
   deliverable_filename?: string | null;
@@ -293,7 +295,7 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     title: raw.title,
     type: raw.type as WorkflowType,
     status: raw.status as WorkflowRun["status"],
-    input: raw.input,
+    input: raw.input ?? "",
     output: raw.output ?? undefined,
     agentOutputs,
     tokenUsage,
@@ -314,20 +316,30 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
 
 export async function getWorkflows(
   token: string,
-  options?: { type?: WorkflowType; limit?: number }
-): Promise<WorkflowRun[]> {
+  options?: { type?: WorkflowType; limit?: number; offset?: number }
+): Promise<{ runs: WorkflowRun[]; total: number }> {
   let path = "/api/runs";
   const params = new URLSearchParams();
   if (options?.type) params.set("type", options.type);
   if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
   const qs = params.toString();
   if (qs) path += `?${qs}`;
 
-  const raw = await request<RawWorkflowRun[]>(path, {
-    method: "GET",
-    headers: authHeaders(token),
-  });
-  return raw.map(normalizeWorkflowRun);
+  const rawResponse = await fetch(
+    (process.env.NEXT_PUBLIC_API_URL || "") + path,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  if (!rawResponse.ok) {
+    const text = await rawResponse.text().catch(() => "");
+    throw new Error(text || `HTTP ${rawResponse.status}`);
+  }
+  const total = parseInt(rawResponse.headers.get("X-Total-Count") || "0", 10);
+  const raw = (await rawResponse.json()) as RawWorkflowRun[];
+  return { runs: raw.map(normalizeWorkflowRun), total };
 }
 
 export async function getWorkflow(

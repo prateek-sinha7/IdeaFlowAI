@@ -10,7 +10,7 @@ import type { WorkflowRun } from "@/types/index";
 
 // Stable mock fns we can drive per-test.
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 
@@ -121,7 +121,7 @@ beforeEach(() => {
 type ChainHandler = (run: WorkflowRun, type: import("@/types/index").WorkflowType) => void;
 
 async function renderAndOpenRun(run: WorkflowRun, onChainPipeline?: ChainHandler) {
-  mockGetWorkflows.mockResolvedValue([run]);
+  mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
   // The detail-load short-circuits when run.output is set, but mock
   // getWorkflow anyway so any code path that does fetch the full run
   // resolves correctly.

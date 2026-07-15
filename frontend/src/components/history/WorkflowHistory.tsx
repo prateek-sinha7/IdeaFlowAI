@@ -131,6 +131,10 @@ function formatDuration(seconds?: number): string {
 export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
+  // KAN-110: page-based pagination. PAGE_SIZE per page, currentPage 1-based.
+  const PAGE_SIZE = 50;
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalRuns, setTotalRuns] = useState(0);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -162,14 +166,32 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     if (reviseOpen && revisionRef.current) revisionRef.current.focus();
   }, [reviseOpen]);
 
+  // KAN-110: fetch the run page for the active filter + current page.
+  // When a type filter is active, fetches without type param (all-variant
+  // filtering handled client-side via matchesFilter) but respects pagination.
+  // Note: the backend type filter is exact-match — od_prototype != prototype —
+  // so passing filterType directly would miss od_ variants. We fetch all runs
+  // for the current page and rely on matchesFilter (which uses baseWorkflowType)
+  // to show only the matching type visually, while the pagination reflects total.
   useEffect(() => {
     const token = getToken();
     if (!token) return;
     setLoading(true);
-    getWorkflows(token, { limit: 100 })
-      .then((data) => setRuns(data))
+    const pageOffset = (currentPage - 1) * PAGE_SIZE;
+    getWorkflows(token, { limit: PAGE_SIZE, offset: pageOffset })
+      .then(({ runs: data, total }) => {
+        setRuns(data);
+        setTotalRuns(total);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, filterType]);
+
+  // KAN-110: navigate to a specific page number (1-based).
+  const handleGoToPage = useCallback((page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
@@ -902,10 +924,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const families = groupRunsByFamily(runs);
   const visibleFamilies = families.filter((g) => g.members.some(matchesFilter));
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
-  const typeCounts: Record<string, number> = { all: families.length };
-  families.forEach((g) => {
-    // Count the FAMILY once under its base type (normalized from the root).
-    const base = baseWorkflowType(g.root.type);
+  // KAN-110: all counts from current page only.
+  // "All" = total unfiltered runs (server). Type tabs = count from current 50 runs.
+  const typeCounts: Record<string, number> = { all: totalRuns };
+  ["user_stories", "ppt", "prototype", "app_builder", "custom"].forEach((t) => {
+    typeCounts[t] = 0;
+  });
+  // Count each run on the current page under its base type.
+  runs.forEach((r) => {
+    const base = baseWorkflowType(r.type);
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
 
@@ -922,7 +949,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           </button>
           <div>
             <h1 className="text-[18px] font-normal italic text-gray-900 leading-tight font-serif">Workflow History</h1>
-            <p className="text-[11px] text-gray-400 mt-0.5">{runs.length} runs</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{totalRuns > 0 ? `${totalRuns} runs` : `${runs.length} runs`}</p>
           </div>
         </div>
 
@@ -947,7 +974,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             return (
               <button
                 key={type}
-                onClick={() => setFilterType(type)}
+                onClick={() => { setFilterType(type); setCurrentPage(1); }}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                   filterType === type
                     ? "bg-[#1B2A4A] text-white"
@@ -1032,6 +1059,76 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           </div>
         )}
       </div>
+
+      {/* ── Pagination footer — sticky at the bottom of the scrollable list ── */}
+      {totalRuns > PAGE_SIZE && (
+        <div className="flex-shrink-0 border-t border-gray-200 bg-white px-6 py-4 flex items-center justify-between">
+          {/* Left: range info */}
+          <p className="text-[13px] text-gray-500">
+            Showing{" "}
+            <span className="font-semibold text-gray-800">
+              {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalRuns)}
+            </span>{" "}
+            of{" "}
+            <span className="font-semibold text-gray-800">{totalRuns}</span>{" "}
+            workflows
+          </p>
+
+          {/* Right: prev / page buttons / next */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => handleGoToPage(currentPage - 1)}
+              disabled={currentPage === 1 || loading}
+              className="h-9 px-3 rounded-lg text-[13px] font-medium text-gray-500 border border-gray-200 bg-white hover:bg-gray-50 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              aria-label="Previous page"
+            >
+              ← Prev
+            </button>
+
+            {Array.from({ length: Math.ceil(totalRuns / PAGE_SIZE) }, (_, i) => i + 1)
+              .filter((p) => {
+                const total = Math.ceil(totalRuns / PAGE_SIZE);
+                return p === 1 || p === total || Math.abs(p - currentPage) <= 1;
+              })
+              .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                if (idx > 0 && typeof arr[idx - 1] === "number" && (p as number) - (arr[idx - 1] as number) > 1) {
+                  acc.push("…");
+                }
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((item, idx) =>
+                item === "…" ? (
+                  <span key={`ellipsis-${idx}`} className="h-9 w-9 flex items-center justify-center text-[13px] text-gray-400 select-none">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={item}
+                    onClick={() => handleGoToPage(item as number)}
+                    disabled={loading}
+                    className={`h-9 min-w-[36px] px-2.5 rounded-lg text-[13px] font-semibold border transition-colors disabled:cursor-not-allowed ${
+                      currentPage === item
+                        ? "bg-[#1B2A4A] text-white border-[#1B2A4A] shadow-sm"
+                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                )
+              )}
+
+            <button
+              onClick={() => handleGoToPage(currentPage + 1)}
+              disabled={currentPage === Math.ceil(totalRuns / PAGE_SIZE) || loading}
+              className="h-9 px-3 rounded-lg text-[13px] font-medium text-gray-500 border border-gray-200 bg-white hover:bg-gray-50 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              aria-label="Next page"
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Delete modal */}
       <AnimatePresence>

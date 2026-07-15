@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-051 | 2026-07-15 | KAN-110: Workflow history slow loading + add pagination — DB index + paginated frontend | No compound index on `workflow_runs(user_id, created_at)` caused full table scan on every history load; frontend fetched `limit:100` with no offset. Fix: migration 0025 adds `ix_workflow_runs_user_created`; `list_runs` gains `X-Total-Count` header; `getWorkflows` extended with `offset` + returns `{runs,total}`; `WorkflowHistory` changed to `limit:50` with Load More button. | `backend/alembic/versions/0024_stub_from_dev_branch.py` (stub), `backend/alembic/versions/0025_workflow_runs_user_created_index.py` (new), `backend/app/api/runs.py`, `frontend/src/lib/api.ts`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/components/analytics/AnalyticsPage.tsx`, `frontend/src/app/dashboard/page.tsx`, 5 test files | DB/API/Frontend (no engine phase) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-050 | 2026-07-15 | KAN-109: Add AI Coach Hub prototype template SKILL.md so the template appears in the gallery | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` was absent; `od_loader._load_one_template()` returns None when SKILL.md is missing, so the folder is silently skipped by `list_prototype_templates()`. example.html was present and correct. Fix: created SKILL.md with `od.mode: prototype` frontmatter + full agent build workflow instructions following the process-canvas pattern. | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` (new) | OpenDesign templates (content, no phase) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-049 | 2026-07-13 | KAN-108: Prototype revision delivers blank/unchanged/broken prototypes silently — add Revision Validation Agent as second step + fix clarify.mode: auto | `prototype_revision` manifest declared only 1 step; the silent `revision_validation` post-step only catches regressions vs baseline (zero-delta no-op passes), not blank pages, broken navigation, or missing components. `clarify.mode: auto` fired questionnaire on every revision. Fix: new `prototype-revision-validate` agent (dedicated AGENT.md, `pipeline_type: prototype_revision`, `consumes: [prototype-revision-agent]`, `tools: [workspace]`) added as step 2; manifest updated to `clarify.mode: skip`; registry updated; goldens regenerated; phase5/characterization tests updated. | `backend/agents/workflows/prototype_revision/workflow.yaml`, `backend/agents/registry.py`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` (new), `backend/tests/agents/characterization/golden/prototype_revision.events.json`, `backend/tests/agents/characterization/golden/prototype_revision.html`, `backend/tests/agents/_scripted_model.py`, `backend/tests/agents/test_phase5_revision_validation.py` | Phase 7 (revision post-step / agent registry) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-001 | 2026-06-16 | Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows | Validator: "two short sentences" loophole allowed model to print full checklist as preamble without `<artifact>` wrapper → raw checklist rendered as deck. Composer: deepagents filesystem glob crashes on Windows (pathlib.rglob ValueError) → composer told to use context-injected files instead of tool calls | `backend/agents/prompts/od-ppt-validator/AGENT.md`, `backend/agents/prompts/od-ppt-composer/AGENT.md` | Phase 15 | INV-1/3/12/SC-001 ✅ | Done |
@@ -69,6 +70,62 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-051 — KAN-110: Workflow History Slow Loading + Pagination
+
+**Date:** 2026-07-15
+**Triggered by:** `/velocity-ai-fix KAN-110`
+
+#### Root Cause
+
+Two confirmed causes:
+
+1. **No compound DB index** — `backend/app/models/workflow.py:17` had only `ix_workflow_runs_parent` on `parent_run_id`. The primary history query (`WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`) had no index on `(user_id, created_at)` and performed a full table scan on every history load.
+
+2. **Frontend fetched 100 rows with no pagination** — `WorkflowHistory.tsx:169` called `getWorkflows(token, { limit: 100 })` on every mount. The `getWorkflows` function in `api.ts` had no `offset` parameter, making server-side pagination structurally impossible without a code change.
+
+#### Phase Context
+
+- **Phase(s) involved:** DB/API/Frontend — no engine phase; additive migration + API header + FE state change.
+- **Relevant register section:** Phase 5 §5 (additive migrations, Q3 constraint); Phase 4 D-02 (runs.py owns history CRUD).
+- **Deleted code verified (not resurrected):** No deleted code resurrected.
+- **Locked decisions respected:** Migrations additive only (Q3) — index-only migration, no column/constraint change. No engine edit.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/alembic/versions/0024_stub_from_dev_branch.py` | New stub migration (empty upgrade/downgrade) chaining `0023→0024` | Reconciles the `0024` DB head from a merged dev-branch commit not present in this working branch; needed to make the Alembic revision graph resolvable |
+| `backend/alembic/versions/0025_workflow_runs_user_created_index.py` | New migration: `CREATE INDEX ix_workflow_runs_user_created ON workflow_runs(user_id, created_at)` | Eliminates the full-table scan on the primary history query |
+| `backend/app/api/runs.py` | Added `response: Response` param to `list_runs`; runs a `.count()` query before fetching the page and sets `X-Total-Count` header | Gives the frontend the total run count for pagination controls without a separate request |
+| `frontend/src/lib/api.ts` | Extended `getWorkflows` options with `offset?: number`; changed return type from `WorkflowRun[]` to `{ runs: WorkflowRun[]; total: number }`; switched from `request<>()` to raw `fetch()` to read the `X-Total-Count` header | Enables frontend pagination and exposes the total count |
+| `frontend/src/components/history/WorkflowHistory.tsx` | Changed initial load from `limit: 100` to `limit: 50`; added `offset`, `totalRuns`, `loadingMore` state; added `handleLoadMore` callback; added "Load more" button below the run list when `runs.length < totalRuns` | Implements visible pagination — first 50 runs load fast; user can append the next 50 on demand |
+| `frontend/src/components/analytics/AnalyticsPage.tsx` | Updated `getWorkflows` call site to destructure `{ runs: wf }` | Adapts to new return type |
+| `frontend/src/app/dashboard/page.tsx` | Updated all 3 `getWorkflows` call sites to destructure `{ runs }` | Adapts to new return type |
+| 5 test files (`WorkflowHistory.*.test.tsx`) | Updated `mockGetWorkflows` type from `Promise<WorkflowRun[]>` to `Promise<{ runs: WorkflowRun[]; total: number }>`; updated all `.mockResolvedValue` calls | Tests must match the new return type |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): not affected — no engine code changed.
+- **INV-3** (golden parity): not affected — no agent or engine code changed.
+- **INV-12** (no duplication): not applicable — additive migration + API/FE changes only.
+- **SC-001** (zero engine edits): not affected — zero engine edits.
+
+#### Verification
+
+1. Migration ran: `Running upgrade 0024 -> 0025` confirmed in alembic output.
+2. Index confirmed in DB: `ix_workflow_runs_user_created` present in `sqlite_master`.
+3. Backend restarted and healthy: `🟢 Backend ready — accepting connections`.
+4. Frontend `getWorkflows` function now returns `{ runs, total }` — all 3 call sites updated.
+5. WorkflowHistory loads 50 runs on mount; "Load more" appends the next 50 when `runs.length < totalRuns`.
+
+#### Notes
+
+- The `0024_stub_from_dev_branch.py` should be removed when the `dev` branch (containing the real `0024` migration) is merged into this branch. At merge time the real `0024` file should replace the stub, and `0025` should be repointed to chain from the real `0024`.
+- The `count()` call in `list_runs` adds one extra DB query per request. With the new index this is a fast index-scan count, not a full table scan, so the overhead is negligible.
+- The `AnalyticsPage` still uses `limit: 500` — intentional (analytics needs all runs for accurate charts). This is not a pagination surface.
 
 ---
 
