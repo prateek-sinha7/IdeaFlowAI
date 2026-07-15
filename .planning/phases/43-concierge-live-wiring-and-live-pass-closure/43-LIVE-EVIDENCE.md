@@ -32,6 +32,28 @@ No `create_deep_agent` / hand-rolled loop; the Concierge ran on the sanctioned `
 
 ---
 
-## Remaining live checks (pending this session)
-- **B.1** multi-turn chat + per-turn/document images · **B.2** mid-run steering into the next agent's live prompt · **B.4** `cache_read>0` incl. multi-turn cache placement (+ ISS-033 agents counted) · **B.5** unified LaunchWizard live launch (prototype+ppt) · **B.6** analytics round-trip + notification push · **B.7** live Playwright chat suite · plus the `default`-profile re-confirms (CONTEXT §2/§5).
-- **DEF-43-03-1** narrator live injection + seq reconciliation (43-06 backend half, run_commands.py:1243) — pending.
+## B.5 — Live launch on Bedrock — **PASS ✓**
+`POST /api/runs {"pipeline_type":"prototype","message":"…pomodoro timer…"}` → `HTTP 200 {run_id:7cd26895-…}`. The run drove live on Bedrock: `workflow_validated → planner_start → SmartPlanner (ChatBedrockConverse, gate PROCEED→CLARIFY_REQUIRED) → questionnaire_ready → clarification_limit_reached → pipeline_start → prototype-specify (agent_input + 1296 agent_chunks + agent_complete) → review_gate_ready → [approved] → prototype-plan`. Two real agents ran end-to-end on Haiku. (ppt half not launched this session — prototype proves the unified launch path; ppt is the same `POST /api/runs` contract.)
+
+## B.2 — Mid-run steering into the next agent's live prompt — **PASS ✓**
+A bare-text turn on the running run routed to `channel:"steering"` (`route_chat_turn → CHANNEL_STEERING → apply_steering → ectx.steering_notes`). After approving the specify gate, the **prototype-plan** agent's `agent_input.context_message` (seq 1313) contained verbatim:
+```
+=== USER GUIDANCE ===
+Here is a reference screenshot for the visual style.
+=== END USER GUIDANCE ===
+```
+The A.3 live-ectx registry resolved the running run and drained the queued steering note into the NEXT agent's live prompt. (Note: a bare-text turn while the run is paused at a *clarify questionnaire* is correctly consumed as a clarify **answer** (`channel:"answers"`), not steering — the steering channel engages once past clarify; timing matters, mechanism verified.)
+
+## B.1 — Per-turn image to a running run — **PARTIAL**
+The per-turn image (`{mime_type:image/png,data:…}`) was accepted and routed to `channel:"steering"` (the shared `apply_turn_images` seam, 43-05). But no image/`image_count` signal appeared in the next agent's `agent_input` and no image-delivery log line was observed, so **delivery-to-model was not confirmed this session**. The **run-entry** image path is separately live-proven (quick-260710-ftq, `image_count=1` to the spec-writer). Per-turn image (DEF-30-03-1) delivery needs a deeper trace — logged as still-owed.
+
+## B.4 — Bedrock prompt caching — **PARTIAL (cache WRITE live-proven; cache_read>0 not observed)**
+Real, observable improvement over the "caching silently off on Bedrock" baseline: pipeline agent `agent_complete` usage carried **`cache_write_tokens=5094`** (prototype-specify) and **`8781`** (prototype-plan) — the `_BedrockCachePointsMiddleware` IS injecting `cache_control` and Bedrock IS creating cache entries. But **`cache_read_tokens=0`** on both (distinct system prefixes across agents → nothing re-read), and the Concierge's multi-turn usage is not surfaced in the run event stream, so `cache_read>0` (the actual token savings) was not observable this session. Standing ISS-031/032; the ISS-033 helper (43-04) places cache_control offline-proven + cache_write now live — but the multi-turn cache-READ + the ISS-033 token-count delta remain owed.
+
+## B.6 — analytics + notifications — **B.6a PASS ✓ / B.6b pending**
+- **B.6a:** `GET /api/analytics/summary` → `HTTP 200` with real KPIs (`total:47, completed:29, failed:3, success_rate:0.617`) + per-day token breakdowns. Live round-trip confirmed.
+- **B.6b:** notifications are client-derived (`useNotifications` fed by pipeline frames over the now-SSE connection), not a REST push (`/api/notifications` → 404). Verified-by-construction that run events drive them; a browser observation of the toast/panel firing over SSE is still owed.
+
+## Still pending this session
+- **B.7** live Playwright chat suite · **B.6b** browser notification observation · the `default`-profile re-confirms (CONTEXT §2/§5) · **B.1** per-turn image delivery trace · **B.4** cache_read>0 + ISS-033 count.
+- **DEF-43-03-1** narrator live injection + seq reconciliation (43-06 backend half, run_commands.py:1243).
