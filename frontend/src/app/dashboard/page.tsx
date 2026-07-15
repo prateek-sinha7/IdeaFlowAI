@@ -926,7 +926,11 @@ export default function DashboardPage() {
     // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
     // path hits the in-flight run instead of null-then-fresh-POST; fall back to
     // the clarify-only activePipelineRunId when the build id is not yet set.
-    runId: pipelineState.pipelineRunId ?? activePipelineRunId,
+    // DEF-44-12-1: then fall back to the currently-VIEWED run (contentSourceRunId,
+    // set on history/recents reopen) so a Concierge/steering/revision turn on an
+    // opened terminal run posts to POST /{id}/messages — NOT the null->/api/runs
+    // launch branch (which 422'd pre-fix). A live pipeline still wins the precedence.
+    runId: pipelineState.pipelineRunId ?? activePipelineRunId ?? contentSourceRunId,
     subscribe: chatSubscribe,
     // W1 (44-01): sendCommand now resolves to the launched run_id (for
     // launch->attach); the chat up-channel ignores that value, so adapt it to the
