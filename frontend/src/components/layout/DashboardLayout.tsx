@@ -36,6 +36,7 @@ import type { UserWorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
+import { useRunConnection } from "@/providers/RunConnectionProvider";
 
 export interface DashboardLayoutProps {
   activeChatId: string | null;
@@ -236,6 +237,10 @@ export function DashboardLayout({
   deepLinkTarget,
 }: DashboardLayoutProps) {
   const router = useRouter();
+  // W1 (44-01) — the app-level SSE connection (inert when the flag is OFF). Used
+  // only to make the WS-specific reconnect_pipeline frame dormant while SSE is the
+  // active transport (useRunStream owns Last-Event-ID replay there).
+  const runConnection = useRunConnection();
   const [mainView, setMainView] = useState<MainView>(() => {
     // If an od_prototype or od_ppt run is staged (user came from the wizard),
     // start directly in execution view — avoids the home screen flash while
@@ -625,6 +630,12 @@ export function DashboardLayout({
   }, [pipelineState?.pipelineRunId]);
 
   useEffect(() => {
+    // W1 (44-01) — under SSE this WS reconnect_pipeline frame is redundant:
+    // useRunStream reconnects natively and replays from Last-Event-ID. Guard it
+    // to a no-op while SSE is the active transport (its full removal + the
+    // ConnectionStatus migration is W4's useWebSocket deletion). Flag-OFF path
+    // is unchanged.
+    if (runConnection.enabled) return;
     if (connectionStatus !== "connected") return;
     // If a pipeline was running when we disconnected, reconnect to it.
     // Check both in-memory state and sessionStorage (handles tab close/reopen).

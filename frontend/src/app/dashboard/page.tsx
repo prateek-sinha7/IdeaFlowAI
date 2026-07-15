@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe } from "@/lib/api";
 import { ENV } from "@/lib/env";
-import { useWebSocket } from "@/hooks/useWebSocket";
+import { useWebSocket, type ConnectionStatus } from "@/hooks/useWebSocket";
+import type { RunConnectionPhase } from "@/hooks/useRunStream";
 import { useWorkflow } from "@/hooks/useWorkflow";
 // Phase 31 (CHATUI-01/02/03) — the chat-lane DATA layer + the nonce'd deep-link
 // seam + the app-level SSE connection. useRunChat folds the Phase-29 chat frames
@@ -25,6 +26,32 @@ import type { ChatMode } from "@/components/chat/ChatInput";
 // history-reopen detail view so the two surfaces parse the persisted run `error`
 // identically. See lib/parseFailedAgents.ts for the marker contract.
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
+
+/**
+ * W1 (44-01) — map the SSE connection phase (RunConnectionPhase) onto the
+ * existing ConnectionStatus shape at the boundary, so the header / reconnect UI
+ * reflects the SSE connection when SSE is the active transport WITHOUT widening
+ * the global ConnectionStatus enum (its migration is W4's useWebSocket deletion).
+ * `replaying`/`live` are "attached" → connected; `idle` (no active run) is
+ * treated as connected so an idle SSE app never shows a false disconnect banner.
+ */
+function phaseToConnectionStatus(phase: RunConnectionPhase): ConnectionStatus {
+  switch (phase) {
+    case "connecting":
+      return "connecting";
+    case "reconnecting":
+      return "reconnecting";
+    case "failed":
+      return "failed";
+    case "disconnected":
+      return "disconnected";
+    case "replaying":
+    case "live":
+    case "idle":
+    default:
+      return "connected";
+  }
+}
 
 /**
  * Dashboard page - the main authenticated view.
@@ -901,6 +928,17 @@ export default function DashboardPage() {
     onMessage: wsOnMessage,
   });
 
+  // W1 (44-01) — the status/reconnect the header UI reflects. When SSE is the
+  // active transport, source them from runConnection.phase (the SSE connection)
+  // and route reconnect through the provider's server-derived reattach; the WS
+  // `connectionStatus`/`reconnect` still drive the dashboard's own WS effects
+  // (od_prototype auto-fire) unchanged. Flag-OFF is byte-identical (the WS
+  // values pass straight through).
+  const effectiveConnectionStatus: ConnectionStatus = sseEnabled
+    ? phaseToConnectionStatus(runConnection.phase)
+    : connectionStatus;
+  const effectiveReconnect = sseEnabled ? runConnection.reattach : reconnect;
+
   // Workflow pipeline state
   const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow(send);
   // KAN-98: store pending gate edits so review_gate_approved can apply them to
@@ -1460,14 +1498,14 @@ export default function DashboardPage() {
       pptContent={pptContent}
       prototypeContent={prototypeContent}
       genericDeliverable={genericDeliverable}
-      connectionStatus={connectionStatus}
+      connectionStatus={effectiveConnectionStatus}
       onSendMessage={handleSendMessage}
       onSendMessageWithMode={handleSendMessageWithMode}
       onSelectChat={handleSelectChat}
       onNewChat={handleNewChat}
       onDeleteChat={handleDeleteChat}
       onLogout={handleLogout}
-      onReconnect={reconnect}
+      onReconnect={effectiveReconnect}
       messageMode={currentMode}
       chatTitleUpdate={chatTitleUpdate}
       processSteps={processSteps}
