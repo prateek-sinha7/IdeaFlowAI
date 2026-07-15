@@ -933,7 +933,12 @@ export default function DashboardPage() {
     // NEXT_PUBLIC_SSE_TRANSPORT, legacy WS remains the active transport).
     runId: pipelineState.pipelineRunId ?? activePipelineRunId,
     subscribe: chatSubscribe,
-    sendCommand: runConnection.sendCommand,
+    // W1 (44-01): sendCommand now resolves to the launched run_id (for
+    // launch->attach); the chat up-channel ignores that value, so adapt it to the
+    // void-returning shape useRunChat expects.
+    sendCommand: (runId, payload) => {
+      void runConnection.sendCommand(runId, payload);
+    },
     // flag-ON uses sendCommand (REST up-channel); flag-OFF uses the legacy WS send.
     legacyWsSend: sseEnabled ? undefined : legacyChatSend,
   });

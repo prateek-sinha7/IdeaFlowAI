@@ -58,14 +58,23 @@ export interface RunConnectionContextValue {
   liveRunIds: string[];
   /** Force a server-derived reattach (re-query live runs + re-attach). */
   reattach: () => void;
+  /**
+   * Imperatively attach a single run's SSE stream RIGHT NOW (W1/R4 launch->attach)
+   * — used after a launch (`POST /api/runs`) so the fresh run streams live without
+   * waiting for the next `refreshLiveRuns` poll. Idempotent: attaching an id that
+   * is already live is a no-op (the `liveRunIds` identity does not change), so it
+   * never remounts an existing `RunStreamConnection`.
+   */
+  attachRun: (runId: string) => void;
   /** Subscribe to every frame from every attached run; returns an unsubscribe. */
   subscribe: (fn: (msg: RunStreamMessage) => void) => () => void;
   /**
    * Send a command up-channel over REST (the SSE transport's up-channel). When
-   * `runId` is null the command creates a run (`POST /api/runs`); otherwise it
-   * posts to that run (`POST /api/runs/{id}/messages`).
+   * `runId` is null the command creates a run (`POST /api/runs`) and resolves to
+   * the created `run_id` (so the caller can `attachRun` it — W1/R4); otherwise it
+   * posts to that run (`POST /api/runs/{id}/messages`) and resolves to null.
    */
-  sendCommand: (runId: string | null, payload: Record<string, unknown>) => Promise<void>;
+  sendCommand: (runId: string | null, payload: Record<string, unknown>) => Promise<string | null>;
 }
 
 /**
@@ -78,8 +87,9 @@ const DEFAULT_VALUE: RunConnectionContextValue = {
   phase: "idle",
   liveRunIds: [],
   reattach: () => {},
+  attachRun: () => {},
   subscribe: () => () => {},
-  sendCommand: async () => {},
+  sendCommand: async () => null,
 };
 
 const RunConnectionContext = createContext<RunConnectionContextValue>(DEFAULT_VALUE);
@@ -272,14 +282,26 @@ export function RunConnectionProvider({
     void refreshLiveRuns();
   }, [refreshLiveRuns]);
 
+  // W1/R4 — imperative single-run attach. Mirrors refreshLiveRuns's set-diff so a
+  // repeat attach of an already-live id keeps the SAME `liveRunIds` identity (no
+  // remount of the existing RunStreamConnection). A brand-new id is appended,
+  // mounting exactly one new stream.
+  const attachRun = useCallback((runId: string) => {
+    if (!runId) return;
+    setLiveRunIds((prev) => (prev.includes(runId) ? prev : [...prev, runId]));
+  }, []);
+
   const sendCommand = useCallback(
-    async (runId: string | null, payload: Record<string, unknown>) => {
+    async (
+      runId: string | null,
+      payload: Record<string, unknown>,
+    ): Promise<string | null> => {
       const t = getToken();
-      if (!t) return;
+      if (!t) return null;
       const url = runId
         ? `${ENV.API_URL}/api/runs/${runId}/messages`
         : `${ENV.API_URL}/api/runs`;
-      await fetch(url, {
+      const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -287,6 +309,19 @@ export function RunConnectionProvider({
         },
         body: JSON.stringify(payload),
       });
+      // A per-run message carries no new run to attach.
+      if (runId) return null;
+      // Launch (POST /api/runs): parse the created run_id so the caller can
+      // attachRun it (W1/R4). A non-2xx create yields no id to attach.
+      if (!res.ok) return null;
+      try {
+        const body = (await res.json()) as
+          | { run_id?: string; id?: string }
+          | null;
+        return body?.run_id ?? body?.id ?? null;
+      } catch {
+        return null;
+      }
     },
     [],
   );
@@ -297,8 +332,8 @@ export function RunConnectionProvider({
   );
 
   const value = useMemo<RunConnectionContextValue>(
-    () => ({ enabled, phase, liveRunIds, reattach, subscribe, sendCommand }),
-    [enabled, phase, liveRunIds, reattach, subscribe, sendCommand],
+    () => ({ enabled, phase, liveRunIds, reattach, attachRun, subscribe, sendCommand }),
+    [enabled, phase, liveRunIds, reattach, attachRun, subscribe, sendCommand],
   );
 
   return (
