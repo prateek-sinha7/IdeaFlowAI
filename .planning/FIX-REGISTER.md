@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-050 | 2026-07-15 | KAN-109: Add AI Coach Hub prototype template SKILL.md so the template appears in the gallery | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` was absent; `od_loader._load_one_template()` returns None when SKILL.md is missing, so the folder is silently skipped by `list_prototype_templates()`. example.html was present and correct. Fix: created SKILL.md with `od.mode: prototype` frontmatter + full agent build workflow instructions following the process-canvas pattern. | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` (new) | OpenDesign templates (content, no phase) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-049 | 2026-07-13 | KAN-108: Prototype revision delivers blank/unchanged/broken prototypes silently — add Revision Validation Agent as second step + fix clarify.mode: auto | `prototype_revision` manifest declared only 1 step; the silent `revision_validation` post-step only catches regressions vs baseline (zero-delta no-op passes), not blank pages, broken navigation, or missing components. `clarify.mode: auto` fired questionnaire on every revision. Fix: new `prototype-revision-validate` agent (dedicated AGENT.md, `pipeline_type: prototype_revision`, `consumes: [prototype-revision-agent]`, `tools: [workspace]`) added as step 2; manifest updated to `clarify.mode: skip`; registry updated; goldens regenerated; phase5/characterization tests updated. | `backend/agents/workflows/prototype_revision/workflow.yaml`, `backend/agents/registry.py`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` (new), `backend/tests/agents/characterization/golden/prototype_revision.events.json`, `backend/tests/agents/characterization/golden/prototype_revision.html`, `backend/tests/agents/_scripted_model.py`, `backend/tests/agents/test_phase5_revision_validation.py` | Phase 7 (revision post-step / agent registry) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-001 | 2026-06-16 | Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows | Validator: "two short sentences" loophole allowed model to print full checklist as preamble without `<artifact>` wrapper → raw checklist rendered as deck. Composer: deepagents filesystem glob crashes on Windows (pathlib.rglob ValueError) → composer told to use context-injected files instead of tool calls | `backend/agents/prompts/od-ppt-validator/AGENT.md`, `backend/agents/prompts/od-ppt-composer/AGENT.md` | Phase 15 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-002 | 2026-06-16 | Vellum template not applied — example.html not injected into PPT composer context | opendesign provider `is_builder` gate used `{"prototype_emit_only", "prototype"}` set; `workspace` tool set excluded so PPT composer never received `example.html`; SKILL.md workflow says "clone example.html" but agent had no copy | `backend/agents/capabilities/context_providers/opendesign.py` | Phase 7 | INV-1/3/12/SC-001 ✅ | Done |
@@ -69,6 +70,66 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-050 — KAN-109: Add AI Coach Hub SKILL.md to expose template in gallery
+
+**Date:** 2026-07-15
+**Triggered by:** `/velocity-ai-fix KAN-109 — add SKILL.md for ai-coach-hub template`
+
+#### Root Cause
+
+`skills/opendesign/design-templates/ai-coach-hub/SKILL.md` was absent. The loader
+`backend/app/services/od_loader.py::_load_one_template()` checks `(folder / "SKILL.md").is_file()`
+first and returns `None` if the file is missing — the folder is then silently excluded from
+`list_prototype_templates()` which only returns entries with `od.mode == "prototype"`. The
+`example.html` file was present and correct (six navigable screens, all `data-od-id` attributes,
+hash-based router, inline JS controller).
+
+Trace:
+```
+GET /api/prototype-templates/list
+  → list_prototype_templates()
+  → _all_templates()  [@lru_cache — cleared on restart]
+  → _load_one_template(ai-coach-hub/)
+  → skill_path = folder / "SKILL.md"
+  → if not skill_path.is_file(): return None   ← ai-coach-hub/ skipped
+  → template never added to result list
+  → gallery shows no AI Coach Hub card
+```
+
+#### Phase Context
+
+- **Phase(s) involved:** N/A — OpenDesign templates are pure content under `skills/`, not tracked by any engine phase.
+- **Relevant register section:** Not applicable (content file, no phase section).
+- **Deleted code verified (not resurrected):** No code deleted or modified.
+- **Locked decisions respected:** N/A — pure content addition.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` | Created new file with `od.mode: prototype` frontmatter, name/description/triggers/od block, and full agent build workflow (pre-flight, domain replacement, JS data adaptation, six-screen self-check, nav integrity check, output contract) | `od_loader._load_one_template()` requires SKILL.md; `list_prototype_templates()` requires `od.mode == "prototype"` to include the template in the gallery |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): not affected — no engine code changed.
+- **INV-3** (golden parity): not affected — no agent or engine code changed.
+- **INV-12** (no duplication): not applicable — pure content addition.
+- **SC-001** (zero engine edits): not affected — zero engine edits.
+
+#### Verification
+
+1. Confirmed `od.mode: prototype` present in the new SKILL.md via grep.
+2. Backend restarted — `@lru_cache` on `_all_templates()` cleared.
+3. Template will appear at `http://localhost:3000/workflow/prototype/templates` with name "AI Coach Hub", tags DESKTOP and SAAS-PRODUCT, and the live preview.
+
+#### Notes
+
+- The template was previously built and verified working (screenshot confirmed by user), then reverted due to missing branch discipline. KAN-109 was created to track the redo.
+- The SKILL.md follows the exact `process-canvas/SKILL.md` pattern: YAML frontmatter with `od` block + markdown body with pre-flight / workflow / hard-rules / output-contract sections.
+- All six screen `data-page` ids and `data-od-id` attributes documented in the SKILL.md screen inventory table so agents know what to change vs preserve when re-skinning.
 
 ---
 
