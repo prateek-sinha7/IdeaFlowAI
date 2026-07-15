@@ -43,10 +43,29 @@ import {
 /**
  * Non-terminal run statuses = the runs that still have a live stream worth
  * attaching. Terminal runs (completed/failed/cancelled) are replay-only and are
- * not attached on boot. `revising` is non-terminal (a spec-revision child run is
- * still producing events).
+ * not attached on boot.
+ *
+ * This set must mirror the backend lifecycle state machine
+ * (`agents/execution_engine/state_machine.py`): the six non-terminal states it
+ * drives — `clarifying, waiting_for_user, planning, analyzing, generating,
+ * revising` (VALID_STATES − TERMINAL_STATES) — PLUS `running`, the DB default a
+ * run carries before the state machine's first transition. A run mid-clarify,
+ * mid-plan, or mid-generation is still live: it has a `_PIPELINE_QUEUES` entry
+ * producing SSE events, so `refreshLiveRuns` must attach it. Omitting these
+ * (the pre-44 set was only `{running, revising}`) meant a run opened from
+ * history — or the page reloaded — while `generating` etc. never re-attached
+ * its stream and showed the empty "Pipeline trace" placeholder (DEF-44-12-3;
+ * the WS transport masked this because it reconnected by run-id, status-agnostic).
  */
-const NON_TERMINAL_STATUSES = new Set(["running", "revising"]);
+const NON_TERMINAL_STATUSES = new Set([
+  "running",
+  "clarifying",
+  "waiting_for_user",
+  "planning",
+  "analyzing",
+  "generating",
+  "revising",
+]);
 
 export interface RunConnectionContextValue {
   /**
