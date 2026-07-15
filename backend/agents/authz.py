@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -387,6 +388,78 @@ class ScopedStore:
         raise RuntimeError(
             f"append_event_next_seq: exhausted seq-allocation retries for run {run_id!r}"
         )
+
+    # ------------------------------------------------------------------
+    # DeepLinkNonce — owner+workspace-scoped single-use deep-link store (WR-02)
+    # ------------------------------------------------------------------
+
+    async def mint_deep_link_nonce(
+        self,
+        *,
+        nonce: str,
+        run_id: str | None = None,
+        target: str | None = None,
+    ) -> str:
+        """Persist ONE ``deep_link_nonces`` row for an issued deep-link (WR-02).
+
+        Stamped with the helper principal ``(owner_id, workspace_id)`` (AUTHZ-01) so the
+        default-deny consume can only be satisfied by the SAME owner+workspace. Replaces
+        the Phase-29 process-global in-memory ``_ISSUED_NONCES`` set: the row is durable
+        (survives restart), owner-scoped (a cross-owner consume never resolves it —
+        T-43-03-SPOOF/IDOR), and single-use (``consumed_at`` is the terminal state minted
+        NULL here, flipped once by :meth:`consume_deep_link_nonce`). Returns the nonce.
+        """
+        from app.models.run_event import DeepLinkNonce
+
+        session, owned = self._acquire()
+        try:
+            session.add(
+                DeepLinkNonce(
+                    nonce=nonce,
+                    owner_id=self._owner_id,
+                    workspace_id=self._workspace_id,
+                    run_id=run_id,
+                    target=target,
+                )
+            )
+            session.commit()
+            return nonce
+        finally:
+            if owned:
+                session.close()
+
+    async def consume_deep_link_nonce(self, nonce: str) -> bool:
+        """Consume a deep-link nonce ONCE, owner+workspace-scoped (WR-02).
+
+        Returns ``True`` iff a row exists that is owner+workspace-matched AND unconsumed —
+        atomically marking it consumed in the SAME conditional UPDATE (``WHERE … AND
+        consumed_at IS NULL``), so a concurrent double-consume can flip exactly one row
+        (single-use, T-43-03-REPLAY). Returns ``False`` for a missing, cross-owner, or
+        already-consumed nonce — the API maps that False to a 404 (IDOR→404, never leaking
+        whether the nonce exists under a different owner — T-43-03-IDOR).
+        """
+        from app.models.run_event import DeepLinkNonce
+
+        session, owned = self._acquire()
+        try:
+            updated = (
+                session.query(DeepLinkNonce)
+                .filter(
+                    DeepLinkNonce.nonce == nonce,
+                    DeepLinkNonce.owner_id == self._owner_id,
+                    DeepLinkNonce.workspace_id == self._workspace_id,
+                    DeepLinkNonce.consumed_at.is_(None),
+                )
+                .update(
+                    {DeepLinkNonce.consumed_at: datetime.now(timezone.utc)},
+                    synchronize_session=False,
+                )
+            )
+            session.commit()
+            return updated == 1
+        finally:
+            if owned:
+                session.close()
 
     # ------------------------------------------------------------------
     # WorkflowRun — scoped lookup

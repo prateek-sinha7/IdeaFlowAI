@@ -171,27 +171,24 @@ class TestProjection:
         assert card["pipeline_run_id"] == "run-9"
 
 
-class TestDeepLinkNonce:
+class TestDeepLinkNonceProjection:
     def _card(self):
         from app.agents.chat_narrator import project_milestone_card
 
         return project_milestone_card({"type": "pipeline_start", "data": {"pipeline_run_id": "r"}})
 
-    def test_nonce_is_single_use_consume_once(self):
-        # T-29-10-2: a replayed deep-link nonce must not resolve twice.
-        from app.agents.chat_narrator import consume_deep_link
-
-        nonce = self._card()["deep_link"]["nonce"]
-        assert consume_deep_link(nonce) is True  # first use
-        assert consume_deep_link(nonce) is False  # reuse rejected
-
-    def test_unknown_nonce_never_resolves(self):
-        from app.agents.chat_narrator import consume_deep_link
-
-        assert consume_deep_link("never-issued") is False
-
     def test_distinct_cards_get_distinct_nonces(self):
+        # The pure projection generates a fresh candidate nonce per card (side-effect-free
+        # — the durable row is minted only at persist time; see TestDeepLinkNonceDB).
         assert self._card()["deep_link"]["nonce"] != self._card()["deep_link"]["nonce"]
+
+    def test_projection_does_not_touch_the_db(self):
+        # WR-02: the Phase-29 module-global in-memory _ISSUED_NONCES set is DELETED, and
+        # the projection is pure — no DB write, no module-level nonce registry survives.
+        import app.agents.chat_narrator as narrator
+
+        assert not hasattr(narrator, "_ISSUED_NONCES")
+        assert not hasattr(narrator, "_mint_nonce")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -360,3 +357,101 @@ class TestPersistence:
         ]
         assert len(attacker_rows) == 1
         assert seq == 1
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# WR-02 — the DB-backed, owner+workspace-scoped, single-use deep-link nonce
+# ════════════════════════════════════════════════════════════════════════════
+class TestDeepLinkNonceDB:
+    """The hardened nonce: DB-backed (migration 0025), owner+workspace-scoped, single-use,
+    bounded. Replaces the Phase-29 process-global in-memory set (unbounded/unscoped/lost on
+    restart). A replayed OR cross-owner nonce resolves to nothing (False → 404, IDOR)."""
+
+    def _store(self, owner_id, workspace_id="ws-1"):
+        from agents.authz import ScopedStore
+
+        return ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+
+    def _mint_card_nonce(self, store_env, *, owner_id, workspace_id="ws-1"):
+        """Drive a card through persist_milestone_card so its nonce is minted as a durable
+        owner+workspace-scoped deep_link_nonces row; return that nonce."""
+        from app.agents.chat_narrator import persist_milestone_card
+
+        run_id = _seed_run(store_env, owner_id=owner_id, workspace_id=workspace_id)
+        event = {"type": "pipeline_start", "event_id": f"src-{uuid.uuid4().hex[:8]}",
+                 "data": {"pipeline_run_id": run_id}}
+        created, _seq, card = _run(
+            persist_milestone_card(self._store(owner_id, workspace_id), run_id, event)
+        )
+        assert created is True
+        return card["deep_link"]["nonce"]
+
+    def test_first_consume_by_correct_owner_is_true(self, store_env):
+        from app.agents.chat_narrator import consume_deep_link
+
+        nonce = self._mint_card_nonce(store_env, owner_id="owner-A")
+        assert _run(consume_deep_link(self._store("owner-A"), nonce)) is True
+
+    def test_second_consume_is_false_single_use(self, store_env):
+        # T-43-03-REPLAY: a replayed deep-link nonce must not resolve twice.
+        from app.agents.chat_narrator import consume_deep_link
+
+        nonce = self._mint_card_nonce(store_env, owner_id="owner-A")
+        assert _run(consume_deep_link(self._store("owner-A"), nonce)) is True
+        assert _run(consume_deep_link(self._store("owner-A"), nonce)) is False
+
+    def test_cross_owner_consume_is_false_idor(self, store_env):
+        # T-43-03-SPOOF/IDOR: owner-B may not consume owner-A's nonce → False → 404.
+        from app.agents.chat_narrator import consume_deep_link
+
+        nonce = self._mint_card_nonce(store_env, owner_id="owner-A")
+        assert _run(consume_deep_link(self._store("owner-B"), nonce)) is False
+        # and it is still consumable by the true owner (cross-owner attempt didn't burn it)
+        assert _run(consume_deep_link(self._store("owner-A"), nonce)) is True
+
+    def test_cross_workspace_consume_is_false(self, store_env):
+        # owner+WORKSPACE scoped: a different workspace under the same owner → False.
+        from app.agents.chat_narrator import consume_deep_link
+
+        nonce = self._mint_card_nonce(store_env, owner_id="owner-A", workspace_id="ws-1")
+        assert _run(consume_deep_link(self._store("owner-A", "ws-2"), nonce)) is False
+        assert _run(consume_deep_link(self._store("owner-A", "ws-1"), nonce)) is True
+
+    def test_unknown_nonce_never_resolves(self, store_env):
+        from app.agents.chat_narrator import consume_deep_link
+
+        assert _run(consume_deep_link(self._store("owner-A"), "never-issued")) is False
+
+    def test_nonce_row_is_bounded_terminal_on_consume(self, store_env):
+        # T-43-03-DOS: consumed rows are the terminal state (bounded growth). After a
+        # consume the row's consumed_at is set, so it can never resolve again.
+        from app.agents.chat_narrator import consume_deep_link
+        from app.models.run_event import DeepLinkNonce
+
+        nonce = self._mint_card_nonce(store_env, owner_id="owner-A")
+        assert _run(consume_deep_link(self._store("owner-A"), nonce)) is True
+        db = store_env["Session"]()
+        try:
+            row = db.query(DeepLinkNonce).filter(DeepLinkNonce.nonce == nonce).first()
+            assert row is not None and row.consumed_at is not None
+        finally:
+            db.close()
+
+    def test_replayed_card_does_not_leak_a_second_nonce_row(self, store_env):
+        # The nonce row is minted only when the card row is created; a replayed milestone
+        # (idempotent no-op) must not add a second unconsumed nonce (rows 1:1 with cards).
+        from app.agents.chat_narrator import persist_milestone_card
+        from app.models.run_event import DeepLinkNonce
+
+        owner = "owner-R"
+        run_id = _seed_run(store_env, owner_id=owner)
+        event = {"type": "pipeline_start", "event_id": "src-replay",
+                 "data": {"pipeline_run_id": run_id}}
+        r1 = _run(persist_milestone_card(self._store(owner), run_id, event))
+        r2 = _run(persist_milestone_card(self._store(owner), run_id, event))  # replay
+        assert r1[0] is True and r2[0] is False
+        db = store_env["Session"]()
+        try:
+            assert db.query(DeepLinkNonce).count() == 1  # exactly ONE nonce row
+        finally:
+            db.close()

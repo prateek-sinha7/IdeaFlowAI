@@ -19,9 +19,13 @@ NO execution-kernel import — so the banned-pattern gate and import-linter stay
 projects when the chat lane is active — so the 5 characterization goldens stay byte/event-
 identical (the ``chat_reply`` card discriminators are stable and never appear on a golden).
 
-**Deep-link seam (T-29-10-2):** every card carries a ``{target, nonce}`` deep-link whose
-``nonce`` is **single-use** (``consume_deep_link`` resolves it exactly once) so a replayed
-link can never resolve twice.
+**Deep-link seam (T-29-10-2 / WR-02):** every card carries a ``{target, nonce}`` deep-link
+whose ``nonce`` is **single-use** and now **DB-backed + owner+workspace-scoped**. The Phase-29
+process-global in-memory ``_ISSUED_NONCES`` set (unbounded, unscoped, lost on restart) is
+DELETED (INV-3/INV-12 — no dual store): ``persist_milestone_card`` mints the nonce as a durable
+``deep_link_nonces`` row through the SAME scoped ``store`` (owner+workspace stamped), and
+``consume_deep_link(store, nonce)`` delegates to that store's single-use, owner-scoped consume —
+a replayed OR cross-owner nonce resolves to nothing (False → 404), never twice.
 """
 
 from __future__ import annotations
@@ -74,6 +78,14 @@ def _event_data(event: Any) -> dict:
 def _event_id(event: Any) -> str | None:
     if isinstance(event, dict):
         eid = event.get("event_id")
+        if not eid:
+            # The live engine event sink stamps the source id into ``data`` (not the
+            # top level: ``{type, data:{event_id, seq, …}}``) — read it there too so the
+            # chat_reply row's idempotency key namespaces on the real source event id
+            # (stable across a durable-log replay), not the fallback nonce.
+            data = event.get("data")
+            if isinstance(data, dict):
+                eid = data.get("event_id")
     else:
         eid = getattr(event, "event_id", None)
     return eid if isinstance(eid, str) and eid else None
@@ -104,29 +116,20 @@ def _revision_index(data: dict) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Deep-link nonce — single-use / consume-once (T-29-10-2).
+# Deep-link nonce — DB-backed, owner+workspace-scoped, single-use (T-29-10-2 / WR-02).
 # ---------------------------------------------------------------------------
-_ISSUED_NONCES: set[str] = set()
+async def consume_deep_link(store: Any, nonce: str) -> bool:
+    """Consume a deep-link nonce ONCE, owner+workspace-scoped (WR-02).
 
-
-def _mint_nonce() -> str:
-    """Mint a fresh single-use deep-link nonce and register it as unconsumed."""
-    nonce = uuid.uuid4().hex
-    _ISSUED_NONCES.add(nonce)
-    return nonce
-
-
-def consume_deep_link(nonce: str) -> bool:
-    """Consume a deep-link nonce ONCE.
-
-    Returns ``True`` the first time a live (issued, unconsumed) nonce is presented and
-    ``False`` on every subsequent presentation (replay/reuse defense, T-29-10-2) and for
-    any nonce this narrator never issued.
+    Delegates to the injected owner+workspace-scoped ``store``
+    (``agents.authz.ScopedStore``): returns ``True`` iff a durable ``deep_link_nonces`` row
+    exists that is owner+workspace-matched AND unconsumed — atomically marking it consumed —
+    and ``False`` on every subsequent presentation (replay/reuse defense, T-43-03-REPLAY),
+    for a nonce this owner never held (cross-owner, T-43-03-SPOOF/IDOR), or for one that was
+    never issued. The API maps ``False`` to a 404 (IDOR→404 — never leaks existence). The
+    Phase-29 process-global in-memory ``_ISSUED_NONCES`` set is DELETED (no dual store).
     """
-    if nonce in _ISSUED_NONCES:
-        _ISSUED_NONCES.discard(nonce)
-        return True
-    return False
+    return await store.consume_deep_link_nonce(nonce)
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +199,11 @@ def project_milestone_card(event: Any) -> dict | None:
 
     The returned card mirrors the MOCKWS-CHAT-DRIVER-CONTRACT §2.2 ``chat_reply`` shape:
     ``card_kind`` ∈ :data:`CARD_KINDS`, a narrator ``text`` body, and the consume-once
-    ``deep_link = {target, nonce}`` seam linking the card to its milestone/artifact.
+    ``deep_link = {target, nonce}`` seam linking the card to its milestone/artifact. The
+    ``nonce`` here is a freshly-generated candidate id ONLY; it becomes a durable, owner-
+    scoped, single-use ``deep_link_nonces`` row when — and only when — ``persist_milestone_card``
+    actually persists the card (WR-02). Keeping this projection side-effect-free means the
+    pure event→card mapping never touches the DB (and the DELETED in-memory set can't leak).
     """
     etype = _event_type(event)
     data = _event_data(event)
@@ -211,7 +218,7 @@ def project_milestone_card(event: Any) -> dict | None:
         "message_id": f"reply:{uuid.uuid4().hex}",  # server-assigned reply id
         "card_kind": kind,
         "text": text,
-        "deep_link": {"target": target, "nonce": _mint_nonce()},
+        "deep_link": {"target": target, "nonce": uuid.uuid4().hex},
     }
 
 
@@ -262,6 +269,17 @@ async def persist_milestone_card(
         type=CHAT_REPLY_TYPE,
         payload_json=card,
     )
+    # WR-02: mint the durable, owner+workspace-scoped, single-use deep-link nonce row ONLY
+    # when the card row was actually created — so a replayed milestone (created=False, an
+    # idempotent no-op) never leaks a second unconsumed nonce, keeping nonce rows 1:1 with
+    # card rows. The row is stamped with the SAME scoped ``store`` principal that owns the
+    # card, so ``consume_deep_link`` under any other owner resolves to nothing (IDOR→404).
+    if created:
+        await store.mint_deep_link_nonce(
+            nonce=card["deep_link"]["nonce"],
+            run_id=run_id,
+            target=card["deep_link"]["target"],
+        )
     return created, seq, card
 
 

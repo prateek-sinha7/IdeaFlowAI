@@ -72,3 +72,38 @@ class RunEvent(Base):
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
+
+
+class DeepLinkNonce(Base):
+    """One row per issued single-use deep-link nonce (Phase 43, WR-02 / migration 0025).
+
+    The milestone narrator (``app/agents/chat_narrator.py``) stamps every ``chat_reply``
+    card with a ``{target, nonce}`` deep-link. This table hardens the nonce store from the
+    Phase-29 process-global in-memory set (``_ISSUED_NONCES`` — unbounded, unscoped, lost
+    on restart) into a DB-backed, owner+workspace-scoped, single-use, bounded store:
+
+      * ``owner_id`` (NOT NULL, AUTHZ-01) + ``workspace_id`` scope every consume via the
+        ``ScopedStore`` default-deny filter — a nonce this owner never held resolves to
+        nothing (T-43-03-SPOOF / T-43-03-IDOR → False → 404, never leaks existence).
+      * ``consumed_at`` (nullable) is the TERMINAL single-use state: a consume marks it once
+        (T-43-03-REPLAY: a second consume matches zero unconsumed rows → False). Consumed
+        rows are terminal, so growth is BOUNDED (T-43-03-DOS) — no unbounded in-memory set.
+      * ``run_id`` / ``target`` are informational (no FK — the nonce is decoupled from run
+        lifecycle so a TTL sweep can reap it independently). ``created_at`` anchors that
+        future TTL sweep (consistent with the run-artifact TTL pattern).
+    """
+
+    __tablename__ = "deep_link_nonces"
+    __table_args__ = (
+        Index("ix_deep_link_nonces_scope", "owner_id", "workspace_id"),
+    )
+
+    nonce = Column(String, primary_key=True)         # single-use lookup key (unique)
+    owner_id = Column(String, nullable=False)        # AUTHZ-01
+    workspace_id = Column(String, nullable=True)     # AUTHZ-01 (scope)
+    run_id = Column(String, nullable=True)           # informational (no FK)
+    target = Column(String, nullable=True)
+    consumed_at = Column(DateTime, nullable=True)    # terminal (single-use)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
