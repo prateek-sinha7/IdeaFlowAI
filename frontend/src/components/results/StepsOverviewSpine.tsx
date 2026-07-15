@@ -185,11 +185,11 @@ export function StepsOverviewSpine({
           )}
           {phase ? (
             <>
+              <span className="text-[15px] font-semibold text-ink-900 font-[Manrope]">{phase.label}</span>
               <span className="inline-flex items-center gap-1.5 text-[9.5px] font-semibold uppercase tracking-[0.05em] text-brand bg-brand-fill border border-brand-border px-2 py-1 rounded-[6px] font-[Manrope]">
                 <span className={`w-1.5 h-1.5 rounded-full bg-brand ${phase.live ? "animate-pulse" : ""}`} />
                 {phase.pill}
               </span>
-              <span className="text-[15px] font-semibold text-ink-900 font-[Manrope]">{phase.label}</span>
             </>
           ) : (
             <span className="text-[15px] font-semibold text-ink-900 font-[Manrope]">{statusLabel}</span>

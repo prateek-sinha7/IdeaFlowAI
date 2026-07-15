@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
-import { discriminateArtifact, SpecPreview, AnalysisPreview } from "./artifactPreview";
+import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview } from "./artifactPreview";
 
 // ─── Shared context-source formatting (INV-12 — the single derivation the sticky
 //     panel + any future consumer share; was inline in the retired ContextSourcesRow).
@@ -592,17 +592,31 @@ function ContextReceivedPanel({ sources }: { sources: ContextSource[] }) {
 function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: ArtifactCardModel }) {
   const hasCard = model.showPages || model.showTasks || model.showChecks;
   if (!hasCard) return null;
+  const pages = model.showPages ? parseSpecSections(agent.output) : [];
+  const pagesOverview = model.showPages ? parseSpecOverview(agent.output) : "";
   return (
     <>
-      {/* PAGES / SECTIONS card — reused SpecPreview (## headings).
-          BRITTLE (F2): the sections are parsed from the spec agent's <spec> output;
-          a robust typed extractor is Follow-up F2 (event-free `sections` extractor +
+      {/* PAGES / SECTIONS card — the mock's 3-col page-thumbnail grid, built from the
+          spec's `## ` headings via parseSpecSections (one parse impl — INV-12).
+          BRITTLE (F2): sections are parsed from the spec agent's <spec> output; a
+          robust typed extractor is Follow-up F2 (event-free `sections` extractor +
           /artifacts?kind=sections — backend/additive), registered OUT OF SCOPE — do
           NOT build a fetch/endpoint here (SC-001/LOCK-B). */}
       {model.showPages && (
         <div className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
-          <p className="m-0 mb-2.5 text-[11px] font-semibold text-ink-800">Pages / sections</p>
-          <SpecPreview content={agent.output} />
+          <p className="m-0 mb-[3px] text-[11px] font-semibold text-ink-800">Specification · {pages.length} page{pages.length !== 1 ? "s" : ""}</p>
+          {pagesOverview && <p className="m-0 mb-2.5 text-[12px] leading-normal text-ink-400">{pagesOverview}</p>}
+          <div className="grid grid-cols-3 gap-2">
+            {pages.map((pg, i) => (
+              <div key={i} className="rounded-lg overflow-hidden border border-[#EDEBE3] bg-[#FBFAF6]">
+                <div className="h-[34px] border-b border-[#EDEBE3] bg-[#F0EEE7] px-[7px] py-1.5">
+                  <div className="w-3/5 h-1 rounded-[2px] bg-[#C6C3B9] mb-1" />
+                  <div className="w-full h-[3px] rounded-[2px] bg-[#E0DDD3]" />
+                </div>
+                <p className="m-0 px-2 py-[7px] text-[11px] font-medium text-[#3A3B42] whitespace-nowrap overflow-hidden text-ellipsis font-[Manrope]">{pg.heading}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

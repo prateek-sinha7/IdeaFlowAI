@@ -126,7 +126,7 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   // Real spec-writer output is ALWAYS wrapped in <spec>…</spec> (prototype-specify/AGENT.md
   // makes an unwrapped response a "CRITICAL FAILURE"), so the settled L2 detail renders the
   // sections/pages artifact card off the wrapper. Feed the faithful wrapped form.
-  mockWs.agentChunk("prototype-specify", "<spec>\n# Apple Reference — Specification\n\n## Home\nLanding hero, product grid and closing CTA on the shared grid.\n## Product detail\nGallery, spec table and buy-bar.\n## Compare\nComparison table with a sticky header.\n## Accessories\nAccessories grid plus the search overlay.\n## Search\nSearch overlay with keyboard focus trapping.\n## Shared chrome\nShared nav + footer, one type scale, a 12-column grid.\n</spec>");
+  mockWs.agentChunk("prototype-specify", "<spec>\n# Apple Reference — Specification\nOne shared design system, one type scale and a 12-column grid across six pages.\n\n## Home\nLanding hero, product grid and closing CTA on the shared grid.\n## Product detail\nGallery, spec table and buy-bar.\n## Compare\nComparison table with a sticky header.\n## Accessories\nAccessories grid plus the search overlay.\n## Search\nSearch overlay with keyboard focus trapping.\n## Shared chrome\nShared nav + footer, one type scale, a 12-column grid.\n</spec>");
   mockWs.agentComplete("prototype-specify", { inputTokens: 2400, outputTokens: 12100, totalTokens: 30100, duration: 84 });
   mockWs.reviewGateReady({ gateKey: "spec", agentId: "prototype-specify", agentName: "Spec Writer", output: "Specification approved" });
   mockWs.reviewGateApproved();

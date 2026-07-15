@@ -42,15 +42,15 @@ export function discriminateArtifact(
   return null;
 }
 
-// ─── Spec renderer — parses <spec>...</spec> into readable sections ───────────
-export function SpecPreview({ content }: { content: string }) {
+// Parse <spec>…</spec> into { heading, body } sections. Shared by SpecPreview (the
+// list renderer) and the settled pages GRID card in AgentDetailPanel — one parse
+// implementation (INV-12). `overview` is the intro text before the first `## `.
+export function parseSpecSections(content: string): { heading: string; body: string[] }[] {
   const specMatch = content.match(/<spec>([\s\S]*?)<\/spec>/i);
   const specContent = specMatch ? specMatch[1].trim() : content;
-
   const lines = specContent.split("\n");
   const sections: { heading: string; body: string[] }[] = [];
   let current: { heading: string; body: string[] } | null = null;
-
   for (const line of lines) {
     if (line.startsWith("## ")) {
       if (current) sections.push(current);
@@ -62,8 +62,27 @@ export function SpecPreview({ content }: { content: string }) {
     }
   }
   if (current) sections.push(current);
+  return sections;
+}
 
+// The spec's intro text (the paragraph between the `# Title` and the first `## `).
+export function parseSpecOverview(content: string): string {
+  const specMatch = content.match(/<spec>([\s\S]*?)<\/spec>/i);
+  const inner = specMatch ? specMatch[1].trim() : content;
+  return inner
+    .split(/\n##\s/)[0]
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith("#"))
+    .join(" ");
+}
+
+// ─── Spec renderer — parses <spec>...</spec> into readable sections ───────────
+export function SpecPreview({ content }: { content: string }) {
+  const sections = parseSpecSections(content);
   if (sections.length === 0) {
+    const specMatch = content.match(/<spec>([\s\S]*?)<\/spec>/i);
+    const specContent = specMatch ? specMatch[1].trim() : content;
     return (
       <pre className="text-[11px] text-ink-700 whitespace-pre-wrap leading-relaxed font-mono">
         {specContent.slice(0, 3000)}

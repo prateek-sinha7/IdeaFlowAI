@@ -199,7 +199,11 @@ describe("AgentDetailPanel — settled artifact cards render", () => {
   it("renders the pages/sections card for a settled spec agent", () => {
     const spec = agent({ id: "spec", name: "Spec Writer", output: SPEC_OUT });
     render(<AgentDetailPanel agent={spec} onBack={() => {}} agents={[spec]} agentIndex={0} />);
-    expect(screen.getByText(/Pages \/ sections/)).toBeInTheDocument();
+    // The pages card renders as the mock's 3-col grid: "Specification · N pages"
+    // label + one thumbnail cell per `## ` section heading.
+    expect(screen.getByText(/Specification.*2 pages/)).toBeInTheDocument();
+    expect(screen.getByText("Overview")).toBeInTheDocument();
+    expect(screen.getByText("Pages")).toBeInTheDocument();
   });
 
   it("renders NO artifact card (and no handoff) for a no-artifact build agent — unchanged", () => {
@@ -208,7 +212,7 @@ describe("AgentDetailPanel — settled artifact cards render", () => {
     );
     expect(screen.queryByText(/Task plan/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Governance checks/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Pages \/ sections/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Specification.*pages/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Handoff →/)).not.toBeInTheDocument();
   });
 });
