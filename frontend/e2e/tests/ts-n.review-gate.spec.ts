@@ -1,24 +1,31 @@
 /**
- * TS-N — Mid-run HITL ReviewGatePanel.
+ * TS-N — Mid-run HITL review gate (Phase 42 re-anchor: the INLINE Steps gate).
  *
  * When an agent declares a Human review gate, the backend emits
- * `review_gate_ready` mid-run. The dashboard stores it as `reviewGateData`,
- * which mounts ReviewGatePanel in the right panel — taking precedence over the
- * planning overlay, questionnaire, AND preview (DashboardLayout.tsx ~L1230).
+ * `review_gate_ready` mid-run. The dashboard stores it as `reviewGateData`.
  *
- * Setup: select a workflow + Run (→ run_pipeline, execution view) + a
- * `pipeline_start` (so the surface mounts and the run is live), then fire
- * `mockWs.reviewGateReady({...})`. We carry the gate on the `user_stories`
- * surface — the panel is workflow-agnostic and replaces the right panel for any
- * live run; the gate's own `agentId` (prototype-specify / prototype-plan) drives
- * the spec-vs-tasks rendering, NOT the pipeline type.
+ * Phase 42-02/08 DELETED the full-screen right-panel `ReviewGatePanel`. The gate
+ * quick-actions now render INLINE in the Steps spine (`InlineGateActions`, testid
+ * `chat-gate-actions`): a "{agent} · review before continuing" header, a reused
+ * `artifactPreview` plan-preview block (`chat-gate-preview`), an Edit toggle, and
+ * TWO primary buttons — "Approve & build" (`chat-gate-approve`) / "Request changes"
+ * (`chat-gate-request-changes`) — the redo / update-specs / reject channels folded
+ * UNDER "Request changes". The lane composer during a gate is now a plain
+ * phase-hint input (no gate actions there), so `chat-gate-actions` renders in
+ * exactly ONE place (the Steps spine).
  *
- * Outbound frame contract (page.tsx onApproveReview / onRejectReview):
+ * The `approve_review` outbound channel is UNCHANGED (page.tsx onApproveReview /
+ * onRejectReview):
  *   - approve : { type: "approve_review", gate_key, approved: true,
  *                 edited_content: <string|null> }
  *   - reject  : { type: "approve_review", gate_key, approved: false }
- * Both share the type `approve_review`; they are disambiguated by `approved`,
- * so we wait on a predicate over `approved`, not just the frame type.
+ * Both share the type `approve_review`; they are disambiguated by `approved`.
+ *
+ * Setup: select a workflow + Run + a `pipeline_start` (so the surface is live and
+ * the Steps spine has data), fire `mockWs.reviewGateReady({...})`, then open the
+ * Steps tab. The gate's `agentId` (prototype-specify / prototype-plan) does not
+ * match the seeded user_stories agents, so the gate renders via the spine's
+ * foot-of-list fallback — the panel is workflow-agnostic.
  */
 import { test, expect } from "../fixtures/test";
 import { AGENTS } from "../fixtures/scenarios";
@@ -27,27 +34,11 @@ import type { Page } from "@playwright/test";
 const WORKFLOW = "Generate product requirements"; // → user_stories (IdeaInputPage flow)
 const IDEA = "Refunds backlog with multi-currency support";
 
-// Phase 39 redesign: the ReviewGatePanel (right panel) now classifies its output
-// by the DECLARED artifact kind OR the artifact's own wrapper tag in the payload
-// (`<spec>` / `<tasks>` / `<analysis>`) — NEVER the agent-id anymore. So a spec
-// payload must carry the `<spec>` wrapper for the panel to render the
-// "Specification Review" heading + SpecPreview cards (the mock cannot set
-// artifactKind, so the wrapper is the name-free classifier). The `## ` headings
-// inside still become preview cards (SpecPreview strips the wrapper first).
+// A spec payload carrying the `<spec>` wrapper so the artifactPreview discriminator
+// classifies it as a spec (the mock cannot set artifactKind, so the wrapper is the
+// name-free classifier). The `## ` headings become SpecPreview card headers.
 const SPEC_OUTPUT = "<spec>\n## Overview\nThe spec.\n## Details\nMore.\n</spec>";
 
-// The redesign renders the gate in TWO places: the right-panel ReviewGatePanel
-// AND the inline lane gate (`chat-gate-actions`, "· review before continuing"
-// lowercase). Both carry an Edit toggle + an "Approve … continue" button, so an
-// un-scoped role locator is a strict-mode violation. gatePanel() scopes to the
-// ReviewGatePanel root — anchored on its unique "Reject & cancel pipeline"
-// button (the lane gate's reject reads "Reject & cancel", no "pipeline"), walking
-// to the nearest ancestor div that also holds the panel's <h2> title.
-function gatePanel(page: Page) {
-  return page
-    .getByRole("button", { name: "Reject & cancel pipeline" })
-    .locator('xpath=ancestor::div[.//h2][1]');
-}
 // A tasks body whose `## Task N:` blocks become the TasksPreview list.
 const TASKS_OUTPUT = [
   "<tasks>",
@@ -58,18 +49,23 @@ const TASKS_OUTPUT = [
   "</tasks>",
 ].join("\n");
 
+/** The inline Steps gate root — the sole gate surface post-Phase-42. */
+function gate(page: Page) {
+  return page.getByTestId("chat-gate-actions");
+}
+
 /** Run + pipeline_start so the execution surface is mounted and live. */
 async function liveRun(dashboard: import("../fixtures/dashboard").DashboardPage, mockWs: import("../fixtures/mockWs").MockWs) {
   await dashboard.runWith({ workflow: WORKFLOW, idea: IDEA });
   mockWs.start(AGENTS.user_stories, { pipelineType: "user_stories" });
 }
 
-test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
+test.describe("TS-N — mid-run review gate (inline Steps gate)", () => {
   test.beforeEach(async ({ dashboard }) => {
     await dashboard.goto();
   });
 
-  test("TS-N-01 spec gate renders title + subtitle", async ({ dashboard, mockWs }) => {
+  test("TS-N-01 spec gate renders the inline gate header", async ({ dashboard, mockWs }) => {
     await liveRun(dashboard, mockWs);
     mockWs.reviewGateReady({
       gateKey: "g1",
@@ -77,16 +73,15 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       agentName: "Spec Writer",
       output: SPEC_OUTPUT,
     });
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
-    // getByText is case-insensitive, so the subtitle collides with the inline
-    // lane gate's lowercase "· review before continuing" — scope to the panel.
-    await expect(
-      gatePanel(dashboard.page).getByText("Spec Writer · Review before continuing"),
-    ).toBeVisible();
+    const g = gate(dashboard.page);
+    await expect(g).toBeVisible();
+    // Inline gate header: "{agentName} · review before continuing".
+    await expect(g.getByText("Spec Writer · review before continuing")).toBeVisible();
   });
 
-  test("TS-N-01 tasks gate renders Task Plan Review title", async ({ dashboard, mockWs }) => {
+  test("TS-N-01 tasks gate renders the inline gate header", async ({ dashboard, mockWs }) => {
     await liveRun(dashboard, mockWs);
     mockWs.reviewGateReady({
       gateKey: "g1",
@@ -94,13 +89,11 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       agentName: "Task Planner",
       output: TASKS_OUTPUT,
     });
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.reviewGateTitle("Task Plan Review")).toBeVisible();
-    // getByText is case-insensitive, so the subtitle collides with the inline
-    // lane gate's lowercase "· review before continuing" — scope to the panel.
-    await expect(
-      gatePanel(dashboard.page).getByText("Task Planner · Review before continuing"),
-    ).toBeVisible();
+    const g = gate(dashboard.page);
+    await expect(g).toBeVisible();
+    await expect(g.getByText("Task Planner · review before continuing")).toBeVisible();
   });
 
   test("TS-N-02 preview mode: spec sections render as cards", async ({ dashboard, mockWs }) => {
@@ -111,16 +104,18 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       agentName: "Spec Writer",
       output: SPEC_OUTPUT,
     });
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
-    // SpecPreview turns each `## ` heading into a card header.
+    // The inline gate's plan-preview block reuses SpecPreview — each `## ` heading
+    // becomes a card header and its body lines render inside.
+    const g = gate(dashboard.page);
+    await expect(g.getByTestId("chat-gate-preview")).toBeVisible();
     await expect(dashboard.page.getByText("Overview", { exact: true })).toBeVisible();
     await expect(dashboard.page.getByText("Details", { exact: true })).toBeVisible();
-    // The body lines render inside the cards too.
     await expect(dashboard.page.getByText("The spec.")).toBeVisible();
   });
 
-  test("TS-N-02 preview mode: tasks render with the TasksPreview header", async ({ dashboard, mockWs }) => {
+  test("TS-N-02 preview mode: tasks render via the TasksPreview list", async ({ dashboard, mockWs }) => {
     await liveRun(dashboard, mockWs);
     mockWs.reviewGateReady({
       gateKey: "g1",
@@ -128,19 +123,20 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       agentName: "Task Planner",
       output: TASKS_OUTPUT,
     });
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.reviewGateTitle("Task Plan Review")).toBeVisible();
-    // Two parsed Task blocks → "2 tasks · Click ✕ to remove a task before building".
-    await expect(
-      dashboard.page.getByText("2 tasks · Click", { exact: false }),
-    ).toBeVisible();
-    await expect(dashboard.page.getByText("to remove a task before building", { exact: false })).toBeVisible();
-    // Each task title renders as a row.
+    // The inline gate's plan-preview block reuses TasksPreview: a "{n} tasks"
+    // header + a row per parsed `## Task N:` block. (The old ReviewGatePanel's
+    // "· Click ✕ to remove a task before building" affordance was retired with
+    // that panel — the read-only artifactPreview list has no per-task removal.)
+    const g = gate(dashboard.page);
+    await expect(g.getByTestId("chat-gate-preview")).toBeVisible();
+    await expect(g.getByText("2 tasks", { exact: false })).toBeVisible();
     await expect(dashboard.page.getByText("Scaffold the project")).toBeVisible();
     await expect(dashboard.page.getByText("Wire the API")).toBeVisible();
   });
 
-  test("TS-N-03 edit mode: toggle reveals a prefilled mono textarea + helper", async ({ dashboard, mockWs }) => {
+  test("TS-N-03 edit mode: toggle reveals a prefilled mono textarea", async ({ dashboard, mockWs }) => {
     await liveRun(dashboard, mockWs);
     mockWs.reviewGateReady({
       gateKey: "g1",
@@ -148,27 +144,24 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       agentName: "Spec Writer",
       output: SPEC_OUTPUT,
     });
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
+    const g = gate(dashboard.page);
+    await expect(g).toBeVisible();
 
-    // Toggle to Edit (the panel's mode-switch button labelled "Edit"). The inline
-    // lane gate ALSO carries an "Edit" toggle, so scope the click to the panel.
-    await gatePanel(dashboard.page).getByRole("button", { name: "Edit", exact: true }).click();
+    // Toggle to Edit (the inline gate's "Edit" mode-switch button). The lane no
+    // longer carries a gate editor, so this is the only "Edit" toggle.
+    await g.getByRole("button", { name: "Edit", exact: true }).click();
 
-    // Helper line for edit mode.
-    await expect(
-      dashboard.page.getByText("Changes will be used by the next agent", { exact: false }),
-    ).toBeVisible();
-
-    // A prefilled editable textarea — the panel's edit pane's only textbox (the
-    // redo box only mounts when redoable). Scope to the panel so the inline lane
-    // gate's (closed) editor never collides; role survives the reskin.
-    const textarea = gatePanel(dashboard.page).getByRole("textbox");
+    // A prefilled editable textarea (aria-label "Edit gate content") — while edit
+    // is open the plan-preview block is replaced by it, so it is the gate's only
+    // textbox.
+    const textarea = g.getByRole("textbox");
     await expect(textarea).toBeVisible();
     await expect(textarea).toHaveValue(SPEC_OUTPUT);
   });
 
-  test("TS-N-04 approve: sends approve_review(approved:true) then panel closes on ack", async ({ dashboard, mockWs }) => {
+  test("TS-N-04 approve: sends approve_review(approved:true) then the gate clears on ack", async ({ dashboard, mockWs }) => {
     await liveRun(dashboard, mockWs);
     mockWs.reviewGateReady({
       gateKey: "g1",
@@ -176,10 +169,12 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       agentName: "Spec Writer",
       output: SPEC_OUTPUT,
     });
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
-    // Scope the approve to the panel (the inline lane gate has the same label).
-    await gatePanel(dashboard.page).getByRole("button", { name: /Approve.*continue/ }).click();
+    const g = gate(dashboard.page);
+    await expect(g).toBeVisible();
+    // The mock's primary "Approve & build" button (chat-gate-approve).
+    await g.getByTestId("chat-gate-approve").click();
 
     // Disambiguate the shared `approve_review` type by `approved: true`.
     const f = await mockWs.waitForClientFrame(
@@ -187,12 +182,12 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
     );
     expect(f.gate_key).toBe("g1");
     expect(f.approved).toBe(true);
-    // No edits were made → edited_content is null (not the original string).
+    // No edits were made → edited_content is null (page.tsx maps undefined → null).
     expect(f.edited_content).toBeNull();
 
-    // Server acks → review_gate_approved clears reviewGateData → panel unmounts.
+    // Server acks → review_gate_approved clears reviewGateData → the gate unmounts.
     mockWs.reviewGateApproved();
-    await expect(dashboard.reviewGateTitle("Specification Review")).toHaveCount(0);
+    await expect(g).toHaveCount(0);
   });
 
   test("TS-N-04b approve with edits: sends the edited content", async ({ dashboard, mockWs }) => {
@@ -203,21 +198,19 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       agentName: "Spec Writer",
       output: SPEC_OUTPUT,
     });
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
+    const g = gate(dashboard.page);
+    await expect(g).toBeVisible();
 
-    // Edit the panel content, then approve — the label flips to "Approve with
-    // edits". Both the Edit toggle and textarea are scoped to the panel (the
-    // inline lane gate carries its own, independent editor).
-    const panel = gatePanel(dashboard.page);
-    await panel.getByRole("button", { name: "Edit", exact: true }).click();
-    const textarea = panel.getByRole("textbox");
+    // Edit the content, then approve — the primary label flips to "Approve with
+    // edits & build" and the frame carries the edited copy.
+    await g.getByRole("button", { name: "Edit", exact: true }).click();
+    const textarea = g.getByRole("textbox");
     const edited = SPEC_OUTPUT + "\n## Extra\nAdded by reviewer.";
     await textarea.fill(edited);
-    await expect(
-      panel.getByRole("button", { name: /Approve with edits & continue/ }),
-    ).toBeVisible();
-    await panel.getByRole("button", { name: /Approve.*continue/ }).click();
+    await expect(g.getByTestId("chat-gate-approve")).toHaveText(/Approve with edits & build/);
+    await g.getByTestId("chat-gate-approve").click();
 
     const f = await mockWs.waitForClientFrame(
       (frame) => frame.type === "approve_review" && frame.approved === true,
@@ -226,7 +219,7 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
     expect(f.edited_content).toBe(edited);
   });
 
-  test("TS-N-05 reject: sends approve_review(approved:false) and closes the panel", async ({ dashboard, mockWs }) => {
+  test("TS-N-05 reject: Request changes → two-step confirm sends approve_review(approved:false)", async ({ dashboard, mockWs }) => {
     await liveRun(dashboard, mockWs);
     mockWs.reviewGateReady({
       gateKey: "g1",
@@ -234,12 +227,17 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       agentName: "Spec Writer",
       output: SPEC_OUTPUT,
     });
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.reviewGateTitle("Specification Review")).toBeVisible();
-    // Reject is a two-step confirm in the panel: the "Reject & cancel pipeline"
-    // button reveals a confirmation, then "Yes, cancel pipeline" sends the frame.
-    await dashboard.rejectButton().click();
-    await dashboard.page.getByRole("button", { name: "Yes, cancel pipeline" }).click();
+    const g = gate(dashboard.page);
+    await expect(g).toBeVisible();
+
+    // Reject now lives UNDER "Request changes" (the folded change channels), and is
+    // a two-step confirm: "Reject & cancel" reveals the confirmation, then
+    // "Yes, cancel" (chat-gate-reject) sends the frame.
+    await g.getByTestId("chat-gate-request-changes").click();
+    await g.getByRole("button", { name: "Reject & cancel", exact: true }).click();
+    await g.getByTestId("chat-gate-reject").click();
 
     // Reject is the SAME type with approved:false and no edited_content.
     const f = await mockWs.waitForClientFrame(
@@ -249,33 +247,18 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
     expect(f.approved).toBe(false);
     expect(f.edited_content).toBeUndefined();
 
-    // page.tsx onRejectReview clears reviewGateData locally → panel unmounts.
-    await expect(dashboard.reviewGateTitle("Specification Review")).toHaveCount(0);
+    // page.tsx onRejectReview clears reviewGateData locally → the gate unmounts.
+    await expect(g).toHaveCount(0);
   });
 
-  test("TS-N-06 empty-content gate shows the defensive empty state", async ({ dashboard, mockWs }) => {
-    await liveRun(dashboard, mockWs);
-    mockWs.reviewGateReady({
-      gateKey: "g1",
-      agentId: "prototype-specify",
-      agentName: "Spec Writer",
-      output: "",
-    });
-
-    // Empty output cannot classify as a spec/tasks/analysis artifact (no wrapper
-    // tag, no artifactKind), so the panel falls back to the GENERIC "Review"
-    // heading — the redesign derives the label from the artifact kind, not the
-    // agent-id. The defensive empty state still renders below it.
-    await expect(
-      dashboard.page.getByRole("heading", { name: "Review", exact: true }),
-    ).toBeVisible();
-    await expect(
-      dashboard.page.getByText("No content was produced for review."),
-    ).toBeVisible();
-    await expect(
-      dashboard.page.getByText(
-        "The agent returned an empty result. Reject to cancel the pipeline, or approve to continue anyway.",
-      ),
-    ).toBeVisible();
+  test.fixme("TS-N-06 empty-content gate shows the defensive empty state", async () => {
+    // The old full-screen ReviewGatePanel rendered a defensive empty state ("No
+    // content was produced for review." + a "Review" fallback heading) for an
+    // empty-output gate. Phase 42-08 DELETED that panel; the inline Steps gate
+    // (InlineGateActions) has NO empty-state affordance — an empty output simply
+    // renders no plan-preview block while the Approve / Request-changes actions
+    // stay available. This defensive branch has no inline equivalent; re-home it if
+    // the inline gate grows an empty-output affordance. Replacement surface:
+    // components/chat/InlineGateActions.tsx (chat-gate-actions).
   });
 });

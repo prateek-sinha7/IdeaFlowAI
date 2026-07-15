@@ -1,196 +1,124 @@
 /**
- * TS-M — QuestionnairePanel / clarify gate.
+ * TS-M — mid-run clarify gate (Phase 42 re-anchor: the INLINE Steps clarify).
  *
- * The Deep_Planner_Agent can pause a run with CLARIFY_REQUIRED, emitting
- * `questionnaire_ready`. page.tsx maps that into `questionnaireData` + sets
- * `activePipelineRunId` (from the event's pipeline_run_id); DashboardLayout then
- * mounts QuestionnairePanel in the right-hand area. Answers submit back as a
- * `submit_questionnaire` frame to resume the paused run.
+ * The planner can pause a run with CLARIFY_REQUIRED, emitting
+ * `questionnaire_ready`. page.tsx maps that into `questionnaireData` +
+ * `activePipelineRunId`. Answers submit back as a `submit_questionnaire` frame to
+ * resume the paused run.
  *
- * Setup: home → "Generate product requirements" (→ user_stories) → Run, then
- * drive `mockWs.questionnaireReady([...])`. user_stories ⇒ pipeline label
- * "User Stories" (PIPELINE_LABELS in QuestionnairePanel.tsx).
+ * Phase 42-06 DELETED the full-screen right-panel `QuestionnairePanel` "Quick
+ * Setup" wizard (one-question-at-a-time flow, answered counter, auto-advance,
+ * hybrid free-text, per-question Skip / "Use recommended" / "Rec." badge / "Skip
+ * all", and the "Run {label} Pipeline" / "Run with defaults" summary controls).
+ * Clarify is now a single INLINE surface in the Steps spine (`InlineClarifyActions`
+ * inside the "Clarifications" card, testid `chat-clarify-actions`): every question
+ * as quick-reply chips (`chat-clarify-chip`) + ONE submit "Submit answers & start
+ * the build" (`chat-clarify-submit`). The lane composer during clarify is now a
+ * plain phase-hint input, so `chat-clarify-actions` renders in exactly ONE place.
+ * The `submit_questionnaire` resume channel is UNCHANGED.
+ *
+ * Setup: home → "Generate product requirements" (→ user_stories) → Run, drive
+ * `mockWs.questionnaireReady([...])`, then open the Steps tab.
  */
 import { test, expect } from "../fixtures/test";
 import type { Page } from "@playwright/test";
 
-// Phase 39 redesign: the clarify gate now renders in TWO surfaces at once — the
-// inline lane clarify actions (`chat-clarify-actions`, ALL questions as chips)
-// AND the right-panel QuestionnairePanel ("Quick Setup", ONE question at a time
-// with a Next-driven flow + an answered counter + a final summary slide). An
-// un-scoped `getByText`/`getByRole` for a question prompt or option collides
-// across both surfaces (strict-mode violation), so scope each locator to its
-// intended surface.
-
-/** The inline lane clarify actions — all questions as quick-reply chips. */
+/** The inline Steps clarify root — the sole clarify surface post-Phase-42. */
 function laneClarify(page: Page) {
   return page.getByTestId("chat-clarify-actions");
 }
 
-/** The right-panel QuestionnairePanel root (Quick Setup / Review & Confirm). It
- *  shows one question at a time + the answered counter + summary controls, none
- *  of which the lane surface carries. Anchored on the panel-unique "Skip all &
- *  run directly" control, walking to the nearest ancestor holding its <h2>. */
-function qPanel(page: Page) {
-  return page
-    .getByRole("button", { name: "Skip all & run directly" })
-    .locator('xpath=ancestor::div[.//h2][1]');
-}
-
-test.describe("TS-M — questionnaire / clarify gate", () => {
+test.describe("TS-M — clarify gate (inline Steps clarify)", () => {
   test.beforeEach(async ({ dashboard }) => {
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
   });
 
-  test("TS-M-02 renders Quick Setup with subtitle + answered counter", async ({ dashboard, mockWs }) => {
+  test("TS-M-02 renders the clarify questions as chips + a single submit", async ({ dashboard, mockWs }) => {
     mockWs.questionnaireReady([
       { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
       { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
     ]);
+    await dashboard.thinkingTab().click();
 
-    await expect(dashboard.questionnaireTitle()).toBeVisible();
-    // Panel subtitle is now the one-at-a-time progress label
-    // "User Stories · Question 1 of 2" + the answered counter beneath it.
-    await expect(dashboard.page.getByText("User Stories · Question 1 of 2")).toBeVisible();
-    await expect(dashboard.page.getByText("0 of 2 answered")).toBeVisible();
-    // The panel shows only the current question, so assert BOTH prompts on the
-    // inline lane surface (which lists every clarify question at once).
-    await expect(laneClarify(dashboard.page).getByText("Who is the audience?")).toBeVisible();
-    await expect(laneClarify(dashboard.page).getByText("Tone?")).toBeVisible();
+    const clarify = laneClarify(dashboard.page);
+    await expect(clarify).toBeVisible();
+    // The inline surface lists EVERY clarify question at once (not one-at-a-time).
+    await expect(clarify.getByText("Who is the audience?")).toBeVisible();
+    await expect(clarify.getByText("Tone?")).toBeVisible();
+    // A single submit — the "Quick Setup" wizard's counter / one-at-a-time flow is
+    // retired (Phase 42-06); the submit label reads "Submit answers & start the build".
+    await expect(clarify.getByTestId("chat-clarify-submit")).toHaveText(/Submit answers & start the build/);
   });
 
-  test("TS-M-03 selecting an option selects it, auto-advances, and bumps the counter", async ({ dashboard, mockWs }) => {
+  test("TS-M-03 selecting a chip marks it selected (inverted brand fill)", async ({ dashboard, mockWs }) => {
     mockWs.questionnaireReady([
       { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
       { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
     ]);
-    await expect(dashboard.questionnaireTitle()).toBeVisible();
-    const panel = qPanel(dashboard.page);
+    await dashboard.thinkingTab().click();
+    const clarify = laneClarify(dashboard.page);
+    await expect(clarify).toBeVisible();
 
-    // q1 is shown; pick an option → it selects (inverted white text) and the
-    // answered counter bumps. The redesign REPLACED the old auto-advance with a
-    // one-question-at-a-time panel driven by an explicit "Next" control.
-    const executives = panel.getByRole("button", { name: "Executives" });
+    // Phase 42-06 REPLACED the wizard's auto-advance + answered counter with a flat
+    // chip list. Selecting a chip marks it selected — the reskin-durable signal is
+    // the inverted `text-white` on the brand fill (unselected chips are ink-700).
+    const executives = clarify.getByRole("button", { name: "Executives" });
     await executives.click();
-    // Selected options render inverted (white text on the brand fill); the
-    // reskin-durable signal is `text-white` (unselected options are text-gray-700).
     await expect(executives).toHaveClass(/text-white/);
-    await expect(dashboard.page.getByText("1 of 2 answered")).toBeVisible();
 
-    // Advance to q2 via the panel's Next control (heir to the old auto-advance).
-    await panel.getByRole("button", { name: /^Next/ }).click();
-    await expect(panel.getByRole("button", { name: "Casual" })).toBeVisible();
-
-    // q2 is the LAST question → selecting it keeps it mounted; assert its state.
-    const formal = panel.getByRole("button", { name: "Formal" });
+    // A second question's chip selects independently (both questions are present).
+    const formal = clarify.getByRole("button", { name: "Formal" });
     await formal.click();
     await expect(formal).toHaveClass(/text-white/);
-    await expect(dashboard.page.getByText("2 of 2 answered")).toBeVisible();
   });
 
-  test("TS-M-04 hybrid question exposes a free-text input that clears the MCQ selection", async ({ dashboard, mockWs }) => {
-    // Single hybrid question so it stays expanded (no auto-advance) and its
-    // free-text input is autofocused.
-    mockWs.questionnaireReady([
-      { id: "q3", text: "Topic?", answerType: "hybrid", options: ["A", "B"] },
-    ]);
-    await expect(dashboard.questionnaireTitle()).toBeVisible();
-    const panel = qPanel(dashboard.page);
-
-    // Redesign copy: the hybrid free-text affordance reads "Describe your own"
-    // with the placeholder "Type your specific answer…" (scoped to the panel —
-    // the lane surface renders no hybrid free-text input).
-    await expect(panel.getByText("Describe your own")).toBeVisible();
-    const customInput = panel.getByPlaceholder("Type your specific answer…");
-    await expect(customInput).toBeVisible();
-
-    // Pick an MCQ suggestion first → it becomes selected (inverted white text).
-    const optionA = panel.getByRole("button", { name: "A", exact: true });
-    await optionA.click();
-    await expect(optionA).toHaveClass(/text-white/);
-
-    // Typing a custom topic clears the MCQ selection for this question.
-    await customInput.fill("Climate change");
-    await expect(optionA).not.toHaveClass(/text-white/);
-    // Effective answer is now the custom text → still counts as answered.
-    await expect(dashboard.page.getByText("1 of 1 answered")).toBeVisible();
+  test.fixme("TS-M-04 hybrid question exposes a free-text input that clears the MCQ selection", async () => {
+    // The "Quick Setup" wizard's hybrid free-text affordance ("Describe your own" /
+    // "Type your specific answer…") was intentionally REMOVED with the panel (Phase
+    // 42-06, CONTEXT §G / §8 decision 3). The inline clarify (InlineClarifyActions)
+    // is chips-only — a hybrid question renders its MCQ suggestions as chips with no
+    // free-text override. This flow has no inline equivalent; re-home it if the
+    // inline clarify grows a free-text affordance. Replacement surface:
+    // components/chat/InlineClarifyActions.tsx (chat-clarify-actions).
   });
 
-  test("TS-M-05a all answered → primary 'Run User Stories Pipeline' + skip control", async ({ dashboard, mockWs }) => {
-    mockWs.questionnaireReady([
-      { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
-      { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
-    ]);
-    await expect(dashboard.questionnaireTitle()).toBeVisible();
-    const panel = qPanel(dashboard.page);
-
-    // Answer both questions (one at a time, advancing via Next).
-    await panel.getByRole("button", { name: "Executives" }).click();
-    await panel.getByRole("button", { name: /^Next/ }).click();
-    await panel.getByRole("button", { name: "Casual" }).waitFor();
-    await panel.getByRole("button", { name: "Formal" }).click();
-    await expect(dashboard.page.getByText("2 of 2 answered")).toBeVisible();
-
-    // With the last question answered the primary control reads "Review answers";
-    // it opens the summary slide that carries the run/skip controls.
-    await panel.getByRole("button", { name: /Review answers/ }).click();
-    // All answered → the summary's primary run control is the labelled pipeline run.
-    await expect(dashboard.page.getByRole("button", { name: "Run User Stories Pipeline" })).toBeVisible();
-    // Secondary skip control is always present.
-    await expect(dashboard.page.getByRole("button", { name: "Skip all & run directly" })).toBeVisible();
+  test.fixme("TS-M-05a all answered → primary 'Run User Stories Pipeline' + skip control", async () => {
+    // The wizard's summary slide (a per-answer-count primary control "Run {label}
+    // Pipeline" + "Skip all & run directly") was DELETED with the panel (Phase
+    // 42-06). The inline clarify has a single, answer-count-agnostic submit
+    // ("Submit answers & start the build", asserted by TS-M-02 / TS-M-06). No inline
+    // equivalent for the labelled summary controls. Replacement surface:
+    // components/chat/InlineClarifyActions.tsx (chat-clarify-submit).
   });
 
-  test("TS-M-05b some answered → primary 'Run User Stories Pipeline' (partial label removed)", async ({ dashboard, mockWs }) => {
+  test.fixme("TS-M-05b some answered → primary 'Run User Stories Pipeline' (partial label)", async () => {
+    // As TS-M-05a: the wizard summary's partial-answer "Run {label} Pipeline" control
+    // is retired. The inline clarify submits any (incl. partial) selection through the
+    // one "Submit answers & start the build" control. Replacement surface:
+    // components/chat/InlineClarifyActions.tsx (chat-clarify-submit).
+  });
+
+  test.fixme("TS-M-05c none answered → 'Run with defaults'", async () => {
+    // The wizard's zero-answered "Run with defaults" summary control is retired with
+    // the panel (Phase 42-06). The inline clarify offers only "Submit answers & start
+    // the build"; submitting with no chips selected sends an empty responses array
+    // (the resume-with-defaults behavior) through the SAME submit_questionnaire
+    // channel. No distinct "Run with defaults" affordance survives. Replacement
+    // surface: components/chat/InlineClarifyActions.tsx (chat-clarify-submit).
+  });
+
+  test("TS-M-06 submit sends submit_questionnaire; questionnaire_complete dismisses the clarify", async ({ dashboard, mockWs }) => {
     mockWs.questionnaireReady([
       { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
       { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
     ]);
-    await expect(dashboard.questionnaireTitle()).toBeVisible();
-    const panel = qPanel(dashboard.page);
+    await dashboard.thinkingTab().click();
 
-    // Answer only q1 (leave q2 untouched), then walk to the summary slide.
-    await panel.getByRole("button", { name: "Developers" }).click();
-    await expect(dashboard.page.getByText("1 of 2 answered")).toBeVisible();
-    await panel.getByRole("button", { name: /^Next/ }).click();
-    await panel.getByRole("button", { name: /Skip & review/ }).click();
-
-    // "Continue with N/M answered" label removed in the questionnaire redesign.
-    // The summary slide no longer distinguishes a PARTIAL-answer state: its
-    // primary control reads "Run {pipelineLabel} Pipeline" whenever
-    // answeredCount > 0 (QuestionnairePanel summary primary button), and
-    // "Run with defaults" only at zero. With q1 answered the partial state
-    // therefore still offers the labelled pipeline run — you can proceed.
-    await expect(dashboard.page.getByRole("button", { name: "Run User Stories Pipeline" })).toBeVisible();
-  });
-
-  test("TS-M-05c none answered → 'Run with defaults'", async ({ dashboard, mockWs }) => {
-    mockWs.questionnaireReady([
-      { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
-      { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
-    ]);
-    await expect(dashboard.questionnaireTitle()).toBeVisible();
-    const panel = qPanel(dashboard.page);
-
-    await expect(dashboard.page.getByText("0 of 2 answered")).toBeVisible();
-    // Reach the summary slide WITHOUT answering (skip each question).
-    await panel.getByRole("button", { name: /Skip question/ }).click();
-    await panel.getByRole("button", { name: /Skip & review/ }).click();
-    // Zero answered → the summary's primary control offers the defaults run.
-    await expect(dashboard.page.getByRole("button", { name: "Run with defaults" })).toBeVisible();
-  });
-
-  test("TS-M-06 submit sends submit_questionnaire; questionnaire_complete dismisses the panel", async ({ dashboard, mockWs }) => {
-    mockWs.questionnaireReady([
-      { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"], answerType: "single" },
-      { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
-    ]);
-    await expect(dashboard.questionnaireTitle()).toBeVisible();
-
-    // Submit through the inline lane clarify surface (all questions at once) —
-    // it fires the SAME `submit_questionnaire` resume channel as the panel. Both
-    // answers select on the lane chips; "Send answers" (chat-clarify-submit) sends.
+    // Submit through the inline Steps clarify (all questions at once) — it fires the
+    // SAME `submit_questionnaire` resume channel the deleted QuestionnairePanel used.
     const clarify = laneClarify(dashboard.page);
+    await expect(clarify).toBeVisible();
     await clarify.getByRole("button", { name: "Executives" }).click();
     await clarify.getByRole("button", { name: "Formal" }).click();
     await clarify.getByTestId("chat-clarify-submit").click();
@@ -206,8 +134,8 @@ test.describe("TS-M — questionnaire / clarify gate", () => {
       ]),
     );
 
-    // Resolving the gate clears the panel.
+    // Resolving the gate clears the inline clarify.
     mockWs.questionnaireComplete();
-    await expect(dashboard.questionnaireTitle()).toHaveCount(0);
+    await expect(clarify).toHaveCount(0);
   });
 });
