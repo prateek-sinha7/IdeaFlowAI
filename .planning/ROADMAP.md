@@ -1141,7 +1141,7 @@ Plans:
 - [x] 43-01-PLAN.md — Backend Concierge defects: M2 (serialize read-tool ORM rows) + M3 (thread compiled onto _ConciergeCtx) + drain (drain_proposals) + H1 (durable-row confirm disposal, IDOR→404) + M1 (non-approve gate default) [A.1]
 - [x] 43-02-PLAN.md — FE Concierge composer re-routing: extend the useRunChat send contract + generic ask-vs-change classifier + attach the RunChatLane Concierge props at the mount [A.1]
 - [x] 43-03-PLAN.md — Narrator live call-site (engine event sink) + deep-link nonce hardening (WR-02: additive 0025 table, owner-scoped, single-use) [A.4]
-- [ ] 43-04-PLAN.md — Shared cached-invoke helper (ISS-033/034): route SmartPlanner/ClarifyEngine/handoff Test+Compliance through cache-eligible, token-counted calls [A.x]
+- [x] 43-04-PLAN.md — Shared cached-invoke helper (ISS-033/034): route SmartPlanner/ClarifyEngine/handoff Test+Compliance through cache-eligible, token-counted calls [A.x]
 
 **Wave 2 — Part A offline wiring (autonomous)**
 
