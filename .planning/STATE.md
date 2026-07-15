@@ -6,11 +6,11 @@ status: verifying
 last_updated: "2026-07-15T11:58:18.366Z"
 last_activity: "2026-07-15 -- Completed 43-02-PLAN.md (Wave 1: Concierge FE composer re-routing — the A.1 CRUX). RunChatLane.handleFreeText now CLASSIFIES a settled-run free-text turn: an ASK ('what's the status?') is answered by the Concierge via sendMessage(..., {concierge:true}); a CHANGE REQUEST still launches onRevise (the revision pipeline). Generic classifier (classifyFreeText) keyed only on text+runState, no workflow-name literal (SC-001/INV-1); change-intent weighed BEFORE question-shape so the trap 'can you make the button bigger?' → change. useRunChat.sendMessage gained an optional SendMessageOptions (concierge/confirm_proposal) folded onto the POST /messages payload (dormant when absent, INV-3). DashboardLayout mount wires the five Concierge props (proposals/onConfirmProposal/onRejectProposal/onCompact/compactAvailable) via a shared options-capable runChatSend seam. LOCK-B honored — NEXT_PUBLIC_SSE_TRANSPORT OFF, RunConnectionProvider unmounted (transport flip is Part C / 43-06). tsc clean; useRunChat 11/11, RunChatLane 37/37 (incl. 5-case routing matrix + SC-001 assert), DashboardLayout 2/2. FE-only diff. Commits 436ea1eb + 7cf574d1 + this docs. NOT pushed."
 progress:
-  total_phases: 1
-  completed_phases: 0
-  total_plans: 9
-  completed_plans: 2
-  percent: 0
+  total_phases: 37
+  completed_phases: 35
+  total_plans: 208
+  completed_plans: 207
+  percent: 95
 ---
 
 # Project State
