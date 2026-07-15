@@ -42,12 +42,13 @@ test.describe("TS-Y — resilience / long-run", () => {
     mockSse.agentStart(agents[0].id);
     await expect(dashboard.runningBadge().first()).toBeVisible();
 
-    // The app opened exactly one socket so far (dashboard.goto awaited ready()).
-    expect(mockSse.connectionCount).toBe(1);
+    // SSE (44-06) is a fetch-stream that re-attaches from its cursor after every
+    // server-close, so the mock's attach counter is monotonic (NOT a single
+    // persistent socket) — capture the current count as the drop baseline.
     const connectionsBefore = mockSse.connectionCount;
 
-    // Drop the socket (close 1006). useWebSocket.onclose (not JWT, not
-    // intentional) → connectionStatus "reconnecting" + a 1s backoff timer.
+    // Drop the stream (server-close). useRunStream treats the close as a transport
+    // drop → connectionStatus "reconnecting" + a 1s backoff, then re-attaches.
     const droppedAt = Date.now();
     mockSse.drop();
 
@@ -55,12 +56,11 @@ test.describe("TS-Y — resilience / long-run", () => {
     // `Reconnecting...` (DashboardLayout connectionStatus === "reconnecting").
     await expect(page.getByText("Reconnecting...", { exact: true })).toBeVisible();
 
-    // The socket re-opens on the first backoff retry (~1s) → connectionCount
-    // increments. expect.poll auto-retries; NO hard sleep.
+    // The stream re-attaches on the backoff retry → the attach counter advances
+    // past the drop baseline. expect.poll auto-retries; NO hard sleep.
     await expect
-      .poll(() => mockSse.connectionCount, { timeout: 5000 })
+      .poll(() => mockSse.connectionCount, { timeout: 8000 })
       .toBeGreaterThan(connectionsBefore);
-    expect(mockSse.connectionCount).toBeGreaterThanOrEqual(2);
 
     // Diagnostic: how long the reconnect took (first backoff is ~1s).
     console.log(`[TS-Y-01] reconnect observed after ${Date.now() - droppedAt}ms (connectionCount=${mockSse.connectionCount})`);

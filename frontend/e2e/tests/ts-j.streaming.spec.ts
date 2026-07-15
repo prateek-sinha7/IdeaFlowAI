@@ -88,7 +88,10 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
     }
     mockSse.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
     // Phase 42-02 (§B) auto-tabs a COMPLETED run to Preview, so the Steps overview
-    // status line unmounts on completion. Re-open Steps to read its settled line.
+    // status line unmounts on completion. Wait for that settle FIRST (over SSE the
+    // pipeline_complete arrives asynchronously — re-opening Steps before it lands
+    // would be clobbered by the completion's auto-tab), THEN re-open Steps.
+    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
     await dashboard.thinkingTab().click();
     await expect(dashboard.page.getByText("Run complete", { exact: true })).toBeVisible();
   });

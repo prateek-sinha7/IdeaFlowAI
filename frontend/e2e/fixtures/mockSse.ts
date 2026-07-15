@@ -90,7 +90,13 @@ export function nextEventId(): string {
   return `evt-${GLOBAL_EVENT_ID}`;
 }
 
-const STREAM_LONGPOLL_MS = 10_000;
+// Hold an idle stream open (no frames past the cursor) essentially for the whole
+// test rather than serving an empty body every few seconds — each empty serve
+// closes the stream and forces the app's 1s-backoff reconnect (a "Reconnecting…"
+// flicker + re-render churn that adds parallel-load latency/flakiness). Held far
+// above the per-test timeout so an idle stream never self-cycles mid-test; a real
+// frame / drop / expiry wakes it immediately (see wakeStreams).
+const STREAM_LONGPOLL_MS = 120_000;
 
 /** Frames that flip the run to a terminal (isRunning=false) React commit. The
  *  stream serves them in a SEPARATE response from any preceding frames so the

@@ -48,6 +48,7 @@ test.describe("TS-L — token usage summary", () => {
 
     // Phase 39: the TokenUsageSummary moved out of the (retired) AgentProgressPanel
     // into the Steps tab footer (AgentThinkingTab). Open Steps to reach it.
+    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
     await dashboard.openSteps();
 
     // Header label + total (8000 → "8.0K total")
@@ -68,7 +69,8 @@ test.describe("TS-L — token usage summary", () => {
       finalOutput: "# Product Backlog\n",
       totalTokens: 1_500_000,
     });
-    await dashboard.openSteps(); // summary relocated to the Steps tab footer
+    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
+    await dashboard.openSteps();
     await expect(dashboard.page.getByText("1.5M total", { exact: true })).toBeVisible();
   });
 
@@ -79,7 +81,8 @@ test.describe("TS-L — token usage summary", () => {
       finalOutput: "# Product Backlog\n",
       totalTokens: 950,
     });
-    await dashboard.openSteps(); // summary relocated to the Steps tab footer
+    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
+    await dashboard.openSteps();
     await expect(dashboard.page.getByText("950 total", { exact: true })).toBeVisible();
   });
 
@@ -98,6 +101,7 @@ test.describe("TS-L — token usage summary", () => {
       totalTokens: 8000, // keep card visible; only the cost is under test
       estimatedCostUsd: 0,
     });
+    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
     await dashboard.openSteps();
     await expect(dashboard.page.getByText("Est. cost (Haiku 4.5)", { exact: true })).toBeVisible();
     await expect(costRow(dashboard)).toContainText("—");
@@ -111,6 +115,7 @@ test.describe("TS-L — token usage summary", () => {
       totalTokens: 8000,
       estimatedCostUsd: 0.0005,
     });
+    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
     await dashboard.openSteps();
     await expect(costRow(dashboard)).toContainText("<$0.001");
   });
@@ -123,6 +128,7 @@ test.describe("TS-L — token usage summary", () => {
       totalTokens: 8000,
       estimatedCostUsd: 0.042,
     });
+    await expect(dashboard.previewTab()).toHaveAttribute("aria-selected", "true");
     await dashboard.openSteps();
     await expect(costRow(dashboard)).toContainText("~$0.042");
   });

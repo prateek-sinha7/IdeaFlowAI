@@ -141,7 +141,25 @@ export class DashboardPage {
   //    per-agent detail into the Steps drill-down: L1 StepsOverviewSpine spine →
   //    L2 AgentDetailPanel). Open the tab, then use these to assert per-agent
   //    state that used to live in the run-lane badges. ──────────────────────────
-  async openSteps() { await this.thinkingTab().click(); }
+  async openSteps() {
+    // Robust against the Phase 42-02 state-keyed auto-tab: a Steps click can race
+    // an in-flight run-state transition (building/complete) whose auto-tab clobbers
+    // it. Re-click until Steps is the selected tab (the auto-tab latch fires once
+    // per state, so a re-click after it fires sticks). NB: a run that will SETTLE
+    // to a deliverable auto-tabs to Preview — read Steps content only after the run
+    // has settled (await stopButton().toHaveCount(0)) so the terminal auto-tab has
+    // already fired before this call.
+    await expect(async () => {
+      await this.thinkingTab().click();
+      await expect(this.thinkingTab()).toHaveAttribute("aria-selected", "true", { timeout: 1000 });
+    }).toPass({ timeout: 15000 });
+  }
+
+  /** Wait until the live run has SETTLED (Stop gone → isRunning=false). Use before
+   *  reading a settled-run surface so any terminal auto-tab has already fired. */
+  async waitForRunSettled() {
+    await expect(this.stopButton()).toHaveCount(0, { timeout: 15000 });
+  }
 
   /** A Steps L1 spine row for an agent, by its display name. */
   stepsAgentRow(name: string): Locator {
