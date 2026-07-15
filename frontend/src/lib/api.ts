@@ -656,6 +656,32 @@ export async function postAnswers(
   );
 }
 
+/**
+ * Launch a child PPT revision run over REST (mirrors WS `run_revision`, Strategy A).
+ * Targets POST /api/runs/{parentRunId}/revisions (RevisionCommand) — the byte-twin
+ * of the same server path: _mint_revision_row + _drive_revision_to_queue ->
+ * engine._handle_revision. Preserves the server-side artifact seed, the
+ * planning-context prepend, and the exact-kind `derived_from` lineage. The parent
+ * linkage is the PATH run id (bug (b): no orphan — source_workflow_run_id is set
+ * server-side from parent_run_id). Owner-gated on the parent server-side
+ * (cross-owner / missing -> 404). Returns the created revision `run_id`, which the
+ * caller can attach; the run then streams over SSE like any other (W1).
+ */
+export async function postRevision(
+  token: string,
+  parentRunId: string,
+  body: { target_artifact_type: string; instruction: string },
+): Promise<{ run_id: string }> {
+  return request<{ run_id: string }>(
+    `/api/runs/${encodeURIComponent(parentRunId)}/revisions`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    },
+  );
+}
+
 export async function changePassword(
   token: string,
   currentPassword: string,
