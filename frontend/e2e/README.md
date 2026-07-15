@@ -23,9 +23,9 @@ A Next dev server on `:3000` is auto-started (reused if already running).
 ## Two modes
 
 ### Mocked (default, fast, deterministic, CI-ready)
-No backend, no Bedrock. The fixtures intercept **both** REST and WebSocket **in the browser**:
+No backend, no Bedrock. The app streams runs over SSE (the sole transport, 44-06); the fixtures intercept REST **and** the per-run SSE stream **in the browser**:
 - `fixtures/mockApi.ts` — routes `**/api/**` (auth/me, login, runs, capabilities, …). Mutable per-test (`mockApi.setRuns/setUser`). Auto-installed for every test.
-- `fixtures/mockWs.ts` — `page.routeWebSocket` mocks `ws://…/ws/chat`. A spec drives the inbound event stream (`mockWs.start/agentStart/agentComplete/complete/failed/cancelled/waveStarted/reviewGateReady/…`) and asserts the outbound frames the app sends (`mockWs.waitForClientFrame("run_pipeline")`). Frames follow the exact wire contract (`data`-wrapped, `event_id`/`seq` in `data`; `stream` top-level chunk/section).
+- `fixtures/mockSse.ts` — routes `**/api/runs**`: it serves the SSE down-channel (`GET /api/runs/{id}/events/stream`, a `text/event-stream` body built from a durable frame tail) and mocks the REST up-channel commands (`POST /api/runs` + `/{id}/{answers,cancel,gate,revisions,messages}`). A spec drives the inbound stream (`mockSse.start/agentStart/agentComplete/complete/failed/cancelled/waveStarted/reviewGateReady/…`) and asserts the outbound REST commands the app sends (`mockSse.waitForCommand("run_pipeline")`). Frames follow the exact wire contract (`data`-wrapped, `event_id`/`seq` in `data`; `stream` top-level chunk/section).
 
 ### Live (`*.live.spec.ts`, nightly / on-demand)
 Real backend + real Bedrock. Prerequisites:
@@ -50,7 +50,7 @@ e2e/
   fixtures/
     constants.ts           # origins, token key, MODEL_CATALOG, CAPABILITIES
     mockApi.ts             # REST stub (+ makeRun helper)
-    mockWs.ts              # WS stub: drive inbound events / assert outbound frames
+    mockSse.ts              # SSE + REST stub: drive inbound SSE events / assert outbound REST commands
     scenarios.ts           # canned agent line-ups (AGENTS) + run players + SAMPLE_* fixtures
     dashboard.ts           # DashboardPage page object (navigation + locators)
     test.ts                # the mocked `test`/`expect` (mocks auto-installed)
