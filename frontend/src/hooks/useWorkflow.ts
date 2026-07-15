@@ -12,7 +12,12 @@ import { useRunConnection } from "@/providers/RunConnectionProvider";
 
 export interface UseWorkflowReturn {
   pipelineState: PipelineRunState;
-  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => void;
+  // W1 (44-01): on the SSE path returns the POST /api/runs promise resolving to
+  // the created run_id (so the caller can attachRun it for launch->attach, R4);
+  // on the flag-OFF/WS path returns null SYNCHRONOUSLY (the run_id arrives later
+  // in pipeline_start there) — staying a non-thenable keeps the existing sync
+  // `act(() => startPipeline(...))` callers byte-identical.
+  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => Promise<string | null> | null;
   resetPipeline: () => void;
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;
@@ -51,7 +56,7 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   const runConnection = useRunConnection();
 
   const startPipeline = useCallback(
-    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => {
+    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>): Promise<string | null> | null => {
       startTimeRef.current = Date.now();
       agentStartTimesRef.current = {};
 
@@ -122,11 +127,14 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
       // Flag-selected transport: SSE path sends the SAME `run_pipeline` payload
       // up-channel over REST (POST /api/runs); the flag-OFF path is the existing
       // websocketSend, unchanged. Same payload → same run, transport-agnostic.
+      // W1 (44-01): return the POST /api/runs promise (→ created run_id) on the
+      // SSE path so the caller can attachRun it (launch->attach, R4); WS path
+      // returns null synchronously (run_id lands in the pipeline_start echo there).
       if (ENV.SSE_TRANSPORT && runConnection.enabled) {
-        void runConnection.sendCommand(null, payload);
-      } else {
-        websocketSend(JSON.stringify(payload));
+        return runConnection.sendCommand(null, payload);
       }
+      websocketSend(JSON.stringify(payload));
+      return null;
     },
     [websocketSend, runConnection]
   );

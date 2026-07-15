@@ -873,11 +873,32 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // WebSocket connection
+  // ─── Phase 31/44 — the app-level SSE run connection (flag-selected) ──────────
+  // `enabled` follows NEXT_PUBLIC_SSE_TRANSPORT (LOCK-B). When ON, the pipeline /
+  // questionnaire / review down-channel is sourced from runConnection.subscribe
+  // (W1, below) and the chat transcript from chatSubscribe; when OFF this is the
+  // inert default (`enabled === false`) and the legacy WS transport is the sole
+  // feed, byte-identical to before. Declared ABOVE useWebSocket so the WS
+  // onMessage can be gated on the active transport.
+  const runConnection = useRunConnection();
+  const sseEnabled = runConnection.enabled;
+
+  // WebSocket connection. W1 (44-01): when SSE is the active transport the WS
+  // copy of the down-channel is ignored (flag-selected — the SSE subscribe below
+  // feeds the SAME reducer), mirroring the chatSubscribe flag-select so the
+  // pipeline reducer is fed from exactly one transport. The WS socket still
+  // exists this wave because commands ride it until W2/W3.
+  const wsOnMessage = useCallback(
+    (msg: StreamMessage) => {
+      if (sseEnabled) return;
+      handleWebSocketMessage(msg);
+    },
+    [sseEnabled, handleWebSocketMessage],
+  );
   const { send, connectionStatus, reconnect } = useWebSocket({
     url: ENV.WS_URL,
     token,
-    onMessage: handleWebSocketMessage,
+    onMessage: wsOnMessage,
   });
 
   // Workflow pipeline state
@@ -895,13 +916,23 @@ export default function DashboardPage() {
   }, [handlePipelineMsg]);
 
   // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
-  // The app-level SSE connection. The provider is not mounted today, so this is
-  // the inert default (`enabled === false`) → the flag-OFF legacy WS transport
-  // below is the active one, byte-identical to before (LOCK-B additive). When a
-  // future integration mounts RunConnectionProvider with the flag ON, `subscribe`
-  // / `sendCommand` take over with ZERO change here.
-  const runConnection = useRunConnection();
-  const sseEnabled = runConnection.enabled;
+  // (runConnection / sseEnabled are declared above, next to useWebSocket, so the
+  // WS onMessage can be gated on the active transport — W1.)
+
+  // W1 (44-01) — SSE is the LIVE pipeline down-channel when the flag is ON. Feed
+  // the SAME handleWebSocketMessage router (pipeline / wave / questionnaire /
+  // review-gate switch, which dispatches to handlePipelineMsgRef) from the per-run
+  // SSE fan-out. The WS onMessage is gated off (above) while this is active, so
+  // the reducer sees exactly one transport (idempotent by event_id regardless).
+  // `runConnection.subscribe` is a stable provider callback → no resubscribe churn.
+  const runSubscribe = runConnection.subscribe;
+  useEffect(() => {
+    if (!sseEnabled) return;
+    const unsubscribe = runSubscribe((m) =>
+      handleWebSocketMessage({ type: m.type, data: m.data } as unknown as StreamMessage),
+    );
+    return unsubscribe;
+  }, [sseEnabled, runSubscribe, handleWebSocketMessage]);
 
   // Transport-agnostic frame subscription: SSE fan-out when enabled, else the
   // local legacy-WS chat-frame fan-out. SAME transcript either way (CONTEXT).
@@ -1477,8 +1508,17 @@ export default function DashboardPage() {
           // clear so a stale source can't be sent as a revise parent.
           setContentSourceRunId(null);
         }
-        // For revisions, keep existing content visible until new output arrives
-        startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams);
+        // For revisions, keep existing content visible until new output arrives.
+        // W1 (44-01) launch->attach (R4): the SSE launch (POST /api/runs) resolves
+        // to the created run_id; attach its SSE stream immediately so a run
+        // launched after boot streams live without waiting for the next
+        // refreshLiveRuns poll. The WS path returns null synchronously (attachRun
+        // no-op) — Promise.resolve normalizes both shapes.
+        void Promise.resolve(
+          startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams),
+        ).then((launchedRunId) => {
+          if (launchedRunId) runConnection.attachRun(launchedRunId);
+        });
       }}
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
