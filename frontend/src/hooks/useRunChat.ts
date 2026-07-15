@@ -69,14 +69,37 @@ export interface UseRunChatConfig {
   legacyWsSend?: (payload: Record<string, unknown>) => void;
 }
 
+/**
+ * Optional trailing send flags folded onto the `POST /api/runs/{id}/messages`
+ * up-channel payload (43-02, the A.1 CRUX). Field names match the backend
+ * `MessageCommand` EXACTLY (`run_commands.py:346/351`):
+ *   - `concierge`      — opt this turn into the free-form → Concierge escalation
+ *                        (a settled-run ASK answered, not launched as a revision).
+ *   - `confirm_proposal` — the confirm round-trip for a previously HELD
+ *                        consequential proposal `{ channel, params }` (33-04).
+ * GENERIC (SC-001/INV-1): neither field is a workflow-name/agent-id literal.
+ * Absent options ⇒ the payload is byte-identical to the pre-43-02 shape
+ * (dormant, INV-3) — no `concierge` key is written.
+ */
+export interface SendMessageOptions {
+  concierge?: boolean;
+  confirm_proposal?: { channel: string; params: Record<string, unknown> };
+}
+
 export interface UseRunChatReturn {
   /** The append-only, family-anchored transcript. */
   messages: ChatMessage[];
   /**
    * Optimistically append a user turn and send it up-channel. Returns the
    * client-minted `message_id` (the reconciliation key for the server echo).
+   * The optional trailing `options` fold `concierge` / `confirm_proposal` onto
+   * the up-channel payload (43-02); omitting them keeps the payload unchanged.
    */
-  sendMessage: (text: string, attachments?: ChatAttachment[]) => string;
+  sendMessage: (
+    text: string,
+    attachments?: ChatAttachment[],
+    options?: SendMessageOptions,
+  ) => string;
   /** The latest `stream_attached` handshake state (null until first attach). */
   streamAttached: StreamAttachedState | null;
 }
@@ -255,7 +278,11 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
   useEffect(() => subscribe(handleFrame), [subscribe, handleFrame]);
 
   const sendMessage = useCallback(
-    (text: string, attachments?: ChatAttachment[]): string => {
+    (
+      text: string,
+      attachments?: ChatAttachment[],
+      options?: SendMessageOptions,
+    ): string => {
       const messageId = mintMessageId();
       const optimistic: ChatMessage = {
         id: messageId,
@@ -275,8 +302,19 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
         attachments: attachments ?? [],
         message_id: messageId,
       };
+      // 43-02 (A.1 CRUX): fold the Concierge send flags onto the payload ONLY
+      // when supplied — field names match the backend MessageCommand exactly
+      // (`concierge` / `confirm_proposal`). With no options the payload is
+      // byte-identical to the pre-43-02 shape (dormant, INV-3).
+      if (options?.concierge) payload.concierge = true;
+      if (options?.confirm_proposal) {
+        payload.confirm_proposal = options.confirm_proposal;
+      }
       if (legacyWsSend) {
-        // Flag-OFF legacy WS up-channel (LOCK-B): same transcript.
+        // Flag-OFF legacy WS up-channel (LOCK-B): same transcript. The concierge
+        // fields ride the payload but the WS transport does not deliver them to
+        // the Concierge until the Part-C SSE cutover — expected (43-02 proves
+        // the payload shape + the routing decision, not a live round-trip).
         legacyWsSend({ type: "user_message", ...payload });
       } else {
         void sendCommand(runId, payload);

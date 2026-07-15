@@ -190,6 +190,64 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     expect(result.current.messages).toHaveLength(1); // same optimistic transcript
   });
 
+  it("Test 9: sendMessage with { concierge: true } folds concierge onto the up-channel payload (43-02)", () => {
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-9", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+
+    act(() => {
+      result.current.sendMessage("what's the status?", [], { concierge: true });
+    });
+
+    expect(conn.sendCommand).toHaveBeenCalledWith(
+      "run-9",
+      expect.objectContaining({ text: "what's the status?", concierge: true }),
+    );
+  });
+
+  it("Test 10: sendMessage with a confirm_proposal folds the exact { channel, params } (43-02)", () => {
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-9", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+
+    act(() => {
+      result.current.sendMessage("go", [], {
+        concierge: true,
+        confirm_proposal: { channel: "gate_action", params: { action: "approve" } },
+      });
+    });
+
+    expect(conn.sendCommand).toHaveBeenCalledWith(
+      "run-9",
+      expect.objectContaining({
+        concierge: true,
+        confirm_proposal: { channel: "gate_action", params: { action: "approve" } },
+      }),
+    );
+  });
+
+  it("Test 11: sendMessage with NO options posts a payload with NO concierge key (dormant/unchanged)", () => {
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-9", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+
+    act(() => {
+      result.current.sendMessage("plain turn");
+    });
+
+    expect(conn.sendCommand).toHaveBeenCalledTimes(1);
+    const payload = (conn.sendCommand.mock.calls[0] as unknown[])[1] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).not.toHaveProperty("concierge");
+    expect(payload).not.toHaveProperty("confirm_proposal");
+    expect(payload).toMatchObject({ text: "plain turn" });
+  });
+
   it("Test 8: stream_attached updates the handshake state without touching the transcript", () => {
     const conn = makeConn();
     const { result } = renderHook(() =>
