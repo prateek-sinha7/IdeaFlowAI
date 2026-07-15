@@ -57,7 +57,9 @@ class _FakeUser:
 @pytest.fixture
 def env(monkeypatch):
     from app.api import run_commands as rc_module
-    from app.api import websocket as ws_module
+    # W4a (44-03): _get_db relocated to app.api.run_engine (INV-12 extract-before
+    # -delete); /ws/chat retired in 44-07. Patch the seam at its new home.
+    from app.api import run_engine as ws_module
     from app.models import database as db_module
     from app.models.database import Base
 

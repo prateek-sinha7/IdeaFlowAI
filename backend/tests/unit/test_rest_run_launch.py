@@ -560,3 +560,86 @@ def test_seam_od_ppt_revision_non_fatal_loads_when_resolvable():
         _PPT_TEMPLATE, None, custom_ds_body=None, custom_template_body=None)
     assert base == "od_ppt_revision"
     assert od_context == expected
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 5. Parent-link ownership — the primary run_pipeline IDOR path (Site 1, T-44-08-01)
+#
+# Migrated from ``test_ws_parent_link_ownership.py`` (the deleted
+# ``_handle_workflow_execution`` :1688 ``source_workflow_run_id`` chaining site).
+# The REST launch endpoint mints the WorkflowRun with
+# ``parent_run_id = _resolve_owned_parent_run_id(db, body.source_workflow_run_id,
+# current_user.id)`` (run_commands.py:1204) — the SAME owner-checked resolver. An
+# OWNED source links; a FOREIGN / unknown source has its link DROPPED (parent_run_id
+# = None) while the run still launches (mirrors the WS Site-1 contract: drop the
+# edge, never leak a foreign lineage; the run is not rejected). The resolver's exact
+# contract is pinned in ``test_rest_revisions.py::TestResolverDirect``.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _seed_run_owned_by(env, owner_id: str) -> str:
+    from app.models.workflow import WorkflowRun
+
+    run_id = str(uuid.uuid4())
+    db = env["ws"]._get_db()
+    try:
+        db.add(WorkflowRun(
+            id=run_id, user_id=owner_id, owner_id=owner_id, title="parent",
+            type="user_stories", status="completed", input="prior run",
+            agent_count=1, session_id=owner_id,
+        ))
+        db.commit()
+    finally:
+        db.close()
+    return run_id
+
+
+def test_owned_source_links_the_child(env):
+    """An owned ``source_workflow_run_id`` is persisted as the child's
+    ``parent_run_id`` (family lineage intact)."""
+    user = _seed_user(env)
+    parent_id = _seed_run_owned_by(env, user.id)
+    env["state"]["user"] = user
+
+    resp = _post_launch(
+        env, message="continue from prior", pipeline_type="user_stories",
+        source_workflow_run_id=parent_id,
+    )
+    assert resp.status_code == 200, resp.text
+    child = _latest_run(env)
+    assert child.id == resp.json()["run_id"]
+    assert child.parent_run_id == parent_id
+
+
+def test_foreign_source_drops_the_link_but_still_launches(env):
+    """T-44-08-01 (primary IDOR): a FOREIGN source run id (owned by someone else)
+    must NOT be persisted as a family edge — the resolver drops it to None — while
+    the run still launches (the WS Site-1 contract: drop the link, never reject)."""
+    owner = _seed_user(env)
+    attacker = _seed_user(env)
+    foreign_parent = _seed_run_owned_by(env, owner.id)
+    env["state"]["user"] = attacker
+
+    resp = _post_launch(
+        env, message="steal the lineage", pipeline_type="user_stories",
+        source_workflow_run_id=foreign_parent,
+    )
+    assert resp.status_code == 200, resp.text
+    child = _latest_run(env)
+    assert child.user_id == attacker.id
+    # The foreign parent edge was dropped — the family walk can never reach it.
+    assert child.parent_run_id is None
+
+
+def test_unknown_source_drops_the_link_but_still_launches(env):
+    """An unknown source run id resolves to None (no run-existence oracle) and the
+    run still launches with no parent edge."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+
+    resp = _post_launch(
+        env, message="unknown parent", pipeline_type="user_stories",
+        source_workflow_run_id=str(uuid.uuid4()),
+    )
+    assert resp.status_code == 200, resp.text
+    assert _latest_run(env).parent_run_id is None

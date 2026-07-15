@@ -380,3 +380,61 @@ async def test_driver_cancellation_records_cancelled(env, monkeypatch):
     row = _row(env, run_id)
     assert row.status == "cancelled"
     assert row.status not in ("revising", "completed")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Parent-link resolver — the owner-checked resolver directly (T-44-08-01)
+#
+# Migrated from ``test_ws_parent_link_ownership.py::TestResolverDirect`` (44-08):
+# the WS suite drove the resolver + both WS ingress sites; the sites are now the
+# REST ``/revisions`` endpoint (cross-owner → 404, above) and ``POST /api/runs``
+# (``test_rest_run_launch.py``). The resolver itself is the transport-neutral seam
+# (relocated to ``app.api.run_engine`` in 44-03) both REST sites route through —
+# these pins keep its exact contract (owned → id; foreign/missing → None; a falsy
+# candidate short-circuits with NO query) so no cross-owner parent edge can be
+# persisted as a family link.
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class TestResolverDirect:
+    def test_owned_candidate_returns_id(self, env):
+        owner = _seed_user(env, "owner")
+        parent_id = _seed_parent(env, owner.id)
+        db = env["Session"]()
+        try:
+            assert env["ws"]._resolve_owned_parent_run_id(db, parent_id, owner.id) == parent_id
+        finally:
+            db.close()
+
+    def test_foreign_owned_candidate_returns_none(self, env):
+        owner = _seed_user(env, "owner")
+        attacker = _seed_user(env, "attacker")
+        parent_id = _seed_parent(env, owner.id)
+        db = env["Session"]()
+        try:
+            # The attacker names a real run id — but it is not theirs → dropped.
+            assert env["ws"]._resolve_owned_parent_run_id(db, parent_id, attacker.id) is None
+        finally:
+            db.close()
+
+    def test_missing_candidate_returns_none(self, env):
+        owner = _seed_user(env, "owner")
+        db = env["Session"]()
+        try:
+            assert env["ws"]._resolve_owned_parent_run_id(
+                db, "does-not-exist", owner.id
+            ) is None
+        finally:
+            db.close()
+
+    def test_falsy_candidate_returns_none_without_query(self, env):
+        owner = _seed_user(env, "owner")
+
+        class _ExplodingDb:
+            def query(self, *a, **k):  # pragma: no cover - must never be called
+                raise AssertionError("a falsy candidate must not issue a query")
+
+        for falsy in (None, ""):
+            assert env["ws"]._resolve_owned_parent_run_id(
+                _ExplodingDb(), falsy, owner.id
+            ) is None
