@@ -44,7 +44,7 @@ class _FakeUser:
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     from app.api import run_files as rf_module
-    from app.api import websocket as ws_module
+    from app.api import run_engine as ws_module
     from app.core.config import settings
     from app.models import database as db_module
     from app.models.database import Base
@@ -58,7 +58,7 @@ def env(monkeypatch, tmp_path):
     Base.metadata.create_all(bind=db_engine)
 
     # Patch _get_db on BOTH modules: run_files binds its OWN reference at import
-    # (``from app.api.websocket import _get_db``).
+    # (``from app.api.run_engine import _get_db``).
     monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
     monkeypatch.setattr(rf_module, "_get_db", lambda: TestingSession())
     # ScopedStore(session=None) opens app.models.database.SessionLocal() — bind it too.

@@ -518,7 +518,7 @@ class TestModelOverrideValidation:
     def test_empty_map_is_valid_noop(self) -> None:
         """Absent / empty ``model_overrides`` (the only kind sent until Phase 8)
         passes validation — no error, the run proceeds unchanged (INV-3)."""
-        from app.api.websocket import _validate_model_overrides
+        from app.api.run_engine import _validate_model_overrides
 
         assert _validate_model_overrides({}, {"agent-a", "agent-b"}) is None
         assert _validate_model_overrides(None or {}, set()) is None
@@ -526,7 +526,7 @@ class TestModelOverrideValidation:
     def test_valid_override_passes(self) -> None:
         """A ``{agent_id → catalog-model-id}`` where the agent is in the run and
         the model is in the catalog passes — reaches ``engine.execute``."""
-        from app.api.websocket import _validate_model_overrides
+        from app.api.run_engine import _validate_model_overrides
 
         valid_model = self._catalog_id()
         run_agents = {"prototype-specify", "prototype-build"}
@@ -540,7 +540,7 @@ class TestModelOverrideValidation:
         is rejected — the load-bearing mitigation. The error names the bad
         value so the emitted ``invalid_model_override`` event is actionable.
         """
-        from app.api.websocket import _validate_model_overrides
+        from app.api.run_engine import _validate_model_overrides
 
         run_agents = {"prototype-build"}
         err = _validate_model_overrides(
@@ -553,7 +553,7 @@ class TestModelOverrideValidation:
         """The model-id allow-list is enforced independently of the agent check:
         a real run agent with a bogus model id is still rejected (no arbitrary
         string ever reaches build_model)."""
-        from app.api.websocket import _validate_model_overrides
+        from app.api.run_engine import _validate_model_overrides
 
         err = _validate_model_overrides(
             {"prototype-build": "claude-totally-made-up"}, {"prototype-build"}
@@ -565,7 +565,7 @@ class TestModelOverrideValidation:
         """T-06-07 [MED]: an override targeting an agent NOT in this run's agent
         set is rejected (no silent no-op), even when the model id is a valid
         catalog id."""
-        from app.api.websocket import _validate_model_overrides
+        from app.api.run_engine import _validate_model_overrides
 
         valid_model = self._catalog_id()
         run_agents = {"prototype-specify", "prototype-build"}
@@ -578,7 +578,7 @@ class TestModelOverrideValidation:
     def test_first_violation_is_reported(self) -> None:
         """A map with multiple bad entries is rejected (fail-fast) — the handler
         only needs ONE error to reject the whole run before it starts."""
-        from app.api.websocket import _validate_model_overrides
+        from app.api.run_engine import _validate_model_overrides
 
         err = _validate_model_overrides(
             {"ghost-agent": "ghost-model"}, {"prototype-build"}
@@ -605,7 +605,7 @@ class TestModelOverrideValidation:
     def test_non_dict_overrides_are_rejected_not_raised(self, bad) -> None:
         """A truthy non-dict ``model_overrides`` returns a rejection string
         (does NOT raise) — closing the silent-task-death vector (CR-01)."""
-        from app.api.websocket import _validate_model_overrides
+        from app.api.run_engine import _validate_model_overrides
 
         err = _validate_model_overrides(bad, {"prototype-build"})
         assert err is not None, f"non-dict {bad!r} MUST be rejected, not crash"
@@ -614,7 +614,7 @@ class TestModelOverrideValidation:
     def test_non_string_value_is_rejected_not_raised(self) -> None:
         """A dict with a non-string value (e.g. a list) returns a rejection
         string instead of raising TypeError on the set membership check."""
-        from app.api.websocket import _validate_model_overrides
+        from app.api.run_engine import _validate_model_overrides
 
         err = _validate_model_overrides(
             {"prototype-build": ["not", "a", "string"]}, {"prototype-build"}
@@ -625,7 +625,7 @@ class TestModelOverrideValidation:
     def test_non_string_key_is_rejected_not_raised(self) -> None:
         """A dict with a non-string key returns a rejection string rather than
         flowing a non-string agent id into the run-agent membership check."""
-        from app.api.websocket import _validate_model_overrides
+        from app.api.run_engine import _validate_model_overrides
 
         err = _validate_model_overrides(
             {123: "some-model"}, {"prototype-build"}

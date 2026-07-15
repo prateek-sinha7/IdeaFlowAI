@@ -321,7 +321,7 @@ class _FakeConcierge:
 @pytest.fixture
 def env(monkeypatch):
     from app.api import run_commands as rc_module
-    from app.api import websocket as ws_module
+    from app.api import run_engine as ws_module
     from app.models import database as db_module
     from app.models.database import Base
 

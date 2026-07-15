@@ -13,25 +13,23 @@ compounding defects were fixed:
      * clean run → payload byte-identical (NEITHER key present — the 5
        characterization snapshots gate this parity, INV-3).
 
-  2. WS INGRESS guard (websocket.py): a pipeline whose resolved agents declare
-     ``injects: [template, ...]`` with no loadable template body is rejected at
-     ingress with code ``missing_template_context`` BEFORE the engine spins up
-     (T-13-06-01) — mirroring the factory's ``_compose_injection`` raise
-     condition EXACTLY. Generic: keyed on declared injects only, never a
-     pipeline-name allow/deny list (SC-001).
+  2. [RETIRED — see note] WS INGRESS guard: the ``missing_template_context``
+     fail-fast lived ONLY in the deleted ``websocket.py::_handle_workflow_execution``
+     ingress (engine.py:5265 confirms it "lives only at the run_pipeline WS
+     ingress"). The ``/ws/chat`` retirement (44-07) deleted that handler, so the
+     WS-half tests (old scenarios d/e/f, which drove ``_handle_workflow_execution``)
+     were removed in 44-08. The guard is NOT replicated on the REST launch path
+     (``run_commands.py::launch_run`` has no ``missing_template_context`` reject),
+     so its behavioral coverage cannot be re-homed by a tests-only plan — this is a
+     SRC gap flagged for a follow-up (see 44-08-SUMMARY.md "Deferred / Findings").
 
-Scenarios (per 13-06-PLAN.md):
+Scenarios (engine-level terminal semantics — the surviving, transport-neutral half):
   (a) all-agents-error run → exactly one pipeline_failed, NO pipeline_complete,
       state "failed", agents_failed lists every agent id;
   (b) one-of-two agents errors → terminal pipeline_complete carries
       status="degraded" + the failed id; agents_completed reflects the survivor;
   (c) clean run → pipeline_complete data contains NEITHER "status" NOR
-      "agents_failed" (parity guard);
-  (d) bare "prototype" with no template_id → exactly one error event with code
-      "missing_template_context", engine never invoked;
-  (e) the same pipeline with od_context carrying a template_body → guard passes
-      (engine invoked, no missing_template_context error);
-  (f) a no-injects pipeline (user_stories) with no template → guard does not fire.
+      "agents_failed" (parity guard).
 
 Offline — stubbed ``_run_agent`` / stub engine, in-memory SQLite, no Bedrock.
 """
@@ -380,179 +378,3 @@ async def test_unrecovered_failure_alongside_recovered_timeout_lists_only_the_fa
     )
     assert data["agents_completed"] == 1
 
-
-# ════════════════════════════════════════════════════════════════════════════
-# WS ingress guard — handler-level (mirrors test_pipeline_cancel.py's driving)
-# ════════════════════════════════════════════════════════════════════════════
-
-
-class _FakeWebSocket:
-    def __init__(self) -> None:
-        self.sent: list[dict] = []
-
-    async def send_json(self, payload: dict) -> None:
-        self.sent.append(payload)
-
-
-class _RecordingEngine:
-    """Stub engine recording whether execute() was ever entered."""
-
-    invoked = False
-
-    async def execute(self, **kwargs):
-        _RecordingEngine.invoked = True
-        yield {"type": "pipeline_start", "data": {"agents": []}}
-        yield {"type": "pipeline_complete", "data": {"final_output": "done"}}
-
-
-@pytest.fixture
-def _ws_handler_env(monkeypatch):
-    """Offline harness for ``_handle_workflow_execution``: in-memory SQLite,
-    recording stub engine, LLM-config settings stubbed, title generation no-op'd
-    (mirrors tests/unit/test_pipeline_cancel.py)."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import StaticPool
-
-    from app.api import websocket as ws_module
-    from app.models.database import Base
-
-    db_engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
-    Base.metadata.create_all(bind=db_engine)
-    monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
-
-    monkeypatch.setattr(
-        ws_module.settings, "BEDROCK_MODEL_ID",
-        "eu.anthropic.claude-haiku-4-5-20251001-v1:0", raising=False,
-    )
-    monkeypatch.setattr(ws_module.settings, "AWS_REGION", "eu-central-1", raising=False)
-
-    async def _noop_title(**kwargs):
-        return None
-
-    monkeypatch.setattr(ws_module, "_generate_workflow_title", _noop_title)
-
-    _RecordingEngine.invoked = False
-    monkeypatch.setattr(
-        engine_mod, "get_execution_engine", lambda: _RecordingEngine()
-    )
-
-    yield ws_module
-
-    Base.metadata.drop_all(bind=db_engine)
-    db_engine.dispose()
-
-
-@pytest.fixture
-def _ws_user(_ws_handler_env, monkeypatch):
-    from app.models.user import User
-
-    db = _ws_handler_env._get_db()
-    try:
-        u = User(
-            id=str(uuid.uuid4()),
-            email=f"f3-{uuid.uuid4().hex[:8]}@example.com",
-            password_hash="x",
-        )
-        db.add(u)
-        db.commit()
-        db.refresh(u)
-        return u
-    finally:
-        db.close()
-
-
-def _template_errors(ws) -> list[dict]:
-    return [
-        m for m in ws.sent
-        if m.get("type") == "error"
-        and m.get("data", {}).get("code") == "missing_template_context"
-    ]
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# (d) Bare prototype (template-inject agents, no template) → fail fast
-# ────────────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_bare_prototype_without_template_rejected_at_ingress(
-    _ws_handler_env, _ws_user
-):
-    """The REAL prototype agents declare ``injects: [template, ...]`` — a bare
-    ``prototype`` run (no template_id → no od_context) is rejected with exactly
-    one ``missing_template_context`` error and the engine is NEVER invoked."""
-    ws = _FakeWebSocket()
-    await _ws_handler_env._handle_workflow_execution(
-        ws, "make me a thing", "prototype",
-        chat_session_id=None, token="t", user=_ws_user,
-    )
-
-    errors = _template_errors(ws)
-    assert len(errors) == 1, f"expected one missing_template_context error: {ws.sent}"
-    data = errors[0]["data"]
-    assert data["recoverable"] is False
-    assert "prototype" in data["error"]
-    assert "template" in data["error"]
-    assert _RecordingEngine.invoked is False, (
-        "the engine must never spin up for an unsatisfiable template-inject run"
-    )
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# (e) Same pipeline WITH a loaded template body → guard passes
-# ────────────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_od_prototype_with_template_body_passes_guard(
-    _ws_handler_env, _ws_user, monkeypatch
-):
-    """An ``od_prototype`` run whose od_context carries a ``template_body``
-    passes the guard unchanged: no missing_template_context error, engine runs."""
-    import agents.execution_engine.od_context as od_mod
-
-    monkeypatch.setattr(
-        od_mod,
-        "load_prototype_od_context",
-        lambda *a, **k: {
-            "template_body": "<html><body>tpl</body></html>",
-            "ds_id": "ds-1", "ds_body": "tokens", "craft_block": "",
-            "template_id": "tpl-1",
-        },
-    )
-
-    ws = _FakeWebSocket()
-    await _ws_handler_env._handle_workflow_execution(
-        ws, "make me a thing", "od_prototype",
-        chat_session_id=None, token="t", user=_ws_user,
-        template_id="tpl-1", design_system_id="ds-1",
-    )
-
-    assert _template_errors(ws) == [], f"guard misfired: {ws.sent}"
-    assert _RecordingEngine.invoked is True
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# (f) A no-injects pipeline with no template → guard does not fire
-# ────────────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_no_injects_pipeline_untouched_by_guard(_ws_handler_env, _ws_user):
-    """``user_stories`` agents declare NO template inject — the guard is keyed
-    on declared injects (SC-001, no pipeline-name branch), so a template-less
-    run passes straight through to the engine."""
-    ws = _FakeWebSocket()
-    await _ws_handler_env._handle_workflow_execution(
-        ws, "build a backlog", "user_stories",
-        chat_session_id=None, token="t", user=_ws_user,
-    )
-
-    assert _template_errors(ws) == [], f"guard misfired: {ws.sent}"
-    assert _RecordingEngine.invoked is True

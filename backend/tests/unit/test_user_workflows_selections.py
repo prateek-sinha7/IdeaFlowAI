@@ -196,7 +196,7 @@ import asyncio  # noqa: E402
 
 import pytest as _pytest  # noqa: E402
 
-from app.api.websocket import _revalidate_selections_trust_user  # noqa: E402
+from app.api.run_engine import _revalidate_selections_trust_user  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

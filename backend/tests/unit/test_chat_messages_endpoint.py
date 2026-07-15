@@ -36,7 +36,7 @@ class _FakeUser:
 @pytest.fixture
 def env(monkeypatch):
     from app.api import run_commands as rc_module
-    from app.api import websocket as ws_module
+    from app.api import run_engine as ws_module
     from app.models import database as db_module
     from app.models.database import Base
 
@@ -49,7 +49,7 @@ def env(monkeypatch):
     Base.metadata.create_all(bind=db_engine)
 
     # Patch _get_db on BOTH modules: run_commands binds its OWN reference at import
-    # (``from app.api.websocket import _get_db``), so patching ws_module alone would
+    # (``from app.api.run_engine import _get_db``), so patching ws_module alone would
     # leave the endpoint's Layer-1 query on the real DB.
     monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
     monkeypatch.setattr(rc_module, "_get_db", lambda: TestingSession())
