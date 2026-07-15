@@ -18,7 +18,7 @@
  * `spec_revision` card is the KAN-101 spec loop-back — "Revising spec — cycle N"
  * — distinct from a family revision RUN; the two are never conflated.
  *
- * Current skin (D-15 — behavior over restyle): raw Tailwind + lucide-react.
+ * Skin (D-15 — reskin-look keep-behavior): Phase-32 brand token layer + lucide-react.
  */
 
 import {
@@ -55,21 +55,21 @@ const CARD_SPECS: Record<CardKind, CardSpec> = {
     linkLabel: "Answer in Steps",
     defaultTab: "steps",
     Icon: HelpCircle,
-    tone: "text-amber-600",
+    tone: "text-status-amber",
   },
   gate: {
     title: "Review required",
     linkLabel: "Open in Steps",
     defaultTab: "steps",
     Icon: CheckCircle2,
-    tone: "text-[#1B2A4A]",
+    tone: "text-brand",
   },
   pipeline: {
     title: "Pipeline update",
     linkLabel: "Open in Steps",
     defaultTab: "steps",
     Icon: ListChecks,
-    tone: "text-blue-600",
+    tone: "text-status-running",
   },
   // LOCK-F: the run output is "Deliverable", never a workflow-specific noun.
   deliverable: {
@@ -77,14 +77,14 @@ const CARD_SPECS: Record<CardKind, CardSpec> = {
     linkLabel: "Open in Preview",
     defaultTab: "preview",
     Icon: FileCheck2,
-    tone: "text-emerald-600",
+    tone: "text-status-done",
   },
   spec_revision: {
     title: "Revising spec",
     linkLabel: "Open in Steps",
     defaultTab: "steps",
     Icon: RefreshCw,
-    tone: "text-violet-600",
+    tone: "text-brand",
   },
 };
 
@@ -113,21 +113,21 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
       ? `Revising spec — cycle ${cycle ?? 1}`
       : (spec?.title ?? "Update");
   const Icon = spec?.Icon ?? ListChecks;
-  const tone = spec?.tone ?? "text-gray-500";
+  const tone = spec?.tone ?? "text-ink-500";
   const linkLabel = spec?.linkLabel ?? "Open";
 
   return (
     <div
       data-testid="chat-result-card"
       data-card-kind={kind ?? "unknown"}
-      className="my-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm"
+      className="my-2 rounded-2xl border border-line-border bg-surface-white px-4 py-3 shadow-sm"
     >
       <div className="mb-1.5 flex items-center gap-2">
         <Icon className={`h-4 w-4 flex-shrink-0 ${tone}`} aria-hidden="true" />
-        <p className="text-[12px] font-semibold text-gray-900">{title}</p>
+        <p className="text-[12px] font-semibold text-ink-900">{title}</p>
       </div>
 
-      <div className="markdown-content text-[13px] leading-relaxed text-gray-700">
+      <div className="markdown-content text-[13px] leading-relaxed text-ink-700">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>
           {message.content}
         </ReactMarkdown>
@@ -138,7 +138,7 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
         data-testid="chat-result-card-link"
         data-target-tab={tab}
         onClick={() => onRequestOpenTab(tab)}
-        className="mt-2 inline-flex items-center gap-1 rounded-lg border border-[#1B2A4A]/20 px-3 py-1.5 text-[11px] font-semibold text-[#1B2A4A] transition-colors hover:bg-[#E8EDF5]"
+        className="mt-2 inline-flex items-center gap-1 rounded-lg border border-brand/20 px-3 py-1.5 text-[11px] font-semibold text-brand transition-colors hover:bg-brand-fill"
       >
         {linkLabel}
         <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
