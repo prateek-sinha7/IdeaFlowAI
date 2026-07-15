@@ -307,3 +307,57 @@ def test_gate_ignores_comment_and_docstring_mentions(tmp_path: Path) -> None:
     # a prose-only file yields ZERO hits — exactly why the live tree stays green.
     assert not py_hits, f"FALSE POSITIVE: Python comment/docstring mentions tripped the gate: {py_hits}"
     assert not ts_hits, f"FALSE POSITIVE: TS comment mentions tripped the gate: {ts_hits}"
+
+
+# ===========================================================================
+# NON-VACUITY GUARD (T-44-10-01) — prove the scanners actually fire.
+# ===========================================================================
+
+
+def test_gate_is_non_vacuous_python(tmp_path: Path) -> None:
+    """Inject banned tokens into a temp .py CODE line and assert the Python scanner
+    flags them. Because the live tree is clean, this proves the ban is not a dead
+    regex that would let a real regression through."""
+    bad = tmp_path / "rogue_backend.py"
+    bad.write_text(
+        "from fastapi import APIRouter\n"
+        "router = APIRouter()\n"
+        '@router.websocket("/ws/chat")\n'
+        "async def chat():\n"
+        "    if settings.SSE_TRANSPORT_ENABLED:\n"
+        "        return 1\n",
+        encoding="utf-8",
+    )
+    code = _python_code_lines(bad.read_text(encoding="utf-8"))
+    hits = {t for t, *_ in _scan_lines("rogue_backend.py", code)}
+    assert "/ws/chat" in hits, (
+        "NON-VACUITY FAILURE: the `/ws/chat` scanner did not flag an injected "
+        "@router.websocket route — the ratchet would miss a real regression."
+    )
+    assert "SSE_TRANSPORT_ENABLED" in hits, (
+        "NON-VACUITY FAILURE: the `SSE_TRANSPORT_ENABLED` scanner did not fire on "
+        "an injected flag reference."
+    )
+
+
+def test_gate_is_non_vacuous_typescript(tmp_path: Path) -> None:
+    """Inject the FE tokens into a temp .ts CODE line and assert the TS scanner
+    flags them (useWebSocket / routeWebSocket / NEXT_PUBLIC_SSE_TRANSPORT / /ws/chat)."""
+    bad = tmp_path / "rogue_frontend.ts"
+    bad.write_text(
+        "export function boot() {\n"
+        "  const c = useWebSocket();\n"
+        "  page.routeWebSocket(rx, h);\n"
+        '  const url = base + "/ws/chat";\n'
+        "  const f = process.env.NEXT_PUBLIC_SSE_TRANSPORT;\n"
+        "  return c && f && url;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    code = _ts_code_lines(bad.read_text(encoding="utf-8"))
+    hits = {t for t, *_ in _scan_lines("rogue_frontend.ts", code)}
+    for token in ("useWebSocket", "routeWebSocket", "NEXT_PUBLIC_SSE_TRANSPORT", "/ws/chat"):
+        assert token in hits, (
+            f"NON-VACUITY FAILURE: the `{token}` scanner did not flag an injected "
+            "frontend regression."
+        )
