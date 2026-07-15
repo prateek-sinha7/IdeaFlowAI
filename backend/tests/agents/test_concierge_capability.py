@@ -265,3 +265,107 @@ def test_converse_runs_scripted_model_through_runner_offline() -> None:
     out = asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "what happened?"))
     assert isinstance(out, str)
     assert out  # the scripted turn produced text
+
+
+# ── drain: converse surfaces proposals CTX-SCOPED (per-request), no self buffer ──
+
+
+def _proposing_model(action: str) -> ScriptedFakeChatModel:
+    """A scripted model that proposes ``action`` via a propose_gate_action tool call.
+
+    Turn 1 emits the tool call; turn 2 (no tool calls) terminates the deep-agent loop.
+    """
+    import json
+
+    return ScriptedFakeChatModel(
+        [
+            _ScriptedTurn(
+                texts=[f"Considering {action}. "],
+                tool_calls=[
+                    ("propose_gate_action", json.dumps({"action": action}), f"c_{action}")
+                ],
+                usage=(10, 5),
+            ),
+            _ScriptedTurn(texts=[f"I suggest {action}."], usage=(8, 4)),
+        ]
+    )
+
+
+class _NoopStore:
+    async def read_events(self, run_id: str, after_seq: int) -> list:
+        return []
+
+
+def _concierge_ctx(model: ScriptedFakeChatModel, run_id: str, owner: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        model=model,
+        scoped_store=_NoopStore(),
+        run_id=run_id,
+        owner_id=owner,
+        workspace_id=f"ws-{owner}",
+        conversation_context=None,
+        compiled=None,
+    )
+
+
+def test_converse_surfaces_proposals_on_ctx_and_second_drain_is_empty() -> None:
+    """A converse whose model proposes a gate action surfaces it via the ctx-scoped drain.
+
+    The proposal is captured on the PER-REQUEST ctx (not the singleton capability); a
+    second drain of the same ctx returns [] (the buffer is cleared, no leak).
+    """
+    ctx = _concierge_ctx(_proposing_model("approve"), "run-drain", "owner-A")
+    impl = ConciergeCapability()
+
+    answer = asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "should I approve?"))
+    assert isinstance(answer, str)
+
+    drained = ConciergeCapability.drain_proposals(ctx)
+    assert len(drained) == 1
+    assert drained[0].channel == "gate_action"
+    assert drained[0].params["action"] == "approve"
+    # A second drain of the same ctx returns [] — the buffer was cleared.
+    assert ConciergeCapability.drain_proposals(ctx) == []
+
+
+def test_no_self_scoped_proposal_buffer_on_capability() -> None:
+    """CONCURRENCY guard: the capability holds NO instance-level proposal buffer.
+
+    Proposals live only on the per-request ctx (or the converse return), so a shared
+    singleton reused across concurrent requests cannot leak one request's proposals
+    into another. A source assertion complements this at the grep level in the plan.
+    """
+    ctx = _concierge_ctx(_proposing_model("reject"), "run-x", "owner-X")
+    impl = ConciergeCapability()
+    asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "reject?"))
+
+    # No proposal state stored on the instance (only ctx carries it).
+    assert not hasattr(impl, "_proposals")
+    assert not hasattr(impl, "proposals")
+    assert not getattr(impl, "__dict__", {}), "capability instance must hold no per-request state"
+
+
+def test_overlapping_converse_calls_are_ctx_isolated() -> None:
+    """CONCURRENCY: two interleaved converse calls on ONE singleton never cross-leak.
+
+    ctx A proposes ``approve``; ctx B proposes ``reject``. Run under ``asyncio.gather``
+    (interleaved at await points) against the SAME ConciergeCapability instance; each
+    caller drains ONLY its own ctx's proposal, never the other's.
+    """
+    ctx_a = _concierge_ctx(_proposing_model("approve"), "run-A", "owner-A")
+    ctx_b = _concierge_ctx(_proposing_model("reject"), "run-B", "owner-B")
+
+    impl = ConciergeCapability()  # ONE shared/singleton instance reused across requests
+
+    async def _run_both():
+        return await asyncio.gather(
+            impl.converse(ctx_a, "A: approve?"),
+            impl.converse(ctx_b, "B: reject?"),
+        )
+
+    asyncio.new_event_loop().run_until_complete(_run_both())
+
+    a = ConciergeCapability.drain_proposals(ctx_a)
+    b = ConciergeCapability.drain_proposals(ctx_b)
+    assert [p.params["action"] for p in a] == ["approve"], "ctx A leaked/lost proposals"
+    assert [p.params["action"] for p in b] == ["reject"], "ctx B leaked/lost proposals"

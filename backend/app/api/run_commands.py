@@ -479,18 +479,21 @@ def _resolve_concierge():
     return CapabilityRegistry().resolve("chat", "concierge")
 
 
-def _drain_concierge_proposals(concierge) -> list:
+def _drain_concierge_proposals(concierge, ctx=None) -> list:
     """Return the ProposalIntents the Concierge surfaced this invocation (else []).
 
-    Duck-typed forward seam: a concierge exposing ``drain_proposals()`` returns its
-    staged intents. The 33-02 ``converse`` returns only its answer text (proposals ride
-    the model's tool-results); LIVE surfacing of those tool-results is Phase-34
-    live-deferred (DEF), so this yields [] against the current impl — the disposal +
-    confirm-chip contract itself is proven offline via the confirm round-trip below."""
+    Duck-typed forward seam: a concierge exposing ``drain_proposals`` returns the
+    intents its ``converse`` surfaced. The intents are CTX-SCOPED (per-request) — the
+    drain reads the per-request buffer ``converse`` stashed on ``ctx``, never shared
+    instance state — so two overlapping requests never cross-contaminate. A drain that
+    takes no ctx (e.g. a test fake stashing its own proposals) is called arg-free."""
     drain = getattr(concierge, "drain_proposals", None)
-    if callable(drain):
+    if not callable(drain):
+        return []
+    try:
+        return list(drain(ctx) or [])
+    except TypeError:
         return list(drain() or [])
-    return []
 
 
 async def _dispose_concierge_proposal(
@@ -877,7 +880,7 @@ async def post_message(
             },
         )
         held: list = []
-        for intent in _drain_concierge_proposals(concierge):
+        for intent in _drain_concierge_proposals(concierge, ctx):
             held.append(await _dispose_concierge_proposal(
                 intent, confirmed=False, store=store, art_store=art_store,
                 run_id=run_id, message_id=body.message_id, current_user=current_user,

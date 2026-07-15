@@ -128,6 +128,30 @@ def _row_to_dict(row: Any) -> Any:
 # ===========================================================================
 
 
+# ── Pure intent builders — the SINGLE source of the proposal channel/param
+#    contract, shared by the module-level tools AND the per-invocation collecting
+#    tools (``_collecting_proposal_tools``) so there is no dual logic (INV-12). ──
+def _steering_intent(note: str) -> ProposalIntent:
+    return ProposalIntent(channel="steering_note", params={"note": note})
+
+
+def _revision_intent(instruction: str, target: str = "") -> ProposalIntent:
+    return ProposalIntent(
+        channel="revision", params={"instruction": instruction, "target": target}
+    )
+
+
+def _gate_intent(action: str, rationale: str = "") -> ProposalIntent:
+    normalized = (action or "").strip()
+    if normalized not in _GATE_ACTIONS:
+        # Degrade to a safe, inert marker rather than raising inside the model loop —
+        # an out-of-range action still self-executes nothing.
+        normalized = "request_changes"
+    return ProposalIntent(
+        channel="gate_action", params={"action": normalized, "rationale": rationale}
+    )
+
+
 @tool
 def propose_steering_note(note: str) -> ProposalIntent:
     """Propose a steering note to nudge the run WITHOUT executing anything.
@@ -138,7 +162,7 @@ def propose_steering_note(note: str) -> ProposalIntent:
     Args:
         note: The steering guidance to propose to the user.
     """
-    return ProposalIntent(channel="steering_note", params={"note": note})
+    return _steering_intent(note)
 
 
 @tool
@@ -152,9 +176,7 @@ def propose_revision(instruction: str, target: str = "") -> ProposalIntent:
         instruction: What to change in the revision.
         target: Optional artifact/ref id the revision targets.
     """
-    return ProposalIntent(
-        channel="revision", params={"instruction": instruction, "target": target}
-    )
+    return _revision_intent(instruction, target)
 
 
 @tool
@@ -170,20 +192,57 @@ def propose_gate_action(action: str, rationale: str = "") -> ProposalIntent:
         action: One of approve / reject / request_changes / update_specs.
         rationale: Optional short reason for the proposed action.
     """
-    normalized = (action or "").strip()
-    if normalized not in _GATE_ACTIONS:
-        # Degrade to a safe, inert marker rather than raising inside the model loop —
-        # an out-of-range action still self-executes nothing.
-        normalized = "request_changes"
-    return ProposalIntent(
-        channel="gate_action", params={"action": normalized, "rationale": rationale}
-    )
+    return _gate_intent(action, rationale)
 
 
-# The immutable proposal-only tool set — shared across every Concierge invocation
-# (stateless, so no per-run rebuild). Read tools are built per-invocation with the
-# run's owner scope (see ``_read_tools``).
-PROPOSAL_TOOLS = [propose_steering_note, propose_revision, propose_gate_action]
+def _collecting_proposal_tools(collector: list) -> list:
+    """Build PER-INVOCATION proposal tools that RECORD each surfaced intent (drain).
+
+    CONCURRENCY MANDATE (BINDING): the ``collector`` is a per-request list OWNED by
+    the calling ``converse`` — never instance/global state — so two overlapping
+    ``converse`` calls (a shared/singleton ConciergeCapability reused across concurrent
+    requests) never share a buffer. Each tool returns the SAME ProposalIntent the
+    module-level ``propose_*`` tool returns (identical channel/param contract via the
+    shared builders) AND appends it to the collector so ``converse`` can surface the
+    proposals for app-layer disposal (33-03) — still HELD behind a confirm chip.
+    """
+
+    @tool
+    def propose_steering_note(note: str) -> ProposalIntent:
+        """Propose a steering note to nudge the run WITHOUT executing anything.
+
+        Args:
+            note: The steering guidance to propose to the user.
+        """
+        intent = _steering_intent(note)
+        collector.append(intent)
+        return intent
+
+    @tool
+    def propose_revision(instruction: str, target: str = "") -> ProposalIntent:
+        """Propose a revision of a produced artifact WITHOUT executing anything.
+
+        Args:
+            instruction: What to change in the revision.
+            target: Optional artifact/ref id the revision targets.
+        """
+        intent = _revision_intent(instruction, target)
+        collector.append(intent)
+        return intent
+
+    @tool
+    def propose_gate_action(action: str, rationale: str = "") -> ProposalIntent:
+        """Propose a gate action WITHOUT executing anything.
+
+        Args:
+            action: One of approve / reject / request_changes / update_specs.
+            rationale: Optional short reason for the proposed action.
+        """
+        intent = _gate_intent(action, rationale)
+        collector.append(intent)
+        return intent
+
+    return [propose_steering_note, propose_revision, propose_gate_action]
 
 
 @register(
@@ -216,7 +275,12 @@ class ConciergeCapability:
         scoped_store = self._resolve_scoped_store(ctx)
         run_id = getattr(ctx, "run_id", None)
 
-        tools = self._read_tools(scoped_store, run_id) + list(PROPOSAL_TOOLS)
+        # CTX-SCOPED proposal capture (concurrency-safe): a per-request collector list
+        # (NEVER instance state) fed by per-invocation proposal tools. Two overlapping
+        # converse calls keep distinct collectors, so neither sees the other's intents.
+        collected: list[ProposalIntent] = []
+        proposal_tools = _collecting_proposal_tools(collected)
+        tools = self._read_tools(scoped_store, run_id) + proposal_tools
         system_prompt = self._compose_system_prompt(ctx)
 
         # INV-13: reach the model ONLY through the sanctioned runner adapter. Haiku is
@@ -228,7 +292,34 @@ class ConciergeCapability:
             model=getattr(ctx, "model", None),
             thread_id=f"{run_id}:concierge" if run_id else None,
         )
-        return await runner.run(user_message)
+        answer = await runner.run(user_message)
+        # Surface the surfaced proposals on the PER-REQUEST ctx (never on ``self`` — the
+        # capability is a shared singleton). ``drain_proposals(ctx)`` reads/clears the
+        # SAME per-request buffer, so overlapping requests never cross-contaminate.
+        try:
+            ctx.proposals = collected
+        except Exception:  # a ctx that forbids attribute set — degrade, never crash.
+            pass
+        return answer
+
+    @staticmethod
+    def drain_proposals(ctx: Any = None) -> list:
+        """Return + CLEAR the proposals surfaced during ``ctx``'s converse (ctx-scoped).
+
+        Reads the per-request buffer ``converse`` stashed on the passed ctx — NEVER
+        instance/global state — so two overlapping converse calls never share a buffer.
+        A second drain of the same ctx returns ``[]`` (the buffer is cleared here). The
+        surfaced consequential proposals are still HELD behind a confirm chip by the app
+        layer (``_dispose_concierge_proposal``); this method only reads, it disposes
+        nothing (INV-13/CONC-01).
+        """
+        proposals = list(getattr(ctx, "proposals", None) or [])
+        if ctx is not None:
+            try:
+                ctx.proposals = []
+            except Exception:
+                pass
+        return proposals
 
     # ── owner-scoped store resolution (T-33-02-01) ───────────────────────────────
     @staticmethod
