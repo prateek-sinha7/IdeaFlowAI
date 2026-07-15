@@ -92,6 +92,15 @@ export function nextEventId(): string {
 
 const STREAM_LONGPOLL_MS = 10_000;
 
+/** Frames that flip the run to a terminal (isRunning=false) React commit. The
+ *  stream serves them in a SEPARATE response from any preceding frames so the
+ *  app commits the live-run state (pipeline_start → isRunning=true, the
+ *  pipeline_type/workflowType sync) BEFORE the terminal — mirroring the discrete
+ *  frame-by-frame delivery of the retired WebSocket path (a single buffered SSE
+ *  body would otherwise batch start+complete into ONE commit and skip the
+ *  isRunning-gated sync). */
+const TERMINAL_TYPES = new Set(["pipeline_complete", "pipeline_failed", "pipeline_cancelled"]);
+
 export class MockSse implements SeqSource {
   private readonly page: Page;
   private readonly api: MockApi | null;
@@ -462,30 +471,34 @@ export class MockSse implements SeqSource {
     let body: Record<string, unknown> = {};
     try { body = (route.request().postDataJSON?.() as Record<string, unknown>) ?? {}; } catch { /* non-json */ }
 
+    // The run id lives in the URL path (the REST up-channel), not the body — thread
+    // it onto the recorded command as BOTH `run_id` and `pipeline_run_id` so specs
+    // asserting either field (the WS frames carried `pipeline_run_id`) still bind.
+    const ids = { run_id: runId, pipeline_run_id: runId };
     let cmd: RecordedCommand;
     let resBody: unknown = { ok: true };
     switch (kind) {
       case "messages":
-        cmd = { ...body, type: "user_message", run_id: runId };
+        cmd = { ...body, ...ids, type: "user_message" };
         break;
       case "cancel":
-        cmd = { ...body, type: "cancel_pipeline", run_id: runId };
+        cmd = { ...body, ...ids, type: "cancel_pipeline" };
         resBody = { ok: true, run_id: runId, cancelled: true };
         break;
       case "gate":
-        cmd = { ...body, type: "approve_review", run_id: runId };
+        cmd = { ...body, ...ids, type: "approve_review" };
         resBody = { ok: true, action: body.action ?? "approve", gate_key: body.gate_key ?? "" };
         break;
       case "answers":
-        cmd = { ...body, type: "submit_questionnaire", run_id: runId };
+        cmd = { ...body, ...ids, type: "submit_questionnaire" };
         resBody = { ok: true, run_id: runId, count: Array.isArray(body.responses) ? body.responses.length : 0 };
         break;
       case "revisions":
-        cmd = { ...body, type: "run_revision", parent_run_id: runId };
+        cmd = { ...body, ...ids, type: "run_revision", parent_run_id: runId };
         resBody = { run_id: this.runId };
         break;
       default:
-        cmd = { ...body, type: kind, run_id: runId };
+        cmd = { ...body, ...ids, type: kind };
     }
     this.recordCommand(cmd);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(resBody) });
@@ -533,7 +546,16 @@ export class MockSse implements SeqSource {
       return;
     }
 
-    const body = this.serialize(this.framesAfter(cursor));
+    // Deliver in discrete React-commit batches: never ship a terminal frame in
+    // the same response as preceding frames (the app must commit isRunning=true
+    // + its pipeline_type sync first). If the first pending frame IS terminal,
+    // ship it alone; otherwise ship everything up to (not including) it.
+    let pending = this.framesAfter(cursor);
+    const termIdx = pending.findIndex((f) => TERMINAL_TYPES.has(f.type));
+    if (termIdx > 0) pending = pending.slice(0, termIdx);
+    else if (termIdx === 0) pending = pending.slice(0, 1);
+
+    const body = this.serialize(pending);
     try {
       await route.fulfill({
         status: 200,

@@ -31,36 +31,37 @@ import { test, expect } from "../fixtures/test";
 import { AGENTS } from "../fixtures/scenarios";
 
 test.describe("TS-S — reconnect / replay", () => {
-  test("TS-S-01 reconnect handshake on reload sends reconnect_pipeline with after_seq", async ({ dashboard, mockSse, page }) => {
+  test("TS-S-01 reload re-attaches the run's SSE stream (native Last-Event-ID resume)", async ({ dashboard, mockSse, page }) => {
     const agents = AGENTS.user_stories;
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Generate epics for a refunds workflow" });
 
-    // pipeline_start persists active_pipeline_run_id to sessionStorage; at least
-    // one agent event keeps the run mid-flight (NOT terminated) before reload.
+    // A launched run is non-terminal → the RunConnectionProvider's server-derived
+    // reattach (GET /api/runs) re-streams it after a reload. Keep it mid-flight
+    // (start + one agent, NEVER pipeline_complete) so it stays reattach-eligible.
     mockSse.start(agents, { pipelineType: "user_stories" });
     mockSse.agentStart(agents[0].id);
     mockSse.agentComplete(agents[0].id);
     // Phase 39: the run-level done badge only appears once the WHOLE run settles;
-    // a single completed agent (run still mid-flight) is now reflected by the
-    // lane header's completed/total agents count. This is the pre-reload sync
-    // barrier: one agent event processed, run NOT terminated.
+    // a single completed agent (run still mid-flight) is reflected by the lane
+    // header's completed/total agents count.
     await expect(dashboard.page.getByText("1/3 agents")).toBeVisible();
 
     const connectionsBefore = mockSse.connectionCount;
 
-    // Reload — re-auth (token via addInitScript) + reconnect. The dashboard's
-    // reconnect effect re-emits reconnect_pipeline on the next "connected".
+    // Reload — re-auth (token via addInitScript) + the provider re-queries live
+    // runs and re-attaches the stream (SSE has NO reconnect_pipeline command; the
+    // resume is native, the fetch re-issued carrying Last-Event-ID = the cursor).
     await page.reload();
 
-    // The socket reopens at least once more (stabilize the reload race).
+    // The run's stream re-attaches at least once more (stabilize the reload race).
     await expect.poll(() => mockSse.connectionCount, { timeout: 15000 }).toBeGreaterThan(connectionsBefore);
     expect(mockSse.connectionCount).toBeGreaterThanOrEqual(2);
 
-    const frame = await mockSse.waitForClientFrame("reconnect_pipeline");
-    expect(frame.pipeline_run_id).toBe(mockSse.currentRunId);
-    expect(typeof frame.after_seq).toBe("number");
-    expect(frame.after_seq as number).toBeGreaterThanOrEqual(0);
+    // The reattach carried the resume cursor (worst case null → full replay, made
+    // idempotent by the downstream event_id dedup).
+    const cursor = mockSse.lastAttachCursor;
+    expect(cursor === null || (typeof cursor === "number" && cursor >= 0)).toBe(true);
   });
 
   test("TS-S-03 live:false + terminal 'completed' resolves the run (no stuck spinner)", async ({ dashboard, mockSse, page }) => {
@@ -75,7 +76,6 @@ test.describe("TS-S — reconnect / replay", () => {
     const connectionsBefore = mockSse.connectionCount;
     await page.reload();
     await expect.poll(() => mockSse.connectionCount, { timeout: 15000 }).toBeGreaterThan(connectionsBefore);
-    await mockSse.waitForClientFrame("reconnect_pipeline");
 
     // Backend durably replays the tail: re-seed cards + put one agent running so
     // the run is visibly in-flight again, THEN the terminal verdict.
@@ -108,7 +108,6 @@ test.describe("TS-S — reconnect / replay", () => {
     const connectionsBefore = mockSse.connectionCount;
     await page.reload();
     await expect.poll(() => mockSse.connectionCount, { timeout: 15000 }).toBeGreaterThan(connectionsBefore);
-    await mockSse.waitForClientFrame("reconnect_pipeline");
 
     // Durable replay re-seeds cards; the first agent already finished.
     mockSse.start(agents, { pipelineType: "user_stories" });

@@ -30,29 +30,17 @@ const PROTOTYPE_HTML =
   "<!DOCTYPE html><html><head><style>body{background:#fff}</style></head><body><h1>App</h1></body></html>";
 
 test.describe("TS-X — timing budgets", () => {
-  // ── TS-X-01 — client ping every 20000ms while the WS is open ────────────────
-  // useWebSocket starts a setInterval(…, 20000) on ws.onopen that sends
-  // {type:"ping"} while readyState === OPEN. This is a real keepalive that keeps
-  // long (2-4 min) build tasks alive through idle-dropping proxies. The only
-  // honest way to assert it is to wait one interval for the frame to actually
-  // arrive — so this is slow (≈21s) by nature. test.slow() grants the 3× timeout.
-  test("TS-X-01 client sends a keepalive ping ~every 20s while the WS is open", async ({ dashboard, mockSse }) => {
-    test.slow(); // 3× timeout — the first ping only fires after the full 20s interval.
-
-    await dashboard.goto();
-    // No run needed — the ping interval is armed on socket open, independent of
-    // any pipeline. Wait just past one 20000ms interval for the first ping frame.
-    const start = Date.now();
-    const ping = await mockSse.waitForClientFrame("ping", 25000);
-    const elapsedMs = Date.now() - start;
-
-    expect(ping.type).toBe("ping");
-    // It is a keepalive interval, so it must NOT fire immediately (would mean a
-    // tight loop, not a 20s timer) and must land inside the wait window.
-    expect(elapsedMs).toBeGreaterThan(15000);
-    expect(elapsedMs).toBeLessThanOrEqual(25000);
-    // Surface the observed latency so the report can record it.
-    console.log(`[TS-X-01] first keepalive ping arrived after ${elapsedMs}ms`);
+  // ── TS-X-01 — client keepalive ping (RETIRED with the WS transport) ──────────
+  // The old WS client armed a 20s setInterval that sent {type:"ping"} to keep the
+  // socket alive through idle-dropping proxies. SSE is now the sole transport
+  // (44-06): the keepalive is SERVER-side (`pipeline_heartbeat`/`pong` frames the
+  // client swallows) and liveness is maintained by the native fetch-stream +
+  // Last-Event-ID reconnect (useRunStream) — there is NO client-sent ping frame to
+  // observe. This case is retired; the SSE liveness/reconnect contract it guarded
+  // is exercised by ts-sse-resilience (drop → reattach) + TS-Y-01. The standalone
+  // fixme keeps the case visible in the report without skipping its siblings.
+  test("TS-X-01 client keepalive ping (retired — SSE server-heartbeat + native reconnect)", () => {
+    test.fixme(true, "client ping retired with the WS transport (44-06); SSE liveness = server heartbeat + native Last-Event-ID reconnect (ts-sse-resilience / TS-Y-01)");
   });
 
   // ── TS-X-05 — copy toast reverts after 2000ms ──────────────────────────────

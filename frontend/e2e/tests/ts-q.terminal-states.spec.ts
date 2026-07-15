@@ -50,6 +50,12 @@ test.describe("TS-Q — terminal states", () => {
     // Completes with no content and NO failure signal.
     mockSse.complete({ pipelineType: "user_stories", finalOutput: "" });
 
+    // Phase 42-02 (§B) auto-tabs a live/building run to Steps; a clean EMPTY
+    // completion is terminal-idle (no deliverable, no failure) so it fires no
+    // further auto-tab and leaves the panel on Steps. The neutral Preview
+    // empty-state lives on the (still-present) Preview tab — open it (as TS-R-03
+    // does for the analogous terminal-non-failed cancel).
+    await dashboard.previewTab().click();
     await expect(dashboard.previewEmpty()).toBeVisible();
     await expect(dashboard.degradedHeading()).toHaveCount(0);
   });
