@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from langchain_core.tools import tool
@@ -75,6 +76,47 @@ class ProposalIntent:
 
     channel: str
     params: dict[str, Any] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# READ-tool row serializer (M2) — raw ORM row → plain JSON-safe dict.
+#
+# The owner-scoped ScopedStore read tools return raw SQLAlchemy ORM rows
+# (``RunEvent`` / ``ArtifactRef`` / ``GateEvent``). A ``@tool`` stringifies
+# whatever it returns, so a raw row reaches the LIVE model as an opaque
+# ``<...object at 0x...>`` repr — no usable fields. Projecting each row's mapped
+# columns into a plain dict gives the model a structured field map instead. This
+# does NOT widen the read scope: the rows still come only from the owner-scoped
+# store (default-deny; cross-owner → nothing). No raw-ORM path is added.
+# ---------------------------------------------------------------------------
+def _row_to_dict(row: Any) -> Any:
+    """Project one read-tool result row into a plain JSON-safe dict (M2).
+
+    Datetimes are coerced to ISO strings; JSON columns come back already parsed
+    (dict/list). ``None`` passes through unchanged (an absent single row), as do
+    plain scalars. Non-ORM inputs (test fakes / plain objects) degrade to their
+    public ``__dict__``. Never raises — an un-projectable value is returned as-is.
+    """
+    if row is None or isinstance(row, (str, int, float, bool)):
+        return row
+    keys: list[str] | None = None
+    try:
+        from sqlalchemy import inspect as _sa_inspect
+
+        keys = [attr.key for attr in _sa_inspect(row).mapper.column_attrs]
+    except Exception:
+        state = getattr(row, "__dict__", None)
+        if isinstance(state, dict):
+            keys = [k for k in state if not k.startswith("_")]
+    if not keys:
+        return row
+    out: dict[str, Any] = {}
+    for key in keys:
+        val = getattr(row, key, None)
+        if isinstance(val, datetime):
+            val = val.isoformat()
+        out[key] = val
+    return out
 
 
 # ===========================================================================
@@ -221,24 +263,24 @@ class ConciergeCapability:
         async def read_events() -> list:
             """Read this run's owner-scoped events (chat + lifecycle), oldest first."""
             rows = await scoped_store.read_events(run_id, 0)
-            return list(rows or [])
+            return [_row_to_dict(r) for r in (rows or [])]
 
         @tool
         async def list_refs(kind: str = "") -> list:
             """List this run's owner-scoped artifact refs (optionally one ``kind``)."""
             rows = await scoped_store.list_refs(run_id, kind or None)
-            return list(rows or [])
+            return [_row_to_dict(r) for r in (rows or [])]
 
         @tool
         async def get_ref(ref_id: str) -> Any:
             """Read one owner-scoped artifact ref by id (cross-owner → nothing)."""
-            return await scoped_store.get_ref(ref_id)
+            return _row_to_dict(await scoped_store.get_ref(ref_id))
 
         @tool
         async def read_gate_events() -> list:
             """Read this run's owner-scoped gate-decision history, oldest first."""
             rows = await scoped_store.read_gate_events(run_id)
-            return list(rows or [])
+            return [_row_to_dict(r) for r in (rows or [])]
 
         return [read_events, list_refs, get_ref, read_gate_events]
 

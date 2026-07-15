@@ -450,17 +450,21 @@ class _ConciergeCtx:
     """The minimal owner-scoped ctx handed to ``ConciergeCapability.converse``.
 
     Carries only what the Concierge reads: the ``run_id``, the owner+workspace
-    ``ScopedStore`` (its ONLY read surface), and ``model=None`` (Haiku default via the
-    sanctioned runner). ``conversation_context``/``compiled`` are absent ⇒ the Concierge
-    degrades gracefully (``getattr`` defaults). No workflow name is ever passed (INV-1).
+    ``ScopedStore`` (its ONLY read surface), ``model=None`` (Haiku default via the
+    sanctioned runner), and the run's ``compiled`` CompiledWorkflow (M3 — the manifest
+    ``chat:`` block the Concierge injects into its system prompt, or ``None``).
+    ``conversation_context`` is absent + ``compiled`` may be ``None`` ⇒ the Concierge
+    degrades gracefully (``getattr`` defaults). No workflow name is ever passed (INV-1);
+    ``compiled`` is DATA (a typed plan), never a name branch.
     """
 
-    def __init__(self, *, run_id, scoped_store, owner_id, workspace_id):
+    def __init__(self, *, run_id, scoped_store, owner_id, workspace_id, compiled=None):
         self.run_id = run_id
         self.scoped_store = scoped_store
         self.owner_id = owner_id
         self.workspace_id = workspace_id
         self.model = None
+        self.compiled = compiled
 
 
 def _resolve_concierge():
@@ -845,9 +849,21 @@ async def post_message(
         # additive, no new table). The Concierge is proposal-only — any proposal it
         # surfaces is HELD behind a confirm chip (T-33-03-01), never auto-executed.
         concierge = _resolve_concierge()
+        # M3: thread the run's compiled workflow onto the ctx so the Concierge injects
+        # the manifest ``chat:`` block into its system prompt. Resolve via the existing
+        # compile-for-run seam; DATA only (no workflow-name branch, INV-1). Degrade-safe:
+        # a missing/malformed manifest → compiled=None (the Concierge getattr-defaults).
+        compiled = None
+        try:
+            from agents.execution_engine.engine import compile_for_run
+
+            compiled = compile_for_run(wr_type)
+        except Exception:
+            compiled = None
         ctx = _ConciergeCtx(
             run_id=run_id, scoped_store=store,
             owner_id=current_user.id, workspace_id=wr_workspace,
+            compiled=compiled,
         )
         answer = await concierge.converse(ctx, body.text)
         await store.append_event_next_seq(

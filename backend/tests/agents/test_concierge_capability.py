@@ -180,6 +180,52 @@ def test_read_tools_go_through_scoped_store_and_deny_cross_owner() -> None:
     assert ConciergeCapability._read_tools(owner_store, None) == []
 
 
+def test_read_tools_serialize_rows_to_plain_dicts() -> None:
+    """M2: read-tool output is plain dicts, never raw ORM ``<...object at 0x...>`` reprs.
+
+    A raw SQLAlchemy row would reach the LIVE model as an opaque ``str()`` repr with no
+    usable fields. The tool must project each row to a JSON-safe dict (datetimes → ISO
+    strings; JSON columns already parsed) so the model gets a structured field map.
+    """
+    from datetime import datetime, timezone
+
+    class _FakeRow:  # a plain object → str(obj) is an opaque ``<... object at 0x...>``
+        def __init__(self) -> None:
+            self.type = "chat_message"
+            self.seq = 3
+            self.payload_json = {"text": "hi"}
+            self.created_at = datetime(2026, 7, 15, tzinfo=timezone.utc)
+
+    class _Store:
+        async def read_events(self, run_id: str, after_seq: int) -> list:
+            return [_FakeRow()]
+
+    tools = ConciergeCapability._read_tools(_Store(), "run-1")
+    read_events_tool = next(t for t in tools if t.name == "read_events")
+    out = asyncio.new_event_loop().run_until_complete(read_events_tool.ainvoke({}))
+
+    assert isinstance(out, list) and len(out) == 1
+    assert isinstance(out[0], dict), "read tool must return plain dicts (M2), not raw rows"
+    assert out[0]["type"] == "chat_message"
+    assert out[0]["payload_json"] == {"text": "hi"}
+    # datetime coerced to a JSON-safe ISO string, not a datetime object.
+    assert out[0]["created_at"] == "2026-07-15T00:00:00+00:00"
+    # No opaque ORM repr leaked into the tool output the model would receive.
+    assert "object at 0x" not in str(out)
+
+
+def test_compose_system_prompt_injects_compiled_chat_block() -> None:
+    """M3: a ctx carrying a compiled with a ``chat`` block injects it into the prompt."""
+    compiled = SimpleNamespace(chat={"suggestions": "Ask about the spec or the gate."})
+    ctx = SimpleNamespace(conversation_context=None, compiled=compiled)
+    prompt = ConciergeCapability._compose_system_prompt(ctx)
+    assert "Ask about the spec or the gate." in prompt
+
+    # Degrade-safe: no compiled at all → still a valid prompt, no crash, no block.
+    bare = ConciergeCapability._compose_system_prompt(SimpleNamespace())
+    assert isinstance(bare, str) and bare
+
+
 def test_concierge_impl_imports_no_raw_orm() -> None:
     """The read path is the scoped store alone — no ``app.models`` raw-ORM import."""
     from pathlib import Path
