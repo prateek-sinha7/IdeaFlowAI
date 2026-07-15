@@ -455,3 +455,80 @@ class TestDeepLinkNonceDB:
             assert db.query(DeepLinkNonce).count() == 1  # exactly ONE nonce row
         finally:
             db.close()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# A.4 — the engine event-sink narrator wiring (cards emit live via an INJECTED
+# callback; no engine → app import). The seam is DORMANT unless a milestone_sink
+# is injected — so the 5 characterization goldens stay byte/event-identical.
+# ════════════════════════════════════════════════════════════════════════════
+class TestEngineSinkWiring:
+    def _armed_sink(self, store_env, owner_id, *, with_narrator, workspace_id="ws-1"):
+        from agents.authz import ScopedStore
+        from agents.execution_engine.engine import _RunEventSink
+        from app.agents.chat_narrator import persist_milestone_card
+
+        run_id = _seed_run(store_env, owner_id=owner_id, workspace_id=workspace_id)
+        sink = _RunEventSink(
+            milestone_sink=persist_milestone_card if with_narrator else None
+        )
+        sink.arm(ScopedStore(owner_id=owner_id, workspace_id=workspace_id), run_id)
+        return sink, run_id
+
+    def _stamped(self, run_id, etype, event_id, **data):
+        # The engine sink stamps event_id/seq into ``data`` before persisting.
+        data["pipeline_run_id"] = run_id
+        data["event_id"] = event_id
+        return {"type": etype, "data": data}
+
+    def test_deliverable_event_persists_a_chat_reply_card(self, store_env):
+        sink, run_id = self._armed_sink(store_env, "owner-1", with_narrator=True)
+        event = self._stamped(
+            run_id, "pipeline_complete", "e-c",
+            deliverable_filename="prototype.html", deliverable_mimetype="text/html",
+        )
+        _run(sink.emit_milestone_card(event))
+        rows = _reply_rows(store_env, run_id)
+        assert len(rows) == 1
+        assert rows[0].payload_json["card_kind"] == "deliverable"
+        assert rows[0].owner_id == "owner-1"
+
+    def test_non_milestone_event_persists_nothing(self, store_env):
+        sink, run_id = self._armed_sink(store_env, "owner-2", with_narrator=True)
+        _run(sink.emit_milestone_card(self._stamped(run_id, "agent_chunk", "e-x", chunk="hi")))
+        assert _reply_rows(store_env, run_id) == []
+
+    def test_replayed_milestone_is_idempotent_noop(self, store_env):
+        # Same source event_id → the chat_reply row's idempotency key resolves to the
+        # already-present row (created=False), so no second card is written.
+        sink, run_id = self._armed_sink(store_env, "owner-3", with_narrator=True)
+        event = self._stamped(run_id, "pipeline_start", "e-dup")
+        _run(sink.emit_milestone_card(event))
+        _run(sink.emit_milestone_card(event))  # replay
+        assert len(_reply_rows(store_env, run_id)) == 1
+
+    def test_dormant_when_no_narrator_injected(self, store_env):
+        # The DORMANT default (milestone_sink=None) — every current caller + the 5 goldens.
+        # No card is projected/persisted, so golden bytes are untouched (INV-3).
+        sink, run_id = self._armed_sink(store_env, "owner-4", with_narrator=False)
+        event = self._stamped(
+            run_id, "pipeline_complete", "e-c", deliverable_filename="p.html",
+        )
+        _run(sink.emit_milestone_card(event))
+        assert _reply_rows(store_env, run_id) == []
+
+    def test_no_engine_to_narrator_import_edge(self):
+        # The narrator persist reaches the engine ONLY as an injected callback — the engine
+        # must NOT import app.agents.chat_narrator (the plan's grep contract). The engine
+        # DOES legitimately import other app.agents.* modules (sandbox/checkpointer/…), so
+        # scope the assertion to the narrator import specifically (not a docstring mention).
+        import inspect
+        import re
+
+        import agents.execution_engine.engine as engine_mod
+
+        import_lines = [
+            ln for ln in inspect.getsource(engine_mod).splitlines()
+            if re.match(r"\s*(import |from )", ln)
+        ]
+        assert not any("chat_narrator" in ln for ln in import_lines)

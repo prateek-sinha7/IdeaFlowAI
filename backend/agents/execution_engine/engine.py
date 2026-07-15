@@ -26,13 +26,19 @@ import json
 import logging
 import time
 import uuid
-from typing import AsyncGenerator, Callable
+from typing import AsyncGenerator, Awaitable, Callable
 
 from pathlib import Path
 
 from agents.artifact_store.store import get_artifact_store
 from agents.artifacts.graph import ArtifactGraph
 from agents.authz import ScopedStore
+
+# A.4 (Phase 43): the app-layer narrator milestone-card persist, INJECTED into ``execute()``
+# (never imported — the kernel must not import ``app.*``). Structurally
+# ``chat_narrator.persist_milestone_card(store, run_id, event) -> (created, seq, card) | None``;
+# typed here as a generic awaitable callback so no app symbol crosses the import boundary.
+MilestoneSink = Callable[[ScopedStore, str, dict], Awaitable[object]]
 from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
@@ -318,13 +324,47 @@ class _RunEventSink:
     whether or not the row lands.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, milestone_sink: "MilestoneSink | None" = None) -> None:
         self._store: ScopedStore | None = None
         self._run_id: str | None = None
+        # A.4 (Phase 43): the narrator milestone-card persist, INJECTED by the app layer
+        # (``chat_narrator.persist_milestone_card``) — NEVER imported here (import-linter:
+        # the kernel must not import ``app.*``). ``None`` (every current caller, incl. the
+        # 5 characterization goldens) ⇒ the seam is DORMANT: no card is projected/persisted,
+        # so the golden event/deliverable bytes are untouched (INV-3). The narrator is wired
+        # LIVE only at the supervised SSE transport cutover (Part C / B.3, per CONTEXT §A.0).
+        self._milestone_sink = milestone_sink
 
     def arm(self, store: ScopedStore, run_id: str) -> None:
         self._store = store
         self._run_id = run_id
+
+    async def emit_milestone_card(self, event: dict) -> None:
+        """Persist a ``chat_reply`` milestone card for one stamped engine event (A.4).
+
+        DORMANT unless an app-layer ``milestone_sink`` was injected AND the sink is armed.
+        The injected callback (``chat_narrator.persist_milestone_card(store, run_id, event)``)
+        SELF-FILTERS — it returns ``None`` for a non-milestone event — so calling it per
+        event is safe. Best-effort with the SAME degrade contract as :meth:`persist`: a
+        DB-only failure (offline harness / schema-less) degrades to a warning so the live
+        stream and deterministic deliverable are NEVER perturbed; any non-DB exception is a
+        real bug and PROPAGATES. The card rides the run's OWN scoped store, so it can never
+        leak or write a cross-owner row.
+        """
+        if self._milestone_sink is None or self._store is None or self._run_id is None:
+            return
+        try:
+            await self._milestone_sink(self._store, self._run_id, event)
+        except Exception as exc:  # noqa: BLE001 — a card must never break the live stream
+            from sqlalchemy.exc import SQLAlchemyError
+
+            if not isinstance(exc, SQLAlchemyError):
+                raise
+            logger.warning(
+                "milestone-card persist failed for run %s (%s) — DB write degraded "
+                "(offline harness / schema unavailable); stream unaffected (A.4 best-effort)",
+                self._run_id, exc,
+            )
 
     async def persist(
         self, seq: int, event_id: str, type: str, payload_json: dict
@@ -840,6 +880,7 @@ class ExecutionEngine:
         model_overrides: dict[str, str] | None = None,
         selections: dict | None = None,
         event_queue: "asyncio.Queue | None" = None,
+        milestone_sink: "MilestoneSink | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
 
@@ -861,8 +902,14 @@ class ExecutionEngine:
 
         ``_execute_impl`` shares its per-run scoped store + run id with this wrapper
         via the ``_sink`` holder once ``owner_id``/``workspace_id`` are known.
+
+        ``milestone_sink`` (A.4, Phase 43): an OPTIONAL app-layer callback that persists a
+        ``chat_reply`` milestone card per projectable lifecycle event. ``None`` (every current
+        caller, incl. the 5 characterization goldens) keeps the seam DORMANT — byte/event-
+        identical. It is injected LIVE only at the supervised SSE transport cutover
+        (CONTEXT §A.0 / Part C / B.3), never here and never by the golden harness.
         """
-        sink = _RunEventSink()
+        sink = _RunEventSink(milestone_sink=milestone_sink)
         counter = itertools.count(1)
         async for event in self._execute_impl(
             agents=agents,
@@ -898,6 +945,12 @@ class ExecutionEngine:
             # Durable sink (best-effort — see docstring). Persist the now-stamped
             # event; a DB/FK failure must not break the live stream.
             await sink.persist(seq, event_id, event.get("type", ""), data)
+            # A.4: project + persist a chat_reply milestone card for this event via the
+            # INJECTED narrator callback (self-filtering; DORMANT when milestone_sink is
+            # None — every current caller + the goldens). Passes the stamped event ({type,
+            # data:{event_id,seq,…}}) so the card's idempotency key anchors on the source
+            # event_id. Best-effort — a card write must never perturb the live stream.
+            await sink.emit_milestone_card(event)
             yield event
 
     async def _execute_impl(
