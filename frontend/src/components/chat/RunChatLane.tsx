@@ -675,14 +675,21 @@ export function RunChatLane({
     (compactAvailable === true ||
       (ctxUsage !== null && ctxUsage.pct >= COMPACT_THRESHOLD_PCT));
 
+  // A settled-run CHANGE request held behind the confirm-first refinement chip
+  // (44-02, locked decision 5). The *_revision launch (onRevise) fires ONLY when
+  // the user confirms the chip; the instruction text is parked here meanwhile.
+  // GENERIC (SC-001/INV-1) — just the free text, never a workflow-name literal.
+  const [heldRefinement, setHeldRefinement] = useState<string | null>(null);
+
   // Free-text send routes through the transport-agnostic sendMessage. On a
   // SETTLED run (complete) the turn is CLASSIFIED (43-02, the A.1 CRUX): an ASK
   // (a status/question turn) is ANSWERED by the Concierge — folded onto the send
-  // payload as `{ concierge: true }` — while a CHANGE REQUEST still launches the
-  // revision pipeline (onRevise), exactly as before. Classification is GENERIC
-  // (SC-001/INV-1) — keyed only on the free text + runState, never a
-  // workflow-name/agent-id literal. When no revise channel is supplied a change
-  // falls back to a plain message (the pre-43-02 fallback).
+  // payload as `{ concierge: true }`. A CHANGE REQUEST no longer auto-launches a
+  // revision (44-02): it is HELD behind a confirm chip so the *_revision run
+  // fires only on explicit confirm — accidental auto-launches are removed
+  // (T-44-02-01). Classification stays GENERIC (SC-001/INV-1) — keyed only on the
+  // free text + runState, never a workflow-name/agent-id literal. When no revise
+  // channel is supplied a change falls back to a plain message (no chip).
   const handleFreeText = useCallback(
     (text: string, attachments: ChatAttachment[]) => {
       if (runState === "complete") {
@@ -691,7 +698,7 @@ export function RunChatLane({
           return;
         }
         if (onRevise) {
-          onRevise(text);
+          setHeldRefinement(text);
           return;
         }
       }
@@ -699,6 +706,15 @@ export function RunChatLane({
     },
     [runState, onRevise, sendMessage],
   );
+
+  // Confirm the held refinement → launch the revision (the ONLY path that fires
+  // onRevise on a settled run). Dismiss clears the hold and launches nothing.
+  const confirmRefinement = useCallback(() => {
+    if (heldRefinement !== null && onRevise) onRevise(heldRefinement);
+    setHeldRefinement(null);
+  }, [heldRefinement, onRevise]);
+
+  const dismissRefinement = useCallback(() => setHeldRefinement(null), []);
 
   // Failed-lane composer send — a change instruction that feeds the reopen /
   // edit-brief flow (the mock's "Tell the agents what to change, then reopen…").
@@ -758,6 +774,47 @@ export function RunChatLane({
           </Card>
         ))}
       </div>
+    );
+  };
+
+  // The confirm-first refinement chip (44-02, D-05). A settled-run CHANGE is
+  // structurally a LOCAL proposal — it reuses the proposal-chip Card+confirm
+  // pattern above. Confirm launches the revision (onRevise); Dismiss launches
+  // nothing. GENERIC — no workflow-name literal (INV-1); the held instruction is
+  // rendered through React's default JSX escaping, no raw-HTML sink (T-44-02-02).
+  const renderHeldRefinement = () => {
+    if (heldRefinement === null) return null;
+    return (
+      <Card
+        data-testid="chat-refinement-chip"
+        className="border border-brand/30 bg-brand/5 px-3.5 py-3 space-y-2"
+      >
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3 text-brand" />
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
+            Run a refinement with this change?
+          </p>
+        </div>
+        <p className="text-[12px] text-ink-700">{heldRefinement}</p>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            data-testid="chat-refinement-confirm"
+            onClick={confirmRefinement}
+            className="rounded-[var(--radius-pill)] bg-brand px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed"
+          >
+            Run refinement
+          </button>
+          <button
+            type="button"
+            data-testid="chat-refinement-dismiss"
+            onClick={dismissRefinement}
+            className="rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-500 transition-colors hover:border-ink-300 hover:text-ink-700"
+          >
+            Dismiss
+          </button>
+        </div>
+      </Card>
     );
   };
 
@@ -1143,6 +1200,9 @@ export function RunChatLane({
         {/* Held consequential proposals surface above the mode body so a
             confirm/reject decision is visible in ANY live state (D-05). */}
         {renderProposals()}
+        {/* Confirm-first refinement chip — a held settled-run change gates its
+            *_revision launch behind an explicit confirm (44-02, D-05). */}
+        {renderHeldRefinement()}
         {renderComposerBody()}
       </div>
     </div>
