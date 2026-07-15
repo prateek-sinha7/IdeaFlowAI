@@ -1160,6 +1160,33 @@ async def launch_run(
             f"No agents found for pipeline_type {pipeline_type!r}",
         )
 
+    # ── template-inject ingress guard (F3, 13-06 — re-homed from the deleted WS
+    # path in 44-08/DEF-44-08-1) ───────────────────────────────────────────────
+    # GENERIC, keyed on the resolved specs' DECLARED injects only (never a
+    # pipeline-name allow/deny, SC-001): if any agent declares `template` inject
+    # AND this is a template-requiring pipeline (prototype/ppt/od_*) AND no
+    # template_body was loaded, reject BEFORE the mint/execute (mirrors the
+    # factory raise EXACTLY). A deliberate no-template run (KAN-87) is exempt.
+    # od_* runs with a loaded template pass unchanged; custom workflows that
+    # merely include a template-injecting agent skip this (factory _compose_injection
+    # degrades gracefully when od_context is empty).
+    _template_injecting = [
+        spec.id for spec in agents if "template" in (getattr(spec, "injects", None) or [])
+    ]
+    _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype", "od_ppt")
+    if (
+        _template_injecting
+        and _needs_template
+        and not (od_context or {}).get("template_body")
+        and not (od_context or {}).get("no_template")
+    ):
+        raise _reject(
+            "missing_template_context",
+            f"Pipeline {pipeline_type!r} agents {_template_injecting} declare template "
+            "injection, so the run requires a template (template_id) or an od_* alias — "
+            "no template body could be loaded.",
+        )
+
     # ── model_overrides ingress validation (D-07, MODEL-03) ────────────────────
     model_overrides = body.model_overrides or {}
     _override_error = _validate_model_overrides(

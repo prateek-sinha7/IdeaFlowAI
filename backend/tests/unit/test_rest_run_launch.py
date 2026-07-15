@@ -181,6 +181,21 @@ def test_unknown_agent_id_rejected(env):
     assert _RecordingEngine.invoked is False
 
 
+def test_bare_prototype_missing_template_context_rejected_pre_mint(env):
+    """DEF-44-08-1 / F3 (13-06): a bare ``prototype`` launch whose resolved agents
+    declare ``template`` injection but carries no ``template_body`` (no ``template_id``,
+    not an od_* alias) is rejected PRE-MINT with ``missing_template_context`` — the
+    ingress guard re-homed to the REST launch path after 44-07 deleted the WS ingress
+    where it used to live. Generic (keyed on declared injects, SC-001), no mint, no execute."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    resp = _post_launch(env, message="a pomodoro timer app", pipeline_type="prototype")
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "missing_template_context"
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
+
+
 def test_unknown_model_override_rejected_pre_mint(env):
     """T-06-06 [HIGH]: an arbitrary model id (not in the catalog) is rejected."""
     user = _seed_user(env)
