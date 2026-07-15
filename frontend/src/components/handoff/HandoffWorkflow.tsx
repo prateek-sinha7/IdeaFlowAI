@@ -14,7 +14,7 @@ import {
 
 import { getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
-import { useWebSocket } from "@/hooks/useWebSocket";
+import { useHandoffSocket } from "@/hooks/useHandoffSocket";
 import type { StreamMessage } from "@/types/index";
 import {
   getHandoff,
@@ -43,7 +43,7 @@ import type { HandoffAgentId, HandoffStreamMessage } from "./types";
  * Same shape as the existing pptx / user-stories workflows so the user
  * does not see "something new" beyond the content. Lives entirely
  * inside ``components/handoff/`` and only imports from shared helpers
- * (``getToken``, ``useWebSocket``, lucide, motion) — no modifications
+ * (``getToken``, ``useHandoffSocket``, lucide, motion) — no modifications
  * to existing workflow code.
  */
 export function HandoffWorkflow({ token: handoffToken }: { token: string }) {
@@ -157,7 +157,7 @@ export function HandoffWorkflow({ token: handoffToken }: { token: string }) {
     return ENV.API_URL.replace(/^http/, "ws") + `/ws/handoff/${encodeURIComponent(handoffToken)}`;
   }, [handoffToken]);
 
-  // The shared useWebSocket hook delivers ``StreamMessage`` whose ``data``
+  // The handoff socket hook delivers ``StreamMessage`` whose ``data``
   // type is a union for the existing workflow / chat surfaces; the handoff
   // reducer only reads via ``as Record<string, unknown>``, so we re-shape
   // at the boundary to satisfy structural typing without touching the
@@ -176,7 +176,7 @@ export function HandoffWorkflow({ token: handoffToken }: { token: string }) {
   );
 
   const wsActive = session?.status === "running" && !state.done;
-  useWebSocket({
+  useHandoffSocket({
     url: wsUrl,
     token: wsActive ? authToken : null,
     onMessage: wsBridge,
