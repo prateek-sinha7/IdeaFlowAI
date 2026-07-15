@@ -74,6 +74,9 @@ test.describe("TS-U — revision runs", () => {
     // ── Type a change + send → assert the outbound run_revision frame ──
     await revInput.fill("Add a slide about ROI");
     await dashboard.page.getByTestId("chat-send").click();
+    // 44-02: a settled-run change request in the lane composer is HELD behind the
+    // confirm-first refinement chip; confirm to launch the revision (decision 5).
+    await dashboard.page.getByTestId("chat-refinement-confirm").click();
 
     const frame = await mockWs.waitForClientFrame("run_revision");
     // Phase 39: revising through the lane composer dispatches handleRevisePpt, which
@@ -113,6 +116,8 @@ test.describe("TS-U — revision runs", () => {
     // Phase 39: revise via the settled lane composer (absorbed the per-preview bar).
     await dashboard.page.getByPlaceholder(/Ask for a change or a follow-up/).fill("Add a slide about ROI");
     await dashboard.page.getByTestId("chat-send").click();
+    // 44-02: confirm the held refinement chip to launch the revision (decision 5).
+    await dashboard.page.getByTestId("chat-refinement-confirm").click();
     await mockWs.waitForClientFrame("run_revision");
 
     // Drive the revision run to completion WITHOUT ever emitting questionnaire_ready
@@ -149,6 +154,8 @@ test.describe("TS-U — revision runs", () => {
     // wait for the SECOND one whose pipeline_type is the revision.
     await revInput.fill("Add a story for password reset");
     await dashboard.page.getByTestId("chat-send").click();
+    // 44-02: confirm the held refinement chip to launch the revision (decision 5).
+    await dashboard.page.getByTestId("chat-refinement-confirm").click();
 
     const frame = await mockWs.waitForClientFrame(
       (f) => f.type === "run_pipeline" && f.pipeline_type === "user_stories_revision",

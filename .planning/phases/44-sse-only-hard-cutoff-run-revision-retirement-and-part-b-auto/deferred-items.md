@@ -2,23 +2,8 @@
 
 ## From 44-05 (W3b run_revision retirement, Strategy A)
 
-### DEF-44-05-1 — Pre-existing red: 3 mocked `ts-u.revisions` specs (harness drift)
-- **Discovered:** running the flag-OFF mocked suite as the 44-05 gate.
-- **Failing specs:** `TS-U-01` (od_ppt revise sends run_revision + renders revised deck),
-  `TS-U-02` (revision run shows no clarify questionnaire), `TS-U-07` (user-story revise
-  sends a `user_stories_revision` run_pipeline frame).
-- **Verified pre-existing:** the same 3 fail IDENTICALLY on the pre-44-05 baseline
-  (`1b06e122`) with the two 44-05 files reverted — so they are NOT caused by the
-  run_revision REST rewire. The flag-OFF WS `run_revision` path is byte-identical to
-  baseline, and `TS-U-07` (user-story revision) is untouched by 44-05 yet still red.
-- **Root cause (characterised, not fixed):** harness/timing drift from the Phase 39/40
-  UI redesign that absorbed the per-preview Revise bar into the settled run-lane composer.
-  The revise composer renders (page snapshot shows the "Ask for a change or a follow-up…"
-  placeholder + chat-send), but `mockWs.waitForClientFrame("run_revision" | "run_pipeline
-  user_stories_revision")` times out — the settled-lane send seam no longer emits the frame
-  the mock expects in the timing the spec asserts (`TS-U-07` shows a `run_pipeline` frame
-  DID arrive, but with a different `pipeline_type`). Matches the known e2e-staleness note.
-- **Owner:** W5 / 44-09 re-points the mocked harness to REST `/revisions` and reconciles
-  these specs to the settled-lane composer send seam. Do NOT delete — reconcile.
-- **Scope call:** out of scope for 44-05 (pre-existing, unrelated to the rewire; deviation
-  scope-boundary rule — do not auto-fix pre-existing suite reds).
+### DEF-44-05-1 — ✅ RESOLVED (orchestrator, 2026-07-15) — 3 `ts-u.revisions` reds were a **44-02 regression**, NOT pre-existing
+- **Original (INCORRECT) diagnosis by the 44-05 executor:** "pre-existing harness drift from Phase 39/40; out of scope." That was WRONG — the executor only checked the `1b06e122` baseline (post-44-02, which ALREADY contains the confirm chip), so of course the 3 failed there too. It never checked **pre-Phase-44**.
+- **Correct root cause (orchestrator spot-check):** running `ts-u.revisions` at the **pre-Phase-44 commit `5015a7b9`** (throwaway worktree, shared node_modules) shows **TS-U-01/02/07 all PASS** (3 passed). So they were GREEN before Phase 44 and red after — a **Phase-44 regression from 44-02's confirm-first refinement chip** (decision 5). These 3 specs revise *through the settled run-lane composer* (Phase 39 absorbed the revise bar into the chat composer); 44-02 correctly HOLDS a settled-run change request behind the `chat-refinement-confirm` chip, so the specs' expectation of an *immediate* `run_revision`/`run_pipeline` frame on `chat-send` is now stale — the frame fires only after the confirm click. The behavior is CORRECT; the specs asserted the old auto-launch.
+- **Fix applied (orchestrator):** added `await page.getByTestId("chat-refinement-confirm").click();` after `chat-send` in TS-U-01/02/07 (reconciling them to the confirm-first flow). `ts-u.revisions --project=mocked` → **3 passed** (TS-U-03/05 remain the pre-existing `.fixme` skips). Committed with the spec fix.
+- **Lesson:** a "pre-existing" claim must be checked against the **pre-phase** baseline, not just the prior plan's commit — a regression introduced earlier in the SAME phase looks "pre-existing" to a later plan.
