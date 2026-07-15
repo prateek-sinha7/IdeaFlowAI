@@ -21,7 +21,8 @@ import { ComposerPage } from "@/components/workflow/composer/ComposerPage";
 // Phase 31 (CHATUI-01/02/03) — the run-screen chat lane composition root. Mounted
 // as the execution-surface left column; it ABSORBS the AgentProgressPanel
 // Stop/revise/suggestions controls (D-12 composer-per-state, SC-001 generic).
-import { RunChatLane, type RunLaneState, type GateContext, type LaneSuggestion } from "@/components/chat/RunChatLane";
+import { RunChatLane, type RunLaneState, type GateContext, type LaneSuggestion, type LaneProposal } from "@/components/chat/RunChatLane";
+import type { SendMessageOptions } from "@/hooks/useRunChat";
 import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
@@ -163,7 +164,11 @@ export interface DashboardLayoutProps {
   // Consumed by the RunChatLane mounted in the execution left column. Optional /
   // default-undefined → non-live callers and existing test renders unchanged.
   runChatMessages?: ChatMessage[];
-  onRunChatSend?: (text: string, attachments?: import("@/types/index").ChatAttachment[]) => void;
+  onRunChatSend?: (
+    text: string,
+    attachments?: import("@/types/index").ChatAttachment[],
+    options?: SendMessageOptions,
+  ) => void;
   // The nonce'd deep-link seam (borrow #6): the lane's result cards call
   // onRequestOpenTab; PreviewPanel consumes deepLinkTarget for all tabs.
   onRequestOpenTab?: (tab: string) => void;
@@ -171,6 +176,11 @@ export interface DashboardLayoutProps {
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
+
+// 43-02: a stable empty held-proposal list (referential identity preserved across
+// renders). The concierge_proposal holds arrive with the Part-C SSE transport
+// (43-06); wiring the confirm chip now keeps that a data change, not a re-wire.
+const RUN_CONCIERGE_PROPOSALS: LaneProposal[] = [];
 
 export function DashboardLayout({
   activeChatId,
@@ -1259,6 +1269,59 @@ export function DashboardLayout({
     (workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder :
     undefined;
 
+  // ─── 43-02 (A.1 CRUX) — Concierge send seam + confirm round-trip ─────────────
+  // The lane's send seam: the options-capable `onRunChatSend` (POST /messages)
+  // when supplied, else the legacy `onSendMessage`. A settled-run ASK folds
+  // `{ concierge: true }` here; a confirm chip folds the held proposal's
+  // `{ concierge: true, confirm_proposal: { channel, params } }`. Per LOCK-B the
+  // WS transport does not deliver the concierge fields to the Concierge until the
+  // Part-C SSE cutover — this wires the DECISION + payload shape, not a live flip.
+  const runChatSend = useCallback(
+    (
+      text: string,
+      attachments?: import("@/types/index").ChatAttachment[],
+      options?: SendMessageOptions,
+    ) => {
+      if (onRunChatSend) onRunChatSend(text, attachments, options);
+      else onSendMessage(text);
+    },
+    [onRunChatSend, onSendMessage],
+  );
+
+  // Confirm a held consequential Concierge proposal: replay the confirm turn
+  // through the SAME send seam, carrying the durable proposal's channel + params
+  // verbatim (the backend H1 fence — 43-01 — locates its durable pending row and
+  // disposes from THAT, never from this client body). Reject simply dismisses.
+  const handleConfirmProposal = useCallback(
+    (p: LaneProposal) => {
+      runChatSend("", [], {
+        concierge: true,
+        confirm_proposal: { channel: p.channel, params: p.params },
+      });
+    },
+    [runChatSend],
+  );
+
+  // Held Concierge proposals surface. Empty until the Part-C SSE transport
+  // (43-06) delivers `concierge_proposal` holds onto the transcript-adjacent
+  // state; the confirm chip + handleConfirmProposal are wired now so that flip is
+  // a data change, not a wiring change (LOCK-B — no live transport in this plan).
+  const runConciergeProposals = RUN_CONCIERGE_PROPOSALS;
+
+  // Reject dismisses a held proposal WITHOUT executing anything (T-33-04-01).
+  // No local proposal state exists yet (the holds arrive with the Part-C
+  // transport), so this is a safe no-op until then.
+  const handleRejectProposal = useCallback((_id: string) => {
+    /* dismiss — nothing executes; real removal lands with the 43-06 holds surface */
+  }, []);
+
+  // Compaction has no backend trigger wired yet; the FE only ever SIGNALS (it
+  // never compresses, D-08). A no-op-safe handler until the Part-C trigger lands
+  // — deliberately NOT an invented backend call.
+  const handleCompact = useCallback(() => {
+    /* no-op: compaction trigger arrives with the Part-C transport (43-06) */
+  }, []);
+
   // Stop (absorbed) — the SAME cooperative cancel the AgentProgressPanel fired.
   // The pipeline_cancelled WS event drives the state reset (no eager onReset).
   const handleStopPipeline = useCallback(() => {
@@ -1660,7 +1723,10 @@ export function DashboardLayout({
                     <RunChatLane
                       messages={runChatMessages ?? messages}
                       runState={runLaneState}
-                      sendMessage={onRunChatSend ?? onSendMessage}
+                      // 43-02 (A.1 CRUX): the options-capable send seam so a
+                      // settled-run ASK can fold { concierge: true } onto the
+                      // payload (Concierge answer vs. onRevise revision).
+                      sendMessage={runChatSend}
                       isStreaming={isStreaming}
                       streamingContent={streamingContent}
                       pipelineState={pipelineState}
@@ -1679,6 +1745,19 @@ export function DashboardLayout({
                       onRelaunch={handleGoHome}
                       suggestions={laneSuggestions}
                       onSuggestion={handleLaneSuggestion}
+                      // 43-02 (A.1 CRUX) — Concierge props wired at the mount.
+                      // `proposals` is the held-proposal surface: empty until the
+                      // Part-C SSE transport (43-06) delivers concierge_proposal
+                      // holds, then the SAME confirm chip fires handleConfirmProposal
+                      // (POST { concierge:true, confirm_proposal:{channel,params} }).
+                      // Reject dismisses without executing; compaction has no
+                      // backend trigger yet (no invented call) — a no-op-safe
+                      // onCompact + no explicit availability signal (LOCK-B).
+                      proposals={runConciergeProposals}
+                      onConfirmProposal={handleConfirmProposal}
+                      onRejectProposal={handleRejectProposal}
+                      compactAvailable={false}
+                      onCompact={handleCompact}
                       // Plan-05 gate quick-actions (KAN-100/101 fences owned by the component).
                       gate={laneGate}
                       onApprove={onApproveReview}

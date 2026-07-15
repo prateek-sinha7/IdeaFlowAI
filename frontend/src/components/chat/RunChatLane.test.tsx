@@ -237,6 +237,54 @@ describe("RunChatLane", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  // ─── 43-02 (A.1 CRUX) — settled-run ask-vs-change routing matrix ─────────────
+  // On a SETTLED (complete) run the free-text turn is CLASSIFIED generically
+  // (SC-001/INV-1): an ASK is answered by the Concierge (sendMessage with
+  // { concierge: true }); a CHANGE REQUEST still launches the revision pipeline
+  // (onRevise). Change-intent is weighed FIRST so a question-SHAPED change routes
+  // as a change (case 5) — a bare question-mark heuristic would misroute it.
+  const routeCases: Array<{
+    text: string;
+    expect: "ask" | "change";
+    why: string;
+  }> = [
+    { text: "what's the status?", expect: "ask", why: "status question" },
+    { text: "is the login page done?", expect: "ask", why: "yes/no progress question" },
+    { text: "why did the build fail?", expect: "ask", why: "explanatory question" },
+    { text: "make it dark mode", expect: "change", why: "imperative change" },
+    {
+      text: "can you make the button bigger?",
+      expect: "change",
+      why: "TRAP: question-shaped but change-intent",
+    },
+  ];
+
+  for (const c of routeCases) {
+    it(`settled route: "${c.text}" → ${c.expect} (${c.why})`, () => {
+      const sendMessage = vi.fn();
+      const onRevise = vi.fn();
+      render(
+        <RunChatLane
+          {...baseProps({ runState: "complete", sendMessage, onRevise })}
+        />,
+      );
+      fireEvent.change(screen.getByLabelText("Chat message input"), {
+        target: { value: c.text },
+      });
+      fireEvent.click(screen.getByTestId("chat-send"));
+
+      if (c.expect === "ask") {
+        // Answered by the Concierge — NOT launched as a revision.
+        expect(sendMessage).toHaveBeenCalledWith(c.text, [], { concierge: true });
+        expect(onRevise).not.toHaveBeenCalled();
+      } else {
+        // Still routes to the revision pipeline — NOT the Concierge.
+        expect(onRevise).toHaveBeenCalledWith(c.text);
+        expect(sendMessage).not.toHaveBeenCalled();
+      }
+    });
+  }
+
   it("renders a confirm/reject chip pair for a held consequential proposal (D-05)", () => {
     const onConfirmProposal = vi.fn();
     const onRejectProposal = vi.fn();

@@ -63,6 +63,7 @@ import {
 } from "./ChatTokenWidget";
 import type { ClarifyResponse } from "./InlineClarifyActions";
 import type { PendingAttachment } from "@/hooks/useChatAttachments";
+import type { SendMessageOptions } from "@/hooks/useRunChat";
 import { formatDuration } from "@/lib/runStats";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -125,8 +126,17 @@ export interface RunChatLaneProps {
   messages: ChatMessage[];
   /** The GENERIC live-run state driving the composer mode (D-12). */
   runState: RunLaneState;
-  /** Transport-agnostic send (plan 03 `useRunChat.sendMessage`). */
-  sendMessage: (text: string, attachments?: ChatAttachment[]) => void;
+  /**
+   * Transport-agnostic send (plan 03 `useRunChat.sendMessage`). The optional
+   * trailing `options` carry the 43-02 Concierge flags (`concierge` /
+   * `confirm_proposal`) onto the up-channel payload; a settled-run ASK folds
+   * `{ concierge: true }` here to route the turn to the Concierge (the A.1 CRUX).
+   */
+  sendMessage: (
+    text: string,
+    attachments?: ChatAttachment[],
+    options?: SendMessageOptions,
+  ) => void;
   isStreaming?: boolean;
   streamingContent?: string;
   /**
@@ -204,6 +214,31 @@ export interface RunChatLaneProps {
   onSkipClarify?: () => void;
   /** Cancel the active pipeline from the inline clarify (Phase 42-02 §A2 re-home). */
   onCancelWorkflow?: () => void;
+}
+
+/**
+ * GENERIC ask-vs-change classifier for a SETTLED-run free-text turn (43-02, the
+ * A.1 CRUX / SC-001·INV-1). Keys ONLY on the generic text — NEVER a
+ * workflow-name or agent-id literal. A CHANGE REQUEST (an imperative edit) still
+ * launches the revision pipeline (onRevise); an ASK (a status/question turn) is
+ * answered by the Concierge (`sendMessage(..., { concierge: true })`).
+ *
+ * Change-intent is weighed FIRST so a question-SHAPED change request
+ * ("can you make the button bigger?") routes as a CHANGE, not an ask — a bare
+ * question-mark heuristic would misroute it. Ambiguous settled free text falls
+ * through to the historical default (a revision); misclassification is bounded —
+ * the consequential path stays confirm-gated server-side (T-43-02-ROUTE).
+ */
+const CHANGE_INTENT =
+  /\b(make|change|changed|add|added|remove|removed|delete|deleted|drop|update|fix|fixed|rename|reorder|move|resize|replace|swap|set|turn|redesign|restyle|recolor|tweak|adjust|convert|increase|decrease|reduce|expand|shrink|revise|revamp|modify|edit|improve|refactor|rework|redo|shorten|lengthen|simplify|bigger|smaller|larger|wider|narrower|taller|shorter|darker|lighter|bolder)\b/i;
+const ASK_INTENT =
+  /(^\s*(what|whats|what's|why|how|is|are|was|were|do|does|did|where|when|who|which|can|could|should|would|will)\b|\bstatus\b|\bexplain\b|\bprogress\b|\?\s*$)/i;
+
+function classifyFreeText(text: string): "ask" | "change" {
+  const t = text.trim();
+  if (CHANGE_INTENT.test(t)) return "change";
+  if (ASK_INTENT.test(t)) return "ask";
+  return "change";
 }
 
 /**
@@ -640,14 +675,25 @@ export function RunChatLane({
     (compactAvailable === true ||
       (ctxUsage !== null && ctxUsage.pct >= COMPACT_THRESHOLD_PCT));
 
-  // Free-text send routes through the transport-agnostic sendMessage; in the
-  // complete (revision) mode a free-text turn is a REVISION (onRevise) when the
-  // caller supplied that channel, else it falls back to a plain message.
+  // Free-text send routes through the transport-agnostic sendMessage. On a
+  // SETTLED run (complete) the turn is CLASSIFIED (43-02, the A.1 CRUX): an ASK
+  // (a status/question turn) is ANSWERED by the Concierge — folded onto the send
+  // payload as `{ concierge: true }` — while a CHANGE REQUEST still launches the
+  // revision pipeline (onRevise), exactly as before. Classification is GENERIC
+  // (SC-001/INV-1) — keyed only on the free text + runState, never a
+  // workflow-name/agent-id literal. When no revise channel is supplied a change
+  // falls back to a plain message (the pre-43-02 fallback).
   const handleFreeText = useCallback(
     (text: string, attachments: ChatAttachment[]) => {
-      if (runState === "complete" && onRevise) {
-        onRevise(text);
-        return;
+      if (runState === "complete") {
+        if (classifyFreeText(text) === "ask") {
+          sendMessage(text, attachments, { concierge: true });
+          return;
+        }
+        if (onRevise) {
+          onRevise(text);
+          return;
+        }
       }
       sendMessage(text, attachments);
     },
