@@ -19,7 +19,6 @@ from app.api.analytics import router as analytics_router
 from app.api.run_commands import router as run_commands_router
 from app.api.run_stream import router as run_stream_router
 from app.api.user_workflows import router as user_workflows_router
-from app.api.websocket import router as websocket_router
 from app.api.handoff import router as handoff_router
 from app.api.settings import router as settings_router
 from app.api.mcp import router as mcp_router
@@ -178,16 +177,15 @@ app.include_router(runs_router)
 # aggregation over existing WorkflowRun columns (its own /api/analytics prefix;
 # no new table / migration). Registered beside runs_router.
 app.include_router(analytics_router)
-# CHAT-07 / D-13: additive per-run SSE down-channel, mounted ALONGSIDE the
-# WebSocket transport (LOCK-B — websocket_router below is untouched). Shares the
+# CHAT-07 / D-13: the per-run SSE down-channel — the SOLE run event transport
+# after the /ws/chat WebSocket was retired (44-07, INV-12 exit gate). Shares the
 # /api/runs prefix with runs_router (FastAPI allows multiple routers per prefix).
 app.include_router(run_stream_router)
-# CHAT-07 / D-13: additive up-channel REST command endpoints (gate/answers/cancel)
-# for paused-run interactions, thin over the SAME store/cancel seams /ws/chat uses
-# (LOCK-B — websocket_router below is untouched). Shares the /api/runs prefix.
+# CHAT-07 / D-13: the up-channel REST command endpoints (gate/answers/cancel) for
+# paused-run interactions — the sole command surface after /ws/chat retirement
+# (44-07). Thin over the SAME store/cancel seams. Shares the /api/runs prefix.
 app.include_router(run_commands_router)
 app.include_router(user_workflows_router)
-app.include_router(websocket_router)
 app.include_router(handoff_router)
 app.include_router(settings_router)
 app.include_router(mcp_router)
