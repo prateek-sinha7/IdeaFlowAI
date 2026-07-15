@@ -123,7 +123,10 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   mockWs.emit("tool_result", { agent_id: "prototype-specify", tool: "read_file", result: "57 B" });
   mockWs.emit("tool_call", { agent_id: "prototype-specify", tool: "write_file", args: { path: "spec.md" } });
   mockWs.emit("tool_result", { agent_id: "prototype-specify", tool: "write_file", result: "36.4 KB" });
-  mockWs.agentChunk("prototype-specify", "# Apple Reference — Specification\n\n## Design system\nOne type scale, one 12-column grid, six pages sharing nav + footer.");
+  // Real spec-writer output is ALWAYS wrapped in <spec>…</spec> (prototype-specify/AGENT.md
+  // makes an unwrapped response a "CRITICAL FAILURE"), so the settled L2 detail renders the
+  // sections/pages artifact card off the wrapper. Feed the faithful wrapped form.
+  mockWs.agentChunk("prototype-specify", "<spec>\n# Apple Reference — Specification\n\n## Home\nLanding hero, product grid and closing CTA on the shared grid.\n## Product detail\nGallery, spec table and buy-bar.\n## Compare\nComparison table with a sticky header.\n## Accessories\nAccessories grid plus the search overlay.\n## Search\nSearch overlay with keyboard focus trapping.\n## Shared chrome\nShared nav + footer, one type scale, a 12-column grid.\n</spec>");
   mockWs.agentComplete("prototype-specify", { inputTokens: 2400, outputTokens: 12100, totalTokens: 30100, duration: 84 });
   mockWs.reviewGateReady({ gateKey: "spec", agentId: "prototype-specify", agentName: "Spec Writer", output: "Specification approved" });
   mockWs.reviewGateApproved();
@@ -134,7 +137,9 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
   mockWs.agentThinking("prototype-plan", "With the spec fixed I decompose it into seven tasks so shared scaffolding lands first.");
   mockWs.emit("tool_call", { agent_id: "prototype-plan", tool: "write_file", args: { path: "tasks.md" } });
   mockWs.emit("tool_result", { agent_id: "prototype-plan", tool: "write_file", result: "36.1 KB" });
-  mockWs.agentChunk("prototype-plan", "# Build tasks\n1. Scaffold shared layout, nav & footer\n2. Home / landing page…");
+  // Real planner output is a <tasks> block (prototype-plan/AGENT.md), so the settled
+  // Task-Planner detail selects the tasks artifact card off the wrapper.
+  mockWs.agentChunk("prototype-plan", "<tasks>\n## Task 1: Scaffold shared layout, nav & footer\n**Goal**: shared nav, footer and the 12-column grid every page inherits.\n## Task 2: Home / landing page\n**Goal**: hero, product grid and CTA on the shared type scale.\n## Task 3: Compare page\n**Goal**: comparison grid reusing the shared table + type scale.\n</tasks>");
   mockWs.agentComplete("prototype-plan", { totalTokens: 42200, duration: 47 });
 
   // 3) Build Agent (+ wave / subagents)
@@ -165,7 +170,9 @@ test("CAPTURE settled prototype run", async ({ dashboard, mockWs, page }) => {
 
   // 4) Validation Agent
   mockWs.agentStart("prototype-validate");
-  mockWs.agentChunk("prototype-validate", "Coverage 100% — every spec section maps to ≥1 task.");
+  // Real analyzer/validator output is an <analysis> block (prototype-analyze/AGENT.md), so the
+  // settled detail selects the checks artifact card off the wrapper + the verdict text.
+  mockWs.agentChunk("prototype-validate", "<analysis>\n### Readiness verdict\nREADY TO BUILD\n### Coverage\nCoverage 100% — every spec section maps to at least one task.\n</analysis>");
   mockWs.agentComplete("prototype-validate", { totalTokens: 8000, duration: 33 });
 
   // The deliverable filename + version ride pipeline_complete (D39-4). The lane
