@@ -572,6 +572,90 @@ export async function deleteWorkflow(
   }
 }
 
+// --- Run command API (Phase 44 W2 / CHAT-07 up-channel over REST) ---
+//
+// Owner-scoped, terminal-fenced HTTP counterparts to the paused-run WS commands
+// (backend/app/api/run_commands.py). Each mirrors its Pydantic request body
+// verbatim; a cross-owner / missing run resolves to 404 server-side (IDOR→404),
+// matching the WS owner fence — surfaced here as an ApiError(404).
+
+/** Body for POST /api/runs/{id}/gate — the four gate actions (GateCommand,
+ *  run_commands.py). `action` is the generic discriminator (SC-001 — no
+ *  workflow name): approve (optional `edited_content`) / reject / redo
+ *  (`instructions`) / update_specs (`analysis_report`). `edited_content`
+ *  survives ONLY on /gate (set_review_response) — /messages CHANNEL_GATE
+ *  drops it (WR-03), which is why gates route here. */
+export interface GatePayload {
+  gate_key: string;
+  action?: "approve" | "reject" | "redo" | "update_specs";
+  approved?: boolean;
+  edited_content?: string | null;
+  instructions?: string;
+  analysis_report?: string;
+}
+
+/**
+ * Resolve a paused HITL review gate over REST (mirrors WS `approve_review`).
+ * Routes to POST /api/runs/{id}/gate — NOT /messages — so `edited_content` is
+ * preserved through set_review_response (WR-03). Owner-gated server-side.
+ */
+export async function postGate(
+  token: string,
+  runId: string,
+  body: GatePayload,
+): Promise<{ ok: boolean; action: string; gate_key: string }> {
+  return request<{ ok: boolean; action: string; gate_key: string }>(
+    `/api/runs/${encodeURIComponent(runId)}/gate`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+/**
+ * Cooperatively cancel a run over REST (mirrors WS `cancel_pipeline`). The WS
+ * frame was connection-scoped and carried no id; the REST path threads the run
+ * id explicitly. Owner-gated server-side; idempotent when no live run exists.
+ */
+export async function postCancel(
+  token: string,
+  runId: string,
+): Promise<{ ok: boolean; run_id: string; cancelled?: boolean }> {
+  return request<{ ok: boolean; run_id: string; cancelled?: boolean }>(
+    `/api/runs/${encodeURIComponent(runId)}/cancel`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+    },
+  );
+}
+
+/**
+ * Submit clarify answers over REST (mirrors WS `submit_questionnaire`). Targets
+ * POST /api/runs/{id}/answers (AnswersCommand) — which needs NO `message_id` —
+ * closing the R4 422 the /messages (MessageCommand) path raised. Keeps the
+ * ISS-027 `skip_clarification` force-proceed passthrough. Owner-gated.
+ */
+export async function postAnswers(
+  token: string,
+  runId: string,
+  body: {
+    responses: Array<{ question_id: string; answer: string }>;
+    skip_clarification?: boolean;
+  },
+): Promise<{ ok: boolean; run_id: string; count: number }> {
+  return request<{ ok: boolean; run_id: string; count: number }>(
+    `/api/runs/${encodeURIComponent(runId)}/answers`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    },
+  );
+}
+
 export async function changePassword(
   token: string,
   currentPassword: string,
