@@ -51,6 +51,10 @@ test.describe("TS-O — deliverable renderers", () => {
     mockWs.start(agents, { pipelineType: "user_stories" });
     for (const a of agents) await runAgent(mockWs, a.id);
 
+    // Phase 42-02 (§B) auto-tabs a live/building run to Steps, so open the Preview
+    // tab to observe its pre-completion chrome.
+    await dashboard.previewTab().click();
+
     // Phase 39 redesign: while the run is still in-flight (isRunning) with no
     // content, the preview shows the streaming "Building your deliverable…"
     // placeholder inside PreviewChrome (the neutral "Output will appear here"

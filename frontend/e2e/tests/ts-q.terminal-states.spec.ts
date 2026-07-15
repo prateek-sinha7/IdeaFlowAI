@@ -21,16 +21,23 @@ test.describe("TS-Q — terminal states", () => {
     await expect(dashboard.degradedHeading()).toHaveCount(0);
   });
 
-  test("TS-Q-02 model error → pipeline_failed → degraded affordance (ISS-016/017)", async ({ dashboard, mockWs }) => {
+  test("TS-Q-02 model error → pipeline_failed → new failed chrome (Audit-default + red lane card)", async ({ dashboard, mockWs }) => {
     await playFailedRun(mockWs, "user_stories");
 
+    // Run-level failed token (lane-run-status, failed tone).
     await expect(dashboard.errorBadge().first()).toBeVisible();
-    await expect(dashboard.degradedHeading()).toBeVisible();
-    await expect(dashboard.page.getByText("No deliverable was produced. The run ended in a failed or degraded state.")).toBeVisible();
-    // Phase 39 redesign: the failed run now also renders the RunChatLane terminal
-    // card ("• Failed agents: …") in the left lane, so the shared "Failed agents"
-    // text matches both it and the preview-panel affordance label — assert the
-    // first (both prove failed-agent labeling is present on a failed run).
+
+    // Phase 42-03 (§D): the amber DegradedRunAffordance is RETIRED on the run
+    // screen — a terminal-failed run now DROPS the Preview tab and auto-defaults
+    // to Audit. So the retired affordance heading must NOT appear here (it lives
+    // only on the history/reopen RunDetailPage now).
+    await expect(dashboard.degradedHeading()).toHaveCount(0);
+    await expect(dashboard.page.getByRole("tab", { name: /Audit/i })).toHaveAttribute("aria-selected", "true");
+    await expect(dashboard.previewTab()).toHaveCount(0);
+
+    // The new failed chrome lives in the left lane: the RunChatLane terminal
+    // failure card ("What went wrong" + "• Failed agents: …").
+    await expect(dashboard.page.getByText("What went wrong")).toBeVisible();
     await expect(dashboard.failedAgentsLabel().first()).toBeVisible();
     // The neutral empty state must NOT show on a failed run.
     await expect(dashboard.previewEmpty()).toHaveCount(0);

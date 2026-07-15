@@ -120,13 +120,16 @@ test.describe("TS-X — timing budgets", () => {
       await expect(dashboard.runningBadge()).toHaveCount(0);
     });
 
-    test("failed → terminal: degraded affordance appears (no stuck RUNNING)", async ({ dashboard, mockWs }) => {
+    test("failed → terminal: new failed chrome appears (no stuck RUNNING)", async ({ dashboard, mockWs }) => {
       // playFailedRun: start → every agent errors → pipeline_failed (ISS-016).
       await playFailedRun(mockWs, "user_stories");
 
       await expect(dashboard.errorBadge().first()).toBeVisible();
-      // Terminal degraded affordance — the failed run resolved, not spinning.
-      await expect(dashboard.degradedHeading()).toBeVisible();
+      // Phase 42-03 (§D) RETIRED the amber DegradedRunAffordance on the run screen;
+      // the terminal-failed signal is now the RunChatLane failure card + the failed
+      // run-status token — the failed run resolved, not spinning.
+      await expect(dashboard.degradedHeading()).toHaveCount(0);
+      await expect(dashboard.page.getByText("What went wrong")).toBeVisible();
       await expect(dashboard.stopButton()).toHaveCount(0);
       await expect(dashboard.runningBadge()).toHaveCount(0);
     });

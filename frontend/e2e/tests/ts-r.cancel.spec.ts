@@ -71,6 +71,11 @@ test.describe("TS-R — cancel", () => {
     // of the retired "Pipeline stopped" header for a live cancel.
     await expect(dashboard.page.getByText("Cancelled by you")).toBeVisible();
 
+    // Phase 42-02 (§B) auto-tabs a live/building run to Steps; a live cancel is
+    // terminal-but-not-failed so it fires no further auto-tab and leaves the panel
+    // on Steps. The neutral Preview empty-state lives on the (still-present) Preview
+    // tab — a live cancel keeps it (only a terminal-FAILED run drops it). Open it.
+    await dashboard.previewTab().click();
     // Live cancel sets NO failed/degraded flag (agents reset to idle), so the
     // preview keeps its neutral empty state (no deliverable was produced) — the
     // degraded/failed affordance must NOT appear (that copy is reserved for a

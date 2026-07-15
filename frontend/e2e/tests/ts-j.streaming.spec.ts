@@ -53,17 +53,22 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
     await expect(dashboard.page.getByText("analyzing the brief in detail ...", { exact: false })).toBeVisible();
   });
 
-  test("TS-J-03 running row shows the Live pill in the overview spine", async ({ dashboard, mockWs }) => {
+  test("TS-J-03 running row is highlighted in the overview spine", async ({ dashboard, mockWs }) => {
     const agents = AGENTS.user_stories;
     mockWs.start(agents, { pipelineType: "user_stories" });
     await dashboard.thinkingTab().click();
 
-    // Running → the spine row carries a "Live" pill.
+    // Phase 42 REMOVED the spine's "Live" text pill (it now lives ONLY in the L2
+    // agent-detail header). The running row is instead marked by its violet
+    // highlight + a pulsing brand dot → exactly one running spine row.
     mockWs.agentStart(agents[0].id);
-    await expect(dashboard.page.getByText("Live", { exact: true }).first()).toBeVisible();
+    await expect(dashboard.stepsLiveBadge()).toHaveCount(1);
+    await expect(dashboard.stepsLiveBadge()).toContainText(agents[0].name);
 
-    // Completed → the status line advances (the row's node flips to the done check).
+    // Completed → no running row highlighted; the row's node flips to the done
+    // check and it stays navigable.
     mockWs.agentComplete(agents[0].id);
+    await expect(dashboard.stepsLiveBadge()).toHaveCount(0);
     await expect(dashboard.page.getByRole("button", { name: new RegExp(agents[0].name, "i") })).toBeVisible();
   });
 
@@ -82,6 +87,9 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
       mockWs.agentComplete(a.id);
     }
     mockWs.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
+    // Phase 42-02 (§B) auto-tabs a COMPLETED run to Preview, so the Steps overview
+    // status line unmounts on completion. Re-open Steps to read its settled line.
+    await dashboard.thinkingTab().click();
     await expect(dashboard.page.getByText("Run complete", { exact: true })).toBeVisible();
   });
 
@@ -99,6 +107,9 @@ test.describe("TS-J — live streaming / planner / execution gate (Steps tab)", 
       mockWs.agentComplete(a.id);
     }
     mockWs.complete({ pipelineType: "user_stories", finalOutput: "" });
+    // Phase 42-03 (§D) auto-tabs a terminal-FAILED run to Audit, so the Steps
+    // overview status line unmounts. Re-open Steps to read its settled line.
+    await dashboard.thinkingTab().click();
     await expect(dashboard.page.getByText("Run failed", { exact: true })).toBeVisible();
   });
 
