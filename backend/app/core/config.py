@@ -116,14 +116,12 @@ class Settings(BaseSettings):
     # both provider branches of build_model when > 0.
     THINKING_BUDGET_TOKENS: int = 0
 
-    # ---- SSE transport down-channel (CHAT-07 / D-13, default ON) ----
-    # Feature flag for the additive per-run SSE stream
-    # ``GET /api/runs/{id}/events/stream`` (``app/api/run_stream.py``). Built
-    # ALONGSIDE ``/ws/chat`` under LOCK-B — ``websocket.py`` is untouched; the SSE
-    # route reuses the SAME per-run live queue + durable ``run_events`` log. When
-    # False the route reports feature-absent (404) so a rollback is a clean flag
-    # flip with zero behavioral bleed onto the still-live WebSocket transport.
-    SSE_TRANSPORT_ENABLED: bool = True
+    # ---- SSE transport down-channel (CHAT-07 / D-13) ----
+    # The per-run SSE stream ``GET /api/runs/{id}/events/stream``
+    # (``app/api/run_stream.py``) is the SOLE run event transport after the
+    # ``/ws/chat`` WebSocket was retired (44-07, INV-12 exit gate). It reuses the
+    # per-run live queue + durable ``run_events`` log. The former SSE transport
+    # feature-gate is gone (44-07) — the stream is now unconditional.
     # D-14h streaming-infra knobs. ``sse-starlette`` emits a comment-``ping`` at
     # this cadence so an idle proxy never buffers/half-closes a long-lived stream;
     # the idle-timeout floor MUST exceed the ping so the ingress keeps the socket

@@ -209,20 +209,13 @@ async def stream_run_events(
 ):
     """Stream a run's events as SSE, resumable via ``Last-Event-ID`` (CHAT-07, D-13).
 
-    Flag-gated (``SSE_TRANSPORT_ENABLED`` — else 404 feature-absent). Two-layer owner
-    check identical to ``runs.py::get_run_events``: the ``user_id`` filter → 404, then
-    the default-deny ``ScopedStore.get_run`` → 404 (IDOR → 404, never 403). The
-    resolved cursor is the ``Last-Event-ID`` header (browser-native) or 0 for a fresh
-    attach; a non-int header degrades to a full replay (0) rather than erroring.
+    Unconditional — the sole run event transport after ``/ws/chat`` was retired
+    (44-07). Two-layer owner check identical to ``runs.py::get_run_events``: the
+    ``user_id`` filter → 404, then the default-deny ``ScopedStore.get_run`` → 404
+    (IDOR → 404, never 403). The resolved cursor is the ``Last-Event-ID`` header
+    (browser-native) or 0 for a fresh attach; a non-int header degrades to a full
+    replay (0) rather than erroring.
     """
-    # Feature-absent when the flag is off — a clean rollback with no behavioral bleed
-    # onto the still-live /ws/chat transport (LOCK-B).
-    if not settings.SSE_TRANSPORT_ENABLED:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Not found",
-        )
-
     # Layer 1: owner-scoped ORM filter (cross-owner / missing → 404, never 403).
     workflow_run = (
         db.query(WorkflowRun)

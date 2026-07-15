@@ -41,7 +41,6 @@ from sqlalchemy.pool import StaticPool
 
 from agents.authz import ScopedStore
 from app.api.run_stream import _iter_sse_frames, router
-from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.database import Base, get_db
 from app.models.run_event import RunEvent
@@ -275,14 +274,6 @@ class TestOwnerScope:
         state["user"] = _FakeUser(id="attacker")
         resp = client.get("/api/runs/run-1/events/stream")
         assert resp.status_code != 403, "must never leak existence via 403"
-
-    def test_flag_off_is_404(self, api, db_session, monkeypatch):
-        client, _ = api
-        _seed_run(db_session)
-        _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
-        monkeypatch.setattr(settings, "SSE_TRANSPORT_ENABLED", False)
-        resp = client.get("/api/runs/run-1/events/stream")
-        assert resp.status_code == 404, "flag-off route must report feature-absent (404)"
 
 
 # ════════════════════════════════════════════════════════════════════════════
