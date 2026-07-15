@@ -1169,14 +1169,14 @@ Plans:
 **Requirements**: carries 43-09's C.3 (WS deletion / INV-12 exit gate) — re-scoped to a hard cutoff — + the run_revision retirement (D1/CTX-04) + the Part-B live re-confirm tail. LOCK-B precondition ("human validates the live cutover") is SATISFIED per `43-LIVE-EVIDENCE.md`.
 **Depends on:** Phase 43 (the supervised SSE cutover this deletes behind), Phase 29 (the additive REST/SSE twin). **Supersedes Phase 43-09.**
 **Status:** SUPERVISED — offline FE-rewire + BE-relocation + tests, then a live SSE smoke + a live-Bedrock Part-B lane. **Does NOT close the v2.0 milestone** (separate later step).
-**Plans:** 2/12 plans executed
+**Plans:** 4/12 plans executed
 
 Plans:
 
 - [x] 44-01-PLAN.md — W1: re-source the pipeline down-channel from SSE + launch->attach bootstrap [wave 1]
 - [x] 44-02-PLAN.md — W3a: confirm-first refinement chip (RunChatLane) [wave 1]
 - [x] 44-03-PLAN.md — W4a: relocate shared transport-neutral infra to app/api/run_engine.py (endpoint stays) [wave 1]
-- [ ] 44-04-PLAN.md — W2: rewire gate(->/gate, WR-03)/cancel/questionnaire to REST [wave 2]
+- [x] 44-04-PLAN.md — W2: rewire gate(->/gate, WR-03)/cancel/questionnaire to REST [wave 2]
 - [ ] 44-05-PLAN.md — W3b: run_revision retirement Strategy A (handleRevisePpt -> REST /revisions) + 2 bug fixes [wave 3]
 - [ ] 44-06-PLAN.md — W4-FE: remove the flag + delete useWebSocket + extract useHandoffSocket survivor [wave 4]
 - [ ] 44-07-PLAN.md — W4b+W3c: delete /ws/chat endpoint + run_revision WS handler + BE flag (INV-12 exit gate) [wave 5]
