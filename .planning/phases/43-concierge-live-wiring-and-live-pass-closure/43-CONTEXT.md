@@ -21,10 +21,11 @@ Phase 34's shape (Part A wiring → Part B live → Part C closure) still holds.
 
 ## 1. Part A — Updated offline-doable WIRING (do FIRST; offline-verify each: 5 characterization goldens byte-identical, `tsc --noEmit`, targeted tests, `lint-imports` 4/0; commit atomically)
 
-### A.0 (NEW gray area — DECIDE FIRST): Transport activation vs. WS-routed Concierge
-The whole Concierge-live effort is gated by this. The `chat:concierge` subsystem is reachable ONLY via `POST /api/runs/{id}/messages` (`run_commands.py:622` → `route_chat_turn` → `CHANNEL_CONCIERGE` at `:815-874`, `converse` at `:852`). The active transport is the legacy WebSocket `/ws/chat` (`websocket.py:703`), which has **zero** concierge references. SSE is dormant: `NEXT_PUBLIC_SSE_TRANSPORT` defaults OFF (`env.ts:59-64`), `RunConnectionProvider` unmounted (returns inert `DEFAULT_VALUE`, `RunConnectionProvider.tsx:76-83`). **Choose:**
-- **(a) Activate SSE** — mount `RunConnectionProvider` (`app/layout.tsx`) + enable the flag so `useRunChat.sendMessage` routes to `POST /messages` (makes A.2 a prerequisite of A.1/B.3). The POR-intended path, but it flips the live transport (LOCK-B supervised cutover).
-- **(b) WS-route the Concierge** — add a concierge escalation onto the active `/ws/chat` path (keeps LOCK-B WS live; more backend surface).
+### A.0 [RESOLVED 2026-07-15 → (a) Activate SSE; transport flip SEQUENCED to Part C]: Transport activation
+The whole Concierge-live effort is gated by this. The `chat:concierge` subsystem is reachable ONLY via `POST /api/runs/{id}/messages` (`run_commands.py:622` → `route_chat_turn` → `CHANNEL_CONCIERGE` at `:815-874`, `converse` at `:852`). The active transport is the legacy WebSocket `/ws/chat` (`websocket.py:703`), which has **zero** concierge references. SSE is dormant: `NEXT_PUBLIC_SSE_TRANSPORT` defaults OFF (`env.ts:59-64`), `RunConnectionProvider` unmounted (returns inert `DEFAULT_VALUE`, `RunConnectionProvider.tsx:76-83`). **DECISION (user, 2026-07-15): (a) Activate SSE — but the transport flip is SEQUENCED to Part C, not Part A.**
+- **Part A (offline, this phase's wiring):** wire the Concierge offline-correct against the `POST /messages` contract — the composer re-routing (A.1), the four backend defects (M1/M2/M3/H1) + the proposal drain, steering (A.3), narrator (A.4). NOTHING flips live in Part A: `NEXT_PUBLIC_SSE_TRANSPORT` stays OFF and the wiring is proven with the SSE path dark (5 goldens byte-identical, `tsc`, targeted unit tests, `lint-imports` 4/0).
+- **Part C (ONE supervised cutover):** mount `RunConnectionProvider` (`app/layout.tsx`) + enable the flag so `useRunChat.sendMessage` routes to `POST /messages`. The live Concierge Q&A check (**B.3**) is verified AS PART OF this cutover; then `/ws/chat` is deleted (the INV-12 exit gate, **C.3**). Consequence: **A.2 (SSE mount) is a Part-C step**, and **B.3 is contingent on the cutover** — there is no Part-A live transport flip.
+- **Rejected: (b) WS-route the Concierge** — would add concierge escalation onto `/ws/chat`, discarded when WS→SSE lands; avoided to prevent duplicate/throwaway backend surface.
 > Note: the Phase-31 latent SSE `runId` bug was FIXED in Phase 32 plan 32-05 (**ISS-036 RESOLVED**, register L3032/L3615) — `useRunChat` targets `pipelineState.pipelineRunId ?? activePipelineRunId` — so activating SSE no longer spawns an unrelated run.
 
 ### A.1 Concierge composer re-routing (the CRUX)
@@ -40,8 +41,8 @@ The whole Concierge-live effort is gated by this. The `chat:concierge` subsystem
 - **M1** — default a missing gate `action` to a non-consequential/explicit action, not `approve` (`run_commands.py:571`).
 - **drain** — give `ConciergeCapability` a `drain_proposals` so `_drain_concierge_proposals` (`run_commands.py:478`, returns `[]` today) can surface tool-result proposals on a fresh ask (`converse()` returns `str` only today).
 
-### A.2 SSE provider mount (sequence per A.0)
-Mount `RunConnectionProvider` in `frontend/src/app/layout.tsx` behind `NEXT_PUBLIC_SSE_TRANSPORT` (was outside Phase-29's 5-file LOCK-B scope). Only relevant if A.0 picks (a).
+### A.2 SSE provider mount — **now a Part-C step** (per the A.0 decision)
+Mount `RunConnectionProvider` in `frontend/src/app/layout.tsx` behind `NEXT_PUBLIC_SSE_TRANSPORT` (was outside Phase-29's 5-file LOCK-B scope). Per the A.0 decision this executes in **Part C as the supervised transport cutover**, together with the live Concierge check (B.3) and the `/ws/chat` deletion (C.3) — NOT in Part A.
 
 ### A.3 Steering live-drain (ALSO fixes per-turn images)
 Implement the live-ectx registry so `_live_ectx_for_run` (`run_commands.py:361`, `return None` at `:373`) resolves the RUNNING in-process `ectx`; drain queued `steering_notes` into the next agent dispatch (`=== USER GUIDANCE ===`). **This same seam closes DEF-30-03-1 / DEF-29-09-1** (a per-turn image delivered to an already-running run — Phase 30/29).
@@ -49,8 +50,8 @@ Implement the live-ectx registry so `_live_ectx_for_run` (`run_commands.py:361`,
 ### A.4 Narrator live call-site
 Invoke `chat_narrator.project_milestone_card` / `persist_milestone_card` (`chat_narrator.py:188/234`, zero live callers) from the engine/stream so milestone cards emit live. **Harden the deep-link nonce FIRST** (Phase-29 WR-02: in-memory/unbounded/unscoped → DB-backed, ownership-checked) before live exposure.
 
-### A.x (DECIDE, don't assume) — ISS-033 cached-invoke helper
-SmartPlanner (`smart_planner.py:389`) + ClarifyEngine (`clarify_engine.py:492-493`) + handoff Test/Compliance call the model DIRECTLY → NO Bedrock prompt-caching + their tokens are UNCOUNTED in run cost. Either add a shared cached-invoke helper (feeds B.4) OR explicitly re-defer with a note. ISS-034 (dollar-savings display) rides alongside.
+### A.x [RESOLVED 2026-07-15 → BUILD NOW] — ISS-033 shared cached-invoke helper
+SmartPlanner (`smart_planner.py:389`) + ClarifyEngine (`clarify_engine.py:492-493`) + handoff Test/Compliance call the model DIRECTLY → NO Bedrock prompt-caching + their tokens are UNCOUNTED in run cost. **DECISION (user, 2026-07-15): BUILD the shared cached-invoke helper in this phase.** Route those direct calls through it so they hit Bedrock prompt-caching and their tokens are counted; this directly feeds the **B.4** live check (`cache_read>0`, multi-turn cache-point placement). ISS-034 (dollar-savings display) rides alongside.
 
 ---
 
@@ -59,7 +60,7 @@ SmartPlanner (`smart_planner.py:389`) + ClarifyEngine (`clarify_engine.py:492-49
 The 7 headline checks (from Phase-34 SC), each un-verified-until-live:
 1. **B.1** Live multi-turn chat **with images** on a real run (Phase 29/30). *(Run-entry image path already ad-hoc live-proven 2026-07-10, quick-260710-ftq, `image_count=1` reached spec-writer — register L2900/L3182; per-turn + document image paths still owed.)*
 2. **B.2** **Steering mid-run** — a chat instruction lands in the NEXT agent's live prompt `=== USER GUIDANCE ===` (post-A.3).
-3. **B.3** **Concierge Q&A live** — grounded/non-hallucinated answers from real run data; proposals execute only through existing channels behind confirm chips (post-A.0/A.1/A.2).
+3. **B.3** **Concierge Q&A live** — grounded/non-hallucinated answers from real run data; proposals execute only through existing channels behind confirm chips. **Verified DURING the Part-C SSE cutover** (post-A.1 offline wiring + A.2 mount + flag ON), per the A.0 decision — not a Part-A live flip.
 4. **B.4** **`cache_read > 0`** incl. **multi-turn cache-point placement** — the standing P26 deferral (ISS-031/032); ISS-033 direct-call agents ride along (close-or-re-disposition).
 5. **B.5** **Unified `LaunchWizard` live launch** — prototype + ppt actually launch via `/dashboard` (offline byte-identical, Phase 37 WR-01; ⚠ the Phase-41 single-screen Configure was built then REVERTED — quick-260713-rcf `131c4e30` — prototype/ppt route back to `LaunchWizard` because a bare `prototype` fails the backend `missing_template_context` guard, register L3519-3527).
 6. **B.6** Live `GET /api/analytics/summary` HTTP round-trip **+** live notification **PUSH** over the real connection (Phase 38; offline half done).
@@ -132,4 +133,4 @@ Phase-32/37/38 live-deferred (offline half done): Phase-32 live Audit-tab data +
 - Flags: `NEXT_PUBLIC_SSE_TRANSPORT` (per A.0), `BEDROCK_PROMPT_CACHE_ENABLED` (ON since P26).
 
 ## 9. Session flow
-1. Confirm prerequisites. 2. **DECIDE A.0** (transport). 3. Part A: the wiring edits (offline-verify each: 5 goldens byte-identical, tsc, targeted tests, lint 4/0; commit atomically). 4. Part B: drive the live checks on a real Bedrock run; record each with evidence. 5. Part C: sweep registers + deferred-items; decide the WS deletion; complete the milestone. Live checks that fail → file as issues, fix, re-run. Do NOT mark the milestone complete on any un-run Part-B item.
+1. Confirm prerequisites. 2. **A.0 RESOLVED** → (a) Activate SSE, transport flip sequenced to Part C (§A.0); **ISS-033 helper = BUILD** (§A.x). 3. Part A: the wiring edits (offline-verify each: 5 goldens byte-identical, tsc, targeted tests, lint 4/0; commit atomically). 4. Part B: drive the live checks on a real Bedrock run; record each with evidence. 5. Part C: sweep registers + deferred-items; decide the WS deletion; complete the milestone. Live checks that fail → file as issues, fix, re-run. Do NOT mark the milestone complete on any un-run Part-B item.
