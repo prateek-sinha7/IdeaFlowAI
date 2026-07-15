@@ -54,6 +54,10 @@ Real, observable improvement over the "caching silently off on Bedrock" baseline
 - **B.6a:** `GET /api/analytics/summary` → `HTTP 200` with real KPIs (`total:47, completed:29, failed:3, success_rate:0.617`) + per-day token breakdowns. Live round-trip confirmed.
 - **B.6b:** notifications are client-derived (`useNotifications` fed by pipeline frames over the now-SSE connection), not a REST push (`/api/notifications` → 404). Verified-by-construction that run events drive them; a browser observation of the toast/panel firing over SSE is still owed.
 
+## B.7 — Mocked Playwright chat suite — **PASS ✓ (with a C.3 finding)**
+Against a clean default-transport (SSE-OFF) server, `ts-chat.spec.ts` + `ts-chat-cards.spec.ts` → **7 passed**. Proves the 43-06 provider mount did NOT regress the chat UI (the inert-when-OFF mount can't affect the SSE-OFF path).
+**C.3 finding (record for 43-09):** the mocked e2e harness stubs the **legacy WS** transport (`playwright.config.ts` `reuseExistingServer:true`). Running it against an **SSE-ON** server fails 8 chat/revision specs because the WS mocks don't apply — NOT a regression, a transport-mismatch. ⇒ **the WS→SSE deletion (C.3/43-09) MUST re-point the mocked chat harness at SSE mocks, or the chat suite goes red.** The live runtime flag (SSE-ON cutover) and the test-harness transport are independent; the suite must be migrated with the WS deletion.
+
 ## Still pending this session
 - **B.7** live Playwright chat suite · **B.6b** browser notification observation · the `default`-profile re-confirms (CONTEXT §2/§5) · **B.1** per-turn image delivery trace · **B.4** cache_read>0 + ISS-033 count.
 - **DEF-43-03-1** narrator live injection + seq reconciliation (43-06 backend half, run_commands.py:1243).

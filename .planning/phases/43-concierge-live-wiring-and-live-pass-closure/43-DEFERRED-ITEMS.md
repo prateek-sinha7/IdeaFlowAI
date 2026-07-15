@@ -17,3 +17,17 @@ Items surfaced during execution that are intentionally deferred within the phase
 - **Nonce prerequisite (done):** the deep-link nonce is already DB-backed / owner-scoped / single-use (WR-02, migration `0025`), so the live milestone card's deep-link is safe to expose at cutover.
 
 **Acceptance at 43-06:** with SSE live, a run that reaches a milestone persists + emits a milestone card over the SSE down-channel (recorded evidence); no seq collision / durable-log gap (a mid-run reconnect replays the full event log including the card); goldens re-run 10/10 byte-identical.
+
+### Precise seq-collision analysis (orchestrator, 2026-07-15 — do NOT guess-implement this)
+Reading the live path pinned the exact mechanism, and it is a real durable-log hazard:
+- The engine stamps every outward event from `counter = itertools.count(1)` (`engine.py:966`) and persists it at that seq via `sink.persist(seq, …)` (`engine.py:972`) — a **contiguous, engine-owned** seq space — THEN calls `emit_milestone_card(event)` (`engine.py:973+`).
+- `persist_milestone_card` writes the card via `ScopedStore.append_event_next_seq` = **max-persisted + 1**. During the processing of engine event N (max-persisted = N), the card takes **N+1**.
+- The engine's NEXT loop iteration takes `next(counter)` = **N+1** and persists at N+1 → **collision on the `0024` per-run-seq uniqueness constraint**. Because `sink.persist` is best-effort (degrades a `SQLAlchemyError` to a warning, INV-3), the **engine event N+1 silently fails to persist → a GAP in the durable replay log** → a mid-run reconnect misses that engine event.
+- The Concierge `chat_reply` (seq 17909, verified in B.3) does NOT hit this because it fires on a **settled/idle** run (no live `itertools.count` active) — so the settled-run persist is safe, but the **mid-run** narrator persist is not.
+
+**Fix options (a design decision, then offline collision test + live reconnect validation — NOT a rushed edit):**
+1. **Route the card through the engine's own counter** — instead of an out-of-band `append_event_next_seq` write, have the narrator YIELD the card as an engine event so it gets `next(counter)` and is persisted contiguously like any other event (cleanest; the card becomes a first-class stamped event).
+2. **Make the card+engine share one allocator** — reconcile so the card and the engine never draw the same seq (e.g., the card reserves via the same `counter`).
+3. **Collision-retry** — on the unique-constraint failure, the LOSER (card) retries with the next seq AND the engine's persist must be made non-best-effort for the real-run case so an engine event never silently drops (today it degrades, which is the gap source).
+
+**Why deferred, not done this session:** this is subtle concurrency on the durable event log (high blast radius — a wrong reconciliation silently gaps run-reconnect replay). It needs a deliberate design choice + an offline test proving a milestone event and the subsequent engine event get distinct seqs + a live reconnect proving no gap — dedicated focus, not an end-of-session edit. Everything ELSE in 43-06 (the SSE cutover + B.3) is done; this is the isolated remaining backend piece.
