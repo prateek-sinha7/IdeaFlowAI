@@ -756,34 +756,6 @@ Plans:
 >
 > **RUNUI-09 deferred (mocked-e2e reconciliation).** 33 `ts-*` mocked-e2e specs are red at HEAD because they assert the **pre-Phase-42** run-screen UI — the deleted full-screen `ReviewGatePanel` (ts-n ×9) / `QuestionnairePanel` "Quick Setup" (ts-m ×7) takeovers, the changed terminal/cancel/streaming/clarify-gate chrome (ts-i/j/q/r/x/chat), plus some pre-existing stale assertions that predate Phase 42 (e.g. ts-a TS-A-06's retired "NEW" pill, self-documented). Waves 42-02..42-10 changed the run-screen `src` but never reconciled these specs (only `zzz-baseline.spec.ts` was touched in-phase). This is a dedicated e2e-reconciliation pass (re-anchor selectors / `test.fixme` the deleted-panel specs to the inline surfaces — **never delete a spec**), tracked in `42-.../deferred-items.md`. RUNUI-09 stays **Pending** until that pass lands.
 
----
-
-## Milestone v2.0 — Universal Run Chat & VelocityAI UI Convergence
-
-**Plan of record:** `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md` (imported 2026-07-07 via `/gsd-import`; 0 blockers / 2 warnings approved). Locked decisions D-01..D-12 + open decision records ND-1..ND-9 live there — phases below are the execution skeleton; the POR is authoritative for scope detail.
-
-**Numbering note:** phases 23–27 are RESERVED — they name the post-milestone standalone efforts recorded in `.planning/IMPLEMENTATION-REGISTER.md` (23 Redo Gate · 24 Nav-Validation Hardening · 25 Revision Families & Run-Inputs · 26 Cost/Caching/Pricing · 27 Spec Revision Loop [KAN-101]). Milestone v2.0 = phases **28–38**.
-
-**Entry gate:** milestone v1.0 remains `verifying` — its consolidated live-Bedrock + Playwright close-out pass and `/gsd-complete-milestone` precede v2.0 *execution* (planning registered now by user decision at import).
-
-**Overview:** Chat becomes a first-class lane on every workflow run (pre-run composer · mid-run steering · post-run iteration), riding the existing WS transport + durable `run_events` + gate/clarify/redo seams — zero kernel edits (SC-001), zero new tables in v1. Images ride the dormant `run_images` capability; files ride the run sandbox; compaction is backend-owned; one `chat:concierge` capability (proposal-only) is the orchestrator for every workflow. Then the run screen converges to the Hexaware Run design (chat lane + Preview/Steps/Files/Audit, 3-level Steps drill-down), followed by shell convergence (Home/Library/My Workflows/History/Run detail/Configure/Analytics/Settings).
-
-### v2.0 Phases
-
-- [x] **Phase 28: Chat Contracts & Guards [A0]** — event vocabulary + golden guards, artifact-block derivation contracts, live-state contract, mockWs chat driver, decision records ND-1..ND-9 (completed 2026-07-07)
-- [x] **Phase 29: Transport Cutover + Chat Backbone [A1]** — *(D-13 locked 2026-07-07)* wave 1: per-run SSE stream + REST commands built ADDITIVELY alongside `/ws/chat` (wire-parity golden, ported suites, D-14 resilience; WS-deletion DEFERRED to a supervised follow-up per LOCK-B); wave 2: `POST /api/runs/{id}/messages` chat backbone, mechanical intent router, steering seam, narrator cards (completed 2026-07-08)
-- [x] **Phase 30: Uploads & Multimodal [A2]** — *(trimmed 2026-07-07: image spine landed via IMAGE-INPUT-PLAN waves)* file/doc uploads (`POST /api/runs/{id}/files` → sandbox), `context_provider:uploaded_files`, per-turn image carrier, client resize, ND-10 disposition
-- [x] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget (completed 2026-07-08)
-- [x] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening (completed 2026-07-08)
-- [x] **Phase 33: Concierge + Compaction [A5]** — `chat:concierge` capability + confirm chips, `compaction:chat_history` + `context_provider:conversation`, post-run iteration chat *(offline-complete 2026-07-09; SC-001 proof GREEN; Concierge live-wiring + verification → Phase 34)*
-- [ ] **Phase 34: Live Pass & Closure [A6]** — live Bedrock chat/images/steering/concierge, multi-turn cache placement (P26 deferral folds in), Playwright live, register sweeps
-- [x] **Phase 35: Shell Chrome + Reskin Pages [B1]** — dark top bar + nav pill (Home · Library · My Workflows), profile menu, notifications, Settings, pickers, Library restyle, **+ Login/Register + Admin reskin (ND-12)**; cites the canonical shared-surface spec (evidence 11 §B / D-15), not individual mocks (completed 2026-07-09)
-- [x] **Phase 36: Home + History + My Workflows [B2]** — fused Home, History grouping/sort + real delete, My Workflows rename + kebab actions, Run detail page + run-summary endpoint, `WorkflowCatalog`→`HomeLaunchGrid` *(completed 2026-07-09; verifier PASSED 4/4; 2 HIGH review regressions fixed)*
-- [x] **Phase 37: Configure Unification + Composer/Wizard [B3]** — generic per-run setup (templates/DS/gates/settings for EVERY deliverable — the D-15/C architectural change), **full composer + wizard rebuild (evidence 08: ~13 reskins of P22 code, reuse the live registry/AdvancedExpander/AgentModelPicker/user-workflows CRUD; NEW unified stepper)**, Agent drawer, Workflow dialog, draft-run persistence; deferred backend noted (visibility/sharing, pre-run cost/duration, discovery-pages) (ND-1/ND-7/ND-8/ND-12 gates) *(completed 2026-07-10; verifier PASSED 3/3; D-15/C goldens byte-identical; WR-01 flagship rebuild contract-parity byte-identical; 2 code-review rounds fully fixed; live launch → Phase 34)*
-- [x] **Phase 38: Analytics, Estimates & Notifications [B4]** — date-scoped aggregations, chart components, per-deliverable estimates, notifications feed (completed 2026-07-10)
-
-### v2.0 Phase Details
-
 ### Phase 28: Chat Contracts & Guards [A0]
 
 **Goal:** Every contract the later phases build against is pinned before code: event vocabulary + golden guards, Steps artifact-derivation rules, the live-state contract, the e2e chat driver, and the ND-1..ND-9 decision records.
@@ -947,6 +919,8 @@ Plans:
 - [ ] 33-05-PLAN.md — Wave 4: SC-001 throwaway-manifest proof + manifest chat: data key (INV-5) + INV-3 golden neutrality (5 goldens byte-identical) [SC-001, INV-3]
 
 ### Phase 34: Live Pass & Closure [A6]
+
+> **⚠ SUPERSEDED by Phase 43** (Concierge Live Wiring and Live-Pass Closure) — never executed; its full worklist is carried and updated for Phases 35–42 in `43-CONTEXT.md`. Kept here for provenance.
 
 **Goal:** Everything proven live on Bedrock; registers updated; deferrals swept.
 **Depends on:** Phases 31, 33 (32 recommended)
@@ -1142,7 +1116,8 @@ Plans:
 | 31. Chat Lane MVP [A3] | 7/7 | Complete    | 2026-07-08 |
 | 32. Run-Screen Redesign [A4] | 10/10 | Complete   | 2026-07-08 |
 | 33. Concierge + Compaction [A5] | 5/5 | Verified⚠ (P34 live) | — |
-| 34. Live Pass & Closure [A6] | 0/? | Not started | — |
+| 34. Live Pass & Closure [A6] | 0/? | Superseded → Phase 43 | 2026-07-15 |
+| 43. Concierge Live Wiring & Live-Pass Closure [A6-redux] | 0/? | Pending (planned) | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
 | 37. Configure Unification [B3] | 5/6 | In Progress|  |
@@ -1150,3 +1125,15 @@ Plans:
 | 39. Run Screen Mock Fidelity [B5] | 7/7 | Complete | 2026-07-12 |
 | 40. Shell Mock Fidelity (restyle) [B6] | 7/7 | Complete | 2026-07-12 |
 | 41. Configure Unification + Composer Rebuild [B7] | 7/7 | Complete (SC-1 Configure reverted) | 2026-07-14 |
+
+### Phase 43: Concierge Live Wiring and Live-Pass Closure [A6-redux]
+
+**Goal:** The milestone-end live pass — **carries/supersedes Phase 34** (never executed), updated for Phases 35–42. **Part A** (offline wiring): decide the transport fork (A.0 — SSE-activation vs WS-routed Concierge), then wire the dormant Concierge to a live caller (A.1 — attach the `RunChatLane` Concierge props + **re-route the settled-run free-text path so a status question is answered, not launched as a `*_revision`** + fix H1/M2/M3/M1 + the dead proposal-drain), mount the SSE provider (A.2), the steering live-drain (A.3 — also delivers per-turn images, DEF-30-03-1), and the narrator live call-site (A.4). **Part B** (needs Bedrock SSO): the 7 live checks (multi-turn chat+images · mid-run steering · Concierge Q&A · `cache_read>0` incl. multi-turn cache placement · LaunchWizard live launch · analytics/notification live · live Playwright chat suite) + the `default`-profile live re-confirms. **Part C** (closure): register/deferred-items sweeps, the WS→SSE deletion + INV-12 exit gate (LOCK-B), `/gsd-complete-milestone` v2.0. Full worklist + verified current file:line integration points + the stale-ref map in `43-CONTEXT.md`.
+**Requirements:** carries Phase-34 SC (live chat/images/steering/Concierge/cache/launch/analytics/Playwright) + the exhaustive live-deferred register (CONTEXT §5).
+**Depends on:** Phase 33 (the `chat:concierge` subsystem this wires), Phase 29 (chat backbone / SSE / steering / narrator seams), Phase 42 (the run-screen restructure that moved the FE integration points), Phase 30/37/38 (offline halves whose live-confirm folds in). **Supersedes Phase 34 [A6].**
+**Status:** SUPERVISED — Part A/C offline-doable; Part B needs live AWS Bedrock. NOT autonomous.
+**Plans:** 0 plans (run `/gsd-plan-phase 43`)
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 43 to break down)
