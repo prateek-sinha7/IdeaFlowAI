@@ -31,7 +31,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { parseRunInput } from "@/lib/runInput";
-import { getToken, getChainContext, getRunFamily, postCancel } from "@/lib/api";
+import { getToken, getChainContext, getRunFamily, postCancel, postRevision } from "@/lib/api";
 import type { UserWorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -500,15 +500,33 @@ export function DashboardLayout({
 
     const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
 
-    // Phase 3: use run_revision if we have a completed run ID
-    if (contentSourceRunId && websocketSend) {
+    // W3b (44-05): launch the revision when we have a completed parent run id.
+    // Flag-selected transport (mirrors W2/44-04): SSE ON → POST /{id}/revisions
+    // (Strategy A — the byte-twin of engine._handle_revision: server-side artifact
+    // seed + planning-context prepend + exact-kind derived_from lineage), then
+    // attach the returned run so it streams over SSE (W1). OFF → the existing WS
+    // run_revision frame, kept byte-identical until the BE handler deletion (44-07).
+    // Either branch passes contentSourceRunId as the explicit parent (bug (b): no
+    // orphaned run — source_workflow_run_id is written server-side from it).
+    if (contentSourceRunId && (runConnection.enabled || websocketSend)) {
       const targetType = isOdPpt ? "od_ppt_output" : "ppt_output";
-      websocketSend(JSON.stringify({
-        type: "run_revision",
-        parent_run_id: contentSourceRunId,
-        target_artifact_type: targetType,
-        instruction,
-      }));
+      if (runConnection.enabled) {
+        void postRevision(getToken() ?? "", contentSourceRunId, {
+          target_artifact_type: targetType,
+          instruction,
+        })
+          .then(({ run_id }) => {
+            if (run_id) runConnection.attachRun(run_id);
+          })
+          .catch((e) => console.error("postRevision failed", e));
+      } else if (websocketSend) {
+        websocketSend(JSON.stringify({
+          type: "run_revision",
+          parent_run_id: contentSourceRunId,
+          target_artifact_type: targetType,
+          instruction,
+        }));
+      }
       setWorkflowType((isOdPpt ? "od_ppt_revision" : "ppt_revision") as WorkflowType);
       if (onResetPipeline) onResetPipeline();
       return;
@@ -532,7 +550,7 @@ export function DashboardLayout({
         onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
       }
     }
-  }, [workflowType, pptxCode, pptContent, contentSourceRunId, websocketSend, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [workflowType, pptxCode, pptContent, contentSourceRunId, websocketSend, runConnection, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {
@@ -1281,7 +1299,7 @@ export function DashboardLayout({
   // AgentProgressPanel used before the lane absorbed it). Undefined when the
   // current output type has no revise path.
   const activeReviseHandler =
-    (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt :
+    (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision") ? handleRevisePpt :
     (workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory :
     (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
     (workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder :
