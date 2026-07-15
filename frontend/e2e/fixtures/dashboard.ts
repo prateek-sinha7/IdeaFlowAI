@@ -143,10 +143,16 @@ export class DashboardPage {
     return this.page.getByTestId("steps-agent-row").filter({ hasText: name });
   }
 
-  /** The per-agent "Live" badge carried by a RUNNING agent's spine row — one per
-   *  running agent (the per-agent running signal that replaced the RUNNING badge). */
+  /** The per-agent RUNNING signal in the spine — one per running agent. Phase 42
+   *  REMOVED the spine's "Live" text pill (it now lives ONLY in the L2 agent-detail
+   *  header); a running spine row is instead marked by its violet highlight + a
+   *  pulsing brand dot (StepsOverviewSpine running node). This locator counts the
+   *  running rows via that reskin-durable pulse indicator, preserving the old
+   *  "how many agents are live" semantics the callers assert on. */
   stepsLiveBadge(): Locator {
-    return this.page.getByTestId("steps-agent-row").getByText("Live", { exact: true });
+    return this.page
+      .getByTestId("steps-agent-row")
+      .filter({ has: this.page.locator("span.animate-pulse") });
   }
 
   /** The Steps L1 segmented progress track (one segment per agent). */
