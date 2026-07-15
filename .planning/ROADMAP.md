@@ -1169,7 +1169,7 @@ Plans:
 **Requirements**: carries 43-09's C.3 (WS deletion / INV-12 exit gate) — re-scoped to a hard cutoff — + the run_revision retirement (D1/CTX-04) + the Part-B live re-confirm tail. LOCK-B precondition ("human validates the live cutover") is SATISFIED per `43-LIVE-EVIDENCE.md`.
 **Depends on:** Phase 43 (the supervised SSE cutover this deletes behind), Phase 29 (the additive REST/SSE twin). **Supersedes Phase 43-09.**
 **Status:** SUPERVISED — offline FE-rewire + BE-relocation + tests, then a live SSE smoke + a live-Bedrock Part-B lane. **Does NOT close the v2.0 milestone** (separate later step).
-**Plans:** 10/12 plans executed
+**Plans:** 11/12 plans executed
 
 Plans:
 
@@ -1183,5 +1183,5 @@ Plans:
 - [x] 44-08-PLAN.md — W5b: backend WS-test migration to REST + delete obsolete WS tests [wave 6]
 - [x] 44-09-PLAN.md — W5a: e2e harness -> SSE + re-point the mocked suite [wave 5]
 - [x] 44-10-PLAN.md — W5c: CI banned-pattern gate (the hard-cutoff ratchet) [wave 6]
-- [ ] 44-11-PLAN.md — W6: offline Part-B (ISS-033 aux-token fold + mocked-SSE B.6b) [wave 6]
+- [x] 44-11-PLAN.md — W6: offline Part-B (ISS-033 aux-token fold + mocked-SSE B.6b) [wave 6] — Complete 2026-07-16 (0dadd5da, b4a20c55)
 - [ ] 44-12-PLAN.md — W6 live lanes + supervised live SSE smoke (autonomous:false, Bedrock SSO) [wave 7]
