@@ -7,7 +7,7 @@ Items surfaced during execution that are intentionally deferred within the phase
 ## DEF-43-03-1 — Narrator A.4 live injection + seq-allocator reconciliation
 
 **Surfaced by:** 43-03 (narrator live call-site + nonce hardening), 2026-07-15.
-**Status:** Deferred → **owned by 43-06** (the supervised SSE cutover). Tracked in 43-06 `files_modified` (`backend/app/api/run_commands.py`) + `must_haves` + `requirements: A.4`.
+**Status:** ✅ **RESOLVED 2026-07-15 (commit `8badaa1c`).** Fixed via option 1 below (card drawn from the engine's own counter, yielded as a first-class event). Verified offline (+2 regression tests, contiguous seqs `[1,2,3,4,5]`, goldens 10/10) AND live on Bedrock (639 events, perfectly contiguous across 3 live narrator cards — see `43-LIVE-EVIDENCE.md`). The analysis below is retained for the record.
 
 **What 43-03 delivered (offline, done):** the dormant narrator injection SEAM — `engine.execute(milestone_sink=None)` + `_RunEventSink.emit_milestone_card` at the run_events sink boundary; `persist_milestone_card` reaches the kernel only as an injected callback (no `chat_narrator` import in the engine — INV-12/ports-&-adapters). Proven end-to-end by `TestEngineSinkWiring`. Dormant by default (`milestone_sink=None`), so it fires on ZERO golden paths (goldens byte-identical, 10/10).
 
