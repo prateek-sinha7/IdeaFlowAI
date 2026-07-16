@@ -47,7 +47,9 @@ async function fetchSse(
       const res = await fetch(path, { headers });
       const text = await res.text();
       const events: WireEvent[] = [];
-      for (const block of text.split("\n\n")) {
+      // Mirror useRunStream: normalize CRLF -> LF so `\r\n\r\n` frames split, then
+      // tolerantly unwrap the real `{type,data}` envelope (BUG-014-B).
+      for (const block of text.replace(/\r\n/g, "\n").split("\n\n")) {
         if (!block.trim()) continue;
         let id: string | undefined;
         let type: string | undefined;
@@ -57,8 +59,14 @@ async function fetchSse(
           else if (line.startsWith("event:")) type = line.slice(6).trim();
           else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
         }
-        const data = dataLine ? JSON.parse(dataLine) : {};
-        events.push({ seq: Number(id), type: type ?? "", data });
+        const parsed = (dataLine ? JSON.parse(dataLine) : {}) as Record<string, unknown>;
+        let evType = type ?? "";
+        let data = parsed;
+        if (typeof parsed.type === "string") {
+          evType = parsed.type;
+          data = (parsed.data as Record<string, unknown>) ?? {};
+        }
+        events.push({ seq: Number(id), type: evType, data: data as WireEvent["data"] });
       }
       return events;
     },

@@ -27,11 +27,13 @@
  * so the provider re-queries and attaches the stream. The durable tail means a
  * frame emitted before the attach completes is still replayed on attach — no race.
  *
- * Wire model (mirrors the WS envelope projected onto SSE):
+ * Wire model (the REAL sse-starlette backend wire, BUG-014-B):
  *   - `id: {seq}`      → the SSE id line == the shared monotonic `seq` cursor.
- *   - `event: {type}`  → the frame's event-type discriminator.
- *   - `data: {json}`   → the payload, carrying `event_id` (dedup key) + `seq`
- *                        (resume cursor), exactly as `useRunStream` dispatches.
+ *   - `data: {json}`   → the `{type, data}` envelope: `type` is the event-type
+ *                        discriminator (NO separate `event:` line — retired), and
+ *                        the inner `data` carries `event_id` (dedup key) + `seq`
+ *                        (resume cursor), exactly as `useRunStream` unwraps.
+ *   - Frames are CRLF-separated (`\r\n\r\n`), matching sse-starlette==3.0.2.
  *
  * Replay / drop / reattach:
  *   - `handleStream()` honors `Last-Event-ID` — it serves only frames with `seq`
@@ -436,7 +438,12 @@ export class MockSse implements SeqSource {
         if (top.chunk !== undefined) extras.chunk = top.chunk;
         if (top.section !== undefined) extras.section = top.section;
         const dataObj = { ...f.data, ...extras };
-        return `id: ${f.data.seq}\nevent: ${f.type}\ndata: ${JSON.stringify(dataObj)}\n\n`;
+        // The REAL backend wire (sse-starlette): NO `event:` line — the frame's
+        // type is nested inside the `data:` JSON as `{type, data}`, and frames are
+        // CRLF-separated (`\r\n\r\n`). event_id/seq/chunk/section live INSIDE the
+        // inner data (BUG-014-B).
+        const envelope = JSON.stringify({ type: f.type, data: dataObj });
+        return `id: ${f.data.seq}\r\ndata: ${envelope}\r\n\r\n`;
       })
       .join("");
   }

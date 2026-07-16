@@ -224,11 +224,21 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
         else if (line.startsWith("event:")) typeLine = line.slice(6).trim();
         else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
       }
-      const type = typeLine ?? "";
+      let type = typeLine ?? "";
       let data: Record<string, unknown> = {};
       if (dataLine) {
         try {
-          data = JSON.parse(dataLine) as Record<string, unknown>;
+          const parsed = JSON.parse(dataLine) as Record<string, unknown>;
+          if (typeof parsed.type === "string") {
+            // Real backend wire: the `{type, data}` envelope nested in the
+            // `data:` line (no `event:` line). Unwrap it (BUG-014-B).
+            type = parsed.type;
+            data = (parsed.data as Record<string, unknown>) ?? {};
+          } else {
+            // Legacy/mock flat shape: the `event:` line carries the type and the
+            // whole parsed object is the payload — tolerant of both wires.
+            data = parsed;
+          }
         } catch {
           return; // malformed — discard (WS-path parity)
         }
@@ -338,7 +348,12 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
           for (;;) {
             const { value, done } = await reader.read();
             if (done) break;
-            buf += decoder.decode(value, { stream: true });
+            // Normalize CRLF -> LF on decode so the backend's `\r\n\r\n` frame
+            // separators (sse-starlette) boundary-match the `indexOf("\n\n")`
+            // split below. This targets only line-ending CRLF; JSON string data
+            // escapes newlines as literal `\n`, never raw `\r\n`, so payloads are
+            // untouched (BUG-014-B).
+            buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
             let idx: number;
             while ((idx = buf.indexOf("\n\n")) !== -1) {
               const rawBlock = buf.slice(0, idx);
