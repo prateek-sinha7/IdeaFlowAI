@@ -922,7 +922,7 @@ export default function DashboardPage() {
     [runConnection],
   );
 
-  const { messages: runChatMessages, sendMessage: sendRunChatMessage } = useRunChat({
+  const { messages: runChatMessages, sendMessage: sendRunChatMessage, seedTranscript: seedRunChatTranscript } = useRunChat({
     // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
     // path hits the in-flight run instead of null-then-fresh-POST; fall back to
     // the clarify-only activePipelineRunId when the build id is not yet set.
@@ -1225,6 +1225,14 @@ export default function DashboardPage() {
                 data: frame.data,
               } as unknown as StreamMessage);
             }
+            // DEF-44-12-4 (Piece 3) — seed the prior chat turns from the SAME
+            // once-fetched frames (do not fetch twice). The page router early-
+            // returns chat_message/chat_reply frames, so the transcript needs
+            // them folded through the hook's imperative seed. seedTranscript
+            // resets the hook's seen-set + seq cursor so Piece 2's re-fetch-after-
+            // send then pulls only newer events. Only fired on this deliberate
+            // view-change, so a live revision's family anchoring is preserved.
+            seedRunChatTranscript(durableFrames);
           } catch (seedErr) {
             // Log-and-continue: a seed fetch failure must not break the reopen
             // content path already set above.
@@ -1304,7 +1312,7 @@ export default function DashboardPage() {
     // DEF-44-12-4 — the closure now reads pipelineState.pipelineRunId and calls
     // resetPipeline/setWaveGroups/handleWebSocketMessage/setSubmittedBrief, so
     // they MUST be deps (refs seenEventIdsRef/lastSeqRef are stable, omitted).
-    [pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief]
+    [pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript]
   );
 
   // Handle new chat creation from sidebar

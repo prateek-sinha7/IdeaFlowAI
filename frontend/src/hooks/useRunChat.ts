@@ -114,6 +114,16 @@ export interface UseRunChatReturn {
   ) => string;
   /** The latest `stream_attached` handshake state (null until first attach). */
   streamAttached: StreamAttachedState | null;
+  /**
+   * DEF-44-12-4 (Piece 3) — IMPERATIVE prior-transcript seed, fired ONLY from
+   * the explicit history-open action. Clears the per-hook seen-set + seq cursor,
+   * resets `messages` to empty, then folds each frame through `handleFrame` (so
+   * `chat_message`/`chat_reply` rows re-populate as turns; non-chat frames are
+   * ignored). Because it is imperative and never called on a live revision, the
+   * accumulating family-anchored transcript (Test 6) is untouched — the reset is
+   * scoped by the deliberate view-change, NOT by a per-run filter on handleFrame.
+   */
+  seedTranscript: (frames: RunChatFrame[]) => void;
 }
 
 // ── id minting ────────────────────────────────────────────────────────────────
@@ -369,5 +379,20 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
     [runId, sendCommand, legacyWsSend, fetchEvents, handleFrame],
   );
 
-  return { messages, sendMessage, streamAttached };
+  // DEF-44-12-4 (Piece 3) — reset + fold the seeded durable chat rows on an
+  // explicit history-open. handleFrame re-populates seenRef/lastSeqRef and
+  // appends chat turns; non-chat frames fall through its default branch. The
+  // setMessages([]) reset is queued before the per-frame updaters, so React
+  // applies them in order (empty → folded turns).
+  const seedTranscript = useCallback(
+    (frames: RunChatFrame[]) => {
+      seenRef.current.clear();
+      lastSeqRef.current = 0;
+      setMessages([]);
+      for (const f of frames) handleFrame(f);
+    },
+    [handleFrame],
+  );
+
+  return { messages, sendMessage, streamAttached, seedTranscript };
 }
