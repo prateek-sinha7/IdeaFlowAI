@@ -189,6 +189,65 @@ test.describe("TS-T — WorkflowHistory", () => {
     await expect(iframe).toHaveAttribute("srcdoc", /<h1>Hi<\/h1>/);
   });
 
+  test("TS-T-04c od_ppt (and od_prototype) reopen renders its TYPED deliverable in the shared run screen (BUG-012)", async ({ dashboard, mockApi, page }) => {
+    // BUG-012: reopening a completed od_ppt run whose output is valid deck HTML
+    // rendered the neutral "Output will appear here" BLANK state instead of the
+    // deck. Root cause: the PreviewPanel render dispatch keyed on a stale
+    // `workflowType` default ("user_stories"), so detectedType/renderType never
+    // consulted the seeded pptContent and the ppt renderer holding the deck never
+    // fired. The DURABLE fix threads the viewed run's real type end-to-end
+    // (fullRun.type → contentSourceRunType → viewedRunType → effectiveReviseType →
+    // PreviewPanel), so the typed renderer fires for runs even OUTSIDE the recents
+    // window (History-tapped runs are not in recents — the exact failing case).
+    //
+    // FAIL-BEFORE (unmodified tree): the reopened od_ppt shows the blank state and
+    // the "Slide Deck Preview" iframe is absent. PASS-AFTER (Task 2 thread): the
+    // deck renders.
+    mockApi.setRuns([
+      makeRun({
+        id: "r-ppt",
+        title: "Pitch deck reopen",
+        type: "od_ppt",
+        status: "completed",
+        output: "<!DOCTYPE html><html><body><h1>DECK-SLIDE-1</h1></body></html>",
+        deliverable_mimetype: "text/html",
+      }),
+    ]);
+
+    await dashboard.goto();
+    await openHistory(page);
+    await page.getByText("Pitch deck reopen").click();
+
+    // The shared run screen mounts (BUG-002 routing).
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
+
+    // The deck renders in the Preview tab — the ppt renderer's "Slide Deck
+    // Preview" iframe is present AND the neutral blank state is absent.
+    await dashboard.previewTab().click();
+    await expect(page.locator('iframe[title="Slide Deck Preview"]')).toBeVisible();
+    await expect(page.getByText("Output will appear here")).toHaveCount(0);
+
+    // Sibling: an od_prototype reopen fires its typed prototype renderer once fed
+    // the right type (the same thread) — mirror, do not block on it.
+    mockApi.setRuns([
+      makeRun({
+        id: "r-proto",
+        title: "Prototype reopen",
+        type: "od_prototype",
+        status: "completed",
+        output: "<!DOCTYPE html><html><body><h1>PROTO-VIEW</h1></body></html>",
+        deliverable_mimetype: "text/html",
+      }),
+    ]);
+    await dashboard.goto();
+    await openHistory(page);
+    await page.getByText("Prototype reopen").click();
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
+    await dashboard.previewTab().click();
+    await expect(page.locator('iframe[title="Prototype Preview"]')).toBeVisible();
+    await expect(page.getByText("Output will appear here")).toHaveCount(0);
+  });
+
   test("TS-T-06 delete a run via kebab → confirm modal → DELETE request", async ({ dashboard, mockApi, page }) => {
     mockApi.setRuns([
       makeRun({ id: "del-1", title: "Disposable run", type: "user_stories", status: "completed" }),
