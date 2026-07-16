@@ -358,3 +358,41 @@ describe("LaunchWizard — ported behaviors", () => {
     expect(screen.getByRole("button", { name: "Back to dashboard" })).toBeInTheDocument();
   });
 });
+
+describe("LaunchWizard — BUG-014: chain.source_run_id must not leak into a fresh launch", () => {
+  it("a fresh launch (no chain.from → isChaining=false) does not leak a stale chain.source_run_id and clears the key", async () => {
+    const user = userEvent.setup();
+    // A stale source id lingers from a previously-viewed/chained run — but this
+    // launch is a fresh Home entry (no chain.from → isChaining=false).
+    sessionStorage.setItem("chain.source_run_id", "stale-run");
+    render(<LaunchWizard initialMode="prototype" />);
+    await user.type(await screen.findByLabelText("Brief"), "Build a kanban board");
+    await user.click(screen.getByTestId("pick-web"));
+    await user.click(await screen.findByTestId("pick-ds"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const draft = JSON.parse(sessionStorage.getItem("prototype.draft")!);
+    // Fresh launch → top-level run → NO sourceRunId in the draft.
+    expect(draft.sourceRunId).toBeUndefined();
+    // Consume-once: the stale key is removed so it cannot leak into a later launch.
+    expect(sessionStorage.getItem("chain.source_run_id")).toBeNull();
+  });
+
+  it("a genuine chain (chain.from + chain.source_run_id → isChaining=true) still threads the source id and clears the key", async () => {
+    const user = userEvent.setup();
+    sessionStorage.setItem("chain.from", "user_stories");
+    sessionStorage.setItem("chain.context_block", "PRIOR CONTEXT");
+    sessionStorage.setItem("chain.source_run_id", "run-42");
+    render(<LaunchWizard initialMode="prototype" />);
+    // Brief editor hidden when chaining — the topic comes from the prior run.
+    await waitFor(() => expect(screen.queryByLabelText("Brief")).not.toBeInTheDocument());
+    await user.click(await screen.findByTestId("pick-ds"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const draft = JSON.parse(sessionStorage.getItem("prototype.draft")!);
+    // Revision-family linkage preserved: a genuine chain still carries the source id.
+    expect(draft.sourceRunId).toBe("run-42");
+    // Consume-once: the key is cleared afterward so it can't leak into the next launch.
+    expect(sessionStorage.getItem("chain.source_run_id")).toBeNull();
+  });
+});
