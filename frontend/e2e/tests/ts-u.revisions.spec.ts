@@ -38,6 +38,12 @@ import { test, expect } from "../fixtures/test";
 import { AGENTS, runAgent, SAMPLE_DECK, SAMPLE_BACKLOG } from "../fixtures/scenarios";
 import { makeRun } from "../fixtures/mockApi";
 
+// A reopened od_ppt deliverable — non-deck narration text (the LV-02 shape: the
+// validator streamed prose, not a parseable deck). Non-empty so the reopen seeds
+// pptContent → the lane settles to "complete" and the confirm-first refinement
+// chip is reachable, while userStoryContent stays empty (only od_ppt content set).
+const OD_PPT_NARRATION = "Draft narration for the investor pitch — 6 slides covering market, product, and unit economics.";
+
 // A *different* deck so the post-revision iframe content is provably the new one.
 const REVISED_DECK = `<!DOCTYPE html><html><body>${Array.from({ length: 6 })
   .map((_, i) => `<section class="slide">Revised Slide ${i + 1}</section>`)
@@ -164,6 +170,41 @@ test.describe("TS-U — revision runs", () => {
     // The change instruction is embedded in the (delimited) revision message.
     expect(String(frame.message)).toContain("Add a story for password reset");
     expect(String(frame.message)).toContain("=== EXISTING PRODUCT BACKLOG ===");
+  });
+
+  test("TS-U-09 reopen-revise: a REOPENED od_ppt run fires exactly one POST /revisions (BUG-003)", async ({ dashboard, mockSse, mockApi }) => {
+    // A COMPLETED od_ppt run in history/recents — reopened (not launched) so the
+    // isRunning-gated workflowType sync never fires and workflowType stays stale
+    // ("user_stories"). Before the fix the revise selector picked the WRONG handler
+    // (handleReviseUserStory, whose empty-userStoryContent guard no-ops), so "Run
+    // refinement" fired ZERO requests. The fix binds the selector to the VIEWED
+    // run's TYPE → handleRevisePpt → the self-sufficient contentSourceRunId REST
+    // path fires one POST /revisions.
+    const parentId = "od-ppt-reopen-1";
+    mockApi.setRuns([
+      makeRun({ id: parentId, title: "Investor pitch deck", type: "od_ppt", status: "completed", input: "A B2B carbon-accounting pitch", output: OD_PPT_NARRATION }),
+    ]);
+    await dashboard.stubRunEvents(parentId, []);
+
+    await dashboard.goto();
+    await dashboard.openRecent("Investor pitch deck");
+
+    // The reopened run settles to the "complete" lane → the revise-as-chat composer.
+    const revInput = dashboard.page.getByPlaceholder(/Ask for a change or a follow-up/);
+    await expect(revInput).toBeVisible();
+
+    // Type a CHANGE → held behind the confirm chip → confirm launches the revision.
+    await revInput.fill("Add a closing slide about carbon offsets");
+    await dashboard.page.getByTestId("chat-send").click();
+    await dashboard.page.getByTestId("chat-refinement-confirm").click();
+
+    // Fail-before: NO run_revision fires (wrong handler no-ops). Pass-after: exactly
+    // one POST /api/runs/{parent}/revisions, parented to the reopened run.
+    const frame = await mockSse.waitForCommand(
+      (c) => c.type === "run_revision" && c.parent_run_id === parentId,
+    );
+    expect(frame.instruction).toBe("Add a closing slide about carbon offsets");
+    expect(mockSse.framesOfType("run_revision")).toHaveLength(1);
   });
 
   // ── Backend / persistence / reconnect concerns — not mocked-UI observable ──

@@ -189,12 +189,22 @@ export class MockSse implements SeqSource {
   /** pipeline_start — seeds the agent cards (each idle). */
   start(agents: AgentSeed[], opts: { pipelineType?: string; runId?: string; createdAt?: string } = {}) {
     if (opts.runId) this.runId = opts.runId;
+    const pipelineType = opts.pipelineType ?? "user_stories";
     this.emit("pipeline_start", {
       pipeline_run_id: this.runId,
-      pipeline_type: opts.pipelineType ?? "user_stories",
+      pipeline_type: pipelineType,
       created_at: opts.createdAt,
       agents: agents.map((a, i) => ({ id: a.id, name: a.name, role: a.role, icon: a.icon ?? "🤖", order: a.order ?? i })),
     });
+    // Fidelity: type the surfaced live run by its actual pipeline type (the real
+    // GET /api/runs returns the true type). The lazy attach seeded it as a generic
+    // "user_stories" placeholder; correct it so a consumer reading recentRuns by id
+    // (e.g. the viewed-run-type revise selector) resolves the real type.
+    if (this.autoAttach) {
+      this.liveRuns = [
+        makeRun({ id: this.runId, status: "running", type: pipelineType }) as unknown as RawRun,
+      ];
+    }
   }
 
   plannerStart() { this.emit("planner_start", { pipeline_run_id: this.runId }); }

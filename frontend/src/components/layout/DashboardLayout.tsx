@@ -490,7 +490,15 @@ export function DashboardLayout({
   // /{id}/revisions) when a completed run exists; fall back to the legacy
   // text-injection pattern for backward compat with pre-Phase3 runs.
   const handleRevisePpt = useCallback((instruction: string) => {
-    if (!pptxCode && !pptContent) return;
+    // BUG-003: do NOT let the empty-content guard block the self-sufficient REST
+    // path below. On a reopened od_ppt run both pptxCode (no ppt-code-generator
+    // agent → always undefined) and pptContent (empty when fullRun.output is empty
+    // — LV-02) are empty, so the old content-only early-return fired nothing.
+    // When a parent run id (contentSourceRunId) exists the handler
+    // proceeds to postRevision (:504), which reseeds the parent deck server-side
+    // and needs no local content. The legacy text-injection fallback (:519-536) is
+    // reached only when contentSourceRunId is falsy and still reads the content.
+    if (!contentSourceRunId && !pptxCode && !pptContent) return;
 
     const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
 
@@ -1226,14 +1234,27 @@ export function DashboardLayout({
   }, []);
 
   // ─── Phase 31 (CHATUI-01/02/03) — run chat lane derivations ──────────────────
-  // The workflowType-selected revise handler (the SAME expression the left-column
-  // AgentProgressPanel used before the lane absorbed it). Undefined when the
-  // current output type has no revise path.
+  // The revise handler selected by the run TYPE (the SAME expression the
+  // left-column AgentProgressPanel used before the lane absorbed it). Undefined
+  // when the current output type has no revise path.
+  //
+  // BUG-003: on a COMPLETED reopen the `workflowType` sync effect (:330) is
+  // isRunning-gated and never fires, leaving workflowType stale (likely
+  // "user_stories") → the selector picked the wrong handler (a no-op) for a
+  // reopened od_ppt run. Bind the selection to the VIEWED run's type when not
+  // running (mirrors BUG-001); fall back to workflowType while running/launching
+  // (viewedRunType undefined → byte-identical, no regression). SC-001-safe (keys
+  // on run.type, no workflow-name literal added to a guarded component).
+  const viewedRunType =
+    !isPipelineRunning && contentSourceRunId != null
+      ? recentRuns?.find((r) => r.id === contentSourceRunId)?.type
+      : undefined;
+  const effectiveReviseType = viewedRunType ?? workflowType;
   const activeReviseHandler =
-    (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision") ? handleRevisePpt :
-    (workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory :
-    (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
-    (workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder :
+    (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision" || effectiveReviseType === "od_ppt" || effectiveReviseType === "od_ppt_revision") ? handleRevisePpt :
+    (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
+    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" || effectiveReviseType === "od_prototype" || !!prototypeContent) ? handleRevisePrototype :
+    (effectiveReviseType === "app_builder" || effectiveReviseType === "app_builder_revision") ? handleReviseAppBuilder :
     undefined;
 
   // ─── 43-02 (A.1 CRUX) — Concierge send seam + confirm round-trip ─────────────
