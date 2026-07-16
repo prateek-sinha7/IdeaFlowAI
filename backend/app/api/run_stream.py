@@ -76,6 +76,16 @@ _GATE_RESOLUTION_TYPES = frozenset(
     }
 )
 
+# BUG-016: the live-drain STREAM terminals — the subset that actually closes the
+# open SSE stream. ``review_gate_approved`` is a gate RESUMPTION, not a stream
+# terminal: approve makes the engine keep building on the SAME per-run queue
+# (post-approve ``generating`` frames follow), so closing the stream on it forces
+# a needless reconnect + full replay. Only pipeline_complete / pipeline_cancelled /
+# pipeline_failed / budget_aborted / error truly end the run's event stream. The
+# broader ``_GATE_RESOLUTION_TYPES`` (which DOES include approve) still drives the
+# D-14g durable gate re-arm derivation below — that is a separate concern.
+_STREAM_TERMINAL_TYPES = _GATE_RESOLUTION_TYPES - frozenset({"review_gate_approved"})
+
 
 # ---------------------------------------------------------------------------
 # SSE frame rendering — the 29-01 projection contract, re-implemented in-line.
@@ -195,7 +205,7 @@ async def _iter_sse_frames(
         seq = data.get("seq", replayed_through_seq) if isinstance(data, dict) else replayed_through_seq
         yield _sse_frame(seq, event.get("type", "message"), data)
         replayed_through_seq = seq
-        if event.get("type") in _GATE_RESOLUTION_TYPES:
+        if event.get("type") in _STREAM_TERMINAL_TYPES:
             return
 
 
