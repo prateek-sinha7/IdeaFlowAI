@@ -33,7 +33,11 @@ describe("DashboardLayout revision linkage source", () => {
 
 describe("dashboard page.tsx contentSourceRunId lifecycle", () => {
   it("sets the source on live completion and reopen, clears on fresh run", () => {
-    expect(dashboardPage).toContain("setContentSourceRunId(data.pipeline_run_id");
+    // BUG-011: the live-completion set is now run-scoped — the pipeline_run_id is
+    // read into `completingRunId` and the set is gated behind !isForeignCompletion.
+    // The linkage from the completion's pipeline_run_id is preserved.
+    expect(dashboardPage).toContain("const completingRunId = data.pipeline_run_id");
+    expect(dashboardPage).toContain("setContentSourceRunId(completingRunId)");
     expect(dashboardPage).toContain("setContentSourceRunId(fullRun.id)");
     expect(dashboardPage).toContain("setContentSourceRunId(null)");
   });

@@ -527,7 +527,19 @@ export default function DashboardPage() {
         // Revision Families (B1): the live completion source — the engine emits
         // pipeline_run_id in the pipeline_complete data (engine.py:2267). This is
         // the run a subsequent inline revise must link as its parent.
-        if (data.pipeline_run_id) setContentSourceRunId(data.pipeline_run_id as string);
+        // BUG-011: run-scope the set so a FOREIGN concurrent run's completion can
+        // no longer re-point the VIEWED content-source. Mirrors the BUG-005
+        // pipeline_start `isForeignRun` shape (gate on the trackedRunIdRef, not the
+        // stale-closure state). When the completing run IS the tracked/launched run
+        // (launch->watch) OR there is no tracked id yet, it is NOT foreign — so the
+        // set runs byte-identically to before; only a genuine foreign concurrent
+        // completion is skipped.
+        const completingRunId = data.pipeline_run_id as string | undefined;
+        const isForeignCompletion =
+          !!completingRunId &&
+          !!trackedRunIdRef.current &&
+          completingRunId !== trackedRunIdRef.current;
+        if (completingRunId && !isForeignCompletion) setContentSourceRunId(completingRunId);
         const finalOutput = data.final_output as string;
         const pipelineType = data.pipeline_type as string;
 
