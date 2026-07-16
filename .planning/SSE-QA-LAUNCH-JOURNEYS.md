@@ -90,3 +90,20 @@
 - **Files**: `files-building-hero` else role/text.
 - **Audit**: `audit-{records-pill,live-badge,export-menu,verdict-banner,row,search,filter-*}`.
 - **Preview**: `preview-chrome`, `preview-url`, `preview-progress`, `renders-as-switch`, `renderer-pill`, `run-header`(`data-run-state`).
+
+---
+
+## Live results (2026-07-16 — on the FE-cluster-fixed UI, all 0 `/ws/chat`)
+
+**Cluster fix live-proven:**
+- **BUG-005** ✅ — run A held at clarify + run B building concurrently → A's 5 clarify questions survived ("Clarifying", NOT "0/0 BUILDING"). `proof-bug005-A-steps.png`.
+- **BUG-001** ✅ — same shot: title = "A budgeting app for freelancers" (VIEWED run A), not the newer run B.
+- **BUG-002** ✅ — Run History → tap → shared run screen with chat/revise lane; no "No agent data/No preview". `proof-bug002-history-tap.png`.
+- **BUG-003** ✅ offline (TS-U-09 RED→GREEN); live skipped (available od_ppt run had non-empty output, doesn't exercise the empty-output edge).
+- **BUG-004** ✅ — 25 concurrent SSE streams + REST command → 200, no pool exhaustion.
+
+**Launch journeys:** LJ-04 ✅ full prototype wizard launch (Continue gated on DS; launch fires; reaches run screen) — **⚠️ revealed BUG-007 double-mint (2× POST /api/runs)**. LJ-23 Files ✅ · LJ-24 Audit ✅ · LJ-25 Preview ✅ (all on the History-opened run). LJ-27/28/29 edge gates ✅. LJ-08/13/16/18/19/20/21 covered earlier.
+
+**New bugs:** **BUG-006 🟡** (investigating) — pipeline-type label stale for a history-opened run (app_builder shown as "USER_STORIES"; sibling of BUG-001). **BUG-007 🟡** — double-mint: one UI launch fires 2× `POST /api/runs`.
+
+**Deferred (sequential, lower-value):** LJ-01/02/03/05/06/07 other-entry launches, LJ-14/15/17/22/26 rendering states, LJ-30..36 edge — spot-covered; full sweep deferred.
