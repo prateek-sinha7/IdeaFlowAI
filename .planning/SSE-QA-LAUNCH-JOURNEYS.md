@@ -66,9 +66,9 @@
 
 | ID | Scenario | Expected (correct) | Status | Evidence/Notes |
 |----|----------|--------------------|--------|----------------|
-| LJ-27 | Launch prototype WITHOUT a design system | **Continue DISABLED** + "Pick a design system" pill; no backend call | 🔄 | **BUG-005 area** — user got a stuck run; investigating whether the guard held |
-| LJ-28 | Launch ppt WITHOUT a template | **Continue DISABLED** + "Pick a template" pill | ⬜ | |
-| LJ-29 | Empty brief (all 3 paths) | launch button disabled | ⬜ | |
+| LJ-27 | Launch prototype WITHOUT a design system | **Continue DISABLED** + "Pick a design system" pill; no backend call | ✅ | `lj27-prototype-no-ds.png` — Continue disabled + pill shown, 0 POST /api/runs. The launch-gate HOLDS. |
+| LJ-28 | Launch ppt WITHOUT a template | **Continue DISABLED** + "Pick a template" pill | ✅ | `lj28-ppt-no-template.png` — Continue disabled + pill, no launch |
+| LJ-29 | Empty brief (all 3 paths) | launch button disabled | ✅ | Home Build disabled empty → enabled with brief |
 | LJ-30 | Tier-locked deliverable card | card disabled + Lock + "Requires {Tier} plan"; Inspect still works | ⬜ | QA user tier? |
 | LJ-31 | Cancel mid-clarify | "Cancel workflow" → terminal/cancelled | ⬜ | |
 | LJ-32 | Launch then immediately navigate away | staged draft fires once / re-fires; no double-launch | ⬜ | |
