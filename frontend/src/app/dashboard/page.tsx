@@ -941,6 +941,12 @@ export default function DashboardPage() {
     // SSE + REST is the sole transport (44-06) — the up-channel is sendCommand;
     // there is no legacy WS send.
     legacyWsSend: undefined,
+    // DEF-44-12-2 — after a send resolves, re-fetch the run's durable events so
+    // the Concierge reply (persisted durable-only, never queued → the live SSE
+    // tail never carries it) renders on an opened terminal/live run. The hook
+    // folds the returned frames through handleFrame (idempotent by event_id).
+    fetchEvents: (runId, afterSeq) =>
+      getRunEvents(getToken() ?? "", runId ?? "", afterSeq),
   });
 
   // The nonce'd deep-link seam (borrow #6): the lane's result cards call

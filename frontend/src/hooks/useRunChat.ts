@@ -67,6 +67,18 @@ export interface UseRunChatConfig {
    * `user_message` frame through this instead of `sendCommand` — same transcript.
    */
   legacyWsSend?: (payload: Record<string, unknown>) => void;
+  /**
+   * DEF-44-12-2 durable re-fetch. When supplied, `sendMessage` awaits the
+   * up-channel and THEN fetches events since the last seen `seq` and folds each
+   * through `handleFrame`. This delivers the Concierge reply (persisted durable-
+   * only, never queued → the live SSE tail never carries it) on BOTH terminal
+   * and live opened runs. The per-hook `event_id` dedup makes it idempotent.
+   * Absent → behaviour is byte-identical to today (no re-fetch, no crash).
+   */
+  fetchEvents?: (
+    runId: string | null,
+    afterSeq: number,
+  ) => Promise<RunChatFrame[]>;
 }
 
 /**
@@ -208,8 +220,16 @@ function upsertNarratorMessage(
   prev: ChatMessage[],
   data: Record<string, unknown>,
 ): ChatMessage[] {
+  // DEF-44-12-2 de-collision: key the assistant bubble on the frame's DISTINCT
+  // event_id ("chat-reply:{message_id}") when present, falling back to
+  // message_id (then a minted id). This is ALSO the idempotency key handleFrame
+  // dedups on — so a Concierge reply (which carries message_id === the user
+  // turn's id, run_commands.py:994) appends as its OWN turn instead of matching-
+  // and-overwriting the user's question bubble.
   const id =
-    typeof data.message_id === "string" && data.message_id
+    typeof data.event_id === "string" && data.event_id
+      ? data.event_id
+      : typeof data.message_id === "string" && data.message_id
       ? data.message_id
       : mintMessageId();
   const runId = typeof data.run_id === "string" ? data.run_id : undefined;
@@ -235,7 +255,7 @@ function upsertNarratorMessage(
 }
 
 export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
-  const { runId, subscribe, sendCommand, legacyWsSend } = config;
+  const { runId, subscribe, sendCommand, legacyWsSend, fetchEvents } = config;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamAttached, setStreamAttached] = useState<StreamAttachedState | null>(
@@ -244,6 +264,10 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
 
   // Per-hook dedup of frames by event_id (mirrors the dashboard seen-set).
   const seenRef = useRef<Set<string>>(new Set());
+  // Per-hook max-seen seq cursor (mirrors the page's lastSeqRef) — the offset the
+  // DEF-44-12-2 re-fetch-after-send passes as `afterSeq` so it pulls only newer
+  // events. Advanced inside handleFrame from a larger numeric `data.seq`.
+  const lastSeqRef = useRef<number>(0);
 
   const handleFrame = useCallback((frame: RunChatFrame) => {
     const data = (frame?.data ?? {}) as Record<string, unknown>;
@@ -251,6 +275,10 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
     if (eventId) {
       if (seenRef.current.has(eventId)) return; // replayed/duplicate — drop
       seenRef.current.add(eventId);
+    }
+    const seq = typeof data.seq === "number" ? data.seq : undefined;
+    if (typeof seq === "number" && seq > lastSeqRef.current) {
+      lastSeqRef.current = seq;
     }
     switch (frame.type) {
       case "chat_message":
@@ -317,11 +345,28 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
         // the payload shape + the routing decision, not a live round-trip).
         legacyWsSend({ type: "user_message", ...payload });
       } else {
-        void sendCommand(runId, payload);
+        // DEF-44-12-2 — fire-and-forget: await the up-channel, THEN (if a
+        // fetchEvents is wired) pull events since the last seen seq and fold each
+        // through handleFrame. This delivers the durable-only Concierge reply
+        // (never queued → the live tail never carries it) on both terminal and
+        // live opened runs. The per-hook event_id dedup guarantees idempotency
+        // (no duplicate reply, no duplicate echo). The synchronous optimistic
+        // render + `return messageId` above are unaffected (Test 5 send routing).
+        void (async () => {
+          await sendCommand(runId, payload);
+          if (!fetchEvents) return;
+          try {
+            const newFrames = await fetchEvents(runId, lastSeqRef.current);
+            for (const f of newFrames) handleFrame(f);
+          } catch {
+            // A re-fetch failure must not surface — the optimistic turn stands;
+            // a later live frame / reopen still reconciles by event_id.
+          }
+        })();
       }
       return messageId;
     },
-    [runId, sendCommand, legacyWsSend],
+    [runId, sendCommand, legacyWsSend, fetchEvents, handleFrame],
   );
 
   return { messages, sendMessage, streamAttached };
