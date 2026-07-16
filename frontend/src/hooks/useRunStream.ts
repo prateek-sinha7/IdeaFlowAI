@@ -152,6 +152,12 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stoppedRef = useRef(false);
   const connectRef = useRef<() => void>(() => {});
+  // BUG-015: the last `stream_attached` liveness for the CURRENT connection.
+  // Reset to false at the top of every connect() so liveness is judged per-
+  // connection — a genuine live-stream drop still reconnects; a non-live attach
+  // (a terminal run's post-replay close) does NOT (else it re-replays ~14k events
+  // in a loop and flaps the "Reconnecting…" banner).
+  const sawNonLiveAttachRef = useRef(false);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -265,7 +271,12 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
       if (type === "pipeline_heartbeat" || type === "pong") return;
 
       // stream_attached {live:true} → caught up, promote to the live phase (D-14d).
-      if (type === "stream_attached" && data.live === true) setPhase("live");
+      // Also record the attach liveness for the close branch (BUG-015): a non-live
+      // attach means this run is terminal, so its close must NOT trigger a reconnect.
+      if (type === "stream_attached") {
+        sawNonLiveAttachRef.current = data.live !== true;
+        if (data.live === true) setPhase("live");
+      }
 
       const msg: RunStreamMessage = { type, data };
       setLastMessage(msg);
@@ -288,6 +299,10 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
     };
 
     const connect = () => {
+      // BUG-015: liveness is per-connection — reset before every (re)connect so a
+      // genuine live drop still reconnects even after a prior non-live attach.
+      sawNonLiveAttachRef.current = false;
+
       const currentToken = getToken();
       if (!currentToken) {
         setPhase("disconnected");
@@ -366,9 +381,16 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
 
           // The response ended (server closed the connection). Unless we were
           // intentionally torn down, treat it as a drop and reconnect from the
-          // cursor (native Last-Event-ID resume).
+          // cursor (native Last-Event-ID resume). EXCEPTION (BUG-015): the backend
+          // closes a TERMINAL run's stream after replay (stream_attached{live:false}
+          // then close) — reconnecting there re-replays the whole run in a loop, so
+          // when the last attach was non-live we settle quiescent instead.
           if (!stoppedRef.current && !controller.signal.aborted) {
-            scheduleReconnect();
+            if (sawNonLiveAttachRef.current) {
+              setPhase("disconnected");
+            } else {
+              scheduleReconnect();
+            }
           }
         } catch {
           if (controller.signal.aborted || stoppedRef.current) return;

@@ -90,6 +90,13 @@ export interface RunConnectionContextValue {
    * never remounts an existing `RunStreamConnection`.
    */
   attachRun: (runId: string) => void;
+  /**
+   * Release the sticky focus for a run that has completed (BUG-015). When `runId`
+   * is the current focus it clears it and recomputes `liveRunIds`, unmounting the
+   * finished run's `RunStreamConnection` so its stream does not reconnect + re-replay.
+   * A non-focused id is a no-op.
+   */
+  detachRun: (runId: string) => void;
   /** Subscribe to every frame from every attached run; returns an unsubscribe. */
   subscribe: (fn: (msg: RunStreamMessage) => void) => () => void;
   /**
@@ -112,6 +119,7 @@ const DEFAULT_VALUE: RunConnectionContextValue = {
   liveRunIds: [],
   reattach: () => {},
   attachRun: () => {},
+  detachRun: () => {},
   subscribe: () => () => {},
   sendCommand: async () => null,
 };
@@ -337,6 +345,20 @@ export function RunConnectionProvider({
     [recomputeLiveRunIds],
   );
 
+  // BUG-015 — release the sticky focus for a completed run so its dead
+  // RunStreamConnection unmounts (no reconnect, no ~14k re-replay). Clears the
+  // focus ONLY when it matches (a non-focused id is a no-op — a still-building
+  // run stays in autoIdsRef regardless), then re-materializes the union.
+  const detachRun = useCallback(
+    (runId: string) => {
+      if (focusedRunIdRef.current === runId) {
+        focusedRunIdRef.current = null;
+        recomputeLiveRunIds();
+      }
+    },
+    [recomputeLiveRunIds],
+  );
+
   const sendCommand = useCallback(
     async (
       runId: string | null,
@@ -378,8 +400,8 @@ export function RunConnectionProvider({
   );
 
   const value = useMemo<RunConnectionContextValue>(
-    () => ({ enabled, phase, liveRunIds, reattach, attachRun, subscribe, sendCommand }),
-    [enabled, phase, liveRunIds, reattach, attachRun, subscribe, sendCommand],
+    () => ({ enabled, phase, liveRunIds, reattach, attachRun, detachRun, subscribe, sendCommand }),
+    [enabled, phase, liveRunIds, reattach, attachRun, detachRun, subscribe, sendCommand],
   );
 
   return (

@@ -35,6 +35,7 @@ function mockConnection(sendCommand: ReturnType<typeof makeSendCommand>): void {
     liveRunIds: [],
     reattach: vi.fn(),
     attachRun: vi.fn(),
+    detachRun: vi.fn(),
     subscribe: vi.fn(() => () => {}),
     sendCommand,
   });

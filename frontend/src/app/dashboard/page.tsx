@@ -160,6 +160,11 @@ export default function DashboardPage() {
   // building). Synced below from activePipelineRunId ?? contentSourceRunId (NOT
   // pipelineState.pipelineRunId — useWorkflow adopts the foreign id into it).
   const trackedRunIdRef = useRef<string | null>(null);
+  // BUG-015 — the provider's detachRun, reached through a ref so the empty-deps
+  // handleWebSocketMessage (a useCallback([])) can release a completed run's focus
+  // WITHOUT closing over `runConnection` (declared later, which would break the
+  // stale-closure design). Synced from runConnection.detachRun in a useEffect below.
+  const detachRunRef = useRef<((runId: string) => void) | null>(null);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
@@ -551,7 +556,15 @@ export default function DashboardPage() {
           !!completingRunId &&
           !!trackedRunIdRef.current &&
           completingRunId !== trackedRunIdRef.current;
-        if (completingRunId && !isForeignCompletion) setContentSourceRunId(completingRunId);
+        if (completingRunId && !isForeignCompletion) {
+          setContentSourceRunId(completingRunId);
+          // BUG-015 — release the tracked completing run's sticky focus so its
+          // terminal SSE stream unmounts (no reconnect, no ~14k re-replay). Reached
+          // via a ref (this handler is a useCallback([]) — never a direct
+          // runConnection reference). The rendered preview/content is already in
+          // state, so unmounting the connection does not remove it.
+          detachRunRef.current?.(completingRunId);
+        }
         const finalOutput = data.final_output as string;
         const pipelineType = data.pipeline_type as string;
 
@@ -933,6 +946,13 @@ export default function DashboardPage() {
   // runConnection.subscribe (below) and the chat transcript from chatSubscribe.
   // SSE + REST is the only transport (44-06 hard cutoff) — no WebSocket client.
   const runConnection = useRunConnection();
+
+  // BUG-015 — keep the ref pointed at the live detachRun so the empty-deps
+  // handleWebSocketMessage can release a completed run's focus without closing
+  // over runConnection (mirrors the handlePipelineMsgRef / trackedRunIdRef idiom).
+  useEffect(() => {
+    detachRunRef.current = runConnection.detachRun;
+  }, [runConnection.detachRun]);
 
   // The status/reconnect the header UI reflects, sourced from the SSE connection
   // phase; reconnect routes through the provider's server-derived reattach.
