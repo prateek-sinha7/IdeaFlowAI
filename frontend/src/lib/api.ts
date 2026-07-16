@@ -486,6 +486,60 @@ export async function getRunSummary(
   });
 }
 
+/** One durable run_events row from GET /api/runs/{id}/events (mirrors the
+ *  backend projection, runs.py:897-908): the SAME rows the SSE replays, in the
+ *  raw unnormalized wire shape (snake_case). `payload_json` is the event's data
+ *  bag — passed downstream verbatim (no normalization; consumers dedup on
+ *  `event_id`). */
+export interface RunEventRow {
+  seq: number;
+  event_id: string;
+  type: string;
+  payload_json: Record<string, unknown>;
+}
+
+/** The GET /api/runs/{id}/events envelope (runs.py:897-909). */
+export interface RunEventsResponse {
+  workflow_id: string;
+  after: number;
+  events: RunEventRow[];
+}
+
+/** A durable event frame shaped like the WS/SSE `{ type, data }` envelope the
+ *  page router + useRunChat already consume. */
+export interface DurableFrame {
+  type: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Fetch a run's durable `run_events` rows (DEF-44-12-4). Owner-scoped (JWT);
+ * hits the read-only endpoint `GET /api/runs/{id}/events?after=N` — the SAME
+ * rows the SSE stream replays. A fresh fetch at `after=0` returns the full
+ * history; idempotency is guaranteed downstream by `event_id` dedup (the page's
+ * `seenEventIdsRef` / the hook's `seenRef`), so replaying a full fetch over an
+ * already-attached live tail double-counts nothing.
+ *
+ * Returns each row mapped to a `{ type, data }` frame (data = `payload_json`).
+ * DEFENSIVELY tolerates a missing/empty `events` array (a mock catch-all `{}`
+ * or a legacy shape yields `[]` rather than throwing). Does NOT normalize the
+ * payload — consumers key on the snake_case `event_id`/`seq` inside it.
+ */
+export async function getRunEvents(
+  token: string,
+  runId: string,
+  afterSeq = 0,
+): Promise<DurableFrame[]> {
+  const res = await request<RunEventsResponse>(
+    `/api/runs/${encodeURIComponent(runId)}/events?after=${afterSeq}`,
+    { method: "GET", headers: authHeaders(token) },
+  );
+  return (res?.events ?? []).map((row) => ({
+    type: row.type,
+    data: row.payload_json ?? {},
+  }));
+}
+
 /** A single artifact node from GET /api/runs/{id}/artifacts (mirrors the
  *  backend node shape, runs.py:590-608). `content` is present ONLY when the
  *  request was made with include=content. NOTE: nodes carry NO created_at. */
