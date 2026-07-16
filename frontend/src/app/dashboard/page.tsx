@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate } from "@/lib/api";
+import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
 import { useWorkflow } from "@/hooks/useWorkflow";
@@ -1180,6 +1180,52 @@ export default function DashboardPage() {
         // parent.
         setContentSourceRunId(fullRun.id);
 
+        // DEF-44-12-4 (Piece 1) — bind the run-screen LIVE state (the Steps
+        // pipeline trace) to the run being VIEWED, not only the run launched
+        // in-session. `handleSelectWorkflowRun` sets contentSourceRunId (drives
+        // Preview/Files) but never seeded the pipeline reducer, so a history-
+        // opened run showed the empty "Start a pipeline…" placeholder. Seed it
+        // from the durable run_events — but ONLY when the opened run differs from
+        // the live launched run: re-seeding the launched run would replay-from-0
+        // over live progress and wipe gate/questionnaire state (page.tsx pipeline_start
+        // reset side effects). The same fetched frames feed Piece 3's transcript seed.
+        if (fullRun.id !== pipelineState.pipelineRunId) {
+          // Wire the VIEWED run's brief into the Steps surface (runInput=submittedBrief
+          // via DashboardLayout) so AgentThinkingTab's hasAnyData gate + header reflect
+          // the opened run, not a stale launched brief.
+          setSubmittedBrief(fullRun.input ?? "");
+          try {
+            // Reset the per-run FE replay state (seen-set / seq cursor / wave groups)
+            // and the reducer's agents[] so the prior run's state does not poison the
+            // new view (mirrors the launch path's pipeline_start reset + startPipeline).
+            resetReplayState({
+              seen: seenEventIdsRef.current,
+              setLastSeq: (n) => {
+                lastSeqRef.current = n;
+              },
+              setWaveGroups,
+            });
+            resetPipeline();
+            // Fetch the durable events and replay each through the PAGE ROUTER
+            // (handleWebSocketMessage), NOT the bare reducer — so each event_id lands
+            // in seenEventIdsRef and the subsequently-attached live SSE tail is deduped
+            // (idempotent, no double-count). pipeline_start rebuilds agents[]; the
+            // agent_* frames then fill it. Works for a live-opened run (durable seed +
+            // live tail continues) and a terminal-opened run (seed is the whole trace).
+            const durableFrames = await getRunEvents(currentToken, fullRun.id);
+            for (const frame of durableFrames) {
+              handleWebSocketMessage({
+                type: frame.type,
+                data: frame.data,
+              } as unknown as StreamMessage);
+            }
+          } catch (seedErr) {
+            // Log-and-continue: a seed fetch failure must not break the reopen
+            // content path already set above.
+            console.error("Failed to seed run trace on open:", seedErr);
+          }
+        }
+
         // WR-01 (16 review): "degraded" is a terminal status ISS-016 now persists
         // for partially-failed runs — it carries a real (partial) deliverable. Treat
         // it like "completed" for content so the partial deliverable still renders on
@@ -1249,7 +1295,10 @@ export default function DashboardPage() {
         console.error("Failed to load workflow output:", err);
       }
     },
-    []
+    // DEF-44-12-4 — the closure now reads pipelineState.pipelineRunId and calls
+    // resetPipeline/setWaveGroups/handleWebSocketMessage/setSubmittedBrief, so
+    // they MUST be deps (refs seenEventIdsRef/lastSeqRef are stable, omitted).
+    [pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief]
   );
 
   // Handle new chat creation from sidebar
