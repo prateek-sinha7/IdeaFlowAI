@@ -73,6 +73,10 @@ export interface DashboardLayoutProps {
   // revision launch path sources parent linkage from this — replaces the fragile
   // currentWorkflowRunId heuristic (which mis-matched on double-revision types).
   contentSourceRunId?: string | null;
+  // BUG-012: the durable REAL type of the viewed run (page.tsx fullRun.type),
+  // preferred over the recents lookup so the PreviewPanel render dispatch keys on
+  // the viewed run's type even when it is outside the recents window.
+  contentSourceRunType?: WorkflowType | null;
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   // Phase 16 (ISS-017) — the persisted status of a history-reopened run. When a
   // failed/cancelled run is reopened it carries no content, so the run's
@@ -208,6 +212,7 @@ export function DashboardLayout({
   onResetPipeline,
   recentRuns,
   contentSourceRunId,
+  contentSourceRunType,
   onSelectWorkflowRun,
   questionnaireData,
   activePipelineRunId,
@@ -1262,9 +1267,13 @@ export function DashboardLayout({
   // running (mirrors BUG-001); fall back to workflowType while running/launching
   // (viewedRunType undefined → byte-identical, no regression). SC-001-safe (keys
   // on run.type, no workflow-name literal added to a guarded component).
+  // BUG-012: prefer the DURABLE threaded type (page.tsx fullRun.type); fall back
+  // to the recents lookup (identical value for in-recents runs; defined for
+  // out-of-recents runs where recents returns undefined). Still gated on
+  // !isPipelineRunning so live launch->watch stays byte-identical.
   const viewedRunType =
     !isPipelineRunning && contentSourceRunId != null
-      ? recentRuns?.find((r) => r.id === contentSourceRunId)?.type
+      ? (contentSourceRunType ?? recentRuns?.find((r) => r.id === contentSourceRunId)?.type)
       : undefined;
   const effectiveReviseType = viewedRunType ?? workflowType;
   const activeReviseHandler =
@@ -1822,7 +1831,7 @@ export function DashboardLayout({
                       prototypeContent={prototypeContent || undefined}
                       genericDeliverable={genericDeliverable}
                       isStreaming={isStreaming}
-                      workflowType={workflowType}
+                      workflowType={effectiveReviseType}
                       rawPipelineType={pipelineState?.pipeline_type || workflowType}
                       pptxCode={pptxCode}
                       onRevisePpt={undefined}

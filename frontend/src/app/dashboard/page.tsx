@@ -17,7 +17,7 @@ import { useTabDeepLink } from "@/hooks/useTabDeepLink";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
 import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, WorkflowType, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
 import { deriveDeliverableMimetype, resolveReopenMimetype } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 // IN-01 (16 review): SHARED failed-agent-id parser (single source of truth, no
@@ -163,6 +163,12 @@ export default function DashboardPage() {
   // launch path sources parent linkage from it (replaces the old fragile
   // currentWorkflowRunId heuristic).
   const [contentSourceRunId, setContentSourceRunId] = useState<string | null>(null);
+  // BUG-012: the durable viewed-run-type — the REAL type of the run that produced
+  // the on-screen content (fullRun.type), threaded to DashboardLayout so the
+  // PreviewPanel render dispatch keys on the viewed run's type even for runs
+  // OUTSIDE the recents window. Set on reopen; cleared on a fresh (non-revision)
+  // launch. Gated on !isPipelineRunning downstream so live launch->watch is byte-identical.
+  const [contentSourceRunType, setContentSourceRunType] = useState<WorkflowType | null>(null);
   const [questionnaireData, setQuestionnaireData] = useState<{
     questions: {
       id: string; question: string; options: string[]; answerType?: string;
@@ -1242,6 +1248,9 @@ export default function DashboardPage() {
         // now the on-screen content, so an inline revise from here links it as
         // parent.
         setContentSourceRunId(fullRun.id);
+        // BUG-012: capture the viewed run's REAL type so the PreviewPanel render
+        // dispatch keys on it (durable, independent of the recents window).
+        setContentSourceRunType(fullRun.type ?? null);
 
         // DEF-44-12-4 (Piece 1) — bind the run-screen LIVE state (the Steps
         // pipeline trace) to the run being VIEWED, not only the run launched
@@ -1482,6 +1491,9 @@ export default function DashboardPage() {
           // Revision Families (B1): a fresh run has no source until it completes —
           // clear so a stale source can't be sent as a revise parent.
           setContentSourceRunId(null);
+          // BUG-012: a fresh run has no viewed type yet — clear so a stale
+          // reopened type can't misroute the fresh run's live deliverable.
+          setContentSourceRunType(null);
         }
         // For revisions, keep existing content visible until new output arrives.
         // W1 (44-01) launch->attach (R4): the SSE launch (POST /api/runs) resolves
@@ -1505,6 +1517,7 @@ export default function DashboardPage() {
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
       contentSourceRunId={contentSourceRunId}
+      contentSourceRunType={contentSourceRunType}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}
