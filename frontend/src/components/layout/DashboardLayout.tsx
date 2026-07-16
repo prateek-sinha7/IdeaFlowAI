@@ -1742,7 +1742,7 @@ export function DashboardLayout({
                       // the pipeline_type string, never a workflow-name branch).
                       onBackToHistory={() => setMainView("history")}
                       runTitle={runHeaderTitle}
-                      runType={workflowType || pipelineState?.pipeline_type}
+                      runType={effectiveReviseType || pipelineState?.pipeline_type}
                       // Absorbed AgentProgressPanel controls (Stop / revise / suggestions).
                       onStop={handleStopPipeline}
                       onRevise={activeReviseHandler}

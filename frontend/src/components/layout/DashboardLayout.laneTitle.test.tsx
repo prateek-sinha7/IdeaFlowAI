@@ -59,8 +59,11 @@ vi.mock("motion/react", () => ({
 // computed `runHeaderTitle` (DashboardLayout.tsx:1714). Echo it into the same
 // testid LaneRunHeader uses so we test the derivation without the lane internals.
 vi.mock("@/components/chat/RunChatLane", () => ({
-  RunChatLane: ({ runTitle }: { runTitle?: string }) => (
-    <div data-testid="lane-run-title">{runTitle}</div>
+  RunChatLane: ({ runTitle, runType }: { runTitle?: string; runType?: string }) => (
+    <>
+      <div data-testid="lane-run-title">{runTitle}</div>
+      <div data-testid="lane-run-type">{runType}</div>
+    </>
   ),
 }));
 
@@ -92,11 +95,11 @@ function idlePipelineState(): PipelineRunState {
   };
 }
 
-function makeRun(id: string, title: string): WorkflowRun {
+function makeRun(id: string, title: string, type: WorkflowRun["type"] = "user_stories"): WorkflowRun {
   return {
     id,
     title,
-    type: "user_stories",
+    type,
     status: "completed",
     input: `brief for ${title}`,
     output: "# Stories\n\nbody",
@@ -163,5 +166,27 @@ describe("DashboardLayout — lane title tracks the viewed run (BUG-001)", () =>
   it("launch flow (contentSourceRunId null) keeps the recents[0] title — byte-identical", () => {
     renderLayout({ recentRuns: [RUN_A, RUN_B, RUN_C], contentSourceRunId: null });
     expect(screen.getByTestId("lane-run-title")).toHaveTextContent(RUN_A.title);
+  });
+});
+
+describe("DashboardLayout — lane-run-type chip tracks the viewed run (BUG-006)", () => {
+  const APP_RUN = makeRun("run-app", "App builder for a CRM", "app_builder");
+  const STORY_RUN = makeRun("run-story", "User stories for a booking flow", "user_stories");
+
+  it("viewed app_builder run shows its own type, not the stale workflowType", () => {
+    // recents[0] is NOT the viewed run; the viewed run's type is app_builder.
+    renderLayout({ recentRuns: [RUN_A, APP_RUN, RUN_C], contentSourceRunId: APP_RUN.id });
+    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("app_builder");
+  });
+
+  it("a different viewed type deeper in the window resolves its own type", () => {
+    renderLayout({ recentRuns: [APP_RUN, RUN_B, STORY_RUN], contentSourceRunId: STORY_RUN.id });
+    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("user_stories");
+  });
+
+  it("launch flow (contentSourceRunId null) shows the launched workflowType — no regression", () => {
+    renderLayout({ recentRuns: [APP_RUN, RUN_B, RUN_C], contentSourceRunId: null });
+    // Under the od_prototype.pending latch the launch consumer sets workflowType to "prototype".
+    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("prototype");
   });
 });
