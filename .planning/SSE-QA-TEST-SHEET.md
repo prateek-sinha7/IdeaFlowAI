@@ -100,6 +100,18 @@ Last updated: 2026-07-16 (campaign start).
 
 **BUG-003 🟠 (ROOT-CAUSED, logged):** revise-via-chat "Run refinement" no-ops on a reopened od_ppt run. A **pre-existing empty-content guard** `if (!pptxCode && !pptContent) return;` (DashboardLayout.tsx:493) short-circuits BEFORE the self-sufficient REST path (`postRevision(token, contentSourceRunId, …)`, :504, which reseeds the parent server-side and needs no local content); `confirmRefinement` then clears the chip unconditionally → nothing fires. Trigger: od_ppt's `fullRun.output` was **empty** (also why the Preview was blank — an LV-02 recurrence: the deck is a prompt-contract, not a hard guarantee); `pptxCode` is structurally undefined for od_ppt (no ppt-code-generator agent). The swallow defect dates to 2026-07-15 (the REST branch `a931c066a` was added below the stale 2026-05-11 guard without relaxing it). Fix: relax to `if (!contentSourceRunId && !pptxCode && !pptContent) return;` + bind revise-handler selection to the viewed run's type on reopen. NOT caused by BUG-001 (contentSourceRunId is correctly set) nor by DEF-44-12-4. See bug log.
 
-**Deferred:** A7 od_prototype build deliverable (run held at gate 2 — would need approve + full build loop), A7 app_builder files, D3 `/ws/handoff` survivor, migration pipelines (mulesoft/dotnet/reverse_engineer — input-gated, need real source repos).
+### Session 3 — migration/custom pipelines, deliverables, survivor, + BUG-004
+
+| ID | Test | Status | Notes |
+|----|------|--------|-------|
+| A1-MIG | mulesoft_to_springboot / dotnet_to_azure / custom launch + stream | ✅ | all 3 launched (13/13/8 agents) with sample source input; **streamed to clarify over SSE** (planner + questionnaire_ready delivered over the stream) → transport proven for them. `reverse_engineer` has **no registered agents** (not runnable as a pipeline). |
+| A1-MIG-done | migration full completion + deliverable | ⛔ | blocked by **BUG-004** (DB pool exhaustion under the 10+ concurrent-run load — `skip_clarification` 500'd, then the backend saturated to HTTP 000). Not a pipeline defect. |
+| A7-APP | app_builder deliverable | ⚠️ | run `completed` with `output:True` (verified via API earlier); UI screenshot blocked by recents-fallout + pool saturation. |
+| D3 | `/ws/handoff` survivor present | ✅ | `@router.websocket("/ws/handoff/{token}")` (websocket_handoff.py:80) + `main.py:193`. Live exercise needs a real handoff token (deferred). |
+| D1 (re-confirm) | 0 `/ws/chat` | ✅ | `GET /ws/chat → 404` (deleted); browser opened 0 across the entire campaign. |
+
+**🟠 BUG-004 (logged, investigation running):** the DB engine uses SQLAlchemy's **default connection pool (size 5 + overflow 10 = 15 max)** with no tuning (`database.py:12`). Under ~10+ concurrent live runs the pool exhausts → `submit_answers`/`_review_gate_owned_by` throw `QueuePool ... connection timed out` (500), and sustained load drove the backend to **HTTP 000 (unresponsive)**. Load-induced (abnormal for a single user) but a real multi-run robustness/scaling concern; agent is determining leak-vs-sizing. See bug log.
+
+**Still deferred (low-value / high-friction):** od_prototype build deliverable (gate-2 `gate_key` friction; the gate *resume* is already proven — A6-PROTO ✅), migration full completion (BUG-004), `/ws/handoff` live exercise (needs a share token).
 
 **Run History view (C-visual)** ✅ — clean list (67 runs, type filters All/User Stories/Presentation/Prototype/App Builder/Custom, Sort Newest/Longest/Tokens, status badges, grouped Today/Older). `history-list.png`.
