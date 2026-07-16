@@ -1269,12 +1269,18 @@ export function DashboardLayout({
   // on run.type, no workflow-name literal added to a guarded component).
   // BUG-012: prefer the DURABLE threaded type (page.tsx fullRun.type); fall back
   // to the recents lookup (identical value for in-recents runs; defined for
-  // out-of-recents runs where recents returns undefined). Still gated on
-  // !isPipelineRunning so live launch->watch stays byte-identical.
+  // out-of-recents runs where recents returns undefined).
+  // BUG-012 follow-up: prefer the durable reopened type REGARDLESS of running
+  // state (a reopened clarify/build run leaves isPipelineRunning true, so gating
+  // the whole expression on !isPipelineRunning wrongly dropped the viewed type on
+  // a non-terminal reopen). Only the recents fallback stays !isPipelineRunning-
+  // gated — contentSourceRunType is null on a fresh launch, so viewedRunType stays
+  // undefined there and launch->watch is byte-identical.
   const viewedRunType =
-    !isPipelineRunning && contentSourceRunId != null
-      ? (contentSourceRunType ?? recentRuns?.find((r) => r.id === contentSourceRunId)?.type)
-      : undefined;
+    contentSourceRunType ??
+    (!isPipelineRunning && contentSourceRunId != null
+      ? recentRuns?.find((r) => r.id === contentSourceRunId)?.type
+      : undefined);
   const effectiveReviseType = viewedRunType ?? workflowType;
   const activeReviseHandler =
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision" || effectiveReviseType === "od_ppt" || effectiveReviseType === "od_ppt_revision") ? handleRevisePpt :
@@ -1472,7 +1478,7 @@ export function DashboardLayout({
         userTier={userTier}
         userEmail={userEmail}
         isPipelineRunning={isPipelineRunning}
-        pipelineType={workflowType}
+        pipelineType={effectiveReviseType}
         pipelineAgentsCompleted={pipelineState?.completedCount ?? 0}
         pipelineAgentsTotal={pipelineState?.agents?.length ?? 0}
         onGoToPipeline={() => setMainView("execution")}

@@ -190,3 +190,51 @@ describe("DashboardLayout — lane-run-type chip tracks the viewed run (BUG-006)
     expect(screen.getByTestId("lane-run-type")).toHaveTextContent("prototype");
   });
 });
+
+describe("DashboardLayout — non-terminal reopen shows the viewed type (BUG-012 follow-up)", () => {
+  const PROTO_RUN = makeRun("run-proto", "Prototype for a fitness app", "od_prototype");
+
+  // A reopened clarify/build run: the durable replay leaves the pipeline "running".
+  function runningPipelineState(pipeline_type: WorkflowRun["type"]): PipelineRunState {
+    return {
+      isRunning: true,
+      pipeline_type,
+      agents: [],
+      currentAgentIndex: -1,
+      totalDuration: null,
+      completedCount: 0,
+    };
+  }
+
+  // Test A (fail-before, pass-after): a NON-terminal reopen — isPipelineRunning=true
+  // drives mainView→execution via the sync effect (:343-344), so we do NOT set the
+  // od_prototype.pending latch (that would force workflowType="prototype" and mask
+  // the bug). With the latch absent and pipeline_type="user_stories", workflowType
+  // stays the stale "user_stories" default. Before the fix the `!isPipelineRunning`
+  // gate makes viewedRunType undefined ⇒ effectiveReviseType falls back to the stale
+  // "user_stories". After the fix the durable contentSourceRunType wins.
+  it("non-terminal reopen renders the reopened run's type, not the stale workflowType", () => {
+    sessionStorage.removeItem("od_prototype.pending");
+    renderLayout({
+      recentRuns: [RUN_A, PROTO_RUN, RUN_C],
+      contentSourceRunId: PROTO_RUN.id,
+      contentSourceRunType: "od_prototype",
+      pipelineState: runningPipelineState("user_stories"),
+    });
+    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("od_prototype");
+    expect(screen.getByTestId("lane-run-type")).not.toHaveTextContent("user_stories");
+  });
+
+  // Test B (no-regression): a live launch — contentSourceRunType null ⇒ viewedRunType
+  // undefined ⇒ effectiveReviseType === workflowType, which the sync effect normalises
+  // to "prototype" from pipeline_type. Byte-identical launch path (green before + after).
+  it("live launch (contentSourceRunType null) shows the launched type — byte-identical", () => {
+    sessionStorage.removeItem("od_prototype.pending");
+    renderLayout({
+      recentRuns: [RUN_A, RUN_B, RUN_C],
+      contentSourceRunId: null,
+      pipelineState: runningPipelineState("prototype"),
+    });
+    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("prototype");
+  });
+});

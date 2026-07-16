@@ -50,10 +50,19 @@ describe("BUG-012 durable viewed-run-type thread (source-lock)", () => {
     expect(pageSource).toContain("contentSourceRunType={contentSourceRunType}");
   });
 
-  it("DashboardLayout folds the durable type into viewedRunType", () => {
+  it("DashboardLayout folds the durable type into viewedRunType (un-gated, durable-first)", () => {
+    // BUG-012 follow-up: the durable reopened type is now preferred regardless of
+    // running state; only the recents fallback stays !isPipelineRunning-gated so a
+    // fresh launch (contentSourceRunType null) is byte-identical.
     expect(layoutCollapsed).toContain(
-      "contentSourceRunType ?? recentRuns?.find((r) => r.id === contentSourceRunId)?.type",
+      "contentSourceRunType ?? (!isPipelineRunning && contentSourceRunId != null ? recentRuns?.find((r) => r.id === contentSourceRunId)?.type",
     );
+  });
+
+  it("DashboardLayout binds the header pill (AppHeader) to the viewed type", () => {
+    // BUG-012 follow-up: the header pill was on the raw workflowType; it now reads
+    // effectiveReviseType so a non-terminal reopen shows the viewed run's real type.
+    expect(layoutSource).toContain("pipelineType={effectiveReviseType}");
   });
 
   it("DashboardLayout feeds effectiveReviseType into the PreviewPanel render dispatch", () => {
