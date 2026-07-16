@@ -44,6 +44,12 @@ interface WorkflowHistoryProps {
   // onViewRunningPipeline switches the main view to "execution".
   activeRunId?: string | null;
   onViewRunningPipeline?: () => void;
+  // BUG-002: route a row tap into the SHARED run screen (execution-chat-lane +
+  // composer + DEF-44-12-4 durable seed + DEF-44-12-3 SSE attach) — the same
+  // wiring the Home-recents path uses — instead of WorkflowHistory's divergent
+  // internal RunDetailPage (one-shot summary, no SSE, no chat lane). When absent,
+  // the legacy setSelectedRun internal-detail fallback is preserved.
+  onOpenRun?: (run: WorkflowRun) => void;
 }
 
 // ─── Parse all filename: blocks from agent outputs for the IDE preview ────────
@@ -105,7 +111,7 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
 // rows format their own dates via RevisionFamilyView — so no local formatter here
 // (INV-12: no dual implementation).
 
-export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline }: WorkflowHistoryProps) {
+export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline, onOpenRun }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
@@ -157,6 +163,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     // live execution view rather than opening the static history detail.
     if (activeRunId && run.id === activeRunId && onViewRunningPipeline) {
       onViewRunningPipeline();
+      return;
+    }
+    // BUG-002: route the tap into the shared run screen (parity with Home-recents)
+    // instead of the divergent internal RunDetailPage. Carry-over: cross-workflow
+    // chaining (onChainPipeline) + the VersionTimeline version-switch stay reachable
+    // via the History LIST rows; retiring the internal detail (INV-3) is a follow-up.
+    if (onOpenRun) {
+      onOpenRun(run);
       return;
     }
     setSelectedRun(run);
