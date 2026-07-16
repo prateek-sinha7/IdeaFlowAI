@@ -9,10 +9,28 @@ from app.core.config import settings
 # across threads (FastAPI's threadpool model). Other dialects (Postgres etc.)
 # reject this option, so apply it only when the URL is SQLite.
 _sqlite = settings.DATABASE_URL.startswith("sqlite")
+# BUG-004 (defense-in-depth): give the Postgres/prod engine an explicit, right-sized
+# QueuePool so multi-run / SSE-reconnect concurrency does not exhaust the default 5+10.
+# Sizing alone does NOT fix the leak (run_stream.py's session-less generator store does)
+# — it only raises the exhaustion ceiling. Gated to the non-SQLite branch: the dev/offline
+# `sqlite:///./dev.db` (and `:memory:`) engines use SingletonThreadPool, which rejects
+# `max_overflow`/`pool_timeout`, so leaving them byte-unchanged keeps offline test
+# collection importing this module cleanly and INV-3 parity untouched.
+_pool_kwargs = (
+    {}
+    if _sqlite
+    else {
+        "pool_size": 20,
+        "max_overflow": 40,
+        "pool_timeout": 30,
+        "pool_recycle": 1800,
+    }
+)
 engine = create_engine(
     settings.DATABASE_URL,
     connect_args={"check_same_thread": False} if _sqlite else {},
     pool_pre_ping=True,
+    **_pool_kwargs,
 )
 
 if _sqlite:
