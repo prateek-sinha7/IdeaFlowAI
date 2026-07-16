@@ -248,6 +248,80 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     expect(payload).toMatchObject({ text: "plain turn" });
   });
 
+  it("Test 12: a chat_reply keyed on a DISTINCT event_id appends as its own turn (DEF-44-12-2 de-collision)", () => {
+    // The Concierge reply carries message_id === the user turn's id
+    // (run_commands.py:994) but a DISTINCT event_id ("chat-reply:{id}"). Keying
+    // the assistant bubble on event_id makes it append instead of matching-and-
+    // overwriting the user's question bubble (the landmine).
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-9", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+
+    // A prior user turn keyed on message_id "m-collide".
+    conn.emit(frame("chat_message", { message_id: "m-collide", text: "what is the status?", run_id: "run-9" }));
+    // The reply carries the SAME message_id but a distinct event_id.
+    conn.emit(
+      frame("chat_reply", {
+        event_id: "chat-reply:m-collide",
+        message_id: "m-collide",
+        text: "Still building — 3 of 5 done.",
+        run_id: "run-9",
+      }),
+    );
+
+    expect(result.current.messages).toHaveLength(2);
+    // The user's question bubble is preserved (role + text intact).
+    expect(result.current.messages[0].role).toBe("user");
+    expect(result.current.messages[0].content).toBe("what is the status?");
+    // The reply is its OWN assistant turn.
+    expect(result.current.messages[1].role).toBe("assistant");
+    expect(result.current.messages[1].content).toBe("Still building — 3 of 5 done.");
+  });
+
+  it("Test 13: sendMessage re-fetches events after the up-channel and folds the reply idempotently (DEF-44-12-2)", async () => {
+    const conn = makeConn();
+    const replyFrame: RunChatFrame = {
+      type: "chat_reply",
+      data: {
+        event_id: "chat-reply:r-once",
+        message_id: "r-once",
+        text: "Concierge reply",
+        seq: 5,
+        run_id: "run-9",
+      },
+    };
+    const fetchEvents = vi.fn(async () => [replyFrame]);
+    const { result } = renderHook(() =>
+      useRunChat({
+        runId: "run-9",
+        subscribe: conn.subscribe,
+        sendCommand: conn.sendCommand,
+        fetchEvents,
+      }),
+    );
+
+    await act(async () => {
+      result.current.sendMessage("ask the concierge");
+    });
+
+    // The up-channel fired, then fetchEvents was awaited and the reply folded.
+    expect(conn.sendCommand).toHaveBeenCalledTimes(1);
+    expect(fetchEvents).toHaveBeenCalled();
+    // optimistic user turn + the folded reply.
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[1].role).toBe("assistant");
+    expect(result.current.messages[1].content).toBe("Concierge reply");
+
+    // A second send re-fetches the SAME reply frame — deduped by event_id, so the
+    // reply is NOT duplicated (only a fresh optimistic user turn is added).
+    await act(async () => {
+      result.current.sendMessage("again");
+    });
+    const replies = result.current.messages.filter((m) => m.role === "assistant");
+    expect(replies).toHaveLength(1);
+  });
+
   it("Test 8: stream_attached updates the handshake state without touching the transcript", () => {
     const conn = makeConn();
     const { result } = renderHook(() =>
