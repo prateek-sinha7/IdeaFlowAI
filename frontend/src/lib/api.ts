@@ -77,12 +77,37 @@ class ApiError extends Error {
   }
 }
 
+// BUG-013 Part B — fail-fast timeout for the REST client. When the browser's
+// ~6-connections-per-origin pool is saturated (per-run SSE streams), a call can
+// hang forever with no free socket → a silent idle screen. Wrap every request in
+// an AbortController that aborts after REQUEST_TIMEOUT_MS so a starved/hung call
+// rejects with a typed, catchable ApiError instead of hanging. Generous (~30s) so
+// it never aborts a legitimately-slow brief ingest / large-deliverable fetch.
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
-  const response = await fetch(url, options);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    // No current request() caller passes its own signal, so a direct assignment
+    // is safe.
+    response = await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    // On abort the fetch throws a DOMException AbortError — translate it to a
+    // typed, catchable ApiError (status 0) so callers surface a clear timeout
+    // instead of an opaque hang (matches the reopen catch at page.tsx).
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, `Request timeout after ${REQUEST_TIMEOUT_MS}ms (aborted)`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({

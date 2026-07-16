@@ -51,6 +51,12 @@ function phaseToConnectionStatus(phase: RunConnectionPhase): ConnectionStatus {
   }
 }
 
+// BUG-013: terminal run statuses for the reopen focus gate. A terminal run emits
+// no further SSE events, so focusing it on reopen would only pin a dead-stream
+// reconnect loop for the session; only NON-terminal reopens claim the sticky
+// focus. Keyed on the generic server status string (SC-001), never a workflow name.
+const REOPEN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "degraded"]);
+
 /**
  * Dashboard page - the main authenticated view.
  * Manages WebSocket connection, workflow runs, and streaming content.
@@ -1248,6 +1254,12 @@ export default function DashboardPage() {
         // now the on-screen content, so an inline revise from here links it as
         // parent.
         setContentSourceRunId(fullRun.id);
+        // BUG-013: make the VIEWED run the single sticky SSE focus so a parked /
+        // building run streams live (multi-round clarify + resume→build) without
+        // waiting on the next refreshLiveRuns poll. GATED on non-terminal — a
+        // terminal run emits nothing, so focusing it would only pin a dead-stream
+        // reconnect loop. A new focus replaces the prior (no stream accumulation).
+        if (!REOPEN_TERMINAL_STATUSES.has(fullRun.status)) { runConnection.attachRun(fullRun.id); }
         // BUG-012: capture the viewed run's REAL type so the PreviewPanel render
         // dispatch keys on it (durable, independent of the recents window).
         setContentSourceRunType(fullRun.type ?? null);
@@ -1378,7 +1390,8 @@ export default function DashboardPage() {
     // DEF-44-12-4 — the closure now reads pipelineState.pipelineRunId and calls
     // resetPipeline/setWaveGroups/handleWebSocketMessage/setSubmittedBrief, so
     // they MUST be deps (refs seenEventIdsRef/lastSeqRef are stable, omitted).
-    [pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript]
+    // BUG-013: handleSelectWorkflowRun now calls runConnection.attachRun on reopen.
+    [pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection]
   );
 
   // Handle new chat creation from sidebar

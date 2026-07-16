@@ -41,26 +41,29 @@ import {
 } from "@/hooks/useRunStream";
 
 /**
- * Non-terminal run statuses = the runs that still have a live stream worth
- * attaching. Terminal runs (completed/failed/cancelled) are replay-only and are
- * not attached on boot.
+ * AUTO_STREAM_STATUSES = the actively-EMITTING run statuses that always hold a
+ * live SSE stream. This is the non-terminal set MINUS the two BACKGROUND parked
+ * statuses (`clarifying`, `waiting_for_user`): a parked run emits no events while
+ * it waits on the user, so auto-streaming it wins ZERO live updates while burning
+ * one of the browser's ~6-connections-per-origin sockets (BUG-013). With ≥6
+ * non-terminal runs those parked streams saturate the pool and the next request
+ * to the origin — the reopen `GET /api/runs/{id}` or a launch `POST /api/runs` —
+ * has no free socket and hangs forever into a silent idle screen.
  *
- * This set must mirror the backend lifecycle state machine
- * (`agents/execution_engine/state_machine.py`): the six non-terminal states it
- * drives — `clarifying, waiting_for_user, planning, analyzing, generating,
- * revising` (VALID_STATES − TERMINAL_STATES) — PLUS `running`, the DB default a
- * run carries before the state machine's first transition. A run mid-clarify,
- * mid-plan, or mid-generation is still live: it has a `_PIPELINE_QUEUES` entry
- * producing SSE events, so `refreshLiveRuns` must attach it. Omitting these
- * (the pre-44 set was only `{running, revising}`) meant a run opened from
- * history — or the page reloaded — while `generating` etc. never re-attached
- * its stream and showed the empty "Pipeline trace" placeholder (DEF-44-12-3;
- * the WS transport masked this because it reconnected by run-id, status-agnostic).
+ * The remaining members mirror the backend lifecycle state machine
+ * (`agents/execution_engine/state_machine.py`): `planning, analyzing,
+ * generating, revising` (the emitting non-terminal states) PLUS `running`, the
+ * DB default a run carries before the state machine's first transition. Each has
+ * a `_PIPELINE_QUEUES` entry producing SSE events, so `refreshLiveRuns` attaches
+ * it.
+ *
+ * The viewed/launched run stays streamed EVEN WHILE PARKED via the single sticky
+ * `focusedRunId` unioned into `liveRunIds` below (so multi-round clarify + the
+ * resume→build transition still stream live) — bounding net concurrent streams
+ * to (active builds) + (1 focused run), well under the per-origin cap.
  */
-const NON_TERMINAL_STATUSES = new Set([
+const AUTO_STREAM_STATUSES = new Set([
   "running",
-  "clarifying",
-  "waiting_for_user",
   "planning",
   "analyzing",
   "generating",
@@ -218,30 +221,51 @@ export function RunConnectionProvider({
   const [epoch, setEpoch] = useState(0);
   const subscribersRef = useRef<Set<(m: RunStreamMessage) => void>>(new Set());
 
-  // Server-derived reattach (D-14b): query the user's live runs and attach each.
+  // BUG-013: liveRunIds = union(autoIds, focusedRunId). Both inputs live in refs
+  // (not state) so `refreshLiveRuns`/`attachRun` stay dependency-free useCallbacks
+  // — the union is materialized into the liveRunIds STATE by recomputeLiveRunIds.
+  const autoIdsRef = useRef<string[]>([]);
+  const focusedRunIdRef = useRef<string | null>(null);
+
+  // Materialize union(autoIds, focus) into liveRunIds behind the set-diff identity
+  // guard so an unchanged union keeps the SAME array identity (no child remount).
+  // CRITICAL: the guard is applied to the UNION, not to autoIds alone — otherwise
+  // the focused run would be dropped on every refresh that leaves autoIds intact.
+  const recomputeLiveRunIds = useCallback(() => {
+    const autoIds = autoIdsRef.current;
+    const focus = focusedRunIdRef.current;
+    const union = focus
+      ? [...autoIds.filter((id) => id !== focus), focus]
+      : autoIds;
+    setLiveRunIds((prev) =>
+      prev.length === union.length && prev.every((id, i) => id === union[i])
+        ? prev
+        : union,
+    );
+  }, []);
+
+  // Server-derived reattach (D-14b): query the user's live runs and attach each
+  // actively-emitting one (AUTO_STREAM_STATUSES); the viewed/launched run is kept
+  // via the sticky focus (recomputeLiveRunIds unions it in).
   const refreshLiveRuns = useCallback(async () => {
     const t = getToken();
     setTokenState(t);
     if (!t) {
+      autoIdsRef.current = [];
+      focusedRunIdRef.current = null;
       setLiveRunIds([]);
       return;
     }
     try {
       const runs = await getWorkflows(t, { limit: 50 });
-      const ids = runs
-        .filter((r) => NON_TERMINAL_STATUSES.has(r.status))
+      autoIdsRef.current = runs
+        .filter((r) => AUTO_STREAM_STATUSES.has(r.status))
         .map((r) => r.id);
-      // Only replace when the set actually changed, to avoid remounting the
-      // connection children (which would drop + re-attach unnecessarily).
-      setLiveRunIds((prev) =>
-        prev.length === ids.length && prev.every((id, i) => id === ids[i])
-          ? prev
-          : ids,
-      );
+      recomputeLiveRunIds();
     } catch {
       /* keep the prior attach set on a transient query failure */
     }
-  }, []);
+  }, [recomputeLiveRunIds]);
 
   // Boot: resolve the token client-side and do the first server-derived attach.
   useEffect(() => {
@@ -298,14 +322,20 @@ export function RunConnectionProvider({
     void refreshLiveRuns();
   }, [refreshLiveRuns]);
 
-  // W1/R4 — imperative single-run attach. Mirrors refreshLiveRuns's set-diff so a
-  // repeat attach of an already-live id keeps the SAME `liveRunIds` identity (no
-  // remount of the existing RunStreamConnection). A brand-new id is appended,
-  // mounting exactly one new stream.
-  const attachRun = useCallback((runId: string) => {
-    if (!runId) return;
-    setLiveRunIds((prev) => (prev.includes(runId) ? prev : [...prev, runId]));
-  }, []);
+  // W1/R4 + BUG-013 — imperative single-run attach. Sets the SINGLE sticky focus
+  // (a new focus REPLACES the prior, so opening run B drops run A's parked stream —
+  // no accumulation) and re-materializes the union. A still-building prior run is
+  // retained regardless of focus because it stays in autoIdsRef via
+  // AUTO_STREAM_STATUSES. Idempotent for an already-focused id (the identity guard
+  // in recomputeLiveRunIds keeps the same array → no remount).
+  const attachRun = useCallback(
+    (runId: string) => {
+      if (!runId) return;
+      focusedRunIdRef.current = runId;
+      recomputeLiveRunIds();
+    },
+    [recomputeLiveRunIds],
+  );
 
   const sendCommand = useCallback(
     async (
