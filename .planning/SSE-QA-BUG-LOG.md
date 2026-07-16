@@ -34,7 +34,8 @@ Each entry:
 
 ## Bugs found in this campaign
 
-### BUG-001 — Run-screen left-lane title shows the most-recent run's title, not the viewed run's  [🟠 major] [ROOT-CAUSED]
+### BUG-001 — Run-screen left-lane title shows the most-recent run's title, not the viewed run's  [🟠 major] [FIXED ✅]
+- **RESOLVED:** FIXED (quick 260716-j1u, cc2f98f7) — live-proven
 
 - **Found:** 2026-07-16 · test DEF-44-12-4 B3/B5 live-verification (history-open path) · surface run screen → left conversation lane header (`LaneRunHeader`, `data-testid="lane-run-title"`).
 - **Symptom:** Opening three different runs from the Home "Jump back in" recents, the left-lane title heading showed the WRONG run's title while all other lane/Steps content was correct for the opened run:
@@ -79,7 +80,8 @@ Each entry:
 
 ---
 
-### BUG-002 — Run History row-tap opens a degraded static detail (no chat lane / no revise / stale QUEUED / No agent data / No preview) instead of the shared run screen  [🟠 major] [ROOT-CAUSED]
+### BUG-002 — Run History row-tap opens a degraded static detail (no chat lane / no revise / stale QUEUED / No agent data / No preview) instead of the shared run screen  [🟠 major] [FIXED ✅]
+- **RESOLVED:** FIXED (quick 260716-j1u, e8a22842) — live-proven
 
 - **Found:** 2026-07-16 · test history-open path (top-nav "Run History" / a run's "Back to history" → tap a run row) · surface Run History detail vs the shared run screen.
 - **Symptom:** Two paths open a past run and render COMPLETELY DIFFERENT UIs.
@@ -113,7 +115,8 @@ Each entry:
 
 ---
 
-### BUG-003 — Revise-via-chat "Run refinement" fires nothing / launches no revision on an opened run  [🟠 major] [ROOT-CAUSED]
+### BUG-003 — Revise-via-chat "Run refinement" fires nothing / launches no revision on an opened run  [🟠 major] [FIXED ✅]
+- **RESOLVED:** FIXED (quick 260716-j1u, 8b4e2eb7) — offline-proven TS-U-09
 
 - **Found:** 2026-07-16 · live Bedrock QA · surface run screen → left chat lane (`RunChatLane`) confirm-first refinement chip, on a **recents/history-opened COMPLETED od_ppt run** (`6c6f38c7`, "A 6-slide investor pitch for a B2B carbon-accounting SaaS").
 - **Symptom:** On the opened run, typing a change and chat-send correctly HELDS it behind the confirm chip ("RUN A REFINEMENT WITH THIS CHANGE? … [Run refinement] [Dismiss]", 44-02 behavior — no POST on send, verified). Clicking **"Run refinement"** → **ZERO non-GET `/api/` requests fire**, the chip disappears, and **NO `*_revision` run is created**. The opened run's deliverable **Preview was also BLANK** (presentation.pptx did not render inline). Shots: `~/.claude/jobs/e660aea4/tmp/shots-qa/{revise-chip,revise-launched,revise-clean-after}.png`.
@@ -146,7 +149,8 @@ Each entry:
 
 ---
 
-### BUG-004 — DB connection-pool exhaustion (QueuePool 5+10) under concurrent runs → 500 on submit_answers/_review_gate_owned_by  [🟠 major] [ROOT-CAUSED]
+### BUG-004 — DB connection-pool exhaustion (QueuePool 5+10) under concurrent runs → 500 on submit_answers/_review_gate_owned_by  [🟠 major] [FIXED ✅]
+- **RESOLVED:** FIXED (quick 260716-heb, d418b5a1/56deb5c4) — live-proven (25 streams)
 
 - **Found:** 2026-07-16 · live Bedrock QA under concurrent load (~10+ simultaneous runs — several `generating`/streaming, some at clarify/gates) · surface: `POST /api/runs/{id}/answers` (clarify-skip) and any transactional REST command. Worked (200) earlier with fewer active runs; became a consistent 500 once ~10+ runs were live. Traceback: `~/.claude/jobs/e660aea4/tmp/uvicorn44.log`.
 - **Symptom:** `submit_answers` (`run_commands.py:261`) → `_review_gate_owned_by` (`run_engine.py:344`, the `.first()`) raises `sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached, connection timed out, timeout 30.00` → HTTP 500. i.e. all 15 SQLAlchemy connections were checked out and NONE freed within the 30s pool_timeout.
@@ -170,7 +174,8 @@ Each entry:
 
 ---
 
-### BUG-005 — Prototype launched with no template: clarify never renders (UI stuck at "Running 0/0 BUILDING")  [🟠 major] [ROOT-CAUSED]
+### BUG-005 — Prototype launched with no template: clarify never renders (UI stuck at "Running 0/0 BUILDING")  [🟠 major] [FIXED ✅]
+- **RESOLVED:** FIXED (quick 260716-j1u, 8eec694c) — live-proven
 
 - **Found:** 2026-07-16 · live Bedrock QA (heavy concurrent load — same session as BUG-004's ~10+ simultaneous runs) · surface run screen → clarify-gate rendering, on an **`od_prototype` no-template launch** (KAN-87), brief "a website that mimics apple.com". Runs `afb5de91-7017-422e-a1c9-6872109b49f9` + `bea8b22d-4e0d-44f1-a32e-c5b63b6bb41f`.
 - **Symptom:** The run screen shows **"Pipeline running · 0/0 · BUILDING"** with ONLY the "Starting point" card and a **"Steer the run"** (building-mode) composer — **no clarifying questions render, nothing progresses, it looks stuck** — even though the run is server-side paused at the clarify gate (`status=waiting_for_user`) with a well-formed 6-question questionnaire ready.
@@ -195,7 +200,8 @@ Each entry:
 
 ---
 
-### BUG-006 — Run-screen pipeline-type label shows the wrong (stale) type for a history-opened run  [🟡 minor] [ROOT-CAUSED]
+### BUG-006 — Run-screen pipeline-type label shows the wrong (stale) type for a history-opened run  [🟡 minor] [FIXED ✅]
+- **RESOLVED:** FIXED (quick 260716-lb6, 616d481a) — live-proven
 
 - **Found:** 2026-07-16 · live Bedrock QA · surface run screen → left conversation lane header (`LaneRunHeader`, `data-testid="lane-run-type"`), on a **history/recents-opened COMPLETED app_builder run** ("A URL shortener web app", 15 app_builder agents, "app" deliverable — verified app_builder).
 - **Symptom:** The small pipeline-type chip above the lane title read **"USER_STORIES"**, not the run's real type (app_builder → would render "APP_BUILDER"). Everything else on the screen is the OPENED run's correct data — the 15 app_builder agents, audit, and deliverable all render correctly; only the type LABEL is stale. Sibling of BUG-001 (the lane TITLE had the same "bound to the wrong run" defect, fixed today in quick 260716-j1u) and of BUG-003's L2 aggravator (the revise-handler selection, also fixed today) — here the third consumer of the same stale state: the displayed TYPE.
@@ -223,7 +229,8 @@ Each entry:
 
 ---
 
-### BUG-007 — One UI launch mints TWO runs (double POST /api/runs)  [🟡 minor] [ROOT-CAUSED]
+### BUG-007 — One UI launch mints TWO runs (double POST /api/runs)  [🟡 minor] [FIXED ✅]
+- **RESOLVED:** FIXED (quick 260716-lb6, c959fe44) — dev-only, offline-proven
 
 - **Found:** 2026-07-16 · test LJ-04 (independently seen in the BUG-005 investigation) · surface prototype LaunchWizard → select design system → "Continue" → the Network panel shows `POST /api/runs` fire **twice**, minting two `od_prototype` runs. BUG-005 measured the pair **120 ms apart** (`created_at` 10:30:45.246 & .368). The extra run wastes tokens and doubles the concurrent-run load that triggers BUG-004/BUG-005.
 - **Symptom:** A single "Continue" click → 2× `POST /api/runs` → 2 sibling runs for one launch intent.
