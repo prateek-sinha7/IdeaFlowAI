@@ -265,6 +265,60 @@ class TestAttach:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# live-drain terminals — BUG-016: approving a review gate must NOT close the
+# stream (approve RESUMES the run on the same queue); only genuine terminals do.
+# ════════════════════════════════════════════════════════════════════════════
+class TestLiveDrainTerminals:
+    def test_review_gate_approved_does_not_close_stream(self, db_session):
+        """approve is a gate RESUMPTION, not a stream terminal — the drain keeps
+        forwarding the post-approve events on the same queue (BUG-016)."""
+        _seed_run(db_session)
+        _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
+        q: asyncio.Queue = asyncio.Queue()
+
+        async def _drive():
+            await q.put({"type": "review_gate_approved", "data": {"seq": 2}})
+            await q.put({"type": "agent_start", "data": {"seq": 3, "agent": "prototype-plan"}})
+            await q.put(None)  # sentinel
+            return await _collect(
+                _iter_sse_frames(
+                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=q
+                )
+            )
+
+        parsed = [_parse(f) for f in asyncio.run(_drive())]
+        # FAIL-BEFORE: review_gate_approved is in _GATE_RESOLUTION_TYPES, so the drain
+        # returns right after yielding it → the post-approve agent_start (id "3") is
+        # never yielded (RED). GREEN once :198 uses _STREAM_TERMINAL_TYPES.
+        assert any(p["id"] == "2" and p["type"] == "review_gate_approved" for p in parsed)
+        assert any(p["id"] == "3" and p["type"] == "agent_start" for p in parsed), (
+            "post-approve agent_start dropped — approve wrongly closed the live stream"
+        )
+
+    def test_pipeline_complete_ends_the_drain(self, db_session):
+        """CONTROL: a genuine terminal still ends the drain before any later event."""
+        _seed_run(db_session)
+        _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
+        q: asyncio.Queue = asyncio.Queue()
+
+        async def _drive():
+            await q.put({"type": "pipeline_complete", "data": {"seq": 2}})
+            await q.put({"type": "agent_start", "data": {"seq": 3}})
+            await q.put(None)  # sentinel
+            return await _collect(
+                _iter_sse_frames(
+                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=q
+                )
+            )
+
+        parsed = [_parse(f) for f in asyncio.run(_drive())]
+        assert any(p["id"] == "2" and p["type"] == "pipeline_complete" for p in parsed)
+        assert not any(p["id"] == "3" for p in parsed), (
+            "pipeline_complete must end the drain before the post-terminal event"
+        )
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # owner — IDOR → 404 (never 403) + flag-off feature-absent
 # ════════════════════════════════════════════════════════════════════════════
 class TestOwnerScope:
