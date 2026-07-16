@@ -1316,11 +1316,20 @@ export function DashboardLayout({
     laneHasDeliverable ? "complete" :
     "idle";
 
-  // Phase 39 (RUNUI-06) — the live run title for the lane header. Prefer the
-  // clean backend-generated title of the active run (recentRuns[0], the same
-  // source the notification title uses at :543), else fall back to the submitted
-  // brief; the lane itself falls back further to the first user turn.
-  const latestRunTitle = recentRuns?.[0]?.title;
+  // Phase 39 (RUNUI-06) — the live run title for the lane header. BUG-001: bind
+  // it to the VIEWED run (contentSourceRunId), not recentRuns[0] (the most-recent
+  // run). On a fresh launch contentSourceRunId is null → recentRuns[0] = the
+  // just-launched run (byte-identical to the old primary flow). On a complete /
+  // history-reopen, contentSourceRunId = the viewed run → its own clean title. If
+  // the viewed run is outside the recents window (find → undefined) the ternary
+  // falls back to submittedBrief (the viewed run's own input on reopen), never a
+  // foreign run's title. SC-001-safe (keys on run.id). The lane falls back further
+  // to the first user turn.
+  const viewedRun =
+    contentSourceRunId != null
+      ? recentRuns?.find((r) => r.id === contentSourceRunId)
+      : recentRuns?.[0];
+  const latestRunTitle = viewedRun?.title;
   const runHeaderTitle =
     latestRunTitle && latestRunTitle !== "Untitled" ? latestRunTitle : submittedBrief;
 
