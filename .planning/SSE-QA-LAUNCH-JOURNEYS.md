@@ -106,4 +106,12 @@
 
 **New bugs:** **BUG-006 🟡** (investigating) — pipeline-type label stale for a history-opened run (app_builder shown as "USER_STORIES"; sibling of BUG-001). **BUG-007 🟡** — double-mint: one UI launch fires 2× `POST /api/runs`.
 
-**Deferred (sequential, lower-value):** LJ-01/02/03/05/06/07 other-entry launches, LJ-14/15/17/22/26 rendering states, LJ-30..36 edge — spot-covered; full sweep deferred.
+## Final coverage tally (2026-07-16, on the fixed UI)
+
+**Driven live + PASS (24):** LJ-01 (home Build), LJ-02 (user_stories), LJ-04 (prototype wizard full launch), LJ-05 (app_builder), LJ-06 (migration entry), LJ-07 (custom composer), LJ-08 (recents open), LJ-09 (Inspect), LJ-12 (Web/Deck toggle), LJ-13 (BUILDING lane), LJ-14 (clarify lane card), LJ-15 (gate lane card), LJ-16 (COMPLETE lane + ask/refine), LJ-18 (narrator cards), LJ-19 (Steps L1→L3 drilldown), LJ-20 (Steps clarify questionnaire), LJ-21 (Steps review gate), LJ-23 (Files), LJ-24 (Audit), LJ-25 (Preview), LJ-27 (prototype no-DS gate), LJ-28 (ppt no-template gate), LJ-29 (empty-brief gate), LJ-34 (migration no-brief gate). **All 0 `/ws/chat`.**
+
+**Gate-proven, full flow not driven (2):** LJ-03 (ppt full launch — the no-template GATE is proven at LJ-28; the multi-step template-select modal wasn't driven), LJ-35 (zero-agents — the Advanced/agent controls render; the remove-all-agents disabled state wasn't driven).
+
+**Not driven (10) — reasons:** LJ-10 (saved-workflow launch) + LJ-11 (chain-to-next) need a saved workflow / a run to chain from. LJ-17 (terminal cancelled/failed cards), LJ-22 (construction block), LJ-26 (auto-tab to Audit on failure), LJ-31 (cancel-mid-clarify), LJ-32 (launch-then-navigate), LJ-36 (malformed draft) — **covered by the 139-passing mocked Playwright suite** (`ts-q.terminal-states`, `ts-chat`, `ts-t.history`, `ts-sse-resilience`); the live recents/History navigation for the older failed/cancelled runs was harness-flaky (the recents-open works — proven in the cluster live proofs — but selecting a specific *old* run needs the History list, which my selector kept mis-hitting). LJ-30 (tier-lock) = **N/A** (the QA user is enterprise; no locked cards). LJ-33 (attach-image) was fixed + live-proven earlier (quick-260710-ftq).
+
+**Net:** every launch ENTRY POINT (Section A) is driven or gate-proven live; every run-screen SURFACE (chat lane states, Steps L1→L3, Files, Audit, Preview) is captured live; every launch GATE (no-template/DS/brief/path) holds. The untested tail is terminal/edge *rendering* states already green in the mocked suite, plus saved-workflow/chain launches. **No new bugs surfaced in the launch-journey sweep** beyond BUG-006/007 (both fixed).
