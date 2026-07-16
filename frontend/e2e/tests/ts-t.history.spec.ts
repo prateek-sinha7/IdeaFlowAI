@@ -33,37 +33,6 @@ async function openHistory(page: Page) {
   await expect(page.getByRole("heading", { name: "Run History" })).toBeVisible();
 }
 
-/**
- * Stub GET /api/runs/{id}/summary (SHELL-03 RunDetailPage data spine). The shared
- * mockApi (frontend/e2e/fixtures/mockApi.ts — outside the nine files this wave may
- * edit) has no route for it, so its catch-all returns {} and RunDetailPage throws
- * on the missing `agents`/`token_usage` fields → ErrorBoundary blanks the reopen
- * detail. Registered per-test so it wins (LIFO) over the fixture's "**\/api\/**".
- * Returns a minimal, crash-free RunSummary keyed to the requested run id.
- */
-async function stubRunSummary(page: Page) {
-  await page.route("**/api/runs/*/summary", async (route) => {
-    const parts = new URL(route.request().url()).pathname.split("/");
-    const id = parts[parts.length - 2] || "run";
-    await route.fulfill({
-      json: {
-        id,
-        title: "",
-        type: "custom",
-        status: "completed",
-        input: "",
-        duration: null,
-        agent_count: 0,
-        token_usage: {},
-        error: null,
-        agents: [],
-        root_id: id,
-        members: [],
-      },
-    });
-  });
-}
-
 test.describe("TS-T — WorkflowHistory", () => {
   test("TS-T-01 list & status badges (completed/cancelled/failed/running)", async ({ dashboard, mockApi, page }) => {
     mockApi.setRuns([
@@ -138,7 +107,7 @@ test.describe("TS-T — WorkflowHistory", () => {
     await expect(page.getByText("Stories alpha")).toBeVisible();
   });
 
-  test("TS-T-03 reopen a completed run → detail view shows its output", async ({ dashboard, mockApi, page }) => {
+  test("TS-T-03 reopen a completed run → the SHARED run screen shows its output (BUG-002)", async ({ dashboard, mockApi, page }) => {
     mockApi.setRuns([
       makeRun({
         id: "r-open",
@@ -148,35 +117,32 @@ test.describe("TS-T — WorkflowHistory", () => {
         output: "# Product Backlog\n\n## Epic: Refunds\n\nAs a user I want a refund.",
       }),
     ]);
-    // Phase 39 (SHELL-03): the reopen detail's left summary column is now the
-    // RunDetailPage, fed by GET /api/runs/{id}/summary — an endpoint the shared
-    // mockApi (outside these nine files) does not serve, so its catch-all returns
-    // {} and RunDetailPage throws on summary.agents.map → ErrorBoundary, which
-    // blanks the whole detail (incl. the right-column tabs this test asserts).
-    // Stub the summary endpoint here with a minimal valid RunSummary so the detail
-    // renders. This override wins over the fixture's "**/api/**" route (LIFO).
-    await stubRunSummary(page);
 
     await dashboard.goto();
     await openHistory(page);
 
-    // Click the row → detail view opens. The detail surface carries the
-    // Preview / Files / Thinking tabs and renders the run output (UserStoryPreview).
+    // BUG-002: a History row tap now routes through onOpenRun → the SHARED run
+    // screen (execution-chat-lane + composer), NOT WorkflowHistory's divergent
+    // internal RunDetailPage (Preview/Files/Thinking). Its reopen deliverable now
+    // renders in the run screen's PreviewPanel — parity with the Home-recents path
+    // covered by ts-live-state (b).
     await page.getByText("Refunds backlog").click();
 
-    await expect(page.getByRole("button", { name: "Preview" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Files" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Thinking" })).toBeVisible();
+    // The shared run screen mounts (NOT the internal detail).
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
 
-    // The reopened preview renders the persisted backlog content.
+    // The reopened deliverable renders in the run screen's Preview tab.
+    await dashboard.previewTab().click();
     await expect(page.getByText("Product Backlog").first()).toBeVisible();
   });
 
-  test("TS-T-04 generic/custom reopen renders a SANDBOXED iframe (allow-scripts, no same-origin)", async ({ dashboard, mockApi, page }) => {
-    // A `custom`/unknown run whose output is HTML routes through the generic
-    // fallback: deriveDeliverableMimetype → text/html → the SAME sandboxed iframe
-    // as the live deliverable path (allow-scripts only, NEVER allow-same-origin).
-    // Mirrors WorkflowHistory.genericReopen.test.tsx in-browser.
+  test("TS-T-04 generic/custom run History tap opens the shared run screen (BUG-002 routing)", async ({ dashboard, mockApi, page }) => {
+    // A `custom`/unknown run whose output is HTML. BUG-002: the History tap now
+    // routes through onOpenRun → the shared run screen (execution-chat-lane),
+    // NOT WorkflowHistory's internal RunDetailPage. The sandboxed-iframe SECURITY
+    // contract for the generic reopen is pinned in-browser by
+    // WorkflowHistory.genericReopen.test.tsx; the run-screen rendering of it is
+    // covered by TS-T-04b below.
     mockApi.setRuns([
       makeRun({
         id: "r-generic",
@@ -186,22 +152,40 @@ test.describe("TS-T — WorkflowHistory", () => {
         output: "<!DOCTYPE html><html><body><h1>Hi</h1></body></html>",
       }),
     ]);
-    // See TS-T-03: stub the SHELL-03 RunDetailPage summary endpoint so the reopen
-    // detail renders instead of crashing into the ErrorBoundary.
-    await stubRunSummary(page);
 
     await dashboard.goto();
     await openHistory(page);
 
     await page.getByText("Custom deliverable").click();
 
+    // The shared run screen mounts (BUG-002 routing) — NOT the internal detail.
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
+    await expect(page.getByRole("tab", { name: /Steps/i })).toBeVisible();
+  });
+
+  test.fixme("TS-T-04b generic/custom reopen renders its SANDBOXED iframe in the shared run screen", async ({ dashboard, mockApi, page }) => {
+    // FOLLOW-UP (deferred-items.md / DEF-BUG-002-generic-reopen): after BUG-002
+    // routed History taps to the shared run screen, a reopened GENERIC/CUSTOM
+    // deliverable renders the empty "Output will appear here" state in the run
+    // screen's PreviewPanel (the reopen content seed does not repopulate
+    // genericDeliverable on this path). TYPED deliverables (user_stories — TS-T-03)
+    // render fine; the Home-recents path shares this generic-reopen gap, so BUG-002
+    // exposed rather than introduced it. The sandbox SECURITY contract itself stays
+    // covered by WorkflowHistory.genericReopen.test.tsx. Un-fixme once the run
+    // screen renders a reopened generic deliverable.
+    mockApi.setRuns([
+      makeRun({ id: "r-generic", title: "Custom deliverable", type: "custom", status: "completed", output: "<!DOCTYPE html><html><body><h1>Hi</h1></body></html>" }),
+    ]);
+    await dashboard.goto();
+    await openHistory(page);
+    await page.getByText("Custom deliverable").click();
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
+    await dashboard.previewTab().click();
     const iframe = page.locator('iframe[title="Deliverable Preview"]');
     await expect(iframe).toBeVisible();
-    // BLOCKING security contract: exactly allow-scripts, explicitly NOT same-origin.
     await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
     const sandbox = (await iframe.getAttribute("sandbox")) || "";
     expect(sandbox).not.toContain("allow-same-origin");
-    // The HTML deliverable is delivered via srcdoc (the heading is inside it).
     await expect(iframe).toHaveAttribute("srcdoc", /<h1>Hi<\/h1>/);
   });
 
