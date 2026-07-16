@@ -612,6 +612,15 @@ export function DashboardLayout({
     extraParams?: Record<string, unknown>;
   } | null>(null);
 
+  // BUG-007: object-identity latches for the launch-consumer effects. The only
+  // guard below is `if (!pendingOdProtoParams) return;` + an ASYNC clear, so
+  // React StrictMode's dev double mount-effect invoke passes it twice before the
+  // clear lands and mints two runs for one launch. A synchronous ref compare
+  // makes the SAME param object mint once while a NEW launch (new object) still
+  // mints — the ref persists across the same-instance double invoke.
+  const launchedProtoParamsRef = useRef<object | null>(null);
+  const launchedPptParamsRef = useRef<object | null>(null);
+
   // Fire any pending pipeline start as soon as the WebSocket is connected.
   useEffect(() => {
     if (connectionStatus !== "connected") return;
@@ -635,6 +644,10 @@ export function DashboardLayout({
   // emit questionnaire_ready mid-run if it needs clarification (CLARIFY_REQUIRED).
   useEffect(() => {
     if (!pendingOdProtoParams) return;
+    // BUG-007: latch on object identity BEFORE any side effect so the second
+    // StrictMode mount-invoke early-returns without a second mint.
+    if (launchedProtoParamsRef.current === pendingOdProtoParams) return;
+    launchedProtoParamsRef.current = pendingOdProtoParams;
     setMainView("execution");
     setWorkflowType("prototype");
     setQuestionnaireQuestions([]);
@@ -684,6 +697,10 @@ export function DashboardLayout({
   // emit questionnaire_ready mid-run if it needs clarification (CLARIFY_REQUIRED).
   useEffect(() => {
     if (!pendingOdPptParams) return;
+    // BUG-007: latch on object identity BEFORE any side effect so the second
+    // StrictMode mount-invoke early-returns without a second mint.
+    if (launchedPptParamsRef.current === pendingOdPptParams) return;
+    launchedPptParamsRef.current = pendingOdPptParams;
     setMainView("execution");
     setWorkflowType("ppt");
     setQuestionnaireQuestions([]);
