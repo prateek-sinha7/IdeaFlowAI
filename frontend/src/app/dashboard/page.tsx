@@ -145,6 +145,15 @@ export default function DashboardPage() {
   // once, and the max-seen seq is tracked so the reconnect can send after_seq.
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const lastSeqRef = useRef<number>(0);
+  // BUG-005 — run-scope the pipeline_start reset. `trackedRunIdRef` holds the run
+  // THIS tab is driving/viewing: the ONLY run whose pipeline_start may reset this
+  // tab's clarify / active-run-id / seen-set. The SSE provider's non-run-scoped
+  // fan-out forwards EVERY frame from EVERY attached run to the single subscriber,
+  // so without this guard a CONCURRENT foreign run's pipeline_start wiped the
+  // viewed run's clarify (activePipelineRunId → null → the lane fell clarify→
+  // building). Synced below from activePipelineRunId ?? contentSourceRunId (NOT
+  // pipelineState.pipelineRunId — useWorkflow adopts the foreign id into it).
+  const trackedRunIdRef = useRef<string | null>(null);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
@@ -459,27 +468,52 @@ export default function DashboardPage() {
       // correct after_seq (run 1 left it at e.g. 500). NOTE: the just-deduped
       // pipeline_start event_id is re-recorded after the reset so a replay of
       // pipeline_start itself stays idempotent within the new run.
+      //
+      // BUG-005 — RUN-SCOPE the reset: the SSE provider's non-run-scoped fan-out
+      // forwards a CONCURRENT foreign run's pipeline_start to this single
+      // subscriber too. Running the reset for a foreign frame nulls the VIEWED
+      // run's activePipelineRunId/questionnaireData + poisons the shared seen-set,
+      // collapsing the viewed run's clarify to "0/0 BUILDING". So SKIP the reset
+      // when the incoming pipeline_run_id belongs to a DIFFERENT run than the one
+      // this tab tracks. When there is no tracked id yet, or the ids match, the
+      // reset runs exactly as before (launch / same-tab-new-run flow unregressed).
+      // CRITICAL: gate on `trackedRunIdRef.current` (a ref), NOT the
+      // activePipelineRunId/contentSourceRunId STATE — handleWebSocketMessage is a
+      // useCallback([]) whose closure captures the INITIAL (null) state, so a
+      // direct state read would treat every pipeline_start as foreign and break the
+      // launch reset (the DEF-44-12-4 stale-closure class).
       if (msg.type === "pipeline_start") {
-        resetReplayState({
-          seen: seenEventIdsRef.current,
-          setLastSeq: (n) => {
-            lastSeqRef.current = n;
-          },
-          setWaveGroups,
-        });
-        if (topEventId) seenEventIdsRef.current.add(topEventId);
-        // KAN-89: clear any stale reviewGateData from a previous run so the
-        // ReviewGatePanel never blocks the new pipeline's preview area.
-        // reviewGateData lives separately from pipelineState and is not cleared
-        // by onResetPipeline() — this is the canonical place to clear it since
-        // pipeline_start is the definitive "new run has begun" signal.
-        setReviewGateData(null);
-        // Clear stale questionnaire state from a previous run that may have
-        // been cancelled/failed while the clarify gate was open (questionnaire_complete
-        // never fired). Without this, the old questionnaire panel can flash or
-        // persist into the next run's preview area.
-        setQuestionnaireData(null);
-        setActivePipelineRunId(null);
+        const incomingRunId = (msg.data as Record<string, unknown> | undefined)
+          ?.pipeline_run_id as string | undefined;
+        const isForeignRun =
+          !!incomingRunId &&
+          !!trackedRunIdRef.current &&
+          incomingRunId !== trackedRunIdRef.current;
+        if (isForeignRun) {
+          // Foreign concurrent run — forward the frame to the reducer (below) but
+          // do NOT reset THIS tab's clarify / seen-set / review-gate.
+        } else {
+          resetReplayState({
+            seen: seenEventIdsRef.current,
+            setLastSeq: (n) => {
+              lastSeqRef.current = n;
+            },
+            setWaveGroups,
+          });
+          if (topEventId) seenEventIdsRef.current.add(topEventId);
+          // KAN-89: clear any stale reviewGateData from a previous run so the
+          // ReviewGatePanel never blocks the new pipeline's preview area.
+          // reviewGateData lives separately from pipelineState and is not cleared
+          // by onResetPipeline() — this is the canonical place to clear it since
+          // pipeline_start is the definitive "new run has begun" signal.
+          setReviewGateData(null);
+          // Clear stale questionnaire state from a previous run that may have
+          // been cancelled/failed while the clarify gate was open (questionnaire_complete
+          // never fired). Without this, the old questionnaire panel can flash or
+          // persist into the next run's preview area.
+          setQuestionnaireData(null);
+          setActivePipelineRunId(null);
+        }
       }
 
       handlePipelineMsgRef.current?.({
@@ -896,6 +930,17 @@ export default function DashboardPage() {
   useEffect(() => {
     handlePipelineMsgRef.current = handlePipelineMsg;
   }, [handlePipelineMsg]);
+
+  // BUG-005 — keep `trackedRunIdRef` pointed at the run this tab is driving/viewing
+  // so the pipeline_start reset (handleWebSocketMessage) can run-scope itself. Sync
+  // from activePipelineRunId (clarify-paused run) ?? contentSourceRunId (viewed/
+  // reopened run); keep the last id when BOTH go null (the building phase clears
+  // both but the tab is still driving that run). DELIBERATELY excludes
+  // pipelineState.pipelineRunId — useWorkflow.ts:243 adopts a foreign frame's
+  // pipeline_run_id into it, so tracking it would hijack the id to the foreign run.
+  useEffect(() => {
+    trackedRunIdRef.current = activePipelineRunId ?? contentSourceRunId ?? trackedRunIdRef.current;
+  }, [activePipelineRunId, contentSourceRunId]);
 
   // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
 
@@ -1435,7 +1480,14 @@ export default function DashboardPage() {
         void Promise.resolve(
           startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams),
         ).then((launchedRunId) => {
-          if (launchedRunId) runConnection.attachRun(launchedRunId);
+          if (launchedRunId) {
+            runConnection.attachRun(launchedRunId);
+            // BUG-005 — recognize the just-launched run as self so its OWN
+            // pipeline_start still fires the WR-03 reset even when
+            // activePipelineRunId/contentSourceRunId are stale/null (a same-tab NEW
+            // run launched after a prior run completed). Set alongside attachRun.
+            trackedRunIdRef.current = launchedRunId;
+          }
         });
       }}
       onResetPipeline={resetPipeline}
