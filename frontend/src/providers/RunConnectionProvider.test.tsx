@@ -114,4 +114,36 @@ describe("RunConnectionProvider — bounded per-run streams + sticky focus (BUG-
     expect(result.current.liveRunIds).toContain("gen-run");
     expect(result.current.liveRunIds).toContain("other");
   });
+
+  // BUG-015 — releasing the sticky focus for a COMPLETED run so its dead
+  // RunStreamConnection unmounts (no reconnect, no ~14k re-replay). A PARKED id
+  // is used as the focus so its presence in liveRunIds comes ONLY from the focus,
+  // making detach observable in isolation.
+  it("Test 4: detachRun clears the focus + drops the id; a non-focused id is a no-op", async () => {
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+
+    await waitFor(() => {
+      expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      result.current.attachRun("parked-A");
+    });
+    expect(result.current.liveRunIds).toContain("parked-A");
+
+    // A non-focused id (gen-run is auto-streamed, not the focus) → no-op on the
+    // focus. FAIL-BEFORE: detachRun does not exist → "detachRun is not a function".
+    act(() => {
+      result.current.detachRun("gen-run");
+    });
+    expect(result.current.liveRunIds).toContain("parked-A");
+
+    // Detaching the focused id clears the sticky focus + drops it from liveRunIds.
+    act(() => {
+      result.current.detachRun("parked-A");
+    });
+    expect(result.current.liveRunIds).not.toContain("parked-A");
+  });
 });

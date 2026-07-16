@@ -117,3 +117,44 @@ describe("useRunStream — SSE frame parser (BUG-014-B)", () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// BUG-015 — a completed, still-viewed run reconnects forever. The backend
+// closes a TERMINAL run's stream after replay (`stream_attached {live:false}`
+// then close, no `event: done`). The hook must NOT reconnect after a non-live
+// attach closes (it would re-replay ~14k events in a loop), while a GENUINE
+// live-stream drop MUST still reconnect. SC-001: fixtures key on the
+// `stream_attached`/`live` frame + run-id strings only — no workflow-name literal.
+// ─────────────────────────────────────────────────────────────────
+describe("useRunStream — non-live close does not reconnect (BUG-015)", () => {
+  const NON_LIVE_ATTACH =
+    'id: 5\r\ndata: {"type":"stream_attached","data":{"pipeline_run_id":"r","live":false,"replayed_through_seq":5}}\r\n\r\n';
+  const LIVE_ATTACH =
+    'id: 5\r\ndata: {"type":"stream_attached","data":{"pipeline_run_id":"r","live":true,"replayed_through_seq":5}}\r\n\r\n';
+
+  it("A1 (PRIMARY): a non-live attach that closes settles `disconnected` — no reconnect", async () => {
+    serveWire(NON_LIVE_ATTACH);
+
+    const { result } = renderHook(() =>
+      useRunStream({ runId: "r", token: "t.t.t", onMessage: vi.fn(), enabled: true }),
+    );
+
+    // FAIL-BEFORE: the close branch runs scheduleReconnect() → phase "reconnecting"
+    // + a "Reconnecting…" banner, so phase never reaches "disconnected" (RED).
+    await waitFor(() => expect(result.current.phase).toBe("disconnected"));
+    expect(result.current.lastError ?? "").not.toMatch(/Reconnecting/i);
+  });
+
+  it("A2 (CONTROL): a live attach that drops STILL reconnects", async () => {
+    serveWire(LIVE_ATTACH);
+
+    const { result } = renderHook(() =>
+      useRunStream({ runId: "r", token: "t.t.t", onMessage: vi.fn(), enabled: true }),
+    );
+
+    // A genuine live drop keeps reconnecting (liveness is judged per-connection —
+    // the ref resets at the top of every connect()). scheduleReconnect sets
+    // "reconnecting" synchronously; test cleanup aborts the pending 1s reconnect.
+    await waitFor(() => expect(result.current.phase).toBe("reconnecting"));
+  });
+});
