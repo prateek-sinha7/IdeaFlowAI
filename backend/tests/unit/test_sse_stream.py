@@ -73,7 +73,7 @@ def db_session():
 
 
 @pytest.fixture
-def api(db_session):
+def api(db_session, monkeypatch):
     app = FastAPI()
     app.include_router(router)
     state: dict = {"user": _FakeUser(id="owner")}
@@ -86,6 +86,19 @@ def api(db_session):
 
     app.dependency_overrides[get_current_user] = override_user
     app.dependency_overrides[get_db] = override_db
+
+    # BUG-004: stream_run_events now backs the streaming generator with a SESSION-LESS
+    # ScopedStore (it opens app.models.database.SessionLocal per read so the request
+    # connection is not held/leaked during the stream). In production SessionLocal and
+    # get_db share one engine; this harness overrides get_db onto an in-memory StaticPool
+    # engine, so SessionLocal must be redirected onto that SAME engine or the generator
+    # would read the real dev DB (empty) instead of the seeded rows.
+    import app.models.database as _db_mod
+
+    test_sessionmaker = sessionmaker(
+        bind=db_session.get_bind(), autocommit=False, autoflush=False, expire_on_commit=False
+    )
+    monkeypatch.setattr(_db_mod, "SessionLocal", test_sessionmaker)
     return TestClient(app), state
 
 

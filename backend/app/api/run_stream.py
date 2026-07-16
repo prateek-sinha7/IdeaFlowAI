@@ -242,6 +242,22 @@ async def stream_run_events(
             detail="Workflow run not found",
         )
 
+    # BUG-004: the request-session store above is used ONLY for the two pre-stream owner
+    # checks (Layer 1 ORM filter + Layer 2 get_run), which run in request scope and return
+    # normally. It must NOT back the streaming generator: FastAPI >= 0.106 tears the
+    # get_db yield-dependency down (db.close()) BEFORE the streaming body runs, so a
+    # read_events INSIDE _iter_sse_frames would re-acquire a FRESH pool connection on the
+    # closed session with owned=False (authz.py:95-99) and NEVER release it (authz.py
+    # :328-330 only closes owned sessions) — one leaked connection per live SSE stream.
+    # Build a SEPARATE session-less store for the generator so each read_events opens+closes
+    # its own SessionLocal (owned=True), mirroring the safe post_message idiom
+    # (run_commands.py:758). Only the session-acquisition mode changes — frames/replay/
+    # handshake/gate re-arm stay byte/event-identical (INV-3 parity).
+    stream_store = ScopedStore(
+        owner_id=current_user.id,
+        workspace_id=workflow_run.workspace_id,
+    )
+
     # Resolve the resume cursor from the browser-native Last-Event-ID header. A missing
     # / non-int header is a full replay (0) — never a 422 (the browser controls this
     # header on auto-reconnect; a hostile value only bounds the caller's OWN replay,
@@ -263,7 +279,7 @@ async def stream_run_events(
     return EventSourceResponse(
         _iter_sse_frames(
             run_id=workflow_id,
-            store=store,
+            store=stream_store,
             after_seq=after_seq,
             live_queue=live_queue,
             request=request,
