@@ -131,6 +131,11 @@ function formatDuration(seconds?: number): string {
 export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
+  // KAN-110 (revised): Load More pattern — append pages instead of replacing.
+  // PAGE_SIZE runs per fetch; loadingMore = subsequent page in flight.
+  const PAGE_SIZE = 50;
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [totalRuns, setTotalRuns] = useState(0);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -162,15 +167,36 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     if (reviseOpen && revisionRef.current) revisionRef.current.focus();
   }, [reviseOpen]);
 
+  // KAN-110 (revised): initial fetch on mount or filter change — replaces list.
+  // When filterType changes we reset back to the first page.
   useEffect(() => {
     const token = getToken();
     if (!token) return;
     setLoading(true);
-    getWorkflows(token, { limit: 100 })
-      .then((data) => setRuns(data))
+    setRuns([]);
+    getWorkflows(token, { limit: PAGE_SIZE, offset: 0 })
+      .then(({ runs: data, total }) => {
+        setRuns(data);
+        setTotalRuns(total);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterType]);
+
+  // KAN-110 (revised): append the next page to the existing list.
+  const handleLoadMore = useCallback(() => {
+    const token = getToken();
+    if (!token || loadingMore) return;
+    setLoadingMore(true);
+    getWorkflows(token, { limit: PAGE_SIZE, offset: runs.length })
+      .then(({ runs: data, total }) => {
+        setRuns((prev) => [...prev, ...data]);
+        setTotalRuns(total);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  }, [runs.length, loadingMore]);
 
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
     // KAN-96: if this run is the currently-ACTIVE (still running) pipeline,
@@ -752,8 +778,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           {/* Content */}
           <div className="flex-1 min-h-0 overflow-hidden">
             {loadingDetail ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+              <div className="flex flex-col items-center justify-center h-full gap-3">
+                <div className="h-8 w-8 rounded-full border-2 border-gray-200 border-t-[#1B2A4A] animate-spin" />
+                <p className="text-[12px] text-gray-400">Loading workflow…</p>
               </div>
             ) : (
               /* Version-switch cross-fade (PreviewPanel.tsx:586-594 idiom): all
@@ -902,10 +929,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const families = groupRunsByFamily(runs);
   const visibleFamilies = families.filter((g) => g.members.some(matchesFilter));
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
-  const typeCounts: Record<string, number> = { all: families.length };
-  families.forEach((g) => {
-    // Count the FAMILY once under its base type (normalized from the root).
-    const base = baseWorkflowType(g.root.type);
+  // KAN-110: all counts from current page only.
+  // "All" = total unfiltered runs (server). Type tabs = count from current 50 runs.
+  const typeCounts: Record<string, number> = { all: totalRuns };
+  ["user_stories", "ppt", "prototype", "app_builder", "custom"].forEach((t) => {
+    typeCounts[t] = 0;
+  });
+  // Count each run on the current page under its base type.
+  runs.forEach((r) => {
+    const base = baseWorkflowType(r.type);
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
 
@@ -922,7 +954,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           </button>
           <div>
             <h1 className="text-[18px] font-normal italic text-gray-900 leading-tight font-serif">Workflow History</h1>
-            <p className="text-[11px] text-gray-400 mt-0.5">{runs.length} runs</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{totalRuns > 0 ? `${totalRuns} runs` : `${runs.length} runs`}</p>
           </div>
         </div>
 
@@ -947,7 +979,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             return (
               <button
                 key={type}
-                onClick={() => setFilterType(type)}
+                onClick={() => { setFilterType(type); }}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                   filterType === type
                     ? "bg-[#1B2A4A] text-white"
@@ -1032,6 +1064,26 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           </div>
         )}
       </div>
+
+      {/* ── Load More — shown at bottom of list when more runs exist ── */}
+      {runs.length < totalRuns && !loading && (
+        <div className="flex-shrink-0 flex items-center justify-center gap-3 py-3">
+          <span className="text-[11px] text-gray-400">
+            Showing {runs.length} of {totalRuns} workflows
+          </span>
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="group flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[11px] font-medium bg-[#1B2A4A] text-white hover:bg-[#243558] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            {loadingMore ? (
+              <><Loader2 className="h-3 w-3 animate-spin opacity-70" />Loading…</>
+            ) : (
+              <>Load more <ChevronRight className="h-3 w-3 opacity-60 group-hover:translate-x-0.5 transition-transform" /></>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Delete modal */}
       <AnimatePresence>

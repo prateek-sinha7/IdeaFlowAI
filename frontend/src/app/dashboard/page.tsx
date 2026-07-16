@@ -253,7 +253,7 @@ export default function DashboardPage() {
     if (!currentToken) return;
 
     getWorkflows(currentToken, { limit: 50 })
-      .then((runs) => setRecentRuns(runs))
+      .then(({ runs }) => setRecentRuns(runs))
       .catch(() => {
         // Silently fail — workflows will load when backend is available
         // This prevents the error from showing on the UI
@@ -501,7 +501,7 @@ export default function DashboardPage() {
         const currentToken = getToken();
         if (currentToken) {
           getWorkflows(currentToken, { limit: 50 })
-            .then((runs) => setRecentRuns(runs))
+            .then(({ runs }) => setRecentRuns(runs))
             .catch(() => {});
         }
       }
@@ -529,7 +529,7 @@ export default function DashboardPage() {
         const currentToken = getToken();
         if (currentToken) {
           getWorkflows(currentToken, { limit: 50 })
-            .then((runs) => setRecentRuns(runs))
+            .then(({ runs }) => setRecentRuns(runs))
             .catch(() => {});
         }
       }

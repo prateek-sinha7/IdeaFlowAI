@@ -12,7 +12,7 @@ import type { WorkflowRun, RunFamily } from "@/types/index";
 // ─────────────────────────────────────────────────────────────────
 
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 const mockGetRunFamily = vi.fn<(token: string, id: string) => Promise<RunFamily>>();
@@ -131,7 +131,7 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
       ...familyRuns(),
       makeRun({ id: "solo", title: "Solo run", type: "ppt", parentRunId: null, rootRunId: "solo", createdAt: t3, output: "<html>solo</html>" }),
     ];
-    mockGetWorkflows.mockResolvedValue(runs);
+    mockGetWorkflows.mockResolvedValue({ runs: runs, total: runs.length });
     mockGetRunFamily.mockResolvedValue(familyPayload());
 
     render(<WorkflowHistory onBack={vi.fn()} />);
@@ -156,7 +156,7 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
   });
 
   it("child version row is a native button (aria-label) that opens the version on activation (§8 keyboard)", async () => {
-    mockGetWorkflows.mockResolvedValue(familyRuns());
+    mockGetWorkflows.mockResolvedValue({ runs: familyRuns(), total: familyRuns().length });
     mockGetRunFamily.mockResolvedValue(familyPayload());
     const byId: Record<string, WorkflowRun> = Object.fromEntries(familyRuns().map((r) => [r.id, r]));
     mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve(byId[id]));
@@ -177,7 +177,7 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
 
   it("renders a single-member (standalone) family as a plain row — no pill, no expander (zero regression)", async () => {
     const solo = makeRun({ id: "solo", title: "Just me", type: "ppt", parentRunId: null, rootRunId: "solo", createdAt: t0, output: "<html>solo</html>" });
-    mockGetWorkflows.mockResolvedValue([solo]);
+    mockGetWorkflows.mockResolvedValue({ runs: [solo], total: 1 });
 
     render(<WorkflowHistory onBack={vi.fn()} />);
 
@@ -211,7 +211,7 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
       createdAt: t1,
       output: "## User Stories",
     });
-    mockGetWorkflows.mockResolvedValue([protoRun, chainedRun]);
+    mockGetWorkflows.mockResolvedValue({ runs: [protoRun, chainedRun], total: 2 });
 
     render(<WorkflowHistory onBack={vi.fn()} />);
 
@@ -228,7 +228,7 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
 
 describe("Revision Families (B2) — detail version timeline (D4)", () => {
   async function openLatestDetail() {
-    mockGetWorkflows.mockResolvedValue(familyRuns());
+    mockGetWorkflows.mockResolvedValue({ runs: familyRuns(), total: familyRuns().length });
     mockGetRunFamily.mockResolvedValue(familyPayload());
     render(<WorkflowHistory onBack={vi.fn()} />);
     // Click the family root card body → opens the latest member (v3 = r2).

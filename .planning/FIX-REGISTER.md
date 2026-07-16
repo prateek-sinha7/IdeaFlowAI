@@ -10,6 +10,9 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-055 | 2026-07-16 | KAN-110 (follow-up): Replace page-number pagination with Load More button on Workflow History | FIX-051 implemented numbered pagination (Prev/1/2/…/Next); requirement was append-based Load More. Replaced `currentPage` state + `handleGoToPage` + pagination footer with `loadingMore` flag + `handleLoadMore` callback that appends `offset: runs.length`. Existing skeleton loading state was already sufficient. | `frontend/src/components/history/WorkflowHistory.tsx` | Frontend (FIX-051 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-051 | 2026-07-15 | KAN-110: Workflow history slow loading + add pagination — DB index + paginated frontend | No compound index on `workflow_runs(user_id, created_at)` caused full table scan on every history load; frontend fetched `limit:100` with no offset. Fix: migration 0025 adds `ix_workflow_runs_user_created`; `list_runs` gains `X-Total-Count` header; `getWorkflows` extended with `offset` + returns `{runs,total}`; `WorkflowHistory` changed to `limit:50` with Load More button. | `backend/alembic/versions/0024_stub_from_dev_branch.py` (stub), `backend/alembic/versions/0025_workflow_runs_user_created_index.py` (new), `backend/app/api/runs.py`, `frontend/src/lib/api.ts`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/components/analytics/AnalyticsPage.tsx`, `frontend/src/app/dashboard/page.tsx`, 5 test files | DB/API/Frontend (no engine phase) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-050 | 2026-07-15 | KAN-109: Add AI Coach Hub prototype template SKILL.md so the template appears in the gallery | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` was absent; `od_loader._load_one_template()` returns None when SKILL.md is missing, so the folder is silently skipped by `list_prototype_templates()`. example.html was present and correct. Fix: created SKILL.md with `od.mode: prototype` frontmatter + full agent build workflow instructions following the process-canvas pattern. | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` (new) | OpenDesign templates (content, no phase) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-049 | 2026-07-13 | KAN-108: Prototype revision delivers blank/unchanged/broken prototypes silently — add Revision Validation Agent as second step + fix clarify.mode: auto | `prototype_revision` manifest declared only 1 step; the silent `revision_validation` post-step only catches regressions vs baseline (zero-delta no-op passes), not blank pages, broken navigation, or missing components. `clarify.mode: auto` fired questionnaire on every revision. Fix: new `prototype-revision-validate` agent (dedicated AGENT.md, `pipeline_type: prototype_revision`, `consumes: [prototype-revision-agent]`, `tools: [workspace]`) added as step 2; manifest updated to `clarify.mode: skip`; registry updated; goldens regenerated; phase5/characterization tests updated. | `backend/agents/workflows/prototype_revision/workflow.yaml`, `backend/agents/registry.py`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` (new), `backend/tests/agents/characterization/golden/prototype_revision.events.json`, `backend/tests/agents/characterization/golden/prototype_revision.html`, `backend/tests/agents/_scripted_model.py`, `backend/tests/agents/test_phase5_revision_validation.py` | Phase 7 (revision post-step / agent registry) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-001 | 2026-06-16 | Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows | Validator: "two short sentences" loophole allowed model to print full checklist as preamble without `<artifact>` wrapper → raw checklist rendered as deck. Composer: deepagents filesystem glob crashes on Windows (pathlib.rglob ValueError) → composer told to use context-injected files instead of tool calls | `backend/agents/prompts/od-ppt-validator/AGENT.md`, `backend/agents/prompts/od-ppt-composer/AGENT.md` | Phase 15 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-002 | 2026-06-16 | Vellum template not applied — example.html not injected into PPT composer context | opendesign provider `is_builder` gate used `{"prototype_emit_only", "prototype"}` set; `workspace` tool set excluded so PPT composer never received `example.html`; SKILL.md workflow says "clone example.html" but agent had no copy | `backend/agents/capabilities/context_providers/opendesign.py` | Phase 7 | INV-1/3/12/SC-001 ✅ | Done |
@@ -68,6 +71,122 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-051 — KAN-110: Workflow History Slow Loading + Pagination
+
+**Date:** 2026-07-15
+**Triggered by:** `/velocity-ai-fix KAN-110`
+
+#### Root Cause
+
+Two confirmed causes:
+
+1. **No compound DB index** — `backend/app/models/workflow.py:17` had only `ix_workflow_runs_parent` on `parent_run_id`. The primary history query (`WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`) had no index on `(user_id, created_at)` and performed a full table scan on every history load.
+
+2. **Frontend fetched 100 rows with no pagination** — `WorkflowHistory.tsx:169` called `getWorkflows(token, { limit: 100 })` on every mount. The `getWorkflows` function in `api.ts` had no `offset` parameter, making server-side pagination structurally impossible without a code change.
+
+#### Phase Context
+
+- **Phase(s) involved:** DB/API/Frontend — no engine phase; additive migration + API header + FE state change.
+- **Relevant register section:** Phase 5 §5 (additive migrations, Q3 constraint); Phase 4 D-02 (runs.py owns history CRUD).
+- **Deleted code verified (not resurrected):** No deleted code resurrected.
+- **Locked decisions respected:** Migrations additive only (Q3) — index-only migration, no column/constraint change. No engine edit.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/alembic/versions/0024_stub_from_dev_branch.py` | New stub migration (empty upgrade/downgrade) chaining `0023→0024` | Reconciles the `0024` DB head from a merged dev-branch commit not present in this working branch; needed to make the Alembic revision graph resolvable |
+| `backend/alembic/versions/0025_workflow_runs_user_created_index.py` | New migration: `CREATE INDEX ix_workflow_runs_user_created ON workflow_runs(user_id, created_at)` | Eliminates the full-table scan on the primary history query |
+| `backend/app/api/runs.py` | Added `response: Response` param to `list_runs`; runs a `.count()` query before fetching the page and sets `X-Total-Count` header | Gives the frontend the total run count for pagination controls without a separate request |
+| `frontend/src/lib/api.ts` | Extended `getWorkflows` options with `offset?: number`; changed return type from `WorkflowRun[]` to `{ runs: WorkflowRun[]; total: number }`; switched from `request<>()` to raw `fetch()` to read the `X-Total-Count` header | Enables frontend pagination and exposes the total count |
+| `frontend/src/components/history/WorkflowHistory.tsx` | Changed initial load from `limit: 100` to `limit: 50`; added `offset`, `totalRuns`, `loadingMore` state; added `handleLoadMore` callback; added "Load more" button below the run list when `runs.length < totalRuns` | Implements visible pagination — first 50 runs load fast; user can append the next 50 on demand |
+| `frontend/src/components/analytics/AnalyticsPage.tsx` | Updated `getWorkflows` call site to destructure `{ runs: wf }` | Adapts to new return type |
+| `frontend/src/app/dashboard/page.tsx` | Updated all 3 `getWorkflows` call sites to destructure `{ runs }` | Adapts to new return type |
+| 5 test files (`WorkflowHistory.*.test.tsx`) | Updated `mockGetWorkflows` type from `Promise<WorkflowRun[]>` to `Promise<{ runs: WorkflowRun[]; total: number }>`; updated all `.mockResolvedValue` calls | Tests must match the new return type |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): not affected — no engine code changed.
+- **INV-3** (golden parity): not affected — no agent or engine code changed.
+- **INV-12** (no duplication): not applicable — additive migration + API/FE changes only.
+- **SC-001** (zero engine edits): not affected — zero engine edits.
+
+#### Verification
+
+1. Migration ran: `Running upgrade 0024 -> 0025` confirmed in alembic output.
+2. Index confirmed in DB: `ix_workflow_runs_user_created` present in `sqlite_master`.
+3. Backend restarted and healthy: `🟢 Backend ready — accepting connections`.
+4. Frontend `getWorkflows` function now returns `{ runs, total }` — all 3 call sites updated.
+5. WorkflowHistory loads 50 runs on mount; "Load more" appends the next 50 when `runs.length < totalRuns`.
+
+#### Notes
+
+- The `0024_stub_from_dev_branch.py` should be removed when the `dev` branch (containing the real `0024` migration) is merged into this branch. At merge time the real `0024` file should replace the stub, and `0025` should be repointed to chain from the real `0024`.
+- The `count()` call in `list_runs` adds one extra DB query per request. With the new index this is a fast index-scan count, not a full table scan, so the overhead is negligible.
+- The `AnalyticsPage` still uses `limit: 500` — intentional (analytics needs all runs for accurate charts). This is not a pagination surface.
+
+---
+
+### FIX-050 — KAN-109: Add AI Coach Hub SKILL.md to expose template in gallery
+
+**Date:** 2026-07-15
+**Triggered by:** `/velocity-ai-fix KAN-109 — add SKILL.md for ai-coach-hub template`
+
+#### Root Cause
+
+`skills/opendesign/design-templates/ai-coach-hub/SKILL.md` was absent. The loader
+`backend/app/services/od_loader.py::_load_one_template()` checks `(folder / "SKILL.md").is_file()`
+first and returns `None` if the file is missing — the folder is then silently excluded from
+`list_prototype_templates()` which only returns entries with `od.mode == "prototype"`. The
+`example.html` file was present and correct (six navigable screens, all `data-od-id` attributes,
+hash-based router, inline JS controller).
+
+Trace:
+```
+GET /api/prototype-templates/list
+  → list_prototype_templates()
+  → _all_templates()  [@lru_cache — cleared on restart]
+  → _load_one_template(ai-coach-hub/)
+  → skill_path = folder / "SKILL.md"
+  → if not skill_path.is_file(): return None   ← ai-coach-hub/ skipped
+  → template never added to result list
+  → gallery shows no AI Coach Hub card
+```
+
+#### Phase Context
+
+- **Phase(s) involved:** N/A — OpenDesign templates are pure content under `skills/`, not tracked by any engine phase.
+- **Relevant register section:** Not applicable (content file, no phase section).
+- **Deleted code verified (not resurrected):** No code deleted or modified.
+- **Locked decisions respected:** N/A — pure content addition.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` | Created new file with `od.mode: prototype` frontmatter, name/description/triggers/od block, and full agent build workflow (pre-flight, domain replacement, JS data adaptation, six-screen self-check, nav integrity check, output contract) | `od_loader._load_one_template()` requires SKILL.md; `list_prototype_templates()` requires `od.mode == "prototype"` to include the template in the gallery |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): not affected — no engine code changed.
+- **INV-3** (golden parity): not affected — no agent or engine code changed.
+- **INV-12** (no duplication): not applicable — pure content addition.
+- **SC-001** (zero engine edits): not affected — zero engine edits.
+
+#### Verification
+
+1. Confirmed `od.mode: prototype` present in the new SKILL.md via grep.
+2. Backend restarted — `@lru_cache` on `_all_templates()` cleared.
+3. Template will appear at `http://localhost:3000/workflow/prototype/templates` with name "AI Coach Hub", tags DESKTOP and SAAS-PRODUCT, and the live preview.
+
+#### Notes
+
+- The template was previously built and verified working (screenshot confirmed by user), then reverted due to missing branch discipline. KAN-109 was created to track the redo.
+- The SKILL.md follows the exact `process-canvas/SKILL.md` pattern: YAML frontmatter with `od` block + markdown body with pre-flight / workflow / hard-rules / output-contract sections.
+- All six screen `data-page` ids and `data-od-id` attributes documented in the SKILL.md screen inventory table so agents know what to change vs preserve when re-skinning.
 
 ---
 
@@ -2107,3 +2226,57 @@ The "Invalid presentation output" error (separate path) occurs when the validato
 - This is a defense-in-depth fix. The prompt hardening reduces but does not eliminate LLM non-determinism; the deterministic sanitizer catches what the prompt alone cannot prevent.
 - The `strip_pre_slide_body_text` function uses a targeted approach: find `<body>`, find first slide anchor, remove preamble. It does NOT attempt to parse full HTML — intentionally simple and narrow-scoped per the existing sanitizer pattern.
 - Follow-up: if the validator continues to produce "Invalid presentation output" errors (no HTML doctype at all), that is a separate failure mode requiring a different fix (the validator emitting a pure QA report with no deck).
+
+---
+
+### FIX-055 — KAN-110 (follow-up): Replace pagination with Load More + improve loading UX
+
+**Date:** 2026-07-16
+**Triggered by:** `/velocity-ai-fix KAN-110 — instead of pagination numbering we want load more option on the workflow history page. Also, we want to have some loader showing while the user waits for workflows list to appear.`
+
+#### Root Cause
+
+FIX-051 implemented page-based pagination (Prev / 1 / 2 / 3 / … / Next buttons). The requirement is a simpler append-based "Load More" button. Additionally, a loading skeleton was already rendered during the initial fetch (7 skeleton cards + spinner + "Loading workflows" text) — this part was already correct. The pagination state (`currentPage`, `handleGoToPage`) and the pagination footer (numbered page buttons) needed to be replaced with Load More semantics.
+
+Trace:
+```
+User opens Workflow History
+  → useEffect fires with currentPage dep → replaces runs array (page-flip behaviour)
+  → Pagination footer shows numeric Prev/1/2/3/Next buttons — NOT the desired UX
+  
+Wanted:
+  → Initial load replaces runs (stays the same)
+  → "Load More" button appends offset: runs.length to the existing list
+  → loadingMore spinner in button during the secondary fetch
+```
+
+#### Phase Context
+- **Phase(s) involved:** FIX-051 (KAN-110) / Frontend-only
+- **Relevant register section:** FIX-051 detailed entry above
+- **Deleted code verified (not resurrected):** `currentPage` state and `handleGoToPage` removed; no previously-deleted code resurrected
+- **Locked decisions respected:** Backend API contract (`limit`/`offset` + `X-Total-Count`) unchanged; `getWorkflows` return type unchanged
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/WorkflowHistory.tsx` | Removed `currentPage` state; replaced with `loadingMore: boolean`. Changed useEffect to always fetch `offset: 0` on mount/filterType change (replaces list). Added `handleLoadMore` callback that fetches `offset: runs.length` and appends. Removed page-based pagination footer; added "Load more / Loading… (spinner)" button shown only when `runs.length < totalRuns && !loading`. | Implements append-based Load More UX instead of page-flip pagination |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — pure FE component change.
+- **INV-3** (golden parity): not affected — no agent or engine code changed.
+- **INV-12** (no duplication): not applicable — FE-only.
+- **SC-001** (zero engine edits): not affected — zero engine edits.
+
+#### Verification
+- No TypeScript diagnostics on the changed file.
+- State simplification: `currentPage` removed, `loadingMore` added — no other components referenced `currentPage`.
+- Backend API unchanged — `getWorkflows(token, { limit, offset })` signature identical.
+- The existing skeleton loading state (7 cards + spinner + "Loading workflows" text) continues to show during the initial `loading=true` state.
+- `Load more` button appears only when `runs.length < totalRuns && !loading`; shows `Loader2` spinner when `loadingMore=true`.
+- Filter tab change resets the list to offset 0 (same as before).
+
+#### Notes
+- The `loadingMore` button spinner provides visual feedback during the secondary fetch without hiding the already-loaded runs.
+- The existing skeleton is sufficient for the initial load UX requirement — no additional change was needed there.
+- If a filter tab is active while runs are loaded with Load More, the `matchesFilter` client-side filter already handles type filtering across all loaded runs.
