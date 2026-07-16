@@ -1,0 +1,49 @@
+### Runs - List
+GET {{apiRoot}}/api/runs?limit=20&offset=0
+Authorization: Bearer {{jwt}}
+
+### Runs - List filtered
+GET {{apiRoot}}/api/runs?type=prototype&status_filter=completed
+Authorization: Bearer {{jwt}}
+
+### Runs - Export PPTX
+POST {{apiRoot}}/api/runs/export-pptx
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"workflow_id": "{{workflowId}}",
+	"title": "Exported Deck"
+}
+
+### Runs - Get by ID
+GET {{apiRoot}}/api/runs/{{workflowId}}
+Authorization: Bearer {{jwt}}
+
+### Runs - Delete by ID
+DELETE {{apiRoot}}/api/runs/{{workflowId}}
+Authorization: Bearer {{jwt}}
+
+### Runs - Chain context
+GET {{apiRoot}}/api/runs/{{workflowId}}/chain-context
+Authorization: Bearer {{jwt}}
+
+### Runs - Artifacts tree
+GET {{apiRoot}}/api/runs/{{workflowId}}/artifacts
+Authorization: Bearer {{jwt}}
+
+### Runs - Artifacts by kind
+GET {{apiRoot}}/api/runs/{{workflowId}}/artifacts?kind=clarifications&include=content
+Authorization: Bearer {{jwt}}
+
+### Runs - Events stream history
+GET {{apiRoot}}/api/runs/{{workflowId}}/events?after=0
+Authorization: Bearer {{jwt}}
+
+### Runs - Revision family
+GET {{apiRoot}}/api/runs/{{workflowId}}/family
+Authorization: Bearer {{jwt}}
+
+### Runs - Hook runs
+GET {{apiRoot}}/api/runs/{{workflowId}}/hook-runs
+Authorization: Bearer {{jwt}}

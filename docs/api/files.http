@@ -1,0 +1,11 @@
+### Files - Extract text from upload (pdf/docx/pptx)
+POST {{apiRoot}}/api/files/extract-text
+Authorization: Bearer {{jwt}}
+Content-Type: multipart/form-data; boundary=FlowinBoundary
+
+--FlowinBoundary
+Content-Disposition: form-data; name="file"; filename="sample.pdf"
+Content-Type: application/pdf
+
+< ./sample.pdf
+--FlowinBoundary--

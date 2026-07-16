@@ -1,0 +1,13 @@
+### PPT - List templates
+GET {{apiRoot}}/api/ppt/templates
+Authorization: Bearer {{jwt}}
+
+### PPT - Get template
+GET {{apiRoot}}/api/ppt/templates/investor-deck
+Authorization: Bearer {{jwt}}
+
+### PPT - Template preview (public)
+GET {{apiRoot}}/api/ppt/templates/investor-deck/preview
+
+### PPT - Template thumbnail (public)
+GET {{apiRoot}}/api/ppt/templates/investor-deck/thumbnail

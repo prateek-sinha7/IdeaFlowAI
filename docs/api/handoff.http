@@ -1,0 +1,21 @@
+### Handoff - Receive (API key auth)
+POST {{apiRoot}}/api/handoff/receive
+X-Flowin-API-Key: {{flowinApiKey}}
+Content-Type: application/json
+
+{
+	"task": "Add regression test for login flow",
+	"transcript": "Short IDE transcript excerpt",
+	"repo_url": "https://github.com/acme/example-repo",
+	"mode": "auto",
+	"source_branch": "main",
+	"source_client": "claude-code"
+}
+
+### Handoff - Get by token
+GET {{apiRoot}}/api/handoff/{{handoffToken}}
+Authorization: Bearer {{jwt}}
+
+### Handoff - Start pipeline
+POST {{apiRoot}}/api/handoff/{{handoffToken}}/start
+Authorization: Bearer {{jwt}}

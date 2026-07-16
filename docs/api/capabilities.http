@@ -1,0 +1,3 @@
+### Capabilities - List palette and model catalog
+GET {{apiRoot}}/api/capabilities
+Authorization: Bearer {{jwt}}

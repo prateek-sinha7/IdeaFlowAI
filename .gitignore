@@ -37,14 +37,12 @@ node_modules/
 out/
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
 
 # Spec Kit — local AI tooling, not tracked in version control
 .specify/
-.claude/
 CLAUDE.md
 
 # OS

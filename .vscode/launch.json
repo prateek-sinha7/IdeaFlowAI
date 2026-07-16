@@ -1,0 +1,99 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend (Run)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "../venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      "cwd": "${workspaceFolder}/backend",
+      "envFile": "${workspaceFolder}/backend/.env"
+    },
+    {
+      "name": "Backend (Debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "module": "uvicorn",
+      "cwd": "${workspaceFolder}/backend",
+      "args": [
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "envFile": "${workspaceFolder}/backend/.env",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      },
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Frontend (Run)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/frontend"
+    },
+    {
+      "name": "Frontend (Debug Browser)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/frontend"
+    },
+    {
+      "name": "Handoff Pipeline Tests (Run)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "../venv/bin/python -m pytest tests/integration/test_handoff_contract.py",
+      "cwd": "${workspaceFolder}/backend",
+      "envFile": "${workspaceFolder}/backend/.env"
+    },
+    {
+      "name": "Handoff Pipeline Tests (Debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "module": "pytest",
+      "cwd": "${workspaceFolder}/backend",
+      "args": [
+        "tests/integration/test_handoff_contract.py"
+      ],
+      "envFile": "${workspaceFolder}/backend/.env",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      },
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Frontend (Debug)",
+      "configurations": [
+        "Frontend (Run)",
+        "Frontend (Debug Browser)"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "Full Stack (Run)",
+      "configurations": [
+        "Frontend (Run)",
+        "Backend (Run)"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "Full Stack (Debug)",
+      "configurations": [
+        "Frontend (Run)",
+        "Backend (Debug)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

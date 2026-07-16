@@ -1,0 +1,15 @@
+### MCP - JSON-RPC POST (Authorization bearer flowin API key)
+POST {{apiRoot}}/mcp/handoff
+Authorization: Bearer {{flowinApiKey}}
+Content-Type: application/json
+
+{
+	"jsonrpc": "2.0",
+	"id": 1,
+	"method": "tools/list",
+	"params": {}
+}
+
+### MCP - GET stream probe (expected 405)
+GET {{apiRoot}}/mcp/handoff
+Authorization: Bearer {{flowinApiKey}}

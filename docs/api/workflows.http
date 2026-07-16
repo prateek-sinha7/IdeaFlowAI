@@ -1,0 +1,7 @@
+### Workflows - List manifest workflows
+GET {{apiRoot}}/api/workflows
+Authorization: Bearer {{jwt}}
+
+### Workflows - Get manifest workflow
+GET {{apiRoot}}/api/workflows/prototype
+Authorization: Bearer {{jwt}}

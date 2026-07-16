@@ -1,0 +1,46 @@
+### Prototype - List templates
+GET {{apiRoot}}/api/prototype/templates
+Authorization: Bearer {{jwt}}
+
+### Prototype - Get template
+GET {{apiRoot}}/api/prototype/templates/saas-landing
+Authorization: Bearer {{jwt}}
+
+### Prototype - Template preview (public)
+GET {{apiRoot}}/api/prototype/templates/saas-landing/preview
+
+### Prototype - Template thumbnail (public)
+GET {{apiRoot}}/api/prototype/templates/saas-landing/thumbnail
+
+### Prototype - Template asset (public)
+GET {{apiRoot}}/api/prototype/templates/saas-landing/assets/template.html
+
+### Prototype - List design systems
+GET {{apiRoot}}/api/prototype/design-systems
+Authorization: Bearer {{jwt}}
+
+### Prototype - Get design system
+GET {{apiRoot}}/api/prototype/design-systems/linear
+Authorization: Bearer {{jwt}}
+
+### Prototype - Design system preview (public)
+GET {{apiRoot}}/api/prototype/design-systems/linear/preview
+
+### Prototype - Run NDJSON pipeline
+POST {{apiRoot}}/api/prototype/run
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"template_id": "saas-landing",
+	"design_system_id": "linear",
+	"brief": "Build a focused landing page for an AI code review tool.",
+	"discovery": {
+		"audience": "engineering managers",
+		"cta": "Start free trial"
+	}
+}
+
+### Prototype - Fetch URL proxy
+GET {{apiRoot}}/api/prototype/fetch-url?url=https://example.com
+Authorization: Bearer {{jwt}}

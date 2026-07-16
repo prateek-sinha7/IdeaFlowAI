@@ -1,0 +1,3 @@
+### Health
+GET {{apiRoot}}/health
+Accept: application/json

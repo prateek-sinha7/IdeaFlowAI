@@ -1,0 +1,28 @@
+# VelocityAI API collection index
+#
+# This folder is split by resource so each file stays focused and manageable.
+# Shared variables are centralized in:
+#   /.vscode/settings.json (environments: local, dev)
+#
+# Open one of the files below to run requests:
+# - health.http
+# - auth.http
+# - chats.http
+# - agents.http
+# - workflows.http
+# - capabilities.http
+# - runs.http
+# - user-workflows.http
+# - settings.http
+# - admin.http
+# - handoff.http
+# - mcp.http
+# - install.http
+# - files.http
+# - prototype.http
+# - ppt.http
+# - websocket.http
+
+### Health - quick smoke test
+GET {{apiRoot}}/health
+Accept: application/json

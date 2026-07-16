@@ -1,0 +1,8 @@
+### Install - Combined installer script
+GET {{apiRoot}}/install/flowin-handoff
+
+### Install - Slash command markdown
+GET {{apiRoot}}/install/flowin-handoff/command
+
+### Install - Shell script
+GET {{apiRoot}}/install/flowin-handoff/script
