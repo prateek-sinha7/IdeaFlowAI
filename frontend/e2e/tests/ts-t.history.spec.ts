@@ -163,7 +163,7 @@ test.describe("TS-T — WorkflowHistory", () => {
     await expect(page.getByRole("tab", { name: /Steps/i })).toBeVisible();
   });
 
-  test.fixme("TS-T-04b generic/custom reopen renders its SANDBOXED iframe in the shared run screen", async ({ dashboard, mockApi, page }) => {
+  test("TS-T-04b generic/custom reopen renders its SANDBOXED iframe in the shared run screen", async ({ dashboard, mockApi, page }) => {
     // FOLLOW-UP (deferred-items.md / DEF-BUG-002-generic-reopen): after BUG-002
     // routed History taps to the shared run screen, a reopened GENERIC/CUSTOM
     // deliverable renders the empty "Output will appear here" state in the run

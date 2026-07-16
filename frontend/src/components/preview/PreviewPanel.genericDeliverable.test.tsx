@@ -3,6 +3,21 @@ import { render, screen } from "@testing-library/react";
 import React from "react";
 
 import { PreviewPanel } from "./PreviewPanel";
+import type { PipelineRunState } from "@/types/index";
+
+// Terminal (not-running) pipeline state — models a completed reopen. Mirrors the
+// helper in PreviewPanel.degraded.test.tsx.
+function terminalPipelineState(overrides: Partial<PipelineRunState> = {}): PipelineRunState {
+  return {
+    isRunning: false,
+    pipeline_type: "user_stories",
+    agents: [],
+    currentAgentIndex: -1,
+    totalDuration: null,
+    completedCount: 0,
+    ...overrides,
+  };
+}
 
 // ─── Motion mock (same as the other PreviewPanel-area component tests) ────────
 const STRIPPED_MOTION_PROPS = new Set([
@@ -228,6 +243,55 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
         />,
       );
       expect(screen.getByTestId("markdown-preview")).toBeInTheDocument();
+    });
+  });
+
+  // ─── BUG-008 — reopened generic deliverable survives a STALE workflowType ─────
+  // On a terminal reopen the `isRunning`-gated workflowType binder never fires, so
+  // `workflowType` sits at the stale "user_stories" default → `isKnownRenderType`
+  // is true. Before the fix that starved `hasGenericDeliverable` and the Preview
+  // short-circuited to "Output will appear here". After the fix a PRESENT generic
+  // deliverable renders whenever the typed renderer for the (stale) renderType has
+  // nothing to show — routing through the unchanged P18 sandboxed iframe.
+  describe("BUG-008 — reopened generic deliverable survives a STALE workflowType", () => {
+    it("stale workflowType='user_stories' + empty typed content + text/html generic → SANDBOXED iframe, NOT the empty state", () => {
+      const { container } = render(
+        <PreviewPanel
+          workflowType="user_stories"
+          userStoryContent=""
+          pptContent=""
+          prototypeContent=""
+          isStreaming={false}
+          pipelineState={terminalPipelineState()}
+          genericDeliverable={{ mimetype: "text/html", filename: "reopen.html", content: HTML_DELIVERABLE }}
+        />,
+      );
+
+      const iframe = container.querySelector("iframe");
+      expect(iframe).not.toBeNull();
+      // P18 contract preserved: exactly allow-scripts, never same-origin.
+      expect(iframe!.getAttribute("sandbox")).toBe("allow-scripts");
+      expect(iframe!.getAttribute("sandbox") || "").not.toContain("allow-same-origin");
+      expect(iframe!.getAttribute("srcdoc")).toContain("Custom Output");
+      expect(screen.queryByText(/output will appear here/i)).not.toBeInTheDocument();
+    });
+
+    it("stale workflowType='user_stories' + empty typed content + text/markdown generic → MarkdownPreview, no iframe", () => {
+      const { container } = render(
+        <PreviewPanel
+          workflowType="user_stories"
+          userStoryContent=""
+          pptContent=""
+          prototypeContent=""
+          isStreaming={false}
+          pipelineState={terminalPipelineState()}
+          genericDeliverable={{ mimetype: "text/markdown", content: "# Hi\n\nbody" }}
+        />,
+      );
+
+      expect(screen.getByTestId("markdown-preview")).toBeInTheDocument();
+      expect(container.querySelector("iframe")).toBeNull();
+      expect(screen.queryByText(/output will appear here/i)).not.toBeInTheDocument();
     });
   });
 });

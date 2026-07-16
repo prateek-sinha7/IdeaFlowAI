@@ -574,7 +574,16 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // escaped HTML — the contradiction the phase was chartered to remove.
   const KNOWN_RENDER_TYPES = ["user_stories", "ppt", "prototype", "app_builder"] as const;
   const isKnownRenderType = (KNOWN_RENDER_TYPES as readonly string[]).includes(renderType);
-  const hasGenericDeliverable = !isKnownRenderType && !!genericDeliverable?.content;
+  // BUG-008: on a terminal reopen the `isRunning`-gated workflowType binder never
+  // fires, so `renderType` sits at the stale "user_stories" default →
+  // `isKnownRenderType` is true and the old `!isKnownRenderType && …` gate starved
+  // `hasGenericDeliverable` → the Preview short-circuited to "Output will appear
+  // here". Decouple the signal from the stale gate: a present generic deliverable
+  // counts whenever the typed renderer for the (possibly-stale) renderType has
+  // nothing to show. Keys only on the generic typed-content slots + the structural
+  // isKnownRenderType check — NO workflow-name literal (SC-001).
+  const knownContentPresent = !!(effUserStoryContent || effPptContent || effPrototypeContent || pptxCode);
+  const hasGenericDeliverable = !!genericDeliverable?.content && (!isKnownRenderType || !knownContentPresent);
 
   const hasContent = !!(effUserStoryContent || effPptContent || effPrototypeContent || pptxCode || hasGenericDeliverable);
 
