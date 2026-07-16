@@ -54,3 +54,4 @@ export const test = base.extend<Fixtures>({
 export { expect };
 export type { MockApi, MockSse, Tier };
 export { DashboardPage };
+export type { StubRunEventRow } from "./dashboard";

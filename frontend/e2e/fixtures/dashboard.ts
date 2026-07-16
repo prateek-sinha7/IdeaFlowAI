@@ -14,6 +14,17 @@ import {
 } from "./mockApi";
 import { TOKEN_KEY, TEST_JWT } from "./constants";
 
+/** One durable run_events row served by `stubRunEvents` — the wire shape of
+ *  GET /api/runs/{id}/events (runs.py:897-908). `payload_json` should carry the
+ *  frame's own `event_id`/`seq` (the same keys the page router + useRunChat dedup
+ *  on), since `getRunEvents` maps each row to `{ type, data: payload_json }`. */
+export interface StubRunEventRow {
+  seq: number;
+  event_id: string;
+  type: string;
+  payload_json: Record<string, unknown>;
+}
+
 export class DashboardPage {
   constructor(readonly page: Page, readonly sse: MockSse, readonly api: MockApi) {}
 
@@ -63,6 +74,55 @@ export class DashboardPage {
 
   homeHeading(): Locator {
     return this.page.getByRole("heading", { name: "What would you like to build today?" });
+  }
+
+  // ── history-open helpers (DEF-44-12-4) ───────────────────────────────────────
+
+  /**
+   * Open the Run History list via the AppHeader profile dropdown (lifted from
+   * ts-t.history.spec.ts so specs stop duplicating it). NB: the Run History LIST
+   * reopen renders WorkflowHistory's OWN RunDetailPage — it does NOT go through
+   * page.tsx's handleSelectWorkflowRun, so it does NOT seed the execution-lane
+   * pipeline/transcript. Use `openRecent(...)` for the seed path.
+   */
+  async openHistory() {
+    const headerButtons = this.page.locator("header button");
+    await headerButtons.last().click();
+    await this.page.getByRole("menuitem", { name: "Run History" }).click();
+    await expect(this.page.getByRole("heading", { name: "Run History" })).toBeVisible();
+  }
+
+  /**
+   * Open a run from the Home "Jump back in" recents strip. This is the deep-link
+   * that fires page.tsx's `handleSelectWorkflowRun` (onOpenRun → onSelectWorkflowRun
+   * → setMainView("execution")) — the path that seeds the run-screen live state
+   * (Steps trace + transcript) for the VIEWED run (DEF-44-12-4). The recents strip
+   * is populated from GET /api/runs, so seed the run via `mockApi.setRuns([...])`
+   * BEFORE `goto()`.
+   */
+  async openRecent(title: string) {
+    await expect(this.page.getByText("Jump back in")).toBeVisible({ timeout: 15000 });
+    await this.page.getByRole("button").filter({ hasText: title }).first().click();
+  }
+
+  /**
+   * Stub the durable, NON-stream events endpoint GET /api/runs/{id}/events?after=N
+   * (distinct from the mockSse `/events/stream` down-channel). The shared mockApi
+   * catch-all otherwise returns `{}`. Registered per-test so it wins (LIFO) over
+   * mockSse's `**​/api/runs**` route, and the RegExp deliberately does NOT match
+   * `/events/stream` (events must be followed by `?` or end-of-URL). Honors the
+   * `after` cursor (returns only rows with `seq > after`) so a seed fetch (after=0)
+   * and a re-fetch-after-send (after=lastSeq) get the right slice — and the caller
+   * can MUTATE the passed `events` array between the two (e.g. push a Concierge
+   * reply after opening) to model a durable row that lands only post-send.
+   */
+  async stubRunEvents(runId: string, events: StubRunEventRow[]) {
+    await this.page.route(/\/api\/runs\/[^/]+\/events(\?|$)/, async (route) => {
+      const url = new URL(route.request().url());
+      const after = Number(url.searchParams.get("after") ?? 0) || 0;
+      const slice = events.filter((e) => e.seq > after);
+      await route.fulfill({ json: { workflow_id: runId, after, events: slice } });
+    });
   }
 
   /** Click a CreationHub workflow row by its H2 label. */
