@@ -131,9 +131,10 @@ function formatDuration(seconds?: number): string {
 export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
-  // KAN-110: page-based pagination. PAGE_SIZE per page, currentPage 1-based.
+  // KAN-110 (revised): Load More pattern — append pages instead of replacing.
+  // PAGE_SIZE runs per fetch; loadingMore = subsequent page in flight.
   const PAGE_SIZE = 50;
-  const [currentPage, setCurrentPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [totalRuns, setTotalRuns] = useState(0);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<string | null>(null);
@@ -166,19 +167,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     if (reviseOpen && revisionRef.current) revisionRef.current.focus();
   }, [reviseOpen]);
 
-  // KAN-110: fetch the run page for the active filter + current page.
-  // When a type filter is active, fetches without type param (all-variant
-  // filtering handled client-side via matchesFilter) but respects pagination.
-  // Note: the backend type filter is exact-match — od_prototype != prototype —
-  // so passing filterType directly would miss od_ variants. We fetch all runs
-  // for the current page and rely on matchesFilter (which uses baseWorkflowType)
-  // to show only the matching type visually, while the pagination reflects total.
+  // KAN-110 (revised): initial fetch on mount or filter change — replaces list.
+  // When filterType changes we reset back to the first page.
   useEffect(() => {
     const token = getToken();
     if (!token) return;
     setLoading(true);
-    const pageOffset = (currentPage - 1) * PAGE_SIZE;
-    getWorkflows(token, { limit: PAGE_SIZE, offset: pageOffset })
+    setRuns([]);
+    getWorkflows(token, { limit: PAGE_SIZE, offset: 0 })
       .then(({ runs: data, total }) => {
         setRuns(data);
         setTotalRuns(total);
@@ -186,13 +182,21 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       .catch(() => {})
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, filterType]);
+  }, [filterType]);
 
-  // KAN-110: navigate to a specific page number (1-based).
-  const handleGoToPage = useCallback((page: number) => {
-    setCurrentPage(page);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+  // KAN-110 (revised): append the next page to the existing list.
+  const handleLoadMore = useCallback(() => {
+    const token = getToken();
+    if (!token || loadingMore) return;
+    setLoadingMore(true);
+    getWorkflows(token, { limit: PAGE_SIZE, offset: runs.length })
+      .then(({ runs: data, total }) => {
+        setRuns((prev) => [...prev, ...data]);
+        setTotalRuns(total);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  }, [runs.length, loadingMore]);
 
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
     // KAN-96: if this run is the currently-ACTIVE (still running) pipeline,
@@ -774,8 +778,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           {/* Content */}
           <div className="flex-1 min-h-0 overflow-hidden">
             {loadingDetail ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+              <div className="flex flex-col items-center justify-center h-full gap-3">
+                <div className="h-8 w-8 rounded-full border-2 border-gray-200 border-t-[#1B2A4A] animate-spin" />
+                <p className="text-[12px] text-gray-400">Loading workflow…</p>
               </div>
             ) : (
               /* Version-switch cross-fade (PreviewPanel.tsx:586-594 idiom): all
@@ -974,7 +979,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             return (
               <button
                 key={type}
-                onClick={() => { setFilterType(type); setCurrentPage(1); }}
+                onClick={() => { setFilterType(type); }}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                   filterType === type
                     ? "bg-[#1B2A4A] text-white"
@@ -1060,73 +1065,23 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
         )}
       </div>
 
-      {/* ── Pagination footer — sticky at the bottom of the scrollable list ── */}
-      {totalRuns > PAGE_SIZE && (
-        <div className="flex-shrink-0 border-t border-gray-200 bg-white px-6 py-4 flex items-center justify-between">
-          {/* Left: range info */}
-          <p className="text-[13px] text-gray-500">
-            Showing{" "}
-            <span className="font-semibold text-gray-800">
-              {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalRuns)}
-            </span>{" "}
-            of{" "}
-            <span className="font-semibold text-gray-800">{totalRuns}</span>{" "}
-            workflows
-          </p>
-
-          {/* Right: prev / page buttons / next */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => handleGoToPage(currentPage - 1)}
-              disabled={currentPage === 1 || loading}
-              className="h-9 px-3 rounded-lg text-[13px] font-medium text-gray-500 border border-gray-200 bg-white hover:bg-gray-50 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              aria-label="Previous page"
-            >
-              ← Prev
-            </button>
-
-            {Array.from({ length: Math.ceil(totalRuns / PAGE_SIZE) }, (_, i) => i + 1)
-              .filter((p) => {
-                const total = Math.ceil(totalRuns / PAGE_SIZE);
-                return p === 1 || p === total || Math.abs(p - currentPage) <= 1;
-              })
-              .reduce<(number | "…")[]>((acc, p, idx, arr) => {
-                if (idx > 0 && typeof arr[idx - 1] === "number" && (p as number) - (arr[idx - 1] as number) > 1) {
-                  acc.push("…");
-                }
-                acc.push(p);
-                return acc;
-              }, [])
-              .map((item, idx) =>
-                item === "…" ? (
-                  <span key={`ellipsis-${idx}`} className="h-9 w-9 flex items-center justify-center text-[13px] text-gray-400 select-none">
-                    …
-                  </span>
-                ) : (
-                  <button
-                    key={item}
-                    onClick={() => handleGoToPage(item as number)}
-                    disabled={loading}
-                    className={`h-9 min-w-[36px] px-2.5 rounded-lg text-[13px] font-semibold border transition-colors disabled:cursor-not-allowed ${
-                      currentPage === item
-                        ? "bg-[#1B2A4A] text-white border-[#1B2A4A] shadow-sm"
-                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50 hover:border-gray-300"
-                    }`}
-                  >
-                    {item}
-                  </button>
-                )
-              )}
-
-            <button
-              onClick={() => handleGoToPage(currentPage + 1)}
-              disabled={currentPage === Math.ceil(totalRuns / PAGE_SIZE) || loading}
-              className="h-9 px-3 rounded-lg text-[13px] font-medium text-gray-500 border border-gray-200 bg-white hover:bg-gray-50 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              aria-label="Next page"
-            >
-              Next →
-            </button>
-          </div>
+      {/* ── Load More — shown at bottom of list when more runs exist ── */}
+      {runs.length < totalRuns && !loading && (
+        <div className="flex-shrink-0 flex items-center justify-center gap-3 py-3">
+          <span className="text-[11px] text-gray-400">
+            Showing {runs.length} of {totalRuns} workflows
+          </span>
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="group flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[11px] font-medium bg-[#1B2A4A] text-white hover:bg-[#243558] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            {loadingMore ? (
+              <><Loader2 className="h-3 w-3 animate-spin opacity-70" />Loading…</>
+            ) : (
+              <>Load more <ChevronRight className="h-3 w-3 opacity-60 group-hover:translate-x-0.5 transition-transform" /></>
+            )}
+          </button>
         </div>
       )}
 

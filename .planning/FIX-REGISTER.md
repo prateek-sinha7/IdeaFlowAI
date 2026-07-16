@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-055 | 2026-07-16 | KAN-110 (follow-up): Replace page-number pagination with Load More button on Workflow History | FIX-051 implemented numbered pagination (Prev/1/2/…/Next); requirement was append-based Load More. Replaced `currentPage` state + `handleGoToPage` + pagination footer with `loadingMore` flag + `handleLoadMore` callback that appends `offset: runs.length`. Existing skeleton loading state was already sufficient. | `frontend/src/components/history/WorkflowHistory.tsx` | Frontend (FIX-051 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-051 | 2026-07-15 | KAN-110: Workflow history slow loading + add pagination — DB index + paginated frontend | No compound index on `workflow_runs(user_id, created_at)` caused full table scan on every history load; frontend fetched `limit:100` with no offset. Fix: migration 0025 adds `ix_workflow_runs_user_created`; `list_runs` gains `X-Total-Count` header; `getWorkflows` extended with `offset` + returns `{runs,total}`; `WorkflowHistory` changed to `limit:50` with Load More button. | `backend/alembic/versions/0024_stub_from_dev_branch.py` (stub), `backend/alembic/versions/0025_workflow_runs_user_created_index.py` (new), `backend/app/api/runs.py`, `frontend/src/lib/api.ts`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/components/analytics/AnalyticsPage.tsx`, `frontend/src/app/dashboard/page.tsx`, 5 test files | DB/API/Frontend (no engine phase) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-050 | 2026-07-15 | KAN-109: Add AI Coach Hub prototype template SKILL.md so the template appears in the gallery | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` was absent; `od_loader._load_one_template()` returns None when SKILL.md is missing, so the folder is silently skipped by `list_prototype_templates()`. example.html was present and correct. Fix: created SKILL.md with `od.mode: prototype` frontmatter + full agent build workflow instructions following the process-canvas pattern. | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` (new) | OpenDesign templates (content, no phase) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-049 | 2026-07-13 | KAN-108: Prototype revision delivers blank/unchanged/broken prototypes silently — add Revision Validation Agent as second step + fix clarify.mode: auto | `prototype_revision` manifest declared only 1 step; the silent `revision_validation` post-step only catches regressions vs baseline (zero-delta no-op passes), not blank pages, broken navigation, or missing components. `clarify.mode: auto` fired questionnaire on every revision. Fix: new `prototype-revision-validate` agent (dedicated AGENT.md, `pipeline_type: prototype_revision`, `consumes: [prototype-revision-agent]`, `tools: [workspace]`) added as step 2; manifest updated to `clarify.mode: skip`; registry updated; goldens regenerated; phase5/characterization tests updated. | `backend/agents/workflows/prototype_revision/workflow.yaml`, `backend/agents/registry.py`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` (new), `backend/tests/agents/characterization/golden/prototype_revision.events.json`, `backend/tests/agents/characterization/golden/prototype_revision.html`, `backend/tests/agents/_scripted_model.py`, `backend/tests/agents/test_phase5_revision_validation.py` | Phase 7 (revision post-step / agent registry) | INV-1/3/12/SC-001 ✅ | Done |
@@ -2225,3 +2226,57 @@ The "Invalid presentation output" error (separate path) occurs when the validato
 - This is a defense-in-depth fix. The prompt hardening reduces but does not eliminate LLM non-determinism; the deterministic sanitizer catches what the prompt alone cannot prevent.
 - The `strip_pre_slide_body_text` function uses a targeted approach: find `<body>`, find first slide anchor, remove preamble. It does NOT attempt to parse full HTML — intentionally simple and narrow-scoped per the existing sanitizer pattern.
 - Follow-up: if the validator continues to produce "Invalid presentation output" errors (no HTML doctype at all), that is a separate failure mode requiring a different fix (the validator emitting a pure QA report with no deck).
+
+---
+
+### FIX-055 — KAN-110 (follow-up): Replace pagination with Load More + improve loading UX
+
+**Date:** 2026-07-16
+**Triggered by:** `/velocity-ai-fix KAN-110 — instead of pagination numbering we want load more option on the workflow history page. Also, we want to have some loader showing while the user waits for workflows list to appear.`
+
+#### Root Cause
+
+FIX-051 implemented page-based pagination (Prev / 1 / 2 / 3 / … / Next buttons). The requirement is a simpler append-based "Load More" button. Additionally, a loading skeleton was already rendered during the initial fetch (7 skeleton cards + spinner + "Loading workflows" text) — this part was already correct. The pagination state (`currentPage`, `handleGoToPage`) and the pagination footer (numbered page buttons) needed to be replaced with Load More semantics.
+
+Trace:
+```
+User opens Workflow History
+  → useEffect fires with currentPage dep → replaces runs array (page-flip behaviour)
+  → Pagination footer shows numeric Prev/1/2/3/Next buttons — NOT the desired UX
+  
+Wanted:
+  → Initial load replaces runs (stays the same)
+  → "Load More" button appends offset: runs.length to the existing list
+  → loadingMore spinner in button during the secondary fetch
+```
+
+#### Phase Context
+- **Phase(s) involved:** FIX-051 (KAN-110) / Frontend-only
+- **Relevant register section:** FIX-051 detailed entry above
+- **Deleted code verified (not resurrected):** `currentPage` state and `handleGoToPage` removed; no previously-deleted code resurrected
+- **Locked decisions respected:** Backend API contract (`limit`/`offset` + `X-Total-Count`) unchanged; `getWorkflows` return type unchanged
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/WorkflowHistory.tsx` | Removed `currentPage` state; replaced with `loadingMore: boolean`. Changed useEffect to always fetch `offset: 0` on mount/filterType change (replaces list). Added `handleLoadMore` callback that fetches `offset: runs.length` and appends. Removed page-based pagination footer; added "Load more / Loading… (spinner)" button shown only when `runs.length < totalRuns && !loading`. | Implements append-based Load More UX instead of page-flip pagination |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — pure FE component change.
+- **INV-3** (golden parity): not affected — no agent or engine code changed.
+- **INV-12** (no duplication): not applicable — FE-only.
+- **SC-001** (zero engine edits): not affected — zero engine edits.
+
+#### Verification
+- No TypeScript diagnostics on the changed file.
+- State simplification: `currentPage` removed, `loadingMore` added — no other components referenced `currentPage`.
+- Backend API unchanged — `getWorkflows(token, { limit, offset })` signature identical.
+- The existing skeleton loading state (7 cards + spinner + "Loading workflows" text) continues to show during the initial `loading=true` state.
+- `Load more` button appears only when `runs.length < totalRuns && !loading`; shows `Loader2` spinner when `loadingMore=true`.
+- Filter tab change resets the list to offset 0 (same as before).
+
+#### Notes
+- The `loadingMore` button spinner provides visual feedback during the secondary fetch without hiding the already-loaded runs.
+- The existing skeleton is sufficient for the initial load UX requirement — no additional change was needed there.
+- If a filter tab is active while runs are loaded with Load More, the `matchesFilter` client-side filter already handles type filtering across all loaded runs.
