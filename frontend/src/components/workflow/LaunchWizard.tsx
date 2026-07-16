@@ -435,7 +435,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
 
   const handleLaunch = useCallback(() => {
     if (!canContinue) return;
-    const sourceRunId = sessionStorage.getItem("chain.source_run_id") ?? undefined;
+    const sourceRunId = isChaining ? (sessionStorage.getItem("chain.source_run_id") ?? undefined) : undefined;
+    sessionStorage.removeItem("chain.source_run_id");
     const contextBlock = sessionStorage.getItem("chain.context_block") ?? undefined;
     sessionStorage.removeItem("chain.context_block");
 
