@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VELOCITY-AI — Skill System Explorer</title>
+<style>
+/* ════════════════════════════ page shell (delete/replace if embedding in a larger docs site) ════════════════════════════ */
+html,body { margin:0; padding:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { background:#f3f5fa; color:#1b2440; }
+@media (prefers-color-scheme: dark) { body { background:#12141c; color:#e7eaf3; } }
+:root[data-theme="dark"] body { background:#12141c; color:#e7eaf3; }
+:root[data-theme="light"] body { background:#f3f5fa; color:#1b2440; }
+.page-wrap { max-width: 1400px; margin: 0 auto; padding: 28px 24px 60px; }
+.page-wrap h1 { font-size: 22px; margin: 0 0 6px; }
+.page-wrap .lede { font-size: 13.5px; opacity: .65; margin: 0 0 20px; max-width: 760px; line-height:1.6; }
+
+/* ════════════════════════════ .iarch — scope every diagram-engine style under this class ════════════════════════════
+   so it can be dropped into any host page (a docs site, an artifact, a wiki export) without colliding
+   with that page's own CSS. Only edit the --c-* palette below to reskin; don't rename the 7 semantic
+   role tokens (source/install/runtime/plat/hook/out/neutral) — the JS looks them up by these names in
+   three places (search for "{src:'source'" to find all three). */
+.iarch {
+  --bg: #eef2f9;         --bg-stage: #f7faff;   --dot: #dbe3f3;
+  --panel: #ffffff;      --ink: #1b2440;        --ink-2: #3f4a6e;   --ink-3: #8592b3;
+  --line: #e4e9f3;       --edge: #9aa8c8;       --edge-label: #54608a;
+  --radius: 14px;
+  --shadow: 0 8px 26px rgba(30,50,90,.10);
+
+  /* the 7 semantic roles — rename the hex values freely, keep the 3 vars per role */
+  --c-source: #3b6df6;  --c-source-bg: #e8effe;  --c-source-ln: #c5d8fb;   /* src  = frontend / input / entry point */
+  --c-install: #0e9aae; --c-install-bg: #e3f6f8; --c-install-ln: #b7e4ea; /* ins  = API / backend layer */
+  --c-runtime: #b9820b; --c-runtime-bg: #fdf3dc; --c-runtime-ln: #f0dcac; /* run  = execution / runtime core */
+  --c-plat: #7c5cff;    --c-plat-bg: #f0ebfe;    --c-plat-ln: #d5cbfb;    /* plat = data / storage / platform */
+  --c-hook: #d6469f;    --c-hook-bg: #fdeaf6;    --c-hook-ln: #f2c3e2;    /* hook = failure / side-effect / auth */
+  --c-out: #12a06a;     --c-out-bg: #e5f6ee;     --c-out-ln: #bbe6d3;     /* out  = external / terminal / success */
+  --c-neutral: #54608a; --c-neutral-bg: #eef2fb; --c-neutral-ln: #d4ddec;/* neu  = uncategorized */
+  --c-danger: #e0405a;  --c-success: #12a06a;
+
+  position: relative; display: flex; flex-direction: column;
+  height: 82vh; min-height: 600px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; background: var(--panel); box-shadow: var(--shadow);
+  color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  .iarch {
+    --bg:#1a1d29; --bg-stage:#14161f; --dot:#242838; --panel:#1c1f2b;
+    --ink:#e7eaf3; --ink-2:#b7bfd6; --ink-3:#7d859f; --line:#2a2e40; --edge:#4b5372; --edge-label:#9aa4c4;
+    --c-source-bg:#182338; --c-source-ln:#233256;
+    --c-install-bg:#122a2c; --c-install-ln:#1c3f42;
+    --c-runtime-bg:#2c220f; --c-runtime-ln:#3f3016;
+    --c-plat-bg:#221a3a; --c-plat-ln:#332752;
+    --c-hook-bg:#33172a; --c-hook-ln:#492239;
+    --c-out-bg:#132a20; --c-out-ln:#1c3d2e;
+    --c-neutral-bg:#1e2233; --c-neutral-ln:#2c3149;
+  }
+}
+
+/* ── tabs ── */
+.tabs { display:flex; gap:2px; padding:8px 12px 0; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--line); }
+.tabs::-webkit-scrollbar { display:none; }
+.tab { font:inherit; font-size:12px; font-weight:550; color:var(--ink-3); background:none; border:none; cursor:pointer;
+  padding:8px 9px 10px; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s; white-space:nowrap; }
+.tab:hover { color: var(--ink-2); }
+.tab.active { color: var(--c-source); border-bottom-color: var(--c-source); font-weight:650; }
+.tab kbd { font-family:inherit; font-size:9.5px; color:var(--ink-3); border:1px solid var(--line); border-radius:4px; padding:0 3px; margin-right:5px; background:var(--panel); }
+.tab.active kbd { color: var(--c-source); border-color: var(--c-source-ln); }
+
+/* ── stage ── */
+.iarch-main { flex:1; display:flex; min-height:0; }
+.stage-wrap { flex:1; position:relative; min-width:0; }
+.stage { position:absolute; inset:0; background-color:var(--bg-stage);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size:22px 22px;
+  overflow:hidden; cursor:grab; touch-action:none; }
+.stage.panning { cursor:grabbing; }
+.stage svg { display:block; width:100%; height:100%; }
+
+.view-title { position:absolute; top:14px; left:18px; pointer-events:none; font-size:12px; font-weight:650;
+  color:var(--ink-3); text-transform:uppercase; letter-spacing:.08em; }
+
+.zoombar { position:absolute; top:12px; right:14px; display:flex; gap:4px; background:var(--panel);
+  border:1px solid var(--line); border-radius:10px; padding:4px; box-shadow:var(--shadow); align-items:center; }
+.zbtn { font:inherit; font-size:14px; font-weight:600; color:var(--ink-2); background:none; border:none;
+  border-radius:7px; cursor:pointer; width:30px; height:28px; display:grid; place-items:center; transition:background .12s; }
+.zbtn:hover { background: var(--bg); color: var(--ink); }
+.zpct { font-size:11.5px; font-weight:600; color:var(--ink-3); min-width:44px; text-align:center; user-select:none; }
+.hint { position:absolute; bottom:12px; left:18px; pointer-events:none; font-size:11.5px; color:var(--ink-3);
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:5px 10px; opacity:.9; }
+
+.iarch-legend { position:absolute; bottom:12px; right:14px; display:flex; gap:10px; flex-wrap:wrap;
+  background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:7px 12px;
+  box-shadow:var(--shadow); max-width:60%; pointer-events:none; }
+.lg { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:550; color:var(--ink-2); }
+.lg i { width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+/* ── detail panel (click-to-pin) ── */
+.panel { width:380px; border-left:1px solid var(--line); background:var(--panel); padding:20px;
+  overflow-y:auto; display:none; flex-shrink:0; }
+.panel.open { display:block; }
+.panel .p-kicker { font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+.panel h2 { font-size:16px; font-weight:700; margin:6px 0 10px; letter-spacing:-.01em; }
+.panel .p-path { display:inline-block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+  color:var(--ink-2); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:3px 8px;
+  margin-bottom:12px; word-break:break-all; }
+.panel p { font-size:13px; line-height:1.65; color:var(--ink-2); }
+.panel .p-close { float:right; font:inherit; font-size:12px; color:var(--ink-3); background:none;
+  border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; }
+.panel .p-close:hover { color: var(--ink); }
+.panel .p-empty { font-size:12.5px; color:var(--ink-3); line-height:1.6; margin-top:8px; }
+
+.p-list { margin-top:16px; border-top:1px solid var(--line); padding-top:4px; }
+.p-list-count { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin:10px 0 2px; }
+.p-list-group { font-size:11px; font-weight:700; color:var(--c-source); margin:14px 0 4px; padding-top:2px; }
+.p-list-group:first-of-type { margin-top:8px; }
+.p-item { padding:5px 0; border-bottom:1px solid var(--line); }
+.p-item:last-child { border-bottom:none; }
+.p-item-name { font-size:12px; font-weight:650; color:var(--ink); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.p-item-desc { font-size:11.5px; color:var(--ink-3); line-height:1.4; margin-top:1px; }
+
+/* ── tooltip (hover) ── */
+.tip { position:fixed; z-index:50; pointer-events:none; display:none; max-width:320px; background:var(--panel);
+  color:var(--ink); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); padding:10px 12px;
+  font-size:12px; line-height:1.55; }
+.tip .t-name { font-weight:700; font-size:12.5px; margin-bottom:2px; }
+.tip .t-path { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--ink-3); margin-bottom:5px; }
+.tip .t-desc { color: var(--ink-2); }
+.tip .t-more { color: var(--ink-3); font-size:10.5px; margin-top:6px; }
+
+/* ── svg pieces ── */
+.grp-rect { fill: var(--panel); stroke: var(--line); stroke-width:1; rx:14; opacity:.55; }
+.grp-label { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+
+.node { cursor:pointer; }
+.node rect { stroke-width:1.25; filter: drop-shadow(0 1px 1.5px rgba(20,24,32,.13)); transition: filter .15s; }
+@media (prefers-color-scheme: dark) { .node rect { filter: drop-shadow(0 1.5px 3px rgba(0,0,0,.55)); } }
+.node:hover rect { stroke-width:2; filter: drop-shadow(0 3px 8px rgba(20,24,32,.2)); }
+.node.pinned rect { stroke-width:2.5; }
+.node .n-title { font-size:13px; font-weight:650; fill: var(--ink); }
+.node .n-sub { font-size:11px; fill: var(--ink-3); font-weight:480; }
+
+.src rect  { fill: var(--c-source-bg);  stroke: var(--c-source-ln); }
+.ins rect  { fill: var(--c-install-bg); stroke: var(--c-install-ln); }
+.run rect  { fill: var(--c-runtime-bg); stroke: var(--c-runtime-ln); }
+.plat rect { fill: var(--c-plat-bg);    stroke: var(--c-plat-ln); }
+.hook rect { fill: var(--c-hook-bg);    stroke: var(--c-hook-ln); }
+.out rect  { fill: var(--c-out-bg);     stroke: var(--c-out-ln); }
+.neu rect  { fill: var(--c-neutral-bg); stroke: var(--c-neutral-ln); }
+
+.edge { fill:none; stroke: var(--edge); stroke-width:1.6; }
+.edge.flow { stroke-dasharray:7 5; animation: dash 1.1s linear infinite; }
+.edge.dashed { stroke-dasharray:3 5; opacity:.75; }
+.edge.thick { stroke-width:2.4; }
+.edge.danger { stroke: var(--c-danger); }
+.edge.success { stroke: var(--c-success); }
+@keyframes dash { to { stroke-dashoffset:-12; } }
+.e-label { font-size:10.5px; font-weight:620; fill: var(--edge-label); paint-order:stroke;
+  stroke: var(--bg-stage); stroke-width:4px; stroke-linejoin:round; }
+.e-label.danger { fill: var(--c-danger); }
+.e-label.success { fill: var(--c-success); }
+
+@media (max-width: 900px) { .panel { display:none !important; } .iarch-legend { display:none; } }
+
+.back-btn { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--ink-2, #3f4a6e);
+  text-decoration:none; background:var(--panel, #fff); border:1px solid var(--line, #e4e9f3); border-radius:20px;
+  padding:6px 13px 6px 11px; margin-bottom:14px; transition:background .12s, color .12s; }
+.back-btn:hover { color:#3b6df6; border-color:#c5d8fb; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+  <a class="back-btn" href="./index.html">&larr; Diagram Library</a>
+  <h1>VELOCITY-AI — Skill System Explorer</h1>
+  <p class="lede">Three source-verified views of how "skills" work today: the file-backed per-agent SKILL.md storage layer, the run-wide UI-attachment path from the frontend picker through the engine into the composed prompt, and the custom-workflow composer's per-agent capability levers — which do <b>not</b> include a skill lever. Scroll to zoom, drag to pan, click a box to pin its detail. Press 1–9 to switch views.</p>
+
+  <div class="iarch">
+    <div class="tabs" id="tabs"></div>
+    <div class="iarch-main">
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--edge)"/>
+              </marker>
+              <marker id="arr-danger" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-danger)"/>
+              </marker>
+              <marker id="arr-success" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-success)"/>
+              </marker>
+            </defs>
+            <g id="vp"></g>
+          </svg>
+          <div class="view-title" id="view-title"></div>
+          <div class="zoombar">
+            <button class="zbtn" id="z-out" title="Zoom out (−)">−</button>
+            <span class="zpct" id="z-pct">100%</span>
+            <button class="zbtn" id="z-in" title="Zoom in (+)">+</button>
+            <button class="zbtn" id="z-fit" title="Fit to screen (0)" style="font-size:12px">⤢</button>
+          </div>
+          <div class="hint" id="hint">scroll to zoom · drag to pan · click a box to pin details · keys 1–9 switch views</div>
+          <div class="iarch-legend" id="legend"></div>
+        </div>
+      </div>
+      <aside class="panel" id="panel">
+        <button class="p-close" id="p-close">✕ close</button>
+        <div id="p-body"><div class="p-empty">Click any box to see what it is, where it lives, and why it matters.</div></div>
+      </aside>
+    </div>
+    <div class="tip" id="tip"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ═══════════════════════ EDIT BELOW: your diagram data ═══════════════════════
+   node:  [id, colorClass, x, y, w, h, title, subLines[], info{k,p,d,list?}]
+   edge:  [fromId, fromSide, toId, toSide, edgeClasses, label]
+   group: [id, x, y, w, h, label, colorClass]
+   colorClass ∈ src|ins|run|plat|hook|out|neu — the 7 semantic roles defined in the CSS above.
+   fromSide/toSide ∈ l|r|t|b, optionally 'side:0.0-1.0' to offset along that edge.
+   edgeClasses: space-separated subset of flow|dashed|thick|danger|success (or '' for a plain solid line).
+   This ONE example diagram below is a placeholder — replace nodes/edges/groups with the real domain,
+   and add more entries to DIAGRAMS for additional tabbed views. Everything after this data block is
+   generic rendering/interaction engine — leave it alone unless changing interaction behavior itself. */
+const DIAGRAMS = [
+  // ═══════════════════════ TAB 1 — Skill storage & resolution ═══════════════════════
+  {
+    id: 'skill-storage', tab: 'Skill Storage & Resolution', title: 'The file-backed SKILL.md system — per-agent, per-user, defence-in-depth',
+    w: 1560, h: 700,
+    legend: [['src','Frontend editor'], ['ins','REST API'], ['run','Skill Manager (skills.py)'], ['plat','Disk storage']],
+    groups: [
+      ['g1', 20, 40, 270, 620, 'Frontend — Skill Editor', 'src'],
+      ['g2', 320, 40, 270, 620, 'REST API — /api/agents', 'ins'],
+      ['g3', 620, 40, 320, 620, 'backend/app/agents/skills.py', 'run'],
+      ['g4', 970, 40, 300, 620, 'Disk tiers (resolution order)', 'plat'],
+    ],
+    nodes: [
+      ['n1','src', 40, 260, 230, 110, 'SkillManager.tsx', ['per-agent SKILL.md editor modal'],
+        { k:'Frontend', p:'frontend/src/components/workflow/SkillManager.tsx',
+          d:'Modal opened per-agent (props: agentId, agentName). Calls GET to preload the user\'s saved content, POST to save, DELETE to remove — all scoped to backend/app/agents/skills.py via the /api/agents/skills REST family. This is a DIFFERENT UI from the run-wide skill picker in Tab 2 — it edits the persistent per-agent file, not a per-run attachment.' }],
+
+      ['n2','ins', 340, 100, 230, 64, 'GET /api/agents/skills', [],
+        { k:'REST · list', p:'app/api/agents.py:176 get_all_skills_endpoint',
+          d:'Lists the calling user\'s own custom skills only — calls list_user_skills(current_user.id). Never returns other users\' files, the admin global tier, or DEFAULT_SKILLS.' }],
+      ['n3','ins', 340, 190, 230, 64, 'GET /api/agents/skills/{agent_id}', [],
+        { k:'REST · read', p:'app/api/agents.py:197 get_skill',
+          d:'Reads the caller\'s own saved SKILL.md for one agent via read_user_skill(agent_id, user_id). Returns empty string (not 404) when no custom skill exists yet — matches the "no custom skill" UX.' }],
+      ['n4','ins', 340, 280, 230, 90, 'POST /api/agents/skills', [],
+        { k:'REST · write', p:'app/api/agents.py:212 create_skill',
+          d:'Validates agent_id against the registry (400 if unknown), enforces MAX_SKILL_BYTES=8KB at both the Pydantic max_length layer and an explicit UTF-8 byte check (413 on overflow — catches the multibyte case Pydantic\'s char-count cap misses), then calls save_custom_skill.' }],
+      ['n5','ins', 340, 400, 230, 64, 'DELETE /api/agents/skills/{agent_id}', [],
+        { k:'REST · delete', p:'app/api/agents.py:259 remove_skill',
+          d:'Idempotent — returns {status:"not_found"} with HTTP 200 (never 404) when nothing exists, so the frontend can call DELETE without checking first. Calls delete_custom_skill.' }],
+
+      ['n6','run', 640, 100, 280, 120, 'get_skill_content(agent_id, user_id)', [],
+        { k:'Resolution', p:'backend/app/agents/skills.py:320',
+          d:'The single runtime resolver. Lookup order: 1) per-user override at skills/users/{user_id}/{agent_id}/SKILL.md (sanitised + byte-capped via _load_and_guard_user_skill), 2) admin global tier (reserved, not yet writable from the public API), 3) special-cased PPT pipeline reference docs from backend/pptx/, 4) the DEFAULT_SKILLS dict fallback. Also backs the has_skill flag on /api/agents/library and /api/agents/pipelines/{type} via _agent_has_resolvable_skill.',
+          list: [
+            { n:'1. users/{user_id}/{agent_id}/SKILL.md', d:'Per-user override — sanitised + truncated at MAX_SKILL_BYTES on load' },
+            { n:'2. global/{agent_id}/SKILL.md', d:'Admin-managed tier — reserved, not writable from the public API today' },
+            { n:'3. backend/pptx/ (skill.md, pptxgenjs.md)', d:'Special-cased per agent id for ppt-code-generator / ppt-slide-architect / ppt-content-strategist / ppt-assembler' },
+            { n:'4. DEFAULT_SKILLS[agent_id]', d:'In-code fallback dict — 6 built-in skills (domain-analyst, persona-researcher, story-writer, acceptance-criteria-gen, react-code-generator, export-formatter)' },
+          ] }],
+      ['n7','run', 640, 250, 280, 80, 'save_custom_skill / list_user_skills / delete_custom_skill', [],
+        { k:'CRUD', p:'backend/app/agents/skills.py:403-497',
+          d:'User-scoped CRUD, each function requiring a non-empty user_id and touching ONLY backend/skills/users/{user_id}/ — cannot read, list, or delete another user\'s files or the global tier.' }],
+      ['n8','run', 640, 360, 280, 90, 'sanitize_user_skill_content + MAX_SKILL_BYTES', [],
+        { k:'Guard · Phase B G1-C7', p:'backend/app/agents/skills.py:52-113',
+          d:'Defence-in-depth against prompt injection via user-supplied skill content: an 8KB byte cap (enforced at save AND as a load-time backstop), a 500-char per-line truncation, and demotion of structural markers ("=== BEGIN", "### System", "<|im_start|>", …) to markdown blockquotes. Explicitly documented as best-effort, NOT a security guarantee.' }],
+      ['n9','run', 640, 480, 280, 90, 'DEFAULT_SKILLS dict', [],
+        { k:'Built-in fallback', p:'backend/app/agents/skills.py:150-271',
+          d:'Hard-coded fallback content baked into the module — used only when no user/global/pptx tier resolves. Trusted built-ins bypass sanitisation entirely (they are not an attack surface).',
+          list: [
+            { n:'domain-analyst', d:'Domain analysis expert instructions' },
+            { n:'persona-researcher', d:'Persona research template' },
+            { n:'story-writer', d:'INVEST story-writing criteria' },
+            { n:'acceptance-criteria-gen', d:'Given/When/Then Gherkin rules' },
+            { n:'react-code-generator', d:'React + Tailwind component patterns' },
+            { n:'export-formatter', d:'PptxGenJS code-gen rules' },
+          ] }],
+
+      ['n10','plat', 990, 100, 260, 74, 'users/{user_id}/{agent_id}/SKILL.md', [],
+        { k:'Per-user tier', p:'backend/skills/users/', d:'The per-user, per-agent override file — the only tier writable from the public API.' }],
+      ['n11','plat', 990, 200, 260, 74, 'global/{agent_id}/SKILL.md', [],
+        { k:'Admin tier (reserved)', p:'backend/skills/global/', d:'Admin-managed skill tier — reserved for future use; NOT writable from any user-facing REST endpoint today.' }],
+      ['n12','plat', 990, 300, 260, 90, 'backend/pptx/ reference docs', [],
+        { k:'Shipped built-ins', p:'backend/pptx/skill.md, pptxgenjs.md', d:'Read-only reference docs injected only for the 4 ppt-* pipeline agents — outside the skills/ tree on purpose, not user-managed.' }],
+      ['n13','plat', 990, 420, 260, 90, 'Sanitised + capped user content', [],
+        { k:'Runtime guard result', p:'backend/app/agents/skills.py:_load_and_guard_user_skill', d:'What actually reaches the prompt for a user-tier file: byte-truncated at 8KB (backstop for pre-cap files), then line-sanitised — never the raw on-disk bytes.' }],
+    ],
+    edges: [
+      ['n1','r','n2','l','flow', ''],
+      ['n1','r:0.5','n3','l','flow', ''],
+      ['n1','r:0.7','n4','l','flow', 'save'],
+      ['n1','r:0.95','n5','l','flow', 'delete'],
+      ['n2','r','n7','l','dashed', 'list_user_skills'],
+      ['n3','r','n7','l','dashed', 'read_user_skill'],
+      ['n4','r','n8','l','flow thick', 'validate + cap'],
+      ['n8','b','n7','t', 'flow', 'save_custom_skill'],
+      ['n5','r','n7','l','dashed', 'delete_custom_skill'],
+      ['n7','r','n10','l','flow thick', 'write/read'],
+      ['n6','r','n10','l','dashed', '1'],
+      ['n6','r:0.4','n11','l','dashed', '2'],
+      ['n6','r:0.7','n12','l','dashed', '3'],
+      ['n6','b','n9','t','dashed', '4 (fallback)'],
+      ['n10','b','n13','t','flow success', 'sanitised at load'],
+    ],
+  },
+
+  // ═══════════════════════ TAB 2 — Runtime attachment (workflow + agent run) ═══════════════════════
+  {
+    id: 'skill-runtime', tab: 'Runtime Attachment (Workflow Run)', title: 'How a run-wide UI-attached skill reaches one agent\'s composed system prompt',
+    w: 1600, h: 720,
+    legend: [['src','Frontend'], ['ins','WebSocket ingress'], ['run','ExecutionEngine'], ['plat','Prompt composition'], ['out','Composed prompt']],
+    groups: [
+      ['g1', 20, 40, 280, 640, 'Frontend — picker & launch', 'src'],
+      ['g2', 320, 40, 260, 640, 'app/api/websocket.py', 'ins'],
+      ['g3', 600, 40, 330, 640, 'agents/execution_engine/engine.py', 'run'],
+      ['g4', 950, 40, 340, 640, 'agents/factory.py + capabilities/skills/', 'plat'],
+      ['g5', 1310, 40, 260, 640, 'Terminal', 'out'],
+    ],
+    nodes: [
+      ['n1','src', 40, 100, 240, 90, 'AgentsPopup skill/hook picker', [],
+        { k:'Frontend UI', p:'frontend/src/components/workflow/AgentsPopup.tsx',
+          d:'Global "Skills & Hooks" tab (verified by e2e ts-f.skills-hooks.spec.ts). Lists frontend/src/data/skills.ts — a predefined library generated from the repo\'s own skills/ecc/ and skills/superpowers/ SKILL.md folders (scripts/generate-skills.js). A per-agent "suggested skills" filter (compatible_agents) is UI-only guidance; clicking Add always calls the same global attachSkill().' }],
+      ['n2','src', 40, 220, 240, 80, 'SkillsHooksContext', [],
+        { k:'React state', p:'frontend/src/context/SkillsHooksContext.tsx',
+          d:'Page-level provider holding attachedSkills[]/attachedHooks[] React state (attachSkill/detachSkill/attachHook/detachHook/clearAll). Consumed by AgentsPopup, IdeaInputPage, and DashboardLayout — state survives popup close/reopen (e2e TS-F-06).' }],
+      ['n3','src', 40, 340, 240, 110, 'useWorkflow.startPipeline()', [],
+        { k:'WS payload builder', p:'frontend/src/hooks/useWorkflow.ts:41-113',
+          d:'Serializes payload.attached_skills = [{id,name,content,source,compatible_agents:[]}] and payload.attached_hooks=[{id,name,event,trigger,description}], hard-coding compatible_agents to [] regardless of the SkillDef\'s own value — proof that a skill always targets the WHOLE run, never one agent. Sends {type:"run_pipeline", ...} over the WebSocket.' }],
+
+      ['n4','ins', 340, 130, 220, 90, 'run_pipeline message handler', [],
+        { k:'WS ingress', p:'app/api/websocket.py:852-853',
+          d:'attached_skills = message_data.get("attached_skills") or []  — read straight off the incoming JSON frame, alongside attached_hooks.' }],
+      ['n5','ins', 340, 260, 220, 90, '_handle_workflow_execution(...)', [],
+        { k:'WS dispatch', p:'app/api/websocket.py:1672-1673, 2048-2049',
+          d:'Forwards attached_skills/attached_hooks unchanged into ExecutionEngine.execute(...).' }],
+
+      ['n6','run', 620, 100, 280, 80, 'ExecutionEngine.execute(...)', [],
+        { k:'Run entry', p:'agents/execution_engine/engine.py',
+          d:'At run entry: ectx.disk_skills = self._load_disk_skills(agents, user_id) (line 1294) — loaded ONCE for every agent in the compiled sequence, before the per-agent loop begins.' }],
+      ['n7','run', 620, 200, 280, 110, '_load_disk_skills(agents, user_id)', [],
+        { k:'Per-agent disk load', p:'agents/execution_engine/engine.py:5261-5278',
+          d:'Calls get_skill_content(spec.id, user_id=user_id) — the SAME resolver from Tab 1 — for every agent in the run, forwarding user_id so per-user SKILL.md overrides win. Returns {agent_id: content} for agents that have any resolvable skill; exceptions are swallowed per-agent so one bad file can\'t break the run.' }],
+      ['n8','run', 620, 340, 280, 130, '_run_agent(...) per-agent merge', [],
+        { k:'The merge point', p:'agents/execution_engine/engine.py:2793-2820',
+          d:'For each agent: merged_skills = list(attached_skills or []) + (disk_skills[spec.id] appended as {content:...} if present). UI-attached skills come first, the agent\'s own disk skill is appended after. Builds a FRESH AgentContext per agent with attached_skills=merged_skills.',
+          list: [{ n:'UI attached_skills', d:'Identical list for every agent this run' }, { n:'+ disk_skills[spec.id]', d:'This agent\'s own SKILL.md/DEFAULT_SKILLS content, if any' }] }],
+
+      ['n9','plat', 970, 100, 300, 70, 'AgentContext dataclass', [],
+        { k:'Data carrier', p:'agents/factory.py:31-78',
+          d:'attached_skills: list[dict] and attached_hooks: list[dict] fields, constructed fresh per agent invocation by the engine.' }],
+      ['n10','plat', 970, 190, 300, 90, '_compose_system_prompt(spec, ctx)', [],
+        { k:'Prompt composer', p:'agents/factory.py:286-414',
+          d:'Builds the ordered blocks dict: tool_availability (if no tools) → injects → guardrails → skills → hooks → constitution → prompt_body, then calls CapabilityRegistry().resolve("prompt","default").assemble(blocks, ctx).' }],
+      ['n11','plat', 970, 300, 300, 110, 'extract_ui_skill_blocks() / UiSkillProvider', [],
+        { k:'Skill capability', p:'agents/capabilities/skills/providers.py',
+          d:'skill_blocks = extract_ui_skill_blocks(ctx.attached_skills) — drops entries with empty content, wraps the rest as SkillBlock(content, version, name, source="ui"). Registered as ("skill","ui") in the CapabilityRegistry. The sibling ("skill","disk")/("skill","template")/("skill","repo") providers are registered but INERT — always return [] — the actual disk-SKILL.md content already rode in via the engine\'s merge in n8, not through these stubs.' }],
+      ['n12','plat', 970, 440, 300, 80, 'CapabilityRegistry.resolve("prompt","default")', [],
+        { k:'Assembly policy', p:'agents/capabilities/registry.py',
+          d:'The PromptAssemblyPolicy owns the actual fixed block ORDER; _compose_system_prompt just builds the blocks dict and hands it off to policy.assemble(blocks, ctx).' }],
+
+      ['n13','out', 1330, 240, 220, 110, 'Composed system prompt', [],
+        { k:'Terminal', p:'→ DeepAgentRunner / model call',
+          d:'The final per-agent prompt string: guardrails, then this agent\'s "skills" block (UI-attached content + its own disk skill, concatenated), then hooks, then the per-user Constitution, then the AGENT.md body — sent to build_model().' }],
+    ],
+    edges: [
+      ['n1','b','n2','t','flow', 'attachSkill()/attachHook()'],
+      ['n2','b','n3','t','flow', 'read from context'],
+      ['n3','r','n4','l','flow thick', 'WS run_pipeline JSON'],
+      ['n4','b','n5','t','flow', ''],
+      ['n5','r','n6','l','flow thick', 'attached_skills, attached_hooks'],
+      ['n6','b','n7','t','flow', 'once per run'],
+      ['n7','b','n8','t','dashed', 'ectx.disk_skills'],
+      ['n6','r','n8','t:0.15','flow', 'attached_skills (per agent loop)'],
+      ['n8','r','n9','l','flow thick', 'construct'],
+      ['n9','b','n10','t','flow', ''],
+      ['n10','b','n11','t','flow', 'ctx.attached_skills'],
+      ['n11','t','n10','r:0.85','dashed', 'SkillBlock[] → skills block'],
+      ['n10','b','n12','t','flow', 'assemble(blocks, ctx)'],
+      ['n12','r','n13','l','flow success', 'ordered prompt'],
+    ],
+  },
+
+  // ═══════════════════════ TAB 3 — Custom workflow composer & the skill gap ═══════════════════════
+  {
+    id: 'skill-custom-workflow', tab: 'Custom Workflow Composer & the Skill Gap', title: 'Per-agent capability levers exist for validators/gates/model/retry — not for skills',
+    w: 1600, h: 700,
+    legend: [['src','Composer UI'], ['ins','REST API'], ['run','Compiler & selections'], ['plat','Persistence'], ['hook','The skill gap']],
+    groups: [
+      ['g1', 20, 40, 300, 620, 'Frontend — Composer', 'src'],
+      ['g2', 340, 40, 300, 620, 'REST API', 'ins'],
+      ['g3', 660, 40, 340, 620, 'agents/workflows/ (compiler)', 'run'],
+      ['g4', 1020, 40, 260, 620, 'Persistence', 'plat'],
+      ['g5', 1300, 40, 280, 620, 'Orthogonal: skill attachment', 'hook'],
+    ],
+    nodes: [
+      ['n1','src', 40, 100, 260, 130, 'AdvancedExpander (per-agent levers)', [],
+        { k:'Composer UI', p:'frontend/src/components/workflow/AgentsPopup.tsx:1337-1390',
+          d:'Collapsed-by-default per-agent expander exposing exactly Validator → Gate → Model → Retry. Options are sourced ENTIRELY from the live /api/capabilities palette (filtered to user_allowed caps) — never a hardcoded list. Selecting a validator auto-attaches the "validation" gate inline (mirrors the server EMP-04 coupling rule).',
+          list: [{ n:'validators', d:'0+ registered validator names' }, { n:'gates', d:'0+ gate capabilities (validation auto-added)' }, { n:'model', d:'a per-step model id from the catalog' }, { n:'retry', d:'max_attempts (1/2/3) or none' }] }],
+      ['n2','src', 40, 260, 260, 90, 'SelectionsMap → Save workflow', [],
+        { k:'Client payload', p:'frontend/src/components/workflow/AgentsPopup.tsx:1301-1307',
+          d:'{ [agentId]: {validators?, gates?, model?, retry?} } reported upward via onSelectionsChange, bundled into the POST/PATCH body alongside name, base_pipeline_type, agent_ids, model_overrides.' }],
+
+      ['n3','ins', 360, 100, 260, 100, 'GET /api/capabilities', [],
+        { k:'Palette endpoint', p:'app/api/capabilities.py:111 list_capabilities',
+          d:'Auth-gated; enumerates the LIVE registry (_KNOWN post-discover()), never a hardcoded list — returns {kind,name,user_allowed,description,security_gated,config_schema} per capability plus the expanded model_catalog.' }],
+      ['n4','ins', 360, 230, 260, 110, '/api/user-workflows CRUD', [],
+        { k:'Saved-workflow API', p:'app/api/user_workflows.py',
+          d:'POST/GET/PATCH/DELETE, owner-scoped (IDOR→404). POST/PATCH re-validate with the EXACT launch predicates: base_pipeline_type ∈ SUPPORTED_PIPELINE_TYPES, agent_ids ⊆ allowed_custom_agent_ids(base), model_overrides allow-listed, and selections re-compiled with trust="user".' }],
+
+      ['n5','run', 680, 100, 300, 130, 'CapabilityRegistry._KNOWN', [],
+        { k:'Registry membership', p:'agents/capabilities/registry.py:81-147',
+          d:'The authoritative (kind,name) set the compiler validates every manifest reference against. Includes ("skill","ui")/("skill","disk")/("skill","template")/("skill","repo") — skill capabilities ARE registered here, with user_allowed=True — but registration alone does not make them a composer lever (see n6).' }],
+      ['n6','run', 680, 260, 300, 130, 'selections.py::_LEVER_KEYS', [],
+        { k:'The verified gap', p:'agents/workflows/selections.py:38-42',
+          d:'frozenset({"validators","gates","model","retry","injects","compaction","post_step","fix","fanout","on_conflict","tools","hooks","task_source","depends_on"}) — the complete set of per-step levers _synthesize_step understands. "skill" is NOT a member. A saved/custom workflow\'s selections map has no way to pin a different skill to one specific agent.' }],
+      ['n7','run', 680, 420, 300, 110, 'synthesize_manifest + compile(trust="user")', [],
+        { k:'CAP-03 backstop', p:'agents/workflows/selections.py + agents/workflows/compiler.py',
+          d:'Turns {base_pipeline_type, agent_ids, selections} into a WorkflowManifest and re-compiles it with trust="user" — BOTH at save (fail-fast, no orphan row) and again at launch (rejects a since-tampered row). This is the same compiler that would reject an unknown capability reference — but "skill" per-step was never offered as a reference to check.' }],
+
+      ['n8','plat', 1040, 130, 220, 90, 'WorkflowDefinition row', [],
+        { k:'source="user"', p:'DB table "workflows" (reused)',
+          d:'Persists {agents[], model_overrides, manifest_json=selections} self-stamped to the owner. Zero new migration — reuses the dormant WorkflowDefinition/manifest_json column (D-11).' }],
+      ['n9','plat', 1040, 260, 220, 110, 'Launch replay', [],
+        { k:'Same run path', p:'websocket run_pipeline handler',
+          d:'Launching a saved workflow replays the composition through the EXISTING run_pipeline path from Tab 2 — no separate engine edit. Selections are re-validated at launch against the LIVE registry (a since-disallowed capability is still rejected even if it was allowed at save time).' }],
+
+      ['n10','hook', 1320, 110, 240, 150, 'Skills stay whole-run, not per-step', [],
+        { k:'Verified gap', p:'compare with Tab 2',
+          d:'The SkillsHooksContext / attached_skills mechanism from Tab 2 is a completely SEPARATE, parallel path from this composer. It is orthogonal: whichever workflow composition launches the run (default pipeline OR a saved/custom one), the SAME identical run-wide attached_skills list reaches every agent, merged with that agent\'s own disk SKILL.md — the composer\'s per-step selections map has no influence over it.' }],
+      ['n11','hook', 1320, 300, 240, 140, 'What WOULD it take to add a per-step skill lever?', [],
+        { k:'[OPEN]', p:'agents/workflows/selections.py, agents/capabilities/skills/providers.py',
+          d:'[OPEN] — Not implemented today. The registered ("skill","disk"/"template"/"repo") providers are inert stubs (always return []); wiring one of them AND adding "skill" to _LEVER_KEYS + _synthesize_step would be required before a custom workflow could target a distinct skill at one specific agent. No evidence in the repo that this is in progress.' }],
+    ],
+    edges: [
+      ['n1','b','n2','t','flow', ''],
+      ['n1','r','n3','l','dashed', 'fetch palette at mount'],
+      ['n3','b','n5','t','dashed', 'projects _META/_KNOWN'],
+      ['n2','r','n4','l','flow thick', 'POST/PATCH {selections,...}'],
+      ['n4','r','n6','l','flow', 'compile against lever keys'],
+      ['n6','b','n7','t','flow', ''],
+      ['n5','b','n7','t:0.8','dashed', 'is_user_allowed / trust check'],
+      ['n7','r','n8','l','flow success', 'row persisted'],
+      ['n8','b','n9','t','dashed', 'read at launch'],
+      ['n9','r:0.9','n10','l:0.3','dashed', 're-enters Tab 2\'s engine flow'],
+      ['n6','r','n10','l','dashed danger', 'no "skill" lever key'],
+      ['n10','b','n11','t','dashed', ''],
+    ],
+  },
+];
+
+/* ═══════════════════════ svg helpers ═══════════════════════ */
+const NS = 'http://www.w3.org/2000/svg';
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function port(node, spec) {
+  const [side, offRaw] = spec.split(':');
+  const t = offRaw === undefined ? 0.5 : parseFloat(offRaw);
+  const [, , x, y, w, h] = node;
+  switch (side) {
+    case 'l': return { x, y: y + h * t, dx: -1, dy: 0 };
+    case 'r': return { x: x + w, y: y + h * t, dx: 1, dy: 0 };
+    case 't': return { x: x + w * t, y, dx: 0, dy: -1 };
+    case 'b': return { x: x + w * t, y: y + h, dx: 0, dy: 1 };
+  }
+}
+function edgeGeom(a, b) {
+  const dist = Math.hypot(b.x - a.x, b.y - a.y);
+  const k = Math.max(36, Math.min(dist * 0.42, 150));
+  const c1 = { x: a.x + a.dx * k, y: a.y + a.dy * k };
+  const c2 = { x: b.x + b.dx * k, y: b.y + b.dy * k };
+  const mid = {
+    x: 0.125 * a.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * b.x,
+    y: 0.125 * a.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * b.y,
+  };
+  return { d: `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`, mid };
+}
+
+/* the semantic-role lookup — used in 3 places (group labels, legend swatches, panel kicker color).
+   if you add a colorClass, add it here too or it silently falls back to 'neutral'. */
+const ROLE = { src:'source', ins:'install', run:'runtime', plat:'plat', hook:'hook', out:'out', neu:'neutral' };
+
+/* ═══════════════════════ render ═══════════════════════ */
+const vp = $('vp'), stage = $('stage'), svg = $('svg'), tip = $('tip');
+let current = 0, pinnedEl = null;
+const viewState = DIAGRAMS.map(() => null);
+
+function renderDiagram(d) {
+  vp.innerHTML = '';
+  const nodesById = {};
+  d.nodes.forEach(n => { nodesById[n[0]] = n; });
+
+  for (const [gid, x, y, w, h, label, cls] of d.groups) {
+    const g = el('g', {}, vp);
+    el('rect', { x, y, width: w, height: h, rx: 14, class: 'grp-rect' }, g);
+    const t = el('text', { x: x + 14, y: y + 24, class: 'grp-label' }, g);
+    t.textContent = label;
+    t.style.fill = `var(--c-${ROLE[cls] || 'neutral'})`;
+  }
+
+  const labels = [];
+  for (const [from, fs, to, ts, cls, label] of d.edges) {
+    const a = port(nodesById[from], fs);
+    const b = port(nodesById[to], ts);
+    const isDanger = /danger/.test(cls), isSuccess = /success/.test(cls);
+    const marker = isDanger ? 'url(#arr-danger)' : isSuccess ? 'url(#arr-success)' : 'url(#arr)';
+    const geo = edgeGeom(a, b);
+    el('path', { d: geo.d, class: 'edge ' + cls, 'marker-end': marker }, vp);
+    if (label) labels.push({ x: geo.mid.x, y: geo.mid.y, label, isDanger, isSuccess });
+  }
+
+  for (const n of d.nodes) {
+    const [id, cls, x, y, w, h, title, subs, info] = n;
+    const g = el('g', { class: 'node ' + cls, 'data-id': id }, vp);
+    el('rect', { x, y, width: w, height: h, rx: 10 }, g);
+    const hasSubs = subs && subs.length;
+    const titleY = hasSubs ? y + 22 : y + h / 2 + 4.5;
+    const tt = el('text', { x: x + w / 2, y: titleY, 'text-anchor': 'middle', class: 'n-title' }, g);
+    tt.textContent = title;
+    if (hasSubs) {
+      subs.forEach((s, i) => {
+        const st = el('text', { x: x + w / 2, y: y + 40 + i * 15, 'text-anchor': 'middle', class: 'n-sub' }, g);
+        st.textContent = s;
+      });
+    }
+    g.__data = { title, info: info || {}, cls };
+    g.addEventListener('mouseenter', () => showTip(g));
+    g.addEventListener('mousemove', moveTip);
+    g.addEventListener('mouseleave', hideTip);
+  }
+
+  for (const { x, y, label, isDanger, isSuccess } of labels) {
+    const lt = el('text', { x, y: y - 5, 'text-anchor': 'middle',
+      class: 'e-label' + (isDanger ? ' danger' : isSuccess ? ' success' : '') }, vp);
+    lt.textContent = label;
+  }
+}
+
+/* ═══════════════════════ tooltip + panel ═══════════════════════ */
+function showTip(g) {
+  const { title, info } = g.__data;
+  tip.innerHTML = `<div class="t-name">${esc(title)}</div>` +
+    (info.p ? `<div class="t-path">${esc(info.p)}</div>` : '') +
+    (info.d ? `<div class="t-desc">${esc(info.d)}</div>` : '') +
+    `<div class="t-more">click to pin</div>`;
+  tip.style.display = 'block';
+}
+function moveTip(e) {
+  const pad = 14;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const r = tip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+
+function itemHtml(it) {
+  return `<div class="p-item"><div class="p-item-name">${esc(it.n)}</div>` +
+    (it.d ? `<div class="p-item-desc">${esc(it.d)}</div>` : '') + `</div>`;
+}
+function renderList(list) {
+  if (Array.isArray(list)) {
+    return `<div class="p-list"><div class="p-list-count">${list.length} items</div>` +
+      list.map(itemHtml).join('') + `</div>`;
+  }
+  const total = list.groups.reduce((s, g) => s + g.items.length, 0);
+  return `<div class="p-list"><div class="p-list-count">${total} items</div>` +
+    list.groups.map(g => `<div class="p-list-group">${esc(g.label)}</div>` + g.items.map(itemHtml).join('')).join('') +
+    `</div>`;
+}
+
+const panel = $('panel'), pBody = $('p-body');
+function pin(g) {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = g; g.classList.add('pinned');
+  const { title, info, cls } = g.__data;
+  const hue = ROLE[cls.split(' ')[0]] || 'neutral';
+  pBody.innerHTML =
+    `<div class="p-kicker" style="color:var(--c-${hue})">${esc(info.k || 'Component')}</div>` +
+    `<h2>${esc(title)}</h2>` +
+    (info.p ? `<span class="p-path">${esc(info.p)}</span>` : '') +
+    `<p>${esc(info.d || 'No further detail — this element is illustrative.')}</p>` +
+    (info.list ? renderList(info.list) : '');
+  panel.classList.add('open');
+  panel.scrollTop = 0;
+}
+function unpin() {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = null;
+  panel.classList.remove('open');
+}
+$('p-close').addEventListener('click', unpin);
+
+/* ═══════════════════════ pan & zoom ═══════════════════════ */
+const MINK = 0.3, MAXK = 3.2;
+function state() { return viewState[current]; }
+function apply() {
+  const s = state();
+  vp.setAttribute('transform', `translate(${s.tx},${s.ty}) scale(${s.k})`);
+  $('z-pct').textContent = Math.round(s.k * 100) + '%';
+}
+function fit() {
+  const d = DIAGRAMS[current];
+  const r = stage.getBoundingClientRect();
+  const k = Math.min(r.width / d.w, r.height / d.h) * 0.94;
+  viewState[current] = { k, tx: (r.width - d.w * k) / 2, ty: (r.height - d.h * k) / 2 };
+  apply();
+}
+function zoomAt(px, py, factor) {
+  const s = state();
+  const k2 = Math.min(MAXK, Math.max(MINK, s.k * factor));
+  const real = k2 / s.k;
+  s.tx = px - (px - s.tx) * real;
+  s.ty = py - (py - s.ty) * real;
+  s.k = k2;
+  apply();
+}
+stage.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const r = stage.getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0016));
+}, { passive: false });
+
+let drag = null;
+stage.addEventListener('pointerdown', (e) => {
+  drag = { x: e.clientX, y: e.clientY, tx: state().tx, ty: state().ty, moved: false, target: e.target };
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; stage.classList.add('panning'); }
+  if (drag.moved) { const s = state(); s.tx = drag.tx + dx; s.ty = drag.ty + dy; apply(); }
+});
+stage.addEventListener('pointerup', (e) => {
+  if (drag && !drag.moved) {
+    const g = drag.target.closest && drag.target.closest('.node');
+    if (g) pin(g); else unpin();
+  }
+  drag = null; stage.classList.remove('panning');
+});
+function centerZoom(factor) {
+  const r = stage.getBoundingClientRect();
+  zoomAt(r.width / 2, r.height / 2, factor);
+}
+$('z-in').addEventListener('click', () => centerZoom(1.25));
+$('z-out').addEventListener('click', () => centerZoom(0.8));
+$('z-fit').addEventListener('click', fit);
+
+/* ═══════════════════════ tabs / views ═══════════════════════ */
+const tabsEl = $('tabs');
+DIAGRAMS.forEach((d, i) => {
+  const b = document.createElement('button');
+  b.className = 'tab';
+  b.innerHTML = `<kbd>${i + 1}</kbd>${esc(d.tab)}`;
+  b.addEventListener('click', () => show(i));
+  tabsEl.appendChild(b);
+});
+
+function show(i) {
+  current = i;
+  document.querySelectorAll('.tab').forEach((t, j) => t.classList.toggle('active', j === i));
+  unpin(); hideTip();
+  const d = DIAGRAMS[i];
+  $('view-title').textContent = (i + 1) + ' · ' + d.title;
+  renderDiagram(d);
+  if (!viewState[i]) fit(); else apply();
+  const legend = $('legend');
+  legend.innerHTML = d.legend.map(([cls, label]) => {
+    const hue = ROLE[cls];
+    return `<span class="lg"><i style="background:var(--c-${hue}-bg);border:1.5px solid var(--c-${hue}-ln)"></i>${esc(label)}</span>`;
+  }).join('');
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', d.id);
+  history.replaceState(null, '', url);
+}
+
+/* ═══════════════════════ keyboard ═══════════════════════ */
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey) return;
+  if (e.key >= '1' && e.key <= String(Math.min(9, DIAGRAMS.length))) show(parseInt(e.key, 10) - 1);
+  else if (e.key === '+' || e.key === '=') centerZoom(1.25);
+  else if (e.key === '-') centerZoom(0.8);
+  else if (e.key === '0') fit();
+  else if (e.key === 'Escape') unpin();
+});
+window.addEventListener('resize', () => { if (state()) apply(); });
+
+/* ═══════════════════════ boot ═══════════════════════ */
+const wanted = new URL(window.location.href).searchParams.get('view');
+const idx = Math.max(0, DIAGRAMS.findIndex(d => d.id === wanted));
+show(idx === -1 ? 0 : idx);
+</script>
+</body>
+</html>
