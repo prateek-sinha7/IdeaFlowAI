@@ -1381,7 +1381,7 @@ export function DashboardLayout({
   const viewedRun =
     contentSourceRunId != null
       ? recentRuns?.find((r) => r.id === contentSourceRunId)
-      : recentRuns?.[0];
+      : undefined;
   const latestRunTitle = viewedRun?.title;
   const runHeaderTitle =
     latestRunTitle && latestRunTitle !== "Untitled" ? latestRunTitle : submittedBrief;

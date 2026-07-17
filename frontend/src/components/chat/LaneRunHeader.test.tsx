@@ -228,4 +228,15 @@ describe("LaneRunHeader", () => {
     );
     expect(screen.getByTestId("lane-run-type")).toHaveTextContent("Prototype");
   });
+
+  it("humanizes a RAW snake_case runType in the eyebrow (BUG-020)", () => {
+    render(
+      <LaneRunHeader
+        runState="complete"
+        runType="od_prototype"
+        pipelineState={ps({ pipeline_type: "od_prototype" })}
+      />,
+    );
+    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("Prototype");
+  });
 });

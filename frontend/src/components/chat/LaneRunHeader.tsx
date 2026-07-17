@@ -181,7 +181,7 @@ export function LaneRunHeader({
   onBackToHistory,
   actions,
 }: LaneRunHeaderProps) {
-  const type = runType || humanizeRunType(pipelineState?.pipeline_type);
+  const type = humanizeRunType(runType || pipelineState?.pipeline_type);
   const meta = deriveLaneMeta(pipelineState);
   const status = laneStatus(runState, pipelineState);
   // The meta row composition varies by run state to match the mock:

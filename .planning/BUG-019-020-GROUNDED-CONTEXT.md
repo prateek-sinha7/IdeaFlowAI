@@ -1,0 +1,57 @@
+# BUG-019 + BUG-020 — grounded fix spec (left chat lane header: stale name on fresh launch + raw un-humanized type)
+
+> **FRONTEND-ONLY**, two tiny fixes (~1 line each) on the run-screen LEFT-lane header (`LaneRunHeader`). Root causes verified to file:line by two deep-investigation agents + orchestrator spot-checks. Executable spec for a `gsd-quick`.
+
+## BUG-019 — a fresh top-level launch shows the PREVIOUS run's name in the lane header title
+**Root cause (verified):** `frontend/src/components/layout/DashboardLayout.tsx:1381-1387`:
+```ts
+const viewedRun = contentSourceRunId != null
+  ? recentRuns?.find((r) => r.id === contentSourceRunId)
+  : recentRuns?.[0];                       // ← fresh launch lands HERE = previous run
+const latestRunTitle = viewedRun?.title;
+const runHeaderTitle = latestRunTitle && latestRunTitle !== "Untitled" ? latestRunTitle : submittedBrief;
+```
+On a fresh top-level launch, `onStartPipeline` sets `submittedBrief = message` (page.tsx:1512) and clears `setContentSourceRunId(null)` (page.tsx:1529). With `contentSourceRunId == null`, `viewedRun = recentRuns?.[0]` — the PREVIOUS run — because NOTHING inserts the newly-launched run into `recentRuns` at launch (its only writers are the mount fetch, `pipeline_complete`, `pipeline_failed`; there is NO live-runs poll — the "refreshLiveRuns" phrasing is a stale comment with no implementation). The previous run has a real non-`"Untitled"` title, so `runHeaderTitle = latestRunTitle` (previous run's title) SHADOWS `submittedBrief` (the new brief). It flows to the header via `runTitle` (DashboardLayout:1776 → `RunChatLane.tsx:1261` `runTitle ?? firstUserTurn` → `LaneRunHeader.tsx:241`). **Type-AGNOSTIC** (affects any fresh launch; observed on user_stories). This is the unfixed second half of the BUG-001 family (BUG-001's fix preserved the launch branch as `recents[0]` on a FALSE "recents[0] == the just-launched run" invariant).
+
+**Fix (one line) — `DashboardLayout.tsx:1384`:**
+```diff
+-      : recentRuns?.[0];
++      : undefined;
+```
+Effect: fresh launch (`contentSourceRunId == null`) → `viewedRun = undefined` → `runHeaderTitle = submittedBrief` (the new brief). **Reopen** (`contentSourceRunId != null`, set at page.tsx:1279) + **completion** (set at page.tsx:560) UNCHANGED — they take the `!= null` branch (preserves the BUG-001 reopen decision; keys on `run.id`, SC-001-safe). Pure idle → empty title instead of a foreign run's title (acceptable / arguably more correct).
+
+**At-risk test (the RED→GREEN anchor):** `frontend/src/components/layout/DashboardLayout.laneTitle.test.tsx:166-169` — the case "launch flow (contentSourceRunId null) keeps the recents[0] title — byte-identical" asserts `lane-run-title === RUN_A.title` (recents[0]). It ENCODES THE BUG and will (correctly) go RED. REWRITE it: pass a `submittedBrief`, assert the title EQUALS it and does NOT contain `RUN_A.title`. Fail-before/pass-after. The other cases (BUG-001 reopen :155, BUG-006 type :172, BUG-012 :194) exercise the `!= null` branch → unaffected.
+
+**Flagged secondary (OUT OF SCOPE — do NOT fix here):** `useRunChat.messages` is also not reset on a fresh launch (only via `seedTranscript` on history-open), so `firstUserTurn` would ALSO be stale — but it's MASKED because `runHeaderTitle` (= `submittedBrief` post-fix) is truthy and wins. Note as a follow-up only.
+
+## BUG-020 — the type eyebrow shows the RAW type ("OD_PROTOTYPE") instead of a humanized label
+**Root cause (verified):** `frontend/src/components/chat/LaneRunHeader.tsx:184`: `const type = runType || humanizeRunType(pipelineState?.pipeline_type);` — `runType` is used VERBATIM; `humanizeRunType` is only a fallback. `runType` is ALWAYS non-empty in production (`DashboardLayout.tsx:1777` passes `runType={effectiveReviseType || pipelineState?.pipeline_type}`; `effectiveReviseType` = `viewedRunType ?? workflowType`, and `workflowType` has a non-empty `useState` default), so the humanize fallback is DEAD CODE. The raw snake_case type is rendered + CSS-uppercased (`LaneRunHeader.tsx:229` `uppercase`) → "od_prototype" displays as **"OD_PROTOTYPE"** (CSS uppercase does NOT convert "_" to a space). General bug ("the eyebrow is never humanized"); `od_prototype` is the ugliest (the leading "od" engine-domain prefix); the raw "OD_PROTOTYPE" surfaces on the reopened/history path (`contentSourceRunType = od_prototype` → `viewedRunType`). `humanizeRunType` (`LaneRunHeader.tsx:28-37`) already splits on `_`/`-`/space, DROPS a leading "od", and title-cases.
+
+**Fix (one line) — `LaneRunHeader.tsx:184` (option b — least blast radius, verified ZERO test breakage):**
+```diff
+-  const type = runType || humanizeRunType(pipelineState?.pipeline_type);
++  const type = humanizeRunType(runType || pipelineState?.pipeline_type);
+```
+Display outcomes (humanize → then the existing CSS uppercase): `od_prototype`→"PROTOTYPE", `od_prototype_revision`→"PROTOTYPE REVISION", `user_stories`→"USER STORIES", `app_builder`→"APP BUILDER", `od_ppt`→"PPT" (fine), `migration`→"MIGRATION". (Migration flows `mulesoft_to_springboot`→"MULESOFT TO SPRINGBOOT" / `dotnet_to_azure`→"DOTNET TO AZURE" are awkward-but-rare — OUT OF SCOPE.)
+
+**Why option (b), not (a) — verified:** `DashboardLayout.laneTitle.test.tsx` MOCKS `RunChatLane` and echoes the raw `runType` into `lane-run-type` (`:61-68`), so its raw-string assertions (`:179/184/190/224/238`) never touch the real component and stay green. `LaneRunHeader.test.tsx:123` (od_prototype, no `runType` → "Prototype") unchanged; `:221-230` (`runType="Prototype"` → "Prototype") stays green (`humanizeRunType` is idempotent on its own output). So option (b) breaks ZERO tests. Option (a) (humanize at `DashboardLayout:1777`) would break those 5 raw-string assertions AND leave the `LaneRunHeader:184` fallback still dead.
+
+**Do NOT change `humanizeRunType` itself** — `LaneRunHeader.test.tsx:38` asserts `humanizeRunType("od_ppt") === "Ppt"` (locked). "Ppt"→"PPT" via CSS is fine; a nicer PPT/"Presentation" label is a SEPARATE product decision (special-casing would violate the FE generic-humanizer / SC-001 "never a workflow-name branch" rule).
+
+**Double-transform safety (verified):** the only production caller passes a raw type; the only already-humanized value in the codebase is the test "Prototype" (idempotent). Latent caveat: a future caller passing a pre-formatted acronym label ("API Gateway"→"Api Gateway") would be mangled — none does today.
+
+## Scope fences (STRICT)
+- **FRONTEND ONLY.** BUG-019: `DashboardLayout.tsx` (1 line at :1384) + rewrite the launch case in `DashboardLayout.laneTitle.test.tsx:166-169`. BUG-020: `LaneRunHeader.tsx` (1 line at :184) (+ optionally ADD a LaneRunHeader test asserting a raw `runType="od_prototype"` → "Prototype").
+- Do NOT change `humanizeRunType` (respects the `od_ppt`→"Ppt" lock). Do NOT humanize at the `DashboardLayout:1777` call site (option a — more blast radius). Do NOT reset the chat transcript (the flagged BUG-019 secondary — out of scope). Do NOT touch the backend, the SSE parser, the reducer, or the BUG-017/018 changes.
+- SC-001: both fixes use the EXISTING generic transforms (`humanizeRunType` / key-on-`run.id`) — compliant; no workflow-name literal.
+
+## Constraints
+- Branch **feat/ui-2** (NEVER main/staging). Worktrees OFF → sequential. **NO commit trailer** (no Co-Authored-By / Claude-Session). **NEVER push.**
+- FE cwd-sensitive: run vitest from inside `frontend/`. Use `localhost:3000` (NOT 127.0.0.1) for any browser check.
+- STATE.md quirk: prefer the quick-task table; if `progress:` gets clobbered, restore total_phases:37 completed_phases:35 total_plans:208 completed_plans:207 percent:95.
+- Do NOT run live Bedrock in the executor — the orchestrator live-proves after (fresh user_stories launch → header shows the NEW brief, not the previous run; a prototype reopen → eyebrow reads "PROTOTYPE" not "OD_PROTOTYPE").
+
+## Verification (RED→GREEN + reconcile)
+- `npx tsc --noEmit` clean (from `frontend/`).
+- vitest (from `frontend/`): BUG-019 — the `DashboardLayout.laneTitle.test.tsx` launch case rewritten RED→GREEN (title = `submittedBrief`, NOT `recents[0]`); the other laneTitle cases stay green. BUG-020 — `LaneRunHeader.test.tsx` stays green (already expects humanized); add a raw-`runType`→humanized case as the direct gate.
+- Mocked Playwright not strictly required (no e2e asserts the eyebrow/title beyond the mocked `RunChatLane` stub) — the orchestrator runs `ts-chat` / `ts-t.history` for safety after. Establish REAL before/after counts.

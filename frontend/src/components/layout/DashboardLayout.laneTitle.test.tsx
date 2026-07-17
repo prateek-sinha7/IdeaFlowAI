@@ -163,9 +163,11 @@ describe("DashboardLayout — lane title tracks the viewed run (BUG-001)", () =>
     expect(screen.getByTestId("lane-run-title")).toHaveTextContent(RUN_C.title);
   });
 
-  it("launch flow (contentSourceRunId null) keeps the recents[0] title — byte-identical", () => {
-    renderLayout({ recentRuns: [RUN_A, RUN_B, RUN_C], contentSourceRunId: null });
-    expect(screen.getByTestId("lane-run-title")).toHaveTextContent(RUN_A.title);
+  it("launch flow (contentSourceRunId null) shows the submitted brief, NOT the previous run (recents[0]) — BUG-019", () => {
+    const submittedBrief = "Fresh brand-new brief for a task tracker";
+    renderLayout({ recentRuns: [RUN_A, RUN_B, RUN_C], contentSourceRunId: null, submittedBrief });
+    expect(screen.getByTestId("lane-run-title")).toHaveTextContent(submittedBrief);
+    expect(screen.getByTestId("lane-run-title")).not.toHaveTextContent(RUN_A.title);
   });
 });
 
