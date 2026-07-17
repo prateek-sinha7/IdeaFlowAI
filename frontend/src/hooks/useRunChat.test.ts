@@ -334,4 +334,50 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     expect(result.current.streamAttached).toEqual({ live: true, replayedThroughSeq: 42 });
     expect(result.current.messages).toHaveLength(1); // transcript untouched
   });
+
+  it("Test 14: fetchEvents fires ONLY after the up-channel send resolves (BUG-017 ordering guard)", async () => {
+    const conn = makeConn();
+    // A deferred up-channel: `innerSend` resolves ONLY when the test calls
+    // `resolve()`, mimicking runConnection.sendCommand (whose /messages POST
+    // resolves after the reply is persisted).
+    let resolveSend!: () => void;
+    const sendPromise = new Promise<void>((r) => {
+      resolveSend = r;
+    });
+    const innerSend = vi.fn(() => sendPromise);
+    // The adapter mirrors page.tsx's CURRENT (buggy) shape: it VOIDs innerSend
+    // and returns undefined, so the hook's `await sendCommand(...)` awaits
+    // `undefined` and resolves immediately — the re-fetch races ahead.
+    const sendCommand = (r: string | null, p: Record<string, unknown>) => {
+      void innerSend(r, p);
+    };
+    const fetchEvents = vi.fn(async () => []);
+
+    const { result } = renderHook(() =>
+      useRunChat({
+        runId: "run-9",
+        subscribe: conn.subscribe,
+        sendCommand,
+        fetchEvents,
+      }),
+    );
+
+    // Drive the send, flushing a microtask WITHOUT resolving the deferred.
+    await act(async () => {
+      result.current.sendMessage("ask the concierge");
+      await Promise.resolve();
+    });
+
+    // The up-channel fired once — but the re-fetch must NOT have run yet, since
+    // the send has not settled (the load-bearing ordering assertion).
+    expect(innerSend).toHaveBeenCalledTimes(1);
+    expect(fetchEvents).not.toHaveBeenCalled();
+
+    // Resolve the send → the re-fetch now runs (send-then-fetch ordering).
+    await act(async () => {
+      resolveSend();
+      await sendPromise;
+    });
+    expect(fetchEvents).toHaveBeenCalled();
+  });
 });
