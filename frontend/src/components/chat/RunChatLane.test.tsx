@@ -575,6 +575,8 @@ describe("RunChatLane", () => {
         }) as RunChatLaneProps)}
       />,
     );
+    // BUG-018 Part B: the settled footer is collapsed by default — expand first.
+    fireEvent.click(screen.getByTestId("lane-adornments-toggle"));
     expect(screen.getByTestId("lane-pipeline-mini")).toHaveTextContent(
       "Pipeline · 2 agents",
     );
@@ -653,11 +655,75 @@ describe("RunChatLane", () => {
         }) as RunChatLaneProps)}
       />,
     );
+    // BUG-018 Part B: the settled footer is collapsed by default — expand first.
+    fireEvent.click(screen.getByTestId("lane-adornments-toggle"));
     const card = screen.getByTestId("lane-deliverable");
     expect(card).toHaveTextContent("apple-reference-prototype.html");
     expect(card).toHaveTextContent("Delivered as v1");
     fireEvent.click(card);
     expect(onRequestOpenTab).toHaveBeenCalledWith("preview");
+  });
+
+  it("BUG-018 Part B: the settled footer is a collapsed-by-default expandable strip", () => {
+    const onRequestOpenTab = vi.fn();
+    render(
+      <RunChatLane
+        {...(baseProps({
+          runState: "complete",
+          onRequestOpenTab,
+          pipelineState: ps({
+            completedCount: 2,
+            deliverableFilename: "apple-reference-prototype.html",
+            deliverableVersion: 1,
+            agents: [1, 2].map((n) => ({
+              id: `a${n}`,
+              name: `Agent ${n}`,
+              role: "",
+              icon: "",
+              status: "done" as const,
+              output: "",
+              thinking: "",
+              duration: 12,
+              error: null,
+              index: n,
+            })),
+          }),
+        }) as RunChatLaneProps)}
+      />,
+    );
+
+    // COLLAPSED BY DEFAULT: the toggle is a real button, aria-expanded=false, and
+    // the panel is present but inert + aria-hidden (out of the tab order). jsdom
+    // has no layout, so assert the collapsed state via aria/inert — NOT via
+    // testid absence (the deep-linkable cards stay mounted).
+    const toggle = screen.getByTestId("lane-adornments-toggle");
+    expect(toggle.tagName).toBe("BUTTON");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const panel = screen.getByTestId("lane-adornments");
+    expect(panel).toHaveAttribute("aria-hidden", "true");
+    expect(panel).toHaveAttribute("inert");
+    expect(toggle).toHaveAttribute("aria-controls", panel.id);
+    // The compact strip surfaces a summary so the artifact is discoverable.
+    expect(toggle).toHaveTextContent("2 agents");
+    expect(toggle).toHaveTextContent("apple-reference-prototype.html");
+
+    // EXPAND: click reveals the unchanged PipelineMini + DeliverableCard, still
+    // deep-linking, and the panel is no longer inert/aria-hidden.
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(panel).not.toHaveAttribute("inert");
+    expect(panel).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByTestId("lane-pipeline-mini")).toHaveTextContent(
+      "Pipeline · 2 agents",
+    );
+    const deliverable = screen.getByTestId("lane-deliverable");
+    expect(deliverable).toHaveTextContent("apple-reference-prototype.html");
+    fireEvent.click(deliverable);
+    expect(onRequestOpenTab).toHaveBeenCalledWith("preview");
+
+    // COLLAPSE AGAIN: the toggle round-trips.
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
   it("renders the run's input attachments as chips above the composer (live, deduped)", () => {

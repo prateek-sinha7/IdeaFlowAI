@@ -27,12 +27,15 @@
  * driven by generic props supplied by the caller (plan 07 threads them live).
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { motion } from "motion/react";
 import {
   AlertTriangle,
   ArrowRight,
   Check,
+  ChevronDown,
+  ChevronRight,
   Code2,
   FileText,
   HelpCircle,
@@ -470,6 +473,96 @@ function DeliverableCard({
         </span>
       </span>
     </TranscriptCard>
+  );
+}
+
+/**
+ * Settled run-summary strip (BUG-018 Part B): the completed transcript's
+ * adornments (ClarifyCountRow + PipelineMini + DeliverableCard) collapsed
+ * BY DEFAULT behind a compact, animated, keyboard-accessible toggle — so the
+ * conversation leads and the newest reply reads as the last conversational item,
+ * with the generated artifacts one click away.
+ *
+ * The toggle is a real <button> (aria-expanded/aria-controls + a visible focus
+ * ring). The panel stays MOUNTED when collapsed (inert + aria-hidden, height 0)
+ * so its deep-linkable cards keep their identity; it animates open via the house
+ * motion/react idiom (mirrors ThinkingBlock/ArtifactCard). SC-001: keyed on the
+ * generic agent count + deliverable filename — never a workflow name.
+ */
+function SettledSummaryStrip({
+  clarifyCount,
+  agents,
+  dFilename,
+  dVersion,
+  goSteps,
+  goPreview,
+}: {
+  clarifyCount: number;
+  agents: AgentRunState[];
+  dFilename?: string;
+  dVersion?: number;
+  goSteps?: () => void;
+  goPreview?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const metaBits: string[] = [];
+  if (agents.length > 0) {
+    metaBits.push(`${agents.length} ${agents.length === 1 ? "agent" : "agents"}`);
+  }
+  if (dFilename) metaBits.push(dFilename);
+
+  return (
+    <div className="flex flex-col">
+      <button
+        type="button"
+        data-testid="lane-adornments-toggle"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((v) => !v)}
+        className="group flex w-full items-center gap-2 rounded-[var(--radius-node)] border border-line-border bg-surface-card px-[13px] py-[9px] text-left transition-colors hover:border-line-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
+      >
+        {open ? (
+          <ChevronDown className="h-3.5 w-3.5 flex-none text-ink-500" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 flex-none text-ink-500" aria-hidden="true" />
+        )}
+        <span className="font-sans text-[12px] font-semibold text-ink-900">
+          Run summary
+        </span>
+        {metaBits.length > 0 && (
+          <span className="min-w-0 flex-1 truncate font-serif text-[11px] text-ink-600">
+            {metaBits.join(" · ")}
+          </span>
+        )}
+      </button>
+
+      <motion.div
+        id={panelId}
+        data-testid="lane-adornments"
+        role="region"
+        aria-hidden={!open}
+        inert={!open ? true : undefined}
+        initial={false}
+        animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
+        transition={{ duration: 0.22, ease: "easeOut" }}
+        className="overflow-hidden"
+      >
+        <div className="flex flex-col gap-4 pt-3">
+          {clarifyCount > 0 && (
+            <ClarifyCountRow count={clarifyCount} onOpen={goSteps} />
+          )}
+          {agents.length > 0 && <PipelineMini agents={agents} onOpen={goSteps} />}
+          {dFilename && (
+            <DeliverableCard
+              filename={dFilename}
+              version={dVersion}
+              onOpen={goPreview}
+            />
+          )}
+        </div>
+      </motion.div>
+    </div>
   );
 }
 
@@ -1034,19 +1127,14 @@ export function RunChatLane({
         return null;
       }
       return (
-        <div data-testid="lane-adornments" className="flex flex-col gap-4">
-          {clarifyCount > 0 && (
-            <ClarifyCountRow count={clarifyCount} onOpen={goSteps} />
-          )}
-          {agents.length > 0 && <PipelineMini agents={agents} onOpen={goSteps} />}
-          {dFilename && (
-            <DeliverableCard
-              filename={dFilename}
-              version={dVersion}
-              onOpen={goPreview}
-            />
-          )}
-        </div>
+        <SettledSummaryStrip
+          clarifyCount={clarifyCount}
+          agents={agents}
+          dFilename={dFilename}
+          dVersion={dVersion}
+          goSteps={goSteps}
+          goPreview={goPreview}
+        />
       );
     }
 
