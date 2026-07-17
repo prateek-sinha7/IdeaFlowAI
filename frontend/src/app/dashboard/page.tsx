@@ -1021,11 +1021,14 @@ export default function DashboardPage() {
     // launch branch (which 422'd pre-fix). A live pipeline still wins the precedence.
     runId: pipelineState.pipelineRunId ?? activePipelineRunId ?? contentSourceRunId,
     subscribe: chatSubscribe,
-    // W1 (44-01): sendCommand now resolves to the launched run_id (for
+    // W1 (44-01): sendCommand resolves to the launched run_id (for
     // launch->attach); the chat up-channel ignores that value, so adapt it to the
-    // void-returning shape useRunChat expects.
-    sendCommand: (runId, payload) => {
-      void runConnection.sendCommand(runId, payload);
+    // Promise<void>-returning shape useRunChat expects.
+    // BUG-017: AWAIT (not void) the POST so the hook's `await sendCommand(...)`
+    // blocks until the reply is persisted — the DEF-44-12-2 re-fetch then lands
+    // after chat_reply exists and the Concierge reply renders on a completed run.
+    sendCommand: async (runId, payload) => {
+      await runConnection.sendCommand(runId, payload);
     },
     // SSE + REST is the sole transport (44-06) — the up-channel is sendCommand;
     // there is no legacy WS send.

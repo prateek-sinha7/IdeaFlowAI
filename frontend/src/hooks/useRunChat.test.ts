@@ -344,12 +344,14 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     const sendPromise = new Promise<void>((r) => {
       resolveSend = r;
     });
-    const innerSend = vi.fn(() => sendPromise);
-    // The adapter mirrors page.tsx's CURRENT (buggy) shape: it VOIDs innerSend
-    // and returns undefined, so the hook's `await sendCommand(...)` awaits
-    // `undefined` and resolves immediately — the re-fetch races ahead.
-    const sendCommand = (r: string | null, p: Record<string, unknown>) => {
-      void innerSend(r, p);
+    const innerSend = vi.fn(
+      (_r: string | null, _p: Record<string, unknown>) => sendPromise,
+    );
+    // The adapter mirrors page.tsx's SHIPPED (BUG-017) shape: it AWAITS innerSend
+    // so the hook's `await sendCommand(...)` blocks until the send resolves — the
+    // re-fetch then lands after the reply is persisted.
+    const sendCommand = async (r: string | null, p: Record<string, unknown>) => {
+      await innerSend(r, p);
     };
     const fetchEvents = vi.fn(async () => []);
 
