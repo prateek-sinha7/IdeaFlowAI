@@ -384,6 +384,28 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     expect(fetchEvents).toHaveBeenCalled();
   });
 
+  it("Test 16: seedTranscript([]) empties a previously-populated transcript (BUG-021 fresh-launch reset)", () => {
+    // The primitive that BUG-021's `seedRunChatTranscript([])` reuses on a fresh
+    // non-revision launch: seeding an EMPTY frame list clears the last-viewed
+    // run's turns so they don't bleed into the new run's chat lane. The new run's
+    // streamed frames then fold into the now-empty transcript.
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-prev", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+
+    // Populate the transcript with a PREVIOUS run's user turn + assistant reply.
+    conn.emit(frame("chat_message", { message_id: "p1", text: "previous question", run_id: "run-prev" }));
+    conn.emit(frame("chat_reply", { message_id: "p2", text: "previous answer", card_kind: "deliverable", run_id: "run-prev" }));
+    expect(result.current.messages).toHaveLength(2);
+
+    // A fresh launch resets with []: the previous run's turns are wiped.
+    act(() => {
+      result.current.seedTranscript([]);
+    });
+    expect(result.current.messages).toHaveLength(0);
+  });
+
   it("Test 15: durable user+reply rows folded via the REAL getRunEvents produce TWO ordered turns (BUG-018 Part A)", async () => {
     // The end-to-end proof of the Part A fix: two durable rows off the re-fetch
     // path — a USER chat_message then a Concierge chat_reply that share the SAME

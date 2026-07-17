@@ -1530,6 +1530,12 @@ export default function DashboardPage() {
           // BUG-012: a fresh run has no viewed type yet — clear so a stale
           // reopened type can't misroute the fresh run's live deliverable.
           setContentSourceRunType(null);
+          // BUG-021: a fresh run starts a NEW conversation — clear the last-viewed
+          // run's transcript so its turns don't bleed into the new run's chat lane
+          // (the new run's frames fold into the empty transcript via handleFrame as
+          // they stream). Reuses the seedTranscript reset primitive with []; the
+          // history-open seed at :1336 (durableFrames) is untouched.
+          seedRunChatTranscript([]);
         }
         // For revisions, keep existing content visible until new output arrives.
         // W1 (44-01) launch->attach (R4): the SSE launch (POST /api/runs) resolves
