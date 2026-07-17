@@ -21,6 +21,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useRunChat, type RunChatFrame } from "./useRunChat";
+import { getRunEvents } from "@/lib/api";
 
 /** A controllable fan-out: `subscribe` records the sink; `emit` pushes a frame. */
 function makeConn() {
@@ -381,5 +382,57 @@ describe("useRunChat — family-anchored transcript reducer", () => {
       await sendPromise;
     });
     expect(fetchEvents).toHaveBeenCalled();
+  });
+
+  it("Test 15: durable user+reply rows folded via the REAL getRunEvents produce TWO ordered turns (BUG-018 Part A)", async () => {
+    // The end-to-end proof of the Part A fix: two durable rows off the re-fetch
+    // path — a USER chat_message then a Concierge chat_reply that share the SAME
+    // message_id "X" but carry DISTINCT event_id COLUMNS. Only getRunEvents
+    // surfacing the column event_id lets upsertNarratorMessage key the reply
+    // distinctly and APPEND it below the question. Build the frames via the REAL
+    // getRunEvents (NOT the file's frame() helper, which auto-injects event_id).
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workflow_id: "run-9",
+        after: 0,
+        events: [
+          {
+            seq: 6,
+            event_id: "user-evt:X",
+            type: "chat_message",
+            payload_json: { message_id: "X", text: "Q", run_id: "run-9" },
+          },
+          {
+            seq: 7,
+            event_id: "chat-reply:X",
+            type: "chat_reply",
+            payload_json: { message_id: "X", text: "A", run_id: "run-9" },
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const [userFrame, replyFrame] = await getRunEvents("t.t.t", "run-9", 0);
+
+      const conn = makeConn();
+      const { result } = renderHook(() =>
+        useRunChat({ runId: "run-9", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+      );
+
+      conn.emit(userFrame as RunChatFrame);
+      conn.emit(replyFrame as RunChatFrame);
+
+      // Fail-before: the reply frame lacked event_id → keyed on message_id "X" →
+      // overwrote the user turn → 1 message. After the fix: two ordered turns.
+      expect(result.current.messages).toHaveLength(2);
+      expect(result.current.messages[0].role).toBe("user");
+      expect(result.current.messages[0].content).toBe("Q");
+      expect(result.current.messages[1].role).toBe("assistant");
+      expect(result.current.messages[1].content).toBe("A");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

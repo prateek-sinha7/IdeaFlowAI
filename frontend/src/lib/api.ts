@@ -561,7 +561,13 @@ export async function getRunEvents(
   );
   return (res?.events ?? []).map((row) => ({
     type: row.type,
-    data: row.payload_json ?? {},
+    // Merge the row's authoritative `event_id` + `seq` COLUMNS over payload_json
+    // (BUG-018): a durable Concierge chat_reply carries its DISTINCT event_id
+    // ("chat-reply:{message_id}") only in the column, so surfacing it lets
+    // upsertNarratorMessage key the reply distinctly and APPEND it below the
+    // paired user question instead of overwriting it. The column is
+    // authoritative, so it wins over any same-named payload key.
+    data: { ...(row.payload_json ?? {}), event_id: row.event_id, seq: row.seq },
   }));
 }
 
