@@ -13,7 +13,7 @@
 ## Index
 | ID | Title | Surface | Severity | Status |
 |----|-------|---------|----------|--------|
-| CWF-001 | Consumer-before-producer agent order saves+launches, aborts at runtime ("DAG unsatisfiable"), and the failed run is mislabeled `completed` | Composer / resolver / run-status | major | **FIXED** (offline; D2 260718-p8m + D1 260718-puj; live proof pending) |
+| CWF-001 | Consumer-before-producer agent order saves+launches, aborts at runtime ("DAG unsatisfiable"), and the failed run is mislabeled `completed` | Composer / resolver / run-status | major | **FIXED · D1 LIVE-PROVEN** (D2 260718-p8m offline; D1 260718-puj) |
 | CWF-002 | The per-agent model actually used is never persisted or queryable (model_id never written; cost estimate circular) → cannot verify which model a run used | Engine / run record / analytics | minor (observability) | ROOT-CAUSED |
 
 > Scope: compose / configure / save / model-selection (Simple + Canvas, Sonnet 4.5 & Haiku 4.5)
@@ -27,7 +27,7 @@
 > **✅ FIXED 2026-07-18 (offline-proven; live proof pending).** Both defects closed via two grounded gsd-quick tasks (each read the full IMPLEMENTATION-REGISTER.md, plan-checked + verifier-passed):
 > - **D2** — quick `260718-p8m`, commits `32c6220a`/`a0c98b8f`: launch driver `_drive_launch_to_queue` now tracks the generic `error` + `pipeline_failed` events and its terminal status is fail-safe (reconciled toward the LOCK-B revision twin) → an unsatisfiable run now shows `failed`, not `completed`.
 > - **D1** — quick `260718-puj`, commits `8446a44b`/`c50afe8f`/`17114dac`: NEW additive `WorkflowResolver.presort()` (order-independent; REUSES `_detect_cycles`/`_topological_sort`; `validate()`/`:119`/`:138` byte-UNCHANGED — candidate b) + app-layer `composition_order.py`; producer-first pre-sort + satisfiability guard at save + launch (custom branch only), genuinely-unsatisfiable → 422 naming the missing edge; surfaced in `ComposerPage.tsx`.
-> - **Verification:** backend 91 pass, 5 characterization goldens byte/event-identical, FE ComposerPage vitest 12 + tsc clean, mocked composer-run e2e 2/0, lint-imports 4/0. INV-1/SC-001/INV-3/INV-5/Q3 all held; kernel `validate()` untouched. feat/ui-2, trailer-free, NOT pushed. LIVE re-proof (relaunch the mis-ordered repro → expect `failed` + composer reorder/reject) owned by the orchestrator.
+> - **Verification:** backend 91 pass, 5 characterization goldens byte/event-identical, FE ComposerPage vitest 12 + tsc clean, mocked composer-run e2e 2/0, lint-imports 4/0. INV-1/SC-001/INV-3/INV-5/Q3 all held; kernel `validate()` untouched. feat/ui-2, trailer-free, NOT pushed. **D1 LIVE-PROVEN 2026-07-18** (backend restarted to load the fix): a mis-ordered-but-satisfiable save `[swot-analyst, market-research-agent]` → 201 persisted producer-first `[market-research-agent, swot-analyst]`; a genuinely-unsatisfiable `[swot-analyst]` alone → **422 at BOTH save and launch** (no run minted), naming the missing producer. (D2's fail-safe status is offline-proven; D1 now prevents the mislabel path at the front door, so D2 is defense-in-depth.)
 - **Surface:** Composer reorder/save/launch · `WorkflowResolver` (produces/consumes DAG) · run-status lifecycle
 - **Severity:** major (fails safe — 0 agents run — but silently mislabels a failure as success in the composed-workflow flow, corrupting run history/analytics/QA).
 - **Found:** 2026-07-18 · live-Bedrock custom-workflow QA. Two independent defects (D1 + D2).
