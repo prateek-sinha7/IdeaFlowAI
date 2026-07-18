@@ -275,3 +275,70 @@ def test_unresolved_edges_empty_on_success(resolver: WorkflowResolver) -> None:
     result = resolver.validate(agents)
     assert result.satisfiable
     assert result.unresolved_edges == []
+
+
+# ---------------------------------------------------------------------------
+# CWF-001 D1 — order-independent producer-first pre-sort (additive presort())
+#
+# presort() is ORDER-INDEPENDENT (a producer counts no matter where it sits in
+# the input list), unlike validate()'s idx<consumer_idx filter. It reuses the
+# resolver's existing _detect_cycles/_topological_sort graph helpers (INV-12) and
+# does NOT touch validate()/:119/:138 — proven by the untouched
+# test_multi_producer_nearest_upstream_wins above staying green.
+# ---------------------------------------------------------------------------
+
+
+def test_presort_reorders_consumer_first(resolver: WorkflowResolver) -> None:
+    """A consumer declared BEFORE its producer (order validate() would reject) is
+    reordered producer-first; feeding the result back into the UNTOUCHED validate()
+    is satisfiable."""
+    agents = [
+        _AgentSpec("swot-analyst", consumes=["market-research-agent"], produces=["swot-analyst"]),
+        _AgentSpec("market-research-agent", produces=["market-research-agent"]),
+    ]
+    ordered = resolver.presort(agents)
+    ids = [a.id for a in ordered]
+    assert ids == ["market-research-agent", "swot-analyst"]
+    # The pre-sorted order is satisfiable under the kernel validate() (byte-unchanged).
+    assert resolver.validate(ordered).satisfiable is True
+
+
+def test_presort_rejects_missing_producer(resolver: WorkflowResolver) -> None:
+    """A consumed non-exempt type no agent produces → ValueError naming the missing
+    edge with the ORDER-INDEPENDENT wording ('no agent in the workflow')."""
+    agents = [_AgentSpec("consumer", consumes=["nope"])]
+    with pytest.raises(ValueError, match="no agent in the workflow produces it"):
+        resolver.presort(agents)
+
+
+def test_presort_rejects_cycle(resolver: WorkflowResolver) -> None:
+    """A real produces/consumes cycle (a↔b) → ValueError (unsatisfiable)."""
+    agents = [
+        _AgentSpec("a", produces=["x"], consumes=["y"]),
+        _AgentSpec("b", produces=["y"], consumes=["x"]),
+    ]
+    with pytest.raises(ValueError, match="unsatisfiable"):
+        resolver.presort(agents)
+
+
+def test_presort_exempt_types_are_roots(resolver: WorkflowResolver) -> None:
+    """An agent consuming only exempt types (planning_context/constitution) is a
+    root — presorts without error."""
+    agents = [
+        _AgentSpec("a", consumes=["planning_context", "constitution"], produces=["spec"]),
+    ]
+    ordered = resolver.presort(agents)
+    assert [a.id for a in ordered] == ["a"]
+
+
+def test_presort_excludes_self_as_producer(resolver: WorkflowResolver) -> None:
+    """An agent consuming a type ONLY it produces cannot be its own upstream →
+    unsatisfiable."""
+    agents = [_AgentSpec("solo", produces=["solo"], consumes=["solo"])]
+    with pytest.raises(ValueError, match="no agent in the workflow produces it"):
+        resolver.presort(agents)
+
+
+def test_presort_empty_workflow_rejected(resolver: WorkflowResolver) -> None:
+    with pytest.raises(ValueError, match="at least 1 agent"):
+        resolver.presort([])
