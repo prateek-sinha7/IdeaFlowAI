@@ -14,7 +14,7 @@
 | ID | Title | Surface | Severity | Status |
 |----|-------|---------|----------|--------|
 | CWF-001 | Consumer-before-producer agent order saves+launches, aborts at runtime ("DAG unsatisfiable"), and the failed run is mislabeled `completed` | Composer / resolver / run-status | major | **FIXED · D1 LIVE-PROVEN** (D2 260718-p8m offline; D1 260718-puj) |
-| CWF-002 | The per-agent model actually used is never persisted or queryable (model_id never written; cost estimate circular) → cannot verify which model a run used | Engine / run record / analytics | minor (observability) | **FIXED** (260718-rf7, offline) |
+| CWF-002 | The per-agent model actually used is never persisted or queryable (model_id never written; cost estimate circular) → cannot verify which model a run used | Engine / run record / analytics | minor (observability) | **FIXED · LIVE-PROVEN** (260718-rf7) |
 
 > Scope: compose / configure / save / model-selection (Simple + Canvas, Sonnet 4.5 & Haiku 4.5)
 > tested **35/35 + 10/10 PASS**; a correctly-ordered custom workflow **runs to completion**
@@ -41,6 +41,7 @@
 - **Verification:** repro deterministic (consumer before producer → DAG error, status completed). Fail-before/pass-after per D1/D2 above.
 
 ## CWF-002 — Per-agent model actually used is never persisted or queryable
+> **✅ FIXED + LIVE-PROVEN 2026-07-18** — quick `260718-rf7`, commits `8e0af54f`/`9c6ef0f4`/`8251081d` (grounded, plan-checked + verifier-passed 6/6). (a) `agent_complete` now carries the resolved `model_id` (stripped by the existing `_VOLATILE_STRIP_KEYS` entry → 5 goldens byte-identical); (b) `wr.model_id` persisted before the cost line (non-circular cost); (c) exposed in `runs.py`. Offline: 34 unit + 5 goldens byte-identical + lint-imports 4/0. **LIVE-PROVEN** (restarted backend): a completed 1-agent Haiku run (`84472499`) shows `agent_complete.model_id = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"` — the per-agent model is now queryable (the exact gap that blocked verifying "did the agent run on Haiku"). feat/ui-2, trailer-free, NOT pushed.
 - **Surface:** engine event emission · run record (`GET /api/runs/{id}`, `/summary`, `/events`) · DB · cost analytics
 - **Severity:** minor / observability. Not a functional failure — but it makes "which model did this run use?" unverifiable, which blocked QA verification of the Haiku/Sonnet selection.
 - **Found:** 2026-07-18 · trying to verify a completed run executed on Haiku 4.5.
