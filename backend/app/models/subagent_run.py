@@ -41,6 +41,8 @@ class SubagentRun(Base):
     status = Column(String, nullable=False)          # running|complete|failed|cancelled (free String)
     tokens = Column(Integer, nullable=True)          # accumulated child tokens
     cost = Column(JSON, nullable=True)               # cost_class-weighted (€ dormant)
+    task_id = Column(String, nullable=True)          # RESUME-06: plan-global task id (skip-cursor key)
+    worker_index = Column(Integer, nullable=True)    # RESUME-06: wave-local worker position (audit)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

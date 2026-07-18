@@ -210,3 +210,36 @@ def test_migration_0023_is_additive_only() -> None:
     assert "drop_column" not in upgrade_body
     assert "alter_column" not in upgrade_body
     assert "drop_table" not in upgrade_body
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 5. RESUME-06 — migration 0026 (subagent_runs task_id + worker_index) ledger
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_migration_0026_is_additive() -> None:
+    """Migration 0026 is single-head additive (down_revision 0025); upgrade adds
+    ONLY the two nullable task-identity columns (task_id + worker_index) and
+    contains no drop/alter-narrow/drop-table of existing columns (RESUME-06).
+    Source-level assertion — no DB round-trip (the round-trip lives in
+    tests/agents/test_subagent_runs.py). The 0016/0023 stale-head asserts above
+    are PRE-EXISTING (head is 0026 now) — this is a source-assertion, not a
+    head-chain assertion, so it does not add to that fail count."""
+    mig = (
+        _BACKEND_DIR
+        / "alembic"
+        / "versions"
+        / "0026_subagent_task_identity.py"
+    )
+    src = mig.read_text()
+    assert 'revision = "0026"' in src
+    assert 'down_revision = "0025"' in src
+    # upgrade() body: additive add_column only; no destructive ops on existing cols.
+    upgrade_body = src.split("def upgrade")[1].split("def downgrade")[0]
+    assert "add_column" in upgrade_body
+    assert "task_id" in upgrade_body
+    assert "worker_index" in upgrade_body
+    assert "drop_column" not in upgrade_body
+    assert "alter_column" not in upgrade_body
+    assert "drop_table" not in upgrade_body
+    assert "create_table" not in upgrade_body

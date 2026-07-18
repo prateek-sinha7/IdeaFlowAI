@@ -119,6 +119,58 @@ def test_0019_migration_uses_free_string_status() -> None:
     assert 'down_revision = "0018"' in text
 
 
+def test_0026_reversible_offline(fresh_db_url: str) -> None:
+    """RESUME-06: ``upgrade 0026`` adds task_id + worker_index; ``downgrade 0025``
+    drops them; ``upgrade 0026`` re-adds — a clean additive round-trip.
+
+    Pinned to the explicit ``0026``/``0025`` revisions (NOT ``head``/``-1``): the
+    ledger has PRE-EXISTING stale single-head asserts (test_migrations.py) proving
+    ``head`` is ambiguous here, and a ``-1`` from 0026 would land on 0025 anyway.
+    The existing subagent_runs columns survive the downgrade (only the two new
+    columns are dropped — additive-reversible)."""
+    cfg = _make_config(fresh_db_url)
+
+    # upgrade to 0026 — the two new nullable columns are present.
+    command.upgrade(cfg, "0026")
+    engine = create_engine(fresh_db_url)
+    inspector = inspect(engine)
+    assert inspector.has_table("subagent_runs"), "subagent_runs missing after upgrade 0026"
+    cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
+    assert "task_id" in cols, "task_id missing after upgrade 0026"
+    assert "worker_index" in cols, "worker_index missing after upgrade 0026"
+    # The pre-existing columns are untouched (additive, not a rewrite).
+    assert _EXPECTED_SUBAGENT_COLUMNS.issubset(cols), (
+        f"upgrade 0026 must not drop existing columns: missing "
+        f"{sorted(_EXPECTED_SUBAGENT_COLUMNS - cols)}"
+    )
+    engine.dispose()
+
+    # downgrade to 0025 drops ONLY the two new columns; the table + originals stay.
+    command.downgrade(cfg, "0025")
+    engine = create_engine(fresh_db_url)
+    inspector = inspect(engine)
+    assert inspector.has_table("subagent_runs"), (
+        "downgrade to 0025 must keep subagent_runs (only the 2 new columns drop)"
+    )
+    cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
+    assert "task_id" not in cols, "downgrade 0025 must drop task_id"
+    assert "worker_index" not in cols, "downgrade 0025 must drop worker_index"
+    assert _EXPECTED_SUBAGENT_COLUMNS.issubset(cols), (
+        "downgrade 0025 must keep the pre-0026 columns"
+    )
+    engine.dispose()
+
+    # upgrade back to 0026 re-adds the two columns (reversible).
+    command.upgrade(cfg, "0026")
+    engine = create_engine(fresh_db_url)
+    inspector = inspect(engine)
+    cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
+    assert "task_id" in cols and "worker_index" in cols, (
+        "re-upgrade 0026 must re-add task_id + worker_index"
+    )
+    engine.dispose()
+
+
 # ---------------------------------------------------------------------------
 # ScopedStore.record_subagent_run — scoped write + default-deny read
 # ---------------------------------------------------------------------------
