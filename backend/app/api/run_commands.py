@@ -1315,6 +1315,12 @@ async def _drive_launch_to_queue(
     pipeline_complete_seen = False
     degraded_failed_agents: list | None = None
     pipeline_cancelled_seen = False
+    # CWF-001 D2: track the generic ``error`` event + ``pipeline_failed`` so a run that
+    # died at runtime is never persisted "completed". Mirrors the LOCK-B revision twin
+    # _drive_revision_to_queue (Phase 29) — the two drivers stay behaviorally identical.
+    pipeline_error_seen = False
+    pipeline_failed_seen = False
+    pipeline_error_msg: str | None = None
     deliverable_mimetype: str | None = None
     deliverable_filename: str | None = None
     monotonic_start = time.monotonic()
@@ -1421,6 +1427,18 @@ async def _drive_launch_to_queue(
                     degraded_failed_agents = list(update["data"].get("agents_failed", []))
             elif utype == "pipeline_cancelled":
                 pipeline_cancelled_seen = True
+            elif utype == "error":
+                pipeline_error_seen = True
+                if pipeline_error_msg is None:
+                    pipeline_error_msg = (
+                        update["data"].get("error")
+                        or update["data"].get("code")
+                        or "Pipeline error"
+                    )
+            elif utype == "pipeline_failed":
+                pipeline_failed_seen = True
+                if pipeline_error_msg is None:
+                    pipeline_error_msg = update["data"].get("error") or "Pipeline failed"
 
         if workflow_run_id:
             db = _get_db()
@@ -1436,12 +1454,19 @@ async def _drive_launch_to_queue(
                         wr.error = first_agent_error_msg or (
                             "degraded: agent(s) failed: " + ", ".join(degraded_failed_agents)
                         )
-                    elif pipeline_complete_seen:
+                    elif (
+                        pipeline_complete_seen
+                        and not pipeline_error_seen
+                        and not pipeline_failed_seen
+                    ):
                         wr.status = "completed"
                     else:
-                        wr.status = "failed" if any_agent_errored else "completed"
-                        if any_agent_errored:
-                            wr.error = first_agent_error_msg
+                        # CWF-001 D2 fail-safe: any generic ``error`` / ``pipeline_failed`` /
+                        # agent_error-without-clean-terminal (or a stream that ended with no
+                        # clean pipeline_complete) → "failed". Reaches "completed" ONLY on a
+                        # clean terminal. Mirrors _drive_revision_to_queue's else → "failed".
+                        wr.status = "failed"
+                        wr.error = first_agent_error_msg or pipeline_error_msg
                     if final_output:
                         wr.output = final_output
                     if deliverable_mimetype is not None:
