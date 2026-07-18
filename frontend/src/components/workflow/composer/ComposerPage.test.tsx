@@ -221,6 +221,50 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     expect(payload.base_pipeline_type).toBe("user_stories");
     expect(payload.agent_ids.length).toBe(6);
   });
+
+  // ── CWF-001 D1 — surface the compose-time pre-sort + unsatisfiable rejection ──
+
+  it("surfaces the producer-first pre-sort — reorders rows on save", async () => {
+    // The backend repairs a consumer-before-producer order and returns the persisted
+    // producer-first agent_ids; the composer reorders its visible rows to match.
+    mockCreateUserWorkflow.mockResolvedValue({
+      id: "wf-1",
+      agent_ids: ["domain-analyst", "epic-architect"],
+    });
+    renderComposer({
+      initialAgentIds: ["epic-architect", "domain-analyst"],
+      initialName: "Reorder flow",
+    });
+    // Before save: rows are in the sent (consumer-first) order.
+    const before = screen.getAllByTestId(/^agent-row-/).map((r) => r.getAttribute("data-testid"));
+    expect(before).toEqual(["agent-row-epic-architect", "agent-row-domain-analyst"]);
+
+    const rail = screen.getByTestId("composer-summary-rail");
+    await userEvent.click(within(rail).getByRole("button", { name: /Save to catalogue/i }));
+    await screen.findByText(/Workflow name/i);
+    await userEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalled());
+
+    // After save: rows flip to the persisted producer-first order.
+    await waitFor(() => {
+      const after = screen.getAllByTestId(/^agent-row-/).map((r) => r.getAttribute("data-testid"));
+      expect(after).toEqual(["agent-row-domain-analyst", "agent-row-epic-architect"]);
+    });
+  });
+
+  it("surfaces an unsatisfiable-composition rejection inline", async () => {
+    // The backend rejects a genuinely-unsatisfiable composition (422); createUserWorkflow
+    // throws with the backend detail as its message, which renders inline via saveError.
+    const msg =
+      "Agent 'swot-analyst' consumes 'market-research-agent' but no agent in the workflow produces it.";
+    mockCreateUserWorkflow.mockRejectedValue(new Error(msg));
+    renderComposer({ initialName: "Bad flow" });
+    const rail = screen.getByTestId("composer-summary-rail");
+    await userEvent.click(within(rail).getByRole("button", { name: /Save to catalogue/i }));
+    await screen.findByText(/Workflow name/i);
+    await userEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    expect(await screen.findByText(msg)).toBeInTheDocument();
+  });
 });
 
 // ── Additive / INV-3 source-level guards ────────────────────────────────────────

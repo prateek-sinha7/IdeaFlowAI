@@ -249,7 +249,7 @@ export function ComposerPage({
       }
       setSaving(true);
       try {
-        await createUserWorkflow(token, {
+        const resp = await createUserWorkflow(token, {
           name: wfName,
           ...(wfDescription ? { description: wfDescription } : {}),
           base_pipeline_type: workflowType,
@@ -258,6 +258,20 @@ export function ComposerPage({
         });
         setName(wfName);
         setDescription(wfDescription);
+        // CWF-001 D1: surface the backend's producer-first pre-sort — reorder the
+        // visible rows to the persisted order. The backend is the authoritative
+        // source (the FE AgentDef carries no produces/consumes), and it repairs a
+        // consumer-before-producer order server-side. Guard on a present, non-empty
+        // agent_ids so a response without it (or an older shape) leaves rows
+        // untouched. An unsatisfiable composition instead throws below and renders
+        // inline via saveError. Selections are keyed by agent_id → reorder-safe.
+        if (resp?.agent_ids?.length) {
+          setPipelineAgents((prev) =>
+            resp.agent_ids
+              .map((id) => prev.find((a) => a.id === id))
+              .filter((a): a is AgentDef => Boolean(a)),
+          );
+        }
       } catch (e) {
         setSaveError((e as Error)?.message ?? "Failed to save workflow.");
       } finally {
