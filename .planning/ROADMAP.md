@@ -1211,8 +1211,8 @@ Plans:
   4. RED→GREEN: a restart-resume regression that FAILS on current HEAD (partial build silently skipped) passes after the fix.
 
 **Plans**: 1 plan
-
 Plans:
+
 - [ ] 45-01-PLAN.md — Strategy-conditional task_loop completeness fix in `_first_incomplete_step` + RED→GREEN restart-resume regression (RESUME-05)
 
 ### Phase 46: Per-Task Substrate, Cursor & Live-Layer Re-Registration [R1]
