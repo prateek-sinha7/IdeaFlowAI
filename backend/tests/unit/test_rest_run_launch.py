@@ -313,8 +313,12 @@ async def test_driver_drives_engine_and_populates_queue(env):
     assert "pipeline_complete" in types
 
     # Terminal status persisted "completed"; cleanup removed the run registries.
+    # Fail-safe contract (CWF-001 D2): a CLEAN ``pipeline_complete`` with no error
+    # signal is legitimately "completed"; only a missing/errored terminal → "failed".
+    # The _RecordingEngine emits a clean pipeline_complete, so this stays "completed".
     row = _latest_run(env)
     assert row.status == "completed"
+    assert row.status != "failed"  # anti-regression: clean terminal must not fail-safe to failed
     assert run_id not in env["ws"]._PIPELINE_QUEUES
 
 
@@ -405,6 +409,127 @@ async def test_driver_persists_full_agent_history_like_ws(env, monkeypatch):
     assert tc["args"] == {"path": "x"}
     assert tc["result"] == "ok"  # tool_result was matched back onto the open call
     assert tc["timestamp"]  # stamped at tool_call time
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 3b. Fail-safe terminal status (CWF-001 D2) — a run that errors/fails at runtime
+#     must NOT be persisted "completed". Reconciles the launch driver toward the
+#     LOCK-B revision twin _drive_revision_to_queue (Phase 29). RED→GREEN.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_driver_generic_error_records_failed(env, monkeypatch):
+    """CWF-001 D2: a launch whose engine stream ends in a GENERIC ``error`` event
+    (e.g. the compile-time DAG-unsatisfiable error) with NO clean ``pipeline_complete``
+    must persist status == "failed" (was mislabeled "completed"), with the error
+    message captured onto wr.error. Mirrors the revision twin's fail-safe else."""
+    from app.api import run_commands as rc
+    from app.models.workflow import WorkflowRun
+
+    class _ErrorEngine:
+        async def execute(self, **kwargs):
+            yield {"type": "pipeline_start", "data": {"agents": []}}
+            yield {"type": "error", "data": {
+                "error": ("Workflow DAG is unsatisfiable: Agent 'swot-analyst' "
+                          "consumes 'market-research' but no upstream agent produces it"),
+                "code": "workflow_unsatisfiable",
+                "recoverable": False,
+            }}
+
+    monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _ErrorEngine())
+
+    user = _seed_user(env)
+    run_id = str(uuid.uuid4())
+    db = env["ws"]._get_db()
+    try:
+        db.add(WorkflowRun(
+            id=run_id, user_id=user.id, title="t", type="user_stories",
+            status="running", input="build a backlog", agent_count=1,
+            session_id=user.id,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    queue: asyncio.Queue = asyncio.Queue()
+    await rc._drive_launch_to_queue(
+        workflow_run_id=run_id,
+        pipeline_run_id=run_id,
+        agents=[object()],
+        content="build a backlog",
+        pipeline_type="user_stories",
+        cancel_event=asyncio.Event(),
+        user=user,
+        attached_skills=[],
+        attached_hooks=[],
+        od_context=None,
+        validated_images=[],
+        gate_agent_ids=None,
+        parent_run_id=None,
+        model_overrides={},
+        selections=None,
+        event_queue=queue,
+    )
+
+    row = _latest_run(env)
+    assert row.status == "failed"
+    assert row.status != "completed"
+    assert row.error is not None
+    assert "unsatisfiable" in row.error
+
+
+@pytest.mark.asyncio
+async def test_driver_pipeline_failed_records_failed(env, monkeypatch):
+    """CWF-001 D2: a launch whose stream emits ``pipeline_failed`` with NO clean
+    ``pipeline_complete`` must persist status == "failed". Mirrors the LOCK-B twin's
+    ``test_driver_pipeline_failed_records_failed`` in test_rest_revisions.py."""
+    from app.api import run_commands as rc
+    from app.models.workflow import WorkflowRun
+
+    class _FailEngine:
+        async def execute(self, **kwargs):
+            yield {"type": "pipeline_start", "data": {"agents": []}}
+            yield {"type": "pipeline_failed", "data": {"error": "no agent completed"}}
+
+    monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _FailEngine())
+
+    user = _seed_user(env)
+    run_id = str(uuid.uuid4())
+    db = env["ws"]._get_db()
+    try:
+        db.add(WorkflowRun(
+            id=run_id, user_id=user.id, title="t", type="user_stories",
+            status="running", input="build a backlog", agent_count=1,
+            session_id=user.id,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    queue: asyncio.Queue = asyncio.Queue()
+    await rc._drive_launch_to_queue(
+        workflow_run_id=run_id,
+        pipeline_run_id=run_id,
+        agents=[object()],
+        content="build a backlog",
+        pipeline_type="user_stories",
+        cancel_event=asyncio.Event(),
+        user=user,
+        attached_skills=[],
+        attached_hooks=[],
+        od_context=None,
+        validated_images=[],
+        gate_agent_ids=None,
+        parent_run_id=None,
+        model_overrides={},
+        selections=None,
+        event_queue=queue,
+    )
+
+    row = _latest_run(env)
+    assert row.status == "failed"
+    assert row.status != "completed"
 
 
 # ────────────────────────────────────────────────────────────────────────────
