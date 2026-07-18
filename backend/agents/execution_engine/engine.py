@@ -5967,9 +5967,14 @@ class ExecutionEngine:
         # DURABLE artifact_refs, owner-scoped — on a fresh-process resume the in-memory
         # graph is empty until a step re-runs, so completeness is read from the store).
         produced_agents: set[str] = set()
+        # Materialize the durable ref rows ONCE — produced_agents is derived from
+        # them here, and the task_loop branch below reuses them for the per-task
+        # distinct-task_id count + the source_step plan content (no second round-trip).
+        tree_rows: list = []
         if store is not None:
             try:
-                for ref in await store.tree(ectx.run_id):
+                tree_rows = list(await store.tree(ectx.run_id))
+                for ref in tree_rows:
                     pa = getattr(ref, "producer_agent", None)
                     if pa:
                         produced_agents.add(pa)
@@ -5996,6 +6001,58 @@ class ExecutionEngine:
                     return i
                 # Has terminal waves and none running → consider it complete; continue.
                 continue
+
+            if strategy == "task_loop":
+                # Task-granular step (RESUME-05): persist_task_html dual-writes an
+                # html_file ref with producer_agent=<build agent> from task 1, so the
+                # produced_agents membership below CANNOT tell a PARTIAL build (task
+                # N<M persisted) from a COMPLETE one — it would classify a crashed-
+                # mid-build step complete and the resume offset would SKIP the build
+                # (silent deliverable truncation). Completeness is instead task-granular:
+                # complete ⟺ a terminal step event exists (retry/step_reused) OR the
+                # count of DISTINCT persisted task_ids for this agent >= the task total
+                # re-parsed from the DECLARED source_step plan (the same derivation
+                # task_loop.run uses). Any uncertainty ⇒ INCOMPLETE (re-enter, never
+                # skip): the fail-safe direction is re-run (correct-but-wasteful),
+                # because the inverse (skip-on-uncertainty) is the data-loss bug.
+                if agent_id in completed_step_events:
+                    continue
+                try:
+                    task_source = getattr(step, "task_source", None)
+                    source_step = getattr(task_source, "source_step", None)
+                    parser_name = (
+                        getattr(task_source, "parser", None) or "heading_tasks"
+                    )
+                    # No durable store, or the workflow did not DECLARE a source_step
+                    # (INV-1: never hard-code a workflow/agent-id fallback here) ⇒ the
+                    # total is underivable ⇒ re-enter (fail-safe).
+                    if store is None or not source_step:
+                        return i
+                    plan_content = None
+                    for r in tree_rows:
+                        if getattr(r, "producer_agent", None) == source_step:
+                            plan_content = getattr(r, "content", None)
+                    if plan_content is None:
+                        return i
+                    parser = _CAPABILITY_REGISTRY.resolve("task_parser", parser_name)
+                    # max(...,1) mirrors task_loop.run's 0-task → run-once fallback, so
+                    # a genuinely-complete 0-task build still classifies complete.
+                    expected_total = max(len(parser.parse(plan_content)), 1)
+                    # DISTINCT task_ids only — the fix-loop re-persists the same task_id,
+                    # so counting rows/versions would over-count (Pitfall 7).
+                    distinct_done = len(
+                        {
+                            getattr(r, "task_id", None)
+                            for r in tree_rows
+                            if getattr(r, "producer_agent", None) == agent_id
+                            and getattr(r, "task_id", None) is not None
+                        }
+                    )
+                except Exception:  # noqa: BLE001 — underivable total ⇒ re-run (never skip)
+                    return i
+                if distinct_done >= expected_total:
+                    continue
+                return i
 
             # Non-wave step: complete iff it produced its typed artifact OR a terminal
             # step event is recorded. Neither ⇒ this is the first incomplete step.
