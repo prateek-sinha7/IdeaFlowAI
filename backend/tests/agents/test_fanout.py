@@ -56,7 +56,7 @@ class _FakeRunner:
     def agent_exists(self, agent_id: str) -> bool:
         return agent_id in self._known_agents
 
-    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None):
+    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
         self._row_seq += 1
         row_id = f"row-{self._row_seq}"
         self.recorded_rows.append(

@@ -1080,6 +1080,8 @@ class ScopedStore:
         status: str,
         tokens: int | None = None,
         cost: Any = None,
+        worker_index: int | None = None,
+        task_id: str | None = None,
     ) -> str:
         """Insert one ``subagent_runs`` row stamped with the helper principal (FANOUT-10).
 
@@ -1104,6 +1106,8 @@ class ScopedStore:
                 status=status,
                 tokens=tokens,
                 cost=cost,
+                worker_index=worker_index,
+                task_id=task_id,
             )
             session.add(row)
             session.commit()

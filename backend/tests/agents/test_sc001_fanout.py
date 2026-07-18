@@ -251,13 +251,14 @@ async def _drive_fanout() -> tuple[list[dict], dict]:
     from agents.execution_engine.kernel_services import KernelServices
     _orig_record = KernelServices.record_subagent_run
 
-    async def _probe_record(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None):
+    async def _probe_record(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
         probe["recorded_workers"].append(
-            dict(parent_step=parent_step, worker_agent=worker_agent, isolation=isolation, status=status)
+            dict(parent_step=parent_step, worker_agent=worker_agent, isolation=isolation, status=status, worker_index=worker_index, task_id=task_id)
         )
         return await _orig_record(
             self, parent_step=parent_step, worker_agent=worker_agent, depth=depth,
             isolation=isolation, status=status, tokens=tokens, cost=cost,
+            worker_index=worker_index, task_id=task_id,
         )
 
     for s in specs:

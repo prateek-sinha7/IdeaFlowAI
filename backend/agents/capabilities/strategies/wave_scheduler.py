@@ -242,7 +242,12 @@ class WaveSchedulerStrategy:
 
             # CR-03: the first incomplete wave re-runs in its ENTIRETY (no prefix skip).
             task_ids = [t.id for t in wave]
-            requests = [{"agent": "self", "input": t.body} for t in wave]
+            # RESUME-06: carry each task's plan-global id on its request so the spawned
+            # subagent_runs row is stamped with the skip-cursor key at SPAWN. task_ids
+            # (used for the wave_runs row) stays as-is.
+            requests = [
+                {"agent": "self", "input": t.body, "task_id": t.id} for t in wave
+            ]
 
             # WR-01: on resume, before recording the re-entry row, flip any STALE
             # pre-crash non-terminal (``running``) wave_runs row for THIS (step, wave) to a

@@ -59,7 +59,7 @@ class _FakeRunner:
     async def workspace_budget_spent(self):
         return self._workspace_spent or {"subagents": 0, "tokens": 0}
 
-    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None):
+    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
         self._row_seq += 1
         row_id = f"row-{self._row_seq}"
         self.recorded_rows.append(dict(id=row_id, worker_agent=worker_agent, status=status))

@@ -441,6 +441,8 @@ class KernelServices:
         status: str,
         tokens: int | None = None,
         cost: Any = None,
+        worker_index: int | None = None,
+        task_id: str | None = None,
     ) -> str | None:
         """Write one owner/workspace-scoped ``subagent_runs`` row for a fan-out child.
 
@@ -464,6 +466,8 @@ class KernelServices:
                 status=status,
                 tokens=tokens,
                 cost=cost,
+                worker_index=worker_index,
+                task_id=task_id,
             )
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning(
