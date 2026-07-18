@@ -14,7 +14,7 @@
 | ID | Title | Surface | Severity | Status |
 |----|-------|---------|----------|--------|
 | CWF-001 | Consumer-before-producer agent order saves+launches, aborts at runtime ("DAG unsatisfiable"), and the failed run is mislabeled `completed` | Composer / resolver / run-status | major | **FIXED · D1 LIVE-PROVEN** (D2 260718-p8m offline; D1 260718-puj) |
-| CWF-002 | The per-agent model actually used is never persisted or queryable (model_id never written; cost estimate circular) → cannot verify which model a run used | Engine / run record / analytics | minor (observability) | ROOT-CAUSED |
+| CWF-002 | The per-agent model actually used is never persisted or queryable (model_id never written; cost estimate circular) → cannot verify which model a run used | Engine / run record / analytics | minor (observability) | **FIXED** (260718-rf7, offline) |
 
 > Scope: compose / configure / save / model-selection (Simple + Canvas, Sonnet 4.5 & Haiku 4.5)
 > tested **35/35 + 10/10 PASS**; a correctly-ordered custom workflow **runs to completion**
