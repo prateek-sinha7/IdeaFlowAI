@@ -212,6 +212,23 @@ def test_unknown_model_override_rejected_pre_mint(env):
     assert _RecordingEngine.invoked is False
 
 
+def test_unsatisfiable_custom_composition_rejected_pre_mint(env):
+    """CWF-001 D1: a custom ``agent_ids`` composition that can never satisfy its
+    produces/consumes contracts (swot-analyst alone consumes market-research-agent,
+    which no selected agent produces) is rejected PRE-MINT — 422 with code
+    ``workflow_unsatisfiable``, no WorkflowRun row, no execute. Mirrors the shape of
+    ``test_unsupported_pipeline_type_rejected_pre_mint``."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    resp = _post_launch(
+        env, message="x", pipeline_type="user_stories", agent_ids=["swot-analyst"],
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "workflow_unsatisfiable"
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
+
+
 def test_missing_message_is_a_422_bad_payload(env):
     """A launch with no ``message`` is a malformed payload (pydantic 422) — no
     run is minted."""

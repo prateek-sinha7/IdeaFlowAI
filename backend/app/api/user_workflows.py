@@ -297,6 +297,29 @@ def create_user_workflow(
         body.base_pipeline_type, body.agent_ids, body.selections
     )
 
+    # CWF-001 D1: order-independent produces/consumes satisfiability check +
+    # producer-first pre-sort (via the app-layer helper — this module honors its
+    # "MUST NOT import agents.execution_engine" convention by going through
+    # composition_order, not the resolver directly). A consumer-before-producer
+    # order is repaired to a runnable producer-first order and PERSISTED sorted; a
+    # genuinely-unsatisfiable set (a consumed non-exempt type no selected agent
+    # produces, or a real cycle) is rejected 422 BEFORE any row is created — so a
+    # saved row can never launch into a runtime "Workflow DAG is unsatisfiable"
+    # death. The guard lives at CREATE + LAUNCH; the PATCH sibling cannot change
+    # agent order (its request model omits agent_ids), so there is nothing to
+    # reorder there.
+    from app.api.composition_order import (
+        UnsatisfiableComposition,
+        presort_agent_ids,
+    )
+
+    try:
+        sorted_ids = presort_agent_ids(body.agent_ids)
+    except UnsatisfiableComposition as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
     # Per-user name uniqueness (API-level; the shared table also holds file rows).
     existing = (
         db.query(WorkflowDefinition)
@@ -319,7 +342,9 @@ def create_user_workflow(
         owner_id=current_user.id,
         workspace_id=current_user.id,
         name=body.name,
-        agents=json.dumps(body.agent_ids),
+        # CWF-001 D1: persist the producer-first pre-sorted order (model_overrides /
+        # selections are keyed by agent_id, so the reorder is safe).
+        agents=json.dumps(sorted_ids),
         artifact_edges="[]",
         description=body.description,
         source="user",

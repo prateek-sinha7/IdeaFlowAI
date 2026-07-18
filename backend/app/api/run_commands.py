@@ -1149,6 +1149,26 @@ async def launch_run(
                 rejected_agent_ids=rejected,
             )
         agents = [load_agent_spec(aid) for aid in agent_ids]
+        # CWF-001 D1: producer-first pre-sort (defense-in-depth + legacy repair).
+        # A custom composition sent/saved consumer-before-producer is reordered to a
+        # runnable producer-first order BEFORE the mint; a genuinely-unsatisfiable set
+        # (a consumed non-exempt type no selected agent produces, or a real cycle) is
+        # rejected pre-mint (no WorkflowRun row). ONLY the custom `agent_ids` branch —
+        # file-backed built-in manifests (the `else`) are already producer-first and
+        # MUST NOT be re-sorted (scope fence).
+        from app.api.composition_order import (
+            UnsatisfiableComposition,
+            presort_specs,
+        )
+
+        try:
+            agents = presort_specs(agents)
+        except UnsatisfiableComposition as exc:
+            raise _reject(
+                "workflow_unsatisfiable",
+                str(exc),
+                http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
     else:
         agents = get_pipeline_agents(base_pipeline_type)
         if not agents and base_pipeline_type == "ppt":

@@ -42,8 +42,12 @@ from app.core.dependencies import get_current_user
 from app.models.database import Base, get_db
 from app.models.workflow_definition import WorkflowDefinition
 
+# CWF-001 D1: _AGENT_B is swot-analyst (consumes _AGENT_A's produced type), so the
+# default [_AGENT_A, _AGENT_B] composition is producer-first satisfiable (presorts
+# to itself). report-generator (consumes documentation-agent, never produced) would
+# now be rejected by the compose-time satisfiability guard.
 _AGENT_A = "market-research-agent"
-_AGENT_B = "report-generator"
+_AGENT_B = "swot-analyst"
 _DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 _NON_DEFAULT_MODEL = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
 _USER_VALIDATOR = "spec_plan_coverage"  # user_allowed=True
