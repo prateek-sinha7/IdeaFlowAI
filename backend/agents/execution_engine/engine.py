@@ -3687,6 +3687,12 @@ class ExecutionEngine:
                              "output_length": len(output), "index": index, "total": len(ordered_agents),
                              "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
                              "total_tokens": agent_total_tokens,
+                             # CWF-002 (fix a): the per-agent RESOLVED primary model id (captured
+                             # at :3055, the id the MODEL-02 fallback chain is armed on) — makes the
+                             # effective model queryable in the live stream. Reuses the existing
+                             # _VOLATILE_STRIP_KEYS "model_id" entry, so the 5 characterization
+                             # goldens stay byte/event-identical (INV-3) with no _normalize edit.
+                             "model_id": _resolved_model_id,
                              # ISS-032: per-agent cache split (stripped by _VOLATILE_STRIP_KEYS,
                              # golden-neutral; the WS collector sums these into the run totals).
                              "cache_read_tokens": agent_cache_read_tokens,
