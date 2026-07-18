@@ -1185,3 +1185,116 @@ Plans:
 - [x] 44-10-PLAN.md — W5c: CI banned-pattern gate (the hard-cutoff ratchet) [wave 6]
 - [x] 44-11-PLAN.md — W6: offline Part-B (ISS-033 aux-token fold + mocked-SSE B.6b) [wave 6] — Complete 2026-07-16 (0dadd5da, b4a20c55)
 - [ ] 44-12-PLAN.md — W6 live lanes + supervised live SSE smoke (autonomous:false, Bedrock SSO) [wave 7]
+
+---
+
+## Milestone v3.0 — Top-Tier Resume & Durable Execution (Phases 45–50, registered 2026-07-18)
+
+> **Plan of record:** `.planning/RESUME-CAPABILITY-DESIGN-DRAFT.md` (POR) — grounded file:line current-state, the 7 LOCKED design decisions (§8), the LOCK-E/ND-4 supersede record (§8.1), and the full proposed architecture (§5) every phase plan below must follow. Requirements RESUME-05..18 (REQUIREMENTS.md). Branch: `feat/ui-2`. **Entry note:** v2.0's formal close-out (`/gsd-complete-milestone`) is still pending as a separate step — deliberately not blocking v3.0 planning (user decision 2026-07-18).
+>
+> **Milestone goal:** any interruption — process restart, crash, sandbox/TTL loss, paused gate, or a user-failed run — is resumable at **task/worker granularity, agent-agnostically**: the KERNEL (never an agent) reads durable state, computes exactly what is left, restores completed work to disk, and continues — including across user edits (add/change/delete) to the task list.
+>
+> **Locked decisions binding every phase (POR §8):** substrate = `artifact_refs`, NOT git (GIT-01 stays a separable future layer) · edit reconciliation fully AUTOMATIC · uploads persisted durably · ONE milestone, phases sequential R0→R5 · task list = versioned `task_list` artifact via the extended gate-Edit path (no new table) · gate survival = re-enter-at-gate on the derive_open_gate/D-14g seams (LangGraph interrupt REJECTED) · per-task capture GENERIC from day one.
+> **Guardrails on every phase (POR §7):** INV-1/SC-001 (kernel name-free; cursor keys on generic `run:step:task/worker/artifact` identity) · INV-2 (state on `ExecutionContext`/durable rows, never the singleton) · INV-3 (5 characterization goldens byte/event-identical; new events additive + dormant-on-goldens; `seq` from the engine counter — 0024 + DEF-43-03-1) · Q3 additive-only migrations (owner_id+workspace_id, free-String status, named FK, reversible; persist-at-creation per the 0023 precedent) · INV-12 (single `_execute_impl`/`run_fanout` dispatch path; reuse `resume_run`/`_apply_selections`/`_stamp_resume_marker`/the `run_engine.py` bridge; never a third launch-driver copy) · INV-5 (no manifest DSL) · INV-13 (deepagents only) · ports & adapters (`ctx.runner` / injected callbacks; lint-imports 4/0) · ownership via default-deny `ScopedStore` keyed on `user_id`.
+> **Out of scope (locked):** within-agent mid-token resume (checkpointer stays an optimization) · cross-node/distributed (N8) · image persistence (ND-10 — resumed runs lose `run_images` BY DESIGN; document, never fix) · real git output (GIT-01) · ECS runtime.
+
+### Phase 45: Resume Completeness Bug Fix [R0]
+
+**Goal**: A partially-completed build is never classified "complete" and silently skipped on resume — fix the `engine.py:6002` data-loss bug (`_first_incomplete_step` marks a task-granular step complete after its FIRST task persists) with a strategy-conditional completeness check. Standalone and urgent: fixes live data loss regardless of the rest of the milestone.
+**Depends on**: — (first v3.0 phase)
+**Requirements**: RESUME-05
+**Success Criteria** (what must be TRUE):
+
+  1. A run interrupted mid-build (task N of M persisted, N < M) resumes by RE-ENTERING the build step and completing tasks N+1..M — never skipping the step.
+  2. Completeness is strategy-conditional and generic (keyed on the compiled `step.strategy`/`task_source`, never a workflow name): task-granular steps count tasks-in-current-list vs completed per-task artifacts; `single_shot` steps keep produced-ref/`step_completed` semantics byte-unchanged.
+  3. `step_reused` (input_hash reuse) and `step_completed` behavior untouched; the 5 characterization goldens stay byte/event-identical (resume paths are dormant on scripted golden runs).
+  4. RED→GREEN: a restart-resume regression that FAILS on current HEAD (partial build silently skipped) passes after the fix.
+
+**Plans**: TBD (via /gsd-plan-phase 45)
+
+### Phase 46: Per-Task Substrate, Cursor & Live-Layer Re-Registration [R1]
+
+**Goal**: Sub-agent / fan-out / sequential-task interruptions become resumable at task/worker granularity: add task identity to `subagent_runs` (the pre-authorized CR-03-followup), make per-task capture GENERIC (every file a task wrote — Q7), re-materialize durable state back to disk (incl. mid-wave merge re-entry), skip completed workers/tasks via a kernel-computed cursor, and make resumed runs first-class LIVE runs (live-ectx + milestone-sink re-registration — closing the Phase-43 dormancy).
+**Depends on**: Phase 45
+**Requirements**: RESUME-06, RESUME-07, RESUME-08, RESUME-09, RESUME-10, RESUME-11
+**Success Criteria** (what must be TRUE):
+
+  1. Additive migration (next head after 0025): nullable `task_id` + `worker_index` on `subagent_runs` (free-String, named FK, reversible single-head); rows written at SPAWN — before the crash window (the 0023 `selections_json` precedent).
+  2. GENERIC per-task capture: every file a task wrote is durably captured per task (supersedes `persist_task_html`'s single-declared-file scope; the hardcoded `kind="html_file"` literal handled/documented); proven on a multi-file task fixture, byte-neutral on the prototype path.
+  3. Durable→disk re-materialization: resume walks the latest durable `artifact_refs` (by `location`, `max(version)`, filtered to completed keys) and rebuilds the fresh `RunSandbox` — the missing half of `_hydrate_artifacts_from_store` (graph-only today); worktree/sandbox state reconstructs from `artifact_refs`, never from git (whose commits are ephemeral, POR §3.2).
+  4. Mid-wave merge re-entry: a crash between fragment-persist and the per-wave merge → fragments re-materialized to disk + the merge re-run for the in-flight wave BEFORE remaining workers/waves dispatch.
+  5. Per-worker wave skip + per-task sequential skip: completed workers/tasks are never re-invoked (identity-based kernel cursor threaded into `strategy.run` — NOT the deleted-for-cause prefix-by-count skip, 12-06 CR-03); the AGENT never decides the skip set but DOES receive completed work as injected context (existing context-injection machinery).
+  6. Resumed runs are live: BOTH resume paths thread `register_live_ectx` (+ unregister in `finally`) and `milestone_sink` (generic injected callables — no engine→app import); steering, per-turn images, Concierge context, and narrator milestone cards all function on a resumed run; milestone-card `seq` drawn from the engine counter (DEF-43-03-1).
+  7. Steering re-drain: durably-logged, undrained steering notes are re-queued onto `ectx.steering_notes` at resume.
+  8. Gates: 5 goldens byte/event-identical · lint-imports 4/0 · banned-pattern clean · restart-harness RED→GREEN per criterion.
+
+**Plans**: TBD (via /gsd-plan-phase 46)
+
+### Phase 47: Uploads Durability [R2]
+
+**Goal**: Uploaded documents survive resume (Q6): today `.uploads/` (raw bytes + extraction sidecars + `manifest.json`) is disk-only — a fresh sandbox silently loses the sticky uploaded-doc context and Postgres cannot restore it (POR Gap G). Persist the extracted text + manifest durably and teach the provider to fall back to the durable mirror.
+**Depends on**: Phase 46
+**Requirements**: RESUME-12, RESUME-13
+**Success Criteria** (what must be TRUE):
+
+  1. Upload ingest persists each document's extracted text + manifest durably (additive, owner_id+workspace_id-scoped; the existing per-file 10MB / count ≤20 / aggregate 40MB caps and the 415 image-rejection are byte-unchanged).
+  2. The `uploaded_files` context provider falls back to the durable mirror when the sandbox `.uploads/` copy is missing — a resumed run on a fresh sandbox carries FULL document context in every subsequent `agent_input` (sticky semantics preserved).
+  3. Resume re-materializes (or durably serves) the upload context with zero kernel workflow-name branches; the provider stays kernel-pure + self-gating on the declared inject token.
+  4. Images remain payload-transient — ND-10 stays locked and untouched (no image storage added anywhere); goldens byte-identical.
+
+**Plans**: TBD (via /gsd-plan-phase 47)
+
+### Phase 48: Task Identity & Mutable-List Reconciliation [R3]
+
+**Goal**: The task list becomes safely user-editable (add/change/delete) with automatic reconciliation (Q2): content-addressed task identity (upstream-namespaced + duplicate-safe) lets the kernel skip completed work, run new/edited work, and exclude deleted work — on resume AND on re-run-after-edit — with the task list living as a VERSIONED `task_list` artifact edited through the extended gate-Edit path (Q3).
+**Depends on**: Phase 46
+**Requirements**: RESUME-14, RESUME-15, RESUME-16
+**Success Criteria** (what must be TRUE):
+
+  1. `task_key = sha256(upstream_context_hash · normalized_task_content · occurrence_ordinal)`: reorder/insert-safe (position-independent), duplicate-text-safe (ordinal — the 12-06 WR-05 duplicate-guard precedent), upstream-aware (a spec edit — incl. the shipped `update_specs` loop — rotates keys so stale-spec tasks re-run); hash discipline inherited from `input_hash` (sorted, no timestamp/uuid — cross-restart stable).
+  2. User edits mint a NEW `task_list` artifact version via the extended gate-Edit mechanism (KAN-98 `_apply_declared_gate_edit` path; `edited_content` rides `POST /{id}/gate` only — WR-03); old versions kept with `derived_from` lineage; `max(version)` wins (`_latest_typed_content` F5 discipline); NO new tasks table (the 12-era "no new step-status table" lock holds).
+  3. AUTOMATIC reconciliation on resume or re-run-after-edit: completed+present → skip + re-materialize + inject as prior context; new/edited/rotated-key → run; deleted-but-completed → excluded from the assembled deliverable at READ time (rows never deleted — `artifact_refs` immutability contract); spec edits auto-invalidate affected tasks with no confirm prompt.
+  4. SC-001 grep-gated: reconciliation keys on generic identity only; a synthetic non-prototype task workflow exercises the whole reconcile path with zero engine edits.
+
+**Plans**: TBD (via /gsd-plan-phase 48)
+
+### Phase 49: Gate Resume Across Restart [R4]
+
+**Goal**: Clarify and review gates survive a backend restart (Q4): flip restart branch (a) from fail→re-arm for compiled-manifest runs with durable state, rebuilt on the EXISTING seams — `derive_open_gate` (KAN-94) for durable pendency + the D-14g `_dangling_review_gate` SSE re-emit — with the review gate RE-ENTERING `_run_agent`'s run+gate loop AT its gate phase so all five gate actions work identically post-restart. This is a *restoration done properly*: `waiting_for_user` was originally re-armed (WR-05 era) before KAN-88 flipped it to failed because nothing could wait; this phase supplies the waiter.
+**Depends on**: Phase 46 (re-materialization), Phase 48 (task-list versions feed gate previews)
+**Requirements**: RESUME-17
+**Success Criteria** (what must be TRUE):
+
+  1. Restart branch (a) re-arms instead of failing — ONLY for compiled-manifest runs with durable state (branch-(b) gating); the WR-05 stateless/legacy path and the 5 goldens stay byte-untouched.
+  2. No parallel pending-arm store: durable pendency derives from `derive_open_gate` + the durable event log; D-14g re-emits `review_gate_ready`/`questionnaire_ready` on SSE attach; `_gate_is_pending` gains a public accessor (closes the IN-02 private-dict debt).
+  3. Review-gate re-entry AT the gate phase: the step is classified "output produced, gate unresolved" from durable events + the persisted output artifact; `ectx.last_streamed` reconstructs from the persisted ref; ALL five actions — approve / reject / edit / redo (fresh `:redo{N}` threads) / update_specs (sub-pipeline) — work identically post-restart.
+  4. Clarify twin: the questionnaire wait re-arms with questions replayed from the durable `questionnaire_ready` event; answers flow through the unchanged `POST /{id}/answers` path.
+  5. The pre-existing RED test `test_restart_resume::test_waiting_for_user_run_is_rearmed_not_driven` flips GREEN (the KAN-88 restoration anchor); FE note honored: parked runs aren't auto-streamed (BUG-013 `AUTO_STREAM_STATUSES`) — the gate surfaces on open via D-14g, the intended UX.
+
+**Plans**: TBD (via /gsd-plan-phase 49)
+
+### Phase 50: User Resume-From-Failed — Reopen & Fix [R5]
+
+**Goal**: A terminal-FAILED run becomes user-resumable (`POST /api/runs/{id}/resume`) — the "reopen & fix" headline (ND-4), authorized by the LOCK-E supersede record (POR §8.1). The endpoint is the only new surface; everything else reuses the shared resume tier built in Phases 45–49.
+**Depends on**: Phases 46, 48, 49 (the full resume tier)
+**Requirements**: RESUME-18
+**Success Criteria** (what must be TRUE):
+
+  1. Ownership + safety: two-layer owner check (`WorkflowRun.user_id` → `ScopedStore` default-deny; cross-owner/missing → 404, never 403); overlap guard (`pipeline_already_running` precedent — reject if the run is already live); replayed POSTs are idempotent (the Phase-33 M4 re-mint lesson).
+  2. State recovery: workspace_id recovered from durable owner-scoped rows (NEVER fresh-minted — Pitfall 2), `selections_json` re-applied (0023), completed steps/tasks via the Phase-46 cursor, disk via re-materialization.
+  3. Drive + stream wiring: the run re-registers in `_PIPELINE_QUEUES` BEFORE the FE attaches (BUG-015 non-live-attach semantics respected — the new attach goes live), reusing the `run_engine.py` resume bridge; NO third hand-copied driver beside `_drive_launch_to_queue`/`_drive_revision_to_queue`; the terminal status ladder stays behaviorally identical to the fail-safe launch driver (the D2 fix).
+  4. Status transition failed→running (or an additive `run_resuming`-style EVENT per INV-12 preference) so FE `AUTO_STREAM_STATUSES` auto-attaches; live-layer callbacks threaded (the Phase-46 RESUME-10 mechanism) so the reopened run has steering/Concierge/cards.
+  5. End-to-end proof: fail a run mid-build → `POST /resume` → completed tasks skipped, deliverable completed, family/history coherent; consolidated milestone-end live-Bedrock pass covers the full ladder (per the defer-live-verification convention, offline gates bind phase completion).
+
+**Plans**: TBD (via /gsd-plan-phase 50)
+
+### v3.0 Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 45. Resume Completeness Bug Fix [R0] | 0/? | Not started | — |
+| 46. Per-Task Substrate, Cursor & Live Layer [R1] | 0/? | Not started | — |
+| 47. Uploads Durability [R2] | 0/? | Not started | — |
+| 48. Task Identity & Mutable List [R3] | 0/? | Not started | — |
+| 49. Gate Resume Across Restart [R4] | 0/? | Not started | — |
+| 50. User Resume-From-Failed [R5] | 0/? | Not started | — |
