@@ -1495,6 +1495,13 @@ async def _drive_launch_to_queue(
                         wr.deliverable_filename = deliverable_filename
                     if agent_outputs_collector:
                         wr.agent_outputs = json.dumps(agent_outputs_collector)
+                    # CWF-002 (fix b): persist the run's EFFECTIVE model onto the run row
+                    # BEFORE the cost computation — the SAME expression already threaded as
+                    # model_id= into engine.execute (:1359, per the locked ModelResolver
+                    # precedence). This makes the estimate_cost_usd line below read the real
+                    # model instead of always falling back to BEDROCK_INFERENCE_PROFILE_ID
+                    # (the circular default). Unconditional: every terminal run records it.
+                    wr.model_id = getattr(user, "preferred_model", None) or None
                     total_input = sum(a.get("input_tokens", 0) or 0 for a in agent_outputs_collector)
                     total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
                     total_cache_read = sum(a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector)

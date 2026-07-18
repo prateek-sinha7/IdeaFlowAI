@@ -99,6 +99,10 @@ class WorkflowRunResponse(BaseModel):
     duration: Optional[float] = None
     error: Optional[str] = None
     token_usage: Optional[str] = None
+    # CWF-002 (fix c): the effective model the run used (WorkflowRun.model_id, migration
+    # 0014 column — now written by the launch driver). Auto-materialized into BOTH the
+    # list (summary) and detail responses by _run_response's model_fields getattr loop.
+    model_id: Optional[str] = None
     # UXFIX-02 (22-03 / D-19): the persisted declared/resolved deliverable shape
     # so history-reopen drives the deliverable mimetype from the persisted value
     # (legacy rows NULL → FE deriveDeliverableMimetype heuristic fallback, parity).
