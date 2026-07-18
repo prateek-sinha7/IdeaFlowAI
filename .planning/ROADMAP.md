@@ -1213,7 +1213,7 @@ Plans:
 **Plans**: 1 plan
 Plans:
 
-- [ ] 45-01-PLAN.md — Strategy-conditional task_loop completeness fix in `_first_incomplete_step` + RED→GREEN restart-resume regression (RESUME-05)
+- [x] 45-01-PLAN.md — Strategy-conditional task_loop completeness fix in `_first_incomplete_step` + RED→GREEN restart-resume regression (RESUME-05)
 
 ### Phase 46: Per-Task Substrate, Cursor & Live-Layer Re-Registration [R1]
 
@@ -1295,7 +1295,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 45. Resume Completeness Bug Fix [R0] | 0/? | Not started | — |
+| 45. Resume Completeness Bug Fix [R0] | 1/1 | Complete   | 2026-07-18 |
 | 46. Per-Task Substrate, Cursor & Live Layer [R1] | 0/? | Not started | — |
 | 47. Uploads Durability [R2] | 0/? | Not started | — |
 | 48. Task Identity & Mutable List [R3] | 0/? | Not started | — |
