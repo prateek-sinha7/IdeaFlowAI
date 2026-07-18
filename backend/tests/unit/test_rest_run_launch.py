@@ -800,3 +800,116 @@ def test_unknown_source_drops_the_link_but_still_launches(env):
     )
     assert resp.status_code == 200, resp.text
     assert _latest_run(env).parent_run_id is None
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 6. CWF-002 — the launched run persists its effective model_id, and the cost is
+#    priced from that REAL model (non-circular), not always the default profile.
+#    RED→GREEN: fails today (model_id NULL → default-profile price).
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_driver_persists_model_id_and_prices_non_circular(env, monkeypatch):
+    """CWF-002: when a run is launched with a NON-default effective model (the
+    seeded user's ``preferred_model``, exactly the value threaded as ``model_id=``
+    into ``engine.execute``), the terminal DB write must (a) persist that model onto
+    ``WorkflowRun.model_id`` and (b) price ``estimated_cost_usd`` from THAT model —
+    not from ``settings.BEDROCK_INFERENCE_PROFILE_ID`` (the circular default).
+
+    Fails today: ``model_id`` has no write site → NULL → the cost line falls back to
+    the default inference profile's price.
+    """
+    import json
+
+    from app.api import run_commands as rc
+    from app.core.config import settings
+    from app.models.workflow import WorkflowRun
+    from agents.capabilities.model_catalog import ModelCatalog
+    from agents.capabilities.model_pricing import estimate_cost_usd
+
+    # Fixed token counts mirroring the driver's cost math (run_commands.py:1509-1516):
+    # input_tokens = max(0, total_input - cache_read - cache_write); output_tokens = total_output.
+    _IN, _OUT = 10, 5
+    _default_profile = settings.BEDROCK_INFERENCE_PROFILE_ID
+
+    def _price(model_id):
+        return estimate_cost_usd(
+            model_id,
+            input_tokens=_IN,
+            output_tokens=_OUT,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+            cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+        )
+
+    # Source the non-default model from the catalog (NO hardcoded claude-*-4 literal):
+    # the first catalog id that prices DIFFERENTLY from the default inference profile
+    # for the same token counts → guarantees a meaningful non-circular assertion.
+    _default_price = _price(_default_profile)
+    non_default_id = next(
+        (mid for mid in ModelCatalog().ids() if _price(mid) != _default_price),
+        None,
+    )
+    assert non_default_id is not None, (
+        "expected at least one catalog model priced differently from the default "
+        "inference profile to prove non-circular cost"
+    )
+    expected_cost = _price(non_default_id)
+    assert expected_cost != _default_price  # sanity: the assertion is meaningful
+
+    class _RichEngine:
+        async def execute(self, **kwargs):
+            yield {"type": "agent_start", "data": {
+                "agent_id": "a1", "name": "A1", "role": "r", "icon": "i"}}
+            yield {"type": "agent_complete", "data": {
+                "duration": 1.2, "input_tokens": _IN, "output_tokens": _OUT,
+                "total_tokens": _IN + _OUT}}
+            yield {"type": "pipeline_complete", "data": {"final_output": "done"}}
+
+    monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _RichEngine())
+
+    user = _seed_user(env)
+    # The effective run model — exactly the value the driver threads as model_id=
+    # into engine.execute (run_commands.py:1359) and that fix (b) persists.
+    user.preferred_model = non_default_id
+
+    run_id = str(uuid.uuid4())
+    db = env["ws"]._get_db()
+    try:
+        db.add(WorkflowRun(
+            id=run_id, user_id=user.id, title="t", type="user_stories",
+            status="running", input="build a backlog", agent_count=1,
+            session_id=user.id,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    queue: asyncio.Queue = asyncio.Queue()
+    await rc._drive_launch_to_queue(
+        workflow_run_id=run_id,
+        pipeline_run_id=run_id,
+        agents=[object()],
+        content="build a backlog",
+        pipeline_type="user_stories",
+        cancel_event=asyncio.Event(),
+        user=user,
+        attached_skills=[],
+        attached_hooks=[],
+        od_context=None,
+        validated_images=[],
+        gate_agent_ids=None,
+        parent_run_id=None,
+        model_overrides={},
+        selections=None,
+        event_queue=queue,
+    )
+
+    row = _latest_run(env)
+    # (b) the effective model is persisted onto the run row (was always NULL).
+    assert row.model_id == non_default_id
+    # (b) the cost is priced from the REAL model — non-circular.
+    usage = json.loads(row.token_usage)
+    assert usage["estimated_cost_usd"] == expected_cost
+    assert usage["estimated_cost_usd"] != _default_price
