@@ -10,6 +10,22 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 
 **A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).** If everything else fails, this must hold: the kernel knows no workflow by name, and all power lives in registered, declared capabilities.
 
+## Current Milestone: v3.0 Top-Tier Resume & Durable Execution
+
+**Goal:** Any interruption — process restart, crash, sandbox loss, paused gate, or a user-failed run — is resumable at **task/worker granularity, agent-agnostically**: the kernel (never an agent) reads durable state, computes exactly what is left, restores completed work to disk, and continues — including when the user has **edited, added, or deleted tasks** in between.
+
+**Plan of record:** `.planning/RESUME-CAPABILITY-DESIGN-DRAFT.md` (POR; all 7 design decisions LOCKED §8; LOCK-E/ND-4 supersede record §8.1). Phases 45–50 [R0–R5] in ROADMAP.md; requirements RESUME-05..18.
+
+**Target features:**
+- Mid-build data-loss fix: a partially-completed build is never silently skipped on resume (Phase 45 [R0])
+- Per-task/per-worker resume cursor + generic per-task capture + durable→disk re-materialization (incl. mid-wave merge re-entry) + live-chat layer re-registration on resumed runs (Phase 46 [R1])
+- Uploaded-document durability across resume (Phase 47 [R2])
+- Content-addressed task identity + user-editable task list with automatic reconciliation (Phase 48 [R3])
+- Clarify/review gates survive restart via re-entry-at-gate (Phase 49 [R4])
+- User-triggered `POST /api/runs/{id}/resume` for terminal-failed runs — "reopen & fix" (Phase 50 [R5])
+
+**Key locked decisions (POR §8):** resume substrate = `artifact_refs` (NOT git; GIT-01 stays a separable future layer) · fully automatic edit reconciliation · uploads persisted durably · ONE milestone (all six phases together) · task list = versioned `task_list` artifact via the extended gate-Edit path (no new table) · gate survival = re-enter-at-gate on the derive_open_gate/D-14g seams (LangGraph interrupt rejected) · per-task capture generic from day one. Out of scope: mid-token resume, cross-node (N8), image persistence (ND-10 locked), ECS.
+
 ## Requirements
 
 ### Validated
