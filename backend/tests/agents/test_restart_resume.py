@@ -928,3 +928,177 @@ async def test_stateless_run_keeps_wr05_failed_path():
     assert row.status == "failed", "stateless run must hit the WR-05 abandoned→failed path"
     assert "WR-05" in (row.error or ""), f"WR-05 message missing: {row.error!r}"
     session.close()
+
+
+# ===========================================================================
+# RESUME-05 — task_loop completeness is task-granular (partial build re-enters,
+# completed build stays complete). Offline direct-classifier unit tests.
+# ===========================================================================
+
+
+def _pb_hash(content: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+class _IdSpec:
+    """Minimal ``.id``-bearing spec — the classifier reads getattr(spec, 'id')."""
+
+    def __init__(self, agent_id):
+        self.id = agent_id
+
+
+async def _build_partial_build_fixture(session, *, seed_task_ids):
+    """Seed a durable partial/complete task_loop build and return the pieces the
+    classifier consumes.
+
+    Mirrors ``test_resumed_events_seq_continues_past_durable_tail`` (:798) but
+    seeds ``artifact_refs`` (via ``pre_store.write_ref``) instead of ``run_events``:
+      * one ``task_list`` plan ref with 3 ``## Task`` headings (heading_tasks → 3);
+      * one ``html_file`` ref per ``seed_task_ids`` entry, all producer_agent
+        "prototype-build" (exactly what ``persist_task_html`` dual-writes per task).
+
+    Returns ``(ordered_agents, compiled, tmp, build_index)`` — call the classifier
+    with ``await engine._first_incomplete_step(tmp, ordered_agents, compiled)``.
+    """
+    import types
+
+    from agents.artifacts.graph import ArtifactRef
+    from agents.authz import ScopedStore
+    from agents.execution_engine.context import ExecutionContext
+    from agents.workflows.plan import Step, TaskSource
+
+    run_id = f"pb-{uuid.uuid4().hex[:8]}"
+    owner = "pb-user"
+    workspace_id = "ws-pb"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    pre_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
+
+    plan_content = "## Task 1: A\n## Task 2: B\n## Task 3: C"
+    await pre_store.write_ref(
+        ArtifactRef(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            owner_id=owner,
+            workspace_id=workspace_id,
+            kind="task_list",
+            producer_step="prototype-plan",
+            producer_agent="prototype-plan",
+            task_id=None,
+            content=plan_content,
+            content_hash=_pb_hash(plan_content),
+            location="tasks.md",
+            version=1,
+        )
+    )
+    for tid in seed_task_ids:
+        body = f"<partial task {tid}>"
+        await pre_store.write_ref(
+            ArtifactRef(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=owner,
+                workspace_id=workspace_id,
+                kind="html_file",
+                producer_step="prototype-build",
+                producer_agent="prototype-build",
+                task_id=str(tid),
+                content=body,
+                content_hash=_pb_hash(body),
+                location="prototype.html",
+                version=1,
+            )
+        )
+    session.commit()
+
+    # Compiled plan: a single_shot plan step, the task_loop build step (the one under
+    # test), and a trailing single_shot validate step — built from the REAL Step /
+    # TaskSource dataclasses so ``strategy`` + ``task_source`` are populated (NOT the
+    # ``_Step`` stub, which carries no ``strategy``).
+    compiled = types.SimpleNamespace(
+        steps=[
+            Step(agent_id="prototype-plan", strategy="single_shot"),
+            Step(
+                agent_id="prototype-build",
+                strategy="task_loop",
+                task_source=TaskSource(
+                    kind="parsed",
+                    parser="heading_tasks",
+                    source_step="prototype-plan",
+                ),
+            ),
+            Step(agent_id="prototype-validate", strategy="single_shot"),
+        ]
+    )
+    ordered_agents = [
+        _IdSpec("prototype-plan"),
+        _IdSpec("prototype-build"),
+        _IdSpec("prototype-validate"),
+    ]
+    build_index = 1
+
+    tmp = ExecutionContext(run_id=run_id, owner_id=owner, disk_principal="anon")
+    tmp.workspace_id = workspace_id
+    tmp.scoped_store = ScopedStore(
+        owner_id=owner, workspace_id=workspace_id, session=session
+    )
+    return ordered_agents, compiled, tmp, build_index
+
+
+@pytest.mark.asyncio
+async def test_partial_task_loop_build_reenters_step_not_skipped():
+    """RESUME-05 (RED on HEAD): a partial ``task_loop`` build MUST re-enter its step.
+
+    The build persisted only task 1 of 3 (the crash point). ``persist_task_html``
+    dual-writes an ``html_file`` ref with ``producer_agent="prototype-build"`` from
+    task 1, so on HEAD ``produced_agents`` contains "prototype-build" and the :6002
+    disjunct ``continue``s PAST the build → ``idx > build_index`` = the silent-skip
+    data loss (truncated deliverable). After the strategy-conditional fix the
+    task-granular count (distinct done 1 < expected 3) classifies the build INCOMPLETE
+    → ``idx == build_index`` (the build is re-entered).
+    """
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, db_engine = _make_session()
+    ordered_agents, compiled, tmp, build_index = await _build_partial_build_fixture(
+        session, seed_task_ids=["1"]
+    )
+    engine = ExecutionEngine()
+
+    idx = await engine._first_incomplete_step(tmp, ordered_agents, compiled)
+
+    assert idx == build_index, (
+        f"a partial task_loop build (1 of 3 tasks) must re-enter its step "
+        f"(idx == {build_index}); got idx={idx} (HEAD silently skips it via the "
+        f"produced_agents membership at :6002 → deliverable truncation)"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_completed_task_loop_build_stays_complete_no_rerun():
+    """RESUME-05 (companion, guards over-correction): a fully-completed ``task_loop``
+    build MUST still classify COMPLETE — the classifier returns an index PAST the
+    build, so it is not re-entered (no infinite re-run).
+
+    All three build task_ids ("1","2","3") are durable. Distinct done 3 >= expected 3
+    → COMPLETE. Holds BOTH before and after the fix (before: coincidentally via the
+    :6002 membership; after: via the count check).
+    """
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, db_engine = _make_session()
+    ordered_agents, compiled, tmp, build_index = await _build_partial_build_fixture(
+        session, seed_task_ids=["1", "2", "3"]
+    )
+    engine = ExecutionEngine()
+
+    idx = await engine._first_incomplete_step(tmp, ordered_agents, compiled)
+
+    assert idx > build_index, (
+        f"a fully-completed task_loop build (3 of 3 tasks) must NOT be re-entered "
+        f"(idx > {build_index}); got idx={idx} (over-correction / infinite re-run)"
+    )
+    session.close()
