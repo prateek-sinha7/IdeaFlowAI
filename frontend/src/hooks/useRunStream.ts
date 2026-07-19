@@ -37,6 +37,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clearToken, getToken, setToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
+import { parseSseBlock } from "@/lib/sseFrame";
 
 /**
  * The connection state machine (D-14d). `connecting`/`reconnecting` mirror the
@@ -221,32 +222,21 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
     };
 
     const dispatchBlock = (block: string) => {
-      if (!block.trim()) return;
+      // The envelope parse lives in ONE shared helper (INV-12); the cursor
+      // advance, keepalive drop, stream_attached liveness and onMessage sink stay
+      // hook-local around it. `parseSseBlock` returns null for empty/malformed
+      // blocks (same discard-and-return behavior as before extraction).
+      const parsed = parseSseBlock(block);
+      if (!parsed) return;
+      const { type, data } = parsed;
+
+      // The `id:` line is a hook-local cursor concern (not part of the envelope
+      // parse), so it stays here for the seq fallback below.
       let idLine: string | undefined;
-      let typeLine: string | undefined;
-      let dataLine: string | undefined;
       for (const line of block.split("\n")) {
-        if (line.startsWith("id:")) idLine = line.slice(3).trim();
-        else if (line.startsWith("event:")) typeLine = line.slice(6).trim();
-        else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
-      }
-      let type = typeLine ?? "";
-      let data: Record<string, unknown> = {};
-      if (dataLine) {
-        try {
-          const parsed = JSON.parse(dataLine) as Record<string, unknown>;
-          if (typeof parsed.type === "string") {
-            // Real backend wire: the `{type, data}` envelope nested in the
-            // `data:` line (no `event:` line). Unwrap it (BUG-014-B).
-            type = parsed.type;
-            data = (parsed.data as Record<string, unknown>) ?? {};
-          } else {
-            // Legacy/mock flat shape: the `event:` line carries the type and the
-            // whole parsed object is the payload — tolerant of both wires.
-            data = parsed;
-          }
-        } catch {
-          return; // malformed — discard (WS-path parity)
+        if (line.startsWith("id:")) {
+          idLine = line.slice(3).trim();
+          break;
         }
       }
 

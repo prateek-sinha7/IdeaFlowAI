@@ -147,3 +147,119 @@ describe("RunConnectionProvider — bounded per-run streams + sticky focus (BUG-
     expect(result.current.liveRunIds).not.toContain("parked-A");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// m0o — sendCommand content-negotiates the POST up-channel. A fresh-Concierge
+// /messages response is `text/event-stream`: sendCommand drains the streamed body
+// and dispatches each parsed frame through the EXISTING subscriber fan-out (so
+// useRunChat's chat_reply_chunk case renders the growing bubble). Every other
+// /messages response stays JSON and takes the unchanged `return null` path.
+// SC-001: the branch is on the content-type header, NEVER on a `concierge` literal.
+// ─────────────────────────────────────────────────────────────────
+
+/** A streamed Response whose body emits the given SSE blocks (\n\n-separated). */
+function sseResponse(blocks: string[]) {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const enc = new TextEncoder();
+      for (const b of blocks) controller.enqueue(enc.encode(b + "\n\n"));
+      controller.close();
+    },
+  });
+  return {
+    ok: true,
+    headers: {
+      get: (k: string) =>
+        k.toLowerCase() === "content-type" ? "text/event-stream" : null,
+    },
+    body,
+  } as unknown as Response;
+}
+
+/** A plain JSON Response (the unchanged /messages path). */
+function jsonResponse() {
+  return {
+    ok: true,
+    headers: {
+      get: (k: string) =>
+        k.toLowerCase() === "content-type" ? "application/json" : null,
+    },
+    body: null,
+    json: async () => ({}),
+  } as unknown as Response;
+}
+
+describe("RunConnectionProvider — sendCommand drains a streamed POST body (m0o)", () => {
+  it("Test 5: a text/event-stream /messages response is drained and fan-out-dispatched IN ORDER", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse([
+        'data: {"type":"chat_reply_chunk","data":{"pipeline_run_id":"run-9","message_id":"m1","delta":"He"}}',
+        'data: {"type":"chat_reply_chunk","data":{"pipeline_run_id":"run-9","message_id":"m1","delta":"llo"}}',
+        'data: {"type":"chat_reply","data":{"event_id":"chat-reply:m1","message_id":"m1","text":"Hello","seq":5}}',
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { result } = renderHook(() => useRunConnection(), {
+        wrapper: RunConnectionProvider,
+      });
+      await waitFor(() => {
+        expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+      });
+
+      const received: { type: string; data: Record<string, unknown> }[] = [];
+      act(() => {
+        result.current.subscribe((m) => received.push(m));
+      });
+
+      let ret: string | null = "unset";
+      await act(async () => {
+        ret = await result.current.sendCommand("run-9", {
+          text: "what's the status?",
+          concierge: true,
+        });
+      });
+
+      // Three frames reached the subscriber IN ORDER; sendCommand returned null.
+      expect(ret).toBeNull();
+      expect(received.map((m) => m.type)).toEqual([
+        "chat_reply_chunk",
+        "chat_reply_chunk",
+        "chat_reply",
+      ]);
+      expect(received[0].data.delta).toBe("He");
+      expect(received[1].data.delta).toBe("llo");
+      expect(received[2].data.text).toBe("Hello");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("Test 6: a JSON /messages response dispatches nothing and returns null (unchanged path)", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { result } = renderHook(() => useRunConnection(), {
+        wrapper: RunConnectionProvider,
+      });
+      await waitFor(() => {
+        expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+      });
+
+      const received: { type: string; data: Record<string, unknown> }[] = [];
+      act(() => {
+        result.current.subscribe((m) => received.push(m));
+      });
+
+      let ret: string | null = "unset";
+      await act(async () => {
+        ret = await result.current.sendCommand("run-9", { text: "plain turn" });
+      });
+
+      expect(ret).toBeNull();
+      expect(received).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

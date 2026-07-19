@@ -34,6 +34,7 @@ import {
 } from "react";
 import { getToken, getWorkflows } from "@/lib/api";
 import { ENV } from "@/lib/env";
+import { parseSseBlock } from "@/lib/sseFrame";
 import {
   useRunStream,
   type RunConnectionPhase,
@@ -377,8 +378,49 @@ export function RunConnectionProvider({
         },
         body: JSON.stringify(payload),
       });
-      // A per-run message carries no new run to attach.
-      if (runId) return null;
+      // A per-run message carries no new run to attach. m0o: content-negotiate —
+      // the fresh-Concierge /messages response streams as `text/event-stream`
+      // (Plan 01); drain its body and dispatch each parsed frame through the
+      // EXISTING subscriber fan-out (so useRunChat's chat_reply_chunk case renders
+      // the growing bubble on BOTH live and completed runs, no SSE re-attach).
+      // GENERIC (SC-001): the branch is on the content-type header, NEVER on a
+      // `concierge` literal — every other /messages response stays JSON and takes
+      // the unchanged `return null` path below.
+      if (runId) {
+        const contentType = res.headers.get("content-type") ?? "";
+        if (res.ok && res.body && contentType.includes("text/event-stream")) {
+          // Drain with the SAME reader-loop shape as useRunStream (split on
+          // "\n\n", CRLF-normalized, parseSseBlock each block, drop keepalives,
+          // flush the trailing block). The streamed frames reach the transcript
+          // through the SAME fanout → subscribersRef → useRunChat.handleFrame seam
+          // SSE frames already use (no third streaming path, INV-12).
+          const drain = (block: string) => {
+            const frame = parseSseBlock(block);
+            if (!frame) return;
+            if (frame.type === "pipeline_heartbeat" || frame.type === "pong") {
+              return; // keepalive — never reaches the reducer (WS parity)
+            }
+            fanout(frame);
+          };
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+            let idx: number;
+            while ((idx = buf.indexOf("\n\n")) !== -1) {
+              const rawBlock = buf.slice(0, idx);
+              buf = buf.slice(idx + 2);
+              drain(rawBlock);
+            }
+          }
+          // Flush any trailing block (server closed without a terminal blank line).
+          if (buf.trim()) drain(buf);
+        }
+        return null;
+      }
       // Launch (POST /api/runs): parse the created run_id so the caller can
       // attachRun it (W1/R4). A non-2xx create yields no id to attach.
       if (!res.ok) return null;
@@ -391,7 +433,7 @@ export function RunConnectionProvider({
         return null;
       }
     },
-    [],
+    [fanout],
   );
 
   const phase = useMemo(
