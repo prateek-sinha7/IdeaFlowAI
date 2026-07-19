@@ -112,6 +112,7 @@ export function ChatPanel({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const stickToBottomRef = useRef(true);
+  const lastUserIdRef = useRef<string | null>(null);
 
   // Follow-intent: the user is "following" the stream only while near the bottom.
   // A single scroll up flips this off so streaming never yanks them back down;
@@ -138,6 +139,27 @@ export function ChatPanel({
   useEffect(() => {
     const end = messagesEndRef.current;
     if (!end || typeof end.scrollIntoView !== "function") return;
+
+    // A NEW user turn means the user just SENT — they want to see the answer.
+    // Force a scroll to the bottom and RE-ARM following, regardless of where they
+    // had scrolled (fixes: sending while scrolled up left the message + streaming
+    // reply off-screen). The transcript is append-only, so a changed last-user id
+    // is a fresh send; on mount it lands the view at the newest turn.
+    let lastUserId: string | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserId = messages[i].id;
+        break;
+      }
+    }
+    if (lastUserId && lastUserId !== lastUserIdRef.current) {
+      lastUserIdRef.current = lastUserId;
+      stickToBottomRef.current = true;
+      end.scrollIntoView({ behavior: "auto" });
+      return;
+    }
+
+    // Otherwise follow the growing reply only while the user is at the bottom.
     if (stickToBottomRef.current) {
       end.scrollIntoView({ behavior: "auto" });
     }

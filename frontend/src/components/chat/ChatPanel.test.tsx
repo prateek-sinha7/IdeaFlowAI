@@ -164,4 +164,36 @@ describe("ChatPanel scroll manager", () => {
 
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it("forces scroll-to-bottom + re-arms following on a NEW user turn even after a scroll-up (Issue-1)", () => {
+    const spy = vi.fn();
+    Element.prototype.scrollIntoView = spy;
+
+    const { container, rerender } = render(
+      <ChatPanel {...baseProps({ messages: [userMsg("u1", "first")] })} />,
+    );
+    const scrollEl = container.querySelector(
+      '[data-testid="chat-transcript"]',
+    ) as HTMLElement;
+    // User scrolls UP, away from the bottom (dist = 700 ≥ 120 → stickToBottom cleared).
+    Object.defineProperty(scrollEl, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(scrollEl, "clientHeight", { value: 300, configurable: true });
+    Object.defineProperty(scrollEl, "scrollTop", { value: 0, configurable: true });
+    act(() => {
+      fireEvent.scroll(scrollEl);
+    });
+    spy.mockClear();
+
+    // User SENDS a new turn — even though they'd scrolled up, we scroll to the
+    // bottom so their message + the incoming reply are visible (the Issue-1 fix).
+    rerender(
+      <ChatPanel
+        {...baseProps({
+          messages: [userMsg("u1", "first"), userMsg("u2", "second question")],
+        })}
+      />,
+    );
+
+    expect(spy).toHaveBeenCalledWith({ behavior: "auto" });
+  });
 });
