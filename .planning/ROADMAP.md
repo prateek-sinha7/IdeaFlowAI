@@ -1351,3 +1351,28 @@ Plans:
 | 48. Task Identity & Mutable List [R3] | 3/3 | Complete   | 2026-07-19 |
 | 49. Gate Resume Across Restart [R4] | 3/3 | Complete   | 2026-07-19 |
 | 50. User Resume-From-Failed [R5] | 1/1 | Complete   | 2026-07-19 |
+
+---
+
+## Fan-Out User-Facing (Phase 51 [PB], registered 2026-07-20)
+
+> Standalone next-sequential phase — **not** part of the v3.0 resume milestone (filed after it only because it is the next integer phase). Plan of record: `.planning/PATH-B-FANOUT-COMPOSER-SCOPE.md` (implementation-ready, every file:line re-verified) + `.planning/FANOUT-USER-FACING-SCOPE.md`. Branch: `feat/ui-2`.
+
+### Phase 51: User-Composable Fan-Out in the Composer (Path B)
+
+**Goal**: Make the engine's already-working fan-out capability (kernel `run_fanout` + `fanout_batch`/`wave_scheduler` strategies, shipped Phase 11) USER-COMPOSABLE from the builder — a per-step "fan out over a list" toggle — with zero hacks and no new engine power. Four mechanical changes close the gap: (1) `engine._apply_selections` (`engine.py:6257-6272`) must carry `strategy`/`fanout`/`task_source` onto the run-plan step (today only `validators`/`gates`/`model`/`retry`/`injects`) AND apply them at the absent-agent synthesis site (`engine.py:2285-2292` — the COMMON case for `custom`, since `allowed_custom_agent_ids("custom")` unions all base-pipeline agents); (2) `selections._synthesize_step` (`selections.py:86`) must emit the chosen strategy instead of hardcoding `single_shot`; (3) two composer surfaces gain a "fan out over a list" toggle + a dedicated-producer source picker; (4) a generic task-list-planner producer skill ships (P0) so fan-out isn't limited to the prototype domain. The producer model is INSERT-A-NODE (fan-out is a graph SHAPE change — a dedicated list-producer node feeds a fanned worker; a chained agent's output contract is NEVER retrofitted). **No security/trust flag flip, no new capability kind, no migration.**
+**Depends on**: Phase 11 (engine-owned fan-out/merge kernel), Phase 41 (configure/composer rebuild — CanvasConfigRail/AgentsPopup), Phase 18 (custom-workflow UX — StepSelection/selections)
+**Requirements**: FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-05, FANOUT-06, FANOUT-07
+**Success Criteria** (what must be TRUE):
+
+  1. A user-composed step with "fan out over a list" ENABLED actually spawns N workers at runtime — proven by an OFFLINE composed-fan-out characterization test (selections-driven, not a file manifest; mirrors `tests/agents/test_sc001_fanout.py`) asserting N `subagent_spawned`/`subagent_result` events + a merged deliverable. The crux: `_apply_selections` carries `strategy`/`fanout`/`task_source` at BOTH the in-plan step and the absent-agent synthesis site (`engine.py:2285-2292`), and `_synthesize_step` emits the selected strategy — all keyed on generic `agent_id`/lever keys, never a workflow/agent-name literal (INV-1/SC-001; banned-pattern grep stays 0).
+  2. The composer persists + threads the fan-out selection `{strategy:"fanout_batch", task_source:{kind:"parsed", parser:"heading_tasks", source_step}}` through SAVE (`trust="user"`) and LAUNCH on BOTH surfaces (canvas `CanvasConfigRail` + simple-view `AdvancedExpander`), and OMITS it when empty (the INV-3 empty-selections short-circuit).
+  3. Producer model honored (INSERT-A-NODE, scope §0): enabling fan-out wires `task_source.source_step` to a DEDICATED list-producer node — reuse is offered ONLY for a known `## Task N:` producer (v1 allow-list: `prototype-plan`), never a mutation of a chained agent; a generic task-list-planner producer skill ships (P0) for domain-general fan-out; the FE disables the toggle on the first agent and warns on an unknown producer.
+  4. An additive, INV-5-safe compile-time guard rejects a `fanout_batch` step whose `task_source.source_step` is not an EARLIER compiled step (passes for `sample_fanout`); NO security/trust flag flip, NO new capability kind, NO migration — every capability used (`fanout_batch`, `heading_tasks`, `FanoutSpec`, `TaskSource`) is already registered + `user_allowed=True`.
+  5. Invariants green: the 5 characterization goldens stay byte/event-identical (INV-3, `SNAPSHOT_UPDATE` unset); import-linter 4/0; the kernel still owns spawn/isolation/merge/concurrency/budget inside `run_fanout` with no second spawn path introduced (INV-7/INV-12); merge stays engine-selected (INV-7 — no merge picker exposed).
+  6. Live-Bedrock proof (orchestrator-owned, per the defer-live-verification convention — offline gates bind phase completion): a builder-composed `producer → fanned-worker` run shows ≤4 concurrent parallel `subagent_spawned` + per-worker `subagent_result` + a merged deliverable, with NO `spawn_subagents` grant required; contrasted against a fan-out-OFF control (single output).
+
+**Plans**: TBD (run /gsd-plan-phase 51 to break down)
+Plans:
+
+- [ ] TBD
