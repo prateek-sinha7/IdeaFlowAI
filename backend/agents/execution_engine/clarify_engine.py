@@ -253,6 +253,14 @@ class ClarifyEngine:
         round_num = 0
         merged_context = dict(planning_context)
 
+        # BUG-R04: the raw store object we last consumed. Used below to close the
+        # pre-``questionnaire_ready`` lost-wakeup race by distinguishing a genuinely
+        # new (or early/pre-arm) submission from a prior round's already-consumed
+        # responses (which the store keeps until overwritten). ``None`` until the
+        # first submit is consumed. Identity (``is``) is the signal because each
+        # ``set_questionnaire_responses`` call binds a fresh list.
+        last_consumed_responses: list[dict] | None = None
+
         # One-round-then-run by default; a workflow can opt into more rounds via
         # clarify.rounds, but never past the MAX_CLARIFICATION_ROUNDS safety ceiling.
         effective_rounds = max(1, min(max_rounds, MAX_CLARIFICATION_ROUNDS))
@@ -296,9 +304,28 @@ class ClarifyEngine:
                 }
             )
 
-            await event.wait()
+            # BUG-R04: close the pre-``questionnaire_ready`` lost-wakeup race. A
+            # client that submits (skip OR a normal answer) in the window between
+            # the status flip to ``waiting_for_user`` (engine.py) and this loop's
+            # ``event.clear()`` above has its store write already landed, but its
+            # ``event.set()`` wiped by that clear() — so ``await event.wait()``
+            # below would block forever (the QA harness that fires "skip" on the
+            # first ``waiting_for_user`` hits exactly this; the FE cannot, its Skip
+            # button is gated behind rendered questions). Detect the already-stored
+            # submission (``set_questionnaire_responses`` stores a list, incl. ``[]``
+            # for skip — never ``None``) that we have NOT yet consumed this round,
+            # and fall straight through to the existing read/merge/force_proceed
+            # seam below WITHOUT waiting (INV-12 — no duplicated proceed logic).
+            # On the normal path nothing is stored yet (``None``) — or only a prior
+            # round's already-consumed object remains (same identity as
+            # ``last_consumed_responses``) — so we await exactly as before, keeping
+            # the emitted event sequence byte-identical (INV-3).
+            pending = await self._store.get_questionnaire_responses(pipeline_run_id)
+            if pending is None or pending is last_consumed_responses:
+                await event.wait()
 
             responses = await self._store.get_questionnaire_responses(pipeline_run_id)
+            last_consumed_responses = responses
             responses = responses or []
             # ISS-027: did the user click "Skip all & run directly"? That submit
             # carries a force-proceed flag the FE sets explicitly; here it means
