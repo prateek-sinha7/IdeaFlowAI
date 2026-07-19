@@ -112,11 +112,10 @@ export function ChatPanel({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const stickToBottomRef = useRef(true);
-  const handledTurnRef = useRef<string | null>(null);
-  const pinnedTurnRef = useRef<string | null>(null);
 
-  // Follow-intent: the user is "following" only while near the bottom. A single
-  // scroll up flips this off so streaming never yanks them back down.
+  // Follow-intent: the user is "following" the stream only while near the bottom.
+  // A single scroll up flips this off so streaming never yanks them back down;
+  // scrolling back to the bottom re-arms it.
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -129,53 +128,17 @@ export function ChatPanel({
     return () => container.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Auto-scroll: pin a new question to the top; otherwise follow the bottom only
-  // when the user is already there. Instant (never smooth) during streaming so
-  // rapid chunks don't stack animations (which janks the Run-summary footer).
+  // Follow the stream: while the user is at the bottom, keep the newest content
+  // (the growing reply) in view so the response is visible as it generates. The
+  // question scrolls up naturally as the reply grows. Instant (never smooth) so
+  // the rapid per-chunk updates don't stack scroll animations — that stacking is
+  // what janked the Run-summary footer. If the user scrolled up, the listener
+  // above has cleared stickToBottom, so we leave their position alone.
   // Guarded: jsdom (tests) has no scrollIntoView — degrade rather than throw.
   useEffect(() => {
-    const container = scrollContainerRef.current;
     const end = messagesEndRef.current;
-    if (!container) return;
-
-    let lastUser: ChatMessage | undefined;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user") {
-        lastUser = messages[i];
-        break;
-      }
-    }
-    const turnId = lastUser?.id ?? null;
-
-    if (turnId && turnId !== handledTurnRef.current) {
-      handledTurnRef.current = turnId;
-      const node = container.querySelector(
-        `[data-message-id="${turnId}"]`,
-      );
-      if (node instanceof HTMLElement && typeof node.scrollIntoView === "function") {
-        // HARD-pin this turn: the pin's programmatic scroll-to-top passes THROUGH
-        // the near-bottom zone, so the scroll listener would flip stickToBottom
-        // back on and the next chunk would chase the question off the top. A ref
-        // the listener cannot override is the only thing that holds the pin.
-        pinnedTurnRef.current = turnId;
-        node.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-      }
-    }
-
-    // While the current user turn is pinned, its reply streams in BELOW the
-    // pinned question — never follow the bottom for it (that is what chased the
-    // question off the top and jittered the footer). The listener cannot override
-    // this; only a NEW user turn (above) or unmount clears it.
-    if (pinnedTurnRef.current !== null && pinnedTurnRef.current === turnId) {
-      return;
-    }
-
-    if (
-      stickToBottomRef.current &&
-      end &&
-      typeof end.scrollIntoView === "function"
-    ) {
+    if (!end || typeof end.scrollIntoView !== "function") return;
+    if (stickToBottomRef.current) {
       end.scrollIntoView({ behavior: "auto" });
     }
   }, [messages, streamingContent, isStreaming]);

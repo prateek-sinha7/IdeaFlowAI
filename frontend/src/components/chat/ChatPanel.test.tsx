@@ -5,12 +5,15 @@ import type { ChatMessage } from "@/types/index";
 import { ChatPanel, type ChatPanelProps } from "./ChatPanel";
 
 // ─── ChatPanel — streaming-chat scroll manager (quick-260719-nwe) ─────────────
-// Two glitches (footer jitter + question scrolled off-screen) shared ONE root
-// cause: the old effect fired scrollIntoView({behavior:"smooth"}) on the
-// below-footer anchor on every [messages, streamingContent, isStreaming] change
-// (~192×/stream). The fix: pin a NEW user turn to the top (block:"start") and
-// otherwise follow the bottom INSTANTLY (behavior:"auto") only when the user is
-// already near it. Rows must expose data-message-id so the pin can query them.
+// The old effect fired scrollIntoView({behavior:"smooth"}) on the below-footer
+// anchor on every [messages, streamingContent, isStreaming] change (~192×/stream),
+// stacking smooth animations that janked the Run-summary footer. The behavior
+// (chosen by the user): FOLLOW THE STREAM — keep the newest text in view as the
+// reply generates, INSTANTLY (behavior:"auto", never smooth) so nothing stacks,
+// and only while the user is near the bottom (a scroll-up flips following off so
+// they are never yanked back down). Rows expose data-message-id (a stable test/
+// debug hook). jsdom reports all scroll geometry as 0, so dist (0) < 120 → a lane
+// starts "stuck to the bottom" unless we override the geometry.
 
 function userMsg(id: string, content: string): ChatMessage {
   return {
@@ -74,75 +77,23 @@ describe("ChatPanel scroll manager", () => {
     ).not.toThrow();
   });
 
-  it("pins a NEW user turn to the top with block:\"start\" (fixes the disappearing question)", () => {
+  it("follows the stream INSTANTLY (behavior:\"auto\", never smooth or block:start) as the reply grows", () => {
     const spy = vi.fn();
     Element.prototype.scrollIntoView = spy;
 
-    render(<ChatPanel {...baseProps({ messages: [userMsg("u1", "my question")] })} />);
-
-    // The newest user turn is scrolled to the TOP of the container.
-    expect(spy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-    // A new-turn pin is a smooth scroll-to-top, never a bottom follow.
-    expect(spy).not.toHaveBeenCalledWith({ behavior: "auto" });
-  });
-
-  it("follows the bottom INSTANTLY (behavior:\"auto\", never smooth) on a no-pin narration lane at the bottom", () => {
-    const spy = vi.fn();
-    Element.prototype.scrollIntoView = spy;
-
-    // A pure narration lane has no user turn (turnId null) → no pin is active, so
-    // the follow branch drives it. jsdom scroll geometry is all zeros so the lane
-    // starts stuck to the bottom.
     const { rerender } = render(
       <ChatPanel
         {...baseProps({
-          messages: [assistantMsg("a1", "working…")],
+          messages: [userMsg("u1", "my question")],
           isStreaming: true,
-          streamingContent: "step 1",
+          streamingContent: "partial",
         })}
       />,
     );
     spy.mockClear();
 
-    // A subsequent narration chunk keeps following the bottom — instantly.
-    rerender(
-      <ChatPanel
-        {...baseProps({
-          messages: [assistantMsg("a1", "working…")],
-          isStreaming: true,
-          streamingContent: "step 1 · step 2",
-        })}
-      />,
-    );
-
-    // Bottom follow is INSTANT — no stacked smooth animations (fixes footer jank).
-    expect(spy).toHaveBeenCalledWith({ behavior: "auto" });
-    expect(spy).not.toHaveBeenCalledWith(
-      expect.objectContaining({ behavior: "smooth" }),
-    );
-  });
-
-  it("HARD-holds the pin: a same-turn streaming update never follows the bottom, even when stickToBottom is true", () => {
-    const spy = vi.fn();
-    Element.prototype.scrollIntoView = spy;
-
-    const { container, rerender } = render(
-      <ChatPanel {...baseProps({ messages: [userMsg("u1", "my question")] })} />,
-    );
-    // The initial render pinned the question (block:"start"). The pin's
-    // programmatic scroll passes through the near-bottom zone, so force the
-    // listener to set stickToBottom = TRUE — the regression that used to chase
-    // the question off the top. jsdom geometry is all zeros → dist 0 < 120.
-    const scrollEl = container.querySelector(
-      '[data-testid="chat-transcript"]',
-    ) as HTMLElement;
-    act(() => {
-      fireEvent.scroll(scrollEl);
-    });
-    spy.mockClear();
-
-    // The reply streams in on the SAME turn. Even though stickToBottom is true,
-    // the hard per-turn pin suppresses the follow — the end anchor is NOT scrolled.
+    // A streamed chunk grows the reply; at the bottom, the view follows the
+    // newest text — instantly, so per-chunk updates never stack animations.
     rerender(
       <ChatPanel
         {...baseProps({
@@ -153,8 +104,64 @@ describe("ChatPanel scroll manager", () => {
       />,
     );
 
-    // Exactly ONE scroll per turn (the pin) — no per-chunk follow. The question
-    // stays pinned; the footer no longer jitters.
+    expect(spy).toHaveBeenCalledWith({ behavior: "auto" });
+    // Never a stacked smooth animation (the footer-jitter cause) and never the
+    // old pin-to-top (the user chose follow-the-stream, not pinning).
+    expect(spy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: "smooth" }),
+    );
+    expect(spy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ block: "start" }),
+    );
+  });
+
+  it("does NOT follow the bottom after the user scrolls up (respects their position)", () => {
+    const spy = vi.fn();
+    Element.prototype.scrollIntoView = spy;
+
+    const { container, rerender } = render(
+      <ChatPanel
+        {...baseProps({
+          messages: [userMsg("u1", "my question")],
+          isStreaming: true,
+          streamingContent: "partial",
+        })}
+      />,
+    );
+    const scrollEl = container.querySelector(
+      '[data-testid="chat-transcript"]',
+    ) as HTMLElement;
+
+    // Simulate the user scrolling UP, away from the bottom: dist = 1000 - 0 - 300
+    // = 700 ≥ 120, so the listener clears stickToBottom.
+    Object.defineProperty(scrollEl, "scrollHeight", {
+      value: 1000,
+      configurable: true,
+    });
+    Object.defineProperty(scrollEl, "clientHeight", {
+      value: 300,
+      configurable: true,
+    });
+    Object.defineProperty(scrollEl, "scrollTop", {
+      value: 0,
+      configurable: true,
+    });
+    act(() => {
+      fireEvent.scroll(scrollEl);
+    });
+    spy.mockClear();
+
+    // A new chunk arrives, but the user is reading up-thread — do NOT yank them.
+    rerender(
+      <ChatPanel
+        {...baseProps({
+          messages: [userMsg("u1", "my question"), assistantMsg("a1", "reply")],
+          isStreaming: true,
+          streamingContent: "partial answer",
+        })}
+      />,
+    );
+
     expect(spy).not.toHaveBeenCalled();
   });
 });
