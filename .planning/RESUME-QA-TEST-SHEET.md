@@ -211,3 +211,25 @@ The engine hot paths (`_first_incomplete_step`, `persist_task_html`, task_loop/w
 
 ### The single highest-leverage fix
 `get_pipeline_agents(resolve_alias(pipeline_type))` at engine.py:7298 (`resume_run`) and engine.py:7601 (`_replay_clarify_run`) unblocks ALL od_prototype restart-resume (clarify + gate + mid-build + resume-from-failed) AND unblocks live verification of C3–C7 / E1–E3. BUG-R03 is a separate app-layer output-persistence fix.
+
+---
+
+## POST-FIX RE-TEST (2026-07-19) — od_prototype gate resume now works END-TO-END
+
+User requested "fix the alias bug and re-test the gate resume, use gsd quick." Two fixes were needed; both applied via gsd-quick + live-re-proven on real Bedrock.
+
+### Fix 1 — BUG-R01/R02 alias bail (gsd-quick 260719-ghn, commit `e1866317`)
+`get_pipeline_agents(resolve_alias(pipeline_type))` at engine.py:7298 (`resume_run`) + :7601 (`_replay_clarify_run`). RED→GREEN (2 tests seeding real od_prototype roster), goldens 10/10, restart_resume/rest_resume 52 green, lint 4/0. **Live:** the `empty agent list — nothing to resume` bail is GONE — resume now reaches `resuming pipeline=od_prototype at step offset 0/5`.
+
+### Fix 2 — BUG-R05 offset-0 re-plan (gsd-quick 260719-hd5, commit `8c20f9b6`)
+The alias fix UNMASKED BUG-R05: an od_prototype run parked at the step-0 spec gate resumed at `offset 0`, and `_resuming = _resume_from > 0` (engine.py:1697) mis-read offset 0 as a fresh start → re-ran planner+clarifier → re-clarified instead of re-entering the gate. Fix: key `_resuming` (:1697) and the artifact-hydration gate (:1372) on `_is_resume` (True for every resume) instead of `_resume_from > 0` — completing a migration Phase 12-05 started but didn't sweep. RED→GREEN (`test_offset0_gate_resume_does_not_replan_or_reclarify` — proves planner no longer re-runs), goldens 10/10, restart_resume/rest_resume 53 + 15 other resume tests green, lint 4/0. Only offset-0 resumes change (offset>0 byte-identical).
+
+### Live end-to-end proof (run b31aeb59, real Bedrock)
+| Step | Before fixes | After both fixes |
+|------|-------------|------------------|
+| Restart with run parked at spec gate | R01/R02: `empty agent list` bail → answer/approve black-hole | `resume_run: offset 0/5` → **`Review gate opened`** (gate re-entry) |
+| Re-clarify? | R05: re-runs pipeline, `questionnaire_ready` 1→2 (re-clarifies) | **NO re-clarify** — `questionnaire_ready` stays 1; `review_gate_ready` re-emitted (1→2); new events = `workflow_validated → pipeline_start → review_gate_ready` (no planner) |
+| Approve the re-entered gate | 200 but `review_gate_approved`=0, run frozen | 200, **`review_gate_approved`=1**, status → `generating` |
+| Downstream | never advanced | **advanced to the plan gate** (`review_gate_ready`=3, `prototype-plan`) — Spec Writer done, Task Planner done, 6 build tasks listed |
+
+Screenshots: `c1-gate-before.png`/`c1-gate-after-restart.png` (pre-fix pixel-identical re-render), `r05-gate-resumed-approved.png` (post-fix: resumed run past the spec gate, parked at plan gate with Spec Writer + Task Planner done). **R-C1/C2/C3 now ✅ end-to-end for od_prototype.** All prior offset>0 passes (user_stories A4/A5, D2/D3) unaffected (byte-identical). BUG-R03 (resume output-column gap) + BUG-R04 (skip_clarify race, by-design) remain as separate documented findings, not addressed here.
