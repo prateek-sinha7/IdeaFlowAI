@@ -2086,10 +2086,11 @@ class ExecutionEngine:
         # cursor stays None on every normal run ⇒ byte/event-identical dispatch (INV-3).
         if _is_resume:
             try:
-                ectx.resume_completed_task_ids = (
-                    await self._compute_resume_completed_task_ids(
-                        ectx, ordered_agents, compiled
-                    )
+                (
+                    ectx.resume_completed_task_ids,
+                    ectx.resume_completed_ordered,
+                ) = await self._compute_resume_completed_task_ids(
+                    ectx, ordered_agents, compiled
                 )
             except Exception as _cur_exc:  # noqa: BLE001 — fail-safe: leave the cursor None
                 logger.warning(
@@ -2097,6 +2098,7 @@ class ExecutionEngine:
                     "work in full (no per-task/worker skip)", _cur_exc
                 )
                 ectx.resume_completed_task_ids = None
+                ectx.resume_completed_ordered = None
             # ── RESUME-11 steering re-drain ─────────────────────────────────────────
             # Re-derive the steering notes the pre-crash run had NOT yet consumed from
             # the durable chat_message rows (seq > max agent_input.seq) and re-queue them
@@ -6273,7 +6275,7 @@ class ExecutionEngine:
 
     async def _compute_resume_completed_task_ids(
         self, ectx: ExecutionContext, ordered_agents: list, compiled
-    ) -> dict[str, set[str]]:
+    ) -> "tuple[dict[str, set[str]], dict[str, list[str]]]":
         """RESUME-09: the KERNEL-computed per-step SKIP CURSOR (D-06 discretion).
 
         Reads the run's OWN owner-scoped durable rows (via ``ectx.scoped_store`` — the
@@ -6291,6 +6293,13 @@ class ExecutionEngine:
             ``worker_index`` (Edge-Case 5). A ``running``/``failed`` worker is NOT
             completed ⇒ re-run (fail-safe direction).
 
+        RESUME-16 cumulative: a ``task_loop`` step ALSO returns its completed keys in
+        original production ORDER (``completed_ordered[agent_id]: list[str]``, ordered by
+        ``min(version)`` per distinct ``task_id`` — versions are monotonic per kind and a
+        task persists after it runs, so version order == build order). The distinct-set
+        return is preserved UNCHANGED (waves + completeness read it byte-neutrally); the
+        ordered list is the extra emission the task_loop common-prefix reconcile needs.
+
         Fail-safe = RE-RUN: a read failure or an underivable step leaves that step OUT of
         the dict (best-effort, per-step try/except) so nothing is skipped for it — the
         inverse (skip-on-uncertainty) is the data-loss bug (T-46-04-03). Keys ONLY on
@@ -6299,9 +6308,10 @@ class ExecutionEngine:
         ``ectx`` (INV-2 — no engine per-run state).
         """
         completed: dict[str, set[str]] = {}
+        completed_ordered: dict[str, list[str]] = {}
         store = getattr(ectx, "scoped_store", None)
         if store is None:
-            return completed
+            return completed, completed_ordered
 
         _steps_by_agent = {s.agent_id: s for s in (compiled.steps or [])}
 
@@ -6325,14 +6335,28 @@ class ExecutionEngine:
             strategy = getattr(step, "strategy", None) if step else None
             try:
                 if strategy == "task_loop":
-                    done = {
-                        str(getattr(r, "task_id", None))
+                    _rows = [
+                        r
                         for r in tree_rows
                         if getattr(r, "producer_agent", None) == agent_id
                         and getattr(r, "task_id", None) is not None
-                    }
+                    ]
+                    done = {str(getattr(r, "task_id", None)) for r in _rows}
                     if done:
                         completed[agent_id] = done
+                        # RESUME-16 cumulative: emit the distinct completed keys in build
+                        # ORDER (by min(version) per task_id). Pitfall 9: the fix-loop
+                        # re-persists a task_id at higher versions, so MIN pins the
+                        # first-run version == its position in the build sequence.
+                        _min_ver: dict[str, int] = {}
+                        for r in _rows:
+                            _tid = str(getattr(r, "task_id", None))
+                            _v = getattr(r, "version", 0) or 0
+                            if _tid not in _min_ver or _v < _min_ver[_tid]:
+                                _min_ver[_tid] = _v
+                        completed_ordered[agent_id] = sorted(
+                            _min_ver, key=lambda t: _min_ver[t]
+                        )
                 elif strategy == "wave_scheduler":
                     done = {
                         str(getattr(r, "task_id", None))
@@ -6345,7 +6369,8 @@ class ExecutionEngine:
                         completed[agent_id] = done
             except Exception:  # noqa: BLE001 — any ambiguity ⇒ leave the step out (re-run)
                 completed.pop(agent_id, None)
-        return completed
+                completed_ordered.pop(agent_id, None)
+        return completed, completed_ordered
 
     async def _redrain_steering_notes(self, ectx: ExecutionContext) -> None:
         """RESUME-11: re-queue durably-logged-but-undrained steering onto the resumed ectx.

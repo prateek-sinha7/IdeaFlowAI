@@ -253,33 +253,39 @@ class TaskLoopStrategy:
         # is bound (the call site routes through resolve regardless).
         compaction_name = getattr(step, "compaction", None)
 
-        # ── RESUME-09 per-task SKIP CURSOR (kernel-computed; 46-04) ───────────────
-        # On a durable resume the kernel stamps ``ctx.resume_completed_task_ids`` with
-        # the set of already-completed task_nums for THIS step (distinct persisted
-        # ``task_id`` — persist_task_html writes ``task_id=str(task_num)``). Those
-        # tasks are SKIPPED below (their files are already on disk from the 46-03
-        # re-materialization, so the next task's skeleton read stays coherent). Read
-        # via getattr → None on a normal run ⇒ empty set ⇒ byte/event-identical
-        # dispatch (INV-3). The kernel decides the set — the agent never does (INV-1).
-        _resume_cursor = getattr(ctx, "resume_completed_task_ids", None)
-        _completed_task_nums: set[str] = set()
-        if _resume_cursor:
-            _completed_task_nums = _resume_cursor.get(agent_id, set()) or set()
+        # ── RESUME-16 cumulative COMMON-PREFIX skip cursor (kernel-computed; 48-02) ──
+        # On a durable resume the kernel stamps ``ctx.resume_completed_ordered`` with the
+        # completed keys for THIS step in original build ORDER. Because each task EDITS the
+        # same evolving file, a completed key is only safe to skip while it MATCHES the
+        # current key at the SAME position: skip the longest common PREFIX ``p`` and re-run
+        # everything at/after the first divergence — even a suffix task whose own key
+        # matches a completed key (its predecessor changed → its basis changed, Pitfall 3).
+        # ``p==0`` (first task edited/deleted, or a task inserted at head) ⇒ skip nothing,
+        # run every current task from a clean basis (the kernel's boundary re-materialize
+        # restores NOTHING — never a negative-index restore). Read via getattr → None on a
+        # normal run ⇒ empty list ⇒ ``p==0`` ⇒ dispatch byte/event-identical (INV-3). The
+        # kernel decides the skip — the agent never does (INV-1); waves use set-membership.
+        _resume_ordered = getattr(ctx, "resume_completed_ordered", None)
+        _completed_ordered: list[str] = []
+        if _resume_ordered:
+            _completed_ordered = _resume_ordered.get(agent_id, []) or []
+        _prefix_skip = task_identity.common_prefix_length(_task_keys, _completed_ordered)
 
         for task_num in range(1, total_tasks + 1):
             if cancel_event is not None and cancel_event.is_set():
                 logger.info("task_loop: cancelled at task %d", task_num)
                 break
 
-            # RESUME-09/RESUME-14: a task already completed before the crash is NOT
-            # re-invoked (its deliverable is on disk from re-materialization). Skip the
-            # run_agent dispatch + persist + fix-loop for it; identity-based on the
-            # content-addressed ``task_key`` (the kernel set now carries keys, matching
-            # what persist_task_html stamps), never a prefix-by-count skip. Dormant on a
-            # normal run. (48-02 refines this to the cumulative common-prefix rule.)
-            if _completed_task_nums and _task_keys[task_num - 1] in _completed_task_nums:
+            # RESUME-16 cumulative: a task inside the unchanged common PREFIX is NOT
+            # re-invoked (its deliverable is on disk from the kernel's boundary
+            # re-materialization). Skip run_agent dispatch + persist + fix-loop for it.
+            # Index-based on the ORDER-diff ``_prefix_skip`` (never set-membership — a
+            # suffix task whose predecessor changed MUST re-run, Pitfall 3). Dormant on a
+            # normal run (``_prefix_skip == 0`` ⇒ nothing skipped).
+            if task_num - 1 < _prefix_skip:
                 logger.info(
-                    "task_loop: skipping already-completed task %d on resume", task_num
+                    "task_loop: skipping already-completed task %d on resume "
+                    "(common-prefix p=%d)", task_num, _prefix_skip
                 )
                 continue
 

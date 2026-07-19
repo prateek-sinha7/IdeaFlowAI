@@ -1322,9 +1322,12 @@ async def test_task_loop_skips_completed_tasks_on_resume_cursor():
         for i, t in enumerate(_tasks)
     ]
     # KERNEL-stamped cursor: tasks 1+2 of the build step already completed pre-crash.
+    # RESUME-16 cumulative: the task_loop skip is now the ORDER-based common-prefix rule
+    # (``resume_completed_ordered`` = completed keys in build order), not set-membership.
+    # Here [k0,k1] is a clean prefix of current [k0,k1,k2] → p=2 → skip 1+2, run task 3.
     ctx = SimpleNamespace(
         runner=runner,
-        resume_completed_task_ids={"prototype-build": {_keys[0], _keys[1]}},
+        resume_completed_ordered={"prototype-build": [_keys[0], _keys[1]]},
     )
     step = Step(
         agent_id="prototype-build",
@@ -1340,6 +1343,120 @@ async def test_task_loop_skips_completed_tasks_on_resume_cursor():
     assert dispatched == [3], (
         "task_loop must SKIP the completed tasks 1+2 (resume cursor) and dispatch ONLY "
         f"task 3 through run_agent; got task_nums {dispatched}"
+    )
+
+
+# ── RESUME-16 cumulative common-prefix reconcile (48-02) ────────────────────
+
+_PLAN_ABC = (
+    "## Task 1: Alpha\nBuild the alpha section.\n\n"
+    "## Task 2: Bravo\nAdd the bravo section.\n\n"
+    "## Task 3: Charlie\nAdd the charlie section.\n"
+)
+# Bravo DELETED in the middle; Charlie re-numbered to Task 2 (the ordinal is stripped
+# in normalization, so Charlie's key is identical across the renumber).
+_PLAN_A_C = (
+    "## Task 1: Alpha\nBuild the alpha section.\n\n"
+    "## Task 2: Charlie\nAdd the charlie section.\n"
+)
+
+
+def _heading_keys(plan_text: str) -> list[str]:
+    from agents.capabilities import task_identity
+    from agents.capabilities.task_parsers.heading_tasks import HeadingTasksParser
+
+    tasks = HeadingTasksParser().parse(plan_text)
+    ords = task_identity.occurrence_ordinals(tasks)
+    return [
+        task_identity.compute_task_key(
+            "u-fake", task_identity.normalize_task_content(t), ords[i]
+        )
+        for i, t in enumerate(tasks)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_task_loop_reconcile_common_prefix():
+    """RESUME-16 cumulative: a mid-list DELETE re-runs the divergence suffix — NOT
+    set-membership. Completed [A,B,C]; current [A,C] (B deleted). Position 0 A==A ✓;
+    position 1 C != B → p=1 → skip only A, re-run C (B's forward work never merged).
+    """
+    from types import SimpleNamespace
+
+    from agents.capabilities.strategies.task_loop import TaskLoopStrategy
+    from agents.workflows.plan import Step, TaskSource
+    from tests.agents.test_strategies import _FakeRunner, _FakeSandbox
+
+    keys_abc = _heading_keys(_PLAN_ABC)  # [keyA, keyB, keyC]
+
+    sandbox = _FakeSandbox(files={"prototype.html": "<html></html>"})
+    runner = _FakeRunner(
+        agent_events=[{"type": "agent_chunk", "data": {"text": "."}}],
+        typed_content={"prototype-plan": _PLAN_A_C},  # CURRENT (edited) list = [A, C]
+        sandbox=sandbox,
+    )
+    # Completed keys in build ORDER = [A, B, C] (all three ran before the edit).
+    ctx = SimpleNamespace(
+        runner=runner,
+        resume_completed_ordered={"prototype-build": keys_abc},
+    )
+    step = Step(
+        agent_id="prototype-build",
+        strategy="task_loop",
+        task_source=TaskSource(
+            kind="parsed", parser="heading_tasks", source_step="prototype-plan"
+        ),
+    )
+
+    _ = [ev async for ev in TaskLoopStrategy().run(step, ctx)]
+
+    dispatched = [c["task_number"] for c in runner.run_agent_calls]
+    assert dispatched == [2], (
+        "common-prefix reconcile must SKIP task 1 (A, unchanged prefix) and re-run ONLY "
+        f"task 2 (C — its predecessor B was deleted, so its basis changed); got {dispatched}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_loop_reconcile_first_task_divergence_runs_all():
+    """RESUME-16 cumulative p==0: when the FIRST current task diverges (first task
+    edited/deleted or a task inserted at head) the common prefix is EMPTY → p=0 → every
+    current task re-runs from a clean basis. NEVER a negative-index skip.
+    """
+    from types import SimpleNamespace
+
+    from agents.capabilities.strategies.task_loop import TaskLoopStrategy
+    from agents.workflows.plan import Step, TaskSource
+    from tests.agents.test_strategies import _FakeRunner, _FakeSandbox
+
+    keys_abc = _heading_keys(_PLAN_ABC)  # [keyA, keyB, keyC]
+
+    sandbox = _FakeSandbox(files={"prototype.html": "<html></html>"})
+    runner = _FakeRunner(
+        agent_events=[{"type": "agent_chunk", "data": {"text": "."}}],
+        typed_content={"prototype-plan": _PLAN_ABC},  # current = [A, B, C]
+        sandbox=sandbox,
+    )
+    # Completed order starts with B (Alpha was deleted from the FRONT / a new head task
+    # inserted): current[0]=keyA != completed[0]=keyB → p=0 → run every current task.
+    ctx = SimpleNamespace(
+        runner=runner,
+        resume_completed_ordered={"prototype-build": [keys_abc[1], keys_abc[2]]},
+    )
+    step = Step(
+        agent_id="prototype-build",
+        strategy="task_loop",
+        task_source=TaskSource(
+            kind="parsed", parser="heading_tasks", source_step="prototype-plan"
+        ),
+    )
+
+    _ = [ev async for ev in TaskLoopStrategy().run(step, ctx)]
+
+    dispatched = [c["task_number"] for c in runner.run_agent_calls]
+    assert dispatched == [1, 2, 3], (
+        "p==0 first-task divergence must re-run EVERY current task from a clean basis "
+        f"(no negative-index skip); got {dispatched}"
     )
 
 
@@ -1533,7 +1650,7 @@ async def test_kernel_computes_resume_completed_task_ids_cursor():
     ectx.scoped_store = store
 
     engine = ExecutionEngine()
-    cursor = await engine._compute_resume_completed_task_ids(
+    cursor, cursor_ordered = await engine._compute_resume_completed_task_ids(
         ectx, ordered_agents, compiled
     )
 
@@ -1544,6 +1661,13 @@ async def test_kernel_computes_resume_completed_task_ids_cursor():
     assert cursor.get("wave") == {kA, kC}, (
         "wave completed set must include only status=='complete' workers, keyed on the "
         f"content-addressed task_key; got {cursor.get('wave')}"
+    )
+    # RESUME-16 cumulative: the cursor ALSO emits completed keys in build ORDER (by
+    # min(version) per distinct task_id) for the task_loop common-prefix reconcile. k1's
+    # min-version (1) precedes k2's (3) → [k1, k2]. Waves need no order (set-membership).
+    assert cursor_ordered.get("build") == [k1, k2], (
+        "task_loop cursor must emit completed keys ordered by min(version) per task_id "
+        f"(build order); got {cursor_ordered.get('build')}"
     )
     session.close()
 

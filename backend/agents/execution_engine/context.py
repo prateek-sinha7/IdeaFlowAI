@@ -255,6 +255,14 @@ class ExecutionContext:
     # mirrors ``is_resuming``). Transient per-run scratch on the context (INV-2 — never
     # the engine singleton). ``{step_agent_id: {task_id, ...}}``.
     resume_completed_task_ids: "dict[str, set[str]] | None" = None
+    # resume_completed_ordered (RESUME-16 cumulative): for a task_loop step, the SAME
+    # completed keys as ``resume_completed_task_ids`` but in original build ORDER (by
+    # ``min(version)`` per task_id) — the ORDER the common-prefix reconcile needs (a SET
+    # cannot express "skip the matching PREFIX, re-run the divergence suffix"). Waves need
+    # no order (per-key set-membership). ``None`` on every normal run ⇒ empty prefix ⇒
+    # dispatch byte/event-identical (INV-3 dormant). Transient per-run scratch (INV-2).
+    # ``{task_loop_step_agent_id: [task_key, ...]}``.
+    resume_completed_ordered: "dict[str, list[str]] | None" = None
     # redo_directive: the optional free-text "redo with additional instructions"
     # note for a human-review-gate re-run (REDO-GATE). Additive per-run scratch (the
     # same D-03 idiom as build_task_number / current_step), so the generic

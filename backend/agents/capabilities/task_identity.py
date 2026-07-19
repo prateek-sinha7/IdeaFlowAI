@@ -139,3 +139,30 @@ def compute_task_key(
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def common_prefix_length(
+    current_keys: list[str], completed_ordered: list[str]
+) -> int:
+    """Return the length ``p`` of the longest POSITIONAL common prefix of the lists.
+
+    RESUME-16 cumulative reconcile (THE single home of the common-prefix rule, called
+    by BOTH the task_loop skip AND the engine boundary reconciler). For a cumulative
+    single-file build each task EDITS the same evolving file, so task k's basis is
+    "all of 1..k-1": a completed key is only safe to SKIP while it MATCHES the current
+    key at the SAME position. The FIRST position where they differ (a deleted, edited,
+    inserted, or reordered task) invalidates that task AND every task after it (their
+    basis changed) — so ``p`` is the count of leading current tasks to skip; everything
+    at index ``>= p`` re-runs (Pitfall 3 — never set-membership for task_loop).
+
+    A first-position divergence (first task edited/deleted, or a task inserted at head)
+    yields ``0`` → run every current task from a clean/empty basis; callers must NEVER
+    index ``[p-1]`` when ``p == 0`` (the negative-index wrong-restore trap). Waves use
+    per-key set-membership, NOT this rule.
+    """
+    p = 0
+    for cur, done in zip(current_keys, completed_ordered):
+        if cur != done:
+            break
+        p += 1
+    return p
