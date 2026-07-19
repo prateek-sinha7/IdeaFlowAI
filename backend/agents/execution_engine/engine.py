@@ -2053,6 +2053,31 @@ class ExecutionEngine:
         _registry = _CapReg()
         _steps_by_agent = {s.agent_id: s for s in compiled.steps}
 
+        # ── RESUME-09 per-task/per-worker SKIP CURSOR (kernel-computed, D-06) ────
+        # On a durable resume, compute the completed-identity set per step from the
+        # run's OWN owner-scoped durable rows and stamp it on ``ectx`` BEFORE the
+        # dispatch loop re-enters. The task_loop / wave_scheduler strategies read it
+        # (``getattr(ctx, "resume_completed_task_ids", None)``) and SKIP the completed
+        # task_nums / workers — the AGENT never decides the skip set (SC-001/INV-1);
+        # remaining work still flows through the SAME run_agent/run_fanout paths
+        # (INV-13). Best-effort: any read failure leaves a step out of the set (re-run,
+        # never skip-on-uncertainty). Gated on ``_is_resume`` (NOT ``_resume_from > 0``:
+        # the in-flight wave at offset==0 has its own completed workers to skip) so the
+        # cursor stays None on every normal run ⇒ byte/event-identical dispatch (INV-3).
+        if _is_resume:
+            try:
+                ectx.resume_completed_task_ids = (
+                    await self._compute_resume_completed_task_ids(
+                        ectx, ordered_agents, compiled
+                    )
+                )
+            except Exception as _cur_exc:  # noqa: BLE001 — fail-safe: leave the cursor None
+                logger.warning(
+                    "resume: skip-cursor compute failed (%s) — re-running remaining "
+                    "work in full (no per-task/worker skip)", _cur_exc
+                )
+                ectx.resume_completed_task_ids = None
+
         # ── F3 (13-06): failed-agent tracking — pure OBSERVATION ────────────────
         # Record the agent_id of every ``agent_error`` event flowing through the
         # dispatch loop below. No event is modified, reordered or suppressed; the
@@ -6141,6 +6166,82 @@ class ExecutionEngine:
 
         # Every step already complete → nothing left to drive.
         return len(ordered_agents)
+
+    async def _compute_resume_completed_task_ids(
+        self, ectx: ExecutionContext, ordered_agents: list, compiled
+    ) -> dict[str, set[str]]:
+        """RESUME-09: the KERNEL-computed per-step SKIP CURSOR (D-06 discretion).
+
+        Reads the run's OWN owner-scoped durable rows (via ``ectx.scoped_store`` — the
+        SAME default-deny helper ``_first_incomplete_step`` uses; a cross-owner row can
+        never enter) and returns the completed-identity set PER STEP, keyed on the step's
+        agent id, for the strategies to SKIP (the AGENT never decides — SC-001/INV-1):
+
+          * ``task_loop`` step: the DISTINCT ``task_id`` set from ``store.tree`` where
+            ``producer_agent == step agent`` — a ``set`` de-dups the fix-loop re-persist
+            of the SAME ``task_id`` (Edge-Case 1), exactly the derivation
+            ``_first_incomplete_step`` already uses for the completeness count.
+          * ``wave_scheduler`` step: the ``task_id`` set from ``read_subagent_runs`` where
+            ``parent_step == step agent`` AND ``status == "complete"`` — keyed on the
+            plan-global ``task_id`` (unique across waves), NOT the wave-local, ambiguous
+            ``worker_index`` (Edge-Case 5). A ``running``/``failed`` worker is NOT
+            completed ⇒ re-run (fail-safe direction).
+
+        Fail-safe = RE-RUN: a read failure or an underivable step leaves that step OUT of
+        the dict (best-effort, per-step try/except) so nothing is skipped for it — the
+        inverse (skip-on-uncertainty) is the data-loss bug (T-46-04-03). Keys ONLY on
+        generic identity (``strategy``/``producer_agent``/``task_id``/``status``) — zero
+        workflow-name/agent-id literal (INV-1). LOCAL-derived; the caller stamps it on
+        ``ectx`` (INV-2 — no engine per-run state).
+        """
+        completed: dict[str, set[str]] = {}
+        store = getattr(ectx, "scoped_store", None)
+        if store is None:
+            return completed
+
+        _steps_by_agent = {s.agent_id: s for s in (compiled.steps or [])}
+
+        # Materialize each durable source ONCE (owner-scoped; best-effort degrade).
+        tree_rows: list = []
+        try:
+            tree_rows = list(await store.tree(ectx.run_id))
+        except Exception:  # noqa: BLE001 — no durable refs → task_loop steps left out (re-run)
+            tree_rows = []
+        subagent_rows: list = []
+        try:
+            subagent_rows = list(await store.read_subagent_runs(ectx.run_id))
+        except Exception:  # noqa: BLE001 — no durable child rows → wave steps left out (re-run)
+            subagent_rows = []
+
+        for spec in ordered_agents:
+            agent_id = getattr(spec, "id", None)
+            if not agent_id:
+                continue
+            step = _steps_by_agent.get(agent_id)
+            strategy = getattr(step, "strategy", None) if step else None
+            try:
+                if strategy == "task_loop":
+                    done = {
+                        str(getattr(r, "task_id", None))
+                        for r in tree_rows
+                        if getattr(r, "producer_agent", None) == agent_id
+                        and getattr(r, "task_id", None) is not None
+                    }
+                    if done:
+                        completed[agent_id] = done
+                elif strategy == "wave_scheduler":
+                    done = {
+                        str(getattr(r, "task_id", None))
+                        for r in subagent_rows
+                        if getattr(r, "parent_step", None) == agent_id
+                        and getattr(r, "status", None) == "complete"
+                        and getattr(r, "task_id", None) is not None
+                    }
+                    if done:
+                        completed[agent_id] = done
+            except Exception:  # noqa: BLE001 — any ambiguity ⇒ leave the step out (re-run)
+                completed.pop(agent_id, None)
+        return completed
 
     def _fire_resume_cleanup(self, run_id: str) -> None:
         """Invoke the injected bridge cleanup hook (best-effort, idempotent).

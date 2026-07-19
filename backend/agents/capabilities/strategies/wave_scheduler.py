@@ -217,6 +217,17 @@ class WaveSchedulerStrategy:
         _completed_wave_indices: set[int] = set()
         _wave_rows: list = []
         _resuming = bool(getattr(ctx, "is_resuming", False))
+        # ── RESUME-09 per-WORKER SKIP CURSOR (kernel-computed; 46-04) ─────────────
+        # The CR-03-followup the comment above waits on: now that RESUME-06 stamps
+        # ``task_id`` on ``subagent_runs`` at spawn, the KERNEL computes the completed-
+        # WORKER set for this step (``task_id`` of every ``status=="complete"`` child)
+        # and stamps it on ``ctx.resume_completed_task_ids``. The first-incomplete wave
+        # re-runs only its INCOMPLETE workers (``t.id`` not in the set) — identity-based,
+        # NOT the deleted-for-cause prefix-by-count skip (12-06 CR-03). The completed
+        # workers' fragments are already on disk (46-03 re-materialization). Read via
+        # getattr → empty on a normal run ⇒ whole-wave dispatch unchanged (INV-3). The
+        # kernel decides the set — the agent never does (SC-001/INV-1).
+        _completed_worker_task_ids: set[str] = set()
         if _resuming:
             _wave_rows = await runner.read_wave_runs()
             _completed_wave_indices = {
@@ -225,6 +236,9 @@ class WaveSchedulerStrategy:
                 if getattr(r, "step", None) == step_id
                 and getattr(r, "status", None) == "completed"
             }
+            _cursor = getattr(ctx, "resume_completed_task_ids", None)
+            if _cursor:
+                _completed_worker_task_ids = _cursor.get(step_id, set()) or set()
 
         # ── Dispatch each wave through the SINGLE kernel run_fanout spawn path ──────
         # Each wave persists ONE owner-scoped wave_runs row (running -> terminal) and
@@ -240,13 +254,20 @@ class WaveSchedulerStrategy:
             if wave_index in _completed_wave_indices:
                 continue
 
-            # CR-03: the first incomplete wave re-runs in its ENTIRETY (no prefix skip).
-            task_ids = [t.id for t in wave]
+            # RESUME-09 (CR-03-followup): re-run only the INCOMPLETE workers of the
+            # in-flight wave — a worker whose ``t.id`` is in the kernel-computed
+            # completed set already finished pre-crash (its fragment is on disk from
+            # 46-03 re-materialization) and is NOT re-invoked. Identity-based (by
+            # ``task_id``), NOT the deleted prefix-by-count skip. Dormant on a normal
+            # run (empty set ⇒ the whole wave runs, byte/event-identical).
+            wave_tasks = [
+                t for t in wave if str(t.id) not in _completed_worker_task_ids
+            ]
+            task_ids = [t.id for t in wave_tasks]
             # RESUME-06: carry each task's plan-global id on its request so the spawned
-            # subagent_runs row is stamped with the skip-cursor key at SPAWN. task_ids
-            # (used for the wave_runs row) stays as-is.
+            # subagent_runs row is stamped with the skip-cursor key at SPAWN.
             requests = [
-                {"agent": "self", "input": t.body, "task_id": t.id} for t in wave
+                {"agent": "self", "input": t.body, "task_id": t.id} for t in wave_tasks
             ]
 
             # WR-01: on resume, before recording the re-entry row, flip any STALE

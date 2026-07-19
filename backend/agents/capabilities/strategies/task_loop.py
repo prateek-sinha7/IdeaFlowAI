@@ -230,10 +230,33 @@ class TaskLoopStrategy:
         # is bound (the call site routes through resolve regardless).
         compaction_name = getattr(step, "compaction", None)
 
+        # ── RESUME-09 per-task SKIP CURSOR (kernel-computed; 46-04) ───────────────
+        # On a durable resume the kernel stamps ``ctx.resume_completed_task_ids`` with
+        # the set of already-completed task_nums for THIS step (distinct persisted
+        # ``task_id`` — persist_task_html writes ``task_id=str(task_num)``). Those
+        # tasks are SKIPPED below (their files are already on disk from the 46-03
+        # re-materialization, so the next task's skeleton read stays coherent). Read
+        # via getattr → None on a normal run ⇒ empty set ⇒ byte/event-identical
+        # dispatch (INV-3). The kernel decides the set — the agent never does (INV-1).
+        _resume_cursor = getattr(ctx, "resume_completed_task_ids", None)
+        _completed_task_nums: set[str] = set()
+        if _resume_cursor:
+            _completed_task_nums = _resume_cursor.get(agent_id, set()) or set()
+
         for task_num in range(1, total_tasks + 1):
             if cancel_event is not None and cancel_event.is_set():
                 logger.info("task_loop: cancelled at task %d", task_num)
                 break
+
+            # RESUME-09: a task already completed before the crash is NOT re-invoked
+            # (its deliverable is on disk from re-materialization). Skip the run_agent
+            # dispatch + persist + fix-loop for it; identity-based (str(task_num) in the
+            # kernel set), never a prefix-by-count skip. Dormant on a normal run.
+            if _completed_task_nums and str(task_num) in _completed_task_nums:
+                logger.info(
+                    "task_loop: skipping already-completed task %d on resume", task_num
+                )
+                continue
 
             # STRATEGY-LOCAL scratch (D-03) — the current task block + counters.
             current_task_block = task_blocks[task_num - 1]
