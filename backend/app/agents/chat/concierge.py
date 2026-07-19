@@ -38,6 +38,7 @@ precedent — no ``base.py`` Protocol edit.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -263,7 +264,9 @@ class ConciergeCapability:
 
     name = "concierge"
 
-    async def converse(self, ctx: Any, user_message: "str | list") -> str:
+    async def converse(
+        self, ctx: Any, user_message: "str | list", on_chunk: Any = None
+    ) -> str:
         """Answer ``user_message`` about the run and stream proposal-only intents.
 
         Composes the system prompt from DATA only (no workflow-name branch — INV-1):
@@ -271,6 +274,16 @@ class ConciergeCapability:
         data (degrade-safe), and the run surface exposed via the owner-scoped READ
         tools. Runs the model through ``DeepAgentRunner`` (Haiku default; P26 caching
         inherited) and returns its concatenated text.
+
+        Streaming seam (``on_chunk``): when a callback is supplied, converse invokes it
+        once per ordered text delta as the model streams (awaiting the result iff it is
+        awaitable, so a sync sink AND an async queue sink both work). The concatenation
+        of the deltas equals the returned full text. With ``on_chunk=None`` (the default)
+        the method is byte-behaviorally identical to today's ``runner.run()`` — it just
+        accumulates every ``chunk`` event and returns the join. ``on_chunk`` receives
+        ONLY text deltas (no tool/usage events); the duck-typed port contract
+        ``converse(ctx, user_message) -> str`` still holds because ``on_chunk`` is a
+        keyword-optional argument.
         """
         scoped_store = self._resolve_scoped_store(ctx)
         run_id = getattr(ctx, "run_id", None)
@@ -292,7 +305,28 @@ class ConciergeCapability:
             model=getattr(ctx, "model", None),
             thread_id=f"{run_id}:concierge" if run_id else None,
         )
-        answer = await runner.run(user_message)
+        # Drain the runner's event stream INLINE — mirrors ``DeepAgentRunner.run()``
+        # (deep_agent_runner.py) EXACTLY for the ``on_chunk=None`` case: accumulate the
+        # text of every ``chunk`` event into ``full_output``, ignore all other event
+        # types (usage / tool_call / tool_result / done / gate / error) for output, and
+        # return the CHUNK-accumulated join (not the ``done`` event's output — run()
+        # returns the chunk join, so this keeps parity and avoids the done-event
+        # xml-sanitize divergence). Exceptions propagate exactly as run() does (the
+        # runner re-raises transient throttles; everything else ends the loop with the
+        # partial text) — no new try/except here. When an ``on_chunk`` sink is supplied,
+        # each ordered text delta is handed to it (awaited iff awaitable) so the app layer
+        # can stream the reply token-by-token; the proposal capture below is unchanged.
+        full_output = ""
+        async for event in runner.astream_events(user_message):
+            if event["type"] != "chunk":
+                continue
+            delta = event["chunk"]
+            full_output += delta
+            if on_chunk is not None:
+                res = on_chunk(delta)
+                if inspect.isawaitable(res):
+                    await res
+        answer = full_output
         # Surface the surfaced proposals on the PER-REQUEST ctx (never on ``self`` — the
         # capability is a shared singleton). ``drain_proposals(ctx)`` reads/clears the
         # SAME per-request buffer, so overlapping requests never cross-contaminate.

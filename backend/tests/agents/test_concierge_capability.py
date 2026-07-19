@@ -265,6 +265,85 @@ def test_converse_runs_scripted_model_through_runner_offline() -> None:
     out = asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "what happened?"))
     assert isinstance(out, str)
     assert out  # the scripted turn produced text
+    # on_chunk=None is byte-behaviorally identical to today: the full concatenated text
+    # equals the scripted turn's text (no delta was diverted / dropped).
+    assert out == "Here is what I found in the run. "
+
+
+def test_converse_streams_deltas_to_on_chunk_in_order() -> None:
+    """With an ``on_chunk`` sink, converse emits ordered text deltas whose join == return.
+
+    The scripted ``_stream`` yields multiple ``AIMessageChunk``s, so >1 delta is observed;
+    order is preserved and the concatenation equals the returned full text. Proves the
+    BE-1 streaming seam over the runner's ``astream_events`` (INV-13 — model via the
+    adapter only), fully offline.
+    """
+    scripted = ScriptedFakeChatModel(
+        [_ScriptedTurn(texts=["Hel", "lo, ", "world"], usage=(12, 6))]
+    )
+
+    class _NoopStore:
+        async def read_events(self, run_id: str, after_seq: int) -> list:
+            return []
+
+    ctx = SimpleNamespace(
+        model=scripted,
+        scoped_store=_NoopStore(),
+        run_id="run-stream",
+        owner_id="owner-A",
+        workspace_id="ws-A",
+        conversation_context=None,
+        compiled=None,
+    )
+
+    impl = ConciergeCapability()
+    collected: list[str] = []
+    out = asyncio.new_event_loop().run_until_complete(
+        impl.converse(ctx, "hi", on_chunk=lambda d: collected.append(d))
+    )
+    # The join of the ordered deltas equals the returned full text (order preserved).
+    assert "".join(collected) == out
+    # More than one delta is observed (the scripted turn streams multiple chunks).
+    assert len(collected) > 1
+    # The full text is the concatenation of the scripted pieces.
+    assert out == "Hello, world"
+
+
+def test_converse_awaits_async_on_chunk_sink() -> None:
+    """An async ``on_chunk`` (returns an awaitable) is awaited — the async queue sink path.
+
+    Mirrors the BE-2 queue sink: the callback is a coroutine function; converse awaits its
+    result (``inspect.isawaitable``) so every delta lands before the next is produced.
+    """
+    scripted = ScriptedFakeChatModel(
+        [_ScriptedTurn(texts=["a", "b", "c"], usage=(3, 2))]
+    )
+
+    class _NoopStore:
+        async def read_events(self, run_id: str, after_seq: int) -> list:
+            return []
+
+    ctx = SimpleNamespace(
+        model=scripted,
+        scoped_store=_NoopStore(),
+        run_id="run-async",
+        owner_id="owner-A",
+        workspace_id="ws-A",
+        conversation_context=None,
+        compiled=None,
+    )
+
+    impl = ConciergeCapability()
+    collected: list[str] = []
+
+    async def _async_sink(delta: str) -> None:
+        collected.append(delta)
+
+    out = asyncio.new_event_loop().run_until_complete(
+        impl.converse(ctx, "hi", on_chunk=_async_sink)
+    )
+    assert "".join(collected) == out == "abc"
+    assert len(collected) > 1
 
 
 # ── drain: converse surfaces proposals CTX-SCOPED (per-request), no self buffer ──
