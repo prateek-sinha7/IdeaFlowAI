@@ -113,3 +113,27 @@ case applied -> added the `pipelineRunId`-keyed reset effect.
 ## Self-Check: PASSED
 - Commit `7dbf2d9d` present in git log on `feat/ui-2`.
 - All 3 modified files exist and are committed.
+
+## Addendum — error-path hardening (commit 87f843a4)
+Live-verified happy path (screenshots confirm the indicator shows during the
+reply and clears when `chat_reply` lands). Coordinator flagged the ERROR path:
+`sendMessage` is fire-and-forget/void, so a failed/never-arriving Concierge reply
+(Bedrock error, the ~30s AbortController timeout, network) renders NO `chat_reply`
+→ the tail stays the user turn → the two existing clears never fire → the
+"generating…" indicator would stick FOREVER (worse than none — it lies about
+activity). The original "stuck spinner is impossible" claim held only for success.
+
+Fix (`RunChatLane.tsx`, minimal): a third `useEffect([replyPending])` that
+`setTimeout`s `setReplyPending(false)` after `REPLY_PENDING_TIMEOUT_MS = 45_000`
+(comfortably longer than a normal 2–8s reply) and `clearTimeout`s on cleanup — so
+a normal reply, which clears `replyPending` first, unmounts the timer before it
+can trip. Generic, no workflow-name literal.
+
+Test (`RunChatLane.test.tsx`, 1 new, fake timers):
+`the ASK TypingIndicator clears via a safety-net timeout when the reply never
+arrives (error path)` — send an ask, assert the indicator shows, `vi.advanceTimersByTime(30_000)`
+(still shown), then past 45s total (`+20_000`) assert it is gone.
+- RED (timeout effect neutralized): indicator still present after the window →
+  the final `toBeNull()` fails (`1 failed | 40 skipped`).
+- GREEN: `RunChatLane.test.tsx` 41 passed; `vitest run src/components/chat` 152
+  passed (14 files); `tsc --noEmit` EXIT 0.
