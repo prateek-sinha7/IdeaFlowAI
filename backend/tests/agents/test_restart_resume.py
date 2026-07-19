@@ -3170,3 +3170,135 @@ async def test_failed_run_with_open_gate_resumes_into_gate(monkeypatch):
     # Family coherence — no new WorkflowRun row minted by the resume.
     assert session.query(WorkflowRun).count() == runs_before
     session.close()
+
+
+# ===========================================================================
+# BUG-R01 / BUG-R02 (quick 260719-ghn) — the od_prototype id-alias empty-roster
+# bail that black-holes restart clarify-answers and gate-approvals.
+#
+# On restart both re-arm drivers rebuild the roster with
+# ``get_pipeline_agents(wr.type)`` using the RAW stored pipeline type. ``od_prototype``
+# is a routing id-alias with NO AGENT.md of its own (its agents declare
+# ``pipeline_type: prototype``), so ``get_pipeline_agents("od_prototype") == []`` →
+# the driver logs "empty agent list" and EARLY-RETURNS before re-creating the
+# coroutine that awaits the gate/clarify response → every restart od_prototype
+# clarify-answer and gate-approve is a silent black hole. The fresh path is immune
+# because ``_execute_impl`` keys off the RESOLVED ``compiled.id``. The fix resolves
+# the id-alias before the roster lookup in BOTH drivers:
+# ``get_pipeline_agents(resolve_alias(pipeline_type))``.
+#
+# These two tests seed a durable ``od_prototype`` run parked at a gate and drive the
+# REAL ``get_pipeline_agents`` — ``_ResumeHarness._patched_gpa`` delegates to the
+# real registry for any non-fixture type (``od_prototype`` != ``sample_wave``), so
+# the id-alias path IS exercised (the coverage hole every existing test misses by
+# using the always-non-empty ``sample_wave`` fixture). Each asserts the driver
+# proceeds PAST the roster bail into the offset / replay re-entry instead of
+# early-returning. RED on pre-fix HEAD (empty roster → bail → downstream never
+# reached); GREEN after the alias is resolved.
+# ===========================================================================
+
+
+class _ReachedPastRoster(Exception):
+    """Sentinel: the driver progressed past the empty-roster check (did NOT bail)."""
+
+
+@pytest.mark.asyncio
+async def test_resume_run_od_prototype_alias_resolves_roster_not_bail():
+    """BUG-R02: a review-gate-parked ``od_prototype`` run, on restart re-arm, must
+    resolve the ``od_prototype``→``prototype`` id-alias for the roster lookup and
+    reach the resume-offset re-entry — NOT bail at the empty-agent-list check that
+    black-holes the gate approval. Drives the REAL ``get_pipeline_agents`` (non-
+    fixture type), so the missing ``resolve_alias`` is visible."""
+    session, db_engine = _make_session()
+    run_id = f"odp-{uuid.uuid4().hex[:8]}"
+    owner = "odp-user"
+    ws = "ws-odp"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="waiting_for_user",
+        type_="od_prototype", workspace_id=ws,
+    )
+    gate_key = f"{run_id}:prototype-specify"
+    await _seed_open_review_gate(session, run_id, owner, ws, gate_key)
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+
+        # Precondition: the harness is NOT masking the bug — the REAL registry gives
+        # an EMPTY roster for the raw id-alias and 5 agents for the resolved base.
+        import agents.registry as _reg
+
+        assert _reg.get_pipeline_agents("od_prototype") == [], (
+            "precondition: raw od_prototype roster must be empty (the bug's cause)"
+        )
+        assert len(_reg.get_pipeline_agents("prototype")) == 5, (
+            "precondition: the resolved prototype roster must be non-empty (5 agents)"
+        )
+
+        reached = {"offset": False}
+
+        async def _spy_offset(*a, **k):
+            reached["offset"] = True
+            raise _ReachedPastRoster()
+
+        engine._compute_resume_offset = _spy_offset  # type: ignore[assignment]
+
+        try:
+            await engine.resume_run(run_id)
+        except _ReachedPastRoster:
+            pass
+
+    assert reached["offset"] is True, (
+        "resume_run must resolve od_prototype→prototype and reach the resume-offset "
+        "re-entry; pre-fix it bails at the empty-agent-list check (BUG-R02 black hole)"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_replay_clarify_run_od_prototype_alias_resolves_roster_not_bail():
+    """BUG-R01: a clarify-parked ``od_prototype`` run, on restart re-arm, must
+    resolve the ``od_prototype``→``prototype`` id-alias for the roster lookup and
+    reach the replay drive (``_drive_resumed_stream``) — NOT bail at the empty-
+    agent-list check that black-holes the clarify answer. Drives the REAL
+    ``get_pipeline_agents`` (non-fixture type)."""
+    session, db_engine = _make_session()
+    run_id = f"odc-{uuid.uuid4().hex[:8]}"
+    owner = "odc-user"
+    ws = "ws-odc"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="waiting_for_user",
+        type_="od_prototype", workspace_id=ws,
+    )
+    questions = [{
+        "question_id": "r1_q1", "question_text": "Scope?",
+        "options": ["a", "b"], "answer_type": "single_choice",
+        "impact_level": "high", "ambiguity_category": "Functional Scope",
+    }]
+    await _seed_open_questionnaire_gate(session, run_id, owner, ws, questions, round_num=1)
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+
+        import agents.registry as _reg
+
+        assert _reg.get_pipeline_agents("od_prototype") == [], (
+            "precondition: raw od_prototype roster must be empty (the bug's cause)"
+        )
+        assert len(_reg.get_pipeline_agents("prototype")) == 5, (
+            "precondition: the resolved prototype roster must be non-empty (5 agents)"
+        )
+
+        reached = {"drive": False}
+
+        async def _spy_drive(rid, **k):
+            reached["drive"] = True
+
+        engine._drive_resumed_stream = _spy_drive  # type: ignore[assignment]
+
+        await engine._replay_clarify_run(run_id)
+
+    assert reached["drive"] is True, (
+        "_replay_clarify_run must resolve od_prototype→prototype and reach the replay "
+        "drive; pre-fix it bails at the empty-agent-list check (BUG-R01 black hole)"
+    )
+    session.close()

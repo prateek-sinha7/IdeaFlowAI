@@ -7295,7 +7295,7 @@ class ExecutionEngine:
         from agents.registry import get_pipeline_agents
 
         try:
-            agents = get_pipeline_agents(pipeline_type)
+            agents = get_pipeline_agents(resolve_alias(pipeline_type))
         except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot resume
             logger.warning("resume_run(%s): cannot resolve agents (%s)", run_id, exc)
             # WR-01: drop the task entry registered at the create_task site.
@@ -7598,7 +7598,7 @@ class ExecutionEngine:
         from agents.registry import get_pipeline_agents
 
         try:
-            agents = get_pipeline_agents(pipeline_type)
+            agents = get_pipeline_agents(resolve_alias(pipeline_type))
         except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot replay
             logger.warning(
                 "_replay_clarify_run(%s): cannot resolve agents (%s)", run_id, exc
