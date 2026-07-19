@@ -1283,10 +1283,17 @@ Plans:
   4. SC-001 grep-gated: reconciliation keys on generic identity only; a synthetic non-prototype task workflow exercises the whole reconcile path with zero engine edits.
 
 **Plans**: 3 plans
-
 Plans:
+**Wave 1**
+
 - [ ] 48-01-PLAN.md — Task-identity module (task_key) + upstream-hash single home + positions→keys write-path switch (RESUME-14)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 48-02-PLAN.md — Gate-edit derived_from lineage + cumulative common-prefix reconciler + boundary-version re-materialization (RESUME-15, RESUME-16)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 48-03-PLAN.md — Wave per-key + orphan-fragment exclusion + update_specs compose + SC-001 synthetic reconcile proof (RESUME-16)
 
 ### Phase 49: Gate Resume Across Restart [R4]
