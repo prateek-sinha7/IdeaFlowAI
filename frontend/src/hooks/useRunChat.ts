@@ -264,6 +264,45 @@ function upsertNarratorMessage(
   return [...prev, msg];
 }
 
+/**
+ * Fold a transient `chat_reply_chunk` delta into the streaming assistant bubble
+ * (m0o). Mirrors the `agent_chunk` idempotent-accumulation PATTERN
+ * (useWorkflow.ts:337) inside the transcript: the bubble is keyed on
+ * `chat-reply:{message_id}` — the SAME id the terminal `chat_reply` uses via
+ * upsertNarratorMessage (event_id `chat-reply:{message_id}`) — so the terminal
+ * MERGES this bubble (content ← authoritative full text) instead of appending a
+ * second turn. Chunks carry NO event_id (bypass the top-of-handler dedup) and NO
+ * real seq (the cursor is untouched); they are delivered exactly once in the
+ * streamed POST body. An empty `message_id` is skipped (never key on an empty id).
+ */
+function upsertStreamingReply(
+  prev: ChatMessage[],
+  data: Record<string, unknown>,
+): ChatMessage[] {
+  const messageId = typeof data.message_id === "string" ? data.message_id : "";
+  if (!messageId) return prev; // never key a bubble on an empty id
+  const delta = typeof data.delta === "string" ? data.delta : "";
+  const id = `chat-reply:${messageId}`;
+  const runId = typeof data.run_id === "string" ? data.run_id : undefined;
+  const threadId = typeof data.thread_id === "string" ? data.thread_id : undefined;
+  const idx = prev.findIndex((m) => m.id === id);
+  if (idx >= 0) {
+    const next = prev.slice();
+    next[idx] = { ...prev[idx], content: prev[idx].content + delta };
+    return next;
+  }
+  const msg: ChatMessage = {
+    id,
+    chatSessionId: threadId ?? runId ?? "",
+    role: "assistant",
+    content: delta,
+    createdAt: new Date().toISOString(),
+    runId,
+    threadId,
+  };
+  return [...prev, msg];
+}
+
 export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
   const { runId, subscribe, sendCommand, legacyWsSend, fetchEvents } = config;
 
@@ -296,6 +335,12 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
         break;
       case "chat_reply":
         setMessages((prev) => upsertNarratorMessage(prev, data));
+        break;
+      case "chat_reply_chunk":
+        // m0o — accumulate the streamed delta into the SAME bubble the terminal
+        // `chat_reply` finalizes (keyed `chat-reply:{message_id}`). No dedup/cursor
+        // interaction: chunks carry no event_id and no real seq.
+        setMessages((prev) => upsertStreamingReply(prev, data));
         break;
       case "stream_attached":
         setStreamAttached({

@@ -323,6 +323,47 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     expect(replies).toHaveLength(1);
   });
 
+  it("Test 17: chat_reply_chunk frames accumulate into ONE growing assistant bubble (m0o)", () => {
+    // Plan 01 streams `chat_reply_chunk` frames `{ pipeline_run_id, message_id,
+    // delta }` — transient (NO event_id, NO real seq), delivered once in the POST
+    // body. N chunks with the same message_id must fold into exactly ONE assistant
+    // turn whose content is the concatenation of the deltas.
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-9", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+
+    conn.emit({ type: "chat_reply_chunk", data: { pipeline_run_id: "run-9", message_id: "m-stream", delta: "He" } });
+    conn.emit({ type: "chat_reply_chunk", data: { pipeline_run_id: "run-9", message_id: "m-stream", delta: "ll" } });
+    conn.emit({ type: "chat_reply_chunk", data: { pipeline_run_id: "run-9", message_id: "m-stream", delta: "o" } });
+
+    const replies = result.current.messages.filter((m) => m.role === "assistant");
+    expect(replies).toHaveLength(1);
+    expect(replies[0].content).toBe("Hello");
+  });
+
+  it("Test 18: the terminal chat_reply finalizes the SAME streamed bubble — no duplicate turn (m0o)", () => {
+    // The terminal `chat_reply` carries event_id `chat-reply:{message_id}` — the
+    // SAME id upsertStreamingReply keyed the bubble on — so it MERGES the streamed
+    // bubble (content ← authoritative full text) rather than appending a 2nd turn.
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-9", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+
+    conn.emit({ type: "chat_reply_chunk", data: { pipeline_run_id: "run-9", message_id: "m-stream", delta: "He" } });
+    conn.emit({ type: "chat_reply_chunk", data: { pipeline_run_id: "run-9", message_id: "m-stream", delta: "ll" } });
+    conn.emit({ type: "chat_reply_chunk", data: { pipeline_run_id: "run-9", message_id: "m-stream", delta: "o" } });
+    conn.emit({
+      type: "chat_reply",
+      data: { event_id: "chat-reply:m-stream", message_id: "m-stream", text: "Hello", run_id: "run-9" },
+    });
+
+    const replies = result.current.messages.filter((m) => m.role === "assistant");
+    expect(replies).toHaveLength(1);
+    expect(replies[0].content).toBe("Hello");
+  });
+
   it("Test 8: stream_attached updates the handshake state without touching the transcript", () => {
     const conn = makeConn();
     const { result } = renderHook(() =>
