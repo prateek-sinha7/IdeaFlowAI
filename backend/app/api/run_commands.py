@@ -486,6 +486,13 @@ async def _reconcile_terminal_status(run_id: str) -> None:
             new_status = "completed"
         else:
             new_status = "failed"
+        # BUG-R03: feed the SAME durable tail to the shared output-column mapping so a
+        # USER-resumed completion persists output/agent_outputs/token_usage/duration/
+        # deliverable_* — the columns _drive_launch_to_queue writes on the launch path,
+        # which the resume tier is otherwise structurally silent on (only the engine state
+        # machine wrote status). App-layer, always runs on the user-resume drive regardless
+        # of whether the engine _resume_output_persist_sink hook is armed (INV-12 mapping).
+        _persist_resume_output_columns(run_id, events)
     except Exception as exc:  # noqa: BLE001 — best-effort reconcile (offline degrade)
         logger.warning("_reconcile_terminal_status(%s) failed: %s", run_id, exc)
         return
@@ -1511,6 +1518,205 @@ async def launch_run(
     return {"run_id": pipeline_run_id}
 
 
+def _apply_terminal_output_columns(
+    wr: WorkflowRun,
+    events: "list[tuple[str, dict]]",
+    *,
+    model_id: str | None,
+    duration_seconds: float | None,
+) -> None:
+    """The SINGLE event→``WorkflowRun`` output-column mapping (BUG-R03, INV-12).
+
+    Replays a normalized ``(event_type, data)`` list — the SAME ``agent_*`` /
+    ``pipeline_complete`` accumulation the launch loop ran inline (this file, the old
+    1599-1675) — into the terminal ``output`` / ``agent_outputs`` / ``token_usage`` /
+    ``deliverable_mimetype`` / ``deliverable_filename`` / ``completed_at`` / ``duration``
+    columns, byte-for-byte identical to ``_drive_launch_to_queue``'s post-stream block
+    (the old 1704-1742). It writes NO ``status`` / ``error`` — those stay caller-owned
+    (launch's seen-flags, user-resume's ``_reconcile_terminal_status``, the engine state
+    machine on restart). It does NOT commit — the caller owns the session.
+
+    This is the SOLE writer of these columns for BOTH the launch path AND the two resume
+    entry points (restart auto-resume via the engine ``_resume_output_persist_sink`` hook,
+    user-resume via ``_reconcile_terminal_status``), so a resume-completion row matches a
+    never-restarted launch completion. Workflow-agnostic (SC-001 — no workflow/agent name).
+    """
+    agent_outputs_collector: list[dict] = []
+    current_agent: dict = {}
+    final_output = ""
+    deliverable_mimetype: str | None = None
+    deliverable_filename: str | None = None
+    for utype, data in events:
+        if not isinstance(data, dict):
+            data = {}
+        if utype == "agent_start":
+            current_agent = {
+                "agent_id": data.get("agent_id"),
+                "name": data.get("name"),
+                "role": data.get("role"),
+                "icon": data.get("icon"),
+                "output": "", "duration": None,
+                "input_prompt": None, "context_sources": [],
+                "tool_calls": [], "thinking_text": "",
+            }
+        elif utype == "agent_input":
+            current_agent["input_prompt"] = data.get("context_message")
+            current_agent["context_sources"] = data.get("context_sources", [])
+        elif utype == "agent_thinking":
+            current_agent["thinking_text"] = (current_agent.get("thinking_text") or "") + data.get("thinking", "")
+        elif utype == "tool_call":
+            current_agent.setdefault("tool_calls", []).append({
+                "tool": data.get("tool"),
+                "args": data.get("args", {}),
+                "result": None,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        elif utype == "tool_result":
+            for tc in reversed(current_agent.get("tool_calls", [])):
+                if tc.get("tool") == data.get("tool") and tc.get("result") is None:
+                    tc["result"] = data.get("result")
+                    break
+        elif utype == "agent_chunk":
+            current_agent["output"] = current_agent.get("output", "") + data.get("chunk", "")
+        elif utype == "agent_complete":
+            current_agent["duration"] = data.get("duration")
+            current_agent["input_tokens"] = data.get("input_tokens", 0)
+            current_agent["output_tokens"] = data.get("output_tokens", 0)
+            current_agent["total_tokens"] = data.get("total_tokens", 0)
+            current_agent["cache_read_tokens"] = data.get("cache_read_tokens", 0)
+            current_agent["cache_write_tokens"] = data.get("cache_write_tokens", 0)
+            if current_agent.get("agent_id"):
+                agent_outputs_collector.append(current_agent)
+            current_agent = {}
+        elif utype == "agent_error":
+            current_agent["error"] = data.get("error")
+            if current_agent.get("agent_id"):
+                agent_outputs_collector.append(current_agent)
+            current_agent = {}
+        elif utype == "pipeline_complete":
+            final_output = data.get("final_output", "")
+            deliverable_mimetype = data.get("deliverable_mimetype")
+            deliverable_filename = data.get("deliverable_filename")
+    if final_output:
+        wr.output = final_output
+    if deliverable_mimetype is not None:
+        wr.deliverable_mimetype = deliverable_mimetype
+    if deliverable_filename is not None:
+        wr.deliverable_filename = deliverable_filename
+    if agent_outputs_collector:
+        wr.agent_outputs = json.dumps(agent_outputs_collector)
+    # CWF-002 (fix b): record the run's EFFECTIVE model BEFORE the cost computation so the
+    # estimate_cost_usd line reads the real model instead of the BEDROCK default fallback.
+    wr.model_id = model_id
+    total_input = sum(a.get("input_tokens", 0) or 0 for a in agent_outputs_collector)
+    total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
+    total_cache_read = sum(a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector)
+    total_cache_write = sum(a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector)
+    if total_input + total_output > 0:
+        wr.token_usage = json.dumps({
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
+            "total_tokens": total_input + total_output,
+            "total_cache_read_tokens": total_cache_read,
+            "total_cache_write_tokens": total_cache_write,
+            "estimated_cost_usd": estimate_cost_usd(
+                wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
+                input_tokens=max(0, total_input - total_cache_read - total_cache_write),
+                output_tokens=total_output,
+                cache_read_tokens=total_cache_read,
+                cache_write_tokens=total_cache_write,
+                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+            ),
+        })
+    if not wr.completed_at:
+        wr.completed_at = datetime.now(timezone.utc)
+    if duration_seconds is not None and not wr.duration:
+        wr.duration = duration_seconds
+
+
+def _resume_events_duration(events) -> "float | None":
+    """Best-effort total agent execution time for a resumed run — the sum of the durable
+    ``agent_complete`` durations (the launch path's wall-clock ``monotonic`` is unavailable
+    off a durable tail). ``None`` when no agent reported a duration (→ the helper leaves
+    ``wr.duration`` untouched)."""
+    total = 0.0
+    seen = False
+    for e in events:
+        if getattr(e, "type", None) != "agent_complete":
+            continue
+        payload = getattr(e, "payload_json", None)
+        d = payload.get("duration") if isinstance(payload, dict) else None
+        if d is None:
+            continue
+        try:
+            total += float(d)
+            seen = True
+        except (TypeError, ValueError):
+            pass
+    return round(total, 1) if seen else None
+
+
+def _persist_resume_output_columns(run_id: str, events) -> None:
+    """Persist a RESUMED run's terminal output columns from its durable ``run_events`` tail
+    via the SHARED ``_apply_terminal_output_columns`` mapping (BUG-R03, INV-12) — so the
+    resume-completion row carries ``output`` / ``agent_outputs`` / ``token_usage`` /
+    ``duration`` / ``deliverable_*`` exactly like a never-restarted completion. Writes NO
+    ``status`` (the caller's status tier owns it). Best-effort: a schemaless / offline
+    session degrades without perturbing the drive (INV-3)."""
+    normalized = [
+        (
+            getattr(e, "type", "") or "",
+            e.payload_json if isinstance(getattr(e, "payload_json", None), dict) else {},
+        )
+        for e in events
+    ]
+    duration_seconds = _resume_events_duration(events)
+    sdb = _get_db()
+    try:
+        wr = sdb.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        if wr:
+            _apply_terminal_output_columns(
+                wr, normalized, model_id=wr.model_id, duration_seconds=duration_seconds
+            )
+            sdb.commit()
+    finally:
+        sdb.close()
+
+
+async def persist_resume_output_columns(run_id: str) -> None:
+    """Read a resumed run's OWNER-SCOPED durable ``run_events`` tail and persist its terminal
+    output columns (BUG-R03). This is the app-layer callback ARMED onto the engine as
+    ``_resume_output_persist_sink`` (app/main.py) and fired from ``_drive_resumed_stream``'s
+    ``finally`` for the RESTART auto-resume path (branch b) — the engine cannot import
+    ``app.*`` so the tail read + mapping live here (ports-and-adapters, MIRRORING the injected
+    ``_resume_milestone_sink`` / live-ectx trio). Reuses the SAME owner/workspace tail-read
+    idiom as ``_reconcile_terminal_status``. Best-effort: a read/resolve error degrades to a
+    no-op (INV-3)."""
+    from agents.authz import ScopedStore
+
+    db = _get_db()
+    try:
+        wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        if wr is None:
+            return
+        owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
+    finally:
+        db.close()
+
+    try:
+        from agents.execution_engine.engine import get_execution_engine
+
+        engine = get_execution_engine()
+        workspace_id = await engine._recover_workspace_id(owner_id, run_id)
+        store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+        events = await store.read_events(run_id, after_seq=0)
+    except Exception as exc:  # noqa: BLE001 — best-effort tail read (offline degrade)
+        logger.warning("persist_resume_output_columns(%s) tail read failed: %s", run_id, exc)
+        return
+
+    _persist_resume_output_columns(run_id, events)
+
+
 async def _drive_launch_to_queue(
     *,
     workflow_run_id: str | None,
@@ -1541,9 +1747,12 @@ async def _drive_launch_to_queue(
     # milestone_sink below (the kernel never imports app.* — import-linter). Local import keeps
     # module load clean and mirrors the file's other lazy-import pattern.
     from app.agents.chat_narrator import persist_milestone_card
-    final_output = ""
-    agent_outputs_collector: list[dict] = []
-    current_agent: dict = {}
+    # BUG-R03: capture every engine event as a normalized ``(type, data)`` tuple for the
+    # SHARED terminal-column mapping (_apply_terminal_output_columns) — the SOLE
+    # event→WorkflowRun output-column accumulation, now reused by the two resume entry
+    # points (INV-12, no inline duplicate). The status seen-flags below stay inline (the
+    # status decision is caller-owned, not part of the output-column mapping).
+    raw_events: list[tuple[str, dict]] = []
     any_agent_errored = False
     first_agent_error_msg: str | None = None
     pipeline_complete_seen = False
@@ -1555,8 +1764,6 @@ async def _drive_launch_to_queue(
     pipeline_error_seen = False
     pipeline_failed_seen = False
     pipeline_error_msg: str | None = None
-    deliverable_mimetype: str | None = None
-    deliverable_filename: str | None = None
     monotonic_start = time.monotonic()
 
     try:
@@ -1596,67 +1803,17 @@ async def _drive_launch_to_queue(
         ):
             await event_queue.put({"type": update["type"], "data": update.get("data", {})})
             utype = update["type"]
-            if utype == "agent_start":
-                current_agent = {
-                    "agent_id": update["data"].get("agent_id"),
-                    "name": update["data"].get("name"),
-                    "role": update["data"].get("role"),
-                    "icon": update["data"].get("icon"),
-                    "output": "", "duration": None,
-                    # CR-02: the four scaffold keys the WS driver seeds so the
-                    # agent_input/thinking/tool_call/tool_result branches below have a
-                    # place to write. Missing keys made the persisted history drop
-                    # tool-call/thinking/input-prompt data for every REST-launched run.
-                    "input_prompt": None, "context_sources": [],
-                    "tool_calls": [], "thinking_text": "",
-                }
-            # CR-02: ported verbatim from websocket.py::_run_pipeline_to_queue
-            # (2079-2095) so the REST launch path persists the SAME agent_outputs
-            # history as the WS path (sanctioned-duplication behavioral parity — the
-            # live event queue already forwarded these unconditionally above; only the
-            # PERSISTED WorkflowRun.agent_outputs blob was degraded).
-            elif utype == "agent_input":
-                current_agent["input_prompt"] = update["data"].get("context_message")
-                current_agent["context_sources"] = update["data"].get("context_sources", [])
-            elif utype == "agent_thinking":
-                current_agent["thinking_text"] = (current_agent.get("thinking_text") or "") + update["data"].get("thinking", "")
-            elif utype == "tool_call":
-                current_agent.setdefault("tool_calls", []).append({
-                    "tool": update["data"].get("tool"),
-                    "args": update["data"].get("args", {}),
-                    "result": None,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
-            elif utype == "tool_result":
-                for tc in reversed(current_agent.get("tool_calls", [])):
-                    if tc.get("tool") == update["data"].get("tool") and tc.get("result") is None:
-                        tc["result"] = update["data"].get("result")
-                        break
-            elif utype == "agent_chunk":
-                current_agent["output"] = current_agent.get("output", "") + update["data"].get("chunk", "")
-            elif utype == "agent_complete":
-                current_agent["duration"] = update["data"].get("duration")
-                current_agent["input_tokens"] = update["data"].get("input_tokens", 0)
-                current_agent["output_tokens"] = update["data"].get("output_tokens", 0)
-                current_agent["total_tokens"] = update["data"].get("total_tokens", 0)
-                current_agent["cache_read_tokens"] = update["data"].get("cache_read_tokens", 0)
-                current_agent["cache_write_tokens"] = update["data"].get("cache_write_tokens", 0)
-                if current_agent.get("agent_id"):
-                    agent_outputs_collector.append(current_agent)
-                current_agent = {}
-            elif utype == "agent_error":
+            # BUG-R03: record the raw event for the shared terminal-column mapping (the SOLE
+            # agent_*/pipeline_complete accumulation now lives in
+            # _apply_terminal_output_columns — no inline duplicate; INV-12). The status
+            # seen-flags below stay inline (status is caller-owned, not a mapped column).
+            raw_events.append((utype, update.get("data", {})))
+            if utype == "agent_error":
                 any_agent_errored = True
                 if first_agent_error_msg is None:
                     first_agent_error_msg = update["data"].get("error") or "Agent execution error"
-                current_agent["error"] = update["data"].get("error")
-                if current_agent.get("agent_id"):
-                    agent_outputs_collector.append(current_agent)
-                current_agent = {}
             elif utype == "pipeline_complete":
-                final_output = update["data"].get("final_output", "")
                 pipeline_complete_seen = True
-                deliverable_mimetype = update["data"].get("deliverable_mimetype")
-                deliverable_filename = update["data"].get("deliverable_filename")
                 if update["data"].get("status") == "degraded":
                     degraded_failed_agents = list(update["data"].get("agents_failed", []))
             elif utype == "pipeline_cancelled":
@@ -1701,45 +1858,17 @@ async def _drive_launch_to_queue(
                         # clean terminal. Mirrors _drive_revision_to_queue's else → "failed".
                         wr.status = "failed"
                         wr.error = first_agent_error_msg or pipeline_error_msg
-                    if final_output:
-                        wr.output = final_output
-                    if deliverable_mimetype is not None:
-                        wr.deliverable_mimetype = deliverable_mimetype
-                    if deliverable_filename is not None:
-                        wr.deliverable_filename = deliverable_filename
-                    if agent_outputs_collector:
-                        wr.agent_outputs = json.dumps(agent_outputs_collector)
-                    # CWF-002 (fix b): persist the run's EFFECTIVE model onto the run row
-                    # BEFORE the cost computation — the SAME expression already threaded as
-                    # model_id= into engine.execute (:1359, per the locked ModelResolver
-                    # precedence). This makes the estimate_cost_usd line below read the real
-                    # model instead of always falling back to BEDROCK_INFERENCE_PROFILE_ID
-                    # (the circular default). Unconditional: every terminal run records it.
-                    wr.model_id = getattr(user, "preferred_model", None) or None
-                    total_input = sum(a.get("input_tokens", 0) or 0 for a in agent_outputs_collector)
-                    total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
-                    total_cache_read = sum(a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector)
-                    total_cache_write = sum(a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector)
-                    if total_input + total_output > 0:
-                        wr.token_usage = json.dumps({
-                            "total_input_tokens": total_input,
-                            "total_output_tokens": total_output,
-                            "total_tokens": total_input + total_output,
-                            "total_cache_read_tokens": total_cache_read,
-                            "total_cache_write_tokens": total_cache_write,
-                            "estimated_cost_usd": estimate_cost_usd(
-                                wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
-                                input_tokens=max(0, total_input - total_cache_read - total_cache_write),
-                                output_tokens=total_output,
-                                cache_read_tokens=total_cache_read,
-                                cache_write_tokens=total_cache_write,
-                                cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
-                            ),
-                        })
-                    if not wr.completed_at:
-                        wr.completed_at = datetime.now(timezone.utc)
-                    if not wr.duration:
-                        wr.duration = round(time.monotonic() - monotonic_start, 1)
+                    # BUG-R03: the output columns (output/deliverable_*/agent_outputs/
+                    # model_id/token_usage/completed_at/duration) are now written by the
+                    # SHARED _apply_terminal_output_columns mapping — the SOLE event→column
+                    # accumulation, reused byte-for-byte by the two resume entry points
+                    # (INV-12). The status decision above stays inline (caller-owned).
+                    _apply_terminal_output_columns(
+                        wr,
+                        raw_events,
+                        model_id=getattr(user, "preferred_model", None) or None,
+                        duration_seconds=round(time.monotonic() - monotonic_start, 1),
+                    )
                     db.commit()
             finally:
                 db.close()

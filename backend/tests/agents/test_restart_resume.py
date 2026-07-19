@@ -3437,3 +3437,162 @@ async def test_offset0_gate_resume_does_not_replan_or_reclarify(monkeypatch):
     # Family coherence — no new WorkflowRun row minted by the resume.
     assert session.query(WorkflowRun).count() == runs_before
     session.close()
+
+
+# ===========================================================================
+# BUG-R03 — the resume tier persists the terminal OUTPUT-bearing columns
+#   (output / agent_outputs / token_usage / duration / deliverable_*), not
+#   only status. Coverage hole: NO prior resume test asserted these columns.
+# ===========================================================================
+
+
+def test_apply_terminal_output_columns_populates_all_columns():
+    """The SHARED event→WorkflowRun output-column mapping (the SOLE writer for BOTH the
+    launch driver and the two resume entry points, INV-12) populates output / agent_outputs
+    / token_usage / duration / deliverable_* from a durable ``run_events`` tail — proven on
+    a REAL registry key's agent ids (user_stories, non-aliased). BUG-R03 coverage."""
+    import json as _json
+
+    from app.api.run_commands import _apply_terminal_output_columns
+    from app.models.workflow import WorkflowRun
+
+    # A user_stories-shaped durable tail: two of the real pipeline agents + a clean terminal.
+    events = [
+        ("agent_start", {"agent_id": "domain-analyst", "name": "Domain Analyst", "role": "Analyst", "icon": "🧠"}),
+        ("agent_chunk", {"chunk": "domain analysis body"}),
+        ("agent_complete", {"duration": 1.5, "input_tokens": 100, "output_tokens": 50,
+                             "total_tokens": 150, "cache_read_tokens": 10, "cache_write_tokens": 5}),
+        ("agent_start", {"agent_id": "backlog-compiler", "name": "Backlog Compiler", "role": "Compiler", "icon": "📋"}),
+        ("agent_chunk", {"chunk": "# Backlog\n- story 1"}),
+        ("agent_complete", {"duration": 2.0, "input_tokens": 200, "output_tokens": 80,
+                             "total_tokens": 280, "cache_read_tokens": 0, "cache_write_tokens": 0}),
+        ("pipeline_complete", {"final_output": "# Backlog\n- story 1\n- story 2",
+                               "deliverable_mimetype": "text/markdown",
+                               "deliverable_filename": "backlog.md"}),
+    ]
+    wr = WorkflowRun(
+        id="bugr03-helper", user_id="o", owner_id="o",
+        status="completed", type="user_stories", input="brief",
+    )
+    _apply_terminal_output_columns(wr, events, model_id="claude-x", duration_seconds=3.5)
+
+    assert wr.output == "# Backlog\n- story 1\n- story 2", "final_output → output column"
+    agents = _json.loads(wr.agent_outputs)
+    assert [a["agent_id"] for a in agents] == ["domain-analyst", "backlog-compiler"], (
+        f"agent_outputs must carry every completed agent: {agents}"
+    )
+    assert agents[0]["output"] == "domain analysis body"
+    tu = _json.loads(wr.token_usage)
+    assert tu["total_input_tokens"] == 300 and tu["total_output_tokens"] == 130
+    assert tu["total_tokens"] == 430 and tu["total_cache_read_tokens"] == 10
+    assert wr.duration == 3.5
+    assert wr.deliverable_mimetype == "text/markdown"
+    assert wr.deliverable_filename == "backlog.md"
+    assert wr.model_id == "claude-x"
+
+
+@pytest.mark.asyncio
+async def test_user_resume_persists_output_columns(monkeypatch):
+    """END-TO-END (BUG-R03): a run crashed mid-build then USER-resumed to completion persists
+    the terminal ``output`` column (the headline bug column) — not only ``status``. Drives the
+    real ``_drive_user_resume`` → ``_reconcile_terminal_status`` path over the same durable DB,
+    then asserts ``output`` is POPULATED from the durable ``pipeline_complete.final_output``
+    (pre-fix it is empty — the resume tier wrote status but no output columns; the coverage
+    hole). The per-agent columns (agent_outputs/token_usage/duration) ride the SAME mapping and
+    are asserted deterministically on a real agent_complete tail in
+    ``test_apply_terminal_output_columns_populates_all_columns`` — the ``sample_wave`` fixture
+    is a wave-fanout pipeline that emits ``subagent_*`` events, not per-agent ``agent_complete``,
+    so ``final_output``→``output`` is its populated column."""
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"r03-{uuid.uuid4().hex[:8]}"
+    owner = "r03-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    call_log: dict[str, int] = {}
+
+    # ── Instance A: interrupted mid-wave — wave 0 completes, wave 1 crashes on entry ──
+    with _ResumeHarness(
+        session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=2
+    ) as h:
+        engine_a = h.make_engine()
+        try:
+            async for _ev in engine_a._execute_impl(
+                agents=list(h.specs), user_message="Run the wave workflow.",
+                pipeline_run_id=run_id, pipeline_type=_FIXTURE_ID, user_id=owner,
+                gate_agent_ids=[],
+            ):
+                pass
+        except Exception:
+            pass
+
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    row.status = "failed"
+    session.commit()
+    # The bug premise: an interrupted run has an EMPTY output column going into resume.
+    assert not row.output, "precondition: output column empty before resume"
+
+    # ── Instance B: user resume to completion over the SAME durable DB ────────────────
+    with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+        await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+
+    session.expire_all()
+    row2 = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row2.status == "completed", f"status must reconcile to completed: {row2.status!r}"
+    # BUG-R03 — the terminal ``output`` column is now POPULATED on resume-completion (the
+    # durable pipeline_complete.final_output), where pre-fix the resume tier wrote none.
+    assert row2.output, (
+        "BUG-R03: resume-completion must persist the output column (empty pre-fix)"
+    )
+    for part in ("part_a.txt", "part_c.txt"):
+        assert part in row2.output, f"output must carry the resumed deliverable: {part}"
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_restart_resume_fires_output_persist_hook(monkeypatch):
+    """BUG-R03 branch-(b): the RESTART auto-resume drive (``resume_run`` → the SHARED
+    ``_drive_resumed_stream``) FIRES the injected ``_resume_output_persist_sink`` with the
+    run_id in its ``finally`` — the ports-and-adapters hook the app arms (app/main.py) so the
+    engine (which cannot import ``app.*``) persists the resume-completion output columns.
+    Pre-fix the finally does no output-column persistence → the spy is never called (RED)."""
+    session, db_engine = _make_session()
+    run_id = f"r03b-{uuid.uuid4().hex[:8]}"
+    owner = "r03b-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    call_log: dict[str, int] = {}
+
+    with _ResumeHarness(
+        session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=2
+    ) as h:
+        engine_a = h.make_engine()
+        try:
+            async for _ev in engine_a._execute_impl(
+                agents=list(h.specs), user_message="Run the wave workflow.",
+                pipeline_run_id=run_id, pipeline_type=_FIXTURE_ID, user_id=owner,
+                gate_agent_ids=[],
+            ):
+                pass
+        except Exception:
+            pass
+
+    fired: list[str] = []
+
+    async def _spy_persist(rid: str) -> None:
+        fired.append(rid)
+
+    with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+        # Arm the persistence hook exactly as app/main.py arms it on the restore engine.
+        engine_b._resume_output_persist_sink = _spy_persist
+        await engine_b.resume_run(run_id)
+
+    assert fired == [run_id], (
+        f"restart auto-resume must fire _resume_output_persist_sink(run_id) from "
+        f"_drive_resumed_stream's finally (branch b): {fired}"
+    )
+    session.close()

@@ -152,6 +152,15 @@ async def lifespan(app: FastAPI):
         engine_instance._resume_live_ectx_register = register_live_ectx
         engine_instance._resume_live_ectx_unregister = unregister_live_ectx
         engine_instance._resume_milestone_sink = persist_milestone_card
+        # ── BUG-R03: arm the resume output-column persister on the SAME engine instance so an
+        # AUTO-RESUMED run (restore_non_terminal_runs branch b) persists its output-bearing
+        # WorkflowRun columns (output/agent_outputs/token_usage/duration/deliverable_*) on
+        # resume-completion — the columns _drive_launch_to_queue writes on the launch path but
+        # neither resume entry point replicated (the run then read empty from /chain-context,
+        # /summary, analytics, export). App→app import (the kernel never imports app.*); fired
+        # from _drive_resumed_stream's finally, reading the owner-scoped durable tail.
+        from app.api.run_commands import persist_resume_output_columns
+        engine_instance._resume_output_persist_sink = persist_resume_output_columns
         await engine_instance.restore_non_terminal_runs()
     except Exception as _startup_exc:
         logger.warning("Startup restoration failed (non-fatal): %s", _startup_exc)

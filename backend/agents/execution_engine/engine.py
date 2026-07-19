@@ -50,6 +50,18 @@ MilestoneSink = Callable[[ScopedStore, str, dict], Awaitable[object]]
 # resolvable running run). Keyed on run_id ONLY (SC-001/INV-1 — no workflow/agent literal).
 LiveEctxRegister = Callable[[str, "ExecutionContext"], None]
 LiveEctxUnregister = Callable[[str], None]
+
+# BUG-R03: the app-layer resume output-column persister, INJECTED into the engine (never
+# imported — the kernel must not import ``app.*``, import-linter 4/0). The resume tier is
+# structurally silent on every output-bearing WorkflowRun column (output/agent_outputs/
+# token_usage/duration/deliverable_*) — only the engine state machine writes ``status``. This
+# callback reads the run's owner-scoped durable ``run_events`` tail and persists those columns
+# via the SAME mapping the launch driver uses (INV-12). Fired from ``_drive_resumed_stream``'s
+# finally on the RESTART auto-resume path (branch b). Typed as a generic run_id→awaitable so no
+# app symbol crosses the boundary; ``None`` (the goldens + every non-app driver) keeps it
+# DORMANT — byte/event-identical resume (INV-3). Keyed on run_id ONLY (SC-001 — no workflow
+# name, no column literal in the kernel).
+ResumeOutputPersist = Callable[[str], Awaitable[None]]
 from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
@@ -839,6 +851,15 @@ class ExecutionEngine:
         self._resume_milestone_sink: "MilestoneSink | None" = None
         self._resume_live_ectx_register: "LiveEctxRegister | None" = None
         self._resume_live_ectx_unregister: "LiveEctxUnregister | None" = None
+        # ── BUG-R03: the app-layer resume output-column persister, injected app-side
+        # (app/main.py restore-scan site) from the SAME callable the REST/SSE launch
+        # driver's terminal block folds through. Fired from _drive_resumed_stream's
+        # finally so the RESTART auto-resume path (branch b) persists the output-bearing
+        # columns (output/agent_outputs/token_usage/duration/deliverable_*) the resume
+        # tier is otherwise structurally silent on. None (goldens + non-app drivers) →
+        # DORMANT, byte/event-identical resume (INV-3). Keyed on run_id (SC-001).
+        #   _resume_output_persist_sink(run_id) -> awaitable
+        self._resume_output_persist_sink: "ResumeOutputPersist | None" = None
 
     async def _persist_budget_snapshot_if_active(
         self, ectx: ExecutionContext, *, force: bool = False
@@ -7557,6 +7578,24 @@ class ExecutionEngine:
                 except Exception:  # noqa: BLE001 — teardown must never mask the outcome
                     logger.warning(
                         "resumed-stream drive(%s): live_ectx_unregister failed", run_id,
+                        exc_info=True,
+                    )
+            # BUG-R03: persist the terminal OUTPUT-bearing columns (output/agent_outputs/
+            # token_usage/duration/deliverable_*) from the durable run_events tail via the
+            # INJECTED app-layer sink — the resume tier is otherwise structurally silent on
+            # every output column (only the engine state machine wrote status), so a
+            # restart auto-resumed completion (branch b) read empty from /chain-context,
+            # /summary, analytics + export. Keyed on run_id ONLY (SC-001 — the kernel maps
+            # no column, names no workflow); the app callback reads the owner-scoped tail +
+            # applies the SAME mapping the launch driver uses (INV-12). DORMANT when the hook
+            # is None (offline / goldens / non-app drivers) → byte/event-identical resume
+            # (INV-3). Best-effort: a persist error must never mask the drive outcome.
+            if self._resume_output_persist_sink is not None:
+                try:
+                    await self._resume_output_persist_sink(run_id)
+                except Exception:  # noqa: BLE001 — persistence must never crash the resume
+                    logger.warning(
+                        "resumed-stream drive(%s): output-column persist failed", run_id,
                         exc_info=True,
                     )
 
