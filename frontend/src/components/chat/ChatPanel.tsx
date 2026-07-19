@@ -113,6 +113,7 @@ export function ChatPanel({
 
   const stickToBottomRef = useRef(true);
   const handledTurnRef = useRef<string | null>(null);
+  const pinnedTurnRef = useRef<string | null>(null);
 
   // Follow-intent: the user is "following" only while near the bottom. A single
   // scroll up flips this off so streaming never yanks them back down.
@@ -152,10 +153,22 @@ export function ChatPanel({
         `[data-message-id="${turnId}"]`,
       );
       if (node instanceof HTMLElement && typeof node.scrollIntoView === "function") {
+        // HARD-pin this turn: the pin's programmatic scroll-to-top passes THROUGH
+        // the near-bottom zone, so the scroll listener would flip stickToBottom
+        // back on and the next chunk would chase the question off the top. A ref
+        // the listener cannot override is the only thing that holds the pin.
+        pinnedTurnRef.current = turnId;
         node.scrollIntoView({ behavior: "smooth", block: "start" });
-        stickToBottomRef.current = false; // let the reply grow below the pinned question
         return;
       }
+    }
+
+    // While the current user turn is pinned, its reply streams in BELOW the
+    // pinned question — never follow the bottom for it (that is what chased the
+    // question off the top and jittered the footer). The listener cannot override
+    // this; only a NEW user turn (above) or unmount clears it.
+    if (pinnedTurnRef.current !== null && pinnedTurnRef.current === turnId) {
+      return;
     }
 
     if (

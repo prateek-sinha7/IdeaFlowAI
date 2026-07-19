@@ -86,31 +86,31 @@ describe("ChatPanel scroll manager", () => {
     expect(spy).not.toHaveBeenCalledWith({ behavior: "auto" });
   });
 
-  it("follows the bottom INSTANTLY (behavior:\"auto\", never smooth) during streaming when the user is at the bottom", () => {
+  it("follows the bottom INSTANTLY (behavior:\"auto\", never smooth) on a no-pin narration lane at the bottom", () => {
     const spy = vi.fn();
     Element.prototype.scrollIntoView = spy;
 
-    const { container, rerender } = render(
-      <ChatPanel {...baseProps({ messages: [userMsg("u1", "hi")] })} />,
+    // A pure narration lane has no user turn (turnId null) → no pin is active, so
+    // the follow branch drives it. jsdom scroll geometry is all zeros so the lane
+    // starts stuck to the bottom.
+    const { rerender } = render(
+      <ChatPanel
+        {...baseProps({
+          messages: [assistantMsg("a1", "working…")],
+          isStreaming: true,
+          streamingContent: "step 1",
+        })}
+      />,
     );
-    // The initial render pinned the question (block:"start") and turned follow
-    // OFF. Simulate the user sitting at the bottom: jsdom scroll geometry is all
-    // zeros so dist = 0 < 120 → stickToBottom flips back on.
-    const scrollEl = container.querySelector(
-      '[data-testid="chat-transcript"]',
-    ) as HTMLElement;
-    act(() => {
-      fireEvent.scroll(scrollEl);
-    });
     spy.mockClear();
 
-    // Now a streaming assistant chunk lands on the SAME turn (no new pin).
+    // A subsequent narration chunk keeps following the bottom — instantly.
     rerender(
       <ChatPanel
         {...baseProps({
-          messages: [userMsg("u1", "hi"), assistantMsg("a1", "streaming…")],
+          messages: [assistantMsg("a1", "working…")],
           isStreaming: true,
-          streamingContent: "partial answer",
+          streamingContent: "step 1 · step 2",
         })}
       />,
     );
@@ -122,28 +122,39 @@ describe("ChatPanel scroll manager", () => {
     );
   });
 
-  it("does NOT follow the bottom right after pinning a new question (question stays visible)", () => {
+  it("HARD-holds the pin: a same-turn streaming update never follows the bottom, even when stickToBottom is true", () => {
     const spy = vi.fn();
     Element.prototype.scrollIntoView = spy;
 
-    const { rerender } = render(
-      <ChatPanel {...baseProps({ messages: [userMsg("u1", "hi")] })} />,
+    const { container, rerender } = render(
+      <ChatPanel {...baseProps({ messages: [userMsg("u1", "my question")] })} />,
     );
-    // Pin fired; follow is OFF. No scroll-to-bottom event simulated.
+    // The initial render pinned the question (block:"start"). The pin's
+    // programmatic scroll passes through the near-bottom zone, so force the
+    // listener to set stickToBottom = TRUE — the regression that used to chase
+    // the question off the top. jsdom geometry is all zeros → dist 0 < 120.
+    const scrollEl = container.querySelector(
+      '[data-testid="chat-transcript"]',
+    ) as HTMLElement;
+    act(() => {
+      fireEvent.scroll(scrollEl);
+    });
     spy.mockClear();
 
-    // The reply streams in below the pinned question.
+    // The reply streams in on the SAME turn. Even though stickToBottom is true,
+    // the hard per-turn pin suppresses the follow — the end anchor is NOT scrolled.
     rerender(
       <ChatPanel
         {...baseProps({
-          messages: [userMsg("u1", "hi"), assistantMsg("a1", "reply")],
+          messages: [userMsg("u1", "my question"), assistantMsg("a1", "reply")],
           isStreaming: true,
-          streamingContent: "grow",
+          streamingContent: "partial answer",
         })}
       />,
     );
 
-    // With follow OFF the lane never yanks to the bottom — the question stays put.
-    expect(spy).not.toHaveBeenCalledWith({ behavior: "auto" });
+    // Exactly ONE scroll per turn (the pin) — no per-chunk follow. The question
+    // stays pinned; the footer no longer jitters.
+    expect(spy).not.toHaveBeenCalled();
   });
 });
