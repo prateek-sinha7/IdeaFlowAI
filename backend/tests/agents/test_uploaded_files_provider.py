@@ -319,3 +319,143 @@ async def test_inv3_dormant_case_is_byte_identical_to_baseline() -> None:
     assert _UPLOAD_TEXT not in dormant_msg
     # Byte-identical: the dormant capability perturbs nothing (INV-3).
     assert dormant_msg == baseline_msg
+
+
+# ── RESUME-13: durable fallback via ctx.scoped_store (wiped-sandbox resume) ──────
+#
+# When the sandbox ``.uploads`` manifest is missing (crash / TTL / fresh worker),
+# the provider falls back to the durable ``upload_text`` mirror via
+# ``ctx.scoped_store.list_refs(run_id, "upload_text")`` — selecting the max-version
+# row per location and composing a BYTE-IDENTICAL block via the same ``_compose``.
+# Disk wins when both present; neither → {}; a cross-owner run yields [] → {}.
+
+
+class _FakeScopedStore:
+    """Owner-scoped stand-in for ``ScopedStore`` — ``list_refs`` returns durable
+    ``upload_text`` rows for the seeded run_id ONLY, ``[]`` for any other run_id
+    (models the default-deny scope: a cross-owner run reads nothing)."""
+
+    def __init__(self, rows: list, *, run_id: str) -> None:
+        self._rows = list(rows)
+        self._run_id = run_id
+
+    async def list_refs(self, run_id: str, kind: str | None = None) -> list:
+        if run_id != self._run_id:
+            return []  # default-deny — a foreign/cross-owner run reads nothing
+        if kind is not None:
+            return [r for r in self._rows if getattr(r, "kind", None) == kind]
+        return list(self._rows)
+
+
+def _durable_rows(entries: list[dict], texts: dict[str, str], *, base_version: int = 1) -> list:
+    """Build the durable rows the ingest dual-write persists: one sidecar row per
+    doc + one manifest snapshot row (all kind=upload_text, monotonic version)."""
+    rows = []
+    version = base_version
+    for name, text in texts.items():
+        rows.append(SimpleNamespace(
+            location=f"{_UPLOADS_PREFIX}{name}.txt",
+            content=text, version=version, kind="upload_text",
+        ))
+        version += 1
+    rows.append(SimpleNamespace(
+        location=f"{_UPLOADS_PREFIX}manifest.json",
+        content=json.dumps(entries), version=version, kind="upload_text",
+    ))
+    return rows
+
+
+def _durable_ctx(sandbox, store, *, injects=("uploaded_files",), run_id="r-wiped"):
+    runner = SimpleNamespace(sandbox=sandbox)
+    return SimpleNamespace(
+        runner=runner,
+        current_spec_injects=set(injects),
+        run_id=run_id,
+        user_id="o-upld-1",
+        scoped_store=store,
+    )
+
+
+def test_provider_falls_back_to_durable_on_wiped_sandbox() -> None:
+    entries = [{"name": "brief.pdf", "mime": "application/pdf", "has_text": True}]
+    texts = {"brief.pdf": "The product brief: build a dark-theme dashboard."}
+    store = _FakeScopedStore(_durable_rows(entries, texts), run_id="r-wiped")
+    blocks = _load(_durable_ctx(_FakeSandbox(), store, run_id="r-wiped"))
+    assert set(blocks) == {"uploaded_files_context"}
+    body = blocks["uploaded_files_context"]
+    assert "## Uploaded Files" in body
+    assert "build a dark-theme dashboard" in body
+    assert "brief.pdf" in body
+
+
+def test_durable_body_byte_equivalent_to_disk() -> None:
+    entries = [
+        {"name": "a.pdf", "mime": "application/pdf", "has_text": True},
+        {"name": "b.docx", "mime": "application/x", "has_text": True},
+    ]
+    texts = {"a.pdf": "ALPHA TEXT", "b.docx": "BETA TEXT"}
+    # DISK body (staged sandbox, live truth).
+    disk_body = _load(_ctx(_stage_uploads(entries, texts)))["uploaded_files_context"]
+    # DURABLE body (wiped sandbox + the SAME content in the store).
+    store = _FakeScopedStore(_durable_rows(entries, texts), run_id="r-wiped")
+    durable_body = _load(
+        _durable_ctx(_FakeSandbox(), store, run_id="r-wiped")
+    )["uploaded_files_context"]
+    assert disk_body == durable_body  # byte-identical by construction
+
+
+def test_disk_wins_when_both_present() -> None:
+    entries = [{"name": "brief.pdf", "mime": "application/pdf", "has_text": True}]
+    disk_sb = _stage_uploads(entries, {"brief.pdf": "DISK CONTENT"})
+    # A DIVERGENT durable store must be ignored while the disk manifest is present.
+    store = _FakeScopedStore(
+        _durable_rows(entries, {"brief.pdf": "DURABLE CONTENT"}), run_id="r-wiped"
+    )
+    body = _load(_durable_ctx(disk_sb, store, run_id="r-wiped"))["uploaded_files_context"]
+    assert "DISK CONTENT" in body
+    assert "DURABLE CONTENT" not in body
+
+
+def test_neither_disk_nor_durable_returns_empty() -> None:
+    store = _FakeScopedStore([], run_id="r-wiped")
+    assert _load(_durable_ctx(_FakeSandbox(), store, run_id="r-wiped")) == {}
+
+
+def test_cross_owner_durable_read_denied() -> None:
+    # The store is seeded for r-owner; the ctx's run is r-attacker → list_refs
+    # returns [] (default-deny) → the fallback degrades to {} by construction.
+    entries = [{"name": "brief.pdf", "mime": "application/pdf", "has_text": True}]
+    store = _FakeScopedStore(
+        _durable_rows(entries, {"brief.pdf": "FOREIGN OWNER SECRET"}), run_id="r-owner"
+    )
+    assert _load(_durable_ctx(_FakeSandbox(), store, run_id="r-attacker")) == {}
+
+
+def _wiped_resume_ectx(store_run_id: str = "r-sticky-wiped") -> ExecutionContext:
+    """A resumed run whose sandbox is WIPED (empty) but whose durable mirror
+    carries the uploaded-doc rows — the crash/TTL/fresh-worker resume shape."""
+    entries = [{"name": "brief.pdf", "mime": "application/pdf", "has_text": True}]
+    store = _FakeScopedStore(
+        _durable_rows(entries, {"brief.pdf": _UPLOAD_TEXT}), run_id=store_run_id
+    )
+    ectx = ExecutionContext(run_id=store_run_id, owner_id="o-sticky-1")
+    ectx.runner = SimpleNamespace(sandbox=_FakeSandbox())  # WIPED — no .uploads
+    ectx.scoped_store = store
+    ectx.compiled_context_providers = list(_OPT_IN_PROVIDERS)
+    return ectx
+
+
+@pytest.mark.asyncio
+async def test_wiped_resume_three_agent_sticky_context() -> None:
+    # A resumed 3-agent workflow on a WIPED sandbox: the uploaded doc text must
+    # appear in EVERY agent_input via the durable fallback — sticky semantics fully
+    # restored from Postgres with zero sandbox contents.
+    engine = ExecutionEngine()
+    ectx = _wiped_resume_ectx()
+    ordered = [_spec("plan"), _spec("build"), _spec("review")]
+
+    for spec in ordered:
+        msg = await _compose(engine, ectx, spec, ordered)
+        assert _UPLOAD_TEXT in msg, f"upload text missing from {spec.id} on wiped resume"
+        assert "## Uploaded Files" in msg
+        assert "brief.pdf" in msg

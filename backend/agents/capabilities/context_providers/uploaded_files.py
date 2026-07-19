@@ -77,18 +77,50 @@ class UploadedFilesProvider:
         if "uploaded_files" not in injects:
             return {}
 
-        # ── Own-run sandbox handle (T-30-06) — the ONLY disk path ────────────────
+        # ── DISK first (live truth — sticky semantics unchanged on healthy runs) ──
         # ctx.runner.sandbox is THIS run's own RunSandbox (keyed on run_id/user_id at
-        # construction). No source_run_id / cross-owner accessor is consulted.
+        # construction). No source_run_id / cross-owner accessor is consulted (T-30-06).
         runner = getattr(ctx, "runner", None)
         sandbox = getattr(runner, "sandbox", None)
-        if sandbox is None:
+        if sandbox is not None:
+            entries = self._read_manifest(sandbox)
+            if entries:
+                # The disk manifest is the live copy — compose from it and NEVER
+                # consult the durable mirror (disk wins when both exist).
+                return self._compose(
+                    entries, read_text=lambda name: self._read_sidecar(sandbox, name)
+                )
+
+        # ── DURABLE fallback (RESUME-13) — a wiped / fresh sandbox has no manifest ─
+        # Fall back to the durable upload_text mirror via the owner+workspace-scoped
+        # ctx.scoped_store (the P33 conversation-provider precedent: kernel-pure,
+        # default-deny — a cross-owner run yields [] → {}). Byte-equivalent to the
+        # disk path because it flows through the SAME self._compose.
+        store = getattr(ctx, "scoped_store", None)
+        run_id = getattr(ctx, "run_id", None)
+        if store is None or not run_id:
             return {}
 
-        entries = self._read_manifest(sandbox)
-        if not entries:
+        rows = await self._read_upload_rows(store, run_id)
+        # Location-keyed max-version selection (the 46-03 idiom): the per-(run,kind)
+        # version counter is global, so pick the greatest-version row per location.
+        latest = self._max_version_by_location(rows)
+        manifest_row = latest.get(_MANIFEST_REL)
+        if manifest_row is None:
             return {}
+        entries = self._parse_entries(getattr(manifest_row, "content", None))
+        return self._compose(
+            entries,
+            read_text=lambda name: getattr(
+                latest.get(f"{_UPLOADS_PREFIX}{name}.txt"), "content", ""
+            ) or "",
+        )
 
+    def _compose(self, entries: list, *, read_text) -> dict[str, str]:
+        """Compose the ``uploaded_files_context`` block from ``entries`` — the ONLY
+        place the block format lives, so the disk and durable paths are
+        byte-identical by construction. ``read_text(name)`` supplies each doc's
+        text (disk sidecar or durable row content)."""
         sections: list[str] = []
         for entry in entries:
             if not isinstance(entry, dict):
@@ -98,16 +130,57 @@ class UploadedFilesProvider:
                 continue
             if not entry.get("has_text"):
                 continue
-            text = self._read_sidecar(sandbox, name)
+            text = (read_text(name) or "").strip()
             if not text:
                 continue
             sections.append(f"### {name}\n{text}")
-
         if not sections:
             return {}
+        return {"uploaded_files_context": "## Uploaded Files\n\n" + "\n\n".join(sections)}
 
-        body = "## Uploaded Files\n\n" + "\n\n".join(sections)
-        return {"uploaded_files_context": body}
+    # ── durable reads (degrade-not-crash — a broken store read never breaks the agent) ──
+    @staticmethod
+    async def _read_upload_rows(store: Any, run_id: str) -> list:
+        """Read this run's own durable ``upload_text`` rows via the scoped store;
+        ``[]`` on any read error (owner+visibility default-deny — a cross-owner run
+        yields ``[]`` by construction)."""
+        try:
+            rows = await store.list_refs(run_id, kind="upload_text")
+        except Exception as exc:  # noqa: BLE001 — a read error must not break the agent
+            logger.warning(
+                "uploaded_files: durable list_refs failed (%s) — no context", exc
+            )
+            return []
+        return list(rows or [])
+
+    @staticmethod
+    def _max_version_by_location(rows: list) -> dict:
+        """Return ``{location: row}`` keeping the greatest-version row per location
+        (list_refs orders by version ASC, so the last seen per location is its max)."""
+        latest: dict = {}
+        for row in rows or []:
+            location = getattr(row, "location", None)
+            if not isinstance(location, str) or not location:
+                continue
+            prev = latest.get(location)
+            if prev is None or getattr(row, "version", 0) >= getattr(prev, "version", 0):
+                latest[location] = row
+        return latest
+
+    @staticmethod
+    def _parse_entries(raw: Any) -> list:
+        """Parse a durable manifest row's ``content`` as a JSON list; ``[]`` on any miss
+        (the durable sibling of the disk ``_read_manifest`` — kept separate, IN-02)."""
+        if not raw:
+            return []
+        try:
+            entries = json.loads(raw)
+        except (ValueError, TypeError):
+            logger.warning(
+                "uploaded_files: durable manifest is not valid JSON — no context"
+            )
+            return []
+        return entries if isinstance(entries, list) else []
 
     # ── disk reads (degrade-not-crash — a broken sidecar never breaks the agent) ──
     @staticmethod
