@@ -110,6 +110,7 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollContentRef = useRef<HTMLDivElement>(null);
 
   const stickToBottomRef = useRef(true);
   const lastUserIdRef = useRef<string | null>(null);
@@ -129,13 +130,10 @@ export function ChatPanel({
     return () => container.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Follow the stream: while the user is at the bottom, keep the newest content
-  // (the growing reply) in view so the response is visible as it generates. The
-  // question scrolls up naturally as the reply grows. Instant (never smooth) so
-  // the rapid per-chunk updates don't stack scroll animations — that stacking is
-  // what janked the Run-summary footer. If the user scrolled up, the listener
-  // above has cleared stickToBottom, so we leave their position alone.
-  // Guarded: jsdom (tests) has no scrollIntoView — degrade rather than throw.
+  // Detect a fresh user turn and force the view to the bottom (re-arming follow).
+  // Continuous stream-following (chunk AND typewriter growth) lives in the
+  // ResizeObserver below, not here — so this effect only handles the "user just
+  // SENT" case. Guarded: jsdom (tests) has no scrollIntoView — degrade, not throw.
   useEffect(() => {
     const end = messagesEndRef.current;
     if (!end || typeof end.scrollIntoView !== "function") return;
@@ -156,20 +154,41 @@ export function ChatPanel({
       lastUserIdRef.current = lastUserId;
       stickToBottomRef.current = true;
       end.scrollIntoView({ behavior: "auto" });
-      return;
     }
-
-    // Otherwise follow the growing reply only while the user is at the bottom.
-    if (stickToBottomRef.current) {
-      end.scrollIntoView({ behavior: "auto" });
-    }
-  }, [messages, streamingContent, isStreaming]);
+    // Continuous following (chunk-growth AND typewriter-frame growth) is owned by
+    // the ResizeObserver below — a single path that pins the bottom on ANY
+    // rendered-height change, so there is no between-chunk drift for the chunk
+    // clock to snap back (the Run-summary footer jitter). Deps therefore reduce
+    // to [messages] — this effect now only detects a fresh user turn.
+  }, [messages]);
 
   const hasMessages = messages.length > 0 || isStreaming;
   // In a run context (hideComposer) the greeting/orbs empty-state is suppressed —
   // the lane is a structured transcript (Phase 39, RUNUI-06). The greeting stays
   // for the standalone chat usage (no run, its own composer).
   const showGreeting = !hasMessages && !hideComposer;
+
+  // Follow the RENDERED height: a two-clock desync janks the footer otherwise —
+  // the typewriter (useSmoothText in MessageBubble) grows the reply's height on
+  // the rAF clock, but props (messages/streamingContent/isStreaming) only change
+  // on the chunk clock, so the follow effect above misses typewriter frames. A
+  // ResizeObserver on the transcript content wrapper pins the bottom on EVERY
+  // height change (chunk OR typewriter frame) while the user is following, so
+  // both clocks follow through ONE path and nothing drifts-then-snaps. Guarded
+  // for jsdom (no ResizeObserver → degrade). Writing scrollTop changes position,
+  // not the observed element's size, so this does not re-trigger itself.
+  useEffect(() => {
+    const content = scrollContentRef.current;
+    const container = scrollContainerRef.current;
+    if (!content || !container || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [showGreeting]);
 
   // Borrow #5: engage the measured virtual window above VIRTUALIZE_THRESHOLD (80)
   // messages; below it the hook disengages (full range, zero spacers) and the
@@ -380,7 +399,7 @@ export function ChatPanel({
             </motion.div>
           </div>
         ) : (
-          <div className="mx-auto max-w-4xl">
+          <div ref={scrollContentRef} className="mx-auto max-w-4xl">
             {isVirtualized ? (
               <>
                 <div style={{ height: virtual.topSpacer }} aria-hidden="true" />
