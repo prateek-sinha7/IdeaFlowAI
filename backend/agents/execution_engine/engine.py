@@ -1460,7 +1460,13 @@ class ExecutionEngine:
         # overlay can only carry user-allowed levers. ``selections`` is None/empty for
         # every existing run (and all 5 goldens) → a pure no-op (byte/event-identical,
         # INV-3): the overlay function returns ``compiled`` unchanged.
-        compiled = self._apply_selections(compiled, selections)
+        # Thread the run's ordered agent ids so a composed agent absent from the base
+        # manifest still gets a trust-compiled step (Path B); ``_user_steps_by_agent``
+        # is {} for every None/empty-selections run → the absent-agent synthesis site
+        # (below) stays byte-identical (INV-3).
+        compiled, _user_steps_by_agent = self._apply_selections(
+            compiled, selections, [s.id for s in agents]
+        )
         # Bind the declared deliverable spec onto the context at run entry (INV-1) so
         # the per-agent mid-stream transforms in _run_agent (the single-file disk
         # readback + the ppt carousel sanitize) key off compiled.deliverable.strategy.
@@ -2283,6 +2289,14 @@ class ExecutionEngine:
                 # Fall back to single_shot when a step is absent from the compiled
                 # plan (defensive — a populated plan is asserted above for every run).
                 step = _steps_by_agent.get(spec.id)
+                if step is None:
+                    # Path B (51-04): a composed agent ABSENT from the base manifest
+                    # (the common ``custom`` case) receives its trust-compiled fan-out
+                    # step from the user-step map BEFORE the bare single_shot fallback.
+                    # ``_user_steps_by_agent`` is {} for every None/empty-selections run,
+                    # so this stays byte-identical (INV-3) to the old bare-single_shot
+                    # synthesis for every non-composed run.
+                    step = _user_steps_by_agent.get(spec.id)
                 strategy_name = getattr(step, "strategy", "single_shot") if step else "single_shot"
                 if step is None:
                     # Synthesize a minimal step carrying the agent id so the handle
@@ -6191,27 +6205,36 @@ class ExecutionEngine:
     # ──────────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _apply_selections(compiled, selections: dict | None):
+    def _apply_selections(compiled, selections: dict | None, run_agent_ids: list[str] | None = None):
         """Overlay user-composed per-step selections onto the compiled plan (EMP-01).
 
         ``selections`` is the compact ``{agent_id: {validators, gates, model, retry,
-        ...}}`` map a saved/custom workflow carries. It is re-compiled through the
-        SAME thin ``trust="user"`` path (the synth seam in
+        strategy, fanout, task_source, ...}}`` map a saved/custom workflow carries. It
+        is re-compiled through the SAME thin ``trust="user"`` path (the synth seam in
         ``agents.workflows.selections`` + ``WorkflowCompiler.compile(trust="user")``)
         — so the overlay can ONLY carry user-allowed levers — then the selected
         levers are merged onto the matching file-compiled ``Step`` BY AGENT_ID
         (generic, name-free — SC-001). A step the user did not touch is unchanged.
 
-        ``None`` / empty selections → ``compiled`` returned UNCHANGED (every existing
-        run + all 5 goldens take this path → byte/event-identical, INV-3). Any compile
-        failure (a tampered map that slipped past the WS gate) degrades to the
-        unchanged plan rather than crashing the run — the WS layer is the authoritative
-        rejection site (this is the defense-in-depth backstop).
+        ``run_agent_ids`` (the run's ordered agent ids) widens the trust-compile synth
+        set so a composed agent ABSENT from the base manifest (the common ``custom``
+        case) still gets a trust-compiled step. Returns a 2-tuple
+        ``(plan, user_step_map)`` where ``user_step_map`` is ``{agent_id: trust-compiled
+        Step}`` — the absent-agent synthesis site (Path B) consults it before falling
+        back to a bare ``single_shot`` step. It NEVER adds/removes steps from the plan
+        (the overlay replaces steps in place — the membership assertion stays valid).
+
+        ``None`` / empty selections → ``(compiled, {})`` — the plan is returned UNCHANGED
+        and the map is empty (every existing run + all 5 goldens take this path → both
+        consumption sites are byte/event-identical, INV-3). Any compile failure (a
+        tampered map that slipped past the WS gate) degrades to ``(compiled, {})`` rather
+        than crashing the run — the WS layer is the authoritative rejection site (this is
+        the defense-in-depth backstop).
         """
         from agents.workflows.selections import has_selections
 
         if not has_selections(selections):
-            return compiled
+            return compiled, {}
 
         import dataclasses
 
@@ -6219,7 +6242,11 @@ class ExecutionEngine:
         from agents.workflows.compiler import CompilerError, WorkflowCompiler
         from agents.workflows.selections import synthesize_manifest
 
-        agent_ids = [s.agent_id for s in compiled.steps]
+        # Trust-compile a step for EVERY run agent, not just the base-manifest agents,
+        # so a composed agent absent from the base plan still yields a user-step the
+        # synthesis site can consult (Path B). Order-preserving, de-duplicated.
+        base_ids = [s.agent_id for s in compiled.steps]
+        agent_ids = list(dict.fromkeys([*base_ids, *(run_agent_ids or [])]))
         try:
             user_compiled = WorkflowCompiler().compile(
                 synthesize_manifest(compiled.id, agent_ids, selections),
@@ -6239,7 +6266,7 @@ class ExecutionEngine:
                 "— proceeding with the unmodified plan (the WS layer is the "
                 "authoritative rejection site)"
             )
-            return compiled
+            return compiled, {}
 
         # Index the user-compiled levers by agent_id and merge onto the file steps.
         _user_by_agent = {s.agent_id: s for s in user_compiled.steps}
@@ -6269,9 +6296,20 @@ class ExecutionEngine:
                 patch["injects"] = list(
                     dict.fromkeys([*step.injects, *user_step.injects])
                 )
+            # Fan-out levers (D3, the crux) — each fires ONLY when the user selected
+            # it, so the empty-selections path stays byte-identical (INV-3). No
+            # ``tools`` overlay: the declarative fanout_batch path acquires no
+            # spawn_subagents grant (run_fanout does no permission check; trust=user
+            # forces tools.spawn_subagents OFF anyway).
+            if sel.get("strategy") and user_step.strategy:
+                patch["strategy"] = user_step.strategy
+            if sel.get("fanout") and user_step.fanout is not None:
+                patch["fanout"] = user_step.fanout
+            if sel.get("task_source") and user_step.task_source is not None:
+                patch["task_source"] = user_step.task_source
             new_steps.append(dataclasses.replace(step, **patch) if patch else step)
 
-        return dataclasses.replace(compiled, steps=new_steps)
+        return dataclasses.replace(compiled, steps=new_steps), _user_by_agent
 
     async def _dispatch_step_with_retry(self, step, ectx: ExecutionContext, strategy):
         """Drive one step's strategy with retry-on-transient + content-hash reuse.

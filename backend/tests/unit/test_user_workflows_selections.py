@@ -259,7 +259,7 @@ def _compose_launch_overlay():
         }
     }
     base = compile_for_run("custom")
-    overlaid = ExecutionEngine._apply_selections(base, selections)
+    overlaid, _ = ExecutionEngine._apply_selections(base, selections)
     step = next(s for s in overlaid.steps if s.agent_id == _AGENT_A)
     return base, overlaid, step, selections
 
@@ -418,7 +418,7 @@ def test_bare_retry_coerces_and_reaches_compiled_step():
     from agents.execution_engine.engine import ExecutionEngine, compile_for_run
 
     selections = {_AGENT_A: {"retry": 4}}
-    overlaid = ExecutionEngine._apply_selections(compile_for_run("custom"), selections)
+    overlaid, _ = ExecutionEngine._apply_selections(compile_for_run("custom"), selections)
     step = next(s for s in overlaid.steps if s.agent_id == _AGENT_A)
     assert step.retry is not None and step.retry.max_attempts == 4
 
@@ -547,3 +547,115 @@ def test_fanout_selection_with_smuggled_grant_is_rejected_naming_it():
     msg = str(exc.value).lower()
     assert "security" in msg
     assert "user-allowed" in msg or "user_allowed" in msg
+
+
+# ===========================================================================
+# FANOUT-02 / FANOUT-06 (Plan 51-04, D3) — THE CRUX: the engine overlay
+# ``_apply_selections`` carries strategy/fanout/task_source at BOTH the in-plan
+# step and the absent-agent synthesis site, returns the trust-compiled user-step
+# map, and keeps the empty path byte-identical + map empty (INV-3).
+# ===========================================================================
+
+# An agent that is NOT in the file-compiled ``custom`` base plan (the common case
+# for a composed ``custom`` run — ``allowed_custom_agent_ids`` unions ALL non-revision
+# base agents, so a composed run can carry agents absent from the base membership).
+_ABSENT_AGENT = "domain-analyst"
+
+
+def _fanout_sel(worker: str, source: str) -> dict:
+    """A minimal, GENERIC fan-out selection (no name literal in the kernel path)."""
+    return {
+        worker: {
+            "strategy": "fanout_batch",
+            "task_source": {
+                "kind": "parsed",
+                "parser": "heading_tasks",
+                "source_step": source,
+            },
+            "fanout": {"mode": "parallel", "max_parallel": 4},
+        }
+    }
+
+
+def test_apply_selections_carries_fanout_onto_in_plan_step():
+    """IN-PLAN carry: overlaying a fan-out selection onto a base-manifest step yields
+    ``strategy == fanout_batch`` + the selected ``task_source.source_step`` + a
+    populated ``fanout`` — the levers the old overlay DROPPED now reach the run plan."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    base = compile_for_run("custom")
+    overlaid, user_map = ExecutionEngine._apply_selections(
+        base, _fanout_sel(_AGENT_B, _AGENT_A)
+    )
+    step = next(s for s in overlaid.steps if s.agent_id == _AGENT_B)
+    assert step.strategy == "fanout_batch"
+    assert step.task_source is not None
+    assert step.task_source.source_step == _AGENT_A
+    assert step.task_source.parser == "heading_tasks"
+    assert step.fanout is not None
+    # A non-selected base step is untouched (no bleed) + the overlay REPLACES steps
+    # in place (never adds/removes) so the membership assertion stays valid.
+    assert [s.agent_id for s in overlaid.steps] == [s.agent_id for s in base.steps]
+    producer = next(s for s in overlaid.steps if s.agent_id == _AGENT_A)
+    assert producer.strategy == "single_shot"
+    # The returned user-step map carries the trust-compiled worker.
+    assert user_map[_AGENT_B].strategy == "fanout_batch"
+
+
+def test_apply_selections_absent_agent_carried_in_user_step_map():
+    """ABSENT-agent carry: for a composed agent NOT in the base manifest, passing it
+    via ``run_agent_ids`` yields a user-step map whose entry carries the fan-out step
+    the synthesis site would use (before the bare single_shot fallback)."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    base = compile_for_run("custom")
+    base_ids = [s.agent_id for s in base.steps]
+    assert _ABSENT_AGENT not in base_ids  # precondition: genuinely absent
+
+    overlaid, user_map = ExecutionEngine._apply_selections(
+        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_ABSENT_AGENT]
+    )
+    # The absent agent is NOT injected into the plan steps (membership assertion safe)…
+    assert [s.agent_id for s in overlaid.steps] == base_ids
+    # …but its trust-compiled fan-out step IS available in the returned map for the
+    # synthesis site to consult.
+    assert _ABSENT_AGENT in user_map
+    absent_step = user_map[_ABSENT_AGENT]
+    assert absent_step.strategy == "fanout_batch"
+    assert absent_step.task_source is not None
+    assert absent_step.task_source.source_step == _AGENT_A
+
+
+def test_apply_selections_absent_step_carries_default_hooks_benign_delta():
+    """BENIGN delta (Risk #6): the trust-compiled absent step carries the compiler's
+    DEFAULT hooks (``audit_logger``/``secret_scan``) a bare ``_Step`` synthesis lacked.
+    This is INTENDED (a composed absent agent now runs a real compiled step), asserted
+    here so it is not mistaken for a regression."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    base = compile_for_run("custom")
+    _, user_map = ExecutionEngine._apply_selections(
+        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_ABSENT_AGENT]
+    )
+    hooks = list(getattr(user_map[_ABSENT_AGENT], "hooks", []) or [])
+    assert "audit_logger" in hooks
+    assert "secret_scan" in hooks
+
+
+def test_apply_selections_empty_is_byte_identical_and_map_empty():
+    """EMPTY/None selections → ``(compiled_unchanged, {})`` at the ``has_selections``
+    short-circuit — the plan is the SAME object (byte-identical) and the user-step map
+    is empty, so BOTH consumption sites behave identically to today (INV-3)."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    base = compile_for_run("custom")
+    for empty in (None, {}):
+        overlaid, user_map = ExecutionEngine._apply_selections(base, empty)
+        assert overlaid is base  # unchanged plan (no re-compile, no replace)
+        assert user_map == {}
+    # run_agent_ids is ignored on the empty path (short-circuit before synth).
+    overlaid, user_map = ExecutionEngine._apply_selections(
+        base, None, run_agent_ids=[_ABSENT_AGENT]
+    )
+    assert overlaid is base
+    assert user_map == {}
