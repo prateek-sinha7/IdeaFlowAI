@@ -27,7 +27,7 @@
  * driven by generic props supplied by the caller (plan 07 threads them live).
  */
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { motion } from "motion/react";
 import {
@@ -774,6 +774,38 @@ export function RunChatLane({
   // GENERIC (SC-001/INV-1) — just the free text, never a workflow-name literal.
   const [heldRefinement, setHeldRefinement] = useState<string | null>(null);
 
+  // A settled-run Concierge ASK is answered by a BLOCKING backend round-trip
+  // (POST /messages → concierge.converse, non-streaming) that emits ONE late
+  // `chat_reply`. `isStreaming` tracks the PIPELINE stream (false on a settled
+  // run), so the lane would otherwise show nothing while the reply is in flight.
+  // This lane-local "reply pending" flag drives the SAME TypingIndicator the
+  // pipeline path uses (folded into ChatPanel's isStreaming below), giving the
+  // ask turn a thinking affordance until its answer renders. Scoped to the ASK
+  // branch only — revise/change already have the confirm chip; a live pipeline
+  // already streams. `sendMessage` returns the client message id synchronously
+  // (its up-channel POST is fire-and-forget), so it is NOT thenable — the flag
+  // is CLEARED by the transcript, not a promise: the instant an assistant turn
+  // becomes the tail (the `chat_reply` rendered) the ChatPanel gate hides the
+  // indicator AND the effect below drops the flag (a stuck spinner is impossible).
+  const [replyPending, setReplyPending] = useState(false);
+
+  // Clear the pending flag once the awaited assistant reply lands as the tail.
+  useEffect(() => {
+    if (!replyPending) return;
+    const last = messages[messages.length - 1];
+    if (last && last.role === "assistant") setReplyPending(false);
+  }, [messages, replyPending]);
+
+  // Bind the flag to the VIEWED run: RunChatLane does NOT remount per run (no
+  // key/runId in the parent — DashboardLayout), so a run switch before the reply
+  // lands must not leak a stale spinner onto a different run (the BUG-001/005
+  // run-binding class). Reset on the viewed run's identity change — the same
+  // pipelineRunId signal the parent uses to detect a genuinely new run.
+  const viewedRunId = pipelineState?.pipelineRunId;
+  useEffect(() => {
+    setReplyPending(false);
+  }, [viewedRunId]);
+
   // Free-text send routes through the transport-agnostic sendMessage. On a
   // SETTLED run (complete) the turn is CLASSIFIED (43-02, the A.1 CRUX): an ASK
   // (a status/question turn) is ANSWERED by the Concierge — folded onto the send
@@ -787,6 +819,10 @@ export function RunChatLane({
     (text: string, attachments: ChatAttachment[]) => {
       if (runState === "complete") {
         if (classifyFreeText(text) === "ask") {
+          // Show the thinking affordance while the blocking Concierge reply is
+          // in flight; the transcript-driven effect above clears it when the
+          // `chat_reply` renders (sendMessage is not thenable — see replyPending).
+          setReplyPending(true);
           sendMessage(text, attachments, { concierge: true });
           return;
         }
@@ -1267,7 +1303,11 @@ export function RunChatLane({
       <div data-testid="chat-lane-transcript" className="flex-1 min-h-0">
         <ChatPanel
           messages={messages}
-          isStreaming={isStreaming}
+          // Fold the lane-local Concierge "reply pending" flag into the streaming
+          // signal so the SAME TypingIndicator fires for a settled-run ASK (whose
+          // pipeline stream is idle). ChatPanel's gate auto-hides it the instant an
+          // assistant turn is the tail — so this cannot show a stuck spinner.
+          isStreaming={isStreaming || replyPending}
           streamingContent={streamingContent}
           onSendMessage={(text) => handleFreeText(text, [])}
           onRequestOpenTab={onRequestOpenTab}

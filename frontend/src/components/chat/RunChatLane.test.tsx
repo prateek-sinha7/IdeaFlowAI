@@ -777,6 +777,86 @@ describe("RunChatLane", () => {
     expect(screen.getByTestId("lane-run-attachments")).not.toHaveTextContent("brief.md");
   });
 
+  // ─── quick-260719-li0 — Concierge ASK shows a thinking affordance ────────────
+  // A settled-run ASK is answered by a BLOCKING backend round-trip that emits one
+  // LATE chat_reply. The pipeline stream (isStreaming) is idle on a settled run,
+  // so the lane must surface its OWN pending signal → the SAME TypingIndicator —
+  // and hide it the instant the assistant reply renders, bound to the VIEWED run.
+
+  it("settled-run ASK shows the TypingIndicator while the Concierge reply is pending", () => {
+    const sendMessage = vi.fn(() => "mid-1");
+    render(<RunChatLane {...baseProps({ runState: "complete", sendMessage })} />);
+    // Idle before the ask — the settled-run pipeline stream is off.
+    expect(screen.queryByTestId("typing-indicator")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "what's the status?" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    // RED on HEAD: isStreaming is false and there is no replyPending, so nothing
+    // renders. GREEN: the lane-local replyPending drives the thinking affordance.
+    expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
+    expect(sendMessage).toHaveBeenCalledWith("what's the status?", [], {
+      concierge: true,
+    });
+  });
+
+  it("the ASK TypingIndicator auto-hides once the assistant chat_reply is the tail", () => {
+    const sendMessage = vi.fn(() => "mid-1");
+    const { rerender } = render(
+      <RunChatLane {...baseProps({ runState: "complete", sendMessage })} />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "what's the status?" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
+    // The late chat_reply lands as the assistant tail → indicator drops.
+    rerender(
+      <RunChatLane
+        {...baseProps({
+          runState: "complete",
+          sendMessage,
+          messages: [
+            userMsg("u1", "what's the status?"),
+            assistantMsg("a1", "All 5 agents finished."),
+          ],
+        })}
+      />,
+    );
+    expect(screen.queryByTestId("typing-indicator")).toBeNull();
+  });
+
+  it("a pending ASK indicator does NOT leak across a viewed-run switch (run-binding guard)", () => {
+    const sendMessage = vi.fn(() => "mid-1");
+    const { rerender } = render(
+      <RunChatLane
+        {...(baseProps({
+          runState: "complete",
+          sendMessage,
+          pipelineState: ps({ pipelineRunId: "run-A" }),
+        }) as RunChatLaneProps)}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "what's the status?" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
+    // Switch to a DIFFERENT viewed run whose transcript ends on a user turn — the
+    // pending flag must reset so no stale spinner leaks onto the new run.
+    rerender(
+      <RunChatLane
+        {...(baseProps({
+          runState: "complete",
+          sendMessage,
+          pipelineState: ps({ pipelineRunId: "run-B" }),
+          messages: [userMsg("u2", "different run")],
+        }) as RunChatLaneProps)}
+      />,
+    );
+    expect(screen.queryByTestId("typing-indicator")).toBeNull();
+  });
+
   it("SC-001: the source carries no workflow-name literal", () => {
     const src = readFileSync(
       join(process.cwd(), "src/components/chat/RunChatLane.tsx"),
