@@ -1357,6 +1357,118 @@ async def test_task_loop_reconcile_first_task_clean_basis(tmp_path):
     session.close()
 
 
+# ── RESUME-16 independent (wave) — orphan-fragment exclusion (48-03) ─────────
+# On a resume-after-edit of a wave step, a CONFIDENTLY-orphaned fragment (its owning
+# worker's key is MAPPABLE via subagent_runs but ABSENT from the current list) must be
+# excluded at the re-materialization gate so it reaches NEITHER _merge_fragments NOR the
+# terminal serialized_sandbox assembly (both read only disk) — merge impls untouched,
+# no row deleted (T-48-04). The fragment→key join is PINNED to three cases:
+#   (1) resolvable + key ∈ allow-set → RESTORE
+#   (2) resolvable + key ∉ allow-set → EXCLUDE (confidently orphaned)
+#   (3) unresolvable/ambiguous       → RESTORE (fail-safe keep, T-48-05)
+
+
+@pytest.mark.asyncio
+async def test_wave_reconcile_orphan_excluded(tmp_path):
+    """RESUME-16 independent (T-48-04): a CONFIDENTLY-orphaned wave fragment — its
+    owning worker's key is MAPPABLE (its subagent_runs.task_id resolves) but ABSENT
+    from the current (edited) task list — is EXCLUDED from disk (hence from
+    _merge_fragments AND the terminal serialized_sandbox assembly, both read only
+    disk). The surviving in-list fragment IS restored. Zero merge-impl edit; no row
+    deleted (rows only read).
+    """
+    from agents.capabilities import task_identity
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, _db = _make_session()
+    owner, ws = "rm-user", "ws-rm"
+    ectx, sandbox, store, run_id = await _build_rematerialize_ctx(
+        session, tmp_path, owner=owner, ws=ws
+    )
+
+    key_live = task_identity.compute_task_key("u", "alpha", 0)    # in the current list
+    key_orphan = task_identity.compute_task_key("u", "bravo", 0)  # deleted from the list
+
+    # Two workers' fragments persisted BEFORE the merge (write_fragment_artifact:
+    # kind="file_bundle", producer_step=<wave step agent>, task_id=str(worker_index)).
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
+                    location="part_a.txt", content="fragment-a", version=1,
+                    producer_agent="build-wave", task_id="0")
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
+                    location="part_b.txt", content="fragment-b-ORPHAN", version=1,
+                    producer_agent="build-wave", task_id="1")
+    # subagent_runs give the worker_index → key join: worker 0 → live key (present),
+    # worker 1 → orphan key (absent from the current list = confidently orphaned).
+    await store.record_subagent_run(
+        run_id, parent_step="build-wave", worker_agent="w", depth=1,
+        isolation="shared_read", status="complete", worker_index=0, task_id=key_live,
+    )
+    await store.record_subagent_run(
+        run_id, parent_step="build-wave", worker_agent="w", depth=1,
+        isolation="shared_read", status="complete", worker_index=1, task_id=key_orphan,
+    )
+    session.commit()
+
+    engine = ExecutionEngine()
+    await engine._rematerialize_artifacts_to_disk(
+        ectx, sandbox,
+        wave_allow_by_step={"build-wave": {key_live}},  # only the live key survives
+    )
+
+    assert sandbox.read("part_a.txt") == "fragment-a", (
+        "the in-list (mappable + present) fragment must be restored to disk"
+    )
+    assert sandbox.read("part_b.txt") is None, (
+        "the confidently-orphaned fragment (mappable but ABSENT from the current list) "
+        "must NOT reach disk → excluded from merge + assembly with zero merge edits"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_wave_reconcile_unmappable_kept(tmp_path):
+    """RESUME-16 independent (T-48-05 fail-safe): a wave fragment whose owning-worker
+    key is UNRESOLVABLE (no subagent_run maps its worker_index → a key — e.g. a legacy
+    positional row / missing subagent_run) is RESTORED (fail-safe keep), DISTINCT from
+    the confidently-orphaned exclusion. Ambiguity → keep (a wasteful-but-correct
+    include), never a wrong exclude of live work.
+    """
+    from agents.capabilities import task_identity
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, _db = _make_session()
+    owner, ws = "rm-user", "ws-rm"
+    ectx, sandbox, store, run_id = await _build_rematerialize_ctx(
+        session, tmp_path, owner=owner, ws=ws
+    )
+
+    key_live = task_identity.compute_task_key("u", "alpha", 0)
+
+    # A fragment whose worker_index (2) has NO subagent_run to map it → a key: the join
+    # is UNRESOLVABLE. Under the three-way rule this is fail-safe RESTORED (kept).
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
+                    location="legacy.txt", content="fragment-legacy", version=1,
+                    producer_agent="build-wave", task_id="2")
+    # A live worker exists (index 0 → key_live) but NONE maps worker_index 2.
+    await store.record_subagent_run(
+        run_id, parent_step="build-wave", worker_agent="w", depth=1,
+        isolation="shared_read", status="complete", worker_index=0, task_id=key_live,
+    )
+    session.commit()
+
+    engine = ExecutionEngine()
+    await engine._rematerialize_artifacts_to_disk(
+        ectx, sandbox,
+        wave_allow_by_step={"build-wave": {key_live}},
+    )
+
+    assert sandbox.read("legacy.txt") == "fragment-legacy", (
+        "an UNRESOLVABLE fragment→key join must be fail-safe RESTORED (kept) — distinct "
+        "from the confidently-orphaned exclusion; never a wrong exclude of live work"
+    )
+    session.close()
+
+
 # ===========================================================================
 # RESUME-09 (Plan 46-04) — per-task / per-worker SKIP CURSOR
 #

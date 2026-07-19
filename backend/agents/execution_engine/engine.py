@@ -2119,8 +2119,25 @@ class ExecutionEngine:
                     "the global-max deliverable (no boundary restore)", _bnd_exc
                 )
                 _boundaries = {}
+            # RESUME-16 independent: the per wave-step current-key allow-set that gates
+            # confidently-orphaned (completed-but-absent) fragments out of re-materialization
+            # (hence out of merge + assembly, zero merge edits). Dormant for a step with no
+            # completed workers; a compute failure degrades to an empty allow-set → the
+            # orphan gate stays dormant → all fragments restored (fail-safe KEEP).
+            try:
+                _wave_allow = self._compute_wave_orphan_allowsets(
+                    ectx, ordered_agents, compiled, ectx.resume_completed_task_ids
+                )
+            except Exception as _wav_exc:  # noqa: BLE001 — fail-safe: keep all fragments
+                logger.warning(
+                    "resume: wave orphan allow-set compute failed (%s) — re-materializing "
+                    "all fragments (no orphan exclusion)", _wav_exc
+                )
+                _wave_allow = {}
             await self._rematerialize_artifacts_to_disk(
-                ectx, sandbox, boundary_by_agent=_boundaries
+                ectx, sandbox,
+                boundary_by_agent=_boundaries,
+                wave_allow_by_step=_wave_allow,
             )
             # ── RESUME-11 steering re-drain ─────────────────────────────────────────
             # Re-derive the steering notes the pre-crash run had NOT yet consumed from
@@ -6074,7 +6091,12 @@ class ExecutionEngine:
                 continue
 
     async def _rematerialize_artifacts_to_disk(
-        self, ectx: ExecutionContext, sandbox, *, boundary_by_agent: dict | None = None
+        self,
+        ectx: ExecutionContext,
+        sandbox,
+        *,
+        boundary_by_agent: dict | None = None,
+        wave_allow_by_step: dict | None = None,
     ) -> None:
         """Restore the durable FILE-backed artifacts onto the fresh ``RunSandbox`` (RESUME-08).
 
@@ -6127,6 +6149,29 @@ class ExecutionEngine:
                 here because the p==0 caller supplies ``restore_nothing`` (never a key).
         (i) and (iii) are DISTINCT states (None is never overloaded to mean "restore
         nothing"). Immutable rows are only READ — no row is deleted/mutated (T-48-04).
+
+        RESUME-16 independent (``wave_allow_by_step``, the orphan-fragment gate — T-48-04/
+        T-48-05): maps a WAVE step's agent id (== a fragment's ``producer_step``) to the
+        set of CURRENT (max-version) task keys. When a ``file_bundle`` fragment's
+        ``producer_step`` is in this map, the fragment→key join (its ``task_id`` == the
+        owning worker's ``str(worker_index)`` → the worker's ``subagent_runs.task_id`` ==
+        the key) is PINNED to THREE cases (Pitfall: the join is the MEDIUM wrinkle, the
+        exclusion POINT here is HIGH):
+          (1) RESOLVABLE (an UNAMBIGUOUS worker_index→key map) and key ∈ allow-set →
+              RESTORE (a completed, still-current fragment);
+          (2) RESOLVABLE (unambiguous) and key ∉ allow-set (a completed key ABSENT from
+              the current list = CONFIDENTLY orphaned) → EXCLUDE — NOT restored to disk,
+              so it reaches NEITHER ``_merge_fragments`` NOR the terminal
+              ``serialized_sandbox`` assembly (both read only disk); the merge impls are
+              UNTOUCHED, the row is never deleted;
+          (3) UNRESOLVABLE — no ``subagent_run`` maps the worker_index, OR the map is
+              AMBIGUOUS (a wave-local worker_index shared across waves resolves to >1
+              key) → RESTORE (fail-safe keep — a wasteful-but-correct include, never a
+              wrong exclusion of live work, T-48-05).
+        Default ``None`` ⇒ this gate is dormant (no wave orphan exclusion on a
+        non-edited / non-wave resume) → byte-identical to (i)-(iii). The join reads the
+        SAME owner-scoped ``subagent_runs`` rows the cursor uses (default-deny; no
+        cross-owner fragment can enter the allow-set or reach disk — T-48-02).
         """
         store = getattr(ectx, "scoped_store", None)
         if store is None:
@@ -6136,6 +6181,28 @@ class ExecutionEngine:
         except Exception:  # noqa: BLE001 — offline / schema-less → nothing to restore
             return
         _boundaries = boundary_by_agent or {}
+        _wave_allow = wave_allow_by_step or {}
+        # RESUME-16 independent: build the per-wave-step worker_index → keys join ONCE
+        # from the owner-scoped subagent_runs (only when a wave allow-set is supplied, so
+        # the default path never reads them → dormant / byte-identical). A worker_index is
+        # wave-LOCAL, so it can (rarely) resolve to >1 key across waves in the same step →
+        # recorded as a SET; an ambiguous (len>1) resolution is treated as unresolvable
+        # (fail-safe RESTORE, case 3).
+        _wi_to_keys: dict = {}  # producer_step -> { str(worker_index) -> set(keys) }
+        if _wave_allow:
+            try:
+                _sub_rows = await store.read_subagent_runs(ectx.run_id)
+            except Exception:  # noqa: BLE001 — no child rows → every join unresolvable → keep
+                _sub_rows = []
+            for _sr in _sub_rows or []:
+                _pstep = getattr(_sr, "parent_step", None)
+                _widx = getattr(_sr, "worker_index", None)
+                _key = getattr(_sr, "task_id", None)
+                if _pstep is None or _widx is None or _key is None:
+                    continue
+                _wi_to_keys.setdefault(_pstep, {}).setdefault(str(_widx), set()).add(
+                    str(_key)
+                )
         # Group by location, keep the max-version row per location (fix-loop re-persist
         # + fan-out fragment versions: the latest content is the disk truth) — subject to
         # the per-agent cumulative boundary above.
@@ -6156,6 +6223,20 @@ class ExecutionEngine:
                 _btid = _binfo.get("boundary_task_id")
                 if _btid is not None and str(getattr(row, "task_id", None)) != str(_btid):
                     continue  # (ii) only the boundary task's versions are eligible
+            # RESUME-16 independent orphan-fragment gate (default path leaves this
+            # untouched — _wave_allow empty ⇒ dormant). Keyed on the fragment's
+            # producer_step (== the wave step agent id).
+            _allow = _wave_allow.get(getattr(row, "producer_step", None))
+            if _allow is not None:
+                _keys = _wi_to_keys.get(
+                    getattr(row, "producer_step", None), {}
+                ).get(str(getattr(row, "task_id", None)))
+                # EXCLUDE only on an UNAMBIGUOUS resolvable join whose key is NOT in the
+                # current-key allow-set (case 2, confidently orphaned). No mapping (None)
+                # or an ambiguous (>1) map falls through to RESTORE (case 3, fail-safe).
+                if _keys and len(_keys) == 1:
+                    if next(iter(_keys)) not in _allow:
+                        continue  # (2) confidently orphaned → not restored to disk
             prev = latest.get(location)
             if prev is None or getattr(row, "version", 0) >= getattr(prev, "version", 0):
                 latest[location] = row
@@ -6250,6 +6331,71 @@ class ExecutionEngine:
                 boundaries.pop(agent_id, None)
                 continue
         return boundaries
+
+    def _compute_wave_orphan_allowsets(
+        self,
+        ectx: ExecutionContext,
+        ordered_agents: list,
+        compiled,
+        completed_sets: "dict[str, set[str]] | None",
+    ) -> dict:
+        """RESUME-16 independent: the per wave_scheduler step CURRENT-KEY allow-set.
+
+        The reconciler that turns the CURRENT (max-version) parsed wave task list into the
+        current-key allow-set the ``_rematerialize_artifacts_to_disk`` orphan gate
+        consumes (keyed on the wave step agent id == a fragment's ``producer_step``). For
+        each wave_scheduler step that HAS completed workers (from the skip cursor) it
+        parses the current list and computes the SAME content-addressed keys the strategy
+        stamps (``compute_task_key`` over the step's own ``upstream_context_hash`` — one
+        home) so a completed-but-absent (deleted/edited-out) worker's fragment is
+        confidently excluded while every still-current fragment restores.
+
+        Emitted ONLY for a wave step with completed work — dormant otherwise (a step with
+        no completed workers has no orphan to exclude). Fail-safe: any parse/hash failure
+        leaves the step OUT → the gate is dormant for it → its fragments are all restored
+        (fail-safe KEEP, never a wrong exclude — T-48-05). Keys ONLY on generic parsed
+        content (SC-001/INV-1).
+        """
+        allowsets: dict = {}
+        if not completed_sets:
+            return allowsets
+        _steps_by_agent = {s.agent_id: s for s in (getattr(compiled, "steps", None) or [])}
+        for spec in ordered_agents:
+            agent_id = getattr(spec, "id", None)
+            if not agent_id or not completed_sets.get(agent_id):
+                continue
+            step = _steps_by_agent.get(agent_id)
+            if step is None or getattr(step, "strategy", None) != "wave_scheduler":
+                continue
+            try:
+                task_source = getattr(step, "task_source", None)
+                source_step = getattr(task_source, "source_step", None)
+                # Waves default to the STRUCTURED json_tasks parser (heading_tasks lacks
+                # depends_on/conflict_keys) — mirror the strategy's _DEFAULT_PARSER.
+                parser_name = getattr(task_source, "parser", None) or "json_tasks"
+                if not source_step:
+                    continue
+                plan_content = self._latest_typed_content(ectx, source_step)
+                if plan_content is None:
+                    continue
+                parser = _CAPABILITY_REGISTRY.resolve("task_parser", parser_name)
+                tasks = parser.parse(plan_content)
+                if not tasks:
+                    continue
+                upstream_hash = self._compute_upstream_context_hash(step, ectx)
+                ordinals = task_identity.occurrence_ordinals(tasks)
+                allowsets[agent_id] = {
+                    task_identity.compute_task_key(
+                        upstream_hash,
+                        task_identity.normalize_task_content(t),
+                        ordinals[i],
+                    )
+                    for i, t in enumerate(tasks)
+                }
+            except Exception:  # noqa: BLE001 — fail-safe: leave the step out → restore all (keep)
+                allowsets.pop(agent_id, None)
+                continue
+        return allowsets
 
     async def _first_incomplete_step(
         self, ectx: ExecutionContext, ordered_agents: list, compiled
