@@ -1944,6 +1944,122 @@ async def test_upstream_context_hash_single_home_stable(tmp_path):
     )
 
 
+# ── RESUME-16 rotation: update_specs composes (proof, no new production code) ─
+# A spec edit (Phase-27 update_specs mints a NEW spec version → a new content_hash)
+# rotates the build step's _compute_upstream_context_hash → every build task_key rotates
+# → on resume/continue the reconciler finds NO current key in the completed set → all
+# build tasks re-run (no v1-key wrongly skipped). This falls out of 48-01 upstream-
+# namespacing — the test is a PROOF/regression, not a new capability (INV-12: the
+# rotation is generic, no bespoke update_specs branch).
+
+
+@pytest.mark.asyncio
+async def test_update_specs_reconcile_composes(tmp_path):
+    """RESUME-16 rotation: a spec-v2 edit rotates every build task_key so all build
+    tasks re-run and no v1-completed key is skipped — with NO new production code (the
+    rotation is a property of the 48-01 upstream-context-hash namespace).
+    """
+    from types import SimpleNamespace
+
+    from agents.artifacts.graph import ArtifactGraph
+    from agents.capabilities import task_identity
+    from agents.capabilities.task_parsers.heading_tasks import HeadingTasksParser
+    from agents.execution_engine.context import ExecutionContext
+    from agents.execution_engine.engine import ExecutionEngine
+    from agents.execution_engine.kernel_services import KernelServices
+    from agents.workflows.plan import Step
+    from app.agents.sandbox import RunSandbox
+
+    run_id = f"us-{uuid.uuid4().hex[:8]}"
+    owner, ws = "us-user", "ws-us"
+
+    _BUILD_PLAN = (
+        "## Task 1: Shell\nBuild the HTML shell.\n\n"
+        "## Task 2: Dashboard\nAdd the dashboard page.\n"
+    )
+
+    graph = ArtifactGraph()
+    # The build step consumes BOTH the task_list (from 'plan') and the spec (from
+    # 'specify'); update_specs rotates the SPEC content, which feeds the build upstream.
+    graph.write_ref(
+        run_id=run_id, owner_id=owner, workspace_id=ws, kind="task_list",
+        producer_step="plan", producer_agent="plan", task_id=None,
+        content=_BUILD_PLAN, location="artifact_refs/plan",
+    )
+    graph.write_ref(
+        run_id=run_id, owner_id=owner, workspace_id=ws, kind="spec",
+        producer_step="specify", producer_agent="specify", task_id=None,
+        content="Spec v1: a plain dashboard.", location="artifact_refs/specify",
+    )
+
+    ectx = ExecutionContext(
+        run_id=run_id, owner_id=owner, disk_principal=owner, artifacts=graph
+    )
+    ectx.workspace_id = ws
+    engine = ExecutionEngine()
+    sandbox = RunSandbox(owner, run_id, runs_root=str(tmp_path))
+    sandbox.ensure()
+    ordered = [
+        SimpleNamespace(id="plan", produces=["task_list"], consumes=[]),
+        SimpleNamespace(id="specify", produces=["spec"], consumes=[]),
+        SimpleNamespace(id="build", produces=[], consumes=["task_list", "spec"]),
+    ]
+    runner = KernelServices(
+        engine=engine, ectx=ectx, sandbox=sandbox, ordered_agents=ordered,
+        user_message="brief", pipeline_run_id=run_id, pipeline_type="prototype",
+        planning_context={}, attached_skills=None, attached_hooks=None,
+        model_id=None, results=[], cancel_event=None,
+    )
+    ectx.runner = runner
+    step = Step(agent_id="build", strategy="task_loop")
+
+    def _keys_now() -> list[str]:
+        uhash = engine._compute_upstream_context_hash(step, ectx)
+        tasks = HeadingTasksParser().parse(_BUILD_PLAN)
+        ords = task_identity.occurrence_ordinals(tasks)
+        return [
+            task_identity.compute_task_key(
+                uhash, task_identity.normalize_task_content(t), ords[i]
+            )
+            for i, t in enumerate(tasks)
+        ]
+
+    # Build ran under spec-v1 → these are the COMPLETED keys (in build order).
+    uhash_v1 = engine._compute_upstream_context_hash(step, ectx)
+    completed_v1 = _keys_now()
+
+    # update_specs mints a NEW spec version (Phase 27) — a different content_hash.
+    graph.write_ref(
+        run_id=run_id, owner_id=owner, workspace_id=ws, kind="spec",
+        producer_step="specify", producer_agent="specify", task_id=None,
+        content="Spec v2: a dashboard WITH a reports tab and dark mode.",
+        location="artifact_refs/specify",
+    )
+
+    uhash_v2 = engine._compute_upstream_context_hash(step, ectx)
+    current_v2 = _keys_now()
+
+    # (rotation) the spec-v2 write rotates the build step's upstream namespace.
+    assert uhash_v2 != uhash_v1, (
+        "a new spec version must rotate the build step's upstream_context_hash "
+        "(Phase-27 update_specs composition)"
+    )
+    # (a) every build task re-runs: NONE of the v1 completed keys survives into the
+    #     current key set → the common-prefix reconciler skips nothing (p == 0).
+    assert set(completed_v1).isdisjoint(current_v2), (
+        "every build task_key must rotate under the new spec version — no v1 key may "
+        "appear in the current-key set (else a stale-spec task would be wrongly skipped)"
+    )
+    assert task_identity.common_prefix_length(current_v2, completed_v1) == 0, (
+        "the cumulative reconciler must re-run EVERY current build task after an "
+        "update_specs rotation (common prefix == 0)"
+    )
+    # (b) the wave-style per-key set-membership skip is likewise empty: no current key
+    #     is in the completed set → nothing skipped, all dispatch.
+    _skipped = [k for k in current_v2 if k in set(completed_v1)]
+    assert _skipped == [], f"no current task may be skipped after rotation; got {_skipped}"
+
+
 # ===========================================================================
 # RESUME-10 — a resumed run is a first-class LIVE run: live-ectx registered
 # (+ guaranteed unregister in finally), milestone cards emitted with an
