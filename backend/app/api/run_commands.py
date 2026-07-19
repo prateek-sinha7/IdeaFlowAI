@@ -70,6 +70,7 @@ from app.models.workflow import WorkflowRun
 # because the WS copies are nested socket-coupled closures, not importable.
 from app.api.run_engine import (
     _CANCEL_EVENTS,
+    _PIPELINE_QUEUES,
     _PIPELINE_TASKS,
     _cleanup_pipeline,
     _get_db,
@@ -303,6 +304,217 @@ async def cancel_run(
         return {"ok": True, "run_id": run_id, "cancelled": True}
     # Idempotent: nothing active to cancel, but ack so the client returns to idle.
     return {"ok": True, "run_id": run_id, "cancelled": False, "message": "No active pipeline"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# POST /api/runs/{id}/resume — user resume-from-failed (RESUME-18 / Phase 50).
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# The "reopen & fix" headline: a terminal-FAILED run becomes user-resumable. The
+# endpoint is the ONLY new surface — drive is pure reuse of the shipped Phase 45–49
+# resume tier via ``engine.resume_run`` (armed on the startup singleton, main.py:141-154;
+# the live-layer callbacks fire off ``self.*`` — NOT re-threaded here, RESUME-10 by
+# construction). Authorized by the LOCK-E/ND-4 supersede record — POR §8.1.
+#
+# The one pinned decision (RESEARCH §Arm-Failure): ``resume_run``/``_drive_resumed_stream``
+# write NO ``WorkflowRun.status`` (only the app-layer launch/revision drivers do). A bare
+# ``create_task(resume_run)`` would strand a user-resumed run at ``running`` forever on
+# success AND on arm-failure. So the endpoint spawns a THIN ``_drive_user_resume`` wrapper
+# that delegates ALL drive to ``resume_run`` and adds ONLY the two status writes the resume
+# tier structurally lacks: terminal reconcile (``_reconcile_terminal_status``) + arm-failure
+# flip-back (``_flip_back_to_failed``). This is NOT a third driver — no ``engine.execute``
+# event ladder, no clone of ``_drive_launch_to_queue`` (INV-12 / Pitfall 7).
+
+
+@router.post("/{run_id}/resume")
+async def resume_run_endpoint(
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Resume a terminal-FAILED run over HTTP (RESUME-18).
+
+    Ordering pin (RESEARCH §Ordering Pin — all on the single event loop; NO ``await``
+    between the overlap mutex and the synchronous queue+task registration, which is the
+    double-POST atomicity argument):
+      1. Owner gate — ``.filter(id==run_id, user_id==current_user.id).first()`` → None →
+         404 (cross-owner AND missing indistinguishable; no existence oracle; keyed on
+         ``user_id`` never nullable ``owner_id``). *(Layer 1; ScopedStore default-deny
+         inside ``resume_run`` is Layer 2.)*
+      2. Eligibility — only ``status == "failed"`` is resumable; anything else → 409
+         ``run_not_resumable``.
+      3. Overlap mutex — a registry-live run (``_PIPELINE_TASKS`` OR ``_PIPELINE_QUEUES``)
+         → 409 ``pipeline_already_running`` (CR-01). NO ``await`` before step 4.
+      4. Register the live queue + cancel-event SYNCHRONOUSLY — BEFORE the status flip
+         (BUG-015 live-attach: the FE must never observe ``running`` without a live queue).
+      5. Flip ``failed→running`` + commit (existing status vocabulary — no new status).
+      6. Stamp the additive ``run_resuming`` marker (reuse the engine method — the
+         double-drive guard + workspace recovery; NOT a status).
+      7. Spawn ``_drive_user_resume`` + register the task (closes the mutex window).
+      8. Return 200 ``{"run_id": run_id}``.
+    """
+    from agents.execution_engine.engine import get_execution_engine
+
+    db = _get_db()
+    try:
+        # (1) Owner gate — cloned from ``create_revision`` (IDOR → 404, never 403).
+        wr = (
+            db.query(WorkflowRun)
+            .filter(WorkflowRun.id == run_id, WorkflowRun.user_id == current_user.id)
+            .first()
+        )
+        if wr is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run"
+            )
+
+        # (2) Eligibility — only failed runs are resumable.
+        if wr.status != "failed":
+            raise _reject(
+                "run_not_resumable",
+                f"Run is {wr.status!r}; only failed runs are resumable",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+
+        # (3) Overlap mutex — the authoritative liveness signal is the in-process
+        # registry (NOT the DB status). NO ``await`` between this check and the
+        # synchronous registration in step 4 (asyncio no-preemption ⇒ a concurrent
+        # double-POST resuming after step 4 sees the entry → 409).
+        if run_id in _PIPELINE_TASKS or run_id in _PIPELINE_QUEUES:
+            raise _reject(
+                "pipeline_already_running",
+                "Run is already live",
+                http_status=status.HTTP_409_CONFLICT,
+            )
+
+        # (4) Register queue + cancel-event SYNCHRONOUSLY, BEFORE the status flip
+        # (BUG-015 live-attach). ``_get_or_create_queue`` is idempotent.
+        _get_or_create_queue(run_id)
+        _CANCEL_EVENTS[run_id] = asyncio.Event()
+
+        # (5) Flip failed→running (existing status vocabulary; INV-12) + commit.
+        wr.status = "running"
+        db.commit()
+
+        # (6) Stamp the additive ``run_resuming`` marker (reuse the engine method —
+        # do NOT reimplement marker emission or workspace recovery).
+        await get_execution_engine()._stamp_resume_marker(wr)
+    finally:
+        db.close()
+
+    # (7) Spawn the thin drive wrapper + register the task (closes the mutex window
+    # opened at step 3). The armed-singleton hooks fire automatically inside resume_run.
+    task = asyncio.create_task(_drive_user_resume(run_id, user=current_user))
+    _PIPELINE_TASKS[run_id] = task
+
+    # (8) Return the standard command envelope.
+    return {"run_id": run_id}
+
+
+async def _drive_user_resume(run_id: str, *, user: User) -> None:
+    """The THIN drive wrapper the resume endpoint spawns (RESEARCH §Arm-Failure, PINNED).
+
+    Delegates 100% of drive to ``engine.resume_run`` (the SOLE drive path — the armed
+    singleton's live-layer hooks fire off ``self.*``, so NO callbacks are re-threaded here;
+    ``resume_run`` accepts none, and adding them would be dead code) and adds ONLY the two
+    status writes the resume tier structurally lacks: on success, reconcile the terminal
+    status from the durable tail; on any failure, flip back to ``failed`` (honest state —
+    never stuck ``running`` with no live task, T-50-06).
+
+    HARD FENCE (INV-12 / Pitfall 7): this body MUST NOT contain an
+    ``async for ... engine.execute(`` event ladder and MUST NOT clone
+    ``_drive_launch_to_queue``'s per-event accumulation. It is NOT a third driver.
+    """
+    from agents.execution_engine.engine import get_execution_engine
+
+    engine = get_execution_engine()
+    try:
+        await engine.resume_run(run_id)  # SOLE drive path — armed-singleton hooks fire.
+        await _reconcile_terminal_status(run_id)
+    except Exception as exc:  # noqa: BLE001 — any drive failure → honest state
+        logger.error(
+            "user-resume drive failed run=%s: %s", run_id, exc, exc_info=True
+        )
+        _flip_back_to_failed(run_id, str(exc))
+
+
+async def _reconcile_terminal_status(run_id: str) -> None:
+    """Persist the terminal ``WorkflowRun.status`` from the durable ``run_events`` tail.
+
+    The resume tier writes no status, so the app layer reconciles it here — reading the
+    run's OWNER-SCOPED durable tail (the SAME event→status decision the launch driver
+    applies at ``_drive_launch_to_queue:1470-1491``, but read from the durable tail rather
+    than a live stream): terminal ``pipeline_cancelled`` → ``cancelled``; a
+    ``pipeline_complete`` carrying ``status=="degraded"`` → ``degraded``; a clean
+    ``pipeline_complete`` with no ``pipeline_failed`` → ``completed``; anything else /
+    no clean terminal → ``failed`` (the D2 fail-safe). Best-effort: the offline harness /
+    a read error degrades to leaving the prior status (INV-3) — the arm-failure path owns
+    the honest-state guarantee, so a reconcile no-op never strands a genuinely-failed run.
+    """
+    from agents.authz import ScopedStore
+
+    # Resolve the owner principal for the owner-scoped tail read (never the nullable
+    # owner_id alone — mirror _stamp_resume_marker's principal resolution).
+    db = _get_db()
+    try:
+        wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        if wr is None:
+            return
+        owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
+    finally:
+        db.close()
+
+    try:
+        from agents.execution_engine.engine import get_execution_engine
+
+        engine = get_execution_engine()
+        workspace_id = await engine._recover_workspace_id(owner_id, run_id)
+        store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+        events = await store.read_events(run_id, after_seq=0)
+        cancelled = any(e.type == "pipeline_cancelled" for e in events)
+        failed = any(e.type == "pipeline_failed" for e in events)
+        completes = [e for e in events if e.type == "pipeline_complete"]
+        degraded = any(
+            isinstance(e.payload_json, dict)
+            and e.payload_json.get("status") == "degraded"
+            for e in completes
+        )
+        if cancelled:
+            new_status = "cancelled"
+        elif degraded:
+            new_status = "degraded"
+        elif completes and not failed:
+            new_status = "completed"
+        else:
+            new_status = "failed"
+    except Exception as exc:  # noqa: BLE001 — best-effort reconcile (offline degrade)
+        logger.warning("_reconcile_terminal_status(%s) failed: %s", run_id, exc)
+        return
+
+    _persist_resume_status(run_id, new_status)
+
+
+def _flip_back_to_failed(run_id: str, err: str) -> None:
+    """Flip a user-resumed run back to ``failed`` + record the error (T-50-06 honest
+    state — never left stuck ``running`` with no live task). The ``_persist_terminal_status``
+    idiom with ``new_status="failed"`` + ``wr.error``."""
+    _persist_resume_status(run_id, "failed", error=err)
+
+
+def _persist_resume_status(run_id: str, new_status: str, *, error: str | None = None) -> None:
+    """The shared terminal-status persist idiom (``_persist_terminal_status:1707``):
+    ``_get_db``/query/``.status=``/``completed_at``/commit/``finally close``. Best-effort —
+    a schemaless / offline session degrades without perturbing the drive (INV-3)."""
+    sdb = _get_db()
+    try:
+        swr = sdb.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        if swr:
+            swr.status = new_status
+            if error is not None:
+                swr.error = error
+            swr.completed_at = datetime.now(timezone.utc)
+            sdb.commit()
+    finally:
+        sdb.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
