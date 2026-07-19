@@ -29,13 +29,17 @@ strategies call it with.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, AsyncIterator
+from uuid import uuid4 as _uuid4
 
 from app.agents.sandbox import (
     RunSandbox,
+    _DELIVERABLE_EXCLUDE,
+    _collect_deliverable_relpaths,
     count_sandbox_deliverables as _count_sandbox_deliverables,
     serialize_sandbox_deliverable as _serialize_sandbox_deliverable,
 )
@@ -1328,7 +1332,45 @@ class KernelServices:
         the sandbox read AND the persisted artifact ``location`` so a non-prototype
         task_loop workflow dual-writes ITS OWN file (the prototype manifest declares
         ``prototype.html`` so the prototype dual-write is byte-identical).
+
+        RESUME-07 (Phase 46-02): the capture is now GENERIC — after the declared
+        deliverable (branch 1, byte-identical below), branch 2 walks the run sandbox
+        and durably captures EVERY OTHER changed file as a ``file_bundle`` row under
+        the SAME ``task_id``, so a resume can re-materialise a task's full on-disk
+        output (Q7), not just the single declared file. The walk reuses the
+        exclusion-proven ``_collect_deliverable_relpaths`` (excludes ``.uploads/`` +
+        ``PLANNER.md`` — the Phase-47/ND-10 fence, free) and dedups each sibling by
+        ``content_hash`` against the latest durable ref for that ``location``, so an
+        unchanged sibling (or a task that touched nothing new) writes nothing. Capture
+        is EVENT-FREE and best-effort: a walk/read/write failure must never break the
+        task. INV-12: this SUBSUMES the single writer in place — one seam, no second
+        capture writer.
+
+        INV-3 dormancy — sibling capture is DURABLE-STORE-ONLY (``store.write_ref``),
+        NOT a graph dual-write. Branch 1 (the declared file) still dual-writes graph +
+        store as before. Branch 2 deliberately does NOT touch the in-memory typed graph
+        (``ectx.artifacts``): ``_latest_typed_content(producer_agent)`` (engine.py:5509)
+        returns the MAX-``version`` ref for an agent ACROSS ALL KINDS, so adding a
+        sibling ``file_bundle`` under ``producer_agent=agent_id`` to the graph would
+        out-version the ``html_file`` and corrupt what the NEXT build task reads —
+        diverging the prototype/od_prototype goldens (the build loop writes spec.md /
+        design.md / tasks.md reference files into the sandbox, so a golden's sibling set
+        is NOT empty). Persisting siblings to the durable mirror only leaves every
+        in-memory read (context routing, ``_latest_typed_content``) byte-identical while
+        still giving Plan 46-03 re-materialisation a complete record (it reads
+        ``store.tree()``, not the in-memory graph). The store write is event-free and
+        best-effort — it degrades (logs) on the offline golden harness (no
+        ``workflow_runs`` FK row) exactly like every other durable write.
+
+        Reader interaction (documented, not changed): ``_surface_partial_fragments``
+        (engine.py:870) reads ``kind in ("file_bundle","fragment")`` off the in-memory
+        graph for the budget-abort partial payload — since siblings are store-only they
+        never enter that in-memory read, so there is no interaction there; on a RESUMED
+        run they arrive via ``_hydrate_artifacts_from_store`` (46-03) and would surface
+        as semantically-correct partial results (golden-dormant — goldens never resume
+        nor budget-abort).
         """
+        # ── Branch 1: the DECLARED deliverable — byte-identical (INV-3) ──────────
         task_html = self.sandbox.read(filename)
         if not task_html:
             return
@@ -1341,6 +1383,82 @@ class KernelServices:
             location=filename,
             task_id=str(task_num),
         )
+
+        # ── Branch 2: generic sibling capture (RESUME-07) — DURABLE-STORE-ONLY ───
+        # Best-effort: never let the capture break the task (mirror branch 1's guard
+        # discipline). The in-memory typed graph is intentionally NOT touched here (see
+        # the INV-3 dormancy note in the docstring) — this is a durable-mirror-only
+        # write via the run's owner-scoped ScopedStore.
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return
+        try:
+            relpaths = _collect_deliverable_relpaths(
+                self.sandbox.root, _DELIVERABLE_EXCLUDE
+            )
+        except Exception:  # noqa: BLE001 — a walk failure must not break the task
+            return
+        # Latest durable content_hash per location, for content-hash dedup (the
+        # fix-loop re-persist under the same task_id writes a NEW version only when the
+        # content actually changed — the Phase-45 distinct-id lesson; an unchanged
+        # sibling, or a task that touched nothing new, writes nothing → no runaway
+        # versions, T-46-02-03).
+        latest_hash_by_loc: dict[str, str] = {}
+        try:
+            for r in await store.tree(self._ectx.run_id):
+                loc = getattr(r, "location", None)
+                if loc is not None:
+                    latest_hash_by_loc[loc] = getattr(r, "content_hash", None)
+        except Exception:  # noqa: BLE001 — dedup is best-effort; degrade to no-dedup
+            latest_hash_by_loc = {}
+
+        from agents.artifacts.graph import ArtifactRef  # kernel-pure typed record
+
+        for relpath in relpaths:
+            if relpath == filename:
+                continue  # the declared file is already captured as html_file
+            try:
+                content = self.sandbox.read(relpath)
+            except Exception:  # noqa: BLE001
+                continue
+            if not content:
+                continue
+            new_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            if latest_hash_by_loc.get(relpath) == new_hash:
+                continue
+            try:
+                # DURABLE-ONLY write — force_db_version=True so the per-(run, kind)
+                # version is DB-authoritative (this write bypasses the shared
+                # in-memory ArtifactGraph counter, mirroring the clarify-path idiom).
+                await store.write_ref(
+                    ArtifactRef(
+                        id=str(_uuid4()),
+                        kind="file_bundle",
+                        owner_id=self._ectx.owner_id,
+                        workspace_id=getattr(self._ectx, "workspace_id", None) or "",
+                        run_id=self._ectx.run_id,
+                        producer_step=agent_id,
+                        producer_agent=agent_id,
+                        task_id=str(task_num),
+                        content=content,
+                        content_hash=new_hash,
+                        location=relpath,
+                        version=1,
+                    ),
+                    force_db_version=True,
+                )
+                latest_hash_by_loc[relpath] = new_hash
+            except Exception as exc:  # noqa: BLE001 — best-effort, never break the task
+                from sqlalchemy.exc import SQLAlchemyError
+
+                if not isinstance(exc, SQLAlchemyError):
+                    raise
+                logger.warning(
+                    "per-task sibling capture persist failed for run %s "
+                    "location %s (%s) — durable write degraded (offline harness / "
+                    "schema unavailable); task unaffected (RESUME-07 best-effort)",
+                    self._ectx.run_id, relpath, exc,
+                )
 
     # ── Internal: resolve the AgentSpec + its index for a compiled Step ───────
     def _spec_for(self, step: Any):
