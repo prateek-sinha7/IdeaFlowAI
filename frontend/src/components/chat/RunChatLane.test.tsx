@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ChatMessage } from "@/types/index";
@@ -855,6 +855,34 @@ describe("RunChatLane", () => {
       />,
     );
     expect(screen.queryByTestId("typing-indicator")).toBeNull();
+  });
+
+  it("the ASK TypingIndicator clears via a safety-net timeout when the reply never arrives (error path)", () => {
+    vi.useFakeTimers();
+    try {
+      const sendMessage = vi.fn(() => "mid-1");
+      render(<RunChatLane {...baseProps({ runState: "complete", sendMessage })} />);
+      fireEvent.change(screen.getByLabelText("Chat message input"), {
+        target: { value: "what's the status?" },
+      });
+      fireEvent.click(screen.getByTestId("chat-send"));
+      // The blocking reply is in flight → the thinking affordance shows.
+      expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
+      // NO assistant chat_reply ever arrives (Bedrock error / timeout / network).
+      // Before the safety window elapses the indicator is still up.
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
+      expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
+      // RED before the safety-net timeout exists: the indicator sticks forever.
+      // GREEN: past the ~45s window the flag is dropped and the spinner clears.
+      act(() => {
+        vi.advanceTimersByTime(20_000);
+      });
+      expect(screen.queryByTestId("typing-indicator")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("SC-001: the source carries no workflow-name literal", () => {

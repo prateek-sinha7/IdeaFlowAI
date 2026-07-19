@@ -237,6 +237,11 @@ const CHANGE_INTENT =
 const ASK_INTENT =
   /(^\s*(what|whats|what's|why|how|is|are|was|were|do|does|did|where|when|who|which|can|could|should|would|will)\b|\bstatus\b|\bexplain\b|\bprogress\b|\?\s*$)/i;
 
+// Safety-net window for the settled-run Concierge "reply pending" indicator.
+// Comfortably longer than a normal 2–8s reply so it only fires on a genuinely
+// failed / never-arriving reply (fire-and-forget send → no chat_reply to clear it).
+const REPLY_PENDING_TIMEOUT_MS = 45_000;
+
 function classifyFreeText(text: string): "ask" | "change" {
   const t = text.trim();
   if (CHANGE_INTENT.test(t)) return "change";
@@ -786,7 +791,9 @@ export function RunChatLane({
   // (its up-channel POST is fire-and-forget), so it is NOT thenable — the flag
   // is CLEARED by the transcript, not a promise: the instant an assistant turn
   // becomes the tail (the `chat_reply` rendered) the ChatPanel gate hides the
-  // indicator AND the effect below drops the flag (a stuck spinner is impossible).
+  // indicator AND the effect below drops the flag. The error path (no reply ever
+  // arrives) is covered by the safety-net timeout further below — so the spinner
+  // can never stick on ANY path.
   const [replyPending, setReplyPending] = useState(false);
 
   // Clear the pending flag once the awaited assistant reply lands as the tail.
@@ -805,6 +812,21 @@ export function RunChatLane({
   useEffect(() => {
     setReplyPending(false);
   }, [viewedRunId]);
+
+  // Safety net for the ERROR path: sendMessage is fire-and-forget/void, so if the
+  // Concierge POST fails / the reply never arrives (Bedrock error, the ~30s
+  // AbortController timeout, network), NO `chat_reply` ever renders → the tail
+  // stays the user turn and the two effects above never clear the flag → the
+  // "generating…" indicator would stick FOREVER (worse than none — it lies about
+  // ongoing activity). Drop the flag after a window comfortably longer than a
+  // normal 2–8s reply so it fires ONLY on a genuinely failed/never-arriving reply;
+  // a normal reply clears `replyPending` first, which unmounts this timer via
+  // cleanup before it can trip.
+  useEffect(() => {
+    if (!replyPending) return;
+    const timer = setTimeout(() => setReplyPending(false), REPLY_PENDING_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [replyPending]);
 
   // Free-text send routes through the transport-agnostic sendMessage. On a
   // SETTLED run (complete) the turn is CLASSIFIED (43-02, the A.1 CRUX): an ASK
