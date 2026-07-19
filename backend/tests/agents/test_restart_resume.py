@@ -1298,7 +1298,9 @@ async def test_task_loop_skips_completed_tasks_on_resume_cursor():
     """
     from types import SimpleNamespace
 
+    from agents.capabilities import task_identity
     from agents.capabilities.strategies.task_loop import TaskLoopStrategy
+    from agents.capabilities.task_parsers.heading_tasks import HeadingTasksParser
     from agents.workflows.plan import Step, TaskSource
     from tests.agents.test_strategies import _FakeRunner, _FakeSandbox
 
@@ -1308,10 +1310,21 @@ async def test_task_loop_skips_completed_tasks_on_resume_cursor():
         typed_content={"prototype-plan": _THREE_TASK_PLAN},
         sandbox=sandbox,
     )
+    # RESUME-14: the cursor now carries content-addressed task_keys (not positions).
+    # Compute the SAME keys the strategy will (heading parse + "u-fake" upstream, the
+    # _FakeRunner.upstream_context_hash value) and mark tasks 1+2 completed.
+    _tasks = HeadingTasksParser().parse(_THREE_TASK_PLAN)
+    _ords = task_identity.occurrence_ordinals(_tasks)
+    _keys = [
+        task_identity.compute_task_key(
+            "u-fake", task_identity.normalize_task_content(t), _ords[i]
+        )
+        for i, t in enumerate(_tasks)
+    ]
     # KERNEL-stamped cursor: tasks 1+2 of the build step already completed pre-crash.
     ctx = SimpleNamespace(
         runner=runner,
-        resume_completed_task_ids={"prototype-build": {"1", "2"}},
+        resume_completed_task_ids={"prototype-build": {_keys[0], _keys[1]}},
     )
     step = Step(
         agent_id="prototype-build",
@@ -1350,6 +1363,10 @@ class _WorkerCursorFakeRunner:
     def latest_typed_content(self, _step):
         return ""
 
+    def upstream_context_hash(self, _step):
+        # RESUME-14: fixed per-step upstream digest for deterministic wave task_keys.
+        return "u-fake"
+
     async def read_wave_runs(self):
         return [_FakeWaveRow(self.this_step, 0, "running")]
 
@@ -1383,14 +1400,13 @@ async def test_wave_scheduler_skips_completed_workers_on_resume_cursor():
     is the CR-03-followup — identity-based, NOT the deleted prefix-by-count skip. On HEAD
     the whole wave re-runs (all 3 dispatched) → RED.
     """
+    from agents.capabilities import task_identity
     from agents.capabilities.strategies.wave_scheduler import WaveSchedulerStrategy
     from agents.workflows.plan import Task
 
     strat = WaveSchedulerStrategy()
     runner = _WorkerCursorFakeRunner("wstep")
     ctx = _Ctx(runner, is_resuming=True)
-    # KERNEL-stamped cursor: worker tb of this wave step already completed pre-crash.
-    ctx.resume_completed_task_ids = {"wstep": {"tb"}}
     step = _Step("wstep")
 
     # Three disjoint tasks (no deps) → a SINGLE wave [ta, tb, tc].
@@ -1399,6 +1415,18 @@ async def test_wave_scheduler_skips_completed_workers_on_resume_cursor():
         Task(id="tb", title="B", body="b", targets=["b.txt"]),
         Task(id="tc", title="C", body="c", targets=["c.txt"]),
     ]
+
+    # RESUME-14: the request task_id + skip are now content-addressed KEYS wrapping the
+    # author id. Compute the SAME keys the strategy will ("u-fake" upstream from the fake;
+    # all-distinct content → ordinals 0). The DAG/dup-guard still key on author t.id.
+    def _key(t):
+        return task_identity.compute_task_key(
+            "u-fake", task_identity.normalize_task_content(t), 0
+        )
+
+    key_ta, key_tb, key_tc = _key(tasks[0]), _key(tasks[1]), _key(tasks[2])
+    # KERNEL-stamped cursor: worker tb of this wave step already completed pre-crash.
+    ctx.resume_completed_task_ids = {"wstep": {key_tb}}
 
     class _FakeParser:
         def parse(self, _text):
@@ -1411,15 +1439,16 @@ async def test_wave_scheduler_skips_completed_workers_on_resume_cursor():
 
     assert runner.fanned_requests, "the in-flight wave was not dispatched at all"
     dispatched = set(runner.fanned_requests[0])
-    assert "tb" not in dispatched, (
-        "the completed worker 'tb' was RE-DISPATCHED — per-worker skip failed "
+    assert key_tb not in dispatched, (
+        "the completed worker 'tb' (by key) was RE-DISPATCHED — per-worker skip failed "
         f"(dispatched {sorted(dispatched)})"
     )
-    assert dispatched == {"ta", "tc"}, (
-        "the in-flight wave must re-run ONLY the incomplete workers ta+tc "
-        f"(identity-based skip); got {sorted(dispatched)}"
+    assert dispatched == {key_ta, key_tc}, (
+        "the in-flight wave must re-run ONLY the incomplete workers ta+tc, keyed "
+        f"content-addressed (identity-based skip); got {sorted(dispatched)}"
     )
-    # The wave_runs row's task_ids are filtered to the re-run set too.
+    # The wave_runs row's task_ids stay AUTHOR ids (they feed the wave events; only the
+    # request/subagent_runs task_id becomes the key) — the completed worker is excluded.
     assert runner.recorded, "no wave_run was recorded for the in-flight wave"
     assert set(runner.recorded[0][2]) == {"ta", "tc"}, (
         f"the wave_runs task_ids must exclude the completed worker; got {runner.recorded[0][2]}"
@@ -1443,6 +1472,7 @@ async def test_kernel_computes_resume_completed_task_ids_cursor():
     import types
 
     from agents.authz import ScopedStore
+    from agents.capabilities import task_identity
     from agents.execution_engine.context import ExecutionContext
     from agents.execution_engine.engine import ExecutionEngine
     from agents.workflows.plan import Step, TaskSource
@@ -1454,20 +1484,30 @@ async def test_kernel_computes_resume_completed_task_ids_cursor():
     _seed_workflow_run(session, run_id, owner=owner, status="generating")
     store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
 
-    # task_loop step "build": task 1 persisted TWICE (fix-loop re-persist, same task_id)
-    # + task 2 once → distinct done {"1","2"}. Task 3 never persisted.
+    # RESUME-14: the durable rows now carry content-addressed task_keys in the task_id
+    # slot (the write-path switch). The cursor is IDENTITY-AGNOSTIC — it dedups + filters
+    # by whatever identity is stamped and returns it verbatim. Seed real keys and assert
+    # the cursor returns them (the core RESUME-14 contract).
+    k1 = task_identity.compute_task_key("u", "task-one", 0)
+    k2 = task_identity.compute_task_key("u", "task-two", 0)
+    kA = task_identity.compute_task_key("u", "worker-a", 0)
+    kB = task_identity.compute_task_key("u", "worker-b", 0)
+    kC = task_identity.compute_task_key("u", "worker-c", 0)
+
+    # task_loop step "build": task-key k1 persisted TWICE (fix-loop re-persist, same key)
+    # + k2 once → distinct done {k1,k2}. A third task-key never persisted.
     await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
                     location="prototype.html", content="t1-v1", version=1,
-                    producer_agent="build", task_id="1")
+                    producer_agent="build", task_id=k1)
     await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
                     location="prototype.html", content="t1-v2", version=2,
-                    producer_agent="build", task_id="1")
+                    producer_agent="build", task_id=k1)
     await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
                     location="prototype.html", content="t2-v1", version=3,
-                    producer_agent="build", task_id="2")
+                    producer_agent="build", task_id=k2)
 
-    # wave step "wave": worker wa+wc complete, wb still running → completed {"wa","wc"}.
-    for tid, status in (("wa", "complete"), ("wb", "running"), ("wc", "complete")):
+    # wave step "wave": worker kA+kC complete, kB still running → completed {kA,kC}.
+    for tid, status in ((kA, "complete"), (kB, "running"), (kC, "complete")):
         await store.record_subagent_run(
             run_id, parent_step="wave", worker_agent="w", depth=1,
             isolation="shared_read", status=status, worker_index=0, task_id=tid,
@@ -1497,12 +1537,13 @@ async def test_kernel_computes_resume_completed_task_ids_cursor():
         ectx, ordered_agents, compiled
     )
 
-    assert cursor.get("build") == {"1", "2"}, (
-        f"task_loop completed set must dedup the fix-loop re-persist; got {cursor.get('build')}"
+    assert cursor.get("build") == {k1, k2}, (
+        "task_loop completed set must dedup the fix-loop re-persist AND return the "
+        f"content-addressed keys (not positions); got {cursor.get('build')}"
     )
-    assert cursor.get("wave") == {"wa", "wc"}, (
-        "wave completed set must include only status=='complete' workers, keyed on "
-        f"task_id; got {cursor.get('wave')}"
+    assert cursor.get("wave") == {kA, kC}, (
+        "wave completed set must include only status=='complete' workers, keyed on the "
+        f"content-addressed task_key; got {cursor.get('wave')}"
     )
     session.close()
 

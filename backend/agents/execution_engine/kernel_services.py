@@ -1330,9 +1330,23 @@ class KernelServices:
 
     # ── Post-task typed dual-write (keeps _latest_typed_content current) ───────
     async def persist_task_html(
-        self, task_num: int, agent_id: str = "prototype-build", *, filename: str
+        self,
+        task_num: int,
+        agent_id: str = "prototype-build",
+        *,
+        filename: str,
+        task_key: str | None = None,
     ) -> None:
         """Typed-write the post-task deliverable as a new ref version (ART-03).
+
+        RESUME-14: ``task_key`` is the content-addressed identity the strategy threads
+        in — it is written into BOTH the declared-file (``html_file``) and the sibling
+        (``file_bundle``) ``task_id`` slots so the resume cursor + reconciler key on a
+        stable, upstream-namespaced, duplicate-safe identity instead of a raw position.
+        When absent (a direct-seam unit caller that does not compute keys) it FALLS BACK
+        to the legacy positional ``str(task_num)`` — byte-identical to pre-RESUME-14 —
+        so the capture-seam unit contract stays unchanged. A 64-char key can never
+        collide with a positional id, so the two coexist (backward-compat fail-safe).
 
         Mirrors the legacy build loop's per-task dual-write so the NEXT task's
         prompt skeleton reads the most recent content via ``_latest_typed_content``.
@@ -1381,6 +1395,10 @@ class KernelServices:
         as semantically-correct partial results (golden-dormant — goldens never resume
         nor budget-abort).
         """
+        # RESUME-14: the content-addressed key stamps the task_id slot; a direct-seam
+        # caller that passes no key falls back to the legacy positional id (byte-identical).
+        _effective_task_id = task_key if task_key is not None else str(task_num)
+
         # ── Branch 1: the DECLARED deliverable — byte-identical (INV-3) ──────────
         task_html = self.sandbox.read(filename)
         if not task_html:
@@ -1392,7 +1410,7 @@ class KernelServices:
             content=task_html,
             kind="html_file",
             location=filename,
-            task_id=str(task_num),
+            task_id=_effective_task_id,
         )
 
         # ── Branch 2: generic sibling capture (RESUME-07) — DURABLE-STORE-ONLY ───
@@ -1450,7 +1468,7 @@ class KernelServices:
                         run_id=self._ectx.run_id,
                         producer_step=agent_id,
                         producer_agent=agent_id,
-                        task_id=str(task_num),
+                        task_id=_effective_task_id,
                         content=content,
                         content_hash=new_hash,
                         location=relpath,

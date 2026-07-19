@@ -347,12 +347,15 @@ async def test_record_subagent_run_threads_worker_index_and_task_id(db_session):
 
 @pytest.mark.asyncio
 async def test_wave_requests_carry_task_id():
-    """RESUME-06: ``wave_scheduler`` builds each ``run_fanout`` request carrying
-    ``task_id=t.id`` (the plan-global id) so each spawned ``subagent_runs`` row can
-    be stamped with the skip-cursor key.
+    """RESUME-06/RESUME-14: ``wave_scheduler`` builds each ``run_fanout`` request carrying
+    ``task_id`` = the content-addressed KEY wrapping the author id, so each spawned
+    ``subagent_runs`` row is stamped with the skip-cursor key. The key still lines up
+    one-to-one with the worker's body (identity ↔ input preserved); the DAG/dup-guard
+    keep operating on the author ``t.id``.
 
-    RED on HEAD: ``wave_scheduler.py:245`` builds ``{"agent","input"}`` only.
+    RED on HEAD: ``wave_scheduler.py:245`` built ``{"agent","input"}`` only.
     """
+    from agents.capabilities import task_identity
     from agents.capabilities.strategies.wave_scheduler import WaveSchedulerStrategy
     from agents.workflows.plan import Task
 
@@ -411,11 +414,20 @@ async def test_wave_requests_carry_task_id():
     assert all("task_id" in r for r in all_reqs), (
         f"a wave request is missing task_id: {all_reqs}"
     )
-    assert {r["task_id"] for r in all_reqs} == {"ta", "tb"}
-    # The plan-global id lines up with the worker's input body (t.id ↔ t.body).
+    # RESUME-14: the request task_id is the content-addressed key (this fake exposes no
+    # upstream_context_hash handle → the strategy folds an empty upstream; all-distinct
+    # content → ordinals 0). The key wraps the author id.
+    key_ta = task_identity.compute_task_key(
+        "", task_identity.normalize_task_content(tasks[0]), 0
+    )
+    key_tb = task_identity.compute_task_key(
+        "", task_identity.normalize_task_content(tasks[1]), 0
+    )
+    assert {r["task_id"] for r in all_reqs} == {key_ta, key_tb}
+    # The content-addressed key lines up one-to-one with the worker's input body.
     assert {(r["task_id"], r["input"]) for r in all_reqs} == {
-        ("ta", "body-ta"),
-        ("tb", "body-tb"),
+        (key_ta, "body-ta"),
+        (key_tb, "body-tb"),
     }
 
 

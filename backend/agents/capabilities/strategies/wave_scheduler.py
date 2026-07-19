@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator
 
+from agents.capabilities import task_identity
 from agents.capabilities.registry import CapabilityRegistry, register
 from agents.workflows.plan import Task
 
@@ -192,7 +193,24 @@ class WaveSchedulerStrategy:
             return
 
         # ── Partition into deterministic waves (raises pre-spawn on cycle/unknown ref) ─
+        # Pitfall 7: build_waves / depends_on / the duplicate-id guard keep reading the
+        # AUTHOR ``t.id`` — the content-addressed key only WRAPS it downstream.
         waves = build_waves(tasks)
+
+        # ── RESUME-14: content-addressed key per author id (computed ONCE after parse) ──
+        # key = sha256(upstream_context_hash · normalized_content · occurrence_ordinal).
+        # The key WRAPS (namespaces) the author id — it stamps the request/subagent_runs
+        # ``task_id`` slot and drives the per-worker resume skip, so a reorder/edit/dup/
+        # upstream-rotate is handled while ``build_waves``/DAG/dup-guard stay on ``t.id``.
+        _uhash_fn = getattr(runner, "upstream_context_hash", None)
+        _upstream_hash = _uhash_fn(step) if callable(_uhash_fn) else ""
+        _ordinals = task_identity.occurrence_ordinals(tasks)
+        _key_by_id = {
+            t.id: task_identity.compute_task_key(
+                _upstream_hash, task_identity.normalize_task_content(t), _ordinals[i]
+            )
+            for i, t in enumerate(tasks)
+        }
 
         # ── MID-WAVE resume skip-check (12-03 / WAVE-03, D-07; CR-03/CR-04/WR-01) ──
         # On a durable IN-PROCESS RESUME (``ctx.is_resuming``) the strategy consults the
@@ -260,14 +278,21 @@ class WaveSchedulerStrategy:
             # 46-03 re-materialization) and is NOT re-invoked. Identity-based (by
             # ``task_id``), NOT the deleted prefix-by-count skip. Dormant on a normal
             # run (empty set ⇒ the whole wave runs, byte/event-identical).
+            # RESUME-14: the completed set carries content-addressed KEYS (from
+            # subagent_runs.task_id, now the key) — compare the wrapped key, not the
+            # raw author id.
             wave_tasks = [
-                t for t in wave if str(t.id) not in _completed_worker_task_ids
+                t for t in wave if _key_by_id[t.id] not in _completed_worker_task_ids
             ]
+            # AUTHOR ids feed the wave_runs row + the wave_started/completed/failed event
+            # payloads — UNCHANGED (byte/event-neutral goldens; the key is durable-only).
             task_ids = [t.id for t in wave_tasks]
-            # RESUME-06: carry each task's plan-global id on its request so the spawned
-            # subagent_runs row is stamped with the skip-cursor key at SPAWN.
+            # RESUME-06/RESUME-14: carry each task's content-addressed KEY on its request
+            # so the spawned subagent_runs row is stamped with the skip-cursor key at SPAWN
+            # (fanout.py:388 threads request task_id → subagent_runs.task_id).
             requests = [
-                {"agent": "self", "input": t.body, "task_id": t.id} for t in wave_tasks
+                {"agent": "self", "input": t.body, "task_id": _key_by_id[t.id]}
+                for t in wave_tasks
             ]
 
             # WR-01: on resume, before recording the re-entry row, flip any STALE

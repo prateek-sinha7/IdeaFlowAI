@@ -72,6 +72,7 @@ import logging
 import time
 from typing import Any, AsyncIterator
 
+from agents.capabilities import task_identity
 from agents.capabilities.registry import CapabilityRegistry, register
 from agents.capabilities.task_parsers.heading_tasks import _count_plan_tasks
 
@@ -225,6 +226,28 @@ class TaskLoopStrategy:
 
         logger.info("task_loop: %d tasks for pipeline=%s", total_tasks, run_id)
 
+        # ── RESUME-14: content-addressed per-task keys (computed ONCE after parse) ──
+        # task_key = sha256(upstream_context_hash · normalized_content · occurrence_ordinal).
+        # The upstream hash is PER-STEP (identical for every task) so it is fetched once
+        # via the runner handle (the ONE engine home, INV-12); a fake/old handle lacking
+        # it degrades to "" (keys still deterministic within the run). These keys stamp
+        # the durable ``task_id`` slot (persist_task_html) AND drive the resume skip below,
+        # replacing the raw position — reorder/insert/duplicate/upstream-rotate safe.
+        _uhash_fn = getattr(runner, "upstream_context_hash", None)
+        _upstream_hash = _uhash_fn(step) if callable(_uhash_fn) else ""
+        if tasks:
+            _ordinals = task_identity.occurrence_ordinals(tasks)
+            _task_keys = [
+                task_identity.compute_task_key(
+                    _upstream_hash, task_identity.normalize_task_content(t), _ordinals[i]
+                )
+                for i, t in enumerate(tasks)
+            ]
+        else:
+            # No tasks parsed → a single fallback pass; synthesize one key over the
+            # empty task content (still a stable 64-char key, never a position).
+            _task_keys = [task_identity.compute_task_key(_upstream_hash, "", 0)]
+
         # Resolve the task-2+ compaction by NAME (D-02). The html_skeleton impl
         # lands in a later plan; resolve-by-name now, skip the call when no impl
         # is bound (the call site routes through resolve regardless).
@@ -248,11 +271,13 @@ class TaskLoopStrategy:
                 logger.info("task_loop: cancelled at task %d", task_num)
                 break
 
-            # RESUME-09: a task already completed before the crash is NOT re-invoked
-            # (its deliverable is on disk from re-materialization). Skip the run_agent
-            # dispatch + persist + fix-loop for it; identity-based (str(task_num) in the
-            # kernel set), never a prefix-by-count skip. Dormant on a normal run.
-            if _completed_task_nums and str(task_num) in _completed_task_nums:
+            # RESUME-09/RESUME-14: a task already completed before the crash is NOT
+            # re-invoked (its deliverable is on disk from re-materialization). Skip the
+            # run_agent dispatch + persist + fix-loop for it; identity-based on the
+            # content-addressed ``task_key`` (the kernel set now carries keys, matching
+            # what persist_task_html stamps), never a prefix-by-count skip. Dormant on a
+            # normal run. (48-02 refines this to the cumulative common-prefix rule.)
+            if _completed_task_nums and _task_keys[task_num - 1] in _completed_task_nums:
                 logger.info(
                     "task_loop: skipping already-completed task %d on resume", task_num
                 )
@@ -315,7 +340,10 @@ class TaskLoopStrategy:
             # loop's per-task dual-write (no event emitted; INV-3 parity).
             if hasattr(runner, "persist_task_html"):
                 await runner.persist_task_html(
-                    task_num, agent_id=agent_id, filename=filename
+                    task_num,
+                    agent_id=agent_id,
+                    filename=filename,
+                    task_key=_task_keys[task_num - 1],
                 )
 
             # WR-05 (07-09): snapshot the on-disk deliverable BEFORE the fix-loop so we
@@ -385,7 +413,10 @@ class TaskLoopStrategy:
                     post_fix_html = ""
                 if post_fix_html and post_fix_html != pre_fix_html:
                     await runner.persist_task_html(
-                        task_num, agent_id=agent_id, filename=filename
+                        task_num,
+                        agent_id=agent_id,
+                        filename=filename,
+                        task_key=_task_keys[task_num - 1],
                     )
 
         logger.info("task_loop: finished %d tasks for pipeline=%s", total_tasks, run_id)

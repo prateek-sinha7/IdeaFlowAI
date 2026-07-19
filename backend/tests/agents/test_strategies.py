@@ -237,7 +237,15 @@ class _FakeRunner:
     def latest_typed_content(self, producer_step):
         return self._typed.get(producer_step)
 
-    async def persist_task_html(self, task_num, agent_id="prototype-build", *, filename="prototype.html"):
+    def upstream_context_hash(self, step):
+        # RESUME-14: a fixed per-step upstream digest so the strategy's task_key
+        # computation is deterministic in unit tests (the real handle digests the
+        # consumed upstream content_hashes).
+        return "u-fake"
+
+    async def persist_task_html(
+        self, task_num, agent_id="prototype-build", *, filename="prototype.html", task_key=None
+    ):
         """Typed dual-write — record the call + mirror the on-disk content into the typed
         graph (so latest_typed_content(agent_id) reflects the persisted content).
 
@@ -246,7 +254,7 @@ class _FakeRunner:
         """
         self.persist_filenames.append(filename)
         html = self.sandbox.read(filename)
-        self.persist_calls.append({"task_num": task_num, "html": html})
+        self.persist_calls.append({"task_num": task_num, "html": html, "task_key": task_key})
         if html:
             self._typed[agent_id] = html
 
