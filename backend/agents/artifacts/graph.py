@@ -66,6 +66,12 @@ ARTIFACT_KINDS: frozenset[str] = frozenset(
         "deliverable",
         "clarifications",
         "planning_context",
+        # Phase 47 (RESUME-12): the durable mirror of an uploaded document's
+        # extracted-text sidecars + manifest snapshot, so a resumed run on a
+        # wiped sandbox keeps its uploaded-document context. One kind for BOTH
+        # sidecars and manifest, discriminated by ``location``. Additive — no
+        # migration (the ``artifact_refs.kind`` column is a free String).
+        "upload_text",
     }
 )
 

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -469,6 +470,171 @@ class TestDeliverableExclusion:
         assert after == before
         assert ".uploads" not in after
         assert "doc.txt" not in after
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# RESUME-12 — durable dual-write of upload_text rows at ingest (Task 1)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _upload_text_rows(env, run_id) -> list[SimpleNamespace]:
+    """Snapshot every ``kind='upload_text'`` artifact_refs row for ``run_id``
+    (ordered by version ASC), detached from the session so assertions can run
+    after the session closes."""
+    from app.models.artifact_ref import ArtifactRef as ArtifactRefRow
+
+    db = env["Session"]()
+    try:
+        rows = (
+            db.query(ArtifactRefRow)
+            .filter(
+                ArtifactRefRow.run_id == run_id,
+                ArtifactRefRow.kind == "upload_text",
+            )
+            .order_by(ArtifactRefRow.version.asc())
+            .all()
+        )
+        return [
+            SimpleNamespace(
+                kind=r.kind,
+                location=r.location,
+                content=r.content,
+                content_hash=r.content_hash,
+                producer_step=r.producer_step,
+                producer_agent=r.producer_agent,
+                task_id=r.task_id,
+                owner_id=r.owner_id,
+                workspace_id=r.workspace_id,
+                version=r.version,
+            )
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+def _all_artifact_rows(env, run_id) -> list:
+    from app.models.artifact_ref import ArtifactRef as ArtifactRefRow
+
+    db = env["Session"]()
+    try:
+        return db.query(ArtifactRefRow).filter(ArtifactRefRow.run_id == run_id).all()
+    finally:
+        db.close()
+
+
+class TestDurableUploadMirror:
+    def test_upload_writes_durable_upload_text_rows(self, env, monkeypatch):
+        """An extractable doc dual-writes exactly one sidecar row + one manifest
+        row as owner+workspace-scoped ``upload_text`` artifact_refs — content
+        byte-matching the disk sidecar/manifest, generic labels, task_id None."""
+        import hashlib
+
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)  # workspace_id defaults to "ws-1"
+        env["state"]["user"] = user
+        monkeypatch.setattr(env["rf"], "extract_upload_text",
+                            lambda name, data: "EXTRACTED DOC TEXT")
+        resp = _post(env, run_id,
+                     [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))])
+        assert resp.status_code == 200, resp.text
+
+        sb = _sandbox(env, user.id, run_id)
+        disk_sidecar = sb.path_for(".uploads/report.pdf.txt").read_text(encoding="utf-8")
+        disk_manifest = sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8")
+
+        rows = _upload_text_rows(env, run_id)
+        by_loc = {r.location: r for r in rows}
+        assert set(by_loc) == {".uploads/report.pdf.txt", ".uploads/manifest.json"}
+        assert len(rows) == 2  # exactly one sidecar + one manifest
+
+        sidecar = by_loc[".uploads/report.pdf.txt"]
+        assert sidecar.content == disk_sidecar == "EXTRACTED DOC TEXT"
+        assert sidecar.content_hash == hashlib.sha256(
+            sidecar.content.encode("utf-8")
+        ).hexdigest()
+
+        manifest = by_loc[".uploads/manifest.json"]
+        assert manifest.content == disk_manifest  # exact str .encode()'d to disk
+
+        for r in rows:
+            assert r.kind == "upload_text"
+            assert r.producer_step == "upload"
+            assert r.producer_agent == "upload"
+            assert r.task_id is None
+            assert r.owner_id == user.id
+            assert r.workspace_id == "ws-1"
+
+    def test_text_less_upload_writes_manifest_row_only(self, env):
+        """A text-less upload (has_text=False) writes the manifest snapshot row
+        ONLY — no sidecar row (nothing to mirror)."""
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        env["state"]["user"] = user
+        resp = _post(env, run_id,
+                     [("files", ("notes.txt", b"plain notes", "text/plain"))])
+        assert resp.status_code == 200
+
+        rows = _upload_text_rows(env, run_id)
+        locs = {r.location for r in rows}
+        assert locs == {".uploads/manifest.json"}  # manifest only, no sidecar
+
+    def test_durable_mirror_best_effort_degrades_on_db_error(self, env, monkeypatch, caplog):
+        """A ``SQLAlchemyError`` on the durable write degrades best-effort: the
+        upload STILL returns 200 with its normal body AND emits a loud warning;
+        no exception escapes."""
+        import logging
+
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from agents.authz import ScopedStore
+
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        env["state"]["user"] = user
+        monkeypatch.setattr(env["rf"], "extract_upload_text",
+                            lambda name, data: "EXTRACTED DOC TEXT")
+
+        async def _boom(self, ref, *, force_db_version=False):
+            raise SQLAlchemyError("db down")
+
+        monkeypatch.setattr(ScopedStore, "write_ref", _boom)
+
+        with caplog.at_level(logging.WARNING, logger="app.api.run_files"):
+            resp = _post(env, run_id,
+                         [("files", ("report.pdf", b"%PDF-bytes", "application/pdf"))])
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["run_id"] == run_id
+        assert body["files"][0]["name"] == "report.pdf"
+        assert any(
+            rec.levelno == logging.WARNING and "upload_text" in rec.getMessage()
+            for rec in caplog.records
+        ), "expected a loud upload_text durable-mirror warning"
+
+    def test_image_upload_writes_no_artifact_ref(self, env):
+        """A 415-rejected image writes ZERO artifact_refs (caps run before any
+        durable write)."""
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        env["state"]["user"] = user
+        resp = _post(env, run_id,
+                     [("files", ("pic.png", b"\x89PNG", "image/png"))])
+        assert resp.status_code == 415
+        assert _all_artifact_rows(env, run_id) == []
+
+    def test_over_cap_upload_writes_no_artifact_ref(self, env, monkeypatch):
+        """A 413-rejected over-cap upload writes ZERO artifact_refs."""
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        env["state"]["user"] = user
+        monkeypatch.setattr(env["rf"], "extract_upload_text",
+                            lambda name, data: "EXTRACTED DOC TEXT")
+        monkeypatch.setattr(env["rf"], "_MAX_FILE_BYTES", 4)
+        resp = _post(env, run_id,
+                     [("files", ("big.pdf", b"way too big", "application/pdf"))])
+        assert resp.status_code == 413
+        assert _all_artifact_rows(env, run_id) == []
 
 
 # ════════════════════════════════════════════════════════════════════════════

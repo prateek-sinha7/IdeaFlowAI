@@ -38,9 +38,11 @@ Additive: no new table, no migration (the sandbox + reserved prefix cover it).
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import logging
 import os
+import uuid
 from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
@@ -230,6 +232,9 @@ async def upload_files(
         # overwrites a prior one either (WR-01) — every stored file keeps a distinct name.
         used_names: set[str] = set(manifest)
         results: list[dict] = []
+        # (location, content) contributions for the RESUME-12 durable mirror —
+        # accumulated as we write disk, flushed durably after the manifest write.
+        durable_contribs: list[tuple[str, str]] = []
 
         for name, data, ext, mime in validated:
             safe = _dedupe_segment(
@@ -250,6 +255,8 @@ async def upload_files(
                     _write_bytes(sandbox, f"{raw_rel}.txt", capped.encode("utf-8"))
                     extracted_chars = len(capped)
                     has_text = True
+                    # Mirror the EXACT sidecar str (not bytes) durably (RESUME-12).
+                    durable_contribs.append((f"{raw_rel}.txt", capped))
 
             # manifest append-merge (keyed on the safe on-disk name — the stable
             # contract 30-02's provider reads).
@@ -263,11 +270,57 @@ async def upload_files(
                 }
             )
 
-        _write_bytes(
-            sandbox,
-            manifest_rel,
-            json.dumps(list(manifest.values()), ensure_ascii=False).encode("utf-8"),
-        )
+        # Compute the manifest JSON ONCE so the disk bytes and the durable row
+        # content are byte-identical (the provider's byte-equivalence target).
+        manifest_json = json.dumps(list(manifest.values()), ensure_ascii=False)
+        _write_bytes(sandbox, manifest_rel, manifest_json.encode("utf-8"))
+        durable_contribs.append((manifest_rel, manifest_json))
+
+        # ── RESUME-12: durable dual-write of the upload_text mirror ──────────────
+        # Best-effort mirror of each extracted-text sidecar + the manifest snapshot
+        # as owner+workspace-scoped, immutable ``artifact_refs`` rows, so a resumed
+        # run on a WIPED sandbox keeps its uploaded-document context. Rows are
+        # written ONLY from the already-owner-checked Layer-2 ``store`` values
+        # (current_user.id / wr_workspace) — NEVER a client payload. Generic
+        # labels (``upload_text`` / ``upload``), ``task_id=None`` (SC-001/INV-1).
+        # ``force_db_version=True``: the endpoint has no shared in-memory
+        # ArtifactGraph, so the DB COUNT(*) WHERE (run_id, kind)+1 is the
+        # authoritative monotonic version (the 46-02 idiom). A DB hiccup must not
+        # fail an otherwise-valid upload — catch ONLY SQLAlchemyError (loud warning
+        # + continue), re-raise everything else (no blanket swallow). The caps ran
+        # up-front, so a rejected upload never reaches this block.
+        from agents.artifacts.graph import ArtifactRef
+
+        try:
+            for location, content in durable_contribs:
+                await store.write_ref(
+                    ArtifactRef(
+                        id=str(uuid.uuid4()),
+                        kind="upload_text",
+                        owner_id=current_user.id,
+                        workspace_id=wr_workspace,
+                        run_id=run_id,
+                        producer_step="upload",
+                        producer_agent="upload",
+                        task_id=None,
+                        content=content,
+                        content_hash=hashlib.sha256(
+                            content.encode("utf-8")
+                        ).hexdigest(),
+                        location=location,
+                        version=1,  # ignored — force_db_version recomputes
+                    ),
+                    force_db_version=True,
+                )
+        except Exception as exc:  # noqa: BLE001 — best-effort mirror, never fail the upload
+            from sqlalchemy.exc import SQLAlchemyError
+
+            if not isinstance(exc, SQLAlchemyError):
+                raise
+            logger.warning(
+                "upload_text durable mirror failed for run %s (%s) — DB write degraded",
+                run_id, exc,
+            )
 
     logger.info(
         "run upload: user=%s run=%s files=%d aggregate_bytes=%d",
