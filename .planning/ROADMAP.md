@@ -1336,7 +1336,10 @@ Plans:
   4. Status transition failed→running (or an additive `run_resuming`-style EVENT per INV-12 preference) so FE `AUTO_STREAM_STATUSES` auto-attaches; live-layer callbacks threaded (the Phase-46 RESUME-10 mechanism) so the reopened run has steering/Concierge/cards.
   5. End-to-end proof: fail a run mid-build → `POST /resume` → completed tasks skipped, deliverable completed, family/history coherent; consolidated milestone-end live-Bedrock pass covers the full ladder (per the defer-live-verification convention, offline gates bind phase completion).
 
-**Plans**: TBD (via /gsd-plan-phase 50)
+**Plans**: 1 plan, 2 tasks, 1 wave (via /gsd-plan-phase 50)
+
+Plans:
+- [ ] 50-01-PLAN.md — POST /api/runs/{id}/resume (endpoint + thin _drive_user_resume wrapper + guards) + failed→resume E2E & gate-at-failure battery
 
 ### v3.0 Progress
 
@@ -1347,4 +1350,4 @@ Plans:
 | 47. Uploads Durability [R2] | 1/1 | Complete   | 2026-07-19 |
 | 48. Task Identity & Mutable List [R3] | 3/3 | Complete   | 2026-07-19 |
 | 49. Gate Resume Across Restart [R4] | 3/3 | Complete   | 2026-07-19 |
-| 50. User Resume-From-Failed [R5] | 0/? | Not started | — |
+| 50. User Resume-From-Failed [R5] | 0/1 | Planned     | — |
