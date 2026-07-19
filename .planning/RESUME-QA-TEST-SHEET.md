@@ -239,3 +239,20 @@ Shared output-column persistence helper wired into both resume paths (engine hoo
 
 ### BUG-R04 FIXED (gsd-quick 260719-iu8, commit `d9a878a5`) — live-proven 2026-07-19
 Identity-keyed guard around `await event.wait()` in ClarifyEngine.run (skip the wait if a submit already landed; `is last_consumed_responses` guards multi-round). Goldens 10/10 byte-identical, clarify+rest_answers 23 green, lint 4/0. **Live (run 986455e3):** skip fired in the pre-questionnaire window (questionnaire_ready=0) → run proceeded to `generating` (was an indefinite stall pre-fix). FE unaffected (Skip gated behind rendered questions).
+
+## POST-FIX LIVE PASS 2 (2026-07-19) — all 5 gate actions post-restart + build-crash
+
+With R01/R02+R05 fixed, the previously-blocked gate-action re-entry (C3–C7) is now testable end-to-end. Four od_prototype runs driven to the spec gate, one crash+restart (all re-armed via gate re-entry — `Review gate opened`, questionnaire count stayed 1, NO re-clarify), then each action:
+
+| Action | Run | Result |
+|--------|-----|--------|
+| **approve** (C3) | b31aeb59 | ✅ (earlier) → advanced to plan gate |
+| **redo** (C5) | 35bc3a7a | ✅ **attempt CONTINUED past pre-restart redo** — spec artifact v2 (live redo #1) → **v3** (post-restart redo #2), NOT reusing v2; the P23 `:redo{N}` thread-reuse bug class is absent. Re-gated. |
+| **reject** (C6) | 94593a14 | ✅ accepted (200) → run cleanly terminated `cancelled` (pipeline_complete), no black-hole |
+| **edit** (C4) | 51447653 | ✅ approve+`edited_content` (45k spec + Export-to-PDF marker) → proceeded to plan gate; **`derived_from` lineage set** (spec v2 derived — Phase 48); edit substance ("Export-to-PDF") present in the plan output |
+| **update_specs** (C7) | 9d768d92 | ✅ accepted → analysis agent ran (1 agent_start/complete) → gate re-presented (gates 2→3) — Phase-27 sub-pipeline fires post-restart |
+
+**R-C3–C7 all ✅ live for od_prototype.** Phase 49's full five-action gate re-entry works end-to-end after a restart.
+
+### R-A1 od_prototype crash-during-BUILD → resume ✅ (run 949d3fcf) — the canonical per-step cursor test, finally reachable
+Launched od_prototype → approved all 3 gates → build produced 2 html_file versions (mid-build) → `kill -9` → restart. Auto-resumed at **step offset 3/5** (the 3 completed gate steps SKIPPED, resumed at the build step). Completed with a full **prototype.html** deliverable that renders (screenshot `a1-resumed-prototype.png` — a complete "Wandr" travel app: dashboard cards, budget chart, all 4 requested sections). `output` column populated (66444 chars — R03 fix applies to build-crash resume too). **Nuance (honest):** od_prototype's build is a SINGLE builder agent (not per-page fan-out — pre-crash html_file v1/v2 shared one content_hash), so the cursor resumes at the build STEP and re-runs the build as a unit; there is no per-page skip WITHIN the build (that would need a fanned-out build). The per-page/per-task *skip* cursor is exercised only by the offline sample_wave fan-out tests — no user-facing pipeline fans out (still true). What IS proven live: step-level skip of completed gate steps + build re-run + complete deliverable + populated row. Cost note: the build re-ran fully (4.0M tokens total) since it can't skip mid-build.
