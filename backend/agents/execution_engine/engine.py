@@ -1348,6 +1348,19 @@ class ExecutionEngine:
         # scratch (still correct). Dormant for a normal run.
         if _resume_from > 0:
             await self._hydrate_artifacts_from_store(ectx)
+        # ── RESUME-08 durable → disk re-materialization ──────────────────────────────
+        # Hydrate (above) restores the durable typed artifacts into the in-memory graph
+        # ONLY; the fresh RunSandbox on disk stays empty. Re-materialize the latest
+        # file-backed refs onto ``sandbox`` (max-version, .uploads/-excluded) BEFORE the
+        # dispatch loop re-enters, so a resumed strategy re-reading disk (the next task's
+        # skeleton read; the in-flight wave's per-worker fragments feeding the re-run
+        # merge) sees the reconstructed state — from ``artifact_refs``, never git. Gated
+        # on ``_is_resume`` (NOT only ``_resume_from > 0``): the in-flight wave at
+        # offset==0 IS the first incomplete step, and its already-persisted fragments must
+        # be back on disk for the whole-wave merge re-entry (Edge-Case 6). Dormant on a
+        # normal run (``_is_resume`` False) → byte/event-identical (INV-3).
+        if _is_resume:
+            await self._rematerialize_artifacts_to_disk(ectx, sandbox)
         # Arm the durable run_events sink (PERSIST-03): hand the public execute()
         # wrapper this run's scoped store + run id so it can persist every stamped
         # event. Done HERE (not in the wrapper) because owner_id/workspace_id are only
@@ -5904,6 +5917,72 @@ class ExecutionEngine:
                     )
                 )
             except Exception:  # noqa: BLE001 — a malformed row must not break the resume
+                continue
+
+    async def _rematerialize_artifacts_to_disk(
+        self, ectx: ExecutionContext, sandbox
+    ) -> None:
+        """Restore the durable FILE-backed artifacts onto the fresh ``RunSandbox`` (RESUME-08).
+
+        The DISK half of resume — the mirror of :meth:`_hydrate_artifacts_from_store`
+        (which restores the in-memory graph ONLY). On a fresh-process resume the
+        sandbox on disk is empty, so a resumed strategy re-reading it (e.g. the next
+        task's skeleton read, or the per-wave merge picking up its workers' fragments)
+        sees nothing. This walks the latest durable file-backed refs and writes their
+        content back onto the sandbox BEFORE strategies re-enter — reconstructing the
+        worktree/sandbox state from ``artifact_refs``, NEVER from git (worktree commits
+        are ephemeral, POR §3.2).
+
+        Reads the SAME owner-scoped ``store.tree(run_id)`` hydrate uses (default-deny,
+        keyed on the run's own principal — a foreign row can never appear in the result
+        set, so it can never reach disk; NO scope widening). Per-location
+        ``max(version)`` wins (the fix-loop re-persist writes a new version under the
+        same location). Filtered to the FILE-backed kinds — ``html_file``/``file_bundle``/
+        ``deliverable`` — that map to a real on-disk relpath (the typed metadata kinds
+        ``spec``/``plan``/``clarifications``/… are graph-only handoffs already restored
+        by hydrate and have no disk file); ``.uploads/`` is dropped (Phase-47 fence,
+        never re-materialized; images never captured — ND-10). ``sandbox.write`` resolves
+        through the traversal-proof ``path_for``. Best-effort: no store / a read error /
+        a per-row write error degrades to a partial-or-empty disk (the resumed step just
+        re-runs from scratch — still correct). Dormant on a normal run (gated on
+        ``_is_resume`` at the call site).
+
+        Mid-wave merge re-entry: fragments persist via ``write_fragment_artifact``
+        (``kind="file_bundle"``) BEFORE the per-wave merge. The ``wave_runs.status`` is
+        the merged-vs-unmerged discriminator — ``completed`` ⇒ the merge ran (the wave is
+        skipped wholesale); ``running``/absent ⇒ the in-flight wave whose merge never ran.
+        Re-materializing that wave's fragments here lets the EXISTING whole-wave re-run
+        (``run_fanout``→``_merge_fragments``) merge over the recovered fragments — no
+        second merge implementation (INV-12). The stored ``content`` is restored exactly,
+        so ``content_hash``es are unchanged and step-reuse input keys stay stable
+        (Pitfall 1). Reads the ORIGINAL workspace_id path (never a fresh workspace —
+        Pitfall 2), since the read rides ``ectx.scoped_store``.
+        """
+        store = getattr(ectx, "scoped_store", None)
+        if store is None:
+            return
+        try:
+            rows = await store.tree(ectx.run_id)
+        except Exception:  # noqa: BLE001 — offline / schema-less → nothing to restore
+            return
+        # Group by location, keep the max-version row per location (fix-loop re-persist
+        # + fan-out fragment versions: the latest content is the disk truth).
+        _FILE_KINDS = {"html_file", "file_bundle", "deliverable"}
+        latest: dict = {}
+        for row in rows or []:
+            kind = getattr(row, "kind", None)
+            location = getattr(row, "location", None)
+            if kind not in _FILE_KINDS or not location:
+                continue
+            if str(location).startswith(".uploads/"):
+                continue  # Phase-47 fence — never re-materialized
+            prev = latest.get(location)
+            if prev is None or getattr(row, "version", 0) >= getattr(prev, "version", 0):
+                latest[location] = row
+        for location, row in latest.items():
+            try:
+                sandbox.write(location, row.content)
+            except Exception:  # noqa: BLE001 — a bad row must never break the resume
                 continue
 
     async def _first_incomplete_step(
