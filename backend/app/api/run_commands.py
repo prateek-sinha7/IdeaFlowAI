@@ -141,9 +141,11 @@ def _gate_is_pending(store, gate_key: str) -> bool:
     genuinely pending. Reading the store's existing per-process registry (no
     store mutation) lets the REST endpoint return a clean not-found instead of
     fabricating a pause / resolving a gate no one is waiting on.
+
+    IN-02: reads the store's PUBLIC ``review_event_pending`` accessor — the
+    ``store._resume_events`` private-dict peek no longer appears in the app layer.
     """
-    event = store._resume_events.get(f"review:{gate_key}")
-    return event is not None and not event.is_set()
+    return store.review_event_pending(gate_key)
 
 
 def _deny_unknown_gate() -> HTTPException:

@@ -153,6 +153,18 @@ class ArtifactStore:
         responses = self._questionnaire_responses.get(key)
         return responses[0] if responses else None
 
+    def review_event_pending(self, gate_key: str) -> bool:
+        """True iff a review gate for ``gate_key`` is armed and awaiting a response.
+
+        IN-02: the public read of the per-process HITL event registry — an armed
+        (created) but not-yet-set ``review:{gate_key}`` event is the ground truth
+        that a pause is genuinely pending (KAN-94). Closes the ``run_commands.
+        _gate_is_pending`` private-dict peek (``store._resume_events`` no longer leaks
+        into the app layer). Unknown key ⇒ ``False``. Read-only — never mutates.
+        """
+        event = self._resume_events.get(f"review:{gate_key}")
+        return event is not None and not event.is_set()
+
 
 # ------------------------------------------------------------------
 # Module-level singleton

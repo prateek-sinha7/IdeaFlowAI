@@ -62,34 +62,16 @@ GATE_ACTIONS = frozenset({"approve", "reject", "redo", "update_specs"})
 TERMINAL_STATUSES = frozenset({"completed", "degraded", "failed", "cancelled"})
 
 # ── Durable gate event vocabulary (LIVE-STATE-CONTRACT.md §1) ────────────────
-# These are GENERIC engine event types (the documented run-chat/gate vocabulary),
-# never a workflow name. A gate "opens" on its *_ready event and "closes" when a
-# resolution event for it (or any terminal) follows in the durable log.
-_QUESTIONNAIRE_READY = "questionnaire_ready"
-_REVIEW_GATE_READY = "review_gate_ready"
-
-# Events that close an OPEN questionnaire (clarify) gate.
-_QUESTIONNAIRE_RESOLUTIONS = frozenset(
-    {
-        "questionnaire_complete",
-        "pipeline_start",
-        "pipeline_complete",
-        "pipeline_cancelled",
-        "pipeline_failed",
-        "error",
-    }
-)
-
-# Events that close an OPEN review gate (mirrors run_stream._GATE_RESOLUTION_TYPES).
-_REVIEW_RESOLUTIONS = frozenset(
-    {
-        "review_gate_approved",
-        "pipeline_complete",
-        "pipeline_cancelled",
-        "pipeline_failed",
-        "budget_aborted",
-        "error",
-    }
+# The generic gate vocabulary + the open-gate derivation now live in the ONE shared
+# kernel- and app-importable home (RESUME-17 / INV-12): ``agents.capabilities.
+# gate_pendency``. Imported here (app→capabilities is an allowed import direction) and
+# re-bound to the historical private names so every existing caller is byte-unchanged.
+from agents.capabilities.gate_pendency import (  # noqa: E402
+    QUESTIONNAIRE_READY as _QUESTIONNAIRE_READY,
+    REVIEW_GATE_READY as _REVIEW_GATE_READY,
+    QUESTIONNAIRE_RESOLUTIONS as _QUESTIONNAIRE_RESOLUTIONS,
+    REVIEW_RESOLUTIONS as _REVIEW_RESOLUTIONS,
+    derive_open_gate,
 )
 
 
@@ -187,55 +169,10 @@ class Dispatch:
 
 
 # ---------------------------------------------------------------------------
-# Open-gate derivation — pure, generic, read-only over the durable run_events.
+# ``derive_open_gate`` is imported above from ``agents.capabilities.gate_pendency``
+# (the ONE shared home, RESUME-17) and re-exported here so ``from app.api.chat_router
+# import derive_open_gate`` keeps working byte-for-byte.
 # ---------------------------------------------------------------------------
-def derive_open_gate(events: list) -> tuple[str | None, str | None]:
-    """Return ``(open_gate_kind, gate_key)`` for the run's last STILL-OPEN gate.
-
-    Scans the durable ``run_events`` (ascending ``seq``) tracking the last unresolved
-    ``questionnaire_ready`` / ``review_gate_ready``. A gate is open iff its ``*_ready``
-    is not followed by a matching resolution (or any terminal). Keyed on the GENERIC
-    event vocabulary only (LIVE-STATE-CONTRACT.md §1) — never a workflow name.
-
-    ``events`` rows may be ORM ``RunEvent`` objects or plain dicts (``{type, seq,
-    payload_json}``) — both are read via ``getattr``/``get``.
-    """
-    def _type(r: Any) -> str:
-        return getattr(r, "type", None) if not isinstance(r, dict) else r.get("type")
-
-    def _seq(r: Any) -> int:
-        if isinstance(r, dict):
-            return int(r.get("seq", 0) or 0)
-        return int(getattr(r, "seq", 0) or 0)
-
-    def _payload(r: Any) -> dict:
-        if isinstance(r, dict):
-            p = r.get("payload_json", r.get("payload", r.get("data", {})))
-        else:
-            p = getattr(r, "payload_json", None)
-        return p if isinstance(p, dict) else {}
-
-    ordered = sorted(events, key=_seq)
-    open_questionnaire = False
-    open_review_key: str | None = None
-    for r in ordered:
-        t = _type(r)
-        if t == _QUESTIONNAIRE_READY:
-            open_questionnaire = True
-        elif t == _REVIEW_GATE_READY:
-            open_review_key = _payload(r).get("gate_key")
-        if t in _QUESTIONNAIRE_RESOLUTIONS:
-            open_questionnaire = False
-        if t in _REVIEW_RESOLUTIONS:
-            open_review_key = None
-
-    # A review gate takes precedence when both look open (a run is paused at one gate
-    # at a time; the review gate is the later, more specific pause).
-    if open_review_key is not None:
-        return "review", open_review_key
-    if open_questionnaire:
-        return "questionnaire", None
-    return None, None
 
 
 # ---------------------------------------------------------------------------

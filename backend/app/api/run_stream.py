@@ -65,15 +65,11 @@ router = APIRouter(prefix="/api/runs", tags=["runs-stream"])
 
 # Terminal / gate-resolution event types: a ``review_gate_ready`` FOLLOWED by any of
 # these in the durable log means the gate is no longer open (do NOT re-arm, D-14g).
-_GATE_RESOLUTION_TYPES = frozenset(
-    {
-        "review_gate_approved",
-        "pipeline_complete",
-        "pipeline_cancelled",
-        "pipeline_failed",
-        "budget_aborted",
-        "error",
-    }
+# RESUME-17 / INV-12: this is the ONE shared review-resolution frozenset (byte-identical
+# to the former inline set), now sourced from ``agents.capabilities.gate_pendency`` so
+# the SSE re-arm and the restart re-arm derive open gates from the SAME vocabulary.
+from agents.capabilities.gate_pendency import (  # noqa: E402
+    REVIEW_RESOLUTIONS as _GATE_RESOLUTION_TYPES,
 )
 
 # BUG-016: the live-drain STREAM terminals — the subset that actually closes the
