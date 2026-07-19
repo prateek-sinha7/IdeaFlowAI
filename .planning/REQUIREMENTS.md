@@ -294,27 +294,27 @@ divergences ND-AE..AJ (see `41-UI-SPEC.md` / `assemble-phase41-gallery.mjs`).
 
 ### Resume Correctness (Phase 45 [R0])
 
-- [ ] **RESUME-05**: A run interrupted mid-build resumes by re-entering the build step and completing ONLY the unfinished tasks — a partially-completed build is never classified "complete" and silently skipped (fixes the `engine.py:6002` first-task-persist bug). Completeness is strategy-conditional: task-granular steps (task_loop/wave) count tasks-in-current-list vs completed per-task artifacts; `single_shot` steps keep produced-ref/`step_completed` semantics byte-unchanged; `step_reused` (input_hash) behavior untouched.
+- [x] **RESUME-05**: A run interrupted mid-build resumes by re-entering the build step and completing ONLY the unfinished tasks — a partially-completed build is never classified "complete" and silently skipped (fixes the `engine.py:6002` first-task-persist bug). Completeness is strategy-conditional: task-granular steps (task_loop/wave) count tasks-in-current-list vs completed per-task artifacts; `single_shot` steps keep produced-ref/`step_completed` semantics byte-unchanged; `step_reused` (input_hash) behavior untouched.
 
 ### Per-Task Substrate, Cursor & Live Layer (Phase 46 [R1])
 
-- [ ] **RESUME-06**: `subagent_runs` carries per-child task identity — additive nullable `task_id` + `worker_index` columns (the pre-authorized CR-03-followup; free-String, named FK, reversible single-head after 0025), written at spawn (before the crash window — the 0023 `selections_json` precedent).
-- [ ] **RESUME-07**: GENERIC per-task capture (Q7): every file a task wrote is durably captured per task — not just the declared deliverable file — superseding `persist_task_html`'s single-file scope so any future multi-file task workflow resumes from day one.
-- [ ] **RESUME-08**: Durable→disk re-materialization: resume walks the latest durable `artifact_refs` (by `location`, `max(version)`, filtered to completed task keys) and rebuilds the fresh `RunSandbox` — including MERGE RE-ENTRY for an in-flight wave (fragments re-materialized + the per-wave merge re-run before remaining workers dispatch). Worktree/sandbox state reconstructs from `artifact_refs`, never from git.
-- [ ] **RESUME-09**: Per-worker wave skip + per-task sequential skip: completed workers/tasks are never re-invoked on resume (identity-based kernel cursor — NOT the deleted-for-cause prefix-by-count skip); agents receive the completed work as injected context but never decide the skip set.
-- [ ] **RESUME-10**: A resumed run is a first-class LIVE run: both resume paths (auto `restore_non_terminal_runs` branch (b) AND the Phase-50 user endpoint) thread `register_live_ectx` (+ unregister in `finally`) and `milestone_sink` — mid-run steering, per-turn images, Concierge context, and narrator milestone cards all work on resumed runs; milestone-card `seq` drawn from the engine counter (DEF-43-03-1, 0024 constraint).
-- [ ] **RESUME-11**: Steering notes durably logged as `chat_message` rows but not yet drained at crash time are re-queued onto `ectx.steering_notes` at resume (no silent loss of accepted guidance).
+- [x] **RESUME-06**: `subagent_runs` carries per-child task identity — additive nullable `task_id` + `worker_index` columns (the pre-authorized CR-03-followup; free-String, named FK, reversible single-head after 0025), written at spawn (before the crash window — the 0023 `selections_json` precedent).
+- [x] **RESUME-07**: GENERIC per-task capture (Q7): every file a task wrote is durably captured per task — not just the declared deliverable file — superseding `persist_task_html`'s single-file scope so any future multi-file task workflow resumes from day one.
+- [x] **RESUME-08**: Durable→disk re-materialization: resume walks the latest durable `artifact_refs` (by `location`, `max(version)`, filtered to completed task keys) and rebuilds the fresh `RunSandbox` — including MERGE RE-ENTRY for an in-flight wave (fragments re-materialized + the per-wave merge re-run before remaining workers dispatch). Worktree/sandbox state reconstructs from `artifact_refs`, never from git.
+- [x] **RESUME-09**: Per-worker wave skip + per-task sequential skip: completed workers/tasks are never re-invoked on resume (identity-based kernel cursor — NOT the deleted-for-cause prefix-by-count skip); agents receive the completed work as injected context but never decide the skip set.
+- [x] **RESUME-10**: A resumed run is a first-class LIVE run: both resume paths (auto `restore_non_terminal_runs` branch (b) AND the Phase-50 user endpoint) thread `register_live_ectx` (+ unregister in `finally`) and `milestone_sink` — mid-run steering, per-turn images, Concierge context, and narrator milestone cards all work on resumed runs; milestone-card `seq` drawn from the engine counter (DEF-43-03-1, 0024 constraint).
+- [x] **RESUME-11**: Steering notes durably logged as `chat_message` rows but not yet drained at crash time are re-queued onto `ectx.steering_notes` at resume (no silent loss of accepted guidance).
 
 ### Uploads Durability (Phase 47 [R2])
 
-- [ ] **RESUME-12**: Uploaded documents' extracted text + manifest are persisted durably at ingest (additive, owner_id+workspace_id-scoped; existing per-file/count/aggregate caps unchanged) — closing the `.uploads/` disk-only hole (Q6).
-- [ ] **RESUME-13**: The `uploaded_files` context provider falls back to the durable mirror when the sandbox `.uploads/` copy is missing, so a resumed run on a fresh sandbox keeps FULL document context in every subsequent `agent_input`. Images stay payload-transient (ND-10 locked — explicitly untouched).
+- [x] **RESUME-12**: Uploaded documents' extracted text + manifest are persisted durably at ingest (additive, owner_id+workspace_id-scoped; existing per-file/count/aggregate caps unchanged) — closing the `.uploads/` disk-only hole (Q6).
+- [x] **RESUME-13**: The `uploaded_files` context provider falls back to the durable mirror when the sandbox `.uploads/` copy is missing, so a resumed run on a fresh sandbox keeps FULL document context in every subsequent `agent_input`. Images stay payload-transient (ND-10 locked — explicitly untouched).
 
 ### Task Identity & Mutable Task List (Phase 48 [R3])
 
-- [ ] **RESUME-14**: Content-addressed task identity — `task_key = sha256(upstream_context_hash · normalized_task_content · occurrence_ordinal)`: position-independent (reorder/insert-safe), duplicate-text-safe (ordinal), and upstream-aware (a spec edit rotates the keys so tasks built against a stale spec re-run); hash discipline inherited from `input_hash` (sorted, no timestamp/uuid — cross-restart stable).
-- [ ] **RESUME-15**: The task list is user-editable as a VERSIONED `task_list` artifact (Q3): add/edit/delete mints a new version via the extended gate-Edit mechanism (KAN-98 path; `edited_content` rides `POST /{id}/gate` only — WR-03); old versions kept with `derived_from` lineage, `max(version)` wins; NO new tasks table (respects the "no new step-status table" lock).
-- [ ] **RESUME-16**: AUTOMATIC reconciliation (Q2) on resume or re-run-after-edit: completed+present → skip + re-materialize + inject as prior context; new/edited/rotated → run; deleted-but-completed → excluded from the assembled deliverable at read time (rows NEVER deleted — `artifact_refs` immutable); spec edits auto-invalidate affected tasks with no confirm prompt.
+- [x] **RESUME-14**: Content-addressed task identity — `task_key = sha256(upstream_context_hash · normalized_task_content · occurrence_ordinal)`: position-independent (reorder/insert-safe), duplicate-text-safe (ordinal), and upstream-aware (a spec edit rotates the keys so tasks built against a stale spec re-run); hash discipline inherited from `input_hash` (sorted, no timestamp/uuid — cross-restart stable).
+- [x] **RESUME-15**: The task list is user-editable as a VERSIONED `task_list` artifact (Q3): add/edit/delete mints a new version via the extended gate-Edit mechanism (KAN-98 path; `edited_content` rides `POST /{id}/gate` only — WR-03); old versions kept with `derived_from` lineage, `max(version)` wins; NO new tasks table (respects the "no new step-status table" lock).
+- [x] **RESUME-16**: AUTOMATIC reconciliation (Q2) on resume or re-run-after-edit: completed+present → skip + re-materialize + inject as prior context; new/edited/rotated → run; deleted-but-completed → excluded from the assembled deliverable at read time (rows NEVER deleted — `artifact_refs` immutable); spec edits auto-invalidate affected tasks with no confirm prompt.
 
 ### Gate Survival (Phase 49 [R4])
 
@@ -322,7 +322,7 @@ divergences ND-AE..AJ (see `41-UI-SPEC.md` / `assemble-phase41-gallery.mjs`).
 
 ### Reopen & Fix (Phase 50 [R5])
 
-- [ ] **RESUME-18**: A user can resume a terminal-FAILED run via `POST /api/runs/{id}/resume`: two-layer owner check (`user_id`, 404 never 403), overlap-guarded (`pipeline_already_running` precedent) and replay-idempotent (the P33 M4 lesson); recovers workspace_id from durable rows (never fresh-minted — Pitfall 2), `selections_json` (0023), completed steps/tasks via the cursor, and disk via re-materialization; re-registers in `_PIPELINE_QUEUES` BEFORE FE attach (BUG-015 live-attach semantics) reusing the `run_engine.py` bridge — NO third hand-copied driver; status transition (failed→running or a `run_resuming` EVENT per INV-12 preference) makes FE `AUTO_STREAM_STATUSES` auto-attach; live-layer callbacks threaded (RESUME-10 mechanism). Authorized by the LOCK-E/ND-4 supersede record (POR §8.1).
+- [x] **RESUME-18**: A user can resume a terminal-FAILED run via `POST /api/runs/{id}/resume`: two-layer owner check (`user_id`, 404 never 403), overlap-guarded (`pipeline_already_running` precedent) and replay-idempotent (the P33 M4 lesson); recovers workspace_id from durable rows (never fresh-minted — Pitfall 2), `selections_json` (0023), completed steps/tasks via the cursor, and disk via re-materialization; re-registers in `_PIPELINE_QUEUES` BEFORE FE attach (BUG-015 live-attach semantics) reusing the `run_engine.py` bridge — NO third hand-copied driver; status transition (failed→running or a `run_resuming` EVENT per INV-12 preference) makes FE `AUTO_STREAM_STATUSES` auto-attach; live-layer callbacks threaded (RESUME-10 mechanism). Authorized by the LOCK-E/ND-4 supersede record (POR §8.1).
 
 ## v2 Requirements
 
@@ -564,23 +564,23 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RESUME-05 | Phase 45 [R0] | Pending |
-| RESUME-06 | Phase 46 [R1] | Pending |
-| RESUME-07 | Phase 46 [R1] | Pending |
-| RESUME-08 | Phase 46 [R1] | Pending |
-| RESUME-09 | Phase 46 [R1] | Pending |
-| RESUME-10 | Phase 46 [R1] | Pending |
-| RESUME-11 | Phase 46 [R1] | Pending |
-| RESUME-12 | Phase 47 [R2] | Pending |
-| RESUME-13 | Phase 47 [R2] | Pending |
-| RESUME-14 | Phase 48 [R3] | Pending |
-| RESUME-15 | Phase 48 [R3] | Pending |
-| RESUME-16 | Phase 48 [R3] | Pending |
+| RESUME-05 | Phase 45 [R0] | Complete (verified 4/4) |
+| RESUME-06 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-07 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-08 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-09 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-10 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-11 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-12 | Phase 47 [R2] | Complete (verified 4/4) |
+| RESUME-13 | Phase 47 [R2] | Complete (verified 4/4) |
+| RESUME-14 | Phase 48 [R3] | Complete (verified 4/4) |
+| RESUME-15 | Phase 48 [R3] | Complete (verified 4/4) |
+| RESUME-16 | Phase 48 [R3] | Complete (verified 4/4) |
 | RESUME-17 | Phase 49 [R4] | Complete |
-| RESUME-18 | Phase 50 [R5] | Pending |
+| RESUME-18 | Phase 50 [R5] | Complete (verified 5/5) |
 
 **v3.0 counts:** P45=1 · P46=6 · P47=2 · P48=3 · P49=1 · P50=1 (= 14; 100% mapped, each REQ → exactly one phase)
 
 ---
 *Requirements defined: 2026-06-06*
-*Last updated: 2026-07-18 — Milestone v3.0 requirement family registered (RESUME-05..18, 14 REQ-IDs → phases 45–50) from the POR `.planning/RESUME-CAPABILITY-DESIGN-DRAFT.md` (plan-ingestion, decisions pre-locked §8). Prior: 2026-07-07 — Milestone v2.0 requirement families registered (CHAT/UPLD/CHATUI/RUNUI/CONC/LIVE-02/SHELL, 27 REQ-IDs → phases 28–38) via /gsd-import of `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`. Prior: 2026-06-14 — Traceability table reconciled to one-row-per-REQ; 113 body REQ-IDs that were missing from the table (grouped-row drift) added; statuses refreshed to the verified-complete state (ISS-012).*
+*Last updated: 2026-07-19 — Milestone v3.0 COMPLETE offline: all 14 RESUME-05..18 requirements Complete (phases 45–50 executed + verified; live pass pending). Prior: 2026-07-18 — Milestone v3.0 requirement family registered (RESUME-05..18, 14 REQ-IDs → phases 45–50) from the POR `.planning/RESUME-CAPABILITY-DESIGN-DRAFT.md` (plan-ingestion, decisions pre-locked §8). Prior: 2026-07-07 — Milestone v2.0 requirement families registered (CHAT/UPLD/CHATUI/RUNUI/CONC/LIVE-02/SHELL, 27 REQ-IDs → phases 28–38) via /gsd-import of `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`. Prior: 2026-06-14 — Traceability table reconciled to one-row-per-REQ; 113 body REQ-IDs that were missing from the table (grouped-row drift) added; statuses refreshed to the verified-complete state (ISS-012).*
