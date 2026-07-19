@@ -1372,7 +1372,24 @@ Plans:
   5. Invariants green: the 5 characterization goldens stay byte/event-identical (INV-3, `SNAPSHOT_UPDATE` unset); import-linter 4/0; the kernel still owns spawn/isolation/merge/concurrency/budget inside `run_fanout` with no second spawn path introduced (INV-7/INV-12); merge stays engine-selected (INV-7 — no merge picker exposed).
   6. Live-Bedrock proof (orchestrator-owned, per the defer-live-verification convention — offline gates bind phase completion): a builder-composed `producer → fanned-worker` run shows ≤4 concurrent parallel `subagent_spawned` + per-worker `subagent_result` + a merged deliverable, with NO `spawn_subagents` grant required; contrasted against a fan-out-OFF control (single output).
 
-**Plans**: TBD (run /gsd-plan-phase 51 to break down)
+**Plans**: 7 plans (5 waves)
 Plans:
 
-- [ ] TBD
+**Wave 1** *(parallel — disjoint files)*
+- [ ] 51-01-PLAN.md — P2 synthesizer: `_synthesize_step` emits the selected strategy generically (FANOUT-03)
+- [ ] 51-02-PLAN.md — P5 compile guard: additive `source_step`-must-be-upstream check (FANOUT-05, FANOUT-06)
+- [ ] 51-03-PLAN.md — P0 generic `task-list-planner` producer skill + pool registration + stale-docstring fix (FANOUT-04)
+
+**Wave 2** *(depends 51-01)*
+- [ ] 51-04-PLAN.md — P1 the crux: `_apply_selections` carries strategy/fanout/task_source (in-plan + absent-agent) + return-signature/caller change (FANOUT-02, FANOUT-06)
+
+**Wave 3** *([BLOCKING] gate — depends 51-04)*
+- [ ] 51-05-PLAN.md — offline composed-fan-out characterization (N spawned/result + merged + SC-001 grep 0) + 5-golden byte-identity gate (FANOUT-07, FANOUT-06)
+
+**Wave 4** *(depends 51-05 [BLOCKING] + 51-03)*
+- [ ] 51-06-PLAN.md — FE shared `StepSelection` type + simple-view `AdvancedExpander` fan-out control + save/launch threading (FANOUT-01, FANOUT-04, FANOUT-05, FANOUT-07)
+
+**Wave 5** *(depends 51-06)*
+- [ ] 51-07-PLAN.md — FE canvas `CanvasConfigRail` fan-out control + `priorAgents` threading from `CanvasView` (FANOUT-01, FANOUT-04, FANOUT-05, FANOUT-07)
+
+> Live-Bedrock proof (SC #6) is ORCHESTRATOR-OWNED — not an executor task; offline gates (esp. the [BLOCKING] 51-05) bind phase completion.
