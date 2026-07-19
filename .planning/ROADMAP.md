@@ -1310,10 +1310,17 @@ Plans:
   5. The pre-existing RED test `test_restart_resume::test_waiting_for_user_run_is_rearmed_not_driven` flips GREEN (the KAN-88 restoration anchor); FE note honored: parked runs aren't auto-streamed (BUG-013 `AUTO_STREAM_STATUSES`) — the gate surfaces on open via D-14g, the intended UX.
 
 **Plans**: 3 plans
-
 Plans:
+**Wave 1**
+
 - [ ] 49-01-PLAN.md — Shared open-gate pendency (A3) + IN-02 store accessor + branch-(a) fail→re-arm classification (A1) + KAN-88 flip
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 49-02-PLAN.md — Review-gate re-entry AT the gate phase: offset override + gate_reentry sentinel + all five actions + redo/update_specs continuation (A2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 49-03-PLAN.md — Clarify twin replay driver (A5) + dormancy sweep + full at-risk regression battery
 
 ### Phase 50: User Resume-From-Failed — Reopen & Fix [R5]
