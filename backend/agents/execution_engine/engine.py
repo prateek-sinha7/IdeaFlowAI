@@ -1068,6 +1068,7 @@ class ExecutionEngine:
         _sink: "_RunEventSink | None" = None,
         _resume_from: int = 0,
         _is_resume: bool = False,
+        _clarify_replay: dict | None = None,
         event_queue: "asyncio.Queue | None" = None,
         live_ectx_register: "LiveEctxRegister | None" = None,
     ) -> AsyncGenerator[dict, None]:
@@ -1706,13 +1707,26 @@ class ExecutionEngine:
         # run and behavior is byte-identical: the planner/clarifier runs for every
         # pipeline exactly as before. A resumed run forces the planner-skip path (no
         # planner overlay, no clarify gate — the run is mid-build).
-        skip_planner = compiled.planner == "skip" or _resuming
+        # RESUME-17 clarify twin (A5): a restart-parked clarify run re-arms by REPLAYING
+        # the durable open round (no planner/LLM re-gen — the planner events are already
+        # durable from before the restart). So the replay ALSO takes the planner-skip
+        # path, but forces the clarify gate below so Step 3 re-emits the durable questions
+        # and re-enters the wait. ``_clarify_replay`` is None for every fresh/resumed run
+        # ⇒ dormant (INV-3).
+        _replaying_clarify = _clarify_replay is not None
+        skip_planner = compiled.planner == "skip" or _resuming or _replaying_clarify
 
         if skip_planner:
             logger.info("Prototype pipeline (Approach 2+3): skipping planner + clarifier")
             planning_context = self._default_planning_context(user_message)
             planning_context["pipeline_type"] = pipeline_type
-            gate_verdict = "PROCEED"
+            if _replaying_clarify:
+                # Force the clarify gate so Step 3 replays the durable open round. This
+                # is the ONLY thing the replay changes about the skip-planner path.
+                gate_verdict = "CLARIFY_REQUIRED"
+                planning_context["execution_gate"] = "CLARIFY_REQUIRED"
+            else:
+                gate_verdict = "PROCEED"
             # Don't emit planner events — no overlay, no flash
         else:
             # Emit planner_start BEFORE running the planner so the frontend
@@ -1865,6 +1879,15 @@ class ExecutionEngine:
                     owner_id=ectx.owner_id,
                     workspace_id=ectx.workspace_id,
                     max_rounds=compiled.clarify.rounds,
+                    # RESUME-17 clarify twin (A5): replay the durable open round's
+                    # questions VERBATIM (no LLM re-gen). None for every fresh/live run
+                    # ⇒ ClarifyEngine.run generates normally (INV-3 dormant).
+                    replay_questions=(
+                        _clarify_replay.get("questions") if _clarify_replay else None
+                    ),
+                    replay_round=(
+                        _clarify_replay.get("round") if _clarify_replay else None
+                    ),
                 )
             )
 
@@ -5440,11 +5463,17 @@ class ExecutionEngine:
             open_kind, _open_gate_key = derive_open_gate(rows)
 
             if open_kind == "review":
-                # 49-02 lands the offset-override gate re-entry (re-enter AT the gate,
-                # model-skip). Until then delegate to the shipped resume driver, which
-                # re-enters the SINGLE per-step dispatch loop (INV-12 — no forked path).
+                # Review re-entry (49-02): resume_run re-enters the SINGLE per-step dispatch
+                # loop; the open-gate offset override + gate_reentry sentinel re-open the gate
+                # AT the gated step (model-skip). INV-12 — no forked path.
                 await self.resume_run(run_id)
-            # else: a clarify-open run — the replay driver lands in 49-03 (no-op stub).
+            elif open_kind == "questionnaire":
+                # Clarify re-entry (49-03, PINNED A5): the REPLAY driver re-drives from
+                # planning with the durable open round replayed (no LLM re-gen), re-enters
+                # the store wait, and — on answers via the unchanged POST /answers seam —
+                # proceeds into the normal dispatch. DISTINCT from resume_run (the KAN-88
+                # twin asserts resume_run is never driven for a clarify re-arm).
+                await self._replay_clarify_run(run_id)
         finally:
             # WR-01: drop the queue/task entries registered at the restore create_task
             # site (idempotent). Dormant when the hooks are None (offline / goldens).
@@ -7370,8 +7399,59 @@ class ExecutionEngine:
         # like the old itertools.count, and no register/unregister runs (byte/event-
         # identical resume, INV-3). Card seq is drawn from the store's own allocator (via
         # emit_milestone_card), never append_event_next_seq for the engine's base events.
+        # Re-drive through the SHARED resume stream (INV-12 — the SAME sink/seq/live-queue/
+        # milestone-card loop the clarify re-arm driver uses). ``_resume_from=offset`` +
+        # ``_is_resume=True`` is the review/mid-build re-entry; ``_clarify_replay`` stays
+        # None here (byte/event-identical to the pre-extraction resume_run).
+        await self._drive_resumed_stream(
+            run_id,
+            agents=agents,
+            user_message=user_message,
+            pipeline_type=pipeline_type,
+            user_id=user_id,
+            session_id=session_id,
+            parent_run_id=parent_run_id,
+            selections=selections,
+            start_seq=start,
+            live_queue=live_queue,
+            _resume_from=offset,
+            _is_resume=True,
+        )
+
+    async def _drive_resumed_stream(
+        self,
+        run_id: str,
+        *,
+        agents: list,
+        user_message: str,
+        pipeline_type: str,
+        user_id: str | None,
+        session_id: str | None,
+        parent_run_id: str | None,
+        selections: dict | None,
+        start_seq: int,
+        live_queue: "asyncio.Queue | None",
+        _resume_from: int = 0,
+        _is_resume: bool = False,
+        _clarify_replay: dict | None = None,
+    ) -> None:
+        """Drive ``_execute_impl`` through the resume seq/persist/live-queue/milestone-card
+        sink — the SHARED re-entry stream of BOTH restart drivers (INV-12).
+
+        ``resume_run`` (branch b / review re-entry) drives with ``_resume_from=offset,
+        _is_resume=True``; ``_replay_clarify_run`` (RESUME-17 clarify twin) drives from
+        planning with ``_clarify_replay`` set (replay the durable open round, no LLM
+        re-gen). Resumed events persist + replay via the ``after_seq`` branch (a
+        reconnecting client sees the tail); ``next_seq`` is a MANUAL allocator that
+        advances PAST any narrator milestone card so the engine's next base event never
+        reuses a card's seq (DEF-43-03-1). WR-01: the ``finally`` ALWAYS drops the
+        queue/task/live-ectx registry entries (no leak on any exit path). All app hooks
+        None (offline / goldens) ⇒ this whole stream is DORMANT and byte/event-identical
+        to a queue-less drive (INV-3); ``_clarify_replay=None`` ⇒ byte-identical to the
+        pre-extraction ``resume_run`` drive.
+        """
         sink = _RunEventSink(milestone_sink=self._resume_milestone_sink)
-        next_seq = start
+        next_seq = start_seq
         try:
             async for event in self._execute_impl(
                 agents=agents,
@@ -7387,8 +7467,9 @@ class ExecutionEngine:
                 # _apply_selections returns the plan unchanged → INV-3 parity.
                 selections=selections,
                 _sink=sink,
-                _resume_from=offset,
-                _is_resume=True,
+                _resume_from=_resume_from,
+                _is_resume=_is_resume,
+                _clarify_replay=_clarify_replay,
                 live_ectx_register=self._resume_live_ectx_register,
             ):
                 data = event.get("data")
@@ -7418,7 +7499,7 @@ class ExecutionEngine:
                 # next contiguous seq (max+1), so ADVANCE next_seq PAST it — the engine's
                 # next base event can then never reuse the card's seq (a collision would
                 # drop that event → durable-log gap). The card is ALSO pushed onto the WS
-                # live queue (resume_run is a coroutine, NOT a generator — it delivers live
+                # live queue (the driver is a coroutine, NOT a generator — it delivers live
                 # via live_queue, not yield), stamped with the SAME chat_reply:{event_id}
                 # the persisted row carries so a reconnect replay dedups it.
                 card_result = await sink.emit_milestone_card(event)
@@ -7441,7 +7522,7 @@ class ExecutionEngine:
                         except Exception:  # noqa: BLE001 — live push is best-effort
                             pass
         except Exception as exc:  # noqa: BLE001 — a resume failure must not crash startup
-            logger.warning("resume_run(%s) failed mid-drive: %s", run_id, exc)
+            logger.warning("resumed-stream drive(%s) failed mid-drive: %s", run_id, exc)
         finally:
             # End-of-stream: the None sentinel terminates the live drainer
             # (matching the run_pipeline contract), then the injected cleanup
@@ -7468,9 +7549,151 @@ class ExecutionEngine:
                     self._resume_live_ectx_unregister(run_id)
                 except Exception:  # noqa: BLE001 — teardown must never mask the outcome
                     logger.warning(
-                        "resume_run(%s): live_ectx_unregister failed", run_id,
+                        "resumed-stream drive(%s): live_ectx_unregister failed", run_id,
                         exc_info=True,
                     )
+
+    async def _replay_clarify_run(self, run_id: str) -> None:
+        """Clarify re-arm REPLAY driver (RESUME-17 clarify twin, PINNED A5).
+
+        Spawned by ``_rearm_gate_run`` for a restart-parked run whose durable open gate is
+        a clarify ``questionnaire_ready`` (no ``questionnaire_complete``). Unlike the review
+        re-entry, clarify is PRE-DISPATCH: a resumed run skips planner+clarify (engine.py:
+        1708), so a clarify-parked run cannot route through the review offset override. This
+        driver instead REPLAYS the durable open round: it re-drives ``_execute_impl`` from
+        planning with ``_clarify_replay`` set, so Step 3 re-emits the SAME questions from the
+        durable payload (NO ``_generate_questions`` LLM re-gen), re-enters the store wait, and
+        — on answers (via the UNCHANGED ``POST /answers`` → ``set_questionnaire_responses``
+        seam) — merges via the EXISTING ``ClarifyEngine._merge_answers``/``_persist_qa``
+        helpers (INV-12) and proceeds into the normal dispatch exactly as a never-restarted
+        run. It is DISTINCT from ``resume_run`` on purpose (the KAN-88 twin spies resume_run
+        and asserts it is never driven). Reuses the SHARED ``_drive_resumed_stream`` loop.
+        """
+        from app.models.database import SessionLocal
+        from app.models.workflow import WorkflowRun
+
+        db = SessionLocal()
+        try:
+            wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+            if wr is None:
+                logger.warning(
+                    "_replay_clarify_run(%s): no workflow_runs row — skipping", run_id
+                )
+                self._fire_resume_cleanup(run_id)
+                return
+            pipeline_type = wr.type
+            user_message = wr.input or ""
+            user_id = wr.user_id
+            session_id = wr.session_id
+            parent_run_id = wr.parent_run_id
+            selections = wr.selections_json
+            owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
+            workspace_id = wr.workspace_id
+        finally:
+            db.close()
+
+        # Resolve the ordered agent list the same way a fresh run does (registry
+        # membership). A custom-workflow run without a static membership degrades to an
+        # empty list → nothing to drive.
+        from agents.registry import get_pipeline_agents
+
+        try:
+            agents = get_pipeline_agents(pipeline_type)
+        except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot replay
+            logger.warning(
+                "_replay_clarify_run(%s): cannot resolve agents (%s)", run_id, exc
+            )
+            self._fire_resume_cleanup(run_id)
+            return
+        if not agents:
+            logger.warning(
+                "_replay_clarify_run(%s): empty agent list — nothing to replay", run_id
+            )
+            self._fire_resume_cleanup(run_id)
+            return
+
+        # Extract the durable open round's questions + round from the last unresolved
+        # ``questionnaire_ready`` payload (owner+workspace scoped, mirroring
+        # _is_resumable_in_flight). Confirm the gate is STILL a clarify gate (defensive —
+        # a review gate would route through resume_run, not here).
+        try:
+            store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+            rows = await store.read_events(run_id, after_seq=0)
+        except Exception:  # noqa: BLE001 — no durable substrate → nothing to replay
+            rows = []
+        open_kind, _open_gate_key = derive_open_gate(rows)
+        if open_kind != "questionnaire":
+            logger.warning(
+                "_replay_clarify_run(%s): no open questionnaire gate — skipping", run_id
+            )
+            self._fire_resume_cleanup(run_id)
+            return
+
+        questions: list = []
+        round_num = 1
+        for r in rows:
+            if getattr(r, "type", None) == "questionnaire_ready":
+                _p = getattr(r, "payload_json", None) or {}
+                if isinstance(_p, dict):
+                    questions = _p.get("questions") or questions
+                    round_num = _p.get("round") or round_num
+        if not questions:
+            # The gate derived open but carries no replayable questions (malformed durable
+            # payload). Leave the run parked untouched rather than drive an empty replay.
+            logger.warning(
+                "_replay_clarify_run(%s): open gate has no durable questions — leaving "
+                "parked", run_id,
+            )
+            self._fire_resume_cleanup(run_id)
+            return
+
+        # Seed the resumed seq PAST the durable tail (CR-01) so the re-emitted
+        # questionnaire_ready + the post-answer dispatch events carry seq > the pre-restart
+        # tail (a reconnecting client replays them via the after_seq branch).
+        start = 1
+        try:
+            _tail_ws = await self._recover_workspace_id(owner_id, run_id)
+            tail_store = ScopedStore(owner_id=owner_id, workspace_id=_tail_ws)
+            existing = await tail_store.read_events(run_id, after_seq=0)
+            start = max((r.seq for r in existing), default=0) + 1
+        except Exception as exc:  # noqa: BLE001 — no durable tail → start=1 (offline)
+            logger.debug(
+                "_replay_clarify_run(%s): durable-tail read failed (%s) → seq 1",
+                run_id, exc,
+            )
+            start = 1
+
+        # Register the run's LIVE queue BEFORE the drive (mirroring resume_run) so a
+        # reconnect mid-replay finds a live queue. Dormant when the hook is unset.
+        live_queue: asyncio.Queue | None = None
+        if self._resume_register_queue is not None:
+            try:
+                live_queue = self._resume_register_queue(run_id)
+            except Exception as _q_exc:  # noqa: BLE001 — bridge is best-effort
+                logger.warning(
+                    "_replay_clarify_run(%s): live-queue registration failed: %s",
+                    run_id, _q_exc,
+                )
+                live_queue = None
+
+        # Re-drive from planning with the durable open round REPLAYED (no LLM re-gen). The
+        # SHARED stream persists/live-pushes every event and, on answers, proceeds into the
+        # normal dispatch. WR-01 cleanup is handled inside _drive_resumed_stream's finally.
+        await self._drive_resumed_stream(
+            run_id,
+            agents=agents,
+            user_message=user_message,
+            pipeline_type=pipeline_type,
+            user_id=user_id,
+            session_id=session_id,
+            parent_run_id=parent_run_id,
+            selections=selections,
+            start_seq=start,
+            live_queue=live_queue,
+            _resume_from=0,
+            _is_resume=False,
+            _clarify_replay={"questions": questions, "round": round_num},
+        )
 
     async def _compute_resume_offset(
         self, run_id, user_id, session_id, pipeline_type, agents

@@ -197,6 +197,8 @@ class ClarifyEngine:
         owner_id: str | None = None,
         workspace_id: str | None = None,
         max_rounds: int = 1,
+        replay_questions: list[dict] | None = None,
+        replay_round: int | None = None,
     ) -> dict[str, Any]:
         """Run the clarification gate. Returns the (possibly updated) planning_context.
 
@@ -218,6 +220,20 @@ class ClarifyEngine:
             max_rounds: Max clarification rounds (default 1 = one-round-then-run),
                         threaded from `compiled.clarify.rounds`. Clamped to at least
                         1 and at most MAX_CLARIFICATION_ROUNDS (the safety ceiling).
+            replay_questions: RESUME-17 clarify twin (PINNED A5). When set, the round
+                        whose number equals ``replay_round`` REPLAYS these durable
+                        ``questionnaire_ready`` questions VERBATIM instead of calling
+                        ``_generate_questions`` — so a restart-parked clarify gate
+                        re-arms with NO LLM re-generation of the already-asked open
+                        round. The rest of the loop (emit → wait → merge → persist →
+                        ``questionnaire_complete``) is UNCHANGED (INV-12 — one
+                        questionnaire machine). Any SUBSEQUENT round generates normally
+                        (the same LLM call a live run would make). ``None`` (every
+                        fresh/live run) ⇒ the replay branch is unreachable → byte-
+                        identical behavior (INV-3).
+            replay_round: The 1-based round number the replayed questions belong to
+                        (the ``round`` from the durable payload). Paired with
+                        ``replay_questions``; ignored when the latter is ``None``.
 
         Returns:
             The planning_context with merged clarification answers and an
@@ -244,9 +260,15 @@ class ClarifyEngine:
         while round_num < effective_rounds:
             round_num += 1
 
-            questions = await self._generate_questions(
-                merged_context, round_num, clarify_agent
-            )
+            if replay_questions is not None and round_num == replay_round:
+                # RESUME-17 clarify twin (A5): REPLAY the durable open round's questions
+                # VERBATIM — no ``_generate_questions`` LLM re-gen of the already-asked
+                # round. The wait/merge/persist/complete below is UNCHANGED (INV-12).
+                questions = list(replay_questions)
+            else:
+                questions = await self._generate_questions(
+                    merged_context, round_num, clarify_agent
+                )
 
             if not questions:
                 # No more ambiguities — proceed

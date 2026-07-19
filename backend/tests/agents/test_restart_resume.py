@@ -2788,3 +2788,192 @@ async def test_redrain_steering_notes_no_duplicate():
         f"got {ectx.steering_notes}"
     )
     session.close()
+
+
+# ===========================================================================
+# RESUME-17 (49-03) — clarify twin: REPLAY the durable questionnaire on restart
+# ===========================================================================
+#
+# The asymmetric sibling of the review re-entry (engine.py:1708): a resumed run SKIPS
+# planner AND clarify, so a clarify-parked run cannot route through the review offset
+# override. It needs a dedicated REPLAY driver (PINNED A5): read the durable
+# ``questionnaire_ready`` payload, re-emit its questions verbatim (NO ``_generate_questions``
+# LLM re-gen of the open round), re-enter the store wait, and on answers (via the UNCHANGED
+# ``POST /answers`` seam) proceed into the normal dispatch exactly as a never-restarted run.
+
+
+async def _seed_open_questionnaire_gate(
+    session, run_id, owner, workspace_id, questions, round_num=1
+):
+    """Seed a durable, still-OPEN ``questionnaire_ready`` (no ``questionnaire_complete``)
+    under the SAME ``(owner, workspace_id)`` the run row carries — so the owner+workspace
+    scoped ``read_events`` (scoped on ``wr.workspace_id`` in both ``_is_resumable_in_flight``
+    and branch (a)) finds it → ``derive_open_gate`` → ``("questionnaire", None)`` AND
+    ``_is_resumable_in_flight`` is True (one durable ``run_events`` row is enough evidence).
+    ``run_events.workspace_id`` is NOT NULL, so a real workspace is required."""
+    from agents.authz import ScopedStore
+
+    pre_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
+    await pre_store.append_event(
+        run_id, seq=1, event_id="qr-1", type="questionnaire_ready",
+        payload_json={
+            "pipeline_run_id": run_id, "questions": questions, "round": round_num,
+        },
+    )
+    session.commit()
+
+
+@pytest.mark.asyncio
+async def test_clarify_parked_run_replays_durable_questions_and_proceeds():
+    """RESUME-17 SC-4/SC-5 (the KAN-88 twin): a restart-parked clarify run re-arms by
+    REPLAYING its durable ``questionnaire_ready`` (no LLM re-gen of the open round), stays
+    ``waiting_for_user`` until answered, is NOT driven through ``resume_run``, and — on
+    answers via the SAME store seam ``POST /answers`` wraps — proceeds into the normal
+    dispatch (planner→agents) exactly as a never-restarted run."""
+    import asyncio as _asyncio
+
+    from agents.execution_engine import clarify_engine as _ce
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"cl-{uuid.uuid4().hex[:8]}"
+    owner = "cl-user"
+    ws = "ws-cl"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="waiting_for_user", workspace_id=ws
+    )
+    questions = [{
+        "question_id": "r1_q1", "question_text": "Replayed?",
+        "options": ["yes", "no"], "answer_type": "single_choice",
+        "impact_level": "high", "ambiguity_category": "Functional Scope",
+    }]
+    await _seed_open_questionnaire_gate(session, run_id, owner, ws, questions, round_num=1)
+
+    # Spy _generate_questions: the OPEN round must be REPLAYED, never re-generated.
+    gen_calls = {"n": 0}
+    _orig_gen = _ce.ClarifyEngine._generate_questions
+
+    async def _spy_gen(self, *a, **k):
+        gen_calls["n"] += 1
+        return await _orig_gen(self, *a, **k)
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+        _ce.ClarifyEngine._generate_questions = _spy_gen
+
+        async def _spy_resume(rid):
+            raise AssertionError(
+                "a clarify re-arm must NEVER be driven through resume_run"
+            )
+
+        engine.resume_run = _spy_resume  # type: ignore[assignment]
+
+        queues: dict = {}
+
+        def _reg_queue(rid):
+            return queues.setdefault(rid, _asyncio.Queue())
+
+        engine._resume_register_queue = _reg_queue  # type: ignore[assignment]
+
+        tasks: dict = {}
+
+        def _reg_task(rid, task):
+            tasks[rid] = task
+
+        engine._resume_register_task = _reg_task  # type: ignore[assignment]
+
+        saw_complete = False
+        saw_pipeline_start = False
+        try:
+            await engine.restore_non_terminal_runs()
+            driver_task = tasks.get(run_id)
+            assert driver_task is not None, (
+                "branch (a) must spawn + register the clarify re-arm driver"
+            )
+            q = queues[run_id]
+
+            # Drain until the driver REPLAYS questionnaire_ready then parks at the wait.
+            replayed = None
+            for _ in range(500):
+                ev = await _asyncio.wait_for(q.get(), timeout=5)
+                if ev is None:
+                    break
+                if ev.get("type") == "questionnaire_ready":
+                    replayed = ev
+                    break
+            assert replayed is not None, "the driver must re-emit questionnaire_ready"
+            assert replayed["data"]["questions"] == questions, (
+                "questions must be REPLAYED verbatim from the durable payload"
+            )
+            assert gen_calls["n"] == 0, (
+                "the open round must be REPLAYED, never LLM-re-generated"
+            )
+
+            # Status stays waiting_for_user while parked (KAN-88 twin assertion).
+            row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+            assert row.status == "waiting_for_user", (
+                "a re-armed clarify run stays waiting_for_user until answered"
+            )
+
+            # Answers ride the UNCHANGED store seam POST /answers wraps → run proceeds.
+            await engine._store.set_questionnaire_responses(
+                run_id, [{"question_id": "r1_q1", "answer": "yes"}]
+            )
+
+            for _ in range(4000):
+                ev = await _asyncio.wait_for(q.get(), timeout=10)
+                if ev is None:
+                    break
+                t = ev.get("type")
+                if t == "questionnaire_complete":
+                    saw_complete = True
+                if t == "pipeline_start":
+                    saw_pipeline_start = True
+                if t == "pipeline_complete":
+                    break
+            await _asyncio.wait_for(driver_task, timeout=10)
+        finally:
+            _ce.ClarifyEngine._generate_questions = _orig_gen
+
+    assert saw_complete, "answers must resolve the gate (questionnaire_complete emitted)"
+    assert saw_pipeline_start, (
+        "after answers the run must proceed into the normal dispatch (pipeline_start)"
+    )
+    assert gen_calls["n"] == 0, "no LLM re-gen of the answered round at any point"
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_clarify_run_without_replay_generates_normally():
+    """INV-3 dormancy: ``ClarifyEngine.run`` WITHOUT the replay params generates round-1
+    questions normally (the A5 replay branch is unreachable) — the new machinery is inert
+    on every non-re-arm clarify run."""
+    from agents.execution_engine.clarify_engine import ClarifyEngine
+
+    ce = ClarifyEngine()
+    gen = {"n": 0}
+
+    async def _gen(planning_context, round_num, clarify_agent):
+        gen["n"] += 1
+        return []
+
+    ce._generate_questions = _gen  # type: ignore[assignment]
+
+    sent: list = []
+
+    async def _send(ev):
+        sent.append(ev)
+
+    result = await ce.run(
+        "run-dormant",
+        {"missing_information": ["x"], "user_request": "hi"},
+        _send,
+        owner_id="o",
+        replay_questions=None,
+        replay_round=None,
+    )
+    assert gen["n"] == 1, "round 1 must generate normally when no replay params are passed"
+    assert result["execution_gate"] == "PROCEED"
+    assert not any(e.get("type") == "questionnaire_ready" for e in sent), (
+        "no questions ⇒ no questionnaire_ready emitted (dormant replay branch)"
+    )
