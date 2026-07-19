@@ -54,6 +54,7 @@ from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
 from agents.capabilities import task_identity
+from agents.capabilities.gate_pendency import derive_open_gate
 from agents.capabilities.registry import CapabilityRegistry
 from agents.capabilities.validators.severity import render_coverage_status
 from agents.execution_engine.budget import BudgetExceeded, BudgetManager, BudgetSnapshot
@@ -4988,24 +4989,123 @@ class ExecutionEngine:
                     #     stateless legacy run with no durable step state has nothing to
                     #     resume FROM; re-arming it would leave it stuck with no driver).
                     if wr.status == "waiting_for_user":
-                        # ── branch (a): waiting_for_user ────────────────────────────
-                        # KAN-88: after a backend restart the ClarifyEngine coroutine
-                        # that was ``await event.wait()`` is gone — re-arming the
-                        # asyncio.Event does not help because no coroutine will ever
-                        # await it to resume the pipeline. The correct behaviour is to
-                        # mark these runs as failed (the run cannot continue without
-                        # the ClarifyEngine driver) so the user can start a fresh run.
-                        # This avoids a permanently-stuck "waiting_for_user" row that
-                        # shows as running but can never proceed.
-                        prior_status = wr.status
-                        wr.status = "failed"
-                        wr.error = (
-                            "Run abandoned: backend restarted while waiting for "
-                            "user clarification (WR-05-clarify). The clarify gate "
-                            "cannot be resumed after a backend restart — please "
-                            "start a new run."
-                        )
-                        abandoned += 1
+                        # ── branch (a): waiting_for_user (RESUME-17 re-arm, PINNED A1) ─
+                        # KAN-88 was the RESTORATION-in-reverse: it FAILED every paused
+                        # run because a restart destroyed the in-memory waiter. The fix
+                        # is not "don't fail" — it is "recreate the waiter". So a
+                        # COMPILABLE waiting_for_user run is NEVER auto-failed: it is
+                        # either RE-ARMED (a durable open gate + resumable-in-flight →
+                        # recreate the store waiter and spawn the re-arm driver BEFORE
+                        # leaving waiting_for_user) or left PARKED untouched (no durable
+                        # open gate → harmless: D-14g surfaces nothing without a durable
+                        # review_gate_ready). ONLY an UNCOMPILABLE / stateless-legacy run
+                        # (compile_for_run RAISES) keeps the byte-unchanged WR-05-clarify
+                        # fail. The STATUS decision gates on compilability alone (the
+                        # KAN-88 anchor seeds a compilable row with NO durable events);
+                        # the re-arm DRIVER additionally requires a derivable open gate
+                        # AND _is_resumable_in_flight.
+                        _compilable = True
+                        try:
+                            compile_for_run(wr.type)
+                        except Exception:  # noqa: BLE001 — uncompilable/legacy
+                            _compilable = False
+
+                        if not _compilable:
+                            # Uncompilable / stateless legacy → WR-05-clarify fail VERBATIM.
+                            prior_status = wr.status
+                            wr.status = "failed"
+                            wr.error = (
+                                "Run abandoned: backend restarted while waiting for "
+                                "user clarification (WR-05-clarify). The clarify gate "
+                                "cannot be resumed after a backend restart — please "
+                                "start a new run."
+                            )
+                            abandoned += 1
+                        else:
+                            # Compilable → derive the durable open gate (owner-scoped,
+                            # mirroring _is_resumable_in_flight's owner derivation).
+                            try:
+                                _owner_id = (
+                                    wr.owner_id or wr.user_id
+                                    or f"anon:{wr.session_id or wr.id}"
+                                )
+                                _gate_store = ScopedStore(
+                                    owner_id=_owner_id, workspace_id=wr.workspace_id
+                                )
+                                _rows = await _gate_store.read_events(wr.id, after_seq=0)
+                            except Exception:  # noqa: BLE001 — no durable substrate
+                                _rows = []
+                            open_kind, open_gate_key = derive_open_gate(_rows)
+
+                            if open_kind in ("review", "questionnaire") and (
+                                await self._is_resumable_in_flight(wr)
+                            ):
+                                # ── ARM-THEN-CLASSIFY (fail-safe) ──────────────────────
+                                # Recreate the store waiter FIRST, then spawn the re-arm
+                                # driver, so a live waiter + driver exist BEFORE the row is
+                                # left waiting_for_user (never a phantom-live hung row). ANY
+                                # exception in this block fail-safes to the WR-05 fail path.
+                                try:
+                                    import asyncio as _asyncio
+
+                                    if open_kind == "review" and open_gate_key:
+                                        _evt = await self._store.get_review_event(
+                                            open_gate_key
+                                        )
+                                    else:
+                                        _evt = await self._store.get_resume_event(
+                                            pipeline_run_id
+                                        )
+                                    _evt.clear()  # armed == created + not set (KAN-94)
+
+                                    # 46-05: register the run's live queue at the SAME
+                                    # synchronous site as the driver task, BEFORE
+                                    # create_task (idempotent). Best-effort + dormant.
+                                    if self._resume_register_queue is not None:
+                                        try:
+                                            self._resume_register_queue(pipeline_run_id)
+                                        except Exception as _q_exc:  # noqa: BLE001
+                                            logger.warning(
+                                                "re-arm queue registration failed for "
+                                                "%s: %s",
+                                                pipeline_run_id, _q_exc,
+                                            )
+                                    # Spawn the DISTINCT re-arm driver (NOT resume_run —
+                                    # the KAN-88 spy; the driver ≠ resume_run is what keeps
+                                    # the anchor assertion holding once the review path is
+                                    # live). Status stays waiting_for_user.
+                                    _rearm_task = _asyncio.create_task(
+                                        self._rearm_gate_run(pipeline_run_id)
+                                    )
+                                    if self._resume_register_task is not None:
+                                        try:
+                                            self._resume_register_task(
+                                                pipeline_run_id, _rearm_task
+                                            )
+                                        except Exception as _reg_exc:  # noqa: BLE001
+                                            logger.warning(
+                                                "re-arm task registration failed for "
+                                                "%s: %s",
+                                                pipeline_run_id, _reg_exc,
+                                            )
+                                    restored += 1
+                                except Exception as _arm_exc:  # noqa: BLE001 — fail-safe
+                                    logger.warning(
+                                        "branch (a) re-arm failed for %s: %s — falling "
+                                        "back to WR-05 fail",
+                                        pipeline_run_id, _arm_exc,
+                                    )
+                                    wr.status = "failed"
+                                    wr.error = (
+                                        "Run abandoned: backend restarted while waiting "
+                                        "for user clarification (WR-05-clarify). The "
+                                        "clarify gate cannot be resumed after a backend "
+                                        "restart — please start a new run."
+                                    )
+                                    abandoned += 1
+                            # else: compilable but no derivable open gate OR not
+                            # resumable-in-flight (the KAN-88 no-events row) → leave
+                            # wr.status waiting_for_user, spawn nothing (harmless park).
                     elif await self._is_resumable_in_flight(wr):
                         # ── branch (b): resumable in-flight → auto-resume in-process ─
                         # Stamp the additive ``run_resuming`` marker FIRST (the
@@ -5084,6 +5184,67 @@ class ExecutionEngine:
                 db.close()
         except Exception as exc:
             logger.warning("restore_non_terminal_runs failed: %s", exc)
+
+    async def _rearm_gate_run(self, run_id: str) -> None:
+        """Re-arm DRIVER for a restart-parked gate run (RESUME-17, branch (a)).
+
+        Spawned by ``restore_non_terminal_runs`` branch (a) AFTER the store waiter is
+        re-armed, for a run left ``waiting_for_user`` with a durable open gate. It is a
+        DISTINCT coroutine from ``resume_run`` on purpose: branch (a) must NEVER spawn
+        ``resume_run`` directly (the KAN-88 anchor spies it), so keeping the driver a
+        separate method is what holds that assertion once the review path is live.
+
+        This plan (49-01) lands the SKELETON: for a review-open run it delegates the
+        actual gate re-entry to ``resume_run`` (the offset-override that re-enters AT the
+        gate lands in 49-02); a clarify-open run is a no-op stub here (the clarify replay
+        driver lands in 49-03). WR-01: EVERY exit path drops the live-registry entries the
+        restore ``create_task`` site registered (idempotent, mirroring ``resume_run``'s
+        ``finally``) so a parked run never leaks a queue/task registration.
+        """
+        try:
+            from app.models.database import SessionLocal
+            from app.models.workflow import WorkflowRun
+
+            db = SessionLocal()
+            try:
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+                if wr is None:
+                    logger.warning(
+                        "_rearm_gate_run(%s): no workflow_runs row — skipping", run_id
+                    )
+                    return
+                owner_id = (
+                    wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
+                )
+                workspace_id = wr.workspace_id
+            finally:
+                db.close()
+
+            try:
+                store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+                rows = await store.read_events(run_id, after_seq=0)
+            except Exception:  # noqa: BLE001 — no durable substrate → nothing to drive
+                rows = []
+            open_kind, _open_gate_key = derive_open_gate(rows)
+
+            if open_kind == "review":
+                # 49-02 lands the offset-override gate re-entry (re-enter AT the gate,
+                # model-skip). Until then delegate to the shipped resume driver, which
+                # re-enters the SINGLE per-step dispatch loop (INV-12 — no forked path).
+                await self.resume_run(run_id)
+            # else: a clarify-open run — the replay driver lands in 49-03 (no-op stub).
+        finally:
+            # WR-01: drop the queue/task entries registered at the restore create_task
+            # site (idempotent). Dormant when the hooks are None (offline / goldens).
+            self._fire_resume_cleanup(run_id)
+            if self._resume_live_ectx_unregister is not None:
+                try:
+                    self._resume_live_ectx_unregister(run_id)
+                except Exception:  # noqa: BLE001 — teardown never masks the outcome
+                    logger.warning(
+                        "_rearm_gate_run(%s): live_ectx_unregister failed", run_id,
+                        exc_info=True,
+                    )
 
     async def _is_resumable_in_flight(self, wr) -> bool:
         """Classify a non-terminal run as RESUMABLE in-flight (branch b) or not (D-08).

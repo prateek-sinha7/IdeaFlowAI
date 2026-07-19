@@ -371,13 +371,23 @@ def _make_session():
     return Session(), db
 
 
-def _seed_workflow_run(session, run_id, *, owner, status, type_="sample_wave", input_="brief"):
-    """Insert the workflow_runs row resume_run + the classifier read."""
+def _seed_workflow_run(
+    session, run_id, *, owner, status, type_="sample_wave", input_="brief",
+    workspace_id=None,
+):
+    """Insert the workflow_runs row resume_run + the classifier read.
+
+    ``workspace_id`` defaults to None (the historical shape — every existing caller is
+    byte-unchanged). A non-null value is used by the RESUME-17 branch-(a) tests, which
+    seed the run row AND its durable ``run_events`` under the SAME workspace so both the
+    ``_is_resumable_in_flight`` gate and the branch-(a) open-gate read (both scoped on
+    ``wr.workspace_id``) resolve them.
+    """
     from app.models.workflow import WorkflowRun
 
     session.add(
         WorkflowRun(
-            id=run_id, user_id=owner, owner_id=owner, workspace_id=None,
+            id=run_id, user_id=owner, owner_id=owner, workspace_id=workspace_id,
             status=status, type=type_, input=input_,
         )
     )
@@ -927,6 +937,164 @@ async def test_stateless_run_keeps_wr05_failed_path():
     row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
     assert row.status == "failed", "stateless run must hit the WR-05 abandoned→failed path"
     assert "WR-05" in (row.error or ""), f"WR-05 message missing: {row.error!r}"
+    session.close()
+
+
+# ===========================================================================
+# (a) RESUME-17 — branch (a) fail→re-arm classification (PINNED A1)
+# ===========================================================================
+
+
+async def _seed_open_review_gate(session, run_id, owner, workspace_id, gate_key):
+    """Seed a durable, still-OPEN ``review_gate_ready`` (no resolution) under the SAME
+    ``(owner, workspace_id)`` the run row carries — so the owner+workspace-scoped
+    ``read_events`` (scoped on ``wr.workspace_id`` in both ``_is_resumable_in_flight``
+    and branch (a)) finds it → ``derive_open_gate`` → ``("review", gate_key)`` AND
+    ``_is_resumable_in_flight`` is True (one durable ``run_events`` row is enough
+    evidence). ``run_events.workspace_id`` is NOT NULL, so a real workspace is required."""
+    from agents.authz import ScopedStore
+
+    pre_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
+    await pre_store.append_event(
+        run_id, seq=1, event_id="rg-1", type="review_gate_ready",
+        payload_json={"gate_key": gate_key},
+    )
+    session.commit()
+
+
+@pytest.mark.asyncio
+async def test_waiting_for_user_with_open_review_gate_is_rearmed_and_driver_spawned():
+    """A compilable ``waiting_for_user`` run WITH a durable open ``review_gate_ready`` +
+    resumable-in-flight → the store review event is ARMED and a DISTINCT re-arm driver
+    (NOT ``resume_run`` — the KAN-88 spy) is spawned with the run_id BEFORE the row is
+    left ``waiting_for_user``."""
+    session, db_engine = _make_session()
+    run_id = f"wr-{uuid.uuid4().hex[:8]}"
+    owner = "wr-user"
+    ws = "ws-wr"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="waiting_for_user", workspace_id=ws
+    )
+    gate_key = f"{run_id}:sample-wave-plan"
+    await _seed_open_review_gate(session, run_id, owner, ws, gate_key)
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+
+        # Defensive: even if the driver were driven, it must never be resume_run.
+        async def _spy_resume(rid):
+            raise AssertionError("branch (a) must never spawn resume_run directly")
+
+        engine.resume_run = _spy_resume  # type: ignore[assignment]
+
+        # CHECKER FIX: spy ``_rearm_gate_run`` ITSELF — record the run_id SYNCHRONOUSLY
+        # at coroutine-creation time (a plain def returning a real awaitable), NOT
+        # resume_run's count, which only holds by create_task scheduling timing.
+        spawned: dict = {"run_id": None, "n": 0}
+
+        async def _noop():
+            return
+
+        def _spy_rearm(rid):
+            spawned["run_id"] = rid
+            spawned["n"] += 1
+            return _noop()
+
+        engine._rearm_gate_run = _spy_rearm  # type: ignore[assignment]
+
+        await engine.restore_non_terminal_runs()
+        import asyncio as _asyncio
+        await _asyncio.sleep(0)  # let the scheduled driver task run to completion
+
+        # The store review event was ARMED (created + not set) before the row was left
+        # waiting_for_user — the arm-then-classify ordering (never a phantom-live row).
+        assert engine._store.review_event_pending(gate_key), (
+            "branch (a) must arm the review event before leaving waiting_for_user"
+        )
+        # The DISTINCT re-arm driver was spawned exactly once with the run_id.
+        assert spawned["n"] == 1 and spawned["run_id"] == run_id, (
+            f"the re-arm driver must be spawned once with the run_id: {spawned}"
+        )
+
+    from app.models.workflow import WorkflowRun
+
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row.status == "waiting_for_user", (
+        "a re-armed run's status stays waiting_for_user (KAN-88 assertion)"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_waiting_for_user_rearm_arm_failure_falls_back_to_wr05_fail(monkeypatch):
+    """ARM-THEN-CLASSIFY fail-safe: a compilable ``waiting_for_user`` run WITH durable
+    open-gate evidence whose store arm RAISES falls back to the WR-05 fail path (never a
+    phantom-live row left waiting with no waiter)."""
+    session, db_engine = _make_session()
+    run_id = f"fs-{uuid.uuid4().hex[:8]}"
+    owner = "fs-user"
+    ws = "ws-fs"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="waiting_for_user", workspace_id=ws
+    )
+    gate_key = f"{run_id}:sample-wave-plan"
+    await _seed_open_review_gate(session, run_id, owner, ws, gate_key)
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+
+        async def _boom(*a, **k):
+            raise RuntimeError("scripted store-arm failure")
+
+        # monkeypatch auto-restores the singleton store method after the test.
+        monkeypatch.setattr(engine._store, "get_review_event", _boom)
+
+        async def _spy_resume(rid):
+            raise AssertionError("must not drive resume_run on the fail-safe path")
+
+        engine.resume_run = _spy_resume  # type: ignore[assignment]
+        await engine.restore_non_terminal_runs()
+
+    from app.models.workflow import WorkflowRun
+
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row.status == "failed", (
+        "an arm failure must fail-safe to the WR-05 fail path (never a phantom-live row)"
+    )
+    assert "WR-05-clarify" in (row.error or ""), f"WR-05-clarify missing: {row.error!r}"
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_waiting_for_user_uncompilable_type_keeps_wr05_fail():
+    """An UNCOMPILABLE / stateless-legacy ``waiting_for_user`` run (``compile_for_run``
+    RAISES) keeps the byte-unchanged WR-05-clarify fail — the ONLY fail path for a
+    waiting_for_user run (branch-(a) scope proof)."""
+    session, db_engine = _make_session()
+    run_id = f"uc-{uuid.uuid4().hex[:8]}"
+    _seed_workflow_run(
+        session, run_id, owner="uc-user", status="waiting_for_user",
+        type_="__nonexistent_pipeline__",
+    )
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+        resume_called = {"n": 0}
+
+        async def _spy_resume(rid):
+            resume_called["n"] += 1
+
+        engine.resume_run = _spy_resume  # type: ignore[assignment]
+        await engine.restore_non_terminal_runs()
+
+    assert resume_called["n"] == 0, "an uncompilable run must NOT be auto-resumed"
+    from app.models.workflow import WorkflowRun
+
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row.status == "failed", (
+        "an uncompilable waiting_for_user run keeps the WR-05-clarify fail"
+    )
+    assert "WR-05-clarify" in (row.error or ""), f"WR-05-clarify missing: {row.error!r}"
     session.close()
 
 
