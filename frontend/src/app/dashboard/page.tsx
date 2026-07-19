@@ -1011,7 +1011,7 @@ export default function DashboardPage() {
     [runConnection],
   );
 
-  const { messages: runChatMessages, sendMessage: sendRunChatMessage, seedTranscript: seedRunChatTranscript } = useRunChat({
+  const { messages: runChatMessages, sendMessage: sendRunChatMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript } = useRunChat({
     // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
     // path hits the in-flight run instead of null-then-fresh-POST; fall back to
     // the clarify-only activePipelineRunId when the build id is not yet set.
@@ -1502,6 +1502,7 @@ export default function DashboardPage() {
       // (mounted in DashboardLayout) consumes messages/send/requestOpenTab;
       // PreviewPanel consumes the pending deep-link target for all tabs.
       runChatMessages={runChatMessages}
+      runChatReplyStreaming={runChatReplyStreaming}
       onRunChatSend={sendRunChatMessage}
       onRequestOpenTab={runTabDeepLink.requestOpenTab}
       deepLinkTarget={runTabDeepLink.pending}

@@ -22,7 +22,7 @@ import { ComposerPage } from "@/components/workflow/composer/ComposerPage";
 // as the execution-surface left column; it ABSORBS the AgentProgressPanel
 // Stop/revise/suggestions controls (D-12 composer-per-state, SC-001 generic).
 import { RunChatLane, type RunLaneState, type GateContext, type LaneSuggestion, type LaneProposal } from "@/components/chat/RunChatLane";
-import type { SendMessageOptions } from "@/hooks/useRunChat";
+import type { ReplyStreamingState, SendMessageOptions } from "@/hooks/useRunChat";
 import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
@@ -166,6 +166,10 @@ export interface DashboardLayoutProps {
   // Consumed by the RunChatLane mounted in the execution left column. Optional /
   // default-undefined → non-live callers and existing test renders unchanged.
   runChatMessages?: ChatMessage[];
+  // quick-260719-rqo (Issue 2 part 2) — the active streaming-reply hint from
+  // page.tsx's useRunChat. Threaded to RunChatLane so the lane can show the
+  // "reading run data…" indicator during the Concierge reply's read-tool freeze.
+  runChatReplyStreaming?: ReplyStreamingState | null;
   onRunChatSend?: (
     text: string,
     attachments?: import("@/types/index").ChatAttachment[],
@@ -232,6 +236,7 @@ export function DashboardLayout({
   waves = [],
   submittedBrief,
   runChatMessages,
+  runChatReplyStreaming,
   onRunChatSend,
   onRequestOpenTab,
   deepLinkTarget,
@@ -1765,6 +1770,9 @@ export function DashboardLayout({
                       sendMessage={runChatSend}
                       isStreaming={isStreaming}
                       streamingContent={streamingContent}
+                      // quick-260719-rqo (Issue 2 part 2): the streaming-reply hint
+                      // that drives the mid-reply "reading run data…" indicator.
+                      replyStreaming={runChatReplyStreaming}
                       pipelineState={pipelineState}
                       onRequestOpenTab={onRequestOpenTab}
                       // Phase 39 (RUNUI-06) — wire the lane run header's 39-01

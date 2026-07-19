@@ -41,6 +41,21 @@ export interface RunChatFrame {
   data: Record<string, unknown>;
 }
 
+/**
+ * The ACTIVE streaming-reply hint (quick-260719-rqo, Issue 2 part 2). Set on
+ * every `chat_reply_chunk` (with a refreshed `lastChunkAt`) and cleared on the
+ * matching terminal `chat_reply`. The lane derives a "reading run data…"
+ * indicator from a chunk-GAP on this: a mid-reply freeze on the Concierge path
+ * is always a read-tool call, so an elapsed gap with no terminal means the reply
+ * is reading. GENERIC (SC-001) — just an opaque bubble id + a timestamp.
+ */
+export interface ReplyStreamingState {
+  /** The streaming bubble id (`chat-reply:{message_id}`) — matches the terminal. */
+  id: string;
+  /** Epoch ms of the most recent `chat_reply_chunk` for this reply. */
+  lastChunkAt: number;
+}
+
 /** The reconnect-handshake state surfaced from the latest `stream_attached`. */
 export interface StreamAttachedState {
   /** Whether the stream is now live (true) or still catching up (false). */
@@ -114,6 +129,13 @@ export interface UseRunChatReturn {
   ) => string;
   /** The latest `stream_attached` handshake state (null until first attach). */
   streamAttached: StreamAttachedState | null;
+  /**
+   * The active streaming-reply hint (quick-260719-rqo, Issue 2 part 2): non-null
+   * from a reply's first `chat_reply_chunk` until its terminal `chat_reply`, with
+   * `lastChunkAt` refreshed on each chunk. The lane reads a chunk-GAP off this to
+   * show the "reading run data…" indicator during the mid-reply read-tool freeze.
+   */
+  replyStreaming: ReplyStreamingState | null;
   /**
    * DEF-44-12-4 (Piece 3) — IMPERATIVE prior-transcript seed, fired ONLY from
    * the explicit history-open action. Clears the per-hook seen-set + seq cursor,
@@ -314,6 +336,11 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
   const [streamAttached, setStreamAttached] = useState<StreamAttachedState | null>(
     null,
   );
+  // The active streaming reply (rqo Issue-2 part-2): set on each chat_reply_chunk,
+  // cleared on the matching terminal chat_reply. Drives the lane's reading hint.
+  const [replyStreaming, setReplyStreaming] = useState<ReplyStreamingState | null>(
+    null,
+  );
 
   // Per-hook dedup of frames by event_id (mirrors the dashboard seen-set).
   const seenRef = useRef<Set<string>>(new Set());
@@ -339,13 +366,36 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
         break;
       case "chat_reply":
         setMessages((prev) => upsertNarratorMessage(prev, data));
+        // rqo Issue-2 part-2: finalize the active streaming reply if THIS terminal
+        // matches it (by the message_id-derived bubble id or the frame event_id),
+        // so the lane's "reading run data…" hint clears the instant the reply lands.
+        setReplyStreaming((cur) => {
+          if (!cur) return cur;
+          const mid = typeof data.message_id === "string" ? data.message_id : "";
+          if (mid && cur.id === `chat-reply:${mid}`) return null;
+          const eid = typeof data.event_id === "string" ? data.event_id : "";
+          if (eid && cur.id === eid) return null;
+          return cur;
+        });
         break;
-      case "chat_reply_chunk":
+      case "chat_reply_chunk": {
         // m0o — accumulate the streamed delta into the SAME bubble the terminal
         // `chat_reply` finalizes (keyed `chat-reply:{message_id}`). No dedup/cursor
         // interaction: chunks carry no event_id and no real seq.
         setMessages((prev) => upsertStreamingReply(prev, data));
+        // rqo Issue-2 part-2: mark this reply as actively streaming and refresh the
+        // gap clock. A NEW object each chunk → the lane's gap timer re-arms (hides
+        // the reading hint on fresh content, re-shows it if the stream stays silent).
+        const chunkMid =
+          typeof data.message_id === "string" ? data.message_id : "";
+        if (chunkMid) {
+          setReplyStreaming({
+            id: `chat-reply:${chunkMid}`,
+            lastChunkAt: Date.now(),
+          });
+        }
         break;
+      }
       case "stream_attached":
         setStreamAttached({
           live: data.live === true,
@@ -438,10 +488,13 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
       seenRef.current.clear();
       lastSeqRef.current = 0;
       setMessages([]);
+      // rqo Issue-2 part-2: an explicit history-open resets the streaming hint too
+      // (a seeded transcript's chat_reply rows are all terminal — never mid-stream).
+      setReplyStreaming(null);
       for (const f of frames) handleFrame(f);
     },
     [handleFrame],
   );
 
-  return { messages, sendMessage, streamAttached, seedTranscript };
+  return { messages, sendMessage, streamAttached, replyStreaming, seedTranscript };
 }

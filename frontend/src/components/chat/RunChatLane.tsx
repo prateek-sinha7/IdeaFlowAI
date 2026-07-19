@@ -66,7 +66,7 @@ import {
 } from "./ChatTokenWidget";
 import type { ClarifyResponse } from "./InlineClarifyActions";
 import type { PendingAttachment } from "@/hooks/useChatAttachments";
-import type { SendMessageOptions } from "@/hooks/useRunChat";
+import type { ReplyStreamingState, SendMessageOptions } from "@/hooks/useRunChat";
 import { formatDuration } from "@/lib/runStats";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -142,6 +142,14 @@ export interface RunChatLaneProps {
   ) => void;
   isStreaming?: boolean;
   streamingContent?: string;
+  /**
+   * The active streaming-reply hint (quick-260719-rqo, Issue 2 part 2) from
+   * `useRunChat.replyStreaming`: non-null while a Concierge reply streams, with a
+   * `lastChunkAt` refreshed per chunk. The lane derives a "reading run data…"
+   * indicator from a chunk-GAP on this — the mid-reply read-tool freeze. Absent
+   * (non-live callers / tests) → the indicator never shows (unchanged behaviour).
+   */
+  replyStreaming?: ReplyStreamingState | null;
   /**
    * Live run telemetry — drives the compact token widget (plan 06 / P26) and,
    * when the stream supplies it, the composed-context usage that surfaces the
@@ -241,6 +249,50 @@ const ASK_INTENT =
 // Comfortably longer than a normal 2–8s reply so it only fires on a genuinely
 // failed / never-arriving reply (fire-and-forget send → no chat_reply to clear it).
 const REPLY_PENDING_TIMEOUT_MS = 45_000;
+
+// rqo Issue-2 part-2 — the "reading run data…" indicator windows. A Concierge
+// reply streams, then FREEZES ~1.3s while it calls a read tool. When the streaming
+// reply's text has not grown for READING_GAP_MS and it has not finalized, the FE
+// shows the reading indicator (the freeze on this path is always a read-tool call,
+// so the wording is accurate without any backend signal). READING_MAX_MS is a
+// safety cap: if the stream stalls abnormally long with no terminal, hide the
+// indicator rather than let it lie about ongoing activity (mirrors the
+// replyPending safety-net philosophy — never a stuck indicator).
+const READING_GAP_MS = 700;
+const READING_MAX_MS = 15_000;
+
+/**
+ * The mid-reply "reading run data…" indicator (rqo Issue-2 part-2). A subtle
+ * inline status line in the lane's light aesthetic (indented like AnsweredNote /
+ * the transcript bubbles), NOT the dark-themed pre-reply TypingIndicator — the two
+ * are distinct states and must not double up (spec guardrail 4). GENERIC (SC-001):
+ * a fixed UI string, no workflow-name/agent-id literal.
+ */
+function ReadingIndicator() {
+  return (
+    <div
+      data-testid="lane-reading-indicator"
+      className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500"
+    >
+      <span className="flex items-center gap-[3px]">
+        {[0, 1, 2].map((i) => (
+          <motion.span
+            key={i}
+            className="h-[5px] w-[5px] rounded-full bg-brand"
+            animate={{ opacity: [0.3, 0.9, 0.3] }}
+            transition={{
+              duration: 1.2,
+              repeat: Infinity,
+              delay: i * 0.15,
+              ease: "easeInOut",
+            }}
+          />
+        ))}
+      </span>
+      reading run data…
+    </div>
+  );
+}
 
 function classifyFreeText(text: string): "ask" | "change" {
   const t = text.trim();
@@ -731,6 +783,7 @@ export function RunChatLane({
   sendMessage,
   isStreaming = false,
   streamingContent = "",
+  replyStreaming,
   pipelineState,
   eventsByMessageId,
   onRequestOpenTab,
@@ -827,6 +880,47 @@ export function RunChatLane({
     const timer = setTimeout(() => setReplyPending(false), REPLY_PENDING_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [replyPending]);
+
+  // rqo Issue-2 part-2 — the mid-reply "reading run data…" indicator. When a
+  // Concierge reply is actively streaming (`replyStreaming` non-null) but its text
+  // has not grown for READING_GAP_MS and it has NOT finalized, show the indicator;
+  // hide it the instant the next chunk arrives or the reply lands. The gap is an
+  // ELAPSED-TIME condition, so a timer (not just a render) drives the (re)check.
+  const [isReading, setIsReading] = useState(false);
+
+  // A NEW `replyStreaming` object is minted per chunk (see useRunChat), so this
+  // effect re-runs on every chunk AND on finalize/clear. Lint-safe: setState fires
+  // ONLY inside timer callbacks (never synchronously in the effect body) — mirrors
+  // the useSmoothText pattern. The `hide` 0ms timer drops the indicator on fresh
+  // content; `show` re-raises it if the stream stays silent past the gap; `safety`
+  // caps a pathological stall so the indicator can never stick.
+  useEffect(() => {
+    const lastAt = replyStreaming?.lastChunkAt ?? null;
+    if (lastAt == null) {
+      // Not streaming / finalized → ensure hidden (timer callback, not effect body).
+      const hide = setTimeout(() => setIsReading(false), 0);
+      return () => clearTimeout(hide);
+    }
+    const hide = setTimeout(() => setIsReading(false), 0);
+    const remaining = Math.max(0, READING_GAP_MS - (Date.now() - lastAt));
+    const show = setTimeout(() => setIsReading(true), remaining);
+    const safety = setTimeout(() => setIsReading(false), READING_MAX_MS);
+    return () => {
+      clearTimeout(hide);
+      clearTimeout(show);
+      clearTimeout(safety);
+    };
+  }, [replyStreaming]);
+
+  // Belt-and-suspenders: a run switch must not leak a stale reading indicator onto
+  // a different viewed run (the run-binding class). `useRunChat` clears
+  // `replyStreaming` on an explicit history-open seed; this covers a live viewed-
+  // run change while a reply is mid-stream. Lint-safe: the reset fires inside a
+  // timer callback, never synchronously in the effect body (set-state-in-effect).
+  useEffect(() => {
+    const reset = setTimeout(() => setIsReading(false), 0);
+    return () => clearTimeout(reset);
+  }, [viewedRunId]);
 
   // Free-text send routes through the transport-agnostic sendMessage. On a
   // SETTLED run (complete) the turn is CLASSIFIED (43-02, the A.1 CRUX): an ASK
@@ -1335,7 +1429,18 @@ export function RunChatLane({
           onRequestOpenTab={onRequestOpenTab}
           eventsByMessageId={eventsByMessageId}
           hideComposer
-          transcriptFooter={renderTranscriptFooter()}
+          transcriptFooter={
+            <>
+              {/* rqo Issue-2 part-2 — the mid-reply "reading run data…" indicator
+                  sits at the head of the footer, directly under the streaming
+                  reply bubble, and scrolls with the transcript (ChatPanel's
+                  follow-scroll keeps it in view). It is a SEPARATE, mid-reply state
+                  from ChatPanel's pre-reply TypingIndicator (which only fires when
+                  the tail is NOT an assistant turn) — so the two never double up. */}
+              {isReading && <ReadingIndicator />}
+              {renderTranscriptFooter()}
+            </>
+          }
         />
       </div>
 
