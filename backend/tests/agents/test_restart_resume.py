@@ -1507,6 +1507,74 @@ async def test_kernel_computes_resume_completed_task_ids_cursor():
     session.close()
 
 
+@pytest.mark.asyncio
+async def test_upstream_context_hash_single_home_stable(tmp_path):
+    """RESUME-14 (RED on HEAD): the upstream-context-hash has ONE home (INV-12).
+
+    The engine exposes ``_compute_upstream_context_hash(step, ectx)`` returning a
+    stable 64-char hex digest of the SORTED upstream content_hashes the step consumes
+    (the same scheme ``_compute_step_input_hash`` uses for its upstream half — factored,
+    not duplicated). The strategy reaches it via ``runner.upstream_context_hash(step)``,
+    which MUST return the identical digest.
+
+    On HEAD neither the engine helper nor the runner handle exist → AttributeError → RED.
+    """
+    from types import SimpleNamespace
+
+    from agents.artifacts.graph import ArtifactGraph
+    from agents.execution_engine.context import ExecutionContext
+    from agents.execution_engine.engine import ExecutionEngine
+    from agents.execution_engine.kernel_services import KernelServices
+    from agents.workflows.plan import Step
+    from app.agents.sandbox import RunSandbox
+
+    run_id = f"uh-{uuid.uuid4().hex[:8]}"
+    owner = "uh-user"
+    ws = "ws-uh"
+
+    graph = ArtifactGraph()
+    # An upstream 'plan' ref the 'build' step consumes → its content_hash feeds the digest.
+    graph.write_ref(
+        run_id=run_id, owner_id=owner, workspace_id=ws, kind="task_list",
+        producer_step="plan", producer_agent="plan", task_id=None,
+        content="## Task 1: do it", location="artifact_refs/plan",
+    )
+
+    ectx = ExecutionContext(
+        run_id=run_id, owner_id=owner, disk_principal=owner, artifacts=graph
+    )
+    ectx.workspace_id = ws
+
+    engine = ExecutionEngine()
+    sandbox = RunSandbox(owner, run_id, runs_root=str(tmp_path))
+    sandbox.ensure()
+
+    ordered = [
+        SimpleNamespace(id="plan", produces=["task_list"], consumes=[]),
+        SimpleNamespace(id="build", produces=[], consumes=["task_list"]),
+    ]
+    runner = KernelServices(
+        engine=engine, ectx=ectx, sandbox=sandbox, ordered_agents=ordered,
+        user_message="brief", pipeline_run_id=run_id, pipeline_type="prototype",
+        planning_context={}, attached_skills=None, attached_hooks=None,
+        model_id=None, results=[], cancel_event=None,
+    )
+    ectx.runner = runner
+    step = Step(agent_id="build", strategy="task_loop")
+
+    # (a) engine helper: a stable 64-char hex, non-empty upstream folded in.
+    h1 = engine._compute_upstream_context_hash(step, ectx)
+    h2 = engine._compute_upstream_context_hash(step, ectx)
+    assert re.fullmatch(r"[0-9a-f]{64}", h1 or ""), f"expected 64-hex digest, got {h1!r}"
+    assert h1 == h2, "the upstream-context-hash must be deterministic across calls"
+
+    # (b) the runner handle delegates to the SAME digest.
+    assert runner.upstream_context_hash(step) == h1, (
+        "runner.upstream_context_hash(step) must equal the engine helper's digest "
+        "(one home, INV-12)"
+    )
+
+
 # ===========================================================================
 # RESUME-10 — a resumed run is a first-class LIVE run: live-ectx registered
 # (+ guaranteed unregister in finally), milestone cards emitted with an

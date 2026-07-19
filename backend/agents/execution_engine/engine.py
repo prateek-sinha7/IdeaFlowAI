@@ -5796,26 +5796,19 @@ class ExecutionEngine:
     # None offline → re-execute).
     # ──────────────────────────────────────────────────────────────────────
 
-    def _compute_step_input_hash(self, step, ectx: ExecutionContext) -> str:
-        """Return a cross-restart-stable sha256 of the step's resolved input.
+    def _upstream_content_hashes(self, step, ectx: ExecutionContext) -> list[str]:
+        """Return the (unsorted) content_hashes of the upstream artifacts this step consumes.
 
-        The hash is taken over a canonical JSON payload of two parts:
-          * ``upstream``: the SORTED list of the content_hashes of the upstream
-            artifacts this step consumes (content-addressed → identical upstream
-            content ⇒ identical hashes), read from the typed graph
-            (``ectx.artifacts``). Sorting makes the key insensitive to
-            production order (Pitfall 1 — cross-restart stability).
-          * ``input``: the step's resolved task/prompt input string (the run's
-            user brief; a task-loop step also carries its per-task block on
-            ``ectx.current_task_block`` when present).
+        THE single home of the produces∩consumes upstream scan (INV-12). Both
+        ``_compute_step_input_hash`` (which folds it into the step input_hash) AND
+        ``_compute_upstream_context_hash`` (which digests it for the RESUME-14
+        ``task_key`` namespace) call this — so the upstream-consume scan exists
+        EXACTLY ONCE in the file; there is never a second upstream-hashing scheme.
 
-        NEVER includes a timestamp, a fresh uuid, or an unsorted collection: the
-        12-03 restart re-runs depend on hash EQUALITY for the same input.
+        Reuses the registry produces∩consumes contract via the runner's
+        ordered_agents when present; falls back to every produced ref (a step that
+        consumes nothing yields the empty upstream set — still deterministic).
         """
-        # Which upstream agents does this step consume? Reuse the registry
-        # produces∩consumes contract via the runner's ordered_agents when present;
-        # fall back to every produced ref (a step that consumes nothing hashes the
-        # empty upstream set + its input — still deterministic).
         spec = None
         ordered_agents: list = []
         runner = getattr(ectx, "runner", None)
@@ -5843,7 +5836,49 @@ class ExecutionEngine:
             # content (still deterministic + cross-restart stable).
             for ref in ectx.artifacts.tree(ectx.run_id):
                 upstream_hashes.append(ref.content_hash)
+        return upstream_hashes
 
+    def _compute_upstream_context_hash(self, step, ectx: ExecutionContext) -> str:
+        """Return a cross-restart-stable sha256 of the SORTED upstream content_hashes.
+
+        RESUME-14: this is the NAMESPACE half of a ``task_key``. A spec/plan edit
+        rotates the consumed upstream content → this digest rotates → every dependent
+        ``task_key`` rotates → the reconciler auto-re-runs the affected tasks (Q2
+        automatic reconciliation). Reuses the ONE upstream scan
+        (``_upstream_content_hashes``) that ``_compute_step_input_hash`` also folds in
+        (INV-12 — no second upstream-hashing scheme). Sorting makes the digest
+        insensitive to production order; NEVER a timestamp/uuid → cross-restart stable.
+        """
+        upstream_hashes = self._upstream_content_hashes(step, ectx)
+        canonical = json.dumps(
+            {"upstream": sorted(upstream_hashes)},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _compute_step_input_hash(self, step, ectx: ExecutionContext) -> str:
+        """Return a cross-restart-stable sha256 of the step's resolved input.
+
+        The hash is taken over a canonical JSON payload of two parts:
+          * ``upstream``: the SORTED list of the content_hashes of the upstream
+            artifacts this step consumes (content-addressed → identical upstream
+            content ⇒ identical hashes), read from the typed graph
+            (``ectx.artifacts``) via the shared ``_upstream_content_hashes`` scan.
+            Sorting makes the key insensitive to production order (Pitfall 1 —
+            cross-restart stability).
+          * ``input``: the step's resolved task/prompt input string (the run's
+            user brief; a task-loop step also carries its per-task block on
+            ``ectx.current_task_block`` when present).
+
+        NEVER includes a timestamp, a fresh uuid, or an unsorted collection: the
+        12-03 restart re-runs depend on hash EQUALITY for the same input. The
+        payload is byte-identical to pre-factoring HEAD (the upstream half now
+        comes from ``_upstream_content_hashes`` — same list, same order, same hash).
+        """
+        upstream_hashes = self._upstream_content_hashes(step, ectx)
+
+        runner = getattr(ectx, "runner", None)
         resolved_input = getattr(runner, "user_message", "") if runner is not None else ""
         task_block = getattr(ectx, "current_task_block", None)
         if task_block:

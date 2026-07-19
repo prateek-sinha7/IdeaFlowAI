@@ -1141,6 +1141,17 @@ class KernelServices:
     def latest_typed_content(self, producer_step: str) -> str | None:
         return self._engine._latest_typed_content(self._ectx, producer_step)
 
+    # ── Upstream-context-hash handle (RESUME-14; INV-12 one home) ──────────────
+    def upstream_context_hash(self, step) -> str:
+        """Return the per-step upstream-context-hash the task_key namespaces on.
+
+        Delegates to the engine's single ``_compute_upstream_context_hash`` (the same
+        upstream scan ``input_hash`` reuses — no second scheme). The digest is
+        PER-STEP (identical for every task in the step), so a strategy computes it
+        ONCE per ``run`` and threads it into each task's ``compute_task_key``.
+        """
+        return self._engine._compute_upstream_context_hash(step, self._ectx)
+
     # ── OD reads the opendesign provider composes from (Assumption A6) ─────────
     def template_example(self, template_id: str) -> str | None:
         return self._engine._load_template_example(template_id)
