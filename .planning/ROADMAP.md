@@ -1309,7 +1309,12 @@ Plans:
   4. Clarify twin: the questionnaire wait re-arms with questions replayed from the durable `questionnaire_ready` event; answers flow through the unchanged `POST /{id}/answers` path.
   5. The pre-existing RED test `test_restart_resume::test_waiting_for_user_run_is_rearmed_not_driven` flips GREEN (the KAN-88 restoration anchor); FE note honored: parked runs aren't auto-streamed (BUG-013 `AUTO_STREAM_STATUSES`) — the gate surfaces on open via D-14g, the intended UX.
 
-**Plans**: TBD (via /gsd-plan-phase 49)
+**Plans**: 3 plans
+
+Plans:
+- [ ] 49-01-PLAN.md — Shared open-gate pendency (A3) + IN-02 store accessor + branch-(a) fail→re-arm classification (A1) + KAN-88 flip
+- [ ] 49-02-PLAN.md — Review-gate re-entry AT the gate phase: offset override + gate_reentry sentinel + all five actions + redo/update_specs continuation (A2)
+- [ ] 49-03-PLAN.md — Clarify twin replay driver (A5) + dormancy sweep + full at-risk regression battery
 
 ### Phase 50: User Resume-From-Failed — Reopen & Fix [R5]
 
@@ -1334,5 +1339,5 @@ Plans:
 | 46. Per-Task Substrate, Cursor & Live Layer [R1] | 5/5 | Complete   | 2026-07-19 |
 | 47. Uploads Durability [R2] | 1/1 | Complete   | 2026-07-19 |
 | 48. Task Identity & Mutable List [R3] | 3/3 | Complete   | 2026-07-19 |
-| 49. Gate Resume Across Restart [R4] | 0/? | Not started | — |
+| 49. Gate Resume Across Restart [R4] | 0/3 | Planned | — |
 | 50. User Resume-From-Failed [R5] | 0/? | Not started | — |
