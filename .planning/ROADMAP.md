@@ -1266,8 +1266,8 @@ Plans:
   4. Images remain payload-transient — ND-10 stays locked and untouched (no image storage added anywhere); goldens byte-identical.
 
 **Plans**: 1 plan
-
 Plans:
+
 - [ ] 47-01-PLAN.md — durable upload_text mirror at ingest (RESUME-12) + uploaded_files provider durable fallback (RESUME-13)
 
 ### Phase 48: Task Identity & Mutable-List Reconciliation [R3]
