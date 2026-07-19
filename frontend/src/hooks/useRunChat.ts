@@ -240,7 +240,11 @@ function upsertNarratorMessage(
     typeof data.event_id === "string" && data.event_id
       ? data.event_id
       : typeof data.message_id === "string" && data.message_id
-      ? data.message_id
+      ? // HARDENING (Issue-3 defense): a reply frame missing its event_id must
+        // NEVER key on the bare message_id — the Concierge reply reuses the user
+        // turn's id, so a bare-id key overwrites the user's bubble. Mint the same
+        // distinct `chat-reply:{message_id}` the backend + durable row use.
+        `chat-reply:${data.message_id}`
       : mintMessageId();
   const runId = typeof data.run_id === "string" ? data.run_id : undefined;
   const threadId = typeof data.thread_id === "string" ? data.thread_id : undefined;

@@ -1286,6 +1286,12 @@ async def post_message(
             finally:
                 terminal = {
                     "pipeline_run_id": run_id,
+                    # Carry the SAME distinct event_id the durable row uses (:1266) so the
+                    # FE keys the reply on `chat-reply:{message_id}` (merging the streamed
+                    # bubble) instead of falling back to the bare `message_id` — which
+                    # equals the user turn's id and OVERWRITES the user's bubble
+                    # (BUG-018 regression on the streamed-POST path).
+                    "event_id": f"chat-reply:{body.message_id}",
                     "message_id": body.message_id,
                     "text": answer_text or "",
                     "seq": reply_seq,

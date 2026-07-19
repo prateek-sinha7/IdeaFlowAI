@@ -449,6 +449,11 @@ class TestConciergeStreaming:
         assert len(terminals) == 1
         assert terminals[0]["data"]["text"] == "Hello"
         assert terminals[0]["data"]["message_id"] == "s1"
+        # Issue-3 guard: the STREAMED terminal carries the SAME distinct event_id as
+        # the durable row (below), so the FE keys the reply on `chat-reply:{id}`
+        # (merging the streamed bubble) instead of the bare message_id — which equals
+        # the user turn's id and would OVERWRITE the user's bubble (BUG-018 regression).
+        assert terminals[0]["data"]["event_id"] == "chat-reply:s1"
         assert terminals[0]["data"]["proposals"], "held proposals ride the terminal frame"
         assert terminals[0]["data"]["proposals"][0]["held"] is True
 

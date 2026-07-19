@@ -124,6 +124,31 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     expect(result.current.messages).toHaveLength(1);
   });
 
+  it("Test 4b (Issue-3 regression): a chat_reply WITHOUT event_id does NOT overwrite the user turn sharing its message_id", () => {
+    // BUG-018 regression on the streamed-POST path: the Concierge reply reuses the
+    // user turn's message_id, and the streamed terminal frame dropped event_id, so
+    // upsertNarratorMessage keyed on the bare message_id and OVERWROTE the user's
+    // bubble. The reducer must key such a reply on `chat-reply:{message_id}` and
+    // leave the user turn intact.
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-1", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+
+    conn.emit(frame("chat_message", { message_id: "m1", text: "my question", run_id: "run-1" }));
+    // Reply shares the user turn's id AND carries NO event_id — the streamed-terminal
+    // bug shape. Built RAW (not via frame(), which would auto-add an event_id and mask it).
+    conn.emit({ type: "chat_reply", data: { message_id: "m1", text: "the answer", run_id: "run-1" } });
+
+    expect(result.current.messages).toHaveLength(2); // both turns survive
+    const user = result.current.messages.find((m) => m.role === "user");
+    const asst = result.current.messages.find((m) => m.role === "assistant");
+    expect(user?.content).toBe("my question"); // NOT overwritten
+    expect(user?.id).toBe("m1");
+    expect(asst?.content).toBe("the answer");
+    expect(asst?.id).toBe("chat-reply:m1"); // distinct key — no collision
+  });
+
   it("Test 5: sendMessage optimistically renders and the server echo reconciles by message_id", () => {
     const conn = makeConn();
     const { result } = renderHook(() =>
