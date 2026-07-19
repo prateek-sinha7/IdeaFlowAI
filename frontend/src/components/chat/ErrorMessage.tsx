@@ -8,6 +8,9 @@ export interface ErrorMessageProps {
   code?: string;
   recoverable?: boolean;
   onRetry?: () => void;
+  /** The transcript row id, exposed as data-message-id so the auto-scroll pin can
+   *  query this row (ChatPanel new-turn pin). */
+  messageId?: string;
 }
 
 /**
@@ -19,9 +22,11 @@ export function ErrorMessage({
   code,
   recoverable = true,
   onRetry,
+  messageId,
 }: ErrorMessageProps) {
   return (
     <motion.div
+      data-message-id={messageId}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}

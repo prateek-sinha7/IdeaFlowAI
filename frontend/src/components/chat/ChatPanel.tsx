@@ -111,12 +111,59 @@ export function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom during streaming and when new messages arrive.
+  const stickToBottomRef = useRef(true);
+  const handledTurnRef = useRef<string | null>(null);
+
+  // Follow-intent: the user is "following" only while near the bottom. A single
+  // scroll up flips this off so streaming never yanks them back down.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const dist =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      stickToBottomRef.current = dist < 120;
+    };
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Auto-scroll: pin a new question to the top; otherwise follow the bottom only
+  // when the user is already there. Instant (never smooth) during streaming so
+  // rapid chunks don't stack animations (which janks the Run-summary footer).
   // Guarded: jsdom (tests) has no scrollIntoView — degrade rather than throw.
   useEffect(() => {
+    const container = scrollContainerRef.current;
     const end = messagesEndRef.current;
-    if (end && typeof end.scrollIntoView === "function") {
-      end.scrollIntoView({ behavior: "smooth" });
+    if (!container) return;
+
+    let lastUser: ChatMessage | undefined;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUser = messages[i];
+        break;
+      }
+    }
+    const turnId = lastUser?.id ?? null;
+
+    if (turnId && turnId !== handledTurnRef.current) {
+      handledTurnRef.current = turnId;
+      const node = container.querySelector(
+        `[data-message-id="${turnId}"]`,
+      );
+      if (node instanceof HTMLElement && typeof node.scrollIntoView === "function") {
+        node.scrollIntoView({ behavior: "smooth", block: "start" });
+        stickToBottomRef.current = false; // let the reply grow below the pinned question
+        return;
+      }
+    }
+
+    if (
+      stickToBottomRef.current &&
+      end &&
+      typeof end.scrollIntoView === "function"
+    ) {
+      end.scrollIntoView({ behavior: "auto" });
     }
   }, [messages, streamingContent, isStreaming]);
 
@@ -172,6 +219,7 @@ export function ChatPanel({
       return (
         <ErrorMessage
           key={message.id}
+          messageId={message.id}
           message={displayMessage}
           code={errorCode}
           recoverable={recoverable}

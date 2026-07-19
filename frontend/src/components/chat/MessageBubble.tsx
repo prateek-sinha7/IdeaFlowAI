@@ -193,6 +193,7 @@ export function MessageBubble({
       <motion.div
         data-testid="chat-message"
         data-role="narrator"
+        data-message-id={message.id}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: "easeOut" }}
@@ -216,6 +217,7 @@ export function MessageBubble({
       <motion.div
         data-testid="chat-message"
         data-role="user"
+        data-message-id={message.id}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: "easeOut" }}
@@ -308,6 +310,7 @@ export function MessageBubble({
     <motion.div
       data-testid="chat-message"
       data-role="assistant"
+      data-message-id={message.id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
