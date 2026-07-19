@@ -1099,6 +1099,335 @@ async def test_waiting_for_user_uncompilable_type_keeps_wr05_fail():
 
 
 # ===========================================================================
+# RESUME-17 (49-02) — review-gate re-entry AT the gate phase (all five actions)
+# ===========================================================================
+#
+# The crux is the CLASSIFIER: a produced-but-ungated step classifies "complete" at
+# the produced-disjunct and a naive resume SKIPS the unresolved gate. The open-gate
+# override in ``_first_incomplete_step`` returns the gated step (re-enter in GATE
+# MODE); the ``gate_reentry`` sentinel then skips the model call, reconstructs the
+# output from the persisted max-version ref (WR-02), and falls into the SHIPPED
+# five-action consumer so approve/reject/edit/redo/update_specs all work post-restart.
+
+
+async def _build_open_review_gate_fixture(session, *, gated_index=1, seed_gate=True):
+    """Seed a durable single_shot run PARKED at a review gate on ``ordered_agents[gated_index]``.
+
+    Three single_shot agents; agent[0] AND the gated agent BOTH produced their typed
+    (``summary``) artifact — so BOTH are in ``produced_agents`` and the gated one would
+    be SKIPPED by the produced-disjunct on HEAD. When ``seed_gate`` a durable
+    ``review_gate_ready`` with ``gate_key = {run}:{gated agent}`` is appended (no
+    resolution ⇒ ``derive_open_gate`` → ``("review", key)``). Returns
+    ``(ordered_agents, compiled, tmp, gated_index)`` for a direct classifier call.
+    """
+    import types
+
+    from agents.artifacts.graph import ArtifactRef
+    from agents.authz import ScopedStore
+    from agents.execution_engine.context import ExecutionContext
+    from agents.workflows.plan import Step
+
+    run_id = f"og-{uuid.uuid4().hex[:8]}"
+    owner = "og-user"
+    ws = "ws-og"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="waiting_for_user", workspace_id=ws
+    )
+
+    agent_ids = ["og-a", "og-b", "og-c"]
+    gated_id = agent_ids[gated_index]
+    pre_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    # agent[0] and the gated agent both produced their durable summary artifact.
+    for produced_id in (agent_ids[0], gated_id):
+        content = f"<output of {produced_id}>"
+        await pre_store.write_ref(
+            ArtifactRef(
+                id=str(uuid.uuid4()), run_id=run_id, owner_id=owner, workspace_id=ws,
+                kind="summary", producer_step=produced_id, producer_agent=produced_id,
+                task_id=None, content=content, content_hash=_pb_hash(content),
+                location=f"artifact_refs/{produced_id}", version=1,
+            )
+        )
+    if seed_gate:
+        await pre_store.append_event(
+            run_id, seq=1, event_id="og-rg", type="review_gate_ready",
+            payload_json={"gate_key": f"{run_id}:{gated_id}"},
+        )
+    session.commit()
+
+    compiled = types.SimpleNamespace(
+        steps=[Step(agent_id=a, strategy="single_shot") for a in agent_ids]
+    )
+    ordered_agents = [_IdSpec(a) for a in agent_ids]
+    tmp = ExecutionContext(run_id=run_id, owner_id=owner, disk_principal="anon")
+    tmp.workspace_id = ws
+    tmp.scoped_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    return ordered_agents, compiled, tmp, gated_index
+
+
+@pytest.mark.asyncio
+async def test_open_review_gate_overrides_produced_disjunct():
+    """RESUME-17 (RED on HEAD without the override): a produced-but-ungated step with an
+    OPEN review gate is re-entered AT the gate (idx == gated step), NOT skipped past."""
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, db_engine = _make_session()
+    ordered_agents, compiled, tmp, gated_index = await _build_open_review_gate_fixture(
+        session
+    )
+    idx = await ExecutionEngine()._first_incomplete_step(tmp, ordered_agents, compiled)
+    assert idx == gated_index, (
+        f"an open review gate must re-enter the gated step (idx == {gated_index}); got "
+        f"idx={idx} (HEAD skips it via the produced-agents disjunct → the gate is lost)"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_open_gate_override_is_noop_without_review_gate():
+    """The override is a NO-OP when no review gate is durable — the offset is the normal
+    produced-disjunct result (byte-identical to HEAD)."""
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, db_engine = _make_session()
+    ordered_agents, compiled, tmp, gated_index = await _build_open_review_gate_fixture(
+        session, seed_gate=False
+    )
+    idx = await ExecutionEngine()._first_incomplete_step(tmp, ordered_agents, compiled)
+    # agent[0] + gated agent produced; agent[2] did NOT → first incomplete is index 2.
+    assert idx == 2, f"no open gate ⇒ the normal produced-disjunct offset (2); got {idx}"
+    session.close()
+
+
+class _FakeGateEventRow:
+    """A minimal ``gate_events``-shaped row (the seed_helper reads step/gate/outcome)."""
+
+    def __init__(self, step, gate, outcome):
+        self.step = step
+        self.gate = gate
+        self.outcome = outcome
+
+
+class _FakeGateRunner:
+    """A KernelServices-shaped fake exposing the two audit methods the gate re-entry
+    seeding + consumer reach (``read_gate_events`` / ``record_gate_event``)."""
+
+    def __init__(self, rows=None):
+        self._rows = list(rows or [])
+        self.recorded: list[tuple] = []
+
+    async def read_gate_events(self, run_id):
+        return list(self._rows)
+
+    async def record_gate_event(self, step, gate, outcome, detail=None):
+        self.recorded.append((step, gate, outcome, detail))
+        self._rows.append(_FakeGateEventRow(step, gate, outcome))
+        return "gate-event-id"
+
+
+def _seed_gate_reentry_ectx(run_id, spec, *, content="PERSISTED GATED OUTPUT", runner=None):
+    """Return an ectx armed for a gate re-entry: one durable ``summary`` ref for the
+    gated agent + the ``gate_reentry`` sentinel + ``gate_agent_ids`` so ``_should_gate``
+    fires. ``scoped_store`` left None ⇒ ``_dual_write_artifact`` writes the in-memory
+    graph only (the direct-unit path, mirroring test_redo_gate_safety._make_ectx)."""
+    from tests.agents.test_redo_gate_safety import _make_ectx
+
+    ectx = _make_ectx(run_id, gate_agent_ids=[spec.id])
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="summary",
+        producer_step=spec.id, producer_agent=spec.id, task_id=None,
+        content=content, location=f"artifact_refs/{spec.id}",
+    )
+    ectx.runner = runner
+    ectx.gate_reentry = {
+        "agent_id": spec.id, "artifact_kind": "summary",
+        "gate_key": f"{run_id}:{spec.id}",
+    }
+    return ectx
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["approve", "reject", "edit", "redo", "update_specs"])
+async def test_gate_reentry_all_five_actions_post_restart(action):
+    """RESUME-17 SC-3: on a post-restart gate re-entry the model call is SKIPPED, the
+    output is reconstructed from the persisted ref (WR-02), and ALL FIVE gate actions
+    behave IDENTICALLY to a live gate."""
+    from agents.loader import load_agent_spec
+
+    from tests.agents._scripted_model import ScriptedFakeChatModel
+    from tests.agents.test_redo_gate_safety import (
+        _EngineHarness,
+        _drive_agent,
+        _text_turn,
+    )
+
+    # domain-analyst: text-only, artifact kind "summary" (update_specs-eligible).
+    spec = load_agent_spec("domain-analyst")
+    scripts = {
+        "approve":      [[]],
+        "reject":       [[{"type": "_gate_rejected"}]],
+        "edit":         [[{"type": "_gate_edited", "edited_content": "EDITED OUTPUT"}]],
+        "redo":         [[{"type": "_gate_redo", "instructions": "redo it"}], []],
+        "update_specs": [[{"type": "_gate_update_specs", "analysis_report": "revise"}], []],
+    }[action]
+    captured_outputs: list[str] = []
+    gate_n = {"n": 0}
+
+    async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
+                    update_specs_eligible=False, artifact_kind=None, cancel_event=None):
+        i = gate_n["n"]
+        gate_n["n"] += 1
+        captured_outputs.append(output)
+        yield {"type": "review_gate_ready", "data": {
+            "gate_key": f"{pipeline_run_id}:{agent_id}",
+            "redoable": redoable, "update_specs_eligible": update_specs_eligible,
+        }}
+        for ev in scripts[i]:
+            yield ev
+
+    sub_fired = {"n": 0}
+
+    async def _fake_subpipeline(**kwargs):
+        sub_fired["n"] += 1
+        yield {"type": "_revision_analyze_output", "output": "revised analysis"}
+
+    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("redo output. "))) as h:
+        h.engine._run_review_gate = _gate  # type: ignore[assignment]
+        h.engine._run_spec_revision_sub_pipeline = _fake_subpipeline  # type: ignore[assignment]
+        run_id = f"re-{action}"
+        ectx = _seed_gate_reentry_ectx(run_id, spec)
+        seeded_ref_id = ectx.artifacts.tree(run_id)[0].id
+        results: list[dict] = [{"agent_id": spec.id, "output": "PERSISTED GATED OUTPUT"}]
+        events = await _drive_agent(h.engine, spec, ectx, results, [spec])
+
+    # The sentinel is CONSUMED (consume-once) and the gate reviewed the RECONSTRUCTED
+    # persisted output — never a re-generated one (WR-02, model-skip).
+    assert getattr(ectx, "gate_reentry", None) is None, "the gate_reentry sentinel was not consumed"
+    assert captured_outputs and captured_outputs[0] == "PERSISTED GATED OUTPUT", (
+        f"the gate must review the persisted max-version output (WR-02); got {captured_outputs!r}"
+    )
+
+    if action == "approve":
+        assert not any(e["type"] == "pipeline_cancelled" for e in events)
+        assert gate_n["n"] == 1
+        assert results[-1]["output"] == "PERSISTED GATED OUTPUT"
+    elif action == "reject":
+        assert any(e["type"] == "pipeline_cancelled" for e in events), "reject must cancel"
+    elif action == "edit":
+        refs = [
+            r for r in ectx.artifacts.tree(run_id)
+            if r.producer_agent == spec.id and r.content == "EDITED OUTPUT"
+        ]
+        assert refs, "edit must dual-write a new versioned ref"
+        assert refs[-1].derived_from == seeded_ref_id, (
+            "the edit's derived_from must point at the superseded persisted version (lineage)"
+        )
+    elif action == "redo":
+        assert gate_n["n"] == 2, "redo must re-open the gate after the fresh re-run"
+        redo_threads = [t for t in h.thread_ids if t and ":redo" in t]
+        assert redo_threads, f"redo must thread a fresh :redo{{N}} checkpoint: {h.thread_ids}"
+    elif action == "update_specs":
+        assert sub_fired["n"] == 1, "update_specs must FIRE the spec-revision sub-pipeline"
+        assert gate_n["n"] == 2, "update_specs must re-open the gate with the new output"
+        assert captured_outputs[1] == "revised analysis", (
+            "the re-opened gate must review the sub-pipeline's new analysis output"
+        )
+
+
+@pytest.mark.asyncio
+async def test_gate_reentry_redo_numbering_continues_past_pre_restart_redos():
+    """RESUME-17 SC-3 (P23 replay class): a post-restart redo threads a ``:redo{N}`` id
+    STRICTLY greater than any pre-restart redo. Two durable ``redo`` gate_events rows ⇒
+    the seed is HIGH ⇒ the next redo threads ``{run}:{agent}:redo3`` (never reuses 1/2)."""
+    from agents.loader import load_agent_spec
+
+    from tests.agents._scripted_model import ScriptedFakeChatModel
+    from tests.agents.test_redo_gate_safety import (
+        _EngineHarness,
+        _drive_agent,
+        _text_turn,
+    )
+
+    spec = load_agent_spec("domain-analyst")
+    gate_n = {"n": 0}
+
+    async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
+                    update_specs_eligible=False, artifact_kind=None, cancel_event=None):
+        i = gate_n["n"]
+        gate_n["n"] += 1
+        yield {"type": "review_gate_ready", "data": {
+            "gate_key": f"{pipeline_run_id}:{agent_id}", "redoable": redoable,
+        }}
+        # First firing (the re-entry) requests a redo; the re-run's gate approves.
+        if i == 0:
+            yield {"type": "_gate_redo", "instructions": ""}
+
+    # Two durable pre-restart redo audit rows for this agent.
+    runner = _FakeGateRunner(rows=[
+        _FakeGateEventRow(spec.id, "human", "redo"),
+        _FakeGateEventRow(spec.id, "human", "redo"),
+    ])
+
+    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("redo output. "))) as h:
+        h.engine._run_review_gate = _gate  # type: ignore[assignment]
+        run_id = "redo-num-run"
+        ectx = _seed_gate_reentry_ectx(run_id, spec, runner=runner)
+        results: list[dict] = [{"agent_id": spec.id, "output": "PERSISTED GATED OUTPUT"}]
+        await _drive_agent(h.engine, spec, ectx, results, [spec])
+
+    # Seed = max(2 durable redo rows, 1 version − 1) = 2 → the redo threads :redo3.
+    redo_threads = [t for t in h.thread_ids if t and ":redo" in t]
+    assert redo_threads == [f"{run_id}:{spec.id}:redo3"], (
+        f"post-restart redo must continue past the 2 pre-restart redos (:redo3); got {redo_threads}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gate_reentry_update_specs_writes_audit_row_a2():
+    """A2: the inline update_specs consumer writes a best-effort ``gate_events`` audit row
+    (symmetric with redo) so a post-restart spec_revision_attempt is durable-derivable."""
+    from agents.loader import load_agent_spec
+
+    from tests.agents._scripted_model import ScriptedFakeChatModel
+    from tests.agents.test_redo_gate_safety import (
+        _EngineHarness,
+        _drive_agent,
+        _text_turn,
+    )
+
+    spec = load_agent_spec("domain-analyst")
+    gate_n = {"n": 0}
+
+    async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
+                    update_specs_eligible=False, artifact_kind=None, cancel_event=None):
+        i = gate_n["n"]
+        gate_n["n"] += 1
+        yield {"type": "review_gate_ready", "data": {
+            "gate_key": f"{pipeline_run_id}:{agent_id}", "redoable": redoable,
+        }}
+        if i == 0:
+            yield {"type": "_gate_update_specs", "analysis_report": "revise the specs"}
+
+    async def _fake_subpipeline(**kwargs):
+        yield {"type": "_revision_analyze_output", "output": "revised analysis"}
+
+    runner = _FakeGateRunner()
+
+    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("x. "))) as h:
+        h.engine._run_review_gate = _gate  # type: ignore[assignment]
+        h.engine._run_spec_revision_sub_pipeline = _fake_subpipeline  # type: ignore[assignment]
+        run_id = "us-audit-run"
+        ectx = _seed_gate_reentry_ectx(run_id, spec, runner=runner)
+        results: list[dict] = [{"agent_id": spec.id, "output": "PERSISTED GATED OUTPUT"}]
+        await _drive_agent(h.engine, spec, ectx, results, [spec])
+
+    us_rows = [r for r in runner.recorded if r[2] == "update_specs"]
+    assert us_rows and us_rows[0][0] == spec.id and us_rows[0][1] == "human", (
+        f"update_specs must write a best-effort audit row (step, human, update_specs); got {runner.recorded}"
+    )
+
+
+# ===========================================================================
 # RESUME-05 — task_loop completeness is task-granular (partial build re-enters,
 # completed build stays complete). Offline direct-classifier unit tests.
 # ===========================================================================

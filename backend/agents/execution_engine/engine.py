@@ -2149,6 +2149,37 @@ class ExecutionEngine:
             # normal run (steering_notes stays empty → INV-3 byte-parity).
             await self._redrain_steering_notes(ectx)
 
+            # ── RESUME-17 review-gate re-entry sentinel (49-02) ──────────────────────
+            # When the durable events show an OPEN review gate whose target agent is the
+            # step the resume offset landed on, arm a CONSUME-ONCE sentinel so ``_run_agent``
+            # re-enters AT the gate phase (skip the model call; reconstruct ``output`` +
+            # ``ectx.last_streamed`` from the persisted max-version ref — WR-02) and falls
+            # into the SHIPPED five-action gate consumer. The output is NOT stashed here —
+            # it is seeded at the loop entry from the freshly-hydrated graph (hydrated above
+            # at ``_resume_from > 0``). Generic keying: parse the agent id out of
+            # ``gate_key = f"{run}:{agent_id}"`` (INV-1). No-op when no review gate is open
+            # (``derive_open_gate`` → ``(None, None)``) ⇒ the sentinel stays unset and every
+            # non-gate resume is byte/event-identical (INV-3). Best-effort — a read failure
+            # degrades to a normal (model-running) resume of the step (fail-safe).
+            if 0 <= _resume_from < len(ordered_agents):
+                try:
+                    _rr_rows = await scoped_store.read_events(pipeline_run_id, 0)
+                    _rr_kind, _rr_gate_key = derive_open_gate(_rr_rows)
+                    if _rr_kind == "review" and _rr_gate_key:
+                        _rr_target = _rr_gate_key.split(":", 1)[1]
+                        _rr_spec = ordered_agents[_resume_from]
+                        if getattr(_rr_spec, "id", None) == _rr_target:
+                            ectx.gate_reentry = {
+                                "agent_id": _rr_target,
+                                "artifact_kind": self._artifact_kind_for(_rr_spec),
+                                "gate_key": _rr_gate_key,
+                            }
+                except Exception:  # noqa: BLE001 — fail-safe: no sentinel → normal resume
+                    logger.debug(
+                        "resume: gate-reentry sentinel derivation failed (ignored)",
+                        exc_info=True,
+                    )
+
         # ── F3 (13-06): failed-agent tracking — pure OBSERVATION ────────────────
         # Record the agent_id of every ``agent_error`` event flowing through the
         # dispatch loop below. No event is modified, reordered or suppressed; the
@@ -2969,6 +3000,169 @@ class ExecutionEngine:
         spec_revision_attempt = 0   # KAN-101: 0 = first run; N>0 = Nth spec revision cycle
         while True:
             agent_start = time.time()
+
+            # ── RESUME-17 gate re-entry (49-02): a restart-parked review gate ─────────
+            # re-opens AT its gate phase with ZERO model call — cloning the
+            # ``pending_revision_output`` short-circuit below. The sentinel (armed in the
+            # ``_is_resume`` block) fires ONCE for the gated step: reconstruct ``output``
+            # from the persisted max-version ref (F5) + re-seed ``ectx.last_streamed``
+            # (WR-02) so the gate reviews the REAL output, seed the redo / spec-revision
+            # attempt counters FAIL-SAFE HIGH from durable evidence (T-49-02-01 — the P23
+            # ``:redo{N}`` replay class: over-estimating is a fresh unused thread id,
+            # under-estimating collides), then fall into the IDENTICAL five-action consumer.
+            # Consume-once + guarded on ``spec.id`` ⇒ dormant on every normal/scripted run
+            # (the sentinel is unset → this whole block is skipped, INV-3).
+            _gate_reentry = getattr(ectx, "gate_reentry", None)
+            if _gate_reentry is not None and _gate_reentry.get("agent_id") == spec.id:
+                ectx.gate_reentry = None  # consume-once
+                output = self._latest_typed_content(ectx, spec.id) or ""
+                ectx.last_streamed = output  # WR-02: the gate reviews the real output
+                if results and results[-1].get("agent_id") == spec.id:
+                    results[-1] = {**results[-1], "output": output}
+                else:
+                    results.append({"agent_id": spec.id, "output": output})
+                # Seed the redo / spec-revision loop locals from durable evidence so a
+                # post-restart redo / update_specs never reuses a pre-restart thread id.
+                redo_attempt, spec_revision_attempt = (
+                    await self._seed_gate_reentry_attempts(ectx, spec)
+                )
+                if self._should_gate(spec, ectx):
+                    # Re-open the gate directly — skip the model call entirely. The five-
+                    # branch consumer below is the SAME logic as the post-stream inline
+                    # gate (:3842-3999) so ALL FIVE actions behave IDENTICALLY to a live
+                    # gate: reject cancels, edit dual-writes with derived_from lineage,
+                    # redo threads a fresh :redo{N}, update_specs FIRES the Phase-27
+                    # sub-pipeline (SC-3). Deviation from the plan's "clone the
+                    # pending_revision_output path" note: that path's update_specs branch
+                    # only re-seeds + breaks (it does NOT run the sub-pipeline — it IS the
+                    # re-open-after-sub-pipeline stage), so cloning it would NEVER fire the
+                    # sub-pipeline from a re-entered gate. The success criterion "update_specs
+                    # sub-pipeline fires" requires the post-stream consumer.
+                    _ek = self._artifact_kind_for(spec)
+                    async for gate_event in self._run_review_gate(
+                        pipeline_run_id=pipeline_run_id,
+                        agent_id=spec.id,
+                        agent_name=spec.name,
+                        output=output,
+                        redoable=True,
+                        update_specs_eligible=_ek in self._UPDATE_SPECS_ELIGIBLE_KINDS,
+                        artifact_kind=_ek,
+                        cancel_event=cancel_event,
+                    ):
+                        if gate_event.get("type") == "_gate_rejected":
+                            current = self._state_machine.get_state(pipeline_run_id)
+                            if current not in ("cancelled", "failed"):
+                                self._state_machine.transition(pipeline_run_id, "cancelled")
+                            yield {"type": "pipeline_cancelled", "data": {
+                                "pipeline_run_id": pipeline_run_id,
+                                "reason": f"User rejected output from {spec.name}",
+                            }}
+                            return
+                        elif gate_event.get("type") == "_gate_edited":
+                            edited = gate_event.get("edited_content", output)
+                            if edited:
+                                _ek = self._artifact_kind_for(spec)
+                                _ek_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
+                                # RESUME-15: stamp lineage to the version this edit
+                                # supersedes (resolved BEFORE the write == prior max).
+                                _prior_ref = self._latest_typed_ref_id(ectx, spec.id, _ek)
+                                await self._dual_write_artifact(
+                                    ectx,
+                                    producer_agent=spec.id,
+                                    producer_step=spec.id,
+                                    content=edited,
+                                    kind=_ek,
+                                    location=(
+                                        _ek_html_loc
+                                        if _ek == "html_file"
+                                        else f"artifact_refs/{spec.id}"
+                                    ),
+                                    derived_from=_prior_ref,
+                                )
+                            if results:
+                                results[-1] = {**results[-1], "output": edited}
+                        elif gate_event.get("type") == "_gate_redo":
+                            redo_directive = gate_event.get("instructions") or ""
+                            _kind = self._artifact_kind_for(spec)
+                            _cands = [
+                                r for r in ectx.artifacts.list_by_kind(_kind)
+                                if r.producer_agent == spec.id
+                            ]
+                            redo_derived_from = (
+                                max(_cands, key=lambda r: r.version).id
+                                if _cands else None
+                            )
+                            if results and results[-1].get("agent_id") == spec.id:
+                                results.pop()
+                            _runner = getattr(ectx, "runner", None)
+                            if _runner is not None and hasattr(_runner, "record_gate_event"):
+                                try:
+                                    await _runner.record_gate_event(
+                                        spec.id, "human", "redo",
+                                        {"has_instructions": bool(redo_directive)},
+                                    )
+                                except Exception:  # noqa: BLE001 — audit never aborts a run
+                                    logger.debug(
+                                        "redo audit row failed for agent %s (ignored)",
+                                        spec.id, exc_info=True,
+                                    )
+                            redo_attempt += 1
+                            break
+                        elif gate_event.get("type") == "_gate_update_specs":
+                            analysis_report = gate_event.get("analysis_report") or ""
+                            spec_revision_attempt += 1
+                            _us_runner = getattr(ectx, "runner", None)
+                            if _us_runner is not None and hasattr(_us_runner, "record_gate_event"):
+                                try:
+                                    await _us_runner.record_gate_event(
+                                        spec.id, "human", "update_specs",
+                                        {"has_report": bool(analysis_report)},
+                                    )
+                                except Exception:  # noqa: BLE001 — audit never aborts a run
+                                    logger.debug(
+                                        "update_specs audit row failed for agent %s (ignored)",
+                                        spec.id, exc_info=True,
+                                    )
+                            new_analysis_output = ""
+                            async for sub_event in self._run_spec_revision_sub_pipeline(
+                                spec=spec,
+                                index=index,
+                                ordered_agents=ordered_agents,
+                                user_message=user_message,
+                                sandbox=sandbox,
+                                pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type,
+                                planning_context=planning_context,
+                                attached_skills=attached_skills,
+                                attached_hooks=attached_hooks,
+                                model_id=model_id,
+                                results=results,
+                                cancel_event=cancel_event,
+                                ectx=ectx,
+                                analysis_report=analysis_report,
+                                revision_index=spec_revision_attempt,
+                            ):
+                                if sub_event.get("type") == "_revision_analyze_output":
+                                    new_analysis_output = sub_event.get("output", "")
+                                elif sub_event.get("type") == "_gate_rejected":
+                                    current = self._state_machine.get_state(pipeline_run_id)
+                                    if current not in ("cancelled", "failed"):
+                                        self._state_machine.transition(pipeline_run_id, "cancelled")
+                                    yield {"type": "pipeline_cancelled", "data": {
+                                        "pipeline_run_id": pipeline_run_id,
+                                        "reason": "Cancelled during spec revision sub-pipeline",
+                                    }}
+                                    return
+                                else:
+                                    yield sub_event
+                            ectx.spec_revision_pending_output = new_analysis_output
+                            break
+                        else:
+                            yield gate_event
+                    else:
+                        return
+                    continue
+                return
 
             # KAN-101: if a spec revision sub-pipeline just completed, skip re-running
             # THIS agent (the analyzer) and jump straight to re-opening the gate with
@@ -3926,6 +4120,24 @@ class ExecutionEngine:
                             # (INV-1 / SC-001).
                             analysis_report = gate_event.get("analysis_report") or ""
                             spec_revision_attempt += 1
+                            # A2 (RESUME-17): best-effort, content-free update_specs audit
+                            # row in the INLINE consumer — SYMMETRIC with the _gate_redo
+                            # audit above, so a post-restart spec_revision_attempt is
+                            # derivable from the durable gate_events (else the sub-pipeline
+                            # thread ids could collide, the P23 replay class). Dormant on
+                            # goldens (they never update_specs). Never aborts the run.
+                            _us_runner = getattr(ectx, "runner", None)
+                            if _us_runner is not None and hasattr(_us_runner, "record_gate_event"):
+                                try:
+                                    await _us_runner.record_gate_event(
+                                        spec.id, "human", "update_specs",
+                                        {"has_report": bool(analysis_report)},
+                                    )
+                                except Exception:  # noqa: BLE001 — audit never aborts a run
+                                    logger.debug(
+                                        "update_specs audit row failed for agent %s (ignored)",
+                                        spec.id, exc_info=True,
+                                    )
                             logger.info(
                                 "Spec revision sub-pipeline: pipeline=%s attempt=%d",
                                 pipeline_run_id, spec_revision_attempt,
@@ -5846,6 +6058,69 @@ class ExecutionEngine:
                 best = ref
         return best.id if best is not None else None
 
+    async def _seed_gate_reentry_attempts(self, ectx: ExecutionContext, spec) -> tuple[int, int]:
+        """RESUME-17 (A2): seed ``(redo_attempt, spec_revision_attempt)`` FAIL-SAFE HIGH.
+
+        On a post-restart gate re-entry the loop locals reset to 0, but a redo /
+        update_specs threads a checkpoint id off ``redo_attempt`` / ``spec_revision_attempt``
+        (``:redo{N}`` / ``revision_index``). Reusing a pre-restart id is the P23
+        checkpointer-replay bug (the model "remembers" its rejected output). Derive the
+        prior counts from TWO durable signals and take the MAX so the next id is STRICTLY
+        greater than any pre-restart id — over-estimating is a fresh unused thread id;
+        under-estimating collides, so the fail-safe direction is HIGH:
+
+          * ``gate_events`` audit rows for this step (``gate=="human"`` +
+            ``outcome=="redo"`` / ``"update_specs"``) — the inline consumers write these
+            best-effort (redo since P23; update_specs since A2 this plan);
+          * the durable typed-artifact version count for this agent+kind (each redo /
+            revision re-run mints a new version).
+
+        Best-effort: any read failure degrades to the durable version count (NEVER a bare
+        0 when versions exist — that would risk a collision). Offline / no runner ⇒ the
+        version-count signal alone. Keyed on ``spec.id`` + the generic gate vocabulary
+        only (SC-001 / INV-1).
+        """
+        _kind = self._artifact_kind_for(spec)
+        # (1) durable audit counts (best-effort, owner-scoped via the runner).
+        redo_events = 0
+        update_specs_events = 0
+        runner = getattr(ectx, "runner", None)
+        if runner is not None and hasattr(runner, "read_gate_events"):
+            try:
+                rows = await runner.read_gate_events(ectx.run_id)
+                for r in rows:
+                    if (
+                        getattr(r, "step", None) == spec.id
+                        and getattr(r, "gate", None) == "human"
+                    ):
+                        _outcome = getattr(r, "outcome", None)
+                        if _outcome == "redo":
+                            redo_events += 1
+                        elif _outcome == "update_specs":
+                            update_specs_events += 1
+            except Exception:  # noqa: BLE001 — an audit read must never abort a resume
+                logger.debug(
+                    "gate-reentry: read_gate_events failed for %s (ignored)",
+                    spec.id, exc_info=True,
+                )
+        # (2) durable typed-artifact version count for this agent+kind.
+        version_count = 0
+        try:
+            version_count = len(
+                [
+                    r for r in ectx.artifacts.list_by_kind(_kind)
+                    if r.producer_agent == spec.id
+                ]
+            )
+        except Exception:  # noqa: BLE001 — no graph → version signal 0
+            version_count = 0
+        # Fail-safe HIGH: the MAX of both durable signals (per the PINNED A2 formulas).
+        redo_attempt = max(redo_events, version_count - 1)
+        spec_revision_attempt = max(update_specs_events, version_count)
+        if redo_attempt < 0:
+            redo_attempt = 0
+        return redo_attempt, spec_revision_attempt
+
     # ──────────────────────────────────────────────────────────────────────
     # RESUME-02 (12-02): the SINGLE per-step retry/reuse wrapper (D-10).
     #
@@ -6587,9 +6862,13 @@ class ExecutionEngine:
         completed_step_events: set[str] = set()
         terminal_wave_indices_by_step: dict[str, set[int]] = {}
         running_wave_steps: set[str] = set()
+        # RESUME-17: the run's durable run_events, captured ONCE so the open-gate
+        # override below reuses them (no second round-trip) — [] on the offline harness.
+        durable_rows: list = []
         if store is not None:
             try:
                 rows = await store.read_events(ectx.run_id, 0)
+                durable_rows = rows
                 for row in rows:
                     payload = getattr(row, "payload_json", None) or {}
                     if not isinstance(payload, dict):
@@ -6632,6 +6911,26 @@ class ExecutionEngine:
                         produced_agents.add(pa)
             except Exception:  # noqa: BLE001 — no durable refs → treat steps as incomplete
                 pass
+
+        # ── RESUME-17 open-gate override (49-02): re-enter AT the gate phase ─────────
+        # A gated step whose agent ALREADY produced its typed artifact classifies
+        # "complete" at the non-wave produced-disjunct below and would be SKIPPED PAST —
+        # but an OPEN review gate at step k IS the resume point (the gated agent produced
+        # its output and is PARKED awaiting the human, not finished). Derive the open gate
+        # from the SAME durable run_events already read above (no extra round-trip); when a
+        # review gate is open, return the gated step so ``_run_agent`` re-enters it in GATE
+        # MODE (model-skip, output reconstructed from the persisted max-version ref).
+        # Generic keying ONLY: parse the agent id out of ``gate_key = f"{run}:{agent_id}"``
+        # (:4802) and match ``ordered_agents[j].id`` — zero workflow/agent-name literals
+        # (INV-1). No-op when ``derive_open_gate`` returns ``(None, None)`` ⇒ every non-gate
+        # resume offset is byte/event-identical (proven by the branch-(b) resume tests that
+        # seed no ``review_gate_ready``).
+        _open_kind, _open_gate_key = derive_open_gate(durable_rows)
+        if _open_kind == "review" and _open_gate_key:
+            _gate_target = _open_gate_key.split(":", 1)[1]
+            for _j in range(len(ordered_agents)):
+                if getattr(ordered_agents[_j], "id", None) == _gate_target:
+                    return _j
 
         # NOTE: this is a completeness SCAN, NOT the dispatch loop — it iterates by
         # index (not ``enumerate(ordered_agents)``) so the single-dispatch-loop grep
