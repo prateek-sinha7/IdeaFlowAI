@@ -53,6 +53,7 @@ LiveEctxUnregister = Callable[[str], None]
 from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
+from agents.capabilities import task_identity
 from agents.capabilities.registry import CapabilityRegistry
 from agents.capabilities.validators.severity import render_coverage_status
 from agents.execution_engine.budget import BudgetExceeded, BudgetManager, BudgetSnapshot
@@ -1368,19 +1369,15 @@ class ExecutionEngine:
         # scratch (still correct). Dormant for a normal run.
         if _resume_from > 0:
             await self._hydrate_artifacts_from_store(ectx)
-        # ── RESUME-08 durable → disk re-materialization ──────────────────────────────
-        # Hydrate (above) restores the durable typed artifacts into the in-memory graph
-        # ONLY; the fresh RunSandbox on disk stays empty. Re-materialize the latest
-        # file-backed refs onto ``sandbox`` (max-version, .uploads/-excluded) BEFORE the
-        # dispatch loop re-enters, so a resumed strategy re-reading disk (the next task's
-        # skeleton read; the in-flight wave's per-worker fragments feeding the re-run
-        # merge) sees the reconstructed state — from ``artifact_refs``, never git. Gated
-        # on ``_is_resume`` (NOT only ``_resume_from > 0``): the in-flight wave at
-        # offset==0 IS the first incomplete step, and its already-persisted fragments must
-        # be back on disk for the whole-wave merge re-entry (Edge-Case 6). Dormant on a
-        # normal run (``_is_resume`` False) → byte/event-identical (INV-3).
-        if _is_resume:
-            await self._rematerialize_artifacts_to_disk(ectx, sandbox)
+        # ── RESUME-08 durable → disk re-materialization (DEFERRED to the boundary hook) ──
+        # Re-materialization is now performed AFTER the compiled workflow + ordered_agents +
+        # the per-run runner handle + the ordered resume cursor are all available (the
+        # RESUME-16 cumulative boundary needs the parsed CURRENT task list + the strategy's
+        # upstream hash), which is post-compile — not here (this point precedes
+        # ``compile_for_run``). See the ``_is_resume`` boundary re-materialization hook right
+        # after the skip-cursor computation below. Nothing between here and that hook reads
+        # the re-materialized deliverable (only a PLANNER.md write), so deferring it keeps
+        # the disk reconstructed BEFORE the dispatch loop re-enters (Edge-Case 6 preserved).
         # Arm the durable run_events sink (PERSIST-03): hand the public execute()
         # wrapper this run's scoped store + run id so it can persist every stamped
         # event. Done HERE (not in the wrapper) because owner_id/workspace_id are only
@@ -2099,6 +2096,32 @@ class ExecutionEngine:
                 )
                 ectx.resume_completed_task_ids = None
                 ectx.resume_completed_ordered = None
+            # ── RESUME-08 + RESUME-16 boundary re-materialization ───────────────────
+            # Restore the durable file-backed refs onto the fresh sandbox BEFORE the
+            # dispatch loop re-enters (the hydrate at the top restored the in-memory graph
+            # ONLY; disk stays empty). Done HERE (not at the earlier hydrate hook) because
+            # the RESUME-16 cumulative boundary needs the compiled steps + ordered_agents +
+            # the runner handle (upstream hash) + the ordered cursor — all set above. The
+            # boundary makes re-materialization AS-OF the common-prefix boundary task for a
+            # cumulative resume-after-edit (p>0 → boundary version; p==0 → restore nothing);
+            # a non-cumulative / non-edited resume yields an EMPTY boundary → the default
+            # global-max path (byte-identical to the pre-move behavior). Best-effort:
+            # a boundary-compute failure degrades to global-max (fail-safe, never a wrong
+            # restore). Dormant on a normal run (``_is_resume`` False → this whole block is
+            # skipped) → byte/event-identical (INV-3).
+            try:
+                _boundaries = self._compute_cumulative_boundaries(
+                    ectx, ordered_agents, compiled, ectx.resume_completed_ordered
+                )
+            except Exception as _bnd_exc:  # noqa: BLE001 — fail-safe: default global-max
+                logger.warning(
+                    "resume: cumulative boundary compute failed (%s) — re-materializing "
+                    "the global-max deliverable (no boundary restore)", _bnd_exc
+                )
+                _boundaries = {}
+            await self._rematerialize_artifacts_to_disk(
+                ectx, sandbox, boundary_by_agent=_boundaries
+            )
             # ── RESUME-11 steering re-drain ─────────────────────────────────────────
             # Re-derive the steering notes the pre-crash run had NOT yet consumed from
             # the durable chat_message rows (seq > max agent_input.seq) and re-queue them
@@ -6051,7 +6074,7 @@ class ExecutionEngine:
                 continue
 
     async def _rematerialize_artifacts_to_disk(
-        self, ectx: ExecutionContext, sandbox
+        self, ectx: ExecutionContext, sandbox, *, boundary_by_agent: dict | None = None
     ) -> None:
         """Restore the durable FILE-backed artifacts onto the fresh ``RunSandbox`` (RESUME-08).
 
@@ -6088,6 +6111,22 @@ class ExecutionEngine:
         so ``content_hash``es are unchanged and step-reuse input keys stay stable
         (Pitfall 1). Reads the ORIGINAL workspace_id path (never a fresh workspace —
         Pitfall 2), since the read rides ``ectx.scoped_store``.
+
+        RESUME-16 cumulative BOUNDARY selector (``boundary_by_agent``, THREE explicit
+        states per producing agent — Pitfall 4):
+          (i)   NOT supplied (None / agent absent) → per-location global ``max(version)``
+                (byte-identical to today; dormant on non-cumulative / non-edited resume).
+          (ii)  ``{restore_nothing: False, boundary_task_id: <key>}`` (p>0) → restore the
+                ``max(version)`` row of THAT agent whose ``task_id == boundary_task_id``
+                (the file AFTER the boundary task's fixes), NOT the global max (which may
+                embed deleted-suffix-task work). Restore-by-max PER task_id absorbs the
+                fix-loop re-persist multiplicity (Pitfall 9).
+          (iii) ``{restore_nothing: True, ...}`` (p==0, first task diverged) → materialize
+                NO version for that agent's locations — the build starts from a clean/empty
+                basis. The negative-index (``current_keys[-1]``) wrong-restore is impossible
+                here because the p==0 caller supplies ``restore_nothing`` (never a key).
+        (i) and (iii) are DISTINCT states (None is never overloaded to mean "restore
+        nothing"). Immutable rows are only READ — no row is deleted/mutated (T-48-04).
         """
         store = getattr(ectx, "scoped_store", None)
         if store is None:
@@ -6096,8 +6135,10 @@ class ExecutionEngine:
             rows = await store.tree(ectx.run_id)
         except Exception:  # noqa: BLE001 — offline / schema-less → nothing to restore
             return
+        _boundaries = boundary_by_agent or {}
         # Group by location, keep the max-version row per location (fix-loop re-persist
-        # + fan-out fragment versions: the latest content is the disk truth).
+        # + fan-out fragment versions: the latest content is the disk truth) — subject to
+        # the per-agent cumulative boundary above.
         _FILE_KINDS = {"html_file", "file_bundle", "deliverable"}
         latest: dict = {}
         for row in rows or []:
@@ -6107,6 +6148,14 @@ class ExecutionEngine:
                 continue
             if str(location).startswith(".uploads/"):
                 continue  # Phase-47 fence — never re-materialized
+            # RESUME-16 cumulative boundary filter (default path leaves this untouched).
+            _binfo = _boundaries.get(getattr(row, "producer_agent", None))
+            if _binfo is not None:
+                if _binfo.get("restore_nothing"):
+                    continue  # (iii) p==0 → this agent's deliverable is NOT restored
+                _btid = _binfo.get("boundary_task_id")
+                if _btid is not None and str(getattr(row, "task_id", None)) != str(_btid):
+                    continue  # (ii) only the boundary task's versions are eligible
             prev = latest.get(location)
             if prev is None or getattr(row, "version", 0) >= getattr(prev, "version", 0):
                 latest[location] = row
@@ -6115,6 +6164,92 @@ class ExecutionEngine:
                 sandbox.write(location, row.content)
             except Exception:  # noqa: BLE001 — a bad row must never break the resume
                 continue
+
+    def _compute_cumulative_boundaries(
+        self,
+        ectx: ExecutionContext,
+        ordered_agents: list,
+        compiled,
+        completed_ordered: "dict[str, list[str]] | None",
+    ) -> dict:
+        """RESUME-16 cumulative: the per task_loop step re-materialization BOUNDARY.
+
+        The reconciler that turns the ordered completed cursor + the CURRENT (max-version)
+        parsed task list into the three-state boundary ``_rematerialize_artifacts_to_disk``
+        consumes. For each task_loop step with completed work it computes the common-prefix
+        ``p`` (the SAME rule the strategy skip uses — ``task_identity.common_prefix_length``,
+        one home) between ``current_keys`` and the completed keys, and emits a boundary ONLY
+        when there is a real divergence (``p < len(completed)`` — a completed task exists
+        AFTER the boundary). Otherwise global-max already equals the boundary version (the
+        last completed task), so the step is left out and the default global-max path stays
+        byte-identical (three-state (i)).
+
+          * ``p > 0`` → ``{restore_nothing: False, boundary_task_id: current_keys[p-1]}``
+            (== ``completed_ordered[p-1]``): restore that task's version, not the global
+            max that embeds deleted-suffix work (Pitfall 4).
+          * ``p == 0`` (first task edited/deleted, or inserted at head) →
+            ``{restore_nothing: True, boundary_task_id: None}``: restore nothing, every
+            task re-runs from a clean basis. NEVER indexes ``current_keys[-1]``.
+
+        Uses the SAME upstream hash as the strategy (``_compute_upstream_context_hash`` via
+        ``ectx.runner`` — set before this runs) so ``current_keys`` match what was persisted.
+        Fail-safe: any parse/hash failure leaves the step out → default global-max (re-run,
+        never a wrong restore). Keys ONLY on generic parsed content (SC-001/INV-1).
+        """
+        boundaries: dict = {}
+        if not completed_ordered:
+            return boundaries
+        _steps_by_agent = {s.agent_id: s for s in (getattr(compiled, "steps", None) or [])}
+        for spec in ordered_agents:
+            agent_id = getattr(spec, "id", None)
+            done_ordered = completed_ordered.get(agent_id) if agent_id else None
+            if not agent_id or not done_ordered:
+                continue
+            step = _steps_by_agent.get(agent_id)
+            if step is None or getattr(step, "strategy", None) != "task_loop":
+                continue
+            try:
+                task_source = getattr(step, "task_source", None)
+                source_step = getattr(task_source, "source_step", None)
+                parser_name = getattr(task_source, "parser", None) or "heading_tasks"
+                if not source_step:
+                    continue
+                plan_content = self._latest_typed_content(ectx, source_step)
+                if plan_content is None:
+                    continue
+                parser = _CAPABILITY_REGISTRY.resolve("task_parser", parser_name)
+                tasks = parser.parse(plan_content)
+                if not tasks:
+                    continue
+                upstream_hash = self._compute_upstream_context_hash(step, ectx)
+                ordinals = task_identity.occurrence_ordinals(tasks)
+                current_keys = [
+                    task_identity.compute_task_key(
+                        upstream_hash,
+                        task_identity.normalize_task_content(t),
+                        ordinals[i],
+                    )
+                    for i, t in enumerate(tasks)
+                ]
+                p = task_identity.common_prefix_length(current_keys, done_ordered)
+                # Only a real divergence (a completed task AFTER the boundary) needs a
+                # non-default restore; otherwise global-max IS the boundary version.
+                if p >= len(done_ordered):
+                    continue
+                if p == 0:
+                    boundaries[agent_id] = {
+                        "restore_nothing": True,
+                        "boundary_task_id": None,
+                    }
+                else:
+                    boundaries[agent_id] = {
+                        "restore_nothing": False,
+                        "boundary_task_id": current_keys[p - 1],
+                    }
+            except Exception:  # noqa: BLE001 — fail-safe: default global-max (never wrong-restore)
+                boundaries.pop(agent_id, None)
+                continue
+        return boundaries
 
     async def _first_incomplete_step(
         self, ectx: ExecutionContext, ordered_agents: list, compiled

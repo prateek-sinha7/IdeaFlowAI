@@ -214,3 +214,29 @@ def test_key_is_duplicate_safe_end_to_end():
     k0 = task_identity.compute_task_key("up", content, ords[0])
     k1 = task_identity.compute_task_key("up", content, ords[1])
     assert k0 != k1
+
+
+# ── RESUME-16 common_prefix_length (the cumulative reconcile primitive) ──────
+
+def test_common_prefix_full_match():
+    assert task_identity.common_prefix_length(["a", "b", "c"], ["a", "b", "c"]) == 3
+
+
+def test_common_prefix_clean_prefix_mid_build():
+    # current longer than completed (mid-build resume, no edit) → skip all completed.
+    assert task_identity.common_prefix_length(["a", "b", "c"], ["a", "b"]) == 2
+
+
+def test_common_prefix_delete_middle_diverges_at_position():
+    # completed [a,b,c]; current [a,c] (b deleted) → position 1 c!=b → p=1.
+    assert task_identity.common_prefix_length(["a", "c"], ["a", "b", "c"]) == 1
+
+
+def test_common_prefix_first_task_divergence_is_zero():
+    # first current key differs (first task edited/deleted, or inserted at head) → p=0.
+    assert task_identity.common_prefix_length(["x", "b", "c"], ["a", "b", "c"]) == 0
+
+
+def test_common_prefix_empty_completed_is_zero():
+    # normal run (no cursor) → empty completed → p=0 (run everything, dormant).
+    assert task_identity.common_prefix_length(["a", "b"], []) == 0

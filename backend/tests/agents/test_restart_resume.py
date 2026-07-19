@@ -1265,6 +1265,98 @@ async def test_midwave_merge_reentry_rematerializes_fragments(tmp_path):
     session.close()
 
 
+@pytest.mark.asyncio
+async def test_task_loop_reconcile_boundary_version(tmp_path):
+    """RESUME-16 cumulative (Pitfall 4): a p>0 common-prefix boundary restores the
+    deliverable to the boundary task's version — NOT the global max (which embeds the
+    deleted/edited-suffix task's work). Restore-by-max(version) PER boundary task_id
+    handles the fix-loop re-persist multiplicity (Pitfall 9).
+    """
+    from agents.capabilities import task_identity
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, _db = _make_session()
+    owner, ws = "rm-user", "ws-rm"
+    ectx, sandbox, store, run_id = await _build_rematerialize_ctx(
+        session, tmp_path, owner=owner, ws=ws
+    )
+
+    keyA = task_identity.compute_task_key("u", "alpha", 0)
+    keyB = task_identity.compute_task_key("u", "bravo", 0)  # the boundary task
+    keyC = task_identity.compute_task_key("u", "charlie", 0)  # post-boundary (deleted)
+
+    # All at ONE location ("prototype.html"), produced by the build agent. The boundary
+    # task B has TWO versions (fix-loop re-persist) → restore its MAX (v4). C is the
+    # post-boundary task whose version (v5) would win under global-max.
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="after-A", version=1, task_id=keyA)
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="after-B-run", version=2, task_id=keyB)
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="after-C-DELETED", version=3, task_id=keyC)
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="after-B-FIXED", version=4, task_id=keyB)
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="after-C-DELETED-FIXED", version=5, task_id=keyC)
+    session.commit()
+
+    engine = ExecutionEngine()
+    await engine._rematerialize_artifacts_to_disk(
+        ectx, sandbox,
+        boundary_by_agent={
+            "prototype-build": {"restore_nothing": False, "boundary_task_id": keyB}
+        },
+    )
+
+    assert sandbox.read("prototype.html") == "after-B-FIXED", (
+        "boundary re-materialization must restore the boundary task B's MAX-version file "
+        "(after-B-FIXED), NOT the global-max C version which embeds deleted-task work"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_task_loop_reconcile_first_task_clean_basis(tmp_path):
+    """RESUME-16 cumulative p==0: when the FIRST current task diverges the boundary
+    restores NOTHING — no prior deliverable version reaches disk, so the build starts
+    from a clean/empty basis and every current task re-runs. NEVER a negative-index
+    (current_keys[-1]) wrong-restore.
+    """
+    from agents.capabilities import task_identity
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, _db = _make_session()
+    owner, ws = "rm-user", "ws-rm"
+    ectx, sandbox, store, run_id = await _build_rematerialize_ctx(
+        session, tmp_path, owner=owner, ws=ws
+    )
+
+    keyA = task_identity.compute_task_key("u", "alpha", 0)
+    keyB = task_identity.compute_task_key("u", "bravo", 0)
+
+    # Prior completed versions exist on the durable store — global-max would restore
+    # "after-B". The p==0 restore-nothing signal must materialize NONE of them.
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="after-A", version=1, task_id=keyA)
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="after-B", version=2, task_id=keyB)
+    session.commit()
+
+    engine = ExecutionEngine()
+    await engine._rematerialize_artifacts_to_disk(
+        ectx, sandbox,
+        boundary_by_agent={
+            "prototype-build": {"restore_nothing": True, "boundary_task_id": None}
+        },
+    )
+
+    assert sandbox.read("prototype.html") is None, (
+        "p==0 restore-nothing must write NO prior deliverable version to disk (clean "
+        "basis); every current task re-runs from empty"
+    )
+    session.close()
+
+
 # ===========================================================================
 # RESUME-09 (Plan 46-04) — per-task / per-worker SKIP CURSOR
 #
