@@ -94,6 +94,15 @@ def _synthesize_step(agent_id: str, sel: dict | None) -> dict:
         step["__invalid_selection__"] = sel
         return step
 
+    # D5/FANOUT-03: emit the user-selected strategy, overriding the single_shot
+    # default (:86). Keyed GENERICALLY on the ``strategy`` lever — no workflow/
+    # strategy/agent-name literal (INV-1/SC-001) — so a composed fan-out selection
+    # becomes a fan-out step at the trust=user re-compile. An absent / empty /
+    # non-string strategy keeps the safe single_shot default. ``fanout``/``task_source``
+    # already ride the generic projection loop below (:128-131).
+    if isinstance(sel.get("strategy"), str) and sel["strategy"]:
+        step["strategy"] = sel["strategy"]
+
     validators = list(sel.get("validators") or [])
     gates = list(sel.get("gates") or [])
 

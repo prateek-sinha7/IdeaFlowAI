@@ -432,3 +432,118 @@ def test_zero_retry_omits_no_wrapper():
     assert _coerce_retry("0") is None
     step = _synthesize_step(_AGENT_A, {"retry": 0})
     assert "retry" not in step
+
+
+# ===========================================================================
+# FANOUT-03 (Plan 51-01, D5) — the synthesizer emits the user-selected strategy
+# generically (no workflow/agent-name literal), so a composed fan-out selection
+# becomes a fanout_batch step at the trust=user re-compile (unblocks the 51-04
+# engine overlay, which reads ``user_step.strategy``).
+# ===========================================================================
+
+
+def test_synthesize_step_emits_selected_fanout_strategy():
+    """A selection carrying ``strategy=fanout_batch`` (+ task_source/fanout) yields a
+    step whose ``strategy`` is the SELECTED value, carrying task_source + fanout
+    (which already ride the generic projection loop)."""
+    from agents.workflows.selections import _synthesize_step
+
+    sel = {
+        "strategy": "fanout_batch",
+        "task_source": {
+            "kind": "parsed",
+            "parser": "heading_tasks",
+            "source_step": _AGENT_A,
+        },
+        "fanout": {"mode": "parallel", "max_parallel": 4},
+    }
+    step = _synthesize_step(_AGENT_B, sel)
+    assert step["strategy"] == "fanout_batch"
+    assert step["task_source"] == sel["task_source"]
+    assert step["fanout"] == sel["fanout"]
+    assert step["agent"] == _AGENT_B
+
+
+def test_synthesize_step_defaults_single_shot_when_no_strategy():
+    """No / empty / lever-only selection keeps the safe single_shot default and
+    carries no task_source (parity with a lever-less saved step)."""
+    from agents.workflows.selections import _synthesize_step
+
+    for sel in (None, {}, {"validators": [_USER_VALIDATOR]}):
+        step = _synthesize_step(_AGENT_A, sel)
+        assert step["strategy"] == "single_shot"
+        assert "task_source" not in step
+
+
+def test_synthesize_step_ignores_empty_or_nonstring_strategy():
+    """Only a NON-EMPTY STRING strategy overrides the default (an empty / non-string
+    strategy falls back to single_shot) — the change keys solely on the generic
+    ``strategy`` key, never a name literal (INV-1/SC-001)."""
+    from agents.workflows.selections import _synthesize_step
+
+    assert _synthesize_step(_AGENT_A, {"strategy": ""})["strategy"] == "single_shot"
+    assert _synthesize_step(_AGENT_A, {"strategy": 123})["strategy"] == "single_shot"
+    assert _synthesize_step(_AGENT_A, {"strategy": None})["strategy"] == "single_shot"
+
+
+def test_fanout_selection_trust_compiles_under_user():
+    """End-to-end trust boundary: a fan-out selection (``fanout_batch`` strategy +
+    ``heading_tasks`` parser — both user_allowed=True) is ACCEPTED by the trust=user
+    compile and yields a compiled Step whose ``.strategy`` is the selected
+    fanout_batch, carrying the task_source + fanout. The producer step is untouched
+    (safe single_shot default — parity)."""
+    from agents.capabilities.registry import CapabilityRegistry
+    from agents.workflows.compiler import WorkflowCompiler
+    from agents.workflows.selections import synthesize_manifest
+
+    selections = {
+        _AGENT_B: {
+            "strategy": "fanout_batch",
+            "task_source": {
+                "kind": "parsed",
+                "parser": "heading_tasks",
+                "source_step": _AGENT_A,
+            },
+            "fanout": {"mode": "parallel", "max_parallel": 4},
+        }
+    }
+    manifest = synthesize_manifest("custom", [_AGENT_A, _AGENT_B], selections)
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="user"
+    )
+    worker = next(s for s in compiled.steps if s.agent_id == _AGENT_B)
+    assert worker.strategy == "fanout_batch"
+    assert worker.task_source is not None
+    assert worker.task_source.source_step == _AGENT_A
+    assert worker.task_source.parser == "heading_tasks"
+    assert worker.fanout is not None
+    producer = next(s for s in compiled.steps if s.agent_id == _AGENT_A)
+    assert producer.strategy == "single_shot"
+
+
+def test_fanout_selection_with_smuggled_grant_is_rejected_naming_it():
+    """A fan-out selection that ALSO smuggles a user_allowed=False grant (a
+    ``security`` gate) is REJECTED by the trust=user compile with a ``CompilerError``
+    NAMING the offending capability — the synthesizer only PROJECTS the strategy
+    string; the compiler is the authority (T-51-01-E)."""
+    from agents.capabilities.registry import CapabilityRegistry
+    from agents.workflows.compiler import CompilerError, WorkflowCompiler
+    from agents.workflows.selections import synthesize_manifest
+
+    selections = {
+        _AGENT_B: {
+            "strategy": "fanout_batch",
+            "task_source": {
+                "kind": "parsed",
+                "parser": "heading_tasks",
+                "source_step": _AGENT_A,
+            },
+            "gates": ["security"],  # smuggled user_allowed=False grant
+        }
+    }
+    manifest = synthesize_manifest("custom", [_AGENT_A, _AGENT_B], selections)
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    msg = str(exc.value).lower()
+    assert "security" in msg
+    assert "user-allowed" in msg or "user_allowed" in msg
