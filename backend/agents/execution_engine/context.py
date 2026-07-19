@@ -234,6 +234,27 @@ class ExecutionContext:
     # durable pre-merge in Phase 11). ``False`` for every normal run ⇒ the strategy is
     # byte/event-identical (the mid-wave filter is dormant).
     is_resuming: bool = False
+    # The RESUME-09 per-step SKIP CURSOR (field below) — the set of
+    # already-completed task/worker identities per step, KERNEL-COMPUTED from the
+    # run's own owner-scoped durable rows (task_loop step: the DISTINCT ``task_id``
+    # set from ``store.tree`` where ``producer_agent == step agent``; wave step: the
+    # ``task_id`` set from ``read_subagent_runs`` where ``status == "complete"``) and
+    # stamped BEFORE the dispatch loop re-enters. The strategies READ it via a
+    # ``getattr(ctx, <field>, None)`` handle and SKIP the completed
+    # identities — the AGENT never decides the skip set (it still RECEIVES completed
+    # work as injected context via the unchanged ``latest_typed_content`` machinery;
+    # re-invocation of remaining work stays on the same ``run_agent``/``run_fanout``
+    # paths — INV-13). The read is a ``getattr(ctx, <field>, None)`` so an older ctx
+    # without the field degrades to no-skip. Keyed on ``task_id`` (plan-global,
+    # identity-based) NOT
+    # ``worker_index`` (wave-local, ambiguous — Edge-Case 5); a ``set`` de-dups the
+    # fix-loop re-persist of the same task_id (Edge-Case 1). Fail-safe direction is
+    # RE-RUN: any read failure / ambiguity leaves this ``None`` so nothing is skipped
+    # (data-loss-avoiding). ``None`` on every normal (non-resume) run so the strategies'
+    # ``getattr`` read is None and dispatch is byte/event-identical (INV-3 dormant;
+    # mirrors ``is_resuming``). Transient per-run scratch on the context (INV-2 — never
+    # the engine singleton). ``{step_agent_id: {task_id, ...}}``.
+    resume_completed_task_ids: "dict[str, set[str]] | None" = None
     # redo_directive: the optional free-text "redo with additional instructions"
     # note for a human-review-gate re-run (REDO-GATE). Additive per-run scratch (the
     # same D-03 idiom as build_task_number / current_step), so the generic

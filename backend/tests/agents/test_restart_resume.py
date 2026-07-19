@@ -1263,3 +1263,245 @@ async def test_midwave_merge_reentry_rematerializes_fragments(tmp_path):
     assert merged == "fragment-afragment-b"
 
     session.close()
+
+
+# ===========================================================================
+# RESUME-09 (Plan 46-04) — per-task / per-worker SKIP CURSOR
+#
+# The KERNEL computes the completed-identity set per step from the run's own
+# durable rows and threads it via the dormant ``ExecutionContext``
+# ``resume_completed_task_ids`` field; the strategies SKIP the completed
+# identities. The AGENT never decides the skip set (INV-1); re-invocation of the
+# remaining work stays on the same run_agent/run_fanout paths (INV-13). Fail-safe
+# direction is RE-RUN: any read failure / ambiguity leaves the cursor None so
+# nothing is skipped.
+# ===========================================================================
+
+
+_THREE_TASK_PLAN = (
+    "## Task 1: Shell\nBuild the HTML shell.\n\n"
+    "## Task 2: Dashboard\nAdd the dashboard page.\n\n"
+    "## Task 3: Reports\nAdd the reports page.\n"
+)
+
+
+@pytest.mark.asyncio
+async def test_task_loop_skips_completed_tasks_on_resume_cursor():
+    """RESUME-09 (RED on HEAD): task_loop SKIPS the completed task_nums named by the
+    kernel-stamped ``resume_completed_task_ids`` cursor instead of re-dispatching from
+    task 1.
+
+    With tasks 1+2 of the build step marked complete + a 3-task plan, ONLY task 3
+    reaches ``run_agent``; tasks 1-2 are skipped (their files are already on disk from
+    the Plan 46-03 re-materialization, so task 3's skeleton read stays coherent). On
+    HEAD the loop always starts at task 1 (no cursor read) → all 3 dispatched → RED.
+    """
+    from types import SimpleNamespace
+
+    from agents.capabilities.strategies.task_loop import TaskLoopStrategy
+    from agents.workflows.plan import Step, TaskSource
+    from tests.agents.test_strategies import _FakeRunner, _FakeSandbox
+
+    sandbox = _FakeSandbox(files={"prototype.html": "<html></html>"})
+    runner = _FakeRunner(
+        agent_events=[{"type": "agent_chunk", "data": {"text": "."}}],
+        typed_content={"prototype-plan": _THREE_TASK_PLAN},
+        sandbox=sandbox,
+    )
+    # KERNEL-stamped cursor: tasks 1+2 of the build step already completed pre-crash.
+    ctx = SimpleNamespace(
+        runner=runner,
+        resume_completed_task_ids={"prototype-build": {"1", "2"}},
+    )
+    step = Step(
+        agent_id="prototype-build",
+        strategy="task_loop",
+        task_source=TaskSource(
+            kind="parsed", parser="heading_tasks", source_step="prototype-plan"
+        ),
+    )
+
+    _ = [ev async for ev in TaskLoopStrategy().run(step, ctx)]
+
+    dispatched = [c["task_number"] for c in runner.run_agent_calls]
+    assert dispatched == [3], (
+        "task_loop must SKIP the completed tasks 1+2 (resume cursor) and dispatch ONLY "
+        f"task 3 through run_agent; got task_nums {dispatched}"
+    )
+
+
+class _WorkerCursorFakeRunner:
+    """A minimal ctx.runner capturing the ``task_id`` set each wave actually fans out.
+
+    ``read_wave_runs`` reports a single ``running`` wave 0 for this step (the in-flight
+    wave: not terminal, so it is NOT skipped wholesale). The strategy re-enters wave 0
+    and — reading the kernel-stamped ``resume_completed_task_ids`` cursor off ``ctx`` —
+    must FILTER the completed worker's ``task_id`` out of the dispatched ``requests``.
+    On HEAD (no cursor read) the whole wave re-runs → the completed worker is
+    re-dispatched → RED.
+    """
+
+    def __init__(self, this_step):
+        self.this_step = this_step
+        self.fanned_requests: list[list[str]] = []  # per-wave dispatched task_ids
+        self.recorded: list = []
+        self.updated: list = []
+
+    def latest_typed_content(self, _step):
+        return ""
+
+    async def read_wave_runs(self):
+        return [_FakeWaveRow(self.this_step, 0, "running")]
+
+    async def read_subagent_runs(self):
+        # The strategy does NOT read subagent_runs itself — the completed set is
+        # kernel-computed and threaded via the ectx cursor. Present for shape parity.
+        return []
+
+    async def record_wave_run(self, *, step, wave_index, task_ids, status):
+        self.recorded.append((step, wave_index, list(task_ids), status))
+        return f"row-{step}-{wave_index}"
+
+    async def update_wave_run(self, row_id, *, status):
+        self.updated.append((row_id, status))
+
+    async def run_fanout(self, requests, ctx, *, step=None):
+        self.fanned_requests.append([r.get("task_id") for r in requests])
+        if False:  # pragma: no cover — make this an async generator
+            yield {}
+
+
+@pytest.mark.asyncio
+async def test_wave_scheduler_skips_completed_workers_on_resume_cursor():
+    """RESUME-09 (RED on HEAD): the wave_scheduler SKIPS the completed WORKERS named by
+    the kernel-stamped cursor (identity-based, by ``task_id``) instead of re-running the
+    whole in-flight wave.
+
+    A 3-worker in-flight wave with one worker (``tb``) already complete: the dispatched
+    ``requests``/``task_ids`` must EXCLUDE ``tb`` (its file is already on disk from
+    re-materialization) and include only the two incomplete workers ``ta``/``tc``. This
+    is the CR-03-followup — identity-based, NOT the deleted prefix-by-count skip. On HEAD
+    the whole wave re-runs (all 3 dispatched) → RED.
+    """
+    from agents.capabilities.strategies.wave_scheduler import WaveSchedulerStrategy
+    from agents.workflows.plan import Task
+
+    strat = WaveSchedulerStrategy()
+    runner = _WorkerCursorFakeRunner("wstep")
+    ctx = _Ctx(runner, is_resuming=True)
+    # KERNEL-stamped cursor: worker tb of this wave step already completed pre-crash.
+    ctx.resume_completed_task_ids = {"wstep": {"tb"}}
+    step = _Step("wstep")
+
+    # Three disjoint tasks (no deps) → a SINGLE wave [ta, tb, tc].
+    tasks = [
+        Task(id="ta", title="A", body="a", targets=["a.txt"]),
+        Task(id="tb", title="B", body="b", targets=["b.txt"]),
+        Task(id="tc", title="C", body="c", targets=["c.txt"]),
+    ]
+
+    class _FakeParser:
+        def parse(self, _text):
+            return tasks
+
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
+    step.task_source = type("TS", (), {"source_step": "plan", "parser": "json_tasks"})()
+
+    _ = [ev async for ev in strat.run(step, ctx)]
+
+    assert runner.fanned_requests, "the in-flight wave was not dispatched at all"
+    dispatched = set(runner.fanned_requests[0])
+    assert "tb" not in dispatched, (
+        "the completed worker 'tb' was RE-DISPATCHED — per-worker skip failed "
+        f"(dispatched {sorted(dispatched)})"
+    )
+    assert dispatched == {"ta", "tc"}, (
+        "the in-flight wave must re-run ONLY the incomplete workers ta+tc "
+        f"(identity-based skip); got {sorted(dispatched)}"
+    )
+    # The wave_runs row's task_ids are filtered to the re-run set too.
+    assert runner.recorded, "no wave_run was recorded for the in-flight wave"
+    assert set(runner.recorded[0][2]) == {"ta", "tc"}, (
+        f"the wave_runs task_ids must exclude the completed worker; got {runner.recorded[0][2]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_kernel_computes_resume_completed_task_ids_cursor():
+    """RESUME-09 (RED on HEAD): the KERNEL computes the per-step completed-identity set
+    from the run's own owner-scoped durable rows and returns it keyed by step agent id.
+
+    - task_loop step: DISTINCT ``task_id`` from ``store.tree`` where
+      ``producer_agent == step agent`` — a fix-loop re-persist of the SAME ``task_id``
+      counts ONCE (Edge-Case 1 dedup, a ``set``).
+    - wave step: ``task_id`` from ``read_subagent_runs`` where ``status == "complete"``
+      (a ``running`` worker is NOT completed), keyed on the plan-global ``task_id`` NOT
+      the wave-local ``worker_index`` (Edge-Case 5).
+
+    On HEAD the method does not exist → AttributeError → RED.
+    """
+    import types
+
+    from agents.authz import ScopedStore
+    from agents.execution_engine.context import ExecutionContext
+    from agents.execution_engine.engine import ExecutionEngine
+    from agents.workflows.plan import Step, TaskSource
+
+    session, db_engine = _make_session()
+    run_id = f"cur-{uuid.uuid4().hex[:8]}"
+    owner = "cur-user"
+    ws = "ws-cur"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+
+    # task_loop step "build": task 1 persisted TWICE (fix-loop re-persist, same task_id)
+    # + task 2 once → distinct done {"1","2"}. Task 3 never persisted.
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="t1-v1", version=1,
+                    producer_agent="build", task_id="1")
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="t1-v2", version=2,
+                    producer_agent="build", task_id="1")
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="t2-v1", version=3,
+                    producer_agent="build", task_id="2")
+
+    # wave step "wave": worker wa+wc complete, wb still running → completed {"wa","wc"}.
+    for tid, status in (("wa", "complete"), ("wb", "running"), ("wc", "complete")):
+        await store.record_subagent_run(
+            run_id, parent_step="wave", worker_agent="w", depth=1,
+            isolation="shared_read", status=status, worker_index=0, task_id=tid,
+        )
+    session.commit()
+
+    compiled = types.SimpleNamespace(
+        steps=[
+            Step(
+                agent_id="build",
+                strategy="task_loop",
+                task_source=TaskSource(
+                    kind="parsed", parser="heading_tasks", source_step="plan"
+                ),
+            ),
+            Step(agent_id="wave", strategy="wave_scheduler"),
+        ]
+    )
+    ordered_agents = [_IdSpec("build"), _IdSpec("wave")]
+
+    ectx = ExecutionContext(run_id=run_id, owner_id=owner, disk_principal=owner)
+    ectx.workspace_id = ws
+    ectx.scoped_store = store
+
+    engine = ExecutionEngine()
+    cursor = await engine._compute_resume_completed_task_ids(
+        ectx, ordered_agents, compiled
+    )
+
+    assert cursor.get("build") == {"1", "2"}, (
+        f"task_loop completed set must dedup the fix-loop re-persist; got {cursor.get('build')}"
+    )
+    assert cursor.get("wave") == {"wa", "wc"}, (
+        "wave completed set must include only status=='complete' workers, keyed on "
+        f"task_id; got {cursor.get('wave')}"
+    )
+    session.close()
