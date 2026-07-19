@@ -1282,7 +1282,12 @@ Plans:
   3. AUTOMATIC reconciliation on resume or re-run-after-edit: completed+present → skip + re-materialize + inject as prior context; new/edited/rotated-key → run; deleted-but-completed → excluded from the assembled deliverable at READ time (rows never deleted — `artifact_refs` immutability contract); spec edits auto-invalidate affected tasks with no confirm prompt.
   4. SC-001 grep-gated: reconciliation keys on generic identity only; a synthetic non-prototype task workflow exercises the whole reconcile path with zero engine edits.
 
-**Plans**: TBD (via /gsd-plan-phase 48)
+**Plans**: 3 plans
+
+Plans:
+- [ ] 48-01-PLAN.md — Task-identity module (task_key) + upstream-hash single home + positions→keys write-path switch (RESUME-14)
+- [ ] 48-02-PLAN.md — Gate-edit derived_from lineage + cumulative common-prefix reconciler + boundary-version re-materialization (RESUME-15, RESUME-16)
+- [ ] 48-03-PLAN.md — Wave per-key + orphan-fragment exclusion + update_specs compose + SC-001 synthetic reconcile proof (RESUME-16)
 
 ### Phase 49: Gate Resume Across Restart [R4]
 
@@ -1321,6 +1326,6 @@ Plans:
 | 45. Resume Completeness Bug Fix [R0] | 1/1 | Complete   | 2026-07-18 |
 | 46. Per-Task Substrate, Cursor & Live Layer [R1] | 5/5 | Complete   | 2026-07-19 |
 | 47. Uploads Durability [R2] | 1/1 | Complete   | 2026-07-19 |
-| 48. Task Identity & Mutable List [R3] | 0/? | Not started | — |
+| 48. Task Identity & Mutable List [R3] | 0/3 | Planned | — |
 | 49. Gate Resume Across Restart [R4] | 0/? | Not started | — |
 | 50. User Resume-From-Failed [R5] | 0/? | Not started | — |
