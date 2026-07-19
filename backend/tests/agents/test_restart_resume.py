@@ -1102,3 +1102,164 @@ async def test_completed_task_loop_build_stays_complete_no_rerun():
         f"(idx > {build_index}); got idx={idx} (over-correction / infinite re-run)"
     )
     session.close()
+
+
+# ===========================================================================
+# RESUME-08 (Plan 46-03) — durable → disk re-materialization + merge re-entry
+# ===========================================================================
+#
+# The missing DISK half of resume. ``_hydrate_artifacts_from_store`` restores the
+# durable ``artifact_refs`` into the in-memory graph ONLY; the fresh ``RunSandbox``
+# on disk stays empty, so a resumed strategy re-reading the sandbox sees nothing.
+# ``_rematerialize_artifacts_to_disk(ectx, sandbox)`` walks the latest durable
+# file-backed refs (by ``location``, ``max(version)``) and writes their content back
+# onto the sandbox — reconstructed from ``artifact_refs``, NEVER git (POR §3.2).
+#
+# These are offline seed-durable-then-invoke tests (register 11-05: fan-out isolated
+# writes are live-only; seed the durable rows directly and drive the transform). On
+# HEAD (no such method) they FAIL — the method does not exist / files stay absent.
+
+
+async def _build_rematerialize_ctx(session, tmp_path, *, owner="rm-user", ws="ws-rm"):
+    """Return ``(ectx, sandbox, store, run_id)`` for a direct re-materialization call.
+
+    A durable ``workflow_runs`` row + a real ``ScopedStore`` over ``session`` + a
+    resume ``ExecutionContext`` carrying that store and a FRESH empty ``RunSandbox``
+    (mirrors ``_build_capture_runner`` in test_per_task_capture.py, the 46-02 twin).
+    """
+    from agents.authz import ScopedStore
+    from agents.execution_engine.context import ExecutionContext
+    from app.agents.sandbox import RunSandbox
+
+    run_id = f"rm-{uuid.uuid4().hex[:8]}"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    ectx = ExecutionContext(run_id=run_id, owner_id=owner, disk_principal=owner)
+    ectx.workspace_id = ws
+    ectx.scoped_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+
+    sandbox = RunSandbox(owner, run_id, runs_root=str(tmp_path))
+    sandbox.ensure()
+    return ectx, sandbox, ectx.scoped_store, run_id
+
+
+async def _seed_ref(store, *, run_id, owner, ws, kind, location, content, version,
+                    producer_agent="prototype-build", task_id=None):
+    from agents.artifacts.graph import ArtifactRef
+
+    await store.write_ref(
+        ArtifactRef(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            owner_id=owner,
+            workspace_id=ws,
+            kind=kind,
+            producer_step=producer_agent,
+            producer_agent=producer_agent,
+            task_id=task_id,
+            content=content,
+            content_hash=_pb_hash(content),
+            location=location,
+            version=version,
+        ),
+        force_db_version=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_rematerialize_restores_durable_files_to_disk(tmp_path):
+    """RESUME-08 (RED on HEAD): the latest durable file-backed refs (``html_file`` +
+    ``file_bundle`` sibling) are written back onto the fresh ``RunSandbox``; the
+    max-version content wins; ``.uploads/`` and non-file kinds NEVER land on disk.
+
+    On HEAD ``_rematerialize_artifacts_to_disk`` does not exist → AttributeError.
+    """
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, _db = _make_session()
+    owner, ws = "rm-user", "ws-rm"
+    ectx, sandbox, store, run_id = await _build_rematerialize_ctx(
+        session, tmp_path, owner=owner, ws=ws
+    )
+
+    # Declared deliverable (html_file) + a sibling (file_bundle).
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="html_file",
+                    location="prototype.html", content="<html>declared</html>", version=1)
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
+                    location="nested/part_b.md", content="# sibling B", version=1)
+    # Two versions of the SAME location — only the latest content must be written.
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
+                    location="notes.txt", content="v1 stale", version=1)
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
+                    location="notes.txt", content="v2 latest", version=2)
+    # .uploads/ (Phase-47 fence) + a non-file kind (spec) — neither may reach disk.
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
+                    location=".uploads/doc.txt", content="uploaded", version=1)
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="spec",
+                    location="spec.md", content="graph-only spec", version=1,
+                    producer_agent="prototype-specify")
+    session.commit()
+
+    engine = ExecutionEngine()
+    await engine._rematerialize_artifacts_to_disk(ectx, sandbox)
+
+    assert sandbox.read("prototype.html") == "<html>declared</html>"
+    assert sandbox.read("nested/part_b.md") == "# sibling B"
+    # max-version wins.
+    assert sandbox.read("notes.txt") == "v2 latest"
+    # .uploads/ NEVER re-materialized.
+    assert sandbox.read(".uploads/doc.txt") is None
+    # A non-file kind (spec) is graph-only — not written to disk.
+    assert sandbox.read("spec.md") is None
+
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_midwave_merge_reentry_rematerializes_fragments(tmp_path):
+    """RESUME-08 (RED on HEAD): a crash between fragment-persist and the per-wave
+    merge leaves the wave's ``wave_runs`` row ``running`` and the fragments durable
+    but off-disk. Re-materialization writes those fragments back so the EXISTING
+    wave re-run (``run_fanout``→``_merge_fragments``) merges over the recovered
+    fragments — no second merge implementation.
+
+    On HEAD ``_rematerialize_artifacts_to_disk`` does not exist → AttributeError.
+    """
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, _db = _make_session()
+    owner, ws = "rm-user", "ws-rm"
+    ectx, sandbox, store, run_id = await _build_rematerialize_ctx(
+        session, tmp_path, owner=owner, ws=ws
+    )
+
+    # Two workers' fragments persisted BEFORE the merge (write_fragment_artifact
+    # uses kind="file_bundle", task_id=str(worker_index)).
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
+                    location="part_a.txt", content="fragment-a", version=1,
+                    producer_agent="wave-worker", task_id="0")
+    await _seed_ref(store, run_id=run_id, owner=owner, ws=ws, kind="file_bundle",
+                    location="part_b.txt", content="fragment-b", version=1,
+                    producer_agent="wave-worker", task_id="1")
+    # The wave_runs row is still `running` — the merge never ran (the discriminator).
+    row_id = await store.record_wave_run(
+        run_id, step="build", wave_index=0, task_ids=["t1", "t2"], status="running"
+    )
+    session.commit()
+
+    # Sanity: the wave is durably unmerged (running) — merge re-entry is warranted.
+    waves = await store.read_wave_runs(run_id)
+    assert [w.status for w in waves] == ["running"]
+
+    engine = ExecutionEngine()
+    await engine._rematerialize_artifacts_to_disk(ectx, sandbox)
+
+    # Both workers' fragments are back on disk → _fragment_files can pick them up
+    # for the re-run merge.
+    assert sandbox.read("part_a.txt") == "fragment-a"
+    assert sandbox.read("part_b.txt") == "fragment-b"
+    # The merged base is reconstructable from the recovered fragments.
+    merged = "".join(sandbox.read(loc) for loc in ("part_a.txt", "part_b.txt"))
+    assert merged == "fragment-afragment-b"
+
+    session.close()
