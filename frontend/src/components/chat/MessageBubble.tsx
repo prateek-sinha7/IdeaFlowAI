@@ -15,6 +15,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage } from "@/types/index";
 import { useTextToSpeech } from "@/hooks/useTextToSpeech";
+import { useSmoothText } from "@/hooks/useSmoothText";
 import { ProcessSteps } from "./ProcessSteps";
 import { ArtifactCard } from "./ArtifactCard";
 import type { ChatMode } from "./ChatInput";
@@ -135,13 +136,18 @@ export function MessageBubble({
       ? streamingContent
       : message.content;
 
+  // Issue-2 (260719-rqo): smooth the reply's growth so the coarse ~70-180-char
+  // Bedrock deltas render as a steady flow instead of jumps. Only assistant text
+  // streams; a static (historical) message never grows, so this is a no-op there.
+  const smoothedContent = useSmoothText(displayContent, isAssistant);
+
   // Parse thinking blocks for assistant messages
   const { thinking, mainContent } = useMemo(() => {
     if (isAssistant) {
-      return parseThinkingBlocks(displayContent);
+      return parseThinkingBlocks(smoothedContent);
     }
-    return { thinking: null, mainContent: displayContent };
-  }, [displayContent, isAssistant]);
+    return { thinking: null, mainContent: smoothedContent };
+  }, [smoothedContent, isAssistant]);
 
   const handleEditSubmit = () => {
     if (editContent.trim() && editContent !== message.content) {
