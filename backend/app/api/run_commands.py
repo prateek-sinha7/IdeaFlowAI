@@ -708,6 +708,14 @@ _CONCIERGE_GATE_ACTION_MAP = {"request_changes": "redo"}
 # steering_note is non-consequential (best-effort nudge) and applies immediately.
 _CONSEQUENTIAL_PROPOSAL_CHANNELS = frozenset({"gate_action", "revision"})
 
+# Strong references to the fresh-Concierge streaming DRIVE tasks (Option B). The
+# ``_drive`` task performs the turn's DURABLE side-effects (the ``chat_reply`` row + the
+# proposal drain/disposal) INDEPENDENTLY of client consumption, so it must NOT be
+# garbage-collected while it runs — hold a reference here and discard on completion. It
+# is never cancelled on client disconnect (the durable writes land even if the streamed
+# body is dropped mid-stream).
+_CONCIERGE_STREAM_TASKS: set = set()
+
 
 class _ConciergeCtx:
     """The minimal owner-scoped ctx handed to ``ConciergeCapability.converse``.
@@ -1205,29 +1213,110 @@ async def post_message(
             owner_id=current_user.id, workspace_id=wr_workspace,
             compiled=compiled,
         )
-        answer = await concierge.converse(ctx, body.text)
-        await store.append_event_next_seq(
-            run_id,
-            event_id=f"chat-reply:{body.message_id}",
-            type="chat_reply",
-            payload_json={
+        # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
+        # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT
+        # ``chat_reply_chunk`` frames (never persisted → never replayed → never
+        # deduped-away; the FE appends them), followed by ONE terminal durable
+        # ``chat_reply`` frame carrying the full text + any held proposals. The durable
+        # side-effects (the ``chat_reply`` row via ``append_event_next_seq`` + the
+        # proposal drain/disposal) run in a BACKGROUND task so they land even if the
+        # client drops the streamed body — the response generator only drains the frame
+        # queue to the ``None`` sentinel. Nothing is pushed to ``_PIPELINE_QUEUES`` (a
+        # settled run stays out of the live-queue lifecycle; BUG-013). ``chat_reply_chunk``
+        # is a GENERIC data type — no workflow/agent-name literal (INV-1/SC-001). The
+        # model is reached ONLY through the runner inside ``converse`` (INV-13).
+        from sse_starlette import EventSourceResponse
+
+        from app.api.run_stream import _sse_frame
+
+        frame_q: asyncio.Queue = asyncio.Queue()
+
+        async def _on_chunk(delta: str) -> None:
+            # TRANSIENT chunk frame: seq=0 placeholder (no durable seq), no event_id —
+            # the terminal ``chat_reply`` below stays the single canonical record.
+            await frame_q.put(_sse_frame(0, "chat_reply_chunk", {
                 "pipeline_run_id": run_id,
                 "message_id": body.message_id,
-                "text": answer or "",
-            },
+                "delta": delta,
+            }))
+
+        async def _drive() -> None:
+            # ``store`` here is the session-less/owned ScopedStore built above (after
+            # db.close()) — each append_event_next_seq opens+closes its own SessionLocal,
+            # so this background task reuses store + art_store safely (same idiom as the
+            # blocking persist today; the BUG-004 request-session-teardown trap does not
+            # apply). ``art_store`` is a module singleton; ectx/current_user/wr_* are
+            # captured values.
+            answer_text = ""
+            reply_seq: int | None = None
+            held: list = []
+            errored = False
+            try:
+                answer_text = await concierge.converse(
+                    ctx, body.text, on_chunk=_on_chunk
+                ) or ""
+            except Exception:  # noqa: BLE001 — stream a partial terminal, still persist.
+                logger.exception("Concierge stream failed for run %s", run_id)
+                errored = True
+            try:
+                # Durable terminal — persists EXACTLY as today (the single canonical
+                # record history/replay/BUG-017/the li0 spinner depend on).
+                _created, reply_seq = await store.append_event_next_seq(
+                    run_id,
+                    event_id=f"chat-reply:{body.message_id}",
+                    type="chat_reply",
+                    payload_json={
+                        "pipeline_run_id": run_id,
+                        "message_id": body.message_id,
+                        "text": answer_text or "",
+                    },
+                )
+                # Drain + dispose proposals EXACTLY as today — still HELD behind a confirm
+                # chip (T-33-03-01), never auto-executed; only the call-site moved here.
+                for intent in _drain_concierge_proposals(concierge, ctx):
+                    held.append(await _dispose_concierge_proposal(
+                        intent, confirmed=False, store=store, art_store=art_store,
+                        run_id=run_id, message_id=body.message_id,
+                        current_user=current_user, wr_status=wr_status,
+                        wr_type=wr_type, gate_key=resolved_gate_key, ectx=ectx,
+                    ))
+            except Exception:  # noqa: BLE001 — never leave the stream hung on a persist error.
+                logger.exception("Concierge durable persist failed for run %s", run_id)
+                errored = True
+            finally:
+                terminal = {
+                    "pipeline_run_id": run_id,
+                    "message_id": body.message_id,
+                    "text": answer_text or "",
+                    "seq": reply_seq,
+                    "proposals": held,
+                }
+                if errored:
+                    terminal["error"] = True
+                await frame_q.put(_sse_frame(reply_seq or 0, "chat_reply", terminal))
+                await frame_q.put(None)  # sentinel — end of stream
+
+        # CRITICAL correctness pin: run the driver INDEPENDENTLY of client consumption so
+        # its durable side-effects (persist + proposal disposal) complete even if the SSE
+        # body is dropped mid-stream. Hold a strong reference; NEVER cancel it on
+        # generator teardown / client disconnect.
+        drive_task = asyncio.create_task(_drive())
+        _CONCIERGE_STREAM_TASKS.add(drive_task)
+        drive_task.add_done_callback(_CONCIERGE_STREAM_TASKS.discard)
+
+        async def _stream_frames():
+            # Drain ONLY — the durable writes are the driver task's job, not the
+            # generator's; on client disconnect the generator ends but the task lives on.
+            while True:
+                frame = await frame_q.get()
+                if frame is None:
+                    return
+                yield frame
+
+        return EventSourceResponse(
+            _stream_frames(),
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
         )
-        held: list = []
-        for intent in _drain_concierge_proposals(concierge, ctx):
-            held.append(await _dispose_concierge_proposal(
-                intent, confirmed=False, store=store, art_store=art_store,
-                run_id=run_id, message_id=body.message_id, current_user=current_user,
-                wr_status=wr_status, wr_type=wr_type, gate_key=resolved_gate_key,
-                ectx=ectx,
-            ))
-        return {
-            "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
-            "channel": dispatch.channel, "reply": True, "proposals": held,
-        }
 
     return {
         "ok": True, "run_id": run_id, "seq": seq, "persisted": created,

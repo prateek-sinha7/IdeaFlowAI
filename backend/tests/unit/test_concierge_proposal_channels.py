@@ -24,6 +24,8 @@ contract), so a drift in that contract fails here.
 from __future__ import annotations
 
 import asyncio
+import inspect
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -58,6 +60,14 @@ class _SpyArtStore:
 
     def arm(self, gate_key):
         self._resume_events[f"review:{gate_key}"] = asyncio.Event()
+
+    def review_event_pending(self, gate_key: str) -> bool:
+        # Mirror the real ArtifactStore.review_event_pending (IN-02): an armed but
+        # not-yet-set review:{gate_key} event is a genuine pending pause (KAN-94).
+        # ``_gate_is_pending`` reads this PUBLIC accessor (the private _resume_events
+        # peek was closed); the fake must expose it too.
+        event = self._resume_events.get(f"review:{gate_key}")
+        return event is not None and not event.is_set()
 
 
 class _SpyStore:
@@ -309,8 +319,15 @@ class _FakeConcierge:
         self._proposals = list(proposals or [])
         self.seen: list = []
 
-    async def converse(self, ctx, user_message):
+    async def converse(self, ctx, user_message, on_chunk=None):
+        # BE-2: the fresh-Concierge branch now passes an ``on_chunk`` sink to stream the
+        # reply. Emit the answer as a single delta (awaited iff awaitable) so the streamed
+        # POST body carries a chat_reply_chunk; the terminal chat_reply stays canonical.
         self.seen.append((getattr(ctx, "run_id", None), user_message))
+        if on_chunk is not None and self._answer:
+            res = on_chunk(self._answer)
+            if inspect.isawaitable(res):
+                await res
         return self._answer
 
     def drain_proposals(self):
@@ -432,6 +449,17 @@ def _post(env, run_id, **body):
     return env["client"].post(f"/api/runs/{run_id}/messages", json=body)
 
 
+def _sse_frames(resp) -> list[dict]:
+    """Parse the ``{type, data}`` JSON envelopes from a streamed SSE response body."""
+    frames: list[dict] = []
+    for line in resp.text.splitlines():
+        if line.startswith("data:"):
+            payload = line[len("data:"):].strip()
+            if payload:
+                frames.append(json.loads(payload))
+    return frames
+
+
 def _arm_review(env, gate_key):
     env["store"]._resume_events[f"review:{gate_key}"] = asyncio.Event()
 
@@ -447,9 +475,13 @@ class TestConciergeEndpoint:
 
         resp = _post(env, run_id, text="what's happening?", concierge=True, message_id="a1")
         assert resp.status_code == 200, resp.text
-        assert resp.json()["channel"] == "concierge"
-        assert resp.json()["reply"] is True
-        # The Concierge saw the turn; its answer projected as a chat_reply row.
+        # BE-2: the fresh-Concierge branch STREAMS the POST body (text/event-stream). The
+        # terminal chat_reply frame carries the full answer; the durable row is canonical.
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        frames = _sse_frames(resp)
+        terminal = next(f for f in frames if f["type"] == "chat_reply")
+        assert terminal["data"]["text"] == "you are 2 agents in"
+        # The Concierge saw the turn; its answer projected as ONE durable chat_reply row.
         assert fake.seen and fake.seen[0][1] == "what's happening?"
         replies = _rows(env, run_id, "chat_reply")
         assert len(replies) == 1
@@ -468,7 +500,9 @@ class TestConciergeEndpoint:
 
         resp = _post(env, run_id, text="should I approve?", concierge=True, message_id="a2")
         assert resp.status_code == 200, resp.text
-        held = resp.json()["proposals"]
+        # BE-2: the held proposals ride the terminal chat_reply frame of the streamed body.
+        terminal = next(f for f in _sse_frames(resp) if f["type"] == "chat_reply")
+        held = terminal["data"]["proposals"]
         assert held and held[0]["held"] is True
         assert len(_rows(env, run_id, "concierge_proposal")) == 1
         # No gate resolution written (held behind the confirm chip).

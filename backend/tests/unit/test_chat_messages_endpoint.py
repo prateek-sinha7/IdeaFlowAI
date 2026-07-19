@@ -17,6 +17,8 @@ LOCK-B: drives the REAL endpoint; touches NO production file beyond the allow-li
 from __future__ import annotations
 
 import asyncio
+import inspect
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -358,3 +360,120 @@ class TestRouting:
         assert resp.status_code == 409
         assert resp.json()["detail"]["code"] == "pipeline_not_running"
         assert resp.json()["detail"]["recoverable"] is False
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BE-2 — the fresh-Concierge POST streams as text/event-stream (Option B).
+# ════════════════════════════════════════════════════════════════════════════
+def _parse_sse_frames(text: str) -> list[dict]:
+    """Parse the ``{type, data}`` JSON bodies out of an SSE response body.
+
+    Each frame's wire is ``id: {seq}\\ndata: {json}\\n\\n``; we read only the
+    ``data:`` lines (the ``{type, data}`` envelope the FE SSE reader consumes).
+    """
+    frames: list[dict] = []
+    for line in text.splitlines():
+        if line.startswith("data:"):
+            payload = line[len("data:"):].strip()
+            if payload:
+                frames.append(json.loads(payload))
+    return frames
+
+
+def _events_of_type(env, run_id, etype):
+    from app.models.run_event import RunEvent
+
+    db = env["Session"]()
+    try:
+        return (
+            db.query(RunEvent)
+            .filter(RunEvent.run_id == run_id, RunEvent.type == etype)
+            .order_by(RunEvent.seq.asc())
+            .all()
+        )
+    finally:
+        db.close()
+
+
+class _StreamingConcierge:
+    """A scripted concierge (no live model): ``converse`` streams two deltas via the
+    ``on_chunk`` sink then returns the full text, and surfaces one held gate proposal."""
+
+    def __init__(self, deltas=("Hel", "lo"), answer="Hello"):
+        self._deltas = list(deltas)
+        self._answer = answer
+        self.seen: list = []
+
+    async def converse(self, ctx, user_message, on_chunk=None):
+        self.seen.append(user_message)
+        for delta in self._deltas:
+            if on_chunk is not None:
+                res = on_chunk(delta)
+                if inspect.isawaitable(res):
+                    await res
+        return self._answer
+
+    def drain_proposals(self, ctx=None):
+        from app.agents.chat.concierge import ProposalIntent
+
+        return [ProposalIntent(channel="gate_action", params={"action": "approve"})]
+
+
+class TestConciergeStreaming:
+    def test_fresh_concierge_post_streams_chunks_then_terminal_reply(self, env, monkeypatch):
+        """A fresh-Concierge POST responds text/event-stream: ordered chat_reply_chunk
+        frames, then ONE terminal chat_reply carrying the full text + held proposals.
+        The durable chat_reply row + the held proposal row persist regardless."""
+        from app.api import run_commands as rc_module
+
+        fake = _StreamingConcierge()
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="completed")
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, text="what's the status?", concierge=True,
+                     message_id="s1")
+        assert resp.status_code == 200, resp.text
+        # BE-2: the fresh-Concierge branch now streams the POST body.
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        assert fake.seen == ["what's the status?"]
+
+        frames = _parse_sse_frames(resp.text)
+        # Ordered transient chunk frames — the model's text deltas, in order.
+        chunks = [f for f in frames if f["type"] == "chat_reply_chunk"]
+        assert [c["data"]["delta"] for c in chunks] == ["Hel", "lo"]
+        # Exactly ONE terminal chat_reply carrying the full concatenated answer.
+        terminals = [f for f in frames if f["type"] == "chat_reply"]
+        assert len(terminals) == 1
+        assert terminals[0]["data"]["text"] == "Hello"
+        assert terminals[0]["data"]["message_id"] == "s1"
+        assert terminals[0]["data"]["proposals"], "held proposals ride the terminal frame"
+        assert terminals[0]["data"]["proposals"][0]["held"] is True
+
+        # DURABLE side-effects landed regardless of client consumption: the single
+        # canonical chat_reply row (event_id chat-reply:{message_id}, seq present) …
+        replies = _events_of_type(env, run_id, "chat_reply")
+        assert len(replies) == 1
+        assert replies[0].event_id == "chat-reply:s1"
+        assert replies[0].seq is not None
+        assert replies[0].payload_json["text"] == "Hello"
+        # … and NO transient chunk was ever persisted (the terminal is the only record).
+        assert _events_of_type(env, run_id, "chat_reply_chunk") == []
+        # … and the held proposal was written (behind the confirm chip, not executed).
+        assert len(_events_of_type(env, run_id, "concierge_proposal")) == 1
+
+    def test_non_concierge_branch_still_returns_json(self, env, monkeypatch):
+        """A non-Concierge turn (plain steering on a running run) still returns its
+        UNCHANGED JSON contract with content-type application/json (no streaming)."""
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="running")
+        _seed_events(env, run_id, [(1, "agent_start", {}), (2, "agent_chunk", {})],
+                     owner_id=owner.id)
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, text="prefer teal", message_id="m-plain")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith("application/json")
+        assert resp.json()["channel"] == "steering"
