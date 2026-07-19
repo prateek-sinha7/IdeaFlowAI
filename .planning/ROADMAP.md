@@ -1337,8 +1337,8 @@ Plans:
   5. End-to-end proof: fail a run mid-build → `POST /resume` → completed tasks skipped, deliverable completed, family/history coherent; consolidated milestone-end live-Bedrock pass covers the full ladder (per the defer-live-verification convention, offline gates bind phase completion).
 
 **Plans**: 1 plan, 2 tasks, 1 wave (via /gsd-plan-phase 50)
-
 Plans:
+
 - [ ] 50-01-PLAN.md — POST /api/runs/{id}/resume (endpoint + thin _drive_user_resume wrapper + guards) + failed→resume E2E & gate-at-failure battery
 
 ### v3.0 Progress

@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: — Top-Tier Resume & Durable Execution
 status: executing
-last_updated: "2026-07-19T00:00:00.000Z"
-last_activity: 2026-07-19 — Phase 49 [R4] 49-03 complete (clarify twin: durable-questionnaire replay; RESUME-17 closed; restart_resume 39/0, goldens 10/10, lint 4/0)
+last_updated: "2026-07-19T05:30:14.652Z"
+last_activity: 2026-07-19 — Phase 49 [R4] 49-03 complete (restart_resume 39/0, redo 4/3 held, goldens 10/10, banned 11/0, lint 4/0)
 progress:
   total_phases: 6
   completed_phases: 5
