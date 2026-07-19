@@ -23,6 +23,7 @@ import pytest
 
 from agents.loader import AgentSpec
 from agents.registry import (
+    _INTERNAL_PIPELINES,
     PIPELINE_AGENTS,
     REVISION_BASE_MAP,
     allowed_custom_agent_ids,
@@ -30,14 +31,35 @@ from agents.registry import (
     get_all_agents_flat,
 )
 
+
+def _all_non_revision_non_internal_agents() -> set[str]:
+    """The union of every non-revision, non-internal pipeline's agents.
+
+    This is EXACTLY the set ``allowed_custom_agent_ids`` returns for a base
+    pipeline OR for ``"custom"`` — the two branches compute the identical union
+    (base = own ∪ custom ∪ all-other-base; custom = custom ∪ all-base; both
+    reduce to all-base ∪ custom). The only pools excluded are the tight
+    ``*_revision`` pipelines and the internal ``chat`` pipeline.
+    """
+    out: set[str] = set()
+    for pt, ids in PIPELINE_AGENTS.items():
+        if pt.endswith("_revision") or pt in _INTERNAL_PIPELINES:
+            continue
+        out.update(ids)
+    return out
+
 # Phase 7a removed the legacy ``app.agents.registry``. The original T2 verify
 # gate parity-tested YOUR allow-list against the legacy helper for the pipelines
 # that agreed (user_stories, app_builder, every revision). The legacy module is
 # gone, so that parity is now re-expressed as hard-coded expectations DERIVED
 # from the single source of truth (``PIPELINE_AGENTS``): a base pipeline's
-# allow-list = its own agents ∪ the custom pool; a revision pipeline's = its own
-# agents only. (prototype + ppt diverged from legacy by design, and ``custom`` is
-# deliberately tightened — those were never part of the parity guarantee.)
+# allow-list = the UNION of every non-revision, non-internal pipeline's agents
+# (own ∪ custom pool ∪ all other base pipelines — the AgentLibrary UI lets a user
+# fold any base-pipeline agent into any base/custom run); a revision pipeline's =
+# its own agents only. (This union superseded the earlier "tightened to the
+# custom pool" behaviour in commit d1a338fd — "custom workflow with prototype/ppt
+# agents now runs correctly"; ``custom`` was never part of the legacy-parity
+# guarantee.)
 _AGREEING_REVISION_PIPELINES = sorted(REVISION_BASE_MAP.keys())  # excludes od_ppt_revision
 _AGREEING_BASE_PIPELINES = ["user_stories", "app_builder"]
 _CUSTOM_POOL = set(PIPELINE_AGENTS["custom"])
@@ -53,13 +75,16 @@ class TestAllowListAgreeingPipelines:
     matches hard-coded expectations derived from the real registry."""
 
     @pytest.mark.parametrize("pipeline_type", _AGREEING_BASE_PIPELINES)
-    def test_base_allow_list_is_own_agents_plus_custom_pool(self, pipeline_type: str):
+    def test_base_allow_list_is_union_of_non_revision_pipelines(self, pipeline_type: str):
         real = allowed_custom_agent_ids(pipeline_type)
-        expected = set(PIPELINE_AGENTS[pipeline_type]) | _CUSTOM_POOL
+        expected = _all_non_revision_non_internal_agents()
         assert real == expected, (
             f"allow-list mismatch for {pipeline_type!r}: "
             f"unexpected={real - expected}, missing={expected - real}"
         )
+        # The pipeline's own agents and the custom pool are both folded in.
+        assert set(PIPELINE_AGENTS[pipeline_type]) <= real
+        assert _CUSTOM_POOL <= real
         assert real, f"expected a non-empty allow-list for {pipeline_type!r}"
 
     @pytest.mark.parametrize("pipeline_type", _AGREEING_REVISION_PIPELINES)
@@ -84,11 +109,15 @@ class TestAllowListAgreeingPipelines:
             )
 
     def test_base_pipelines_include_custom_pool(self):
-        """A base pipeline allow-list = its own agents UNION the custom pool."""
+        """A base pipeline allow-list folds in its own agents AND the custom pool
+        (it is the union of every non-revision, non-internal pipeline)."""
         custom = set(PIPELINE_AGENTS["custom"])
+        expected = _all_non_revision_non_internal_agents()
         for base in ("user_stories", "app_builder"):
             allowed = allowed_custom_agent_ids(base)
-            assert allowed == set(PIPELINE_AGENTS[base]) | custom
+            assert allowed == expected
+            assert set(PIPELINE_AGENTS[base]) <= allowed
+            assert custom <= allowed
 
 
 # ---------------------------------------------------------------------------
@@ -122,12 +151,15 @@ class TestAllowListRealIdsAndOdFix:
 
     def test_od_ppt_is_non_empty_bug_fix(self):
         """The legacy ``od_ppt → ∅`` bug rejected every od_ppt custom run. The
-        fix treats od_ppt as a base pipeline: own agents ∪ custom pool. (The
-        legacy registry that returned ``∅`` here was deleted in Phase 7a; the
-        intended NON-empty result is pinned directly.)"""
+        fix treats od_ppt as a base pipeline: its allow-list is the union of every
+        non-revision, non-internal pipeline (own agents ∪ custom pool ∪ all other
+        base pipelines). (The legacy registry that returned ``∅`` here was deleted
+        in Phase 7a; the intended NON-empty result is pinned directly.)"""
         allowed = allowed_custom_agent_ids("od_ppt")
         assert allowed, "od_ppt allow-list must be non-empty (bug fix)"
-        assert allowed == set(PIPELINE_AGENTS["od_ppt"]) | set(PIPELINE_AGENTS["custom"])
+        assert allowed == _all_non_revision_non_internal_agents()
+        assert set(PIPELINE_AGENTS["od_ppt"]) <= allowed
+        assert set(PIPELINE_AGENTS["custom"]) <= allowed
 
     def test_od_ppt_revision_is_tight(self):
         """od_ppt_revision is a revision (not in REVISION_BASE_MAP, caught by the
@@ -137,8 +169,17 @@ class TestAllowListRealIdsAndOdFix:
         assert allowed  # od_ppt_revision has one agent
         assert not (allowed & set(PIPELINE_AGENTS["custom"]))
 
-    def test_custom_is_the_custom_pool(self):
-        assert allowed_custom_agent_ids("custom") == set(PIPELINE_AGENTS["custom"])
+    def test_custom_is_the_union_of_base_pipelines(self):
+        """The ``custom`` allow-list unions the custom-utility pool with every
+        non-revision, non-internal base pipeline's agents (commit d1a338fd —
+        "custom workflow with prototype/ppt agents now runs correctly"), so a
+        composed custom workflow may include any base-pipeline agent. It equals
+        the base-pipeline union AND folds in the custom pool itself."""
+        allowed = allowed_custom_agent_ids("custom")
+        assert allowed == _all_non_revision_non_internal_agents()
+        assert set(PIPELINE_AGENTS["custom"]) <= allowed
+        # The generic fan-out producer (Phase 51) surfaces in the custom pool.
+        assert "task-list-planner" in allowed
 
     def test_unknown_and_empty_pipelines_return_empty(self):
         # Unknown type → security fallback.
