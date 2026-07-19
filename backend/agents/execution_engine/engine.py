@@ -817,6 +817,26 @@ class ExecutionEngine:
         self._resume_register_queue: Callable[[str], asyncio.Queue] | None = None
         self._resume_register_task: Callable[[str, asyncio.Task], None] | None = None
         self._resume_cleanup: Callable[[str], None] | None = None
+        # ── RESUME-10: the live-layer callbacks a RESUMED run must thread, injected
+        # app-side (app/main.py restore-scan site) from the SAME callables the REST/SSE
+        # launch path threads into execute() (run_commands.py). resume_run bypasses the
+        # execute() wrapper (it calls _execute_impl directly), so the wrapper's callback
+        # threading never reached a resumed run — these slots carry the trio into
+        # resume_run's own drive loop instead. Typed as the generic engine-side aliases
+        # so NO app symbol crosses the import boundary (import-linter 4/0). All None (the
+        # goldens + every non-app driver) keeps the resume live-wire DORMANT — a resumed
+        # offline run is byte/event-identical (INV-3).
+        #   _resume_milestone_sink(store, run_id, event) -> (created, seq, card) | None
+        #       the narrator projector — projects a chat_reply milestone card per
+        #       projectable lifecycle event (self-filtering).
+        #   _resume_live_ectx_register(run_id, ectx) -> None
+        #       registers the resumed run's rebuilt ectx so _live_ectx_for_run resolves
+        #       it for mid-run steering / per-turn images / Concierge.
+        #   _resume_live_ectx_unregister(run_id) -> None
+        #       drops the ectx registration in resume_run's finally (no _LIVE_ECTX leak).
+        self._resume_milestone_sink: "MilestoneSink | None" = None
+        self._resume_live_ectx_register: "LiveEctxRegister | None" = None
+        self._resume_live_ectx_unregister: "LiveEctxUnregister | None" = None
 
     async def _persist_budget_snapshot_if_active(
         self, ectx: ExecutionContext, *, force: bool = False
@@ -6415,8 +6435,27 @@ class ExecutionEngine:
         # ── Re-drive through the SAME seq/event sink as a fresh run (so resumed events
         # persist + replay via the after_seq branch). _execute_impl rebuilds the
         # ExecutionContext via its one construction path and skips i < offset. ─────────
-        sink = _RunEventSink()
-        counter = itertools.count(start)
+        # ── RESUME-10: a resumed run is a first-class LIVE run ────────────────────────
+        # resume_run bypasses the execute() wrapper (it drives _execute_impl directly),
+        # so the wrapper's live-layer threading + DEF-43-03-1 milestone-card loop never
+        # reached a resumed run. Replicate them HERE from the app-injected hooks:
+        #   * arm the sink with the injected milestone_sink so narrator cards project;
+        #   * a MANUAL next_seq allocator (NOT itertools.count) so the loop can advance
+        #     PAST a card's persisted seq — otherwise the engine's next base event would
+        #     reuse the card's seq, collide on the 0024 (run_id, seq) constraint, and
+        #     (persist being best-effort) be silently DROPPED → a durable-log gap on
+        #     reconnect (DEF-43-03-1 / Edge-Case 7);
+        #   * thread live_ectx_register into _execute_impl (the :1184 consumer registers
+        #     the rebuilt ectx when the callback is present) so _live_ectx_for_run
+        #     resolves the resumed run for steering / per-turn images / Concierge;
+        #   * unregister in the finally below (guaranteed — no _LIVE_ECTX leak, WR-01).
+        # All three hooks None (offline / non-app drivers, the goldens) ⇒ the resume
+        # live-wire is DORMANT: no card branch fires, next_seq increments 1,2,3,… exactly
+        # like the old itertools.count, and no register/unregister runs (byte/event-
+        # identical resume, INV-3). Card seq is drawn from the store's own allocator (via
+        # emit_milestone_card), never append_event_next_seq for the engine's base events.
+        sink = _RunEventSink(milestone_sink=self._resume_milestone_sink)
+        next_seq = start
         try:
             async for event in self._execute_impl(
                 agents=agents,
@@ -6434,12 +6473,14 @@ class ExecutionEngine:
                 _sink=sink,
                 _resume_from=offset,
                 _is_resume=True,
+                live_ectx_register=self._resume_live_ectx_register,
             ):
                 data = event.get("data")
                 if not isinstance(data, dict):
                     data = {}
                     event["data"] = data
-                seq = next(counter)
+                seq = next_seq
+                next_seq += 1
                 event_id = str(uuid.uuid4())
                 data["seq"] = seq
                 data["event_id"] = event_id
@@ -6455,6 +6496,34 @@ class ExecutionEngine:
                         )
                     except Exception:  # noqa: BLE001 — live push is best-effort
                         pass
+                # RESUME-10 (DEF-43-03-1): project + persist a chat_reply milestone card
+                # for this event via the INJECTED narrator sink (self-filtering; DORMANT
+                # when _resume_milestone_sink is None). The card is persisted at the store's
+                # next contiguous seq (max+1), so ADVANCE next_seq PAST it — the engine's
+                # next base event can then never reuse the card's seq (a collision would
+                # drop that event → durable-log gap). The card is ALSO pushed onto the WS
+                # live queue (resume_run is a coroutine, NOT a generator — it delivers live
+                # via live_queue, not yield), stamped with the SAME chat_reply:{event_id}
+                # the persisted row carries so a reconnect replay dedups it.
+                card_result = await sink.emit_milestone_card(event)
+                if card_result is not None:
+                    _created, _card_seq, _card = card_result
+                    if _card_seq >= next_seq:
+                        next_seq = _card_seq + 1
+                    if _created and live_queue is not None:
+                        try:
+                            live_queue.put_nowait(
+                                {
+                                    "type": "chat_reply",
+                                    "data": {
+                                        **_card,
+                                        "seq": _card_seq,
+                                        "event_id": f"chat_reply:{event_id}",
+                                    },
+                                }
+                            )
+                        except Exception:  # noqa: BLE001 — live push is best-effort
+                            pass
         except Exception as exc:  # noqa: BLE001 — a resume failure must not crash startup
             logger.warning("resume_run(%s) failed mid-drive: %s", run_id, exc)
         finally:
@@ -6472,6 +6541,20 @@ class ExecutionEngine:
             # task entry registered at the restore create_task site, or the
             # done task leaks in the process-global registry.
             self._fire_resume_cleanup(run_id)
+            # RESUME-10 (WR-01): ALWAYS deregister the resumed run's live ectx
+            # (normal completion, mid-drive exception, or the offset==len early
+            # path) so the process-local _LIVE_ECTX registry never leaks a
+            # terminated run's context — mirroring the execute() wrapper's finally.
+            # DORMANT when the hook is None (offline / non-app drivers, the goldens)
+            # — a no-op that cannot perturb the resume (INV-3).
+            if self._resume_live_ectx_unregister is not None:
+                try:
+                    self._resume_live_ectx_unregister(run_id)
+                except Exception:  # noqa: BLE001 — teardown must never mask the outcome
+                    logger.warning(
+                        "resume_run(%s): live_ectx_unregister failed", run_id,
+                        exc_info=True,
+                    )
 
     async def _compute_resume_offset(
         self, run_id, user_id, session_id, pipeline_type, agents

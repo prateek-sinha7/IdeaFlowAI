@@ -141,6 +141,17 @@ async def lifespan(app: FastAPI):
         engine_instance._resume_register_queue = _ws_bridge._register_resume_queue
         engine_instance._resume_register_task = _ws_bridge._register_resume_task
         engine_instance._resume_cleanup = _ws_bridge._cleanup_pipeline
+        # ── RESUME-10: wire the live-layer trio onto the engine so an AUTO-RESUMED run
+        # (restore_non_terminal_runs branch b) is a first-class LIVE run — it registers
+        # its rebuilt ectx (steering / per-turn images / Concierge resolve via
+        # _live_ectx_for_run) and emits narrator milestone cards, exactly as the REST/SSE
+        # launch path does. These are the SAME callables run_commands threads into
+        # engine.execute(...) at launch; app→app import (the kernel never imports app.*).
+        from app.api.run_commands import register_live_ectx, unregister_live_ectx
+        from app.agents.chat_narrator import persist_milestone_card
+        engine_instance._resume_live_ectx_register = register_live_ectx
+        engine_instance._resume_live_ectx_unregister = unregister_live_ectx
+        engine_instance._resume_milestone_sink = persist_milestone_card
         await engine_instance.restore_non_terminal_runs()
     except Exception as _startup_exc:
         logger.warning("Startup restoration failed (non-fatal): %s", _startup_exc)

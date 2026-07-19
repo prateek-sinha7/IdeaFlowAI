@@ -1505,3 +1505,134 @@ async def test_kernel_computes_resume_completed_task_ids_cursor():
         f"task_id; got {cursor.get('wave')}"
     )
     session.close()
+
+
+# ===========================================================================
+# RESUME-10 — a resumed run is a first-class LIVE run: live-ectx registered
+# (+ guaranteed unregister in finally), milestone cards emitted with an
+# engine-counter seq (DEF-43-03-1), never append_event_next_seq for the base
+# events. Drives resume_run with injected register/unregister/milestone stubs.
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_resumed_run_is_wired_live_ectx_and_milestone_cards():
+    """RESUME-10: resume_run threads the SAME live-layer callbacks execute() does.
+
+    On HEAD ``resume_run`` builds ``_RunEventSink()`` (no milestone_sink), threads no
+    ``live_ectx_register``, and has no ``live_ectx_unregister`` in its finally — so a
+    resumed run is dead to steering / per-turn images / Concierge / narrator cards.
+
+    This injects the three engine hooks (as the app layer does at ``app/main.py``),
+    drives ``resume_run`` over a seeded durable tail, and asserts:
+      * the run's rebuilt ectx was REGISTERED (``_live_ectx_for_run(run_id)`` resolves);
+      * at least one ``chat_reply`` milestone card was emitted with a seq drawn from the
+        engine's advanceable counter (contiguous PAST the durable tail — no collision);
+      * ``unregister`` fired exactly ONCE in the finally (no ``_LIVE_ECTX`` leak).
+
+    FAILS on HEAD (no register threaded, no card, no unregister).
+    """
+    from agents.authz import ScopedStore
+    from app.models.run_event import RunEvent
+
+    session, db_engine = _make_session()
+    run_id = f"lw-{uuid.uuid4().hex[:8]}"
+    owner = "lw-user"
+    workspace_id = "ws-lw"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    # Seed a durable tail at seq 1..N under the REAL workspace the sink writes under, so
+    # the engine seeds its resume counter at N+1 (CR-01) and cards must land beyond N.
+    pre_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
+    N = 5
+    for seq in range(1, N + 1):
+        await pre_store.append_event(
+            run_id, seq=seq, event_id=f"pre-{seq}",
+            type=f"agent_chunk_{seq}", payload_json={"seq": seq},
+        )
+    session.commit()
+
+    # ── The three injected live-layer hooks (mirroring app/main.py + run_commands). ──
+    registered: dict[str, Any] = {}
+    unregister_calls: list[str] = []
+    card_state = {"emitted": False}
+    emitted_cards: list[tuple] = []
+
+    def _stub_register(rid, ectx):
+        registered[rid] = ectx
+
+    def _stub_unregister(rid):
+        unregister_calls.append(rid)
+
+    async def _stub_milestone_sink(store, rid, event):
+        # Self-filtering narrator analog: project exactly ONE card (the first event),
+        # allocating its seq from the durable tail via append_event_next_seq — EXACTLY
+        # as chat_narrator.persist_milestone_card does, so the engine must advance its
+        # own counter PAST the card seq (DEF-43-03-1, no collision on the 0024 constraint).
+        if card_state["emitted"]:
+            return None
+        card_state["emitted"] = True
+        src_event_id = (event.get("data") or {}).get("event_id")
+        created, card_seq = await store.append_event_next_seq(
+            rid,
+            event_id=f"chat_reply:{src_event_id}",
+            type="chat_reply",
+            payload_json={"kind": "milestone", "text": "resumed"},
+        )
+        card = {"kind": "milestone", "text": "resumed"}
+        emitted_cards.append((created, card_seq, card))
+        return (created, card_seq, card)
+
+    call_log: dict[str, int] = {}
+    with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+        engine_b._resume_live_ectx_register = _stub_register
+        engine_b._resume_live_ectx_unregister = _stub_unregister
+        engine_b._resume_milestone_sink = _stub_milestone_sink
+        await engine_b.resume_run(run_id)
+
+    # (1) the rebuilt ectx was registered under run_id (live-ectx resolves during the run).
+    assert run_id in registered, (
+        "resume_run must thread live_ectx_register so _live_ectx_for_run(run_id) resolves "
+        "the resumed run (steering / per-turn images / Concierge)"
+    )
+    assert registered[run_id] is not None
+
+    # (2) at least one milestone card was emitted, its seq drawn from the engine's
+    # advanceable counter space (contiguous PAST the durable tail — never a collision).
+    assert emitted_cards, (
+        "resume_run must build _RunEventSink(milestone_sink=...) and emit_milestone_card "
+        "per event so narrator cards reach a resumed run"
+    )
+    _created, _card_seq, _ = emitted_cards[0]
+    assert _card_seq > N, (
+        f"the milestone card seq must continue past the durable tail (> {N}); "
+        f"got {_card_seq}"
+    )
+    # The card row is durable — and every resumed row (base events + card) is > N with
+    # NO duplicate seq (the engine counter advanced past the card, DEF-43-03-1).
+    all_rows = (
+        session.query(RunEvent)
+        .filter(RunEvent.run_id == run_id)
+        .order_by(RunEvent.seq.asc())
+        .all()
+    )
+    pre_ids = {f"pre-{s}" for s in range(1, N + 1)}
+    resumed = [r for r in all_rows if r.event_id not in pre_ids]
+    assert resumed, "resume_run persisted no resumed events"
+    assert all(r.seq > N for r in resumed), (
+        f"every resumed row must carry seq > {N}; got {[r.seq for r in resumed]}"
+    )
+    resumed_seqs = [r.seq for r in resumed]
+    assert len(resumed_seqs) == len(set(resumed_seqs)), (
+        f"resumed seqs must be unique (no card/base collision); got {resumed_seqs}"
+    )
+    card_rows = [r for r in resumed if r.type == "chat_reply"]
+    assert card_rows, "the milestone chat_reply row must be durably persisted"
+
+    # (3) unregister fired exactly once in the finally (normal completion) — no leak.
+    assert unregister_calls == [run_id], (
+        f"live_ectx_unregister must fire exactly once in resume_run's finally; "
+        f"got {unregister_calls}"
+    )
+    session.close()
