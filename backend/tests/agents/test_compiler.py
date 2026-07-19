@@ -459,3 +459,115 @@ def test_trust_user_allows_clean_user_caps() -> None:
     assert "validation" in s0.gates
     assert s0.model.model == "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
     assert s0.retry.max_attempts == 2
+
+
+# ---------------------------------------------------------------------------
+# Fan-out source_step-must-be-upstream guard (D9 / FANOUT-05 / INV-5, name-free)
+# ---------------------------------------------------------------------------
+
+_WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / "agents" / "workflows"
+
+
+def _fanout_steps(source_step: str, *, trailing: bool = False) -> list[dict]:
+    """Two/three-step manifest: producer → fanout_batch worker (source_step=<arg>)."""
+    steps: list[dict] = [
+        {"agent": "producer", "strategy": "single_shot"},
+        {
+            "agent": "worker",
+            "strategy": "fanout_batch",
+            "task_source": {
+                "kind": "parsed",
+                "parser": "heading_tasks",
+                "source_step": source_step,
+            },
+        },
+    ]
+    if trailing:
+        steps.append({"agent": "post", "strategy": "single_shot"})
+    return steps
+
+
+def test_fanout_source_step_upstream_ok() -> None:
+    """A fanout_batch step sourcing an EARLIER step compiles (D9 happy path)."""
+    compiled = WorkflowCompiler().compile(
+        _manifest(steps=_fanout_steps("producer")), CapabilityRegistry()
+    )
+    worker = compiled.steps[1]
+    assert worker.strategy == "fanout_batch"
+    assert worker.task_source is not None
+    assert worker.task_source.source_step == "producer"
+
+
+def test_fanout_source_step_forward_ref_rejected() -> None:
+    """A fanout_batch step sourcing a LATER step is rejected (D9)."""
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(
+            _manifest(steps=_fanout_steps("post", trailing=True)),
+            CapabilityRegistry(),
+        )
+    msg = str(exc.value)
+    assert "post" in msg and "worker" in msg
+
+
+def test_fanout_source_step_unknown_ref_rejected() -> None:
+    """A fanout_batch step sourcing an id absent from the plan is rejected (D9)."""
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(
+            _manifest(steps=_fanout_steps("ghost")), CapabilityRegistry()
+        )
+    assert "ghost" in str(exc.value)
+
+
+def test_fanout_source_step_self_ref_rejected() -> None:
+    """source_step naming the fan-out step itself is not 'earlier' → rejected (D9)."""
+    with pytest.raises(CompilerError):
+        WorkflowCompiler().compile(
+            _manifest(steps=_fanout_steps("worker")), CapabilityRegistry()
+        )
+
+
+def test_non_fanout_step_source_step_untouched() -> None:
+    """A non-fanout_batch step with a forward source_step is NOT guarded (parity)."""
+    # task_loop (not fanout_batch) may declare any source_step — the D9 guard fires
+    # ONLY on strategy == "fanout_batch" (INV-5 / name-free, strategy-keyed).
+    compiled = WorkflowCompiler().compile(
+        _manifest(
+            steps=[
+                {
+                    "agent": "worker",
+                    "strategy": "task_loop",
+                    "task_source": {
+                        "kind": "parsed",
+                        "parser": "heading_tasks",
+                        "source_step": "ghost",
+                    },
+                },
+            ]
+        ),
+        CapabilityRegistry(),
+    )
+    assert compiled.steps[0].task_source.source_step == "ghost"
+
+
+def test_sample_fanout_manifest_compiles() -> None:
+    """Regression: the shipped sample_fanout manifest still compiles under the guard.
+
+    Its ``source_step: sample-fanout-plan`` precedes the fan-out step, so the D9
+    guard passes — the MEANINGFUL regression case (its fanout_batch step actually
+    triggers the guard).
+    """
+    manifest = load_manifest("sample_fanout", _WORKFLOWS_DIR)
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="file"
+    )
+    worker = next(s for s in compiled.steps if s.strategy == "fanout_batch")
+    assert worker.task_source.source_step == "sample-fanout-plan"
+
+
+def test_sample_wave_manifest_compiles() -> None:
+    """Regression: sample_wave compiles (wave_scheduler → guard vacuously passes)."""
+    manifest = load_manifest("sample_wave", _WORKFLOWS_DIR)
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="file"
+    )
+    assert any(s.strategy == "wave_scheduler" for s in compiled.steps)

@@ -233,6 +233,9 @@ class WorkflowCompiler:
         # ── Topo-validate the Step DAG (cycle-free, no duplicate agents) ──────
         self._validate_dag(steps)
 
+        # ── Fan-out source_step-must-be-upstream guard (D9 / FANOUT-05) ───────
+        self._validate_fanout_source_upstream(steps)
+
         clarify_raw = manifest.clarify or {}
         clarify = ClarifySpec(
             mode=clarify_raw.get("mode", "auto"),
@@ -854,6 +857,45 @@ class WorkflowCompiler:
             revises_existing=bool(raw.get("revises_existing", False)),
             mimetype=raw.get("mimetype"),
         )
+
+    # ── Fan-out source_step-must-be-upstream guard (D9 / FANOUT-05 / INV-5) ──
+
+    @staticmethod
+    def _validate_fanout_source_upstream(steps: list[Step]) -> None:
+        """Reject a fan-out step whose ``task_source.source_step`` is not EARLIER (D9).
+
+        Pure-data, INV-5-safe post-compile pass over the already-ordered ``steps``
+        (per-step compilation runs in input order, so "earlier" == a strictly
+        lower index). For every step whose ``strategy == "fanout_batch"`` that
+        declares a truthy ``task_source.source_step``, the referenced id MUST be
+        the agent id of a step at a lower index; a forward/self/unknown reference
+        is a ``CompilerError`` NAMING the offending step + the bad ``source_step``
+        (mirrors the ``CompilerError(f"... in {where}")`` style). Deterministic at
+        compile time (SAVE + LAUNCH both compile), closing the "fan-out reads the
+        empty / wrong producer" gap.
+
+        Name-free (INV-1 / SC-001): the check compares ids POSITIONALLY — it keys
+        only on the ``fanout_batch`` strategy name + the accumulated earlier-step
+        id set, never on a workflow/agent-name literal. A non-fanout_batch step, or
+        a fanout_batch step with no ``source_step``, is untouched (parity — the 5
+        characterization goldens declare no such step).
+        """
+        upstream: set[str] = set()
+        for step in steps:
+            task_source = step.task_source
+            source_step = (
+                task_source.source_step if task_source is not None else None
+            )
+            if step.strategy == "fanout_batch" and source_step:
+                if source_step not in upstream:
+                    where = f"step '{step.agent_id}'"
+                    raise CompilerError(
+                        f"fanout_batch task_source.source_step "
+                        f"'{source_step}' in {where} does not name an EARLIER "
+                        f"step — a fan-out producer must precede the fan-out "
+                        f"step (D9 / FANOUT-05)"
+                    )
+            upstream.add(step.agent_id)
 
     # ── DAG validation (no duplicate agents, no cycle) ───────────────────────
 
