@@ -2969,6 +2969,10 @@ class ExecutionEngine:
                             edited = gate_event.get("edited_content", output)
                             if edited:
                                 _ek = self._artifact_kind_for(spec)
+                                # RESUME-15: stamp lineage to the version this edit
+                                # supersedes (resolved BEFORE the write == prior max).
+                                # None on a first-ever write ⇒ byte-identical (INV-3).
+                                _prior_ref = self._latest_typed_ref_id(ectx, spec.id, _ek)
                                 await self._dual_write_artifact(
                                     ectx,
                                     producer_agent=spec.id,
@@ -2976,6 +2980,7 @@ class ExecutionEngine:
                                     content=edited,
                                     kind=_ek,
                                     location=f"artifact_refs/{spec.id}",
+                                    derived_from=_prior_ref,
                                 )
                             if results and results[-1].get("agent_id") == spec.id:
                                 results[-1] = {**results[-1], "output": edited}
@@ -3811,6 +3816,10 @@ class ExecutionEngine:
                                 _ek = self._artifact_kind_for(spec)
                                 # WR-01 de-hardcode: declared deliverable name for html_file.
                                 _ek_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
+                                # RESUME-15: stamp lineage to the version this edit
+                                # supersedes (resolved BEFORE the write == prior max).
+                                # None on a first-ever write ⇒ byte-identical (INV-3).
+                                _prior_ref = self._latest_typed_ref_id(ectx, spec.id, _ek)
                                 await self._dual_write_artifact(
                                     ectx,
                                     producer_agent=spec.id,
@@ -3822,6 +3831,7 @@ class ExecutionEngine:
                                         if _ek == "html_file"
                                         else f"artifact_refs/{spec.id}"
                                     ),
+                                    derived_from=_prior_ref,
                                 )
                             # Also update the last result
                             if results:
@@ -4563,6 +4573,9 @@ class ExecutionEngine:
             getattr(getattr(ectx, "deliverable", None), "name", None)
             or "prototype.html"
         )
+        # RESUME-15: stamp lineage to the version this edit supersedes (resolved
+        # BEFORE the write == prior max). None on a first-ever write ⇒ byte-identical.
+        _prior_ref = self._latest_typed_ref_id(ectx, prev_spec.id, _ek)
         await self._dual_write_artifact(
             ectx,
             producer_agent=prev_spec.id,
@@ -4572,6 +4585,7 @@ class ExecutionEngine:
             location=(
                 _ek_html_loc if _ek == "html_file" else f"artifact_refs/{prev_spec.id}"
             ),
+            derived_from=_prior_ref,
         )
         results[-1] = {**results[-1], "output": edited}
         # Keep the running review payload consistent with the applied edit
@@ -5601,6 +5615,33 @@ class ExecutionEngine:
             ):
                 best = ref
         return best.content if best is not None else None
+
+    def _latest_typed_ref_id(
+        self,
+        ectx: ExecutionContext,
+        producer_agent: str,
+        kind: str,
+    ) -> str | None:
+        """Return the id of the MAX-``version`` typed ref for (producer_agent, kind).
+
+        RESUME-15 lineage resolver: a gate Edit mints a NEW artifact version, and
+        its ``derived_from`` must point at the version it supersedes. Resolved
+        BEFORE the edit write, so the current max IS the prior version. Mirrors the
+        redo path's max-version id lookup (``max(_cands, key=version).id``, B5) and
+        the ``_latest_typed_content`` max-version F5 discipline (tie-broken by later
+        insertion via ``>=``). Returns None when no prior ref of this kind exists
+        (the first version has no ancestor) — so a first-ever write stamps None,
+        byte-identical to today (INV-3).
+        """
+        best = None
+        for ref in ectx.artifacts.tree(ectx.run_id):
+            if (
+                ref.producer_agent == producer_agent
+                and ref.kind == kind
+                and (best is None or ref.version >= best.version)
+            ):
+                best = ref
+        return best.id if best is not None else None
 
     # ──────────────────────────────────────────────────────────────────────
     # RESUME-02 (12-02): the SINGLE per-step retry/reuse wrapper (D-10).
