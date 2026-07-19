@@ -3302,3 +3302,138 @@ async def test_replay_clarify_run_od_prototype_alias_resolves_roster_not_bail():
         "drive; pre-fix it bails at the empty-agent-list check (BUG-R01 black hole)"
     )
     session.close()
+
+
+# ===========================================================================
+# BUG-R05 (quick 260719-hd5) — the offset-0 gate-at-step-0 preamble re-run.
+#
+# An od_prototype run parked at the SPEC review gate resumes with offset 0 (the gated
+# agent ``prototype-specify`` is step INDEX 0). Pre-fix, ``_execute_impl`` decides "am I
+# resuming?" with ``_resuming = _resume_from > 0`` — which reads offset 0 as a FRESH
+# start, so ``skip_planner`` is False, the planner + auto-clarifier RE-RUN, and the
+# ClarifyEngine re-parks the run at a NEW questionnaire BEFORE the 49-02 gate-reentry
+# block (armed inside ``if _is_resume:``) is ever reached. The whole pre-crash pipeline
+# is wastefully re-run and the original gate context is lost. The fix keys the
+# planner/clarify skip (and the graph hydration) on ``_is_resume`` — True for EVERY
+# resume, offset 0 or >0 — so an offset-0 gate re-entry is recognised as a resume.
+#
+# The coverage hole this closes: ``test_failed_run_with_open_gate_resumes_into_gate``
+# (:3110) seeds a step-0 gate and drives the REAL resume tier, but stubs the planner to
+# always return "PROCEED" (``_ResumeHarness._fake_planner``), which — pre-fix — lets the
+# offset-0 resume fall THROUGH to the gate (a PROCEED verdict skips the clarify block), so
+# the re-clarify never manifests. This test is the SAME shape with the ONLY change that
+# matters: the planner returns CLARIFY_REQUIRED (the live conjunction), so pre-fix the
+# offset-0 resume diverts into the planner + clarifier instead of re-entering the gate.
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_offset0_gate_resume_does_not_replan_or_reclarify(monkeypatch):
+    """BUG-R05: a run parked at a review gate on the FIRST agent (step INDEX 0) resumes
+    with offset 0 and MUST re-enter the gate — NOT re-run the planner + auto-clarifier.
+
+    Pre-fix (``_resuming = _resume_from > 0`` ⇒ ``0 > 0`` False) the offset-0 resume is
+    mis-read as fresh: ``skip_planner`` is False, the planner runs, returns
+    CLARIFY_REQUIRED, and the auto-clarifier re-parks the run at a new questionnaire
+    BEFORE the gate-reentry block. Post-fix (``_resuming = _is_resume`` True) the planner
+    + clarifier are skipped and the step-0 review gate re-enters.
+
+    RED on pre-fix HEAD (planner re-runs AND the clarifier re-parks); GREEN after the fix
+    (both skipped, the gate re-enters for the step-0 agent). This is the {step-0 gate} ∧
+    {planner→CLARIFY_REQUIRED} conjunction the :3110 test hides with its PROCEED fake.
+    """
+    session, db_engine = _make_session()
+    run_id = f"r5-{uuid.uuid4().hex[:8]}"
+    owner = "r5-user"
+    ws = "ws-r5"
+    # A run parked at the step-0 review gate (mirrors the live od_prototype spec-gate:
+    # the gated agent is ``ordered_agents[0]``; sample-wave-plan is fixture step index 0).
+    _seed_workflow_run(session, run_id, owner=owner, status="failed", workspace_id=ws)
+    gate_key = f"{run_id}:sample-wave-plan"
+    await _seed_open_review_gate(session, run_id, owner, ws, gate_key)
+
+    from app.models.workflow import WorkflowRun
+
+    runs_before = session.query(WorkflowRun).count()
+
+    planner_calls = {"n": 0}
+    clarify_runs = {"n": 0}
+    gate_spy: dict = {"agent_ids": []}
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+
+        # The step-0 agent must be genuinely gated for the reentry consumer's
+        # ``_should_gate`` fence — exactly as prototype-specify carries ``gate:
+        # Human_Gate`` — so the durable open gate re-enters via the REAL gate seam.
+        for _spec in h.specs:
+            if getattr(_spec, "id", None) == "sample-wave-plan":
+                _spec.gate = "Human_Gate"
+
+        # THE conjunction :3110 breaks with its PROCEED fake: the planner returns
+        # CLARIFY_REQUIRED, so pre-fix (``skip_planner`` False at offset 0) the run
+        # diverts into the auto-clarifier and re-parks at a NEW questionnaire.
+        async def _clarify_required_planner(
+            user_message, pipeline_run_id, model_id, cancel_event,
+            ptype="custom", **kw,
+        ):
+            planner_calls["n"] += 1
+            return engine_b._default_planning_context(user_message), "CLARIFY_REQUIRED"
+
+        engine_b._run_planner = _clarify_required_planner  # type: ignore[assignment]
+
+        # Stub ClarifyEngine so the re-clarify is OBSERVABLE without blocking the test on
+        # the real ``await event.wait()`` (the live re-park hang). It records that it ran
+        # and emits the spurious second ``questionnaire_ready``, then returns.
+        import agents.execution_engine.clarify_engine as _clar_mod
+
+        class _FakeClarify:
+            def __init__(self):
+                self._usage_sink = None
+
+            async def run(
+                self, pipeline_run_id, planning_context, ws_send, *,
+                owner_id=None, workspace_id=None, max_rounds=1,
+                replay_questions=None, replay_round=None,
+            ):
+                clarify_runs["n"] += 1
+                await ws_send({
+                    "type": "questionnaire_ready",
+                    "data": {"pipeline_run_id": pipeline_run_id, "round": 1},
+                })
+                return planning_context
+
+        monkeypatch.setattr(_clar_mod, "ClarifyEngine", _FakeClarify)
+
+        # Spy the gate seam: record which agent re-entered the gate, then REJECT so the
+        # run stops AT the gate (the deterministic stand-in for "parks awaiting the
+        # human"). Same shape as the :3110 gate spy.
+        async def _spy_gate(*, pipeline_run_id, agent_id, agent_name, output, redoable,
+                            update_specs_eligible, artifact_kind, cancel_event, **kw):
+            gate_spy["agent_ids"].append(agent_id)
+            yield {"type": "review_gate_ready",
+                   "data": {"gate_key": f"{pipeline_run_id}:{agent_id}"}}
+            yield {"type": "_gate_rejected"}
+
+        engine_b._run_review_gate = _spy_gate  # type: ignore[assignment]
+
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+        await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+
+    # POST-fix (GREEN): the offset-0 gate resume is recognised as a resume — the planner
+    # and the auto-clarifier are SKIPPED and the step-0 review gate re-enters.
+    assert planner_calls["n"] == 0, (
+        f"offset-0 gate resume must NOT re-run the planner — pre-fix it mis-reads offset "
+        f"0 as a fresh start and re-plans (BUG-R05): {planner_calls}"
+    )
+    assert clarify_runs["n"] == 0, (
+        f"offset-0 gate resume must NOT re-clarify / re-park at a new questionnaire — "
+        f"pre-fix the auto-clarifier re-runs (BUG-R05): {clarify_runs}"
+    )
+    assert gate_spy["agent_ids"] == ["sample-wave-plan"], (
+        f"offset-0 gate resume must RE-ENTER the step-0 review gate (not re-plan / "
+        f"re-clarify): {gate_spy}"
+    )
+    # Family coherence — no new WorkflowRun row minted by the resume.
+    assert session.query(WorkflowRun).count() == runs_before
+    session.close()

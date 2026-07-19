@@ -1360,7 +1360,7 @@ class ExecutionEngine:
         # dual-write reuse the SAME owner+workspace-scoped helper.
         ectx.scoped_store = scoped_store
         # ── RESUME-04 durable artifact hydration ─────────────────────────────────────
-        # On a fresh-process resume (``_resume_from > 0``) the in-memory typed graph is
+        # On a fresh-process resume (``_is_resume``) the in-memory typed graph is
         # empty, but the steps that completed before the restart persisted their typed
         # outputs to the durable ``artifact_refs``. The dispatch loop SKIPS those steps,
         # so their outputs must be re-seeded into the graph for the downstream steps that
@@ -1369,7 +1369,10 @@ class ExecutionEngine:
         # durable refs verbatim (id/hash/version preserved). Best-effort: a read failure
         # (offline) leaves the graph empty → the skipped step's downstream re-runs from
         # scratch (still correct). Dormant for a normal run.
-        if _resume_from > 0:
+        # BUG-R05: keyed on ``_is_resume`` (NOT ``_resume_from > 0``) — an offset-0 gate
+        # re-entry (a step-0 open review gate) is still a resume and MUST hydrate, else the
+        # 49-02 gate-reentry consumer reconstructs the gate output from an empty graph → "".
+        if _is_resume:
             await self._hydrate_artifacts_from_store(ectx)
         # ── RESUME-08 durable → disk re-materialization (DEFERRED to the boundary hook) ──
         # Re-materialization is now performed AFTER the compiled workflow + ordered_agents +
@@ -1690,11 +1693,15 @@ class ExecutionEngine:
             )
 
         # ── Step 2: Run the Deep_Planner_Agent (gate) ─────────────────────
-        # RESUME-04: a resumed run (``_resume_from > 0``) does NOT re-run the planner
+        # RESUME-04 / BUG-R05: a resumed run (``_is_resume``) does NOT re-run the planner
         # or the clarifier — it already cleared its planning gate before the restart.
         # The state-machine transition to "planning" is suppressed on resume so the run
         # goes straight to "generating" below (a resumed run is mid-build).
-        _resuming = _resume_from > 0
+        # Keyed on ``_is_resume`` (NOT ``_resume_from > 0``): an offset-0 resume whose
+        # resume point IS a step-0 open gate is still a resume — reading offset 0 as a
+        # fresh start would re-run the planner/auto-clarifier and re-park the run at a new
+        # questionnaire BEFORE reaching the 49-02 gate-reentry block below (BUG-R05).
+        _resuming = _is_resume
         if not _resuming:
             self._state_machine.transition(pipeline_run_id, "planning")
         _log_event("workflow_run_created", pipeline_run_id, pipeline_type=pipeline_type)
