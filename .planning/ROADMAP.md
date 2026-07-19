@@ -1339,7 +1339,7 @@ Plans:
 **Plans**: 1 plan, 2 tasks, 1 wave (via /gsd-plan-phase 50)
 Plans:
 
-- [ ] 50-01-PLAN.md — POST /api/runs/{id}/resume (endpoint + thin _drive_user_resume wrapper + guards) + failed→resume E2E & gate-at-failure battery
+- [x] 50-01-PLAN.md — POST /api/runs/{id}/resume (endpoint + thin _drive_user_resume wrapper + guards) + failed→resume E2E & gate-at-failure battery
 
 ### v3.0 Progress
 
@@ -1350,4 +1350,4 @@ Plans:
 | 47. Uploads Durability [R2] | 1/1 | Complete   | 2026-07-19 |
 | 48. Task Identity & Mutable List [R3] | 3/3 | Complete   | 2026-07-19 |
 | 49. Gate Resume Across Restart [R4] | 3/3 | Complete   | 2026-07-19 |
-| 50. User Resume-From-Failed [R5] | 0/1 | Planned     | — |
+| 50. User Resume-From-Failed [R5] | 1/1 | Complete   | 2026-07-19 |
