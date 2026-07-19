@@ -1268,7 +1268,7 @@ Plans:
 **Plans**: 1 plan
 Plans:
 
-- [ ] 47-01-PLAN.md — durable upload_text mirror at ingest (RESUME-12) + uploaded_files provider durable fallback (RESUME-13)
+- [x] 47-01-PLAN.md — durable upload_text mirror at ingest (RESUME-12) + uploaded_files provider durable fallback (RESUME-13)
 
 ### Phase 48: Task Identity & Mutable-List Reconciliation [R3]
 
@@ -1320,7 +1320,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 45. Resume Completeness Bug Fix [R0] | 1/1 | Complete   | 2026-07-18 |
 | 46. Per-Task Substrate, Cursor & Live Layer [R1] | 5/5 | Complete   | 2026-07-19 |
-| 47. Uploads Durability [R2] | 0/? | Not started | — |
+| 47. Uploads Durability [R2] | 1/1 | Complete   | 2026-07-19 |
 | 48. Task Identity & Mutable List [R3] | 0/? | Not started | — |
 | 49. Gate Resume Across Restart [R4] | 0/? | Not started | — |
 | 50. User Resume-From-Failed [R5] | 0/? | Not started | — |
