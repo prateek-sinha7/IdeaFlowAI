@@ -1313,15 +1313,15 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 49-01-PLAN.md — Shared open-gate pendency (A3) + IN-02 store accessor + branch-(a) fail→re-arm classification (A1) + KAN-88 flip
+- [x] 49-01-PLAN.md — Shared open-gate pendency (A3) + IN-02 store accessor + branch-(a) fail→re-arm classification (A1) + KAN-88 flip
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 49-02-PLAN.md — Review-gate re-entry AT the gate phase: offset override + gate_reentry sentinel + all five actions + redo/update_specs continuation (A2)
+- [x] 49-02-PLAN.md — Review-gate re-entry AT the gate phase: offset override + gate_reentry sentinel + all five actions + redo/update_specs continuation (A2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 49-03-PLAN.md — Clarify twin replay driver (A5) + dormancy sweep + full at-risk regression battery
+- [x] 49-03-PLAN.md — Clarify twin replay driver (A5) + dormancy sweep + full at-risk regression battery
 
 ### Phase 50: User Resume-From-Failed — Reopen & Fix [R5]
 
@@ -1346,5 +1346,5 @@ Plans:
 | 46. Per-Task Substrate, Cursor & Live Layer [R1] | 5/5 | Complete   | 2026-07-19 |
 | 47. Uploads Durability [R2] | 1/1 | Complete   | 2026-07-19 |
 | 48. Task Identity & Mutable List [R3] | 3/3 | Complete   | 2026-07-19 |
-| 49. Gate Resume Across Restart [R4] | 0/3 | Planned | — |
+| 49. Gate Resume Across Restart [R4] | 3/3 | Complete   | 2026-07-19 |
 | 50. User Resume-From-Failed [R5] | 0/? | Not started | — |

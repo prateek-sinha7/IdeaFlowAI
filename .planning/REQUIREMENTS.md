@@ -318,7 +318,7 @@ divergences ND-AE..AJ (see `41-UI-SPEC.md` / `assemble-phase41-gallery.mjs`).
 
 ### Gate Survival (Phase 49 [R4])
 
-- [ ] **RESUME-17**: Clarify AND review gates survive a backend restart: restart branch (a) flips fail→re-arm for compiled-manifest runs with durable state (WR-05 stateless/legacy path byte-untouched), rebuilt on the EXISTING seams (`derive_open_gate`/KAN-94 durable pendency + the D-14g `_dangling_review_gate` SSE re-emit — no parallel pending-arm store; `_gate_is_pending` gains a public accessor, closing the IN-02 debt); the review gate RE-ENTERS `_run_agent`'s loop AT its gate phase with the output reconstructed from `artifact_refs`, so ALL five gate actions (approve/reject/edit/redo/update_specs) work identically post-restart; the pre-existing red `test_restart_resume::test_waiting_for_user_run_is_rearmed_not_driven` flips GREEN (the KAN-88 restoration anchor).
+- [x] **RESUME-17**: Clarify AND review gates survive a backend restart: restart branch (a) flips fail→re-arm for compiled-manifest runs with durable state (WR-05 stateless/legacy path byte-untouched), rebuilt on the EXISTING seams (`derive_open_gate`/KAN-94 durable pendency + the D-14g `_dangling_review_gate` SSE re-emit — no parallel pending-arm store; `_gate_is_pending` gains a public accessor, closing the IN-02 debt); the review gate RE-ENTERS `_run_agent`'s loop AT its gate phase with the output reconstructed from `artifact_refs`, so ALL five gate actions (approve/reject/edit/redo/update_specs) work identically post-restart; the pre-existing red `test_restart_resume::test_waiting_for_user_run_is_rearmed_not_driven` flips GREEN (the KAN-88 restoration anchor).
 
 ### Reopen & Fix (Phase 50 [R5])
 
@@ -576,7 +576,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | RESUME-14 | Phase 48 [R3] | Pending |
 | RESUME-15 | Phase 48 [R3] | Pending |
 | RESUME-16 | Phase 48 [R3] | Pending |
-| RESUME-17 | Phase 49 [R4] | Pending |
+| RESUME-17 | Phase 49 [R4] | Complete |
 | RESUME-18 | Phase 50 [R5] | Pending |
 
 **v3.0 counts:** P45=1 · P46=6 · P47=2 · P48=3 · P49=1 · P50=1 (= 14; 100% mapped, each REQ → exactly one phase)

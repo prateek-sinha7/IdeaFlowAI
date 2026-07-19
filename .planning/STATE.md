@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: — Top-Tier Resume & Durable Execution
 status: executing
-last_updated: "2026-07-19T04:01:35.486Z"
-last_activity: 2026-07-19 — Phase 48 [R3] 48-03 complete (goldens 10/10, KAN-88 sole red, lint 4/0)
+last_updated: "2026-07-19T00:00:00.000Z"
+last_activity: 2026-07-19 — Phase 49 [R4] 49-03 complete (clarify twin: durable-questionnaire replay; RESUME-17 closed; restart_resume 39/0, goldens 10/10, lint 4/0)
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
-  percent: 67
+  completed_phases: 5
+  total_plans: 16
+  completed_plans: 16
+  percent: 83
 ---
 
 # Project State
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 ## Current Position
 
-Phase: 48 [R3] COMPLETE (verified 4/4) → next: Phase 49 [R4] planning
-Plan: 48-03 complete (RESUME-16 wave orphan exclusion three-way join + update_specs compose + SC-001 synthetic reconcile proof; commits 81e71732/8501ef54/e4f0ddaa)
+Phase: 49 [R4] COMPLETE (all 3 plans) → next: Phase 50 [R5]
+Plan: 49-03 complete (clarify twin — A5 replay driver: ClarifyEngine.run replay_questions/round + _execute_impl _clarify_replay + _drive_resumed_stream shared loop + _replay_clarify_run; RESUME-17 closed; commit d506c480)
 Status: Executing milestone (full-cycle orchestration, phases 45→50 sequential)
-Last activity: 2026-07-19 — Phase 48 [R3] 48-03 complete (goldens 10/10, KAN-88 sole red, lint 4/0)
+Last activity: 2026-07-19 — Phase 49 [R4] 49-03 complete (restart_resume 39/0, redo 4/3 held, goldens 10/10, banned 11/0, lint 4/0)
 
 ## Performance Metrics
 
