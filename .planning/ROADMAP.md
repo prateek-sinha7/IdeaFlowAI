@@ -1286,15 +1286,15 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 48-01-PLAN.md — Task-identity module (task_key) + upstream-hash single home + positions→keys write-path switch (RESUME-14)
+- [x] 48-01-PLAN.md — Task-identity module (task_key) + upstream-hash single home + positions→keys write-path switch (RESUME-14)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 48-02-PLAN.md — Gate-edit derived_from lineage + cumulative common-prefix reconciler + boundary-version re-materialization (RESUME-15, RESUME-16)
+- [x] 48-02-PLAN.md — Gate-edit derived_from lineage + cumulative common-prefix reconciler + boundary-version re-materialization (RESUME-15, RESUME-16)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 48-03-PLAN.md — Wave per-key + orphan-fragment exclusion + update_specs compose + SC-001 synthetic reconcile proof (RESUME-16)
+- [x] 48-03-PLAN.md — Wave per-key + orphan-fragment exclusion + update_specs compose + SC-001 synthetic reconcile proof (RESUME-16)
 
 ### Phase 49: Gate Resume Across Restart [R4]
 
@@ -1333,6 +1333,6 @@ Plans:
 | 45. Resume Completeness Bug Fix [R0] | 1/1 | Complete   | 2026-07-18 |
 | 46. Per-Task Substrate, Cursor & Live Layer [R1] | 5/5 | Complete   | 2026-07-19 |
 | 47. Uploads Durability [R2] | 1/1 | Complete   | 2026-07-19 |
-| 48. Task Identity & Mutable List [R3] | 0/3 | Planned | — |
+| 48. Task Identity & Mutable List [R3] | 3/3 | Complete   | 2026-07-19 |
 | 49. Gate Resume Across Restart [R4] | 0/? | Not started | — |
 | 50. User Resume-From-Failed [R5] | 0/? | Not started | — |
