@@ -1235,23 +1235,23 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 46-01-PLAN.md — Migration 0026 (task_id/worker_index on subagent_runs) + 3-layer spawn stamping (fanout + wave_scheduler) + reversibility/source-assertion test (RESUME-06) [wave 1]
+- [x] 46-01-PLAN.md — Migration 0026 (task_id/worker_index on subagent_runs) + 3-layer spawn stamping (fanout + wave_scheduler) + reversibility/source-assertion test (RESUME-06) [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 46-02-PLAN.md — Generic per-task capture at the persist_task_html seam (declared→html_file byte-identical, siblings→file_bundle deduped, .uploads/ excluded, event-free; subsumes, INV-12) (RESUME-07) [wave 2]
+- [x] 46-02-PLAN.md — Generic per-task capture at the persist_task_html seam (declared→html_file byte-identical, siblings→file_bundle deduped, .uploads/ excluded, event-free; subsumes, INV-12) (RESUME-07) [wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 46-03-PLAN.md — Durable→disk re-materialization (_rematerialize_artifacts_to_disk @ engine.py:1350) + mid-wave merge re-entry (reuse run_fanout→_merge_fragments) (RESUME-08) [wave 3]
+- [x] 46-03-PLAN.md — Durable→disk re-materialization (_rematerialize_artifacts_to_disk @ engine.py:1350) + mid-wave merge re-entry (reuse run_fanout→_merge_fragments) (RESUME-08) [wave 3]
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 46-04-PLAN.md — Kernel skip cursor (dormant resume_completed_task_ids ectx field) — task_loop per-task skip + wave_scheduler per-worker skip (identity-based; CR-03 satisfied) (RESUME-09) [wave 4]
+- [x] 46-04-PLAN.md — Kernel skip cursor (dormant resume_completed_task_ids ectx field) — task_loop per-task skip + wave_scheduler per-worker skip (identity-based; CR-03 satisfied) (RESUME-09) [wave 4]
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 46-05-PLAN.md — Live-layer re-registration on resume (fix resume_run _execute_impl bypass: milestone_sink + live_ectx_register/unregister + DEF-43-03-1 card seq) + steering re-drain (RESUME-10, RESUME-11) [wave 5]
+- [x] 46-05-PLAN.md — Live-layer re-registration on resume (fix resume_run _execute_impl bypass: milestone_sink + live_ectx_register/unregister + DEF-43-03-1 card seq) + steering re-drain (RESUME-10, RESUME-11) [wave 5]
 
 ### Phase 47: Uploads Durability [R2]
 
@@ -1316,7 +1316,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 45. Resume Completeness Bug Fix [R0] | 1/1 | Complete   | 2026-07-18 |
-| 46. Per-Task Substrate, Cursor & Live Layer [R1] | 0/? | Not started | — |
+| 46. Per-Task Substrate, Cursor & Live Layer [R1] | 5/5 | Complete   | 2026-07-19 |
 | 47. Uploads Durability [R2] | 0/? | Not started | — |
 | 48. Task Identity & Mutable List [R3] | 0/? | Not started | — |
 | 49. Gate Resume Across Restart [R4] | 0/? | Not started | — |
