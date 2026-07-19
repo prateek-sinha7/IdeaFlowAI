@@ -2977,3 +2977,196 @@ async def test_clarify_run_without_replay_generates_normally():
     assert not any(e.get("type") == "questionnaire_ready" for e in sent), (
         "no questions ⇒ no questionnaire_ready emitted (dormant replay branch)"
     )
+
+
+# ===========================================================================
+# RESUME-18 (Phase 50) — user resume-from-failed E2E: the endpoint's thin
+# ``_drive_user_resume`` wrapper over the SHIPPED resume tier. These cases drive
+# ``run_commands._drive_user_resume(run_id, user=...)`` DIRECTLY (avoiding the
+# TestClient background-task timing race the pattern map flags) over the SAME
+# durable-seed harness — no new harness, no production code touched here (Task 2
+# is the integration proof over Task 1's surface).
+# ===========================================================================
+
+
+class _ResumeUser:
+    """A minimal owner principal for ``_drive_user_resume(run_id, *, user=...)`` — the
+    wrapper does not read ``user`` (drive is keyed on run_id inside ``resume_run``); it is
+    threaded only for parity with the endpoint's ``current_user``."""
+
+    def __init__(self, id: str):
+        self.id = id
+        self.preferred_model = None
+
+
+def _wire_user_resume_drive(monkeypatch, db_engine, engine_instance):
+    """Point ``run_commands`` / ``run_engine`` ``_get_db`` + the engine singleton at the
+    harness's shared in-memory DB + the harnessed engine, so ``_drive_user_resume`` (and its
+    reconcile / flip-back) resolve against the SAME durable rows ``resume_run`` reads. Called
+    INSIDE the ``_ResumeHarness`` ``with`` block (which also patches ``SessionLocal`` — the
+    seam ``resume_run`` / ScopedStore / ``_recover_workspace_id`` use)."""
+    import app.api.run_engine as _re_mod
+    import app.api.run_commands as _rc_mod
+    import agents.execution_engine.engine as _eng_mod
+
+    shared = sessionmaker(
+        bind=db_engine, autocommit=False, autoflush=False, expire_on_commit=False
+    )
+    monkeypatch.setattr(_re_mod, "_get_db", lambda: shared())
+    monkeypatch.setattr(_rc_mod, "_get_db", lambda: shared())
+    monkeypatch.setattr(_eng_mod, "get_execution_engine", lambda: engine_instance)
+    return _rc_mod
+
+
+@pytest.mark.asyncio
+async def test_failed_run_resumes_skips_completed_tasks(monkeypatch):
+    """A run failed MID-BUILD (wave 0 durably complete, wave 1 never finished) → user
+    resume via ``_drive_user_resume`` SKIPS the completed wave-0 workers (cursor evidence),
+    COMPLETES the deliverable, RECONCILES the terminal status to ``completed``, and keeps
+    the SAME run id with NO new ``WorkflowRun`` row (family coherence; Pitfall 5)."""
+    session, db_engine = _make_session()
+    run_id = f"ur-{uuid.uuid4().hex[:8]}"
+    owner = "ur-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    call_log: dict[str, int] = {}
+
+    # ── Instance A: interrupted mid-wave — wave 0 completes, wave 1 crashes on entry ──
+    with _ResumeHarness(
+        session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=2
+    ) as h:
+        engine_a = h.make_engine()
+        try:
+            async for _ev in engine_a._execute_impl(
+                agents=list(h.specs),
+                user_message="Run the wave workflow.",
+                pipeline_run_id=run_id,
+                pipeline_type=_FIXTURE_ID,
+                user_id=owner,
+                gate_agent_ids=[],
+            ):
+                pass
+        except Exception:
+            pass
+
+    a_calls_a = call_log.get("a", 0)
+    a_calls_b = call_log.get("b", 0)
+    assert a_calls_a >= 1 and a_calls_b >= 1, (
+        f"wave-0 workers must have run on instance A before the crash: {call_log}"
+    )
+
+    # The interrupt landed the run TERMINAL-FAILED (the Phase-50 premise: a user resumes
+    # a run that reached the ``failed`` terminal, not a still-non-terminal restart).
+    from app.models.workflow import WorkflowRun
+
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    row.status = "failed"
+    session.commit()
+    runs_before = session.query(WorkflowRun).count()
+
+    # ── Instance B: user resume through the endpoint's thin wrapper (NOT resume_run
+    # directly, NOT a hand-copied launch ladder) over the SAME durable DB ─────────────
+    with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+        await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+
+    # (a) cursor evidence — the completed wave-0 workers were NOT re-invoked on resume.
+    assert call_log.get("a", 0) == a_calls_a, f"part_a re-invoked on resume: {call_log}"
+    assert call_log.get("b", 0) == a_calls_b, f"part_b re-invoked on resume: {call_log}"
+    # wave-1 workers ran on resume (the incomplete wave was re-entered).
+    assert call_log.get("c", 0) >= 1 and call_log.get("d", 0) >= 1, (
+        f"wave-1 workers did not run on resume: {call_log}"
+    )
+
+    # (b) the deliverable completes — all four files exist on the recovered sandbox.
+    from app.agents.sandbox import RunSandbox
+
+    root = RunSandbox(owner, run_id).root
+    produced = {
+        p.name for p in root.rglob("*.txt")
+        if _PART_RE.fullmatch(p.name) and ".worktrees" not in p.parts
+    }
+    assert produced == {"part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"}, (
+        f"user resume did not complete every wave file: {sorted(produced)}"
+    )
+
+    # (c) terminal status reconciled from the durable tail to ``completed``.
+    session.expire_all()
+    row2 = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row2.status == "completed", (
+        f"user resume must reconcile the terminal status to completed: {row2.status!r}"
+    )
+
+    # (d) family coherence — SAME run id, parent link untouched, NO new WorkflowRun row.
+    assert row2.parent_run_id is None
+    assert session.query(WorkflowRun).count() == runs_before, (
+        "user resume must NOT mint a new WorkflowRun row (Pitfall 5)"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_run_with_open_gate_resumes_into_gate(monkeypatch):
+    """A ``failed`` run carrying a durable OPEN review gate resumes INTO the gate — the 49
+    classifier (``_first_incomplete_step`` open-gate override → ``gate_reentry`` sentinel →
+    consumer) re-enters ``_run_review_gate`` for the gated agent with ZERO endpoint
+    special-casing, rather than running the gated agent's model or completing past it."""
+    session, db_engine = _make_session()
+    run_id = f"ug-{uuid.uuid4().hex[:8]}"
+    owner = "ug-user"
+    ws = "ws-ug"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="failed", workspace_id=ws
+    )
+    gate_key = f"{run_id}:sample-wave-plan"
+    await _seed_open_review_gate(session, run_id, owner, ws, gate_key)
+
+    from app.models.workflow import WorkflowRun
+
+    runs_before = session.query(WorkflowRun).count()
+
+    gate_spy: dict = {"agent_ids": []}
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+
+        # The gated agent must be a genuinely-gated agent for the reentry consumer's
+        # ``_should_gate`` fence (Phase-49 config, not Phase-50 scope). Mark the plan spec
+        # statically gated — exactly as a real gated agent (e.g. prototype-specify) carries
+        # ``gate: Human_Gate`` — so the durable open gate re-enters via the REAL gate seam.
+        for _spec in h.specs:
+            if getattr(_spec, "id", None) == "sample-wave-plan":
+                _spec.gate = "Human_Gate"
+
+        # Spy the gate seam: record which agent re-entered the gate, then REJECT so the run
+        # stops AT the gate (the deterministic offline stand-in for "parks awaiting the
+        # human" — it must NOT complete the deliverable past the gate).
+        async def _spy_gate(*, pipeline_run_id, agent_id, agent_name, output, redoable,
+                            update_specs_eligible, artifact_kind, cancel_event, **kw):
+            gate_spy["agent_ids"].append(agent_id)
+            yield {"type": "review_gate_ready",
+                   "data": {"gate_key": f"{pipeline_run_id}:{agent_id}"}}
+            yield {"type": "_gate_rejected"}
+
+        engine_b._run_review_gate = _spy_gate  # type: ignore[assignment]
+
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+        await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+
+    # The resume RE-ENTERED the gate for the gated agent (49 classifier composed) — the
+    # gated agent's model was skipped (gate-reentry mode reconstructs output; never a
+    # ``create_runner`` for that step) and the wave never ran.
+    assert gate_spy["agent_ids"] == ["sample-wave-plan"], (
+        f"resume must re-enter the gate for the gated agent: {gate_spy}"
+    )
+
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    # Rejected AT the gate → cancelled; the run did NOT complete past the gate.
+    assert row.status == "cancelled", (
+        f"a run parked/stopped at the re-entered gate must not complete past it: {row.status!r}"
+    )
+    # Family coherence — no new WorkflowRun row minted by the resume.
+    assert session.query(WorkflowRun).count() == runs_before
+    session.close()
