@@ -47,7 +47,7 @@ Fan-out is a change to the workflow's **SHAPE**, not an attribute of an agent: a
 
 ### D6 — Frontend controls (scope §4)
 - `StepSelection` (`AgentsPopup.tsx:1419-1425`) gains `strategy?: "fanout_batch"`, `task_source?`, `fanout?`. `applyLeverPatch` (`:1452-1475`) is generic — no reducer change (toggling ON writes `{strategy, task_source}`; OFF clears them).
-- **Canvas rail** (`CanvasConfigRail.tsx`): add a "Fan out over a list" `Toggle` (reuse `:82-112`) + a follow-up "Source list from" `<select>`. Thread `priorAgents={pipelineAgents.slice(0, selectedIndex)}` from `CanvasView.tsx:270` (owner of `pipelineAgents` at `:43`). Disable the toggle for the first agent.
+- **Canvas rail** (`CanvasConfigRail.tsx`): add a "Fan out over a list" `Toggle` (reuse `:82-112`) + a follow-up "Source list from" `<select>`. Thread `priorAgents={pipelineAgents.slice(0, selIndex)}` from `CanvasView.tsx:270` (owner of `pipelineAgents` at `:43`; the selected-index local is `selIndex` at `:85`, NOT `selectedIndex`). Disable the toggle for the first agent.
 - **Simple-view Advanced expander** (`AgentsPopup.tsx` `AdvancedExpander` :1547): same toggle + source picker per agent row via `updateLever`; source options = `agents.slice(0, idx)`.
 - **Parser default = `heading_tasks`** (matches `fanout_batch.py:32`); do NOT expose `json_tasks` in v1.
 - **Merge = engine-default; NO merge picker** (INV-7 — engine picks merge by isolation scope, `fanout.py:785-793`; leave `merge_agent` unset → `on_conflict: human_gate`).
@@ -94,7 +94,7 @@ The verified 63-agent composer pool (`allowed_custom_agent_ids("custom")`) DOES 
 - `backend/agents/workflows/plan.py` — `TaskSource` (`:162-184`), `FanoutSpec` (`:196-216`), `Step`.
 
 ### Backend — schema / compile / runtime (mostly read-only; the only backend edit here is the D9 guard)
-- `backend/agents/execution_engine/compiler.py` — `_ALLOWED_STEP_KEYS` (`:68-88`), `_ALLOWED_TASK_SOURCE_KEYS` (`:95-97`), `task_source` compile (`:436-457`), `fanout` compile (`:539/593`), trust check (`:480-499`), default hooks (`:406`). The D9 `source_step`-upstream guard lands here.
+- `backend/agents/workflows/compiler.py` — `_ALLOWED_STEP_KEYS` (`:68-88`), `_ALLOWED_TASK_SOURCE_KEYS` (`:95-97`), `task_source` compile (`:436-457`), `fanout` compile (`:539/593`), trust check (`:480-499`), default hooks (`:406`). The D9 `source_step`-upstream guard lands here. **(PATH CORRECTED 2026-07-20 vs. scope — the engine imports `from agents.workflows.compiler import WorkflowCompiler`; there is NO `execution_engine/compiler.py`.)**
 - `backend/agents/capabilities/strategies/fanout_batch.py` — parser default (`:32`), `user_allowed` (`:38`), reads `task_source.source_step`/`parser` (`:75-85`), degrade path (`:96-109`).
 - `backend/agents/capabilities/task_parsers/heading_tasks.py` — whole-output `## Task N:` scan (`:39`), block slicing (`:66-68`), `user_allowed` (`:92`).
 - `backend/agents/execution_engine/fanout.py` — `run_fanout`, merge selection by isolation (`:785-793`), concurrency cap (`:170-179`).
@@ -106,8 +106,8 @@ The verified 63-agent composer pool (`allowed_custom_agent_ids("custom")`) DOES 
 
 ### Frontend
 - `frontend/src/components/workflow/AgentsPopup.tsx` — `StepSelection` (`:1419-1425`), `applyLeverPatch` (`:1452-1475`), `AdvancedExpander` (`:1547`, rows `:1621`, `updateLever` `:1578/:1666`).
-- `frontend/src/components/composer/CanvasConfigRail.tsx` — props (`:36-49`), `Toggle` (`:82-112`), existing lever `patch(...)` (`:141/173/193/212`).
-- `frontend/src/components/composer/CanvasView.tsx` — `pipelineAgents` (`:43`), rail render (`:270`).
+- `frontend/src/components/workflow/composer/CanvasConfigRail.tsx` — props (`:36-49`), `Toggle` (`:82-112`), existing lever `patch(...)` (`:141/173/193/212`).
+- `frontend/src/components/workflow/composer/CanvasView.tsx` — `pipelineAgents` (`:43`), rail render (`:270`).
 
 ### Tests to mirror / extend
 - `backend/tests/agents/test_sc001_fanout.py` — mirror for the offline composed-fan-out characterization.
