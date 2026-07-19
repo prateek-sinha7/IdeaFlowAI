@@ -2097,6 +2097,14 @@ class ExecutionEngine:
                     "work in full (no per-task/worker skip)", _cur_exc
                 )
                 ectx.resume_completed_task_ids = None
+            # ── RESUME-11 steering re-drain ─────────────────────────────────────────
+            # Re-derive the steering notes the pre-crash run had NOT yet consumed from
+            # the durable chat_message rows (seq > max agent_input.seq) and re-queue them
+            # onto ectx.steering_notes so the FIRST re-dispatch renders them (no-loss); a
+            # drained note (seq < last_input_seq) is skipped (no-duplicate). Best-effort +
+            # owner-scoped (self-contained degrade). Gated on _is_resume ⇒ dormant on a
+            # normal run (steering_notes stays empty → INV-3 byte-parity).
+            await self._redrain_steering_notes(ectx)
 
         # ── F3 (13-06): failed-agent tracking — pure OBSERVATION ────────────────
         # Record the agent_id of every ``agent_error`` event flowing through the
@@ -6262,6 +6270,72 @@ class ExecutionEngine:
             except Exception:  # noqa: BLE001 — any ambiguity ⇒ leave the step out (re-run)
                 completed.pop(agent_id, None)
         return completed
+
+    async def _redrain_steering_notes(self, ectx: ExecutionContext) -> None:
+        """RESUME-11: re-queue durably-logged-but-undrained steering onto the resumed ectx.
+
+        A mid-run chat steering note reaches a RUNNING run's ectx.steering_notes only via
+        the process-local ``_LIVE_ECTX`` registry (``apply_steering``); a backend restart
+        drops that in-memory queue. But every chat turn was ALSO persisted as a durable
+        ``chat_message`` ``run_events`` row (``_persist_chat_message``, carrying ``text``).
+        On resume this re-derives the notes the pre-crash run had NOT yet consumed and
+        re-queues them so the FIRST re-dispatch renders them (=== USER GUIDANCE ===).
+
+        Drained-vs-undrained heuristic (the seq compare, ND-9): a dispatched agent turn
+        persists a seq'd ``agent_input`` event, so ``last_input_seq = max(seq of
+        agent_input rows)`` marks the last point guidance was consumed. A ``chat_message``
+        row is UNDRAINED iff its ``seq > last_input_seq`` (no dispatch ran after it
+        arrived) AND it carries non-empty ``text`` → re-queued as ``{"text": ...,
+        "sticky": False}`` (the ``apply_steering`` append shape). This is NO-LOSS
+        (undrained notes survive the restart) AND NO-DUPLICATE (a drained note has
+        ``seq < last_input_seq`` → skipped; the engine's own consume-once drain then drops
+        each re-queued note after one render).
+
+        CLASSIFICATION BOUND (honest — the durable row lacks the routed channel + sticky):
+        ``_persist_chat_message`` records ``text`` but NOT the channel or ``sticky`` (the
+        route is derived POST-persist), so a ``chat_message`` row cannot be DEFINITIVELY
+        distinguished as steering vs a clarify-answer / gate-action from the row alone.
+        This is acceptable for THIS scope because auto-resume (restore_non_terminal_runs
+        branch b) only fires for IN-FLIGHT running runs — a ``waiting_for_user`` run takes
+        branch (a) (Phase 49), and during a running phase plain-text turns route to
+        steering anyway (chat_router.py: PHASE_RUNNING + plain text → CHANNEL_STEERING),
+        with no gate-action mid-dispatch. So "text present + seq > last_input_seq" ≈ an
+        undrained steering note here. A DRAINED *sticky* note (uploaded-context, which
+        re-renders every dispatch by design) has ``seq < last_input_seq`` so this won't
+        re-queue it → sticky-on-resume loss is Phase-47 territory (uploads durability),
+        NOT fixed here; re-queued notes are one-shot (``sticky=False``), correct for the
+        undrained one-shot notes this targets.
+
+        Best-effort + owner-scoped: reads the run's OWN ``ectx.scoped_store`` (default-deny
+        — a cross-owner row can never appear); no store / a read failure ⇒ return (leave
+        ``steering_notes`` untouched). Dormant on a normal run (called only in the resume
+        tier when ``_is_resume``) ⇒ byte/event-identical (INV-3).
+        """
+        store = getattr(ectx, "scoped_store", None)
+        if store is None:
+            return
+        try:
+            rows = await store.read_events(ectx.run_id, 0)
+        except Exception:  # noqa: BLE001 — offline / schema-less → nothing to re-derive
+            return
+        last_input_seq = max(
+            (
+                int(getattr(r, "seq", 0) or 0)
+                for r in (rows or [])
+                if getattr(r, "type", None) == "agent_input"
+            ),
+            default=0,
+        )
+        for r in rows or []:
+            if getattr(r, "type", None) != "chat_message":
+                continue
+            if int(getattr(r, "seq", 0) or 0) <= last_input_seq:
+                continue  # drained pre-crash (no-duplicate) — the seq-compare skip
+            payload = getattr(r, "payload_json", None) or {}
+            text = payload.get("text") if isinstance(payload, dict) else None
+            if not text:
+                continue
+            ectx.steering_notes.append({"text": text, "sticky": False})
 
     def _fire_resume_cleanup(self, run_id: str) -> None:
         """Invoke the injected bridge cleanup hook (best-effort, idempotent).

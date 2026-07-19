@@ -1636,3 +1636,105 @@ async def test_resumed_run_is_wired_live_ectx_and_milestone_cards():
         f"got {unregister_calls}"
     )
     session.close()
+
+
+# ===========================================================================
+# RESUME-11 — steering re-drain: undrained chat_message notes (seq > max
+# agent_input.seq) re-queue onto ectx.steering_notes at resume (no-loss);
+# a drained note (seq < last_input_seq) is NOT re-queued (no-duplicate).
+# ===========================================================================
+
+
+async def _seed_run_event(store, *, run_id, seq, type_, payload):
+    await store.append_event(
+        run_id, seq=seq, event_id=f"ev-{seq}", type=type_, payload_json=payload
+    )
+
+
+@pytest.mark.asyncio
+async def test_redrain_steering_notes_no_loss():
+    """RESUME-11 no-loss (RED on HEAD): a durably-logged-but-undrained steering note
+    (a ``chat_message`` row whose ``seq > max(agent_input.seq)``) re-queues onto
+    ``ectx.steering_notes`` at resume, in the ``apply_steering`` append shape
+    (``{"text": ..., "sticky": False}``). On HEAD the helper does not exist → RED.
+    """
+    from agents.authz import ScopedStore
+    from agents.execution_engine.context import ExecutionContext
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, db_engine = _make_session()
+    run_id = f"sd-{uuid.uuid4().hex[:8]}"
+    owner = "sd-user"
+    ws = "ws-sd"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+
+    # agent_input rows at seq 1 and 3 → last_input_seq = 3. Two undrained chat_message
+    # rows AFTER it (seq 4, 5) + a drained one BEFORE it (seq 2) + an empty-text row
+    # (seq 6, skipped).
+    await _seed_run_event(store, run_id=run_id, seq=1, type_="agent_input", payload={"x": 1})
+    await _seed_run_event(store, run_id=run_id, seq=2, type_="chat_message",
+                          payload={"text": "drained-note"})
+    await _seed_run_event(store, run_id=run_id, seq=3, type_="agent_input", payload={"x": 2})
+    await _seed_run_event(store, run_id=run_id, seq=4, type_="chat_message",
+                          payload={"text": "undrained-A"})
+    await _seed_run_event(store, run_id=run_id, seq=5, type_="chat_message",
+                          payload={"text": "undrained-B"})
+    await _seed_run_event(store, run_id=run_id, seq=6, type_="chat_message",
+                          payload={"text": ""})
+    session.commit()
+
+    ectx = ExecutionContext(run_id=run_id, owner_id=owner, disk_principal=owner)
+    ectx.workspace_id = ws
+    ectx.scoped_store = store
+
+    engine = ExecutionEngine()
+    await engine._redrain_steering_notes(ectx)
+
+    texts = [n["text"] for n in ectx.steering_notes]
+    assert texts == ["undrained-A", "undrained-B"], (
+        f"no-loss: both undrained notes (seq > last_input_seq) must re-queue in order; "
+        f"got {texts}"
+    )
+    assert all(n.get("sticky") is False for n in ectx.steering_notes), (
+        "re-queued notes are one-shot (sticky False) — the durable row lacks the flag"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_redrain_steering_notes_no_duplicate():
+    """RESUME-11 no-duplicate (RED on HEAD): a chat_message row already DRAINED before the
+    crash (``seq < max(agent_input.seq)``) is NOT re-queued — the seq-compare heuristic
+    skips it. Otherwise a resume would re-inject guidance the run already consumed.
+    """
+    from agents.authz import ScopedStore
+    from agents.execution_engine.context import ExecutionContext
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, db_engine = _make_session()
+    run_id = f"nd-{uuid.uuid4().hex[:8]}"
+    owner = "nd-user"
+    ws = "ws-nd"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+
+    # A steering note at seq 2, then an agent_input at seq 5 CONSUMED it → last_input_seq
+    # = 5. The note (seq 2 < 5) is drained; nothing undrained remains.
+    await _seed_run_event(store, run_id=run_id, seq=2, type_="chat_message",
+                          payload={"text": "already-drained"})
+    await _seed_run_event(store, run_id=run_id, seq=5, type_="agent_input", payload={"x": 1})
+    session.commit()
+
+    ectx = ExecutionContext(run_id=run_id, owner_id=owner, disk_principal=owner)
+    ectx.workspace_id = ws
+    ectx.scoped_store = store
+
+    engine = ExecutionEngine()
+    await engine._redrain_steering_notes(ectx)
+
+    assert ectx.steering_notes == [], (
+        f"no-duplicate: a note drained pre-crash (seq < last_input_seq) must NOT re-queue; "
+        f"got {ectx.steering_notes}"
+    )
+    session.close()
