@@ -236,3 +236,6 @@ Screenshots: `c1-gate-before.png`/`c1-gate-after-restart.png` (pre-fix pixel-ide
 
 ### BUG-R03 FIXED (gsd-quick 260719-hvn, commit `d68b8b75`) — live-proven 2026-07-19
 Shared output-column persistence helper wired into both resume paths (engine hook armed in app/main.py). **Live (run 419eba1d, double-crash resume 2/6→5/6→complete):** output=38204, agent_outputs=302856, token_usage=183, duration=263.9 (all empty pre-fix); chain-context 4322 chars (was 0); summary KPIs present. Goldens 10/10, launch byte-identical 39/39, resume 56/56, lint 4/0. Bonus: R-A7 double-crash resume confirmed (monotonic cursor).
+
+### BUG-R04 FIXED (gsd-quick 260719-iu8, commit `d9a878a5`) — live-proven 2026-07-19
+Identity-keyed guard around `await event.wait()` in ClarifyEngine.run (skip the wait if a submit already landed; `is last_consumed_responses` guards multi-round). Goldens 10/10 byte-identical, clarify+rest_answers 23 green, lint 4/0. **Live (run 986455e3):** skip fired in the pre-questionnaire window (questionnaire_ready=0) → run proceeded to `generating` (was an indefinite stall pre-fix). FE unaffected (Skip gated behind rendered questions).
