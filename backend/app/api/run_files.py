@@ -37,13 +37,19 @@ Additive: no new table, no migration (the sandbox + reserved prefix cover it).
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import logging
 import os
+import sys
 import uuid
 from contextlib import contextmanager
+
+# fcntl is Unix-only — not available on Windows. Use a no-op shim on Windows.
+if sys.platform != "win32":
+    import fcntl
+else:
+    fcntl = None  # type: ignore[assignment]
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 
@@ -373,8 +379,10 @@ def _manifest_lock(sandbox: RunSandbox):
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(fd, fcntl.LOCK_EX)
         yield
     finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
+        if fcntl is not None:
+            fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
