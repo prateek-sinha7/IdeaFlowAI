@@ -215,31 +215,14 @@ estimated_duration: 5.0
 You are a [role]. [System prompt body here...]
 ```
 
-### Step 3 — Add the agent ID to PIPELINE_AGENTS
+### Step 3 — Verify
 
-Open `agents/registry.py` and add the agent ID to the correct pipeline list at the correct
-position:
-
-```python
-PIPELINE_AGENTS: dict[str, list[str]] = {
-    "user_stories": [
-        "domain-analyst",
-        "epic-architect",
-        "story-estimator",
-        "nfr-specialist",
-        "backlog-reviewer",
-        "backlog-compiler",
-        "your-agent-id",   # ← add here at the correct position
-    ],
-    ...
-}
-```
-
-`get_pipeline_agents()` discovers agents by scanning `agents/prompts/` for files whose
-`pipeline_type` matches, then sorts by `order`; `PIPELINE_AGENTS` is the canonical ordered
-membership list the engine drives and the `/api/agents` endpoint reads.
-
-### Step 4 — Verify
+There is no manual registry step (FIX-051 / ISS-035): `PIPELINE_AGENTS` in `agents/registry.py`
+is computed at import time by scanning `agents/prompts/` for every `AGENT.md` whose
+`pipeline_type` matches, ordered by `order` — the same scan `get_pipeline_agents()` already used.
+Your new `AGENT.md` is automatically discovered everywhere `PIPELINE_AGENTS` is consumed
+(pipeline execution, the agent-library flat listing, the custom-workflow allow-list) — nothing
+else to edit.
 
 ```bash
 cd backend
@@ -323,36 +306,26 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset({
 Follow [Adding an Agent](#adding-an-agent). Set `pipeline_type` to your new type string and
 assign sequential `order` values starting at 1.
 
-### Step 3 — Add the pipeline entry to PIPELINE_AGENTS
+### Step 3 — (Required) Create the workflow manifest
 
-Open `agents/registry.py`:
-
-```python
-PIPELINE_AGENTS: dict[str, list[str]] = {
-    ...
-    "your_new_pipeline": [
-        "first-agent-id",
-        "second-agent-id",
-        "third-agent-id",
-    ],
-}
-```
-
-### Step 4 — (Required) Create the workflow manifest
-
-Create `agents/workflows/<your_new_pipeline>/workflow.yaml`. This manifest is **not optional**:
-at run entry `compile_for_run(pipeline_type)` resolves the id and calls
+`PIPELINE_AGENTS["your_new_pipeline"]` is populated automatically (FIX-051 / ISS-035) — no
+registry.py edit — as soon as Step 2's `AGENT.md` files exist. But a pipeline_type is only a
+**launchable workflow** once it also has a manifest: create
+`agents/workflows/<your_new_pipeline>/workflow.yaml`. This is **not optional**: at run entry
+`compile_for_run(pipeline_type)` resolves the id and calls
 `load_manifest(agents/workflows/<id>/workflow.yaml)` — **without this file it raises
-`FileNotFoundError`** and the run never starts. The manifest declares the per-step `steps`
-(each step's `agent_id` + its capabilities), the `deliverable`, the `clarify` config, and the
-`planner` flag.
+`FileNotFoundError`** and the run never starts; and `GET /api/workflows` only lists ids that have
+both a `SUPPORTED_PIPELINE_TYPES` entry (Step 1) and a manifest (this step) — see
+`app/api/workflows.py::_discover_manifest_ids`. The manifest declares the per-step `steps` (each
+step's `agent_id` + its capabilities), the `deliverable`, the `clarify` config, and the `planner`
+flag.
 
 The manifest's step `agent_id`s must **match the `PIPELINE_AGENTS` membership and order** for
 this pipeline, or the engine aborts at run entry with `RuntimeError` (the membership assertion
 in `engine.py`). Copy an existing `agents/workflows/<id>/workflow.yaml` (e.g.
 `agents/workflows/prototype/workflow.yaml`) as the template rather than hand-writing the keys.
 
-### Step 5 — (Optional) Add a REVISION_BASE_MAP entry
+### Step 4 — (Optional) Add a REVISION_BASE_MAP entry
 
 If this pipeline has a corresponding revision pipeline:
 

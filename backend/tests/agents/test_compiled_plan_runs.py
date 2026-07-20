@@ -12,21 +12,37 @@ assert:
     order (``compile_for_run(...).steps``) — proving the compiled-plan path
     executed and no legacy dispatch fallback reordered/replaced the sequence.
 
-The 13 dispatchable ids = the 15 PIPELINE_AGENTS keys minus ``chat`` (ChatRunner-
-driven, never engine-dispatched) and ``reverse_engineer`` (empty-plan stub). Plus
-the ``od_prototype`` alias, which must run the ``prototype`` plan (D-04).
+The 13 dispatchable ids = the 15 manifest-backed pipelines minus ``chat``
+(ChatRunner-driven, never engine-dispatched) and ``reverse_engineer``
+(empty-plan stub). Plus the ``od_prototype`` alias, which must run the
+``prototype`` plan (D-04).
+
+FIX-051 / ISS-035: scoped to manifest-backed pipelines (not raw
+``PIPELINE_AGENTS`` keys) — ``PIPELINE_AGENTS`` is now derived from a folder
+scan and can contain a pipeline_type with real agents but no manifest yet
+(e.g. ``spec_kit``), which cannot be dispatched/compiled.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agents.execution_engine.engine import compile_for_run, resolve_alias
-from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
+from agents.loader import SUPPORTED_PIPELINE_TYPES
+from agents.registry import get_pipeline_agents
 from tests.agents._scripted_model import _drive
 
+_MANIFEST_BASE = Path(__file__).resolve().parents[2] / "agents" / "workflows"
+_MANIFEST_BACKED_IDS = {
+    pt
+    for pt in SUPPORTED_PIPELINE_TYPES
+    if (_MANIFEST_BASE / pt / "workflow.yaml").exists()
+}
+
 # 13 engine-dispatchable + the od_prototype alias = 14 parametrized ids.
-_DISPATCHABLE = sorted(set(PIPELINE_AGENTS) - {"chat", "reverse_engineer"})
+_DISPATCHABLE = sorted(_MANIFEST_BACKED_IDS - {"chat", "reverse_engineer"})
 _PARAMS = _DISPATCHABLE + ["od_prototype"]
 
 

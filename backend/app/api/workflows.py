@@ -22,10 +22,10 @@ Security:
   * JWT-only (``Depends(get_current_user)``) — same posture as every other
     read endpoint.
   * Path traversal (T-04-13 / ASVS V5): ``{id}`` is resolved against the
-    in-memory KNOWN manifest-id set (the ``PIPELINE_AGENTS`` keys); an unknown
-    id raises 404. The router NEVER opens a filesystem path built from an
-    unvalidated id — ``compile_for_run`` itself resolves a closed id-alias
-    set before touching the filesystem.
+    in-memory KNOWN manifest-id set (every id under ``agents/workflows/``
+    that has a ``workflow.yaml``); an unknown id raises 404. The router NEVER
+    opens a filesystem path built from an unvalidated id — ``compile_for_run``
+    itself resolves a closed id-alias set before touching the filesystem.
 """
 
 from typing import Optional
@@ -34,7 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from agents.execution_engine.engine import _WORKFLOWS_DIR, compile_for_run
-from agents.loader import load_agent_spec
+from agents.loader import SUPPORTED_PIPELINE_TYPES, load_agent_spec
 from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
 from agents.workflows.manifest import load_manifest
 from app.core.dependencies import get_current_user
@@ -45,11 +45,34 @@ router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
 # ---------------------------------------------------------------------------
 # Known manifest-id set (closed allow-list) — the resolution target for {id}.
-# Sourced from the single source of truth (PIPELINE_AGENTS keys); never a
-# filesystem scan, so a user-supplied id can never reach a filesystem read.
 # ---------------------------------------------------------------------------
+#
+# FIX-051 / ISS-035: a "workflow" is defined by having an AUTHORED MANIFEST
+# (agents/workflows/<id>/workflow.yaml) for a REAL pipeline type — the exact
+# precondition compile_for_run() requires to succeed — not by PIPELINE_AGENTS
+# having a key for it. PIPELINE_AGENTS is now itself derived from a folder
+# scan (see agents/registry.py) and can contain a pipeline_type with real
+# agents but no manifest yet (e.g. spec_kit): that's an in-progress pipeline,
+# not a launchable workflow, and must not be exposed as one here. The
+# SUPPORTED_PIPELINE_TYPES guard also keeps out non-pipeline manifest dirs
+# under agents/workflows/ (e.g. the sample_* test fixtures used only by
+# tests/agents/test_sample_*_workflow.py — ISS-015's documented invariant
+# that they carry no product launch surface). This set is computed once from
+# the filesystem at import time, still never from a user-supplied id, so a
+# user-supplied id can never reach a filesystem read.
 
-_KNOWN_WORKFLOW_IDS: frozenset[str] = frozenset(PIPELINE_AGENTS.keys())
+
+def _discover_manifest_ids() -> frozenset[str]:
+    return frozenset(
+        p.name
+        for p in _WORKFLOWS_DIR.iterdir()
+        if p.is_dir()
+        and p.name in SUPPORTED_PIPELINE_TYPES
+        and (p / "workflow.yaml").exists()
+    )
+
+
+_KNOWN_WORKFLOW_IDS: frozenset[str] = _discover_manifest_ids()
 
 
 # --- Response Schemas ---
@@ -174,21 +197,21 @@ def list_workflows(
 ):
     """List every authored workflow with manifest-derived metadata (API-01).
 
-    One entry per ``PIPELINE_AGENTS`` id (id, name, description, step summary).
-    The step summary derives from the COMPILED plan (the same source the detail
-    endpoint uses) so the count/steps match the manifest even when
-    ``get_pipeline_agents`` is empty — e.g. ``ppt``, whose agents declare
-    ``pipeline_type: od_ppt`` (WR-01). AGENT.md names/gates come from
-    ``_spec_by_id`` (with the same membership fallback), falling back to the
-    agent id when no spec is available. Reads only the compiled manifests +
-    registry — no DB query.
+    One entry per authored manifest id (id, name, description, step summary) —
+    see ``_KNOWN_WORKFLOW_IDS`` (FIX-051). The step summary derives from the
+    COMPILED plan (the same source the detail endpoint uses) so the
+    count/steps match the manifest even when ``get_pipeline_agents`` is empty
+    — e.g. ``ppt``, whose agents declare ``pipeline_type: od_ppt`` (WR-01).
+    AGENT.md names/gates come from ``_spec_by_id`` (with the same membership
+    fallback), falling back to the agent id when no spec is available. Reads
+    only the compiled manifests + registry — no DB query.
     """
     out: list[WorkflowSummary] = []
-    for workflow_id in PIPELINE_AGENTS:
+    for workflow_id in sorted(_KNOWN_WORKFLOW_IDS):
         compiled = compile_for_run(workflow_id)
         spec_by_id = _spec_by_id(workflow_id)
         # Additive manifest read for the declared catalog metadata (Plan 20-01).
-        # list_workflows iterates real PIPELINE_AGENTS keys (never aliases), so we
+        # list_workflows iterates the real manifest ids (never aliases), so we
         # load by the real id directly. A single bad manifest must NOT break the
         # listing — degrade to defaults (mirrors the _spec_by_id try/except posture).
         try:
