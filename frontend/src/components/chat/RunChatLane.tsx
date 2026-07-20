@@ -12,8 +12,11 @@
  *   2. projects narrator `chat_reply` cards (via ChatPanel → MessageBubble →
  *      ResultCard) that deep-link into run tabs through the nonce'd seam (borrow #6);
  *   3. renders a UNIFIED composer that ABSORBS the AgentProgressPanel controls —
- *      a Stop button (while running), the revise-as-chat textarea, and the
- *      "Suggested next steps" chain rendered as quick-reply CHIPS;
+ *      a Stop button (while running), the revise-as-chat textarea, and — on a
+ *      COMPLETED run — the chain-suggestion "Chain into" quick-reply CHIPS
+ *      rendered ABOVE the input from the `suggestions`/`onSuggestion` props
+ *      (c72 — restored above the chat per the user's request, overriding the
+ *      Phase-39 mock that had removed them);
  *   4. switches COMPOSER MODE per the D-12 live-state (LIVE-STATE-CONTRACT §1):
  *      clarify/gate → a plain phase-hint FreeTextComposer (Group C — the Steps
  *      panel is the sole answer surface after 42-02; the lane keeps only the
@@ -693,6 +696,11 @@ function RunAttachmentChips({ attachments }: { attachments: ChatAttachment[] }) 
   );
 }
 
+// c72 — the chat textarea auto-grows with content up to this capped max height
+// (~6 rows), then overflow-scrolls. A named const so the JS cap and the Tailwind
+// `max-h-[132px]` scroll safety stay in lockstep.
+const COMPOSER_MAX_HEIGHT_PX = 132;
+
 /** Free-text composer: the mock's white rounded input bar (attach · voice ·
  *  send) + the plan-06 attachment tray as compact chips above (Phase 39). */
 function FreeTextComposer({
@@ -709,6 +717,19 @@ function FreeTextComposer({
   const [attachKey, setAttachKey] = useState(0);
   const pendingRef = useRef<PendingAttachment[]>([]);
   const attachOpenRef = useRef<(() => void) | null>(null);
+  // c72 — the textarea element, driven imperatively for the auto-grow (no value
+  // effect, so the send-reset stays deterministic + jsdom-testable).
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Grow the textarea to its content height, clamped to the cap; past the cap it
+  // scrolls (max-h + overflow-y-auto). Reset height to "auto" first so the box can
+  // SHRINK when text is removed, then measure scrollHeight.
+  const autoGrow = useCallback(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT_PX) + "px";
+  }, []);
 
   const handleSend = useCallback(() => {
     const text = value.trim();
@@ -717,6 +738,8 @@ function FreeTextComposer({
     setValue("");
     pendingRef.current = [];
     setAttachKey((k) => k + 1);
+    // c72 — collapse the grown box back to a single row after send.
+    if (taRef.current) taRef.current.style.height = "auto";
   }, [value, onSend]);
 
   return (
@@ -732,8 +755,12 @@ function FreeTextComposer({
       />
       <div className="flex items-center gap-[5px] rounded-[var(--radius-menu)] border border-line-control bg-surface-white py-[7px] pl-[13px] pr-[7px]">
         <textarea
+          ref={taRef}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            setValue(e.target.value);
+            autoGrow();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -743,7 +770,7 @@ function FreeTextComposer({
           rows={1}
           placeholder={placeholder}
           aria-label="Chat message input"
-          className="flex-1 resize-none border-none bg-transparent font-serif text-[13px] leading-[1.3] text-ink-900 placeholder-ink-200 focus:outline-none"
+          className="max-h-[132px] flex-1 resize-none overflow-y-auto border-none bg-transparent font-serif text-[13px] leading-[1.3] text-ink-900 placeholder-ink-200 focus:outline-none"
         />
         <button
           type="button"
@@ -939,7 +966,19 @@ export function RunChatLane({
           // in flight; the transcript-driven effect above clears it when the
           // `chat_reply` renders (sendMessage is not thenable — see replyPending).
           setReplyPending(true);
-          sendMessage(text, attachments, { concierge: true });
+          // c72 — fold the SAME curated chain suggestions the chips show onto the
+          // Concierge ask as GENERIC hints, so an "what can I do next?" turn can
+          // name the chainable next-workflows. Absent suggestions ⇒ NO chain_hints
+          // key (byte-identical to the pre-c72 send, INV-3). GENERIC (SC-001/INV-1)
+          // — plain display labels mapped off the prop, never a workflow-name literal.
+          const chainHints =
+            suggestions && suggestions.length > 0
+              ? suggestions.map((s) => ({ id: s.id, label: s.label }))
+              : undefined;
+          sendMessage(text, attachments, {
+            concierge: true,
+            ...(chainHints ? { chain_hints: chainHints } : {}),
+          });
           return;
         }
         if (onRevise) {
@@ -949,7 +988,7 @@ export function RunChatLane({
       }
       sendMessage(text, attachments);
     },
-    [runState, onRevise, sendMessage],
+    [runState, onRevise, sendMessage, suggestions],
   );
 
   // Confirm the held refinement → launch the revision (the ONLY path that fires
@@ -1063,6 +1102,41 @@ export function RunChatLane({
     );
   };
 
+  // c72 — the settled-run chain-suggestion chips, restored ABOVE the chat input.
+  // The `suggestions`/`onSuggestion` props already reach the lane (DashboardLayout
+  // computes `laneSuggestions` off the static CHAIN_OPTIONS allow-list); Phase 39
+  // deleted only the RENDER for mock fidelity. Rendered ONLY on a COMPLETED run
+  // with suggestions present; each chip is an actionable <button> in the DS Pill
+  // idiom (rounded-[var(--radius-pill)], border-line-control, bg-surface-white)
+  // that fires the existing `onSuggestion(id)` chain action. GENERIC (SC-001/INV-1)
+  // — the chip label + id come straight off the prop, never a workflow-name literal.
+  const renderChainSuggestions = () => {
+    if (runState !== "complete" || !suggestions || suggestions.length === 0) {
+      return null;
+    }
+    return (
+      <div data-testid="chat-chain-suggestions" className="space-y-1.5">
+        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
+          Chain into
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {suggestions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              data-testid="chat-chain-suggestion-chip"
+              data-suggestion-id={s.id}
+              onClick={() => onSuggestion?.(s.id)}
+              className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-2.5 py-1 font-sans text-[11px] font-medium leading-none text-ink-700 transition-colors hover:border-brand hover:text-brand"
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderComposerBody = () => {
     switch (runState) {
       case "clarify":
@@ -1085,11 +1159,11 @@ export function RunChatLane({
       }
 
       case "complete":
-        // Mock fidelity (D39-1): the settled composer is JUST the "Ask for a
-        // change…" input — the "Suggested next steps" chip block has no mock
-        // equivalent and is removed from the run-screen lane. The
-        // suggestions/onSuggestion props are retained on the interface until
-        // 39-05 retires the DashboardLayout wiring (kept here, unrendered).
+        // The settled composer is the "Ask for a change…" input. The chain-
+        // suggestion chips (the "Chain into" quick-replies) are rendered by
+        // `renderChainSuggestions()` in the composer container ABOVE this input
+        // (c72 — restored from the `suggestions`/`onSuggestion` props per the
+        // user's request, overriding the Phase-39 mock that had removed them).
         return (
           <FreeTextComposer
             placeholder="Ask for a change or a follow-up…"
@@ -1458,6 +1532,9 @@ export function RunChatLane({
         {/* Confirm-first refinement chip — a held settled-run change gates its
             *_revision launch behind an explicit confirm (44-02, D-05). */}
         {renderHeldRefinement()}
+        {/* Chain-suggestion chips — on a COMPLETED run, the chainable next-
+            workflows rendered just above the input (c72). */}
+        {renderChainSuggestions()}
         {renderComposerBody()}
       </div>
     </div>

@@ -176,20 +176,101 @@ describe("RunChatLane", () => {
     expect(sendMessage).toHaveBeenCalledWith("add a note", []);
   });
 
-  it("complete mode shows the revision composer and NO suggestion chips (mock fidelity)", () => {
+  it("complete mode renders the chain-suggestion chips above the input and clicks through to onSuggestion (c72)", () => {
+    const onSuggestion = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "complete",
+          suggestions: [{ id: "ppt", label: "Build a deck" }],
+          onSuggestion,
+        })}
+      />,
+    );
+    // The settled composer is still the "Ask for a change…" input …
+    expect(screen.getByTestId("chat-send")).toBeInTheDocument();
+    // … and the chain-suggestion chips are restored above it (c72, user-requested).
+    const chips = screen.getAllByTestId("chat-chain-suggestion-chip");
+    expect(chips).toHaveLength(1);
+    expect(screen.getByTestId("chat-chain-suggestions")).toHaveTextContent(
+      "Build a deck",
+    );
+    fireEvent.click(chips[0]);
+    expect(onSuggestion).toHaveBeenCalledWith("ppt");
+  });
+
+  it("chain chips are ABSENT when suggestions are empty/undefined, and on a non-complete run (c72)", () => {
+    // No suggestions supplied on a completed run → no chip row.
+    const { rerender } = render(
+      <RunChatLane {...baseProps({ runState: "complete", onSuggestion: vi.fn() })} />,
+    );
+    expect(screen.queryByTestId("chat-chain-suggestions")).toBeNull();
+    expect(screen.queryByTestId("chat-chain-suggestion-chip")).toBeNull();
+
+    // Suggestions supplied but the run is NOT complete (building) → still no chips.
+    rerender(
+      <RunChatLane
+        {...baseProps({
+          runState: "building",
+          suggestions: [{ id: "ppt", label: "Build a deck" }],
+          onSuggestion: vi.fn(),
+        })}
+      />,
+    );
+    expect(screen.queryByTestId("chat-chain-suggestions")).toBeNull();
+    expect(screen.queryByTestId("chat-chain-suggestion-chip")).toBeNull();
+  });
+
+  it("the chat textarea auto-grows to the capped max then resets to one row on send (c72)", () => {
+    // jsdom reports scrollHeight as 0 — stub it above the cap so autoGrow clamps to 132px.
+    const proto = HTMLTextAreaElement.prototype;
+    const original = Object.getOwnPropertyDescriptor(proto, "scrollHeight");
+    Object.defineProperty(proto, "scrollHeight", {
+      configurable: true,
+      get() {
+        return 300;
+      },
+    });
+    try {
+      const sendMessage = vi.fn();
+      render(
+        <RunChatLane {...baseProps({ runState: "building", sendMessage })} />,
+      );
+      const textarea = screen.getByLabelText(
+        "Chat message input",
+      ) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "line one\nline two\nline three" } });
+      // Clamped to the cap (min(scrollHeight=300, 132)).
+      expect(textarea.style.height).toBe("132px");
+      // Sending resets the box to a single row.
+      fireEvent.click(screen.getByTestId("chat-send"));
+      expect(textarea.style.height).toBe("auto");
+    } finally {
+      if (original) Object.defineProperty(proto, "scrollHeight", original);
+      else delete (proto as unknown as Record<string, unknown>).scrollHeight;
+    }
+  });
+
+  it("a settled-run ASK with chain suggestions folds chain_hints onto the concierge send (c72)", () => {
+    const sendMessage = vi.fn();
     render(
       <RunChatLane
         {...baseProps({
           runState: "complete",
           suggestions: [{ id: "ppt", label: "Build a deck" }],
           onSuggestion: vi.fn(),
+          sendMessage,
         })}
       />,
     );
-    // The settled composer is just the "Ask for a change…" input.
-    expect(screen.getByTestId("chat-send")).toBeInTheDocument();
-    // The unregistered "Suggested next steps" block is removed from the lane.
-    expect(screen.queryByTestId("chat-suggestion-chip")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "what's the status?" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(sendMessage).toHaveBeenCalledWith("what's the status?", [], {
+      concierge: true,
+      chain_hints: [{ id: "ppt", label: "Build a deck" }],
+    });
   });
 
   it("Stop is visible while running and fires its callback", () => {

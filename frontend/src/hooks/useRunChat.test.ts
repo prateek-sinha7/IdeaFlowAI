@@ -274,6 +274,38 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     expect(payload).toMatchObject({ text: "plain turn" });
   });
 
+  it("Test 19: sendMessage with { chain_hints } folds the array onto the payload only when non-empty (c72)", () => {
+    const conn = makeConn();
+    const { result } = renderHook(() =>
+      useRunChat({ runId: "run-9", subscribe: conn.subscribe, sendCommand: conn.sendCommand }),
+    );
+
+    act(() => {
+      result.current.sendMessage("what's next?", [], {
+        concierge: true,
+        chain_hints: [{ id: "ppt", label: "Presentation" }],
+      });
+    });
+    expect(conn.sendCommand).toHaveBeenCalledWith(
+      "run-9",
+      expect.objectContaining({
+        concierge: true,
+        chain_hints: [{ id: "ppt", label: "Presentation" }],
+      }),
+    );
+
+    // A send with NO chain_hints (or an empty array) writes NO chain_hints key.
+    conn.sendCommand.mockClear();
+    act(() => {
+      result.current.sendMessage("plain", [], { concierge: true, chain_hints: [] });
+    });
+    const payload = (conn.sendCommand.mock.calls[0] as unknown[])[1] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).not.toHaveProperty("chain_hints");
+  });
+
   it("Test 12: a chat_reply keyed on a DISTINCT event_id appends as its own turn (DEF-44-12-2 de-collision)", () => {
     // The Concierge reply carries message_id === the user turn's id
     // (run_commands.py:994) but a DISTINCT event_id ("chat-reply:{id}"). Keying

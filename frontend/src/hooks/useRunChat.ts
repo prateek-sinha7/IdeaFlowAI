@@ -111,6 +111,13 @@ export interface UseRunChatConfig {
 export interface SendMessageOptions {
   concierge?: boolean;
   confirm_proposal?: { channel: string; params: Record<string, unknown> };
+  /**
+   * Optional generic chain-suggestion hints `[{ id, label }]` folded onto a
+   * Concierge ask (c72) — the FE-curated next-workflow labels the settled-run
+   * lane shows as chips. GENERIC (SC-001/INV-1): plain display labels, never a
+   * workflow-name literal. Absent/empty ⇒ NO `chain_hints` key (dormant, INV-3).
+   */
+  chain_hints?: { id: string; label: string }[];
 }
 
 export interface UseRunChatReturn {
@@ -446,6 +453,11 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
       if (options?.concierge) payload.concierge = true;
       if (options?.confirm_proposal) {
         payload.confirm_proposal = options.confirm_proposal;
+      }
+      // c72: fold the generic chain hints ONLY when non-empty — an absent/empty
+      // array writes NO key (byte-identical dormant payload, INV-3).
+      if (options?.chain_hints && options.chain_hints.length > 0) {
+        payload.chain_hints = options.chain_hints;
       }
       if (legacyWsSend) {
         // Flag-OFF legacy WS up-channel (LOCK-B): same transcript. The concierge
