@@ -540,6 +540,56 @@ def test_composed_fanout_d9_guard_rejects_non_upstream_source_step() -> None:
     assert good_map[_WORKER_ID].strategy == "fanout_batch"
 
 
+def test_composed_fanout_producer_higher_base_order_still_carries_strategy() -> None:
+    """Regression (live-found 2026-07-20): a composed fan-out over IN-BASE-MANIFEST agents
+    whose producer has a HIGHER base-manifest ``order`` than its worker must STILL carry
+    the fan-out strategy.
+
+    Before the engine.py fix, ``_apply_selections`` built the synth manifest in BASE order,
+    so ``task-list-planner`` (custom order 9) landed AFTER ``market-research-agent`` (custom
+    order 1); the D9 upstream guard read ``source_step`` as a forward reference and the
+    ENTIRE selection degraded to ``single_shot`` — the live fan-out silently ran once with
+    no workers. The fix orders run agents FIRST (the user's composed producer->worker order,
+    which presort preserves for unconstrained agents). This is the exact live scenario, run
+    against the REAL ``custom`` manifest (not the synthetic fixtures the other tests use).
+    """
+    from agents.capabilities.registry import discover
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    discover()
+    compiled = compile_for_run("custom")
+    base_order = [s.agent_id for s in compiled.steps]
+    # Precondition: both agents are IN the base manifest AND the producer's base order is
+    # HIGHER than the worker's — the arrangement that broke the live run.
+    assert "task-list-planner" in base_order and "market-research-agent" in base_order
+    assert base_order.index("task-list-planner") > base_order.index(
+        "market-research-agent"
+    ), "this regression needs the producer to have a HIGHER base order than the worker"
+
+    sels = {
+        "market-research-agent": {
+            "strategy": "fanout_batch",
+            "task_source": {
+                "kind": "parsed",
+                "parser": "heading_tasks",
+                "source_step": "task-list-planner",
+            },
+        }
+    }
+    # run_agent_ids in the USER's composed order: producer THEN worker.
+    plan, user_map = ExecutionEngine._apply_selections(
+        compiled, sels, ["task-list-planner", "market-research-agent"]
+    )
+    worker_step = next(s for s in plan.steps if s.agent_id == "market-research-agent")
+    assert worker_step.strategy == "fanout_batch", (
+        "REGRESSION: the composed fan-out degraded to single_shot because the D9 guard "
+        f"read the producer as a forward reference (got {worker_step.strategy!r})"
+    )
+    assert worker_step.task_source is not None
+    assert worker_step.task_source.source_step == "task-list-planner"
+    assert user_map != {}, "the trust-compile must NOT have degraded"
+
+
 @pytest.mark.asyncio
 async def test_composed_fanout_non_upstream_source_degrades_to_no_fanout_at_runtime() -> None:
     """C2 (runtime): a composed worker whose ``source_step`` is not upstream degrades to

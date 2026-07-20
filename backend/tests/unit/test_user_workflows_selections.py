@@ -612,8 +612,13 @@ def test_apply_selections_absent_agent_carried_in_user_step_map():
     base_ids = [s.agent_id for s in base.steps]
     assert _ABSENT_AGENT not in base_ids  # precondition: genuinely absent
 
+    # The producer (_AGENT_A) MUST be in the run BEFORE the absent worker: a fan-out
+    # worker sourcing an agent that isn't in the run is invalid (the source never
+    # produces), so run_agent_ids carries the producer first — the user's composed
+    # producer→worker order, which the synth manifest now preserves so the D9 upstream
+    # guard sees the producer as EARLIER regardless of base-manifest `order`.
     overlaid, user_map = ExecutionEngine._apply_selections(
-        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_ABSENT_AGENT]
+        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_AGENT_A, _ABSENT_AGENT]
     )
     # The absent agent is NOT injected into the plan steps (membership assertion safe)…
     assert [s.agent_id for s in overlaid.steps] == base_ids
@@ -634,8 +639,9 @@ def test_apply_selections_absent_step_carries_default_hooks_benign_delta():
     from agents.execution_engine.engine import ExecutionEngine, compile_for_run
 
     base = compile_for_run("custom")
+    # Producer first, then the absent worker (a valid composed producer→worker order).
     _, user_map = ExecutionEngine._apply_selections(
-        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_ABSENT_AGENT]
+        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_AGENT_A, _ABSENT_AGENT]
     )
     hooks = list(getattr(user_map[_ABSENT_AGENT], "hooks", []) or [])
     assert "audit_logger" in hooks

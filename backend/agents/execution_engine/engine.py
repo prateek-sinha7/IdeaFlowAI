@@ -6245,8 +6245,15 @@ class ExecutionEngine:
         # Trust-compile a step for EVERY run agent, not just the base-manifest agents,
         # so a composed agent absent from the base plan still yields a user-step the
         # synthesis site can consult (Path B). Order-preserving, de-duplicated.
+        # Run agents come FIRST so the synth manifest reflects the user's composed
+        # producer->worker order (which presort preserves for unconstrained agents),
+        # NOT the base-manifest `order`. Without this the D9 upstream-source guard
+        # falsely rejects a valid fan-out whose producer has a HIGHER base order than
+        # its worker (e.g. task-list-planner order:9 feeding market-research-agent
+        # order:1) — the producer would land AFTER the worker in base order and read
+        # as a forward reference. Base ids follow for coverage of run-absent agents.
         base_ids = [s.agent_id for s in compiled.steps]
-        agent_ids = list(dict.fromkeys([*base_ids, *(run_agent_ids or [])]))
+        agent_ids = list(dict.fromkeys([*(run_agent_ids or []), *base_ids]))
         try:
             user_compiled = WorkflowCompiler().compile(
                 synthesize_manifest(compiled.id, agent_ids, selections),
