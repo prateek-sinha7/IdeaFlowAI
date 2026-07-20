@@ -10,6 +10,14 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-061 | 2026-07-20 | KAN-112: Custom utility agent combinations fail with DAG unsatisfiable — all 8 custom agents had rigid `consumes` chain | Each custom agent declared `consumes: [previous-agent-id]` forming a fixed 8-agent chain. The `WorkflowResolver.validate()` rejected any subset as unsatisfiable (e.g. `report-generator` needs `documentation-agent`). Fixed by changing `consumes` from specific agent ids to `[]` on all 7 non-root custom agents. `context_from: [$previous]` already chains context correctly — `consumes` is only for typed artifact graph edges, which these agents don't need. | `backend/agents/prompts/swot-analyst/AGENT.md`, `backend/agents/prompts/roadmap-planner/AGENT.md`, `backend/agents/prompts/security-auditor/AGENT.md`, `backend/agents/prompts/test-case-generator/AGENT.md`, `backend/agents/prompts/performance-optimizer/AGENT.md`, `backend/agents/prompts/documentation-agent/AGENT.md`, `backend/agents/prompts/report-generator/AGENT.md` | Phase 7/8 (WorkflowResolver / agent AGENT.md) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-060 | 2026-07-17 | KAN-112: Make all custom-composer runs consistent — always pipeline_type="custom" | User story agents were routed to pipeline_type="user_stories" making history/logs inconsistent with prototype runs (which stayed "custom"). Fix: removed the `user_stories` routing branch from `resolveDispatchType`; added user story agents to `AGENT_DELIVERABLE_MAP` with `{strategy:"streamed_text", name:"user_stories.md", mimetype:"text/markdown"}`. Engine `_apply_selections` already handles the override + forces clarify.mode=skip. Output renders via `GenericDeliverablePreview` → `MarkdownPreview`. All custom-composer runs now consistently show `type=custom` in logs and history. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-059 | 2026-07-17 | KAN-112 Option B: Replace `custom_prototype` manifest copy with runtime deliverable override via `__deliverable__` selections key | `custom_prototype` was an exact copy of `prototype/workflow.yaml` with `clarify.mode:skip` — a manifest-copy anti-pattern (INV-12 violation). Option B: FE `resolveDispatchType` now returns `{type:"custom", deliverableOverride:{strategy,name,mimetype}}` for prototype agents; `handleRun` injects `__deliverable__` into the selections map; `engine._apply_selections` reads it, calls `DeliverableSpec(**override)` and `dataclasses.replace(compiled.clarify, mode="skip")` — same skip behaviour, zero manifest copy. `custom_prototype` manifest deleted; all references removed from loader/registry/entitlements/websocket/types/DashboardLayout/page.tsx. | `backend/agents/workflows/selections.py`, `backend/agents/execution_engine/engine.py`, `backend/agents/loader.py`, `backend/agents/registry.py`, `backend/app/core/entitlements.py`, `backend/app/api/websocket.py`, `frontend/src/types/index.ts`, `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx`, `backend/agents/workflows/custom_prototype/workflow.yaml` (deleted) | Phase 22 (custom composer) + SC-001 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-058 | 2026-07-16 | KAN-112: HTML prototype output from custom workflow — create `custom_prototype` manifest (SC-001) | The only path to HTML prototype output from the custom composer is a new SC-001 manifest. Dispatching `prototype` silently crashed (suspected SQLite lock from prior cancelled run; the `ectx.skip_clarification` dynamic attribute approach was also fragile). `custom_prototype` is an exact copy of the `prototype` manifest with `clarify.mode: skip` — bypasses the clarify gate without any engine edits. FE `resolveDispatchType` now sends `custom_prototype`; `DashboardLayout` normalises `custom_prototype → prototype` for rendering; `page.tsx` routes `custom_prototype` to `setPrototypeContent`. | `backend/agents/workflows/custom_prototype/workflow.yaml` (new), `backend/agents/loader.py`, `backend/agents/registry.py`, `backend/app/core/entitlements.py`, `frontend/src/types/index.ts`, `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 22 (custom composer) + SC-001 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-057 | 2026-07-16 | KAN-112 (continued): Prototype output from custom, brief-based recommendations, companion pipeline suggestions | Three gaps: (1) custom always dispatched as "custom" → streamed_text, no HTML; (2) no brief-based agent recommendations; (3) no companion-agent suggestions when partial pipeline added. Fix: `resolveDispatchType()` redirects prototype/ppt/user_stories agents to their native manifest; `AGENT_KEYWORDS` + `getAgentRecommendations()` chip strip; `COMPANION_GROUPS` amber banner when incomplete pipeline detected. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-056 | 2026-07-16 | KAN-112: Custom workflow — fix empty agent seed, add 8 default agents, fix add/remove limits, update blank-slate copy | `IdeaInputPage` seeded `pipelineAgents` from `LIBRARY_AGENTS.filter(type==="custom")` which returns `[]` (custom agents live in the separate `CUSTOM_AGENTS` export). Run button was always disabled for fresh custom runs. Three sites used the wrong filter: initial state, useEffect re-derive, and `defaultAgentIds`/`handleAddAgent`. Updated `TYPE_CONFIG["custom"]` copy and `workflow.yaml` catalog metadata. | `frontend/src/components/workflow/IdeaInputPage.tsx`, `backend/agents/workflows/custom/workflow.yaml` | Phase 22 (ISS-014 / custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-055 | 2026-07-16 | KAN-110 (follow-up): Replace page-number pagination with Load More button on Workflow History | FIX-051 implemented numbered pagination (Prev/1/2/…/Next); requirement was append-based Load More. Replaced `currentPage` state + `handleGoToPage` + pagination footer with `loadingMore` flag + `handleLoadMore` callback that appends `offset: runs.length`. Existing skeleton loading state was already sufficient. | `frontend/src/components/history/WorkflowHistory.tsx` | Frontend (FIX-051 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-051 | 2026-07-15 | KAN-110: Workflow history slow loading + add pagination — DB index + paginated frontend | No compound index on `workflow_runs(user_id, created_at)` caused full table scan on every history load; frontend fetched `limit:100` with no offset. Fix: migration 0025 adds `ix_workflow_runs_user_created`; `list_runs` gains `X-Total-Count` header; `getWorkflows` extended with `offset` + returns `{runs,total}`; `WorkflowHistory` changed to `limit:50` with Load More button. | `backend/alembic/versions/0024_stub_from_dev_branch.py` (stub), `backend/alembic/versions/0025_workflow_runs_user_created_index.py` (new), `backend/app/api/runs.py`, `frontend/src/lib/api.ts`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/components/analytics/AnalyticsPage.tsx`, `frontend/src/app/dashboard/page.tsx`, 5 test files | DB/API/Frontend (no engine phase) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-050 | 2026-07-15 | KAN-109: Add AI Coach Hub prototype template SKILL.md so the template appears in the gallery | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` was absent; `od_loader._load_one_template()` returns None when SKILL.md is missing, so the folder is silently skipped by `list_prototype_templates()`. example.html was present and correct. Fix: created SKILL.md with `od.mode: prototype` frontmatter + full agent build workflow instructions following the process-canvas pattern. | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` (new) | OpenDesign templates (content, no phase) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-049 | 2026-07-13 | KAN-108: Prototype revision delivers blank/unchanged/broken prototypes silently — add Revision Validation Agent as second step + fix clarify.mode: auto | `prototype_revision` manifest declared only 1 step; the silent `revision_validation` post-step only catches regressions vs baseline (zero-delta no-op passes), not blank pages, broken navigation, or missing components. `clarify.mode: auto` fired questionnaire on every revision. Fix: new `prototype-revision-validate` agent (dedicated AGENT.md, `pipeline_type: prototype_revision`, `consumes: [prototype-revision-agent]`, `tools: [workspace]`) added as step 2; manifest updated to `clarify.mode: skip`; registry updated; goldens regenerated; phase5/characterization tests updated. | `backend/agents/workflows/prototype_revision/workflow.yaml`, `backend/agents/registry.py`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` (new), `backend/tests/agents/characterization/golden/prototype_revision.events.json`, `backend/tests/agents/characterization/golden/prototype_revision.html`, `backend/tests/agents/_scripted_model.py`, `backend/tests/agents/test_phase5_revision_validation.py` | Phase 7 (revision post-step / agent registry) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-001 | 2026-06-16 | Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows | Validator: "two short sentences" loophole allowed model to print full checklist as preamble without `<artifact>` wrapper → raw checklist rendered as deck. Composer: deepagents filesystem glob crashes on Windows (pathlib.rglob ValueError) → composer told to use context-injected files instead of tool calls | `backend/agents/prompts/od-ppt-validator/AGENT.md`, `backend/agents/prompts/od-ppt-composer/AGENT.md` | Phase 15 | INV-1/3/12/SC-001 ✅ | Done |
@@ -1675,3 +1683,106 @@ The "Invalid presentation output" error (separate path) occurs when the validato
 - This is a defense-in-depth fix. The prompt hardening reduces but does not eliminate LLM non-determinism; the deterministic sanitizer catches what the prompt alone cannot prevent.
 - The `strip_pre_slide_body_text` function uses a targeted approach: find `<body>`, find first slide anchor, remove preamble. It does NOT attempt to parse full HTML — intentionally simple and narrow-scoped per the existing sanitizer pattern.
 - Follow-up: if the validator continues to produce "Invalid presentation output" errors (no HTML doctype at all), that is a separate failure mode requiring a different fix (the validator emitting a pure QA report with no deck).
+
+---
+
+### FIX-055 — KAN-110 (follow-up): Replace pagination with Load More + improve loading UX
+
+**Date:** 2026-07-16
+**Triggered by:** `/velocity-ai-fix KAN-110 — instead of pagination numbering we want load more option on the workflow history page. Also, we want to have some loader showing while the user waits for workflows list to appear.`
+
+#### Root Cause
+
+FIX-051 implemented page-based pagination (Prev / 1 / 2 / 3 / … / Next buttons). The requirement is a simpler append-based "Load More" button. Additionally, a loading skeleton was already rendered during the initial fetch (7 skeleton cards + spinner + "Loading workflows" text) — this part was already correct. The pagination state (`currentPage`, `handleGoToPage`) and the pagination footer (numbered page buttons) needed to be replaced with Load More semantics.
+
+Trace:
+```
+User opens Workflow History
+  → useEffect fires with currentPage dep → replaces runs array (page-flip behaviour)
+  → Pagination footer shows numeric Prev/1/2/3/Next buttons — NOT the desired UX
+  
+Wanted:
+  → Initial load replaces runs (stays the same)
+  → "Load More" button appends offset: runs.length to the existing list
+  → loadingMore spinner in button during the secondary fetch
+```
+
+#### Phase Context
+- **Phase(s) involved:** FIX-051 (KAN-110) / Frontend-only
+- **Relevant register section:** FIX-051 detailed entry above
+- **Deleted code verified (not resurrected):** `currentPage` state and `handleGoToPage` removed; no previously-deleted code resurrected
+- **Locked decisions respected:** Backend API contract (`limit`/`offset` + `X-Total-Count`) unchanged; `getWorkflows` return type unchanged
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/WorkflowHistory.tsx` | Removed `currentPage` state; replaced with `loadingMore: boolean`. Changed useEffect to always fetch `offset: 0` on mount/filterType change (replaces list). Added `handleLoadMore` callback that fetches `offset: runs.length` and appends. Removed page-based pagination footer; added "Load more / Loading… (spinner)" button shown only when `runs.length < totalRuns && !loading`. | Implements append-based Load More UX instead of page-flip pagination |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — pure FE component change.
+- **INV-3** (golden parity): not affected — no agent or engine code changed.
+- **INV-12** (no duplication): not applicable — FE-only.
+- **SC-001** (zero engine edits): not affected — zero engine edits.
+
+#### Verification
+- No TypeScript diagnostics on the changed file.
+- State simplification: `currentPage` removed, `loadingMore` added — no other components referenced `currentPage`.
+- Backend API unchanged — `getWorkflows(token, { limit, offset })` signature identical.
+- The existing skeleton loading state (7 cards + spinner + "Loading workflows" text) continues to show during the initial `loading=true` state.
+- `Load more` button appears only when `runs.length < totalRuns && !loading`; shows `Loader2` spinner when `loadingMore=true`.
+- Filter tab change resets the list to offset 0 (same as before).
+
+#### Notes
+- The `loadingMore` button spinner provides visual feedback during the secondary fetch without hiding the already-loaded runs.
+- The existing skeleton is sufficient for the initial load UX requirement — no additional change was needed there.
+- If a filter tab is active while runs are loaded with Load More, the `matchesFilter` client-side filter already handles type filtering across all loaded runs.
+
+---
+
+### FIX-056 — KAN-112: Custom Workflow — fix empty agent seed + blank-slate UX
+
+**Date:** 2026-07-16
+**Triggered by:** `/velocity-ai-fix KAN-112 — implement all requirements`
+
+#### Root Cause
+
+`IdeaInputPage.tsx` had four places that derived default agents for the custom workflow using `LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType)`. For `effectiveType === "custom"` this always returned `[]` because custom agents live in the separate `CUSTOM_AGENTS` export — `LIBRARY_AGENTS` has no entries with `pipeline_type: "custom"`. This caused:
+
+1. **Initial state seed** (`useState` initialiser): `pipelineAgents = []` → Run button disabled with "Add agents first"
+2. **useEffect re-derive**: same filter — clobbered state back to `[]` on type change
+3. **`defaultAgentIds` set**: empty → all 8 custom agents counted as "optional" → immediately hit the `maxOptional=8` cap; user could add 0 extra agents
+4. **`handleAddAgent` limit check**: same filter in the closure → optional count logic broken
+
+Additionally the `TYPE_CONFIG["custom"]` copy and `workflow.yaml` catalog metadata described generic assembly rather than the open-ended AI-driven vision.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 (ISS-014 — agent-composer live), Phase 20 (catalog metadata)
+- **Relevant register section:** `_register-parts/22-capability-surfacing…` §3 (ISS-014); Phase 20 §3 (WF-DB-01 catalog)
+- **Deleted code verified (not resurrected):** `CUSTOM_AGENTS` was already exported — no deleted code resurrected
+- **Locked decisions respected:** INV-12 — reused existing `CUSTOM_AGENTS` export, no new list created; SC-001 — no engine edits; workflow.yaml change is pure inert catalog metadata
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/IdeaInputPage.tsx` | Import `CUSTOM_AGENTS`; fix initial state seed to use `CUSTOM_AGENTS` for custom type; fix `useEffect` re-derive; fix `defaultAgentIds`; fix `handleAddAgent` closure | Ensures 8 default agents are pre-loaded; Run button enabled; add/remove limits correct |
+| `frontend/src/components/workflow/IdeaInputPage.tsx` | Update `TYPE_CONFIG["custom"]` — new heading "What do you want to achieve?", new subtitle communicating AI-driven orchestration | Blank-slate UX framing per KAN-112 AC |
+| `backend/agents/workflows/custom/workflow.yaml` | Update `display_name` and `description` catalog fields | Catalog tile communicates open-ended AI-driven workflow creation |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — pure FE component + inert YAML metadata
+- **INV-3** (golden parity): not affected — no agent, engine, or golden changes
+- **INV-12** (no duplication): verified — reused existing `CUSTOM_AGENTS` export from `AgentLibraryData.ts`; not duplicated
+- **SC-001** (zero engine edits): not affected — zero engine edits; workflow.yaml change is catalog metadata only
+
+#### Verification
+- TypeScript diagnostics on `IdeaInputPage.tsx`: no errors
+- Trace: fresh custom workflow open → `effectiveType === "custom"` → `CUSTOM_AGENTS.sort()` → `pipelineAgents = [8 agents]` → `pipelineAgents.length === 8 > 0` → Run button enabled
+- `defaultAgentIds` now contains all 8 CUSTOM_AGENTS ids → `optionalAgentCount = 0` → `canAddMore = true` → user can add up to 8 extra agents from other pipelines
+- Saved custom workflow reopen path unchanged: `initialAgentIds?.length` guard fires first, seed from `ALL_LIBRARY_AGENTS` (includes CUSTOM_AGENTS) — no regression
+- All other pipeline types (user_stories, ppt, prototype, app_builder, migration variants) use the original `LIBRARY_AGENTS.filter` path — no regression
+
+#### Notes
+- HTML prototype output via custom workflow (a separate future capability) is out of scope for this fix per KAN-112 acceptance criteria; tracked as a follow-up in KAN-112 description
+- AI-driven recommendation endpoint is also a follow-up item — the Smart Planner + Clarification Questions already provide contextual gathering; the active recommendation-before-run feature would be a separate backend endpoint

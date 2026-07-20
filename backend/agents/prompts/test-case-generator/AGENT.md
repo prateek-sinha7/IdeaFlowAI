@@ -1,6 +1,5 @@
 ---
-consumes:
-- security-auditor
+consumes: []
 context_from:
 - $previous
 estimated_duration: 6.0

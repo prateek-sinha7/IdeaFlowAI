@@ -1,6 +1,5 @@
 ---
-consumes:
-- swot-analyst
+consumes: []
 context_from:
 - $previous
 estimated_duration: 6.0

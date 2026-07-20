@@ -1,6 +1,5 @@
 ---
-consumes:
-- test-case-generator
+consumes: []
 context_from:
 - $previous
 estimated_duration: 5.0

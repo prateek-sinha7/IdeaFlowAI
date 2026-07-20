@@ -409,6 +409,17 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     // MarkdownPreview / `.md` download. Markdown is the residual case.
     const isGenericBundle = isGeneric && genericMimetype === "application/zip";
     const isGenericMarkdown = isGeneric && !isGenericHtml && !isGenericBundle;
+    // KAN-112 (FIX-060 follow-up): a custom-composer user stories run stores
+    // deliverableFilename="user_stories.md" — route it to UserStoryPreview
+    // for the same styled epic/story card layout as the dedicated pipeline.
+    // Keyed on filename, not workflow name (SC-001).
+    const isGenericUserStories = isGenericMarkdown && selectedRun.deliverableFilename === "user_stories.md";
+    const isPlainMarkdown = isGenericMarkdown && !isGenericUserStories;
+    // KAN-112: a custom-composer PPT run stores deliverableFilename="presentation.html"
+    // and mimetype="text/html" — route it to PPTPreview for the styled deck viewer.
+    // Keyed on filename (SC-001).
+    const isGenericPpt = isGenericHtml && selectedRun.deliverableFilename === "presentation.html";
+    const isGenericHtmlOnly = isGenericHtml && !isGenericPpt;
     const genericBundleFiles = isGenericBundle && selectedOutput ? parseFilesForIDE(selectedOutput) : [];
     const agentOutputs = detailAgentOutputs;
 
@@ -662,8 +673,16 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   {/* ISS-021 (18-03) — generic reopen fallback: HTML → the SAME
                       sandboxed iframe as the live path (T-18-05: allow-scripts,
                       NO allow-same-origin); markdown/other → MarkdownPreview (this
-                      preserves the prior `custom` markdown behavior). */}
-                  {isGenericHtml && selectedOutput && (
+                      preserves the prior `custom` markdown behavior).
+                      KAN-112: presentation.html → PPTPreview for styled deck viewer. */}
+                  {isGenericPpt && selectedOutput && (
+                    <PPTPreview
+                      content={selectedOutput}
+                      pipelineType="od_ppt"
+                      onRevise={undefined}
+                    />
+                  )}
+                  {isGenericHtmlOnly && selectedOutput && (
                     <div className="h-full flex flex-col overflow-hidden">
                       <div className="flex-1 min-h-0 overflow-hidden">
                         <iframe
@@ -684,7 +703,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                       ? <AppBuilderPreview files={genericBundleFiles} projectName={ideProjectName} />
                       : <MarkdownPreview content={selectedOutput} />
                   )}
-                  {isGenericMarkdown && selectedOutput && <MarkdownPreview content={selectedOutput} />}
+                  {isGenericUserStories && selectedOutput && (
+                    <UserStoryPreview content={selectedOutput} onRevise={undefined} />
+                  )}
+                  {isPlainMarkdown && selectedOutput && <MarkdownPreview content={selectedOutput} />}
                   {isPpt && selectedOutput && (
                     <PPTPreview
                       content={selectedOutput}

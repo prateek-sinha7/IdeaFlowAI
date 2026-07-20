@@ -1,6 +1,5 @@
 ---
-consumes:
-- performance-optimizer
+consumes: []
 context_from:
 - $previous
 estimated_duration: 7.0

@@ -5,11 +5,11 @@ import { motion } from "motion/react";
 import {
   ArrowLeft, ArrowRight, Paperclip, File, X, FileText,
   Presentation, Layout, Settings2, Mic, MicOff, GitBranch,
-  Save, Check, Image as ImageIcon,
+  Save, Check, Image as ImageIcon, Sparkles, Plus,
 } from "lucide-react";
 import { AgentsPopup } from "./AgentsPopup";
 import { ReviewGatesSection } from "./ReviewGatesSection";
-import { LIBRARY_AGENTS, ALL_LIBRARY_AGENTS } from "./AgentLibraryData";
+import { LIBRARY_AGENTS, CUSTOM_AGENTS, ALL_LIBRARY_AGENTS } from "./AgentLibraryData";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
@@ -34,6 +34,426 @@ const MIGRATION_OPTIONS: { type: WorkflowType; label: string; tagline: string }[
     tagline: "Inventory .NET projects, map each to the right Azure service, modernise to .NET 8, and bolt on Azure AI where it pays off.",
   },
 ];
+
+// ---------------------------------------------------------------------------
+// KAN-112: Smart agent recommendations for custom workflows
+// ---------------------------------------------------------------------------
+
+// Companion agent groups: when ANY agent from a group is added, recommend the rest.
+// This gives the user the correct full pipeline in the right order.
+const COMPANION_GROUPS: { ids: string[]; label: string; description: string }[] = [
+  {
+    ids: ["prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate"],
+    label: "Complete Prototype Pipeline",
+    description: "Add the full prototype pipeline — Spec Writer → Task Planner → Analyzer → Builder → Validator — to generate a navigable HTML prototype.",
+  },
+  {
+    ids: ["od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"],
+    label: "Complete Presentation Pipeline",
+    description: "Add all 3 presentation agents — Strategist → Deck Engineer → QA — to generate a full HTML deck.",
+  },
+  {
+    ids: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
+    label: "Complete User Stories Pipeline",
+    description: "Add the full backlog pipeline — Discovery → Architecture → Estimation → Quality → Review → Compile — to generate Jira-ready user stories.",
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Intent-based recommendation engine (replaces flat keyword matching).
+//
+// Problems with the old approach:
+//   - Generic words like "app", "product", "design" matched the WRONG pipeline.
+//     e.g. "user stories for a banking app" fired prototype agents because "app"
+//     was in the prototype keyword list.
+//   - No priority: if multiple intents were detected, all agents were returned
+//     mixed together with no signal about which pipeline the user actually needs.
+//   - Substring matching: "product" matched "product management" (user_stories)
+//     AND "app" in "application" matched prototype.
+//
+// New approach:
+//   1. Each INTENT has STRONG signals (high-confidence, intent-specific phrases)
+//      and WEAK signals (supporting context words that only count if a strong
+//      signal is also present from the same group — prevents cross-contamination).
+//   2. EXCLUSION terms: if the brief contains any of these for a given intent,
+//      that intent is suppressed even if weak signals are present.
+//   3. PRIORITY ordering: when multiple intents fire, only the top-priority one
+//      drives the agent recommendation chips. Companion banners still show for
+//      partially-complete pipelines.
+//   4. Word-boundary matching on ambiguous terms to avoid substring false-positives.
+// ---------------------------------------------------------------------------
+
+type Intent = {
+  id: string;
+  priority: number;                // lower = higher priority (1 = most specific)
+  strongSignals: string[];         // whole-phrase matches — any one fires the intent
+  weakSignals?: string[];          // supporting context — only count with a strong hit
+  exclusions?: string[];           // if present, suppress this intent
+  agentIds: string[];
+};
+
+const INTENT_MAP: Intent[] = [
+  // ── User Stories / Backlog ─────────────────────────────────────────────
+  // Strong: explicit backlog/story/requirements language
+  {
+    id: "user_stories",
+    priority: 1,
+    strongSignals: [
+      "user stor", "user-stor",       // "user story", "user stories", "user-story"
+      "backlog",
+      "epic",
+      "acceptance criteria",
+      "gherkin",
+      "jira",
+      "sprint planning",
+      "product requirement",
+      "prd",                          // Product Requirements Document
+      "functional requirement",
+      "feature requirement",
+      "brd",                          // Business Requirements Document
+      "requirements document",
+      "requirements doc",
+      "agile requirements",
+      "story point",
+      "definition of done",
+      "nfr",                          // Non-functional requirements
+    ],
+    weakSignals: ["feature", "requirement", "stories", "story"],
+    agentIds: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
+  },
+
+  // ── Prototype / UI ────────────────────────────────────────────────────
+  // Strong: explicit prototype/UI-building language
+  {
+    id: "prototype",
+    priority: 2,
+    strongSignals: [
+      "prototype",
+      "mockup",
+      "wireframe",
+      "interactive ui",
+      "interactive prototype",
+      "clickable",
+      "navigable",
+      "html prototype",
+      "ui prototype",
+      "low-fidelity",
+      "high-fidelity",
+      "figma",
+      "build a dashboard",
+      "build the dashboard",
+      "build a portal",
+      "build a webapp",
+      "build a web app",
+      "build an app",
+      "saas dashboard",
+      "admin panel",
+      "admin dashboard",
+      "landing page",
+      "web interface",
+    ],
+    weakSignals: ["dashboard", "interface", "screen", "page", "portal", "ui", "ux"],
+    exclusions: ["slide", "presentation", "deck", "user stor", "backlog", "epic", "requirements document"],
+    agentIds: ["prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate"],
+  },
+
+  // ── Presentation / Deck ───────────────────────────────────────────────
+  {
+    id: "presentation",
+    priority: 2,
+    strongSignals: [
+      "presentation",
+      "slide deck",
+      "slide show",
+      "pitch deck",
+      "powerpoint",
+      "ppt",
+      " deck ",          // "a deck for" — note spaces to avoid "deck" in "deckchair"
+      "investor deck",
+      "executive presentation",
+      "board presentation",
+      "stakeholder presentation",
+    ],
+    agentIds: ["od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"],
+  },
+
+  // ── Market Research / Competitive Analysis ────────────────────────────
+  {
+    id: "market_research",
+    priority: 3,
+    strongSignals: [
+      "market research",
+      "competitive analysis",
+      "competitive landscape",
+      "competitor analysis",
+      "market analysis",
+      "industry analysis",
+      "market sizing",
+      "tam ",             // Total Addressable Market — space avoids "team"
+      "sam ",
+      "som ",
+      "go-to-market",
+      "gtm strategy",
+    ],
+    agentIds: ["market-research-agent", "swot-analyst"],
+  },
+
+  // ── Strategy / SWOT ───────────────────────────────────────────────────
+  {
+    id: "strategy",
+    priority: 3,
+    strongSignals: [
+      "swot",
+      "strategic analysis",
+      "strategic plan",
+      "business strategy",
+      "positioning strategy",
+      "market positioning",
+      "strengths and weaknesses",
+      "opportunities and threats",
+    ],
+    agentIds: ["swot-analyst", "roadmap-planner"],
+  },
+
+  // ── Roadmap / Planning ────────────────────────────────────────────────
+  {
+    id: "roadmap",
+    priority: 3,
+    strongSignals: [
+      "product roadmap",
+      "delivery roadmap",
+      "roadmap",
+      "release plan",
+      "milestone plan",
+      "quarterly plan",
+      "q1 plan", "q2 plan", "q3 plan", "q4 plan",
+      "phased delivery",
+      "delivery plan",
+    ],
+    agentIds: ["roadmap-planner", "market-research-agent"],
+  },
+
+  // ── Security ──────────────────────────────────────────────────────────
+  {
+    id: "security",
+    priority: 3,
+    strongSignals: [
+      "security audit",
+      "security review",
+      "security assessment",
+      "penetration test",
+      "pentest",
+      "vulnerability assessment",
+      "threat model",
+      "owasp",
+      "security risk",
+      "cyber security",
+      "cybersecurity",
+      "compliance audit",
+      "gdpr audit",
+      "iso 27001",
+    ],
+    agentIds: ["security-auditor"],
+  },
+
+  // ── Testing / QA ──────────────────────────────────────────────────────
+  {
+    id: "testing",
+    priority: 3,
+    strongSignals: [
+      "test cases",
+      "test scenarios",
+      "test plan",
+      "test strategy",
+      "qa strategy",
+      "quality assurance",
+      "test coverage",
+      "edge cases",
+      "regression test",
+      "test suite",
+      "automated test",
+      "unit test",
+      "integration test",
+    ],
+    agentIds: ["test-case-generator"],
+  },
+
+  // ── Performance ───────────────────────────────────────────────────────
+  {
+    id: "performance",
+    priority: 3,
+    strongSignals: [
+      "performance optimiz",
+      "performance optimis",
+      "performance audit",
+      "performance review",
+      "latency issue",
+      "slow performance",
+      "bottleneck",
+      "load time",
+      "throughput",
+      "profiling",
+    ],
+    agentIds: ["performance-optimizer"],
+  },
+
+  // ── Documentation ─────────────────────────────────────────────────────
+  {
+    id: "documentation",
+    priority: 3,
+    strongSignals: [
+      "documentation",
+      "api docs",
+      "api documentation",
+      "readme",
+      "technical guide",
+      "developer guide",
+      "setup guide",
+      "onboarding guide",
+      "write docs",
+      "document the",
+      "runbook",
+    ],
+    agentIds: ["documentation-agent"],
+  },
+
+  // ── Report / Executive Summary ────────────────────────────────────────
+  {
+    id: "report",
+    priority: 3,
+    strongSignals: [
+      "executive report",
+      "executive summary",
+      "management report",
+      "board report",
+      "status report",
+      "kpi report",
+      "metrics report",
+      "business report",
+      "insights report",
+      "generate a report",
+      "write a report",
+      "produce a report",
+    ],
+    agentIds: ["report-generator"],
+  },
+];
+
+/**
+ * Intent-aware recommendation engine.
+ *
+ * Returns a priority-ranked, deduplicated list of AgentDefs to recommend
+ * based on the user's brief. Only fires when brief >= 10 chars.
+ *
+ * Ranking: higher-priority (lower number) intents come first. Within the
+ * same priority tier, the order follows INTENT_MAP definition order.
+ * Already-present agents are excluded from the returned list.
+ */
+function getAgentRecommendations(brief: string, currentAgentIds: Set<string>): AgentDef[] {
+  if (!brief || brief.trim().length < 10) return [];
+  const lower = brief.toLowerCase();
+
+  // Score each intent
+  const matched: { intent: Intent; score: number }[] = [];
+
+  for (const intent of INTENT_MAP) {
+    // Check exclusions first — if any exclusion phrase is present, skip
+    if (intent.exclusions?.some((exc) => lower.includes(exc))) continue;
+
+    // Check strong signals — any one is enough to fire the intent
+    const hasStrong = intent.strongSignals.some((sig) => lower.includes(sig));
+    if (!hasStrong) continue;
+
+    // Weak signals count as bonus score (not required to fire)
+    const weakScore = intent.weakSignals
+      ? intent.weakSignals.filter((w) => lower.includes(w)).length
+      : 0;
+
+    matched.push({ intent, score: weakScore });
+  }
+
+  if (matched.length === 0) return [];
+
+  // Sort: priority ASC (lower = more specific), then weak score DESC
+  matched.sort((a, b) =>
+    a.intent.priority !== b.intent.priority
+      ? a.intent.priority - b.intent.priority
+      : b.score - a.score,
+  );
+
+  // Collect agent IDs in priority order, deduplicating
+  const recommended = new Set<string>();
+  for (const { intent } of matched) {
+    intent.agentIds.forEach((id) => recommended.add(id));
+  }
+
+  // Remove already-added agents
+  currentAgentIds.forEach((id) => recommended.delete(id));
+  if (recommended.size === 0) return [];
+
+  // Resolve to AgentDef objects
+  return Array.from(recommended)
+    .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+    .filter(Boolean) as AgentDef[];
+}
+
+// Derive the correct pipeline_type and optional deliverable override to dispatch
+// based on the chosen agent set.
+// KAN-112 Option B: instead of routing to a manifest copy ("custom_prototype"),
+// we keep pipeline_type="custom" and inject a __deliverable__ override into the
+// selections map.  The engine's _apply_selections reads it and swaps the compiled
+// plan's deliverable spec at run entry — no manifest copies, SC-001 compliant.
+//
+// User stories agents → "user_stories" (streamed_text markdown → UserStoryPreview).
+// Prototype agents   → pipeline_type="custom" + __deliverable__={prototype.html}.
+// PPT agents         → pipeline_type="custom" (od_ppt requires template_id).
+// Everything else    → pipeline_type="custom" (streamed_text default).
+
+// Map: if ANY of these agent ids are present, inject the corresponding deliverable
+// override so the engine swaps the compiled plan's deliverable spec at run entry.
+// ALL custom-composer runs stay pipeline_type="custom" — consistent labelling in
+// logs, history, and the UI regardless of which agents were selected.
+const AGENT_DELIVERABLE_MAP: { agents: string[]; deliverable: Record<string, string> }[] = [
+  {
+    // Prototype agents → single_file HTML output
+    agents: ["prototype-build", "prototype-specify", "prototype-plan"],
+    deliverable: { strategy: "single_file", name: "prototype.html", mimetype: "text/html" },
+  },
+  {
+    // User story agents → streamed_text markdown output
+    // Stays pipeline_type="custom" for consistency — no routing to "user_stories".
+    // GenericDeliverablePreview renders text/markdown via MarkdownPreview.
+    agents: ["epic-architect", "domain-analyst", "backlog-compiler", "story-estimator", "nfr-specialist", "backlog-reviewer"],
+    deliverable: { strategy: "streamed_text", name: "user_stories.md", mimetype: "text/markdown" },
+  },
+  {
+    // PPT agents → single_file HTML output (no template — creative free-form).
+    // Uses single_file strategy (reads from sandbox file) instead of ppt strategy
+    // (reads from last_streamed) to avoid tool-call noise polluting the output.
+    // The od-ppt-brief-analyst/composer AGENT.md handle theme_choice="custom"
+    // (no ACTIVE TEMPLATE injected) and build the deck from visual_style in the spec.
+    agents: ["od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"],
+    deliverable: { strategy: "single_file", name: "presentation.html", mimetype: "text/html" },
+  },
+];
+
+function resolveDispatchType(
+  agents: AgentDef[],
+  baseType: WorkflowType,
+): { type: WorkflowType; deliverableOverride?: Record<string, string> } {
+  if (baseType !== "custom") return { type: baseType };
+  const ids = new Set(agents.map((a) => a.id));
+  // All custom-composer runs stay pipeline_type="custom".
+  // Deliverable override is injected based on the selected agent set so the
+  // engine produces the right output type (HTML prototype, markdown stories, etc.)
+  // without routing to a different manifest — consistent type in logs + history.
+  for (const { agents: keys, deliverable } of AGENT_DELIVERABLE_MAP) {
+    if (keys.some((id) => ids.has(id))) {
+      return { type: "custom", deliverableOverride: deliverable };
+    }
+  }
+  return { type: "custom", deliverableOverride: { strategy: "streamed_text", name: "output.md", mimetype: "text/markdown" } };
+}
 
 interface IdeaInputPageProps {
   workflowType: WorkflowType;
@@ -156,10 +576,10 @@ const TYPE_CONFIG: Record<WorkflowType, {
     icon: Layout,
   },
   custom: {
-    tag: "Compose a custom workflow",
-    heading: "Describe the task",
-    subtitle: "Assemble specialist agents and skills into a custom workflow for tasks outside the standard pipelines.",
-    placeholder: "e.g. Research the competitive landscape for AI coding assistants and generate a SWOT analysis.",
+    tag: "AI-driven custom workflow",
+    heading: "What do you want to achieve?",
+    subtitle: "Describe any business objective — AI will recommend the right agents, ask the right questions, and orchestrate a complete workflow tailored to your goal.",
+    placeholder: "e.g. Research the competitive landscape for AI coding assistants, identify gaps, and produce a strategic report with actionable recommendations.",
     icon: Layout,
   },
   migration: {
@@ -221,13 +641,22 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   // composer's AgentLibrary uses — because saved custom workflows reference the
   // CUSTOM_AGENTS, which are NOT in the base LIBRARY_AGENTS list.
   // Absent ⇒ the existing derive is preserved byte-for-byte.
-  const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() =>
-    initialAgentIds?.length
-      ? (initialAgentIds
-          .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
-          .filter(Boolean) as AgentDef[])
-      : LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order)
-  );
+  // KAN-112 (revised): for custom workflow, start with an EMPTY list so the user
+  // picks their own agents via recommendations or Browse Agents. The 8 CUSTOM_AGENTS
+  // are available in the agent library — not pre-loaded. Saved workflows still
+  // restore via initialAgentIds.
+  const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => {
+    if (initialAgentIds?.length) {
+      return initialAgentIds
+        .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+        .filter(Boolean) as AgentDef[];
+    }
+    const type = isMigrationMeta && migrationChoice ? migrationChoice : workflowType;
+    // Custom workflow: start blank — user adds agents themselves via recommendations
+    // or the Browse Agents library. CUSTOM_AGENTS are available there, not pre-loaded.
+    if (type === "custom") return [];
+    return LIBRARY_AGENTS.filter((a) => a.pipeline_type === type).sort((a, b) => a.order - b.order);
+  });
 
   const { attachedSkills, attachedHooks } = useSkillsHooks();
 
@@ -328,7 +757,12 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // navigating to a different workflow type), we MUST reset to the correct defaults
     // for the new type — otherwise stale agents from a previous saved workflow bleed in.
     if (initialAgentIds?.length) return;
-    setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
+    // KAN-112: custom workflow starts blank — user picks agents themselves.
+    if (effectiveType === "custom") {
+      setPipelineAgents([]);
+    } else {
+      setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
+    }
   }, [effectiveType, initialAgentIds]);
 
   // Reset the sub-choice when the parent switches us off the migration meta-type.
@@ -374,16 +808,28 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // NEVER inlined into finalMessage). Include only when ≥1 image is attached
     // so an image-less run emits a byte-identical payload (INV-3).
     const hasImages = attachedImages.length > 0;
-    const extraParams =
-      touched || hasOverrides || hasSelections || hasImages
+    // KAN-112 Option B: for custom pipelines, resolve the actual dispatch type and
+    // optional deliverable override from the chosen agent set. Prototype agents inject
+    // __deliverable__ into selections so engine._apply_selections swaps the compiled
+    // plan's deliverable spec — no manifest copy needed (SC-001 / INV-12).
+    const { type: dispatchType, deliverableOverride } = resolveDispatchType(pipelineAgents, effectiveType);
+
+    // Merge deliverableOverride into selections under the reserved __deliverable__ key.
+    const mergedSelections = deliverableOverride
+      ? { ...selections, __deliverable__: deliverableOverride }
+      : selections;
+    const hasMergedSelections = Object.keys(mergedSelections).length > 0;
+
+    const finalExtraParams =
+      touched || hasOverrides || hasMergedSelections || hasImages
         ? {
             ...(touched ? { gate_agent_ids: ids } : {}),
             ...(hasOverrides ? { model_overrides: overrides } : {}),
-            ...(hasSelections ? { selections } : {}),
+            ...(hasMergedSelections ? { selections: mergedSelections } : {}),
             ...(hasImages ? { images: attachedImages } : {}),
           }
         : undefined;
-    onRun(finalMessage, pipelineAgents.map((a) => a.id), effectiveType, extraParams);
+    onRun(finalMessage, pipelineAgents.map((a) => a.id), dispatchType, finalExtraParams);
   };
 
   // Phase 21 (SAVE-FROM-BOTH composer entry) — "Save workflow" persists the
@@ -432,17 +878,28 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     }
   };
 
-  const defaultAgentIds = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id));
+  // KAN-112: for custom, there are no "default" agents — every agent is optional.
+  // The optional-agent count and add/remove limits are all relative to an empty baseline.
+  const defaultAgentIds = new Set(
+    effectiveType === "custom"
+      ? [] // custom has no locked defaults — every agent the user adds is optional
+      : LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id)
+  );
   const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
-  const maxOptional = effectiveType === "custom" ? 8 : 5;
+  const maxOptional = effectiveType === "custom" ? 16 : 5; // generous cap for custom
   const canAddMore = optionalAgentCount < maxOptional;
 
   const handleAddAgent = useCallback((agent: AgentDef) => {
     setPipelineAgents((prev) => {
       if (prev.find((a) => a.id === agent.id)) return prev;
-      const currentDefaults = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id));
+      // KAN-112: custom has no locked defaults — every agent counts as optional.
+      const currentDefaults = new Set(
+        effectiveType === "custom"
+          ? []
+          : LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id)
+      );
       const currentOptional = prev.filter((a) => !currentDefaults.has(a.id)).length;
-      const limit = effectiveType === "custom" ? 8 : 5;
+      const limit = effectiveType === "custom" ? 16 : 5;
       if (currentOptional >= limit) return prev;
       const insertIdx = effectiveType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0);
       const updated = [...prev];
@@ -458,6 +915,31 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const handleReorderAgents = useCallback((reordered: AgentDef[]) => {
     setPipelineAgents(reordered);
   }, []);
+
+  // KAN-112: brief-based agent recommendations (for custom workflow only).
+  // Shown as a compact suggestion strip below the textarea when the brief
+  // has enough content to infer intent (≥15 chars).
+  const [dismissedRecommendations, setDismissedRecommendations] = useState<Set<string>>(new Set());
+  const recommendations = effectiveType === "custom"
+    ? getAgentRecommendations(ideaInput, new Set(pipelineAgents.map((a) => a.id)))
+        .filter((a) => !dismissedRecommendations.has(a.id))
+        .slice(0, 6)
+    : [];
+
+  // KAN-112: companion agent suggestion — shown when the agent set implies
+  // a full pipeline is being assembled but is incomplete.
+  const companionSuggestion = effectiveType === "custom" ? (() => {
+    const currentIds = new Set(pipelineAgents.map((a) => a.id));
+    for (const group of COMPANION_GROUPS) {
+      const hasAny = group.ids.some((id) => currentIds.has(id));
+      const hasAll = group.ids.every((id) => currentIds.has(id));
+      if (hasAny && !hasAll) {
+        const missing = group.ids.filter((id) => !currentIds.has(id));
+        return { group, missing };
+      }
+    }
+    return null;
+  })() : null;
 
   const totalEstimatedTime = Math.round(pipelineAgents.reduce((s, a) => s + a.estimated_duration, 0));
 
@@ -710,6 +1192,89 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             </AnimatePresence>
           </div>
         </motion.div>
+
+        {/* KAN-112: Brief-based agent recommendations — shown only for custom
+            workflow when the brief is long enough to infer intent. Compact
+            suggestion chips that the user can click to add. */}
+        {effectiveType === "custom" && recommendations.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="w-full mt-3"
+          >
+            <div className="rounded-xl border border-[#1B2A4A]/15 bg-[#F1F4FB] px-4 py-3">
+              <div className="flex items-center gap-1.5 mb-2.5">
+                <Sparkles className="h-3.5 w-3.5 text-[#1B2A4A]" />
+                <p className="text-[10px] font-semibold text-[#1B2A4A] uppercase tracking-wide">
+                  Suggested agents for your brief
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {recommendations.map((agent) => (
+                  <button
+                    key={agent.id}
+                    onClick={() => handleAddAgent(agent)}
+                    className="flex items-center gap-1.5 rounded-full border border-[#1B2A4A]/20 bg-white px-2.5 py-1 text-[11px] font-medium text-[#1B2A4A] hover:bg-[#1B2A4A] hover:text-white transition-colors group"
+                    title={agent.description}
+                  >
+                    {agent.name.replace(/ Agent$/, "")}
+                    <Plus className="h-3 w-3 opacity-50 group-hover:opacity-100" />
+                  </button>
+                ))}
+                <button
+                  onClick={() => setDismissedRecommendations(new Set(recommendations.map((a) => a.id)))}
+                  className="text-[10px] text-gray-400 hover:text-gray-600 px-1 self-center"
+                  title="Dismiss suggestions"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* KAN-112: Companion agent suggestion — when user has added some agents
+            from a known pipeline but not all, suggest completing it. */}
+        {effectiveType === "custom" && companionSuggestion && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="w-full mt-2"
+          >
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-semibold text-amber-800 mb-0.5">
+                    {companionSuggestion.group.label}
+                  </p>
+                  <p className="text-[10px] text-amber-700 leading-relaxed">
+                    {companionSuggestion.group.description}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    const missingAgents = companionSuggestion.missing
+                      .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+                      .filter(Boolean) as AgentDef[];
+                    // Replace current agents with the full ordered pipeline group
+                    const groupIds = new Set(companionSuggestion.group.ids);
+                    const nonGroupAgents = pipelineAgents.filter((a) => !groupIds.has(a.id));
+                    const fullGroupAgents = companionSuggestion.group.ids
+                      .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+                      .filter(Boolean) as AgentDef[];
+                    setPipelineAgents([...fullGroupAgents, ...nonGroupAgents]);
+                  }}
+                  className="flex-shrink-0 flex items-center gap-1 text-[11px] font-semibold text-amber-800 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add {companionSuggestion.missing.length} missing
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Migration sub-pipeline selector — only when the meta-type was picked.
             Two tiles, always visible (no tap-to-reveal). Tapping a tile drives

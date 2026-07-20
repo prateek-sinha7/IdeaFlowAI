@@ -187,6 +187,11 @@ function GenericDeliverablePreview({
 
   // HTML → sandboxed iframe (NO allow-same-origin — see T-18-05 above).
   if (mimetype === "text/html" || mimetype.startsWith("text/html")) {
+    // presentation.html from a custom-composer PPT run → PPTPreview for the
+    // styled deck viewer with navigation chrome. Keyed on filename (SC-001).
+    if (deliverable.filename === "presentation.html") {
+      return <PPTPreview content={content} isStreaming={false} pipelineType="od_ppt" onRevise={undefined} />;
+    }
     return (
       <div className="h-full flex flex-col overflow-hidden">
         <div className="flex-1 min-h-0 overflow-hidden">
@@ -201,8 +206,14 @@ function GenericDeliverablePreview({
     );
   }
 
-  // Markdown (or markdown-ish text) → MarkdownPreview.
+  // Markdown (or markdown-ish text) → check filename first for typed renderers,
+  // then fall back to plain MarkdownPreview.
   if (mimetype === "text/markdown" || mimetype === "text/x-markdown" || mimetype.startsWith("text/markdown")) {
+    // user_stories.md → UserStoryPreview (structured epic/story cards with
+    // Given/When/Then blocks). Keyed on filename, not workflow name (SC-001).
+    if (deliverable.filename === "user_stories.md") {
+      return <UserStoryPreview content={content} />;
+    }
     return <MarkdownPreview content={content} />;
   }
 

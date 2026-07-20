@@ -6447,7 +6447,45 @@ class ExecutionEngine:
                 patch["task_source"] = user_step.task_source
             new_steps.append(dataclasses.replace(step, **patch) if patch else step)
 
-        return dataclasses.replace(compiled, steps=new_steps), _user_by_agent
+        # Option B (KAN-112): if the user explicitly selected an output type in the
+        # custom composer, the FE stores it under the reserved ``__deliverable__`` key
+        # in the selections map (same namespace convention as ``__workflow__`` for
+        # limits — no new column, no migration).  Apply it by replacing the compiled
+        # plan's deliverable spec so the engine routes the run to the correct
+        # deliverable resolver (e.g. single_file → prototype.html instead of
+        # streamed_text).  Generic, name-free (SC-001): the caller decides the shape,
+        # the engine just carries it.  None/absent → the compiled deliverable is
+        # unchanged (byte/event-identical for all existing runs, INV-3).
+        # Also set clarify.mode=skip when a deliverable override is present — the
+        # custom composer brief already describes intent; forcing a clarification
+        # questionnaire would block the FE (the QuestionnairePanel never renders
+        # before pipeline_start on the custom flow — same reason custom_prototype
+        # had clarify.mode:skip in its manifest).
+        _deliverable_override = (selections or {}).get("__deliverable__")
+        if _deliverable_override and isinstance(_deliverable_override, dict):
+            from agents.workflows.plan import DeliverableSpec
+            try:
+                patched_deliverable = DeliverableSpec(**_deliverable_override)
+                # Force clarify.mode=skip: the custom composer brief already captures
+                # intent; questionnaire would block (FIX-016 / MAN-04 parity).
+                patched_clarify = dataclasses.replace(compiled.clarify, mode="skip")
+                return dataclasses.replace(
+                    compiled,
+                    steps=new_steps,
+                    deliverable=patched_deliverable,
+                    clarify=patched_clarify,
+                )
+            except TypeError:
+                # Unknown DeliverableSpec field — degrade gracefully; the unmodified
+                # deliverable is safer than crashing the run (the WS layer already
+                # validated the shape at ingress).
+                logger.warning(
+                    "engine: __deliverable__ override has unknown fields %s — "
+                    "proceeding with the compiled deliverable unchanged",
+                    list(_deliverable_override),
+                )
+
+        return dataclasses.replace(compiled, steps=new_steps)
 
     async def _dispatch_step_with_retry(self, step, ectx: ExecutionContext, strategy):
         """Drive one step's strategy with retry-on-transient + content-hash reuse.

@@ -1,6 +1,5 @@
 ---
-consumes:
-- documentation-agent
+consumes: []
 context_from:
 - $previous
 estimated_duration: 5.0
