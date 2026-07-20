@@ -3371,7 +3371,11 @@ class ExecutionEngine:
 
             # Emit agent_input event (Phase 3 / T040) — shows full input prompt
             # and context sources in the Thinking tab (FR-015).
-            context_sources = self._build_context_sources(spec, ordered_agents, ectx)
+            context_sources = self._build_context_sources(
+                spec, ordered_agents, ectx,
+                agent_index=index,
+                user_message=user_message,
+            )
             # context_message stays a TEXT str ALWAYS in the agent_input event (split-
             # transport, Locked Decision #3): only the model dispatch wraps the blocks.
             _agent_input_data = {
@@ -5946,6 +5950,8 @@ class ExecutionEngine:
         spec,
         ordered_agents: list,
         ectx: ExecutionContext,
+        agent_index: int = -1,
+        user_message: str = "",
     ) -> list[dict]:
         """Build the context_sources list for the agent_input event (FR-015).
 
@@ -5953,11 +5959,116 @@ class ExecutionEngine:
         - type: "summary" (text output) or "artifact" (typed artifact)
         - agent_id, agent_name, summary_length, full_output_length
 
+        KAN-102: additionally records run-originating sources for the FIRST agent
+        (agent_index == 0) so "Context Received" is never empty:
+        - type: "run_input" — the user brief (always present for first agent)
+        - type: "context_block" — template and/or design system (when od_context is set)
+
+        Positional check: agent_index == 0 is the GENERIC "first agent" predicate
+        (same INV-1-compliant pattern used in _compose_context_message). No
+        pipeline_type or spec.id branch.
+
+        context_sources is in _VOLATILE_STRIP_KEYS in _normalize.py so the
+        characterization goldens are byte-identical regardless of new entries (INV-3).
+
         Reads consumed content typed-only (ectx.artifacts) via
         _filter_consumed_outputs (ART-03 read-migration; the mirror fallback was
         deleted in 05-07).
         """
         sources: list[dict] = []
+
+        # ── KAN-102: run-originating sources for the first agent ─────────────────
+        # agent_index == 0 is the generic "first dispatched agent" predicate (INV-1).
+        # Dormant for downstream agents (they have prior-agent sources instead).
+        # context_sources is already in _VOLATILE_STRIP_KEYS so the goldens stay
+        # byte-identical (INV-3) regardless of what we add here.
+        is_first_agent = (agent_index == 0)
+        if is_first_agent:
+            # User brief — always present for the first agent
+            if user_message:
+                sources.append({
+                    "type": "run_input",
+                    "label": "User brief",
+                    "size_chars": len(user_message),
+                })
+
+            # OD template and design system — present when od_context is loaded
+            # (od_prototype / od_ppt runs). Read from ectx.od_context (same pattern
+            # as the TEMPLATE COMPLIANCE block in _compose_context_message, INV-1).
+            od = getattr(ectx, "od_context", None) or {}
+            template_id = od.get("template_id") or ""
+            ds_id = od.get("ds_id") or ""
+            template_body = od.get("template_body") or ""
+            ds_body = od.get("ds_body") or ""
+            if template_id:  # show chip even if template_body empty (slug is enough)
+                sources.append({
+                    "type": "context_block",
+                    "label": f"Template: {template_id}",
+                    "size_chars": len(template_body) if template_body else 0,
+                })
+            if ds_id and ds_body:
+                sources.append({
+                    "type": "context_block",
+                    "label": f"Design system: {ds_id}",
+                    "size_chars": len(ds_body),
+                })
+
+            # KAN-103: for revision runs ectx.od_context is None, but design.md was
+            # seeded into the sandbox by the previous_run provider (from the parent
+            # build's sandbox). Parse the "# ACTIVE DESIGN SYSTEM (slug)" and
+            # "# ACTIVE TEMPLATE (slug)" headers that _write_reference_files wrote to
+            # emit template/DS chips even when od_context is absent.
+            # INV-1: keyed on sandbox file content (generic), not pipeline_type/agent name.
+            # INV-3: context_sources is in _VOLATILE_STRIP_KEYS → goldens unaffected.
+            if not (template_id and ds_id):
+                try:
+                    import re as _re
+                    _sandbox = getattr(ectx, "_sandbox", None)
+                    if _sandbox is None:
+                        from app.agents.sandbox import RunSandbox as _RS
+                        _run_id = getattr(ectx, "run_id", None)
+                        _disk_p = getattr(ectx, "disk_principal", None)
+                        if _run_id and _disk_p:
+                            _sandbox = _RS(_disk_p, _run_id)
+                    if _sandbox is not None:
+                        _design_md = _sandbox.read("design.md") or ""
+                        if _design_md:
+                            _tmpl_m = _re.search(
+                                r"^#\s+ACTIVE TEMPLATE\s*(?:\(([^)]+)\))?",
+                                _design_md, _re.MULTILINE
+                            )
+                            _tmpl_slug = (_tmpl_m.group(1) or "").strip() if _tmpl_m else ""
+                            _ds_m = _re.search(
+                                r"^#\s+ACTIVE DESIGN SYSTEM\s*(?:\(([^)]+)\))?",
+                                _design_md, _re.MULTILINE
+                            )
+                            _ds_slug = (_ds_m.group(1) or "").strip() if _ds_m else ""
+                            if _tmpl_slug and not template_id:
+                                sources.append({
+                                    "type": "context_block",
+                                    "label": f"Template: {_tmpl_slug}",
+                                    "size_chars": len(_design_md),
+                                })
+                            if _ds_slug and not ds_id:
+                                sources.append({
+                                    "type": "context_block",
+                                    "label": f"Design system: {_ds_slug}",
+                                    "size_chars": len(_design_md),
+                                })
+                        if not template_id and _sandbox.path_for("template.html").is_file():
+                            _tmpl_html = _sandbox.read("template.html") or ""
+                            if _tmpl_html and not any(
+                                s.get("label", "").startswith("Template:") for s in sources
+                            ):
+                                sources.append({
+                                    "type": "context_block",
+                                    "label": "Template: (reference)",
+                                    "size_chars": len(_tmpl_html),
+                                })
+                except Exception:  # noqa: BLE001 — observability, never abort agent dispatch
+                    pass
+
+        # ── Prior-agent outputs (inter-agent handoff sources) ─────────────────────
         consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
         for aid, output in consumed.items():
             prev = next((s for s in ordered_agents if s.id == aid), None)
