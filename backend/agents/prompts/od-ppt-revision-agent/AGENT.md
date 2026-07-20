@@ -1,6 +1,7 @@
 ---
 consumes: []
 context_from: []
+description: Makes precise, surgical edits to an existing HTML presentation based on your revision request, without rebuilding the deck.
 estimated_duration: 25.0
 guardrails: []
 icon: ✏️

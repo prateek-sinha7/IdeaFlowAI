@@ -3,6 +3,7 @@ consumes:
 - market-research-agent
 context_from:
 - $previous
+description: Identifies your strengths, weaknesses, opportunities, and threats with clear actions.
 estimated_duration: 5.0
 guardrails: []
 icon: "\U0001F3AF"

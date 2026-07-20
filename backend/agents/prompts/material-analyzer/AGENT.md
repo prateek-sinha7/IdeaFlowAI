@@ -1,6 +1,7 @@
 ---
 consumes: []
 context_from: []
+description: Analyzes your requirements and designs the complete application architecture.
 estimated_duration: 6.0
 guardrails: []
 icon: "\U0001F4CB"

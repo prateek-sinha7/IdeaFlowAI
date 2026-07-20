@@ -1,4 +1,5 @@
 ---
+description: Generates design system specifications — tokens, typography, and component styles — from the requirements and prototype definition.
 id: chat-ui-design
 name: UI Design Agent
 role: Design System & Visual Specifications

@@ -3,6 +3,7 @@ consumes:
 - story-estimator
 context_from:
 - $previous
+description: Adds quality requirements covering performance, security, and accessibility.
 estimated_duration: 5.0
 guardrails:
 - agile

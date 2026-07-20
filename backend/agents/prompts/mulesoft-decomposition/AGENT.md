@@ -5,6 +5,7 @@ consumes:
 context_from:
 - mulesoft-inventory
 - mulesoft-user-stories
+description: Proposes the Spring Boot microservice split with bounded contexts and service topology.
 estimated_duration: 10.0
 guardrails:
 - mulesoft

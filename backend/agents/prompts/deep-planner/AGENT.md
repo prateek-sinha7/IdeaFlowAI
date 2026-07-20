@@ -1,4 +1,5 @@
 ---
+description: Analyzes your brief before a workflow starts and produces the planning context that guides every downstream agent.
 id: deep-planner
 name: Deep Planner
 role: Proactive Planning Intelligence

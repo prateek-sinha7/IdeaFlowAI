@@ -1,4 +1,5 @@
 ---
+description: Resolves technical unknowns and documents technology decisions with rationale, alternatives, and risks.
 id: research-agent
 name: Research Agent
 role: Technical Decision Researcher

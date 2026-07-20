@@ -3,6 +3,7 @@ consumes:
 - test-case-generator
 context_from:
 - $previous
+description: Identifies performance bottlenecks and recommends optimizations for speed.
 estimated_duration: 5.0
 guardrails: []
 icon: ⚡

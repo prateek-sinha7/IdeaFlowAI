@@ -3,6 +3,7 @@ consumes:
 - od-ppt-brief-analyst
 context_from:
 - $previous
+description: Builds the complete HTML presentation from the plan — every slide, chart, and visual element wired to the template.
 estimated_duration: 30.0
 guardrails: []
 icon: "\U0001F5A5️"

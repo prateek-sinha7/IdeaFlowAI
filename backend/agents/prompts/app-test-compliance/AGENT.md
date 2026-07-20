@@ -7,6 +7,7 @@ context_from:
 - app-test-implementation
 - app-code-compliance
 - app-security-architecture
+description: Test pyramid, coverage gates, compliance test mapping (PCI/GDPR/SOC 2), performance and chaos plans.
 estimated_duration: 8.0
 guardrails: []
 icon: "\U0001F3AF"

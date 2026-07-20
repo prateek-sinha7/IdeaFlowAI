@@ -3,6 +3,7 @@ consumes:
 - od-ppt-composer
 context_from:
 - $previous
+description: Validates the deck for structural integrity and presentation correctness, then packages it ready for delivery.
 estimated_duration: 10.0
 guardrails: []
 icon: "\U0001F4E6"

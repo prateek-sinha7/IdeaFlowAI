@@ -4,6 +4,7 @@ consumes:
 - prototype-plan
 context_from:
 - $previous
+description: Performs a read-only Spec Kit-style cross-artifact analysis of the spec and task list — checks consistency, coverage gaps, ambiguities, duplications, and unmapped tasks before implementation starts.
 estimated_duration: 20.0
 gate: Human_Gate
 guardrails: []

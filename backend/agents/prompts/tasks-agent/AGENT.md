@@ -1,4 +1,5 @@
 ---
+description: Generates a complete, dependency-ordered task list from an implementation plan.
 id: tasks-agent
 name: Tasks Agent
 role: Implementation Task Generator

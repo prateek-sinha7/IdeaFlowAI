@@ -5,6 +5,7 @@ consumes:
 context_from:
 - app-user-stories
 - app-code-generator
+description: Fleshes out the user stories' business logic in the generated codebase — route handlers, services, integrations, and feature flags.
 estimated_duration: 14.0
 guardrails: []
 icon: ⚙️

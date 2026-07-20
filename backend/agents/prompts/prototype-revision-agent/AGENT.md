@@ -1,6 +1,7 @@
 ---
 consumes: []
 context_from: []
+description: Makes precise, targeted edits directly to an existing HTML prototype based on your revision request.
 guardrails:
 - html-prototype
 icon: ✏️

@@ -3,6 +3,7 @@ consumes:
 - documentation-agent
 context_from:
 - $previous
+description: Creates executive-ready reports with key metrics, insights, and recommendations.
 estimated_duration: 5.0
 guardrails: []
 icon: "\U0001F4CB"

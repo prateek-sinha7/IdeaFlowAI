@@ -3,6 +3,7 @@ consumes:
 - prototype-plan
 context_from:
 - $previous
+description: Builds the interactive prototype incrementally, one task at a time, wiring up every page, component, and interaction.
 estimated_duration: 60.0
 guardrails:
 - html-prototype
@@ -13,7 +14,7 @@ injects:
 - design_system
 - craft
 max_tokens: 32768
-name: Build Agent
+name: Implementation Agent
 order: 4
 pipeline_type: prototype
 produces:

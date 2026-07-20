@@ -1,4 +1,5 @@
 ---
+description: Plans a compelling slide-by-slide presentation strategy from your topic, ready for the deck to be built.
 id: chat-ppt
 name: PPT Content Strategist
 role: Presentation Content Strategy

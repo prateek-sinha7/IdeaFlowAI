@@ -1,4 +1,5 @@
 ---
+description: Runs a focused discovery conversation to understand your needs and determine which deliverables to generate.
 id: chat-discovery
 name: Discovery Agent
 role: Requirements Elicitation & Output Selection
