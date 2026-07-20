@@ -204,6 +204,64 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
   });
 });
 
+// ── 51-07 (FANOUT-01 / D6/D7) — priorAgents threading into the config rail ───────
+//
+// CanvasView owns `pipelineAgents` + the selected-index local `selIndex`; it must
+// thread `priorAgents={pipelineAgents.slice(0, selIndex)}` so the rail's fan-out
+// "Source list from" picker offers ONLY the agents BEFORE the selected node, and
+// that option set must change as the selection changes.
+describe("CanvasView — fan-out priorAgents threading (51-07)", () => {
+  // A fan-out selection so the rail renders the source picker (the picker is
+  // gated on the step's `strategy === "fanout_batch"`). `onSelection` is a mock
+  // that does not re-thread state, so we seed the selection to exercise the
+  // threaded `priorAgents` option set directly.
+  const fanoutSel = (source_step: string): StepSelection => ({
+    strategy: "fanout_batch",
+    task_source: { kind: "parsed", parser: "heading_tasks", source_step },
+  });
+
+  it("threads the earlier agents to the rail — the fan-out source picker lists only the agents before the selected node", async () => {
+    renderCanvas({ selections: { charlie: fanoutSel("alpha") } as SelectionsMap });
+    // Select charlie (index 2) → priorAgents = [alpha, bravo].
+    await userEvent.click(screen.getByTestId("canvas-node-charlie"));
+    const source = await screen.findByLabelText(/source list from/i);
+    expect(within(source).getByText("Alpha Agent")).toBeInTheDocument();
+    expect(within(source).getByText("Bravo Agent")).toBeInTheDocument();
+    // Never the selected node itself or later nodes.
+    expect(within(source).queryByText("Charlie Agent")).not.toBeInTheDocument();
+  });
+
+  it("changing the selected node updates the available fan-out source options", async () => {
+    renderCanvas({
+      selections: {
+        bravo: fanoutSel("alpha"),
+        charlie: fanoutSel("alpha"),
+      } as SelectionsMap,
+    });
+    // Select bravo (index 1) → priorAgents = [alpha] only.
+    await userEvent.click(screen.getByTestId("canvas-node-bravo"));
+    let source = await screen.findByLabelText(/source list from/i);
+    expect(within(source).getByText("Alpha Agent")).toBeInTheDocument();
+    expect(within(source).queryByText("Bravo Agent")).not.toBeInTheDocument();
+
+    // Re-select charlie (index 2) → priorAgents grows to [alpha, bravo].
+    await userEvent.click(screen.getByTestId("canvas-node-charlie"));
+    source = await screen.findByLabelText(/source list from/i);
+    expect(within(source).getByText("Alpha Agent")).toBeInTheDocument();
+    expect(within(source).getByText("Bravo Agent")).toBeInTheDocument();
+  });
+
+  it("disables the fan-out toggle for the first node (no upstream to source a list)", async () => {
+    renderCanvas();
+    // Alpha (index 0) is selected by default → no earlier agents.
+    await userEvent.click(screen.getByTestId("canvas-node-alpha"));
+    await screen.findByLabelText(/^Model$/i);
+    expect(
+      screen.getByRole("switch", { name: /fan out over a list/i }),
+    ).toBeDisabled();
+  });
+});
+
 // ── No graph/dnd library + reuse guards (source-level) ───────────────────────────
 describe("CanvasView — hand-rolled, no graph library, reuses the shared levers (D-04 / INV-3)", () => {
   const DIR = resolve(process.cwd(), "src/components/workflow/composer");

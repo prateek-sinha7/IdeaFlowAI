@@ -1456,7 +1456,7 @@ export type SelectionsMap = Record<string, StepSelection>;
  * `task-list-planner` is the generic producer skill shipped in 51-03. Grows as
  * more producer skills ship. Keyed by agent id (name-free, SC-001).
  */
-const KNOWN_PRODUCERS: readonly string[] = ["prototype-plan", "task-list-planner"];
+export const KNOWN_PRODUCERS: readonly string[] = ["prototype-plan", "task-list-planner"];
 
 /**
  * EMP-04 (D-07) coupling — MIRRORS the server-side rule in

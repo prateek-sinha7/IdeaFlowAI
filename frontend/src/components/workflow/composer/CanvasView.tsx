@@ -273,6 +273,7 @@ export function CanvasView({
           total={pipelineAgents.length}
           selection={selAgent ? selections[selAgent.id] : undefined}
           onSelection={onSelection}
+          priorAgents={pipelineAgents.slice(0, selIndex)}
         />
 
         {/* docked Run summary — the proposal's 2×2 stat-card grid (ND-AG: the

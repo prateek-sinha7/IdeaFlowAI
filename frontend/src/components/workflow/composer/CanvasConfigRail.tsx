@@ -1,11 +1,19 @@
 "use client";
 
-import { Settings2, MousePointerClick, ChevronDown, Minus, Plus } from "lucide-react";
+import {
+  Settings2,
+  MousePointerClick,
+  ChevronDown,
+  Minus,
+  Plus,
+  AlertCircle,
+} from "lucide-react";
 import {
   AgentPromptSection,
   applyLeverPatch,
   useAgentCapabilities,
   getAgentInitials,
+  KNOWN_PRODUCERS,
   type StepSelection,
   type SelectionsMap,
 } from "../AgentsPopup";
@@ -39,6 +47,7 @@ export function CanvasConfigRail({
   total,
   selection,
   onSelection,
+  priorAgents = [],
 }: {
   /** The selected node's agent, or null when nothing is selected. */
   agent: AgentDef | null;
@@ -46,6 +55,13 @@ export function CanvasConfigRail({
   total: number;
   selection?: StepSelection;
   onSelection: (agentId: string, sel: StepSelection | undefined) => void;
+  /**
+   * 51-07 (D6/D7/§4b) — the pipeline agents that PRECEDE the selected node
+   * (`pipelineAgents.slice(0, selIndex)` from `CanvasView`). The fan-out
+   * "Source list from" picker offers ONLY these earlier steps; when empty (the
+   * first agent, no upstream) the fan-out toggle is disabled.
+   */
+  priorAgents?: AgentDef[];
 }) {
   // Hook is called unconditionally (rules of hooks) before the empty-state branch.
   const { validatorOptions, gateOptions, modelOptions, loading } =
@@ -71,6 +87,24 @@ export function CanvasConfigRail({
   const reviewGate = gateOptions.find((g) => g !== COUPLED_GATE);
   const reviewGateOn = (sel.gates ?? []).some((g) => g !== COUPLED_GATE);
   const retry = sel.retry ?? 0;
+
+  // ── Fan-out lever (51-07 / FANOUT-01, D6/D7/§4b) ──────────────────────────
+  // Parity with the Simple-view AdvancedExpander: reuse the SHARED reducer +
+  // the SHARED KNOWN_PRODUCERS allow-list (no fork, no redefine). The source
+  // picker lists ONLY earlier agents (`priorAgents`, threaded from CanvasView);
+  // the toggle is disabled for the first agent (no upstream); a non-blocking
+  // warning steers to a known `## Task N:` producer (INSERT-A-NODE, D2/D7).
+  const canFanout = priorAgents.length > 0;
+  const fanoutOn = sel.strategy === "fanout_batch";
+  const currentSource = sel.task_source?.source_step ?? "";
+  // Default source (D7): the nearest earlier KNOWN producer if one exists, else
+  // the immediately-preceding step (still valid — the warning then steers to
+  // INSERT one).
+  const defaultSource =
+    [...priorAgents].reverse().find((a) => KNOWN_PRODUCERS.includes(a.id))?.id ??
+    priorAgents[priorAgents.length - 1]?.id;
+  const sourceKnown =
+    !!currentSource && KNOWN_PRODUCERS.includes(currentSource);
 
   // Apply a patch through the SHARED reducer, then report the (possibly cleared)
   // selection upward from a normal handler.
@@ -195,7 +229,7 @@ export function CanvasConfigRail({
         />
       </div>
 
-      <div className="flex items-center justify-between py-3">
+      <div className="flex items-center justify-between border-b border-line-faint-row py-3">
         <div className="min-w-0">
           <div className="font-sans text-[12.5px] font-semibold text-ink-900">
             Retry on failure
@@ -227,6 +261,98 @@ export function CanvasConfigRail({
             <Plus className="h-3 w-3" />
           </button>
         </div>
+      </div>
+
+      {/* FAN-OUT (51-07 / FANOUT-01, D6/D7/§4b) — "Fan out over a list": one
+          worker per `## Task N:` heading the SOURCE step emits. The kernel owns
+          spawn/isolation/merge; the rail only persists {strategy, task_source}
+          through the SHARED reducer (no fork). GUARDRAILS (D9/§5b): the source
+          picker lists ONLY earlier agents (priorAgents); the toggle is disabled
+          for a step with no upstream; a non-blocking warning steers to a known
+          `## Task N:` producer (INSERT-A-NODE, D2/D7). */}
+      <div className="flex flex-col gap-2 py-3">
+        <div className="flex items-center justify-between">
+          <div className="min-w-0">
+            <div className="font-sans text-[12.5px] font-semibold text-ink-900">
+              Fan out over a list
+            </div>
+            <div className="font-serif text-[11px] text-ink-300">
+              Run one worker per task the source step lists
+            </div>
+          </div>
+          <Toggle
+            on={fanoutOn}
+            label="Fan out over a list"
+            disabled={!canFanout}
+            onToggle={() =>
+              fanoutOn
+                ? patch({
+                    strategy: undefined,
+                    task_source: undefined,
+                    fanout: undefined,
+                  })
+                : patch({
+                    strategy: "fanout_batch",
+                    task_source: {
+                      kind: "parsed",
+                      parser: "heading_tasks",
+                      source_step: defaultSource ?? "",
+                    },
+                  })
+            }
+          />
+        </div>
+
+        {/* No upstream → the toggle can't source a list (D9). */}
+        {!canFanout && (
+          <p className="font-serif text-[11px] leading-tight text-ink-300">
+            Add an earlier step that outputs a task list to fan out over.
+          </p>
+        )}
+
+        {/* Source picker — earlier steps ONLY (D9/§5b). */}
+        {fanoutOn && canFanout && (
+          <>
+            <div className="relative">
+              <span className="pointer-events-none absolute left-[11px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-brand" />
+              <select
+                aria-label="Source list from"
+                value={currentSource}
+                onChange={(e) =>
+                  patch({
+                    task_source: {
+                      kind: "parsed",
+                      parser: "heading_tasks",
+                      source_step: e.target.value,
+                    },
+                  })
+                }
+                className="w-full appearance-none rounded-[9px] border border-line-control bg-surface-white py-2.5 pl-6 pr-8 font-sans text-[12.5px] font-medium text-ink-900 focus:border-brand focus:outline-none"
+              >
+                {priorAgents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
+            </div>
+
+            {/* Non-blocking unknown-producer warning (D7/§4e) — steer to INSERT
+                a dedicated `## Task N:` producer; the compile guard (51-02) is
+                the server backstop. */}
+            {!sourceKnown && (
+              <p className="flex items-start gap-1.5 rounded-md border border-status-amber-border bg-status-amber-fill px-2 py-1 font-serif text-[10.5px] leading-tight text-status-amber">
+                <AlertCircle className="mt-0.5 h-3 w-3 flex-none" />
+                <span>
+                  This step fans out one worker per <code>## Task N:</code>{" "}
+                  heading its source outputs — pick or insert a step that emits a
+                  task list.
+                </span>
+              </p>
+            )}
+          </>
+        )}
       </div>
 
       {/* CUSTOM PROMPT (REUSE AgentPromptSection, surfaceOnly). */}
