@@ -63,3 +63,5 @@ skills/opendesign/design-templates/*/thumbnail.jpg
 !.kiro/steering/
 !.kiro/skills/
 .run
+frontend/package-lock.json
+frontend/package-lock.json
