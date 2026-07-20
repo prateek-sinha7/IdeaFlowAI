@@ -403,9 +403,12 @@ class _StreamingConcierge:
         self._deltas = list(deltas)
         self._answer = answer
         self.seen: list = []
+        # c72 — capture the ctx.chain_hints threaded onto each converse turn.
+        self.seen_hints: list = []
 
     async def converse(self, ctx, user_message, on_chunk=None):
         self.seen.append(user_message)
+        self.seen_hints.append(getattr(ctx, "chain_hints", None))
         for delta in self._deltas:
             if on_chunk is not None:
                 res = on_chunk(delta)
@@ -468,6 +471,28 @@ class TestConciergeStreaming:
         assert _events_of_type(env, run_id, "chat_reply_chunk") == []
         # … and the held proposal was written (behind the confirm chip, not executed).
         assert len(_events_of_type(env, run_id, "concierge_proposal")) == 1
+
+    def test_chain_hints_reach_concierge_ctx(self, env, monkeypatch):
+        """c72: a fresh-Concierge POST threads body.chain_hints onto the ctx handed to
+        converse; a POST without chain_hints carries the degrade-safe [] default."""
+        from app.api import run_commands as rc_module
+
+        fake = _StreamingConcierge()
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="completed")
+        env["state"]["user"] = owner
+
+        # POST WITH chain_hints → the ctx carries them.
+        r1 = _post(env, run_id, text="what can I do next?", concierge=True,
+                   chain_hints=[{"id": "ppt", "label": "Presentation"}], message_id="h1")
+        assert r1.status_code == 200, r1.text
+        # POST WITHOUT chain_hints → the ctx carries the [] default.
+        r2 = _post(env, run_id, text="and now?", concierge=True, message_id="h2")
+        assert r2.status_code == 200, r2.text
+
+        assert fake.seen_hints == [[{"id": "ppt", "label": "Presentation"}], []]
 
     def test_non_concierge_branch_still_returns_json(self, env, monkeypatch):
         """A non-Concierge turn (plain steering on a running run) still returns its

@@ -415,9 +415,11 @@ class ConciergeCapability:
         """Assemble the Concierge system prompt from run DATA (degrade-safe).
 
         Blocks (all optional): the base role instruction, the ``conversation`` context
-        block (33-01), and the compiled manifest's ``chat`` data (suggestions/notes —
-        read via ``getattr(compiled, "chat", {})``; the manifest key lands in 33-05).
-        No branch on pipeline_type / spec.id / workflow name.
+        block (33-01), the compiled manifest's ``chat`` data (suggestions/notes — read
+        via ``getattr(compiled, "chat", {})``; the manifest key lands in 33-05), and the
+        c72 ``chain_hints`` block (the FE-curated chainable next-workflow labels, read
+        via ``getattr(ctx, "chain_hints", None)`` and joined as GENERIC data). No branch
+        on pipeline_type / spec.id / workflow name.
         """
         parts: list[str] = [
             "You are the run Concierge: a per-run assistant that answers the user's "
@@ -440,5 +442,27 @@ class ConciergeCapability:
             suggestions = chat_data.get("suggestions") or chat_data.get("notes")
             if suggestions:
                 parts.append("## Suggested topics\n\n" + str(suggestions))
+
+        # c72 — the chainable next-workflow labels (FE-curated), reflected as inert
+        # GENERIC data. The labels are READ from ctx and joined — there is NO branch on
+        # pipeline_type / spec.id / workflow name (INV-1/SC-001). Defensively cap the
+        # count + per-label length and drop empties (untrusted client input, T-c72-01).
+        chain_hints = getattr(ctx, "chain_hints", None)
+        if isinstance(chain_hints, list) and chain_hints:
+            labels: list[str] = []
+            for hint in chain_hints[:8]:
+                if not isinstance(hint, dict):
+                    continue
+                raw = hint.get("label") or hint.get("id") or ""
+                label = str(raw).strip()[:60]
+                if label:
+                    labels.append(label)
+            if labels:
+                parts.append(
+                    "This completed run's output can be chained into these follow-up "
+                    "workflows: " + ", ".join(labels) + ". If the user asks what they "
+                    "can do next, you may suggest running one of these with this run's "
+                    "output. Do not claim any other capability."
+                )
 
         return "\n\n".join(parts)

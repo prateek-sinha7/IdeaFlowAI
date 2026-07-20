@@ -571,6 +571,11 @@ class MessageCommand(BaseModel):
     # reconstructed from the durable ``concierge_proposal`` row. Present ⇒ the held intent
     # is disposed CONFIRMED through its Phase-29 seam; absent ⇒ a fresh free-form ask.
     confirm_proposal: dict | None = None
+    # chain_hints: the FE-computed chain suggestions [{id,label}] from the settled-run
+    # lane (c72), threaded to the Concierge ctx as GENERIC data the prompt reflects — no
+    # workflow-name branch (INV-1). Additive optional; default None ⇒ dormant (byte-
+    # identical Phase-29 routing for every non-concierge turn; no chain block when absent).
+    chain_hints: list[dict] | None = None
     # images: per-turn image attachments (UPLD-02 residue, 30-03) — untrusted base64
     # {mime_type, data} entries cap-validated by the SHARED ``_validate_images`` ingress
     # caps (the exact caps the launch path uses) BEFORE queueing; a violation → 400.
@@ -727,15 +732,24 @@ class _ConciergeCtx:
     ``conversation_context`` is absent + ``compiled`` may be ``None`` ⇒ the Concierge
     degrades gracefully (``getattr`` defaults). No workflow name is ever passed (INV-1);
     ``compiled`` is DATA (a typed plan), never a name branch.
+
+    ``chain_hints`` (c72) is DATA the Concierge reflects: the FE-curated chain
+    suggestions ``[{id,label}]`` from the settled-run lane. Absent ⇒ ``[]`` ⇒ the
+    ``_compose_system_prompt`` getattr default degrades safely (no chain block). No
+    workflow name is ever passed — only display labels the FE already surfaced.
     """
 
-    def __init__(self, *, run_id, scoped_store, owner_id, workspace_id, compiled=None):
+    def __init__(
+        self, *, run_id, scoped_store, owner_id, workspace_id, compiled=None,
+        chain_hints=None,
+    ):
         self.run_id = run_id
         self.scoped_store = scoped_store
         self.owner_id = owner_id
         self.workspace_id = workspace_id
         self.model = None
         self.compiled = compiled
+        self.chain_hints = chain_hints or []
 
 
 def _resolve_concierge():
@@ -1212,6 +1226,10 @@ async def post_message(
             run_id=run_id, scoped_store=store,
             owner_id=current_user.id, workspace_id=wr_workspace,
             compiled=compiled,
+            # c72: thread the FE-computed chain suggestions onto the ctx as GENERIC
+            # data (absent ⇒ []). No workflow-name branch (INV-1) — the Concierge
+            # reflects the SAME curated labels the lane chips show.
+            chain_hints=body.chain_hints,
         )
         # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
         # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT

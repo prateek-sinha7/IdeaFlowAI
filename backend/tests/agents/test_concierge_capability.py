@@ -226,6 +226,36 @@ def test_compose_system_prompt_injects_compiled_chat_block() -> None:
     assert isinstance(bare, str) and bare
 
 
+def test_compose_system_prompt_injects_chain_hints_block() -> None:
+    """c72: a ctx carrying non-empty ``chain_hints`` appends a GENERIC data block
+    naming the labels; an empty/absent ``chain_hints`` is byte-identical (no block)."""
+    ctx = SimpleNamespace(
+        conversation_context=None,
+        compiled=None,
+        chain_hints=[
+            {"id": "ppt", "label": "Presentation"},
+            {"id": "prototype", "label": "Prototype"},
+        ],
+    )
+    prompt = ConciergeCapability._compose_system_prompt(ctx)
+    # The labels are reflected as inert data …
+    assert "Presentation" in prompt
+    assert "Prototype" in prompt
+    # … under a generic chain/follow-up phrasing (no workflow-name branch).
+    assert "chained into" in prompt or "follow-up" in prompt
+
+    # Byte-identity of the no-hints path: absent vs empty-list == the same prompt,
+    # with NO chain block appended.
+    no_hints = ConciergeCapability._compose_system_prompt(
+        SimpleNamespace(conversation_context=None, compiled=None)
+    )
+    empty_hints = ConciergeCapability._compose_system_prompt(
+        SimpleNamespace(conversation_context=None, compiled=None, chain_hints=[])
+    )
+    assert no_hints == empty_hints
+    assert "chained into" not in no_hints and "follow-up" not in no_hints
+
+
 def test_concierge_impl_imports_no_raw_orm() -> None:
     """The read path is the scoped store alone — no ``app.models`` raw-ORM import."""
     from pathlib import Path
