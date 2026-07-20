@@ -1111,6 +1111,13 @@ class KernelServices:
             agent_id=spec.id,
             agent_name=spec.name,
             output=review_payload,
+            # BUG-2 Cond B (quick-260720-ec4): thread the SAME cooperative
+            # cancel_event execute() holds into the delegate so a run parked at a
+            # DECLARED human/approval gate honors Stop via the EXISTING cancel-aware
+            # race in _run_review_gate — exactly as the inline gate sites do. None
+            # (no live cancel_event) preserves the plain `await event.wait()` path
+            # byte-identically (INV-3). Keys ONLY on the generic cancel_event.
+            cancel_event=self.cancel_event,
         ):
             yield event
 

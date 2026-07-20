@@ -1932,6 +1932,26 @@ class ExecutionEngine:
                     if event is not None:
                         yield event
                 except asyncio.TimeoutError:
+                    # BUG-2 Cond A (quick-260720-ec4): the Stop button sets the
+                    # cooperative cancel_event; observe it on the drain loop's 1s
+                    # heartbeat so a clarify-parked run honors Stop. Cancel the
+                    # clarify task, transition to cancelled, and yield the existing
+                    # pipeline_cancelled terminal (no new event type). DORMANT when
+                    # cancel_event is None (scripted/golden runs) — byte-identical to
+                    # today's plain `continue` (INV-3). Keys ONLY on the generic
+                    # cancel_event (no workflow/agent-name branch — SC-001/INV-1).
+                    if cancel_event is not None and cancel_event.is_set():
+                        clarify_task.cancel()
+                        try:
+                            await clarify_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                        self._state_machine.transition(pipeline_run_id, "cancelled")
+                        yield {
+                            "type": "pipeline_cancelled",
+                            "data": {"pipeline_run_id": pipeline_run_id},
+                        }
+                        return
                     continue
 
             # Drain any remaining events after task completion

@@ -192,11 +192,15 @@ class _ResumeHarness:
     wave_runs/subagent_runs/run_events persist across the simulated restart (Open Q3).
     """
 
-    def __init__(self, session, call_log, fail_on, *, db_engine=None, raise_on_fanout_call=None, plan=_TASK_PLAN):
+    def __init__(self, session, call_log, fail_on, *, db_engine=None, raise_on_fanout_call=None, plan=_TASK_PLAN, clarify_mode="off"):
         self.session = session
         self.call_log = call_log
         self.fail_on = fail_on
         self.db_engine = db_engine
+        # Compiled clarify.mode override (BUG-2 Cond A, quick-260720-ec4). Default
+        # "off" keeps EVERY existing caller byte-identical (the historical hardcode);
+        # "auto" makes the run park at clarify so the Stop/cancel path can be driven.
+        self.clarify_mode = clarify_mode
         # The planner-emitted JSON plan (defaults to the 2-wave plan).
         self.plan = plan
         # When set to N, the Nth run_fanout invocation (1-based) raises mid-wave AFTER
@@ -225,13 +229,15 @@ class _ResumeHarness:
         _CAP = engine_mod._CAPABILITY_REGISTRY
         _WC = engine_mod._WORKFLOW_COMPILER
 
-        def _patched_compile(pt, _orig=_orig_compile):
+        _clarify_mode = self.clarify_mode
+
+        def _patched_compile(pt, _orig=_orig_compile, _mode=_clarify_mode):
             if pt == _FIXTURE_ID:
                 compiled = _WC.compile(load_manifest(_FIXTURE_ID, _MANIFEST_HOME), _CAP)
-                compiled.clarify.mode = "off"
+                compiled.clarify.mode = _mode
                 return compiled
             compiled = _orig(pt)
-            compiled.clarify.mode = "off"
+            compiled.clarify.mode = _mode
             return compiled
 
         _orig_alias = engine_mod.resolve_alias
@@ -3595,4 +3601,103 @@ async def test_restart_resume_fires_output_persist_hook(monkeypatch):
         f"restart auto-resume must fire _resume_output_persist_sink(run_id) from "
         f"_drive_resumed_stream's finally (branch b): {fired}"
     )
+    session.close()
+
+
+# ===========================================================================
+# BUG-2 Cond A (quick-260720-ec4) — Stop cancels a run parked at CLARIFY
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_stop_at_clarify_yields_pipeline_cancelled(monkeypatch):
+    """A run PARKED at clarify (the engine drain loop draining a ClarifyEngine that
+    never emits questionnaire_complete) honors the Stop button: setting the shared
+    cancel_event makes the drain loop cancel the clarify task and yield the existing
+    pipeline_cancelled terminal within the 1s heartbeat.
+
+    RED pre-fix: the drain loop ignores cancel_event → the generator never yields
+    pipeline_cancelled → the bounded asyncio.wait_for raises TimeoutError.
+
+    Per the plan-checker: the ClarifyEngine here is a PARKING FAKE (emits
+    questionnaire_ready then blocks forever) — the real ClarifyEngine.run does an LLM
+    call and would HANG offline, muddying the RED→GREEN signal.
+    """
+    import asyncio
+
+    import agents.execution_engine.clarify_engine as _clar_mod
+
+    session, db_engine = _make_session()
+    run_id = f"rr-{uuid.uuid4().hex[:8]}"
+    owner = "rr-clarify-user"
+
+    # A ClarifyEngine that emits ONE questionnaire_ready then PARKS forever (never
+    # emits questionnaire_complete) — the offline stand-in for "awaiting the user".
+    class _ParkingClarify:
+        def __init__(self):
+            self._usage_sink = None
+
+        async def run(
+            self, pipeline_run_id, planning_context, ws_send, *,
+            owner_id=None, workspace_id=None, max_rounds=1,
+            replay_questions=None, replay_round=None,
+        ):
+            await ws_send({
+                "type": "questionnaire_ready",
+                "data": {"pipeline_run_id": pipeline_run_id, "round": 1},
+            })
+            await asyncio.Event().wait()  # PARK — never resolves (no answers submitted)
+            return planning_context  # pragma: no cover
+
+    monkeypatch.setattr(_clar_mod, "ClarifyEngine", _ParkingClarify)
+
+    with _ResumeHarness(
+        session, call_log={}, fail_on=set(), db_engine=db_engine, clarify_mode="auto"
+    ) as h:
+        engine = h.make_engine()
+
+        # Force the planner to route to clarify (missing_information non-empty) so the
+        # run parks AT clarify, before any domain agent / fan-out runs.
+        async def _clarify_planner(
+            user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kw
+        ):
+            return (
+                {
+                    "execution_gate": "CLARIFY_REQUIRED",
+                    "missing_information": ["target audience"],
+                    "explicit_constraints": [],
+                    "pipeline_type": ptype,
+                },
+                "CLARIFY_REQUIRED",
+            )
+
+        engine._run_planner = _clarify_planner  # type: ignore[assignment]
+
+        ev = asyncio.Event()
+        saw_cancelled = False
+
+        agen = engine._execute_impl(
+            agents=list(h.specs),
+            user_message="Run the wave workflow.",
+            pipeline_run_id=run_id,
+            pipeline_type=_FIXTURE_ID,
+            user_id=owner,
+            gate_agent_ids=[],
+            cancel_event=ev,
+        )
+
+        async def _drive():
+            nonlocal saw_cancelled
+            async for evt in agen:
+                if evt.get("type") == "questionnaire_ready":
+                    ev.set()  # press Stop the instant the questionnaire parks
+                if evt.get("type") == "pipeline_cancelled":
+                    saw_cancelled = True
+                    break
+
+        # RED pre-fix: the drain loop never observes ev → this times out.
+        await asyncio.wait_for(_drive(), timeout=8)
+        await agen.aclose()
+
+    assert saw_cancelled, "Stop at clarify must yield the existing pipeline_cancelled terminal"
     session.close()
