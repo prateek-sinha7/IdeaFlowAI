@@ -292,4 +292,77 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
     const [, body] = mockCreateUserWorkflow.mock.calls[0];
     expect(body).not.toHaveProperty("model_overrides");
   });
+
+  it("51-06: threads a composed FAN-OUT selection into the createUserWorkflow SAVE payload", async () => {
+    mockCreateUserWorkflow.mockResolvedValue({
+      id: "wf-3",
+      name: "Fanned workflow",
+      base_pipeline_type: "prototype",
+      agent_ids: ["requirements-analyst"],
+    });
+
+    // A composed fan-out selection (the exact shape the AdvancedExpander toggle
+    // persists) seeds the live selections; Save must forward it verbatim under
+    // `selections` so the backend `trust="user"` re-compile honors it.
+    const FANOUT_SELECTION = {
+      "requirements-analyst": {
+        strategy: "fanout_batch" as const,
+        task_source: {
+          kind: "parsed" as const,
+          parser: "heading_tasks" as const,
+          source_step: "prototype-plan",
+        },
+      },
+    };
+
+    render(
+      <SkillsHooksProvider>
+        <AgentsPopup
+          isOpen
+          onClose={vi.fn()}
+          agents={SAVE_AGENTS}
+          pipelineType="prototype"
+          initialSelections={FANOUT_SELECTION}
+        />
+      </SkillsHooksProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /save workflow/i }));
+    const nameInput = await screen.findByPlaceholderText(/competitive research/i);
+    await userEvent.type(nameInput, "Fanned workflow");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalledTimes(1));
+    const [, body] = mockCreateUserWorkflow.mock.calls[0];
+    expect(body.selections).toEqual(FANOUT_SELECTION);
+  });
+
+  it("51-06: omits selections from the SAVE payload when no lever is set (INV-3)", async () => {
+    mockCreateUserWorkflow.mockResolvedValue({
+      id: "wf-4",
+      name: "Bare workflow",
+      base_pipeline_type: "prototype",
+      agent_ids: ["requirements-analyst"],
+    });
+
+    render(
+      <SkillsHooksProvider>
+        <AgentsPopup
+          isOpen
+          onClose={vi.fn()}
+          agents={SAVE_AGENTS}
+          pipelineType="prototype"
+        />
+      </SkillsHooksProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /save workflow/i }));
+    const nameInput = await screen.findByPlaceholderText(/competitive research/i);
+    await userEvent.type(nameInput, "Bare workflow");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalledTimes(1));
+    const [, body] = mockCreateUserWorkflow.mock.calls[0];
+    expect(body).not.toHaveProperty("selections");
+  });
 });

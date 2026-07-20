@@ -420,6 +420,7 @@ export function AgentCapabilitiesModal({
   attachedSkills: propSkills, attachedHooks: propHooks,
   onAttachSkill: propAttachSkill, onAttachHook: propAttachHook,
   onSelectionsChange, initialSelections, token,
+  priorAgents,
   asDrawer = false,
 }: {
   agent: AgentDef;
@@ -433,6 +434,12 @@ export function AgentCapabilitiesModal({
   onSelectionsChange?: (selections: SelectionsMap) => void;
   initialSelections?: SelectionsMap;
   token?: string | null;
+  /**
+   * 51-06 — the pipeline agents preceding this one, threaded to the
+   * AdvancedExpander fan-out source picker so a single-agent config surface can
+   * still offer earlier steps as the fan-out `source_step` (D7/§4e).
+   */
+  priorAgents?: { id: string; name: string }[];
   /**
    * Render as a slide-in-from-right DRAWER (the Library agent-detail surface,
    * mock `drawerOpen`) instead of the default centered modal. Only the shell
@@ -624,6 +631,7 @@ export function AgentCapabilitiesModal({
                 onSelectionsChange={onSelectionsChange}
                 initialSelections={initialSelections}
                 token={token}
+                priorAgents={priorAgents}
               />
             </div>
           )}
@@ -1421,8 +1429,34 @@ export type StepSelection = {
   gates?: string[];
   model?: string;
   retry?: number;
+  // ── Fan-out levers (51-06 / FANOUT-01, D6/§4a) ────────────────────────────
+  // The composer persists a per-step fan-out selection generically (by
+  // agent_id — no workflow/agent name literal, SC-001). The kernel already
+  // owns spawn/isolation/merge; these three optional keys are the ONLY thing
+  // the composer adds. `_apply_selections` overlays them onto the compiled
+  // plan and the empty-selections path stays byte-identical (INV-3). The
+  // shared `applyLeverPatch` reducer needs NO change — toggling ON writes
+  // {strategy, task_source}, OFF clears them (undefined → key deleted).
+  strategy?: "fanout_batch";
+  task_source?: {
+    kind: "parsed";
+    parser: "heading_tasks" | "json_tasks";
+    source_step: string;
+  };
+  fanout?: { mode?: "parallel"; max_parallel?: number };
 };
 export type SelectionsMap = Record<string, StepSelection>;
+
+/**
+ * v1 known `## Task N:` producer allow-list (D7/§4e). A fan-out worker may
+ * REUSE an upstream node as its `source_step` ONLY when that node is a known
+ * task-list producer; otherwise the user is steered to INSERT a dedicated
+ * producer (D2 — fan-out is a change to the workflow SHAPE, never a job bolted
+ * onto a chained agent). `prototype-plan` is the shipped domain producer;
+ * `task-list-planner` is the generic producer skill shipped in 51-03. Grows as
+ * more producer skills ship. Keyed by agent id (name-free, SC-001).
+ */
+const KNOWN_PRODUCERS: readonly string[] = ["prototype-plan", "task-list-planner"];
 
 /**
  * EMP-04 (D-07) coupling — MIRRORS the server-side rule in
@@ -1549,6 +1583,7 @@ export function AdvancedExpander({
   onSelectionsChange,
   token,
   initialSelections,
+  priorAgents,
 }: {
   agents: { id: string; name: string }[];
   /** Reports the compact per-step selections map upward (the 22-04 shape). */
@@ -1557,6 +1592,14 @@ export function AdvancedExpander({
   token?: string | null;
   /** WR-01 — seed the per-step selections when launching a saved workflow. */
   initialSelections?: SelectionsMap;
+  /**
+   * 51-06 (D7/§4e) — the pipeline agents that precede THIS expander's block, so
+   * the fan-out "Source list from" picker can offer earlier steps even when the
+   * expander renders a single agent (the per-agent config surface passes one
+   * agent). Combined with `agents.slice(0, idx)` for the intra-block order. When
+   * omitted (or empty for the first agent) the fan-out toggle is disabled.
+   */
+  priorAgents?: { id: string; name: string }[];
 }) {
   // Lever OPTIONS + fetch state come from the SHARED hook (SC-001) — the same
   // source the Canvas inline config rail uses (INV-3, no forked fetch/filter).
@@ -1618,7 +1661,7 @@ export function AdvancedExpander({
 
   return (
     <div className="flex flex-col space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
-      {agents.map((agent) => {
+      {agents.map((agent, idx) => {
         const isOpen = expanded.has(agent.id);
         const region = `advanced-${agent.id}`;
         const sel = selections[agent.id] ?? {};
@@ -1797,6 +1840,134 @@ export function AdvancedExpander({
                     ))}
                   </select>
                 </div>
+
+                {/* Fan-out lever (51-06 / FANOUT-01, D6/§4c) — "Fan out over a
+                    list": one worker per `## Task N:` heading the source step
+                    emits. The kernel owns spawn/isolation/merge; the composer
+                    only persists {strategy, task_source} via the SHARED reducer
+                    (no reducer change). GUARDRAILS (D9/§5b): the source picker
+                    lists ONLY earlier agents; the toggle is disabled for a step
+                    with no upstream; a non-blocking warning steers the user to a
+                    known `## Task N:` producer (INSERT-A-NODE, D2/D7). */}
+                {(() => {
+                  // Earlier steps = the pipeline agents before THIS block
+                  // (priorAgents, from the per-agent config surface) followed by
+                  // any earlier agents WITHIN this expander's block (multi-agent
+                  // render). Either alone is empty in the two live mounts, so the
+                  // union is what makes "earlier agents only" real.
+                  const earlier = [
+                    ...(priorAgents ?? []),
+                    ...agents.slice(0, idx),
+                  ];
+                  const canFanout = earlier.length > 0;
+                  const fanoutOn = sel.strategy === "fanout_batch";
+                  const currentSource = sel.task_source?.source_step ?? "";
+                  // Default source (D7): the nearest earlier KNOWN producer if
+                  // one exists, else the immediately-preceding step (still valid
+                  // — the unknown-producer warning then steers to INSERT one).
+                  const defaultSource =
+                    [...earlier].reverse().find((a) =>
+                      KNOWN_PRODUCERS.includes(a.id),
+                    )?.id ?? earlier[earlier.length - 1]?.id;
+                  const sourceKnown =
+                    !!currentSource && KNOWN_PRODUCERS.includes(currentSource);
+                  return (
+                    <div className="flex flex-col gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <label
+                          htmlFor={`${region}-fanout`}
+                          className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                        >
+                          Fan out over a list
+                        </label>
+                        <input
+                          type="checkbox"
+                          id={`${region}-fanout`}
+                          aria-label={`Fan out over a list for ${agent.name}`}
+                          checked={fanoutOn}
+                          disabled={!canFanout}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              updateLever(agent.id, {
+                                strategy: "fanout_batch",
+                                task_source: {
+                                  kind: "parsed",
+                                  parser: "heading_tasks",
+                                  source_step: defaultSource ?? "",
+                                },
+                              });
+                            } else {
+                              updateLever(agent.id, {
+                                strategy: undefined,
+                                task_source: undefined,
+                                fanout: undefined,
+                              });
+                            }
+                          }}
+                          className="h-3.5 w-3.5 accent-brand disabled:opacity-40 disabled:cursor-not-allowed"
+                        />
+                      </div>
+
+                      {/* No upstream → the toggle can't source a list (D9). */}
+                      {!canFanout && (
+                        <p className="text-[10px] text-gray-400 leading-tight">
+                          Add an earlier step that outputs a task list to fan out
+                          over.
+                        </p>
+                      )}
+
+                      {/* Source picker — earlier steps ONLY (D9/§5b). */}
+                      {fanoutOn && canFanout && (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <label
+                              htmlFor={`${region}-fanout-source`}
+                              className="text-[11px] text-gray-600 flex-1 min-w-0"
+                            >
+                              Source list from
+                            </label>
+                            <select
+                              id={`${region}-fanout-source`}
+                              aria-label={`Source list for ${agent.name}`}
+                              value={currentSource}
+                              onChange={(e) =>
+                                updateLever(agent.id, {
+                                  task_source: {
+                                    kind: "parsed",
+                                    parser: "heading_tasks",
+                                    source_step: e.target.value,
+                                  },
+                                })
+                              }
+                              className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
+                            >
+                              {earlier.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Non-blocking unknown-producer warning (D7/§4e) —
+                              steer to INSERT a dedicated `## Task N:` producer;
+                              the compile guard (51-02) is the server backstop. */}
+                          {!sourceKnown && (
+                            <p className="flex items-start gap-1.5 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 leading-tight">
+                              <AlertCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                              <span>
+                                This step fans out one worker per{" "}
+                                <code>## Task N:</code> heading its source
+                                outputs — pick or insert a step that emits a task
+                                list.
+                              </span>
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* EMP-04 (D-07): auto-attach inline notice — a polite live
                     region so the gate-added message is announced. */}
@@ -2202,6 +2373,11 @@ export function AgentsPopup({
                 onClose={() => setCapAgent(null)}
                 onSelectionsChange={handleSelectionsChange}
                 initialSelections={initialSelections}
+                // 51-06 — the upstream steps feed the fan-out source picker so a
+                // mid-pipeline step can fan out over an earlier producer's list.
+                priorAgents={agents
+                  .slice(0, capAgent.index)
+                  .map((a) => ({ id: a.id, name: a.name }))}
               />
             )}
           </AnimatePresence>
