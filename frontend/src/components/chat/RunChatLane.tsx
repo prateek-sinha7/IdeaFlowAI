@@ -304,6 +304,48 @@ function classifyFreeText(text: string): "ask" | "change" {
   return "change";
 }
 
+// A settled-run "<transform> into <target>" chain phrase (BUG-1, quick-260720-ec4):
+// a generic transform verb FOLLOWED (anywhere later) by a connector (into|to|as).
+// No connector ⇒ NOT a chain phrase (a bare "make it bigger" stays a change).
+const CHAIN_TRANSFORM =
+  /\b(convert|turn|make|transform|change|render|export|generate)\b.*\b(into|to|as)\b/i;
+const CHAIN_CONNECTOR = /\b(into|to|as)\b/i;
+
+/**
+ * Detect a settled-run "<transform> into <named available chain target>" phrase
+ * and return the matched suggestion's id — the SC-001-safe chain seam (BUG-1,
+ * quick-260720-ec4). Two-part gate, BOTH required:
+ *   1. Transform shape — a generic transform verb FOLLOWED (anywhere later) by a
+ *      connector (into|to|as). No connector ⇒ null (a bare "make it bigger" is a
+ *      change, not a chain).
+ *   2. Named available target — the TAIL after the FIRST connector names one of
+ *      the CURRENTLY-AVAILABLE suggestions, matched case-insensitively against the
+ *      DATA-DRIVEN suggestions[].label (substring, or any whitespace token of the
+ *      label with length >= 4). NEVER a workflow-name literal (SC-001/INV-1).
+ * Matching the TAIL (not the whole text) is load-bearing: "convert the
+ * presentation-buttons into pills" must NOT spuriously match — only a target
+ * NAMED as the transform destination counts. Returns the FIRST matching id, else null.
+ */
+function matchChainTarget(
+  text: string,
+  suggestions?: LaneSuggestion[],
+): string | null {
+  if (!suggestions || suggestions.length === 0) return null;
+  const t = text.trim().toLowerCase();
+  if (!CHAIN_TRANSFORM.test(t)) return null;
+  const connector = CHAIN_CONNECTOR.exec(t);
+  if (!connector) return null;
+  const tail = t.slice(connector.index + connector[0].length);
+  for (const s of suggestions) {
+    const label = s.label.trim().toLowerCase();
+    if (!label) continue;
+    if (tail.includes(label)) return s.id;
+    const tokens = label.split(/\s+/).filter((w) => w.length >= 4);
+    if (tokens.some((w) => tail.includes(w))) return s.id;
+  }
+  return null;
+}
+
 /**
  * First error string among the failed agents (server-surfaced). Falls back to
  * any agent carrying an error so an older/partial run never renders blank.
@@ -961,6 +1003,16 @@ export function RunChatLane({
   const handleFreeText = useCallback(
     (text: string, attachments: ChatAttachment[]) => {
       if (runState === "complete") {
+        // BUG-1 (quick-260720-ec4): a "<transform> into <named available chain
+        // target>" phrase chains into a NEW workflow via the existing onSuggestion
+        // seam — BEFORE the ask/change split — instead of misrouting to a revision
+        // of THIS run. Fires ONLY on a data-driven match against suggestions[].label
+        // AND an onSuggestion handler; any non-match falls through UNCHANGED.
+        const chainId = matchChainTarget(text, suggestions);
+        if (chainId && onSuggestion) {
+          onSuggestion(chainId);
+          return;
+        }
         if (classifyFreeText(text) === "ask") {
           // Show the thinking affordance while the blocking Concierge reply is
           // in flight; the transcript-driven effect above clears it when the
@@ -988,7 +1040,7 @@ export function RunChatLane({
       }
       sendMessage(text, attachments);
     },
-    [runState, onRevise, sendMessage, suggestions],
+    [runState, onRevise, sendMessage, suggestions, onSuggestion],
   );
 
   // Confirm the held refinement → launch the revision (the ONLY path that fires

@@ -450,6 +450,90 @@ describe("RunChatLane", () => {
     });
   }
 
+  // ─── BUG-1 (quick-260720-ec4) — "<transform> into <target>" chains, not revises ─
+  // On a SETTLED run a transform phrase whose TAIL names a currently-available
+  // chain suggestion fires onSuggestion(id) (the chain seam), BEFORE the ask/change
+  // split — so "convert it into presentation" chains into a new workflow instead of
+  // misrouting to a *_revision of THIS run. A transform phrase with NO matching (or
+  // no) available target keeps the exact existing change→held-refinement path.
+
+  it("settled-run 'convert it into presentation' with a matching chain target fires onSuggestion(ppt) and does NOT revise", () => {
+    const onSuggestion = vi.fn();
+    const onRevise = vi.fn();
+    const sendMessage = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "complete",
+          suggestions: [
+            { id: "ppt", label: "Presentation" },
+            { id: "prototype", label: "Prototype" },
+          ],
+          onSuggestion,
+          onRevise,
+          sendMessage,
+        })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "convert it into presentation" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(onSuggestion).toHaveBeenCalledTimes(1);
+    expect(onSuggestion).toHaveBeenCalledWith("ppt");
+    expect(onRevise).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
+  });
+
+  it("settled-run transform phrase with NO matching target stays a change (held refinement)", () => {
+    const onSuggestion = vi.fn();
+    const onRevise = vi.fn();
+    const sendMessage = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "complete",
+          suggestions: [
+            { id: "ppt", label: "Presentation" },
+            { id: "prototype", label: "Prototype" },
+          ],
+          onSuggestion,
+          onRevise,
+          sendMessage,
+        })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "convert the buttons into pills" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(onSuggestion).not.toHaveBeenCalled();
+    // Held-refinement (44-02) path unchanged: the confirm chip surfaces.
+    expect(screen.getByTestId("chat-refinement-chip")).toBeInTheDocument();
+    expect(onRevise).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("settled-run chain phrase with no suggestions supplied stays a change", () => {
+    const onSuggestion = vi.fn();
+    const onRevise = vi.fn();
+    const sendMessage = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({ runState: "complete", onSuggestion, onRevise, sendMessage })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "convert it into presentation" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(onSuggestion).not.toHaveBeenCalled();
+    expect(screen.getByTestId("chat-refinement-chip")).toBeInTheDocument();
+    expect(onRevise).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it("renders a confirm/reject chip pair for a held consequential proposal (D-05)", () => {
     const onConfirmProposal = vi.fn();
     const onRejectProposal = vi.fn();
