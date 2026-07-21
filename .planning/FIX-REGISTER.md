@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-063 | 2026-07-21 | KAN-113: Fix version dropdown showing wrong relative age ("5h ago") due to timezone-naive datetime serialization | SQLAlchemy `DateTime` (no `timezone=True`) returns naive datetimes from SQLite. Pydantic v2 serializes them without `+00:00`, so JavaScript `Date.parse()` treats them as local time, adding the user's UTC offset to the age calculation. Fix: add `@field_serializer` to `WorkflowRunResponse` and `FamilyMemberResponse` to promote naive datetimes to UTC before ISO-formatting. | `backend/app/api/runs.py` | Phase 36 §3 (FamilyMemberResponse) + Phase 5 §3 (WorkflowRunResponse) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-062 | 2026-07-21 | Move "v1 draft" version chip to the left of the "Running · Streaming" status badge in RunHeader | Chip was placed after the `flex-1` spacer in JSX order, landing it on the right side. Moved it to the first child position in the flex row so it renders left of the StatusBadge. | `frontend/src/components/preview/RunHeader.tsx` | Phase 39 (RUNUI-06/07) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-061 | 2026-07-20 | KAN-112: Custom utility agent combinations fail with DAG unsatisfiable — all 8 custom agents had rigid `consumes` chain | Each custom agent declared `consumes: [previous-agent-id]` forming a fixed 8-agent chain. The `WorkflowResolver.validate()` rejected any subset as unsatisfiable (e.g. `report-generator` needs `documentation-agent`). Fixed by changing `consumes` from specific agent ids to `[]` on all 7 non-root custom agents. `context_from: [$previous]` already chains context correctly — `consumes` is only for typed artifact graph edges, which these agents don't need. | `backend/agents/prompts/swot-analyst/AGENT.md`, `backend/agents/prompts/roadmap-planner/AGENT.md`, `backend/agents/prompts/security-auditor/AGENT.md`, `backend/agents/prompts/test-case-generator/AGENT.md`, `backend/agents/prompts/performance-optimizer/AGENT.md`, `backend/agents/prompts/documentation-agent/AGENT.md`, `backend/agents/prompts/report-generator/AGENT.md` | Phase 7/8 (WorkflowResolver / agent AGENT.md) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-060 | 2026-07-17 | KAN-112: Make all custom-composer runs consistent — always pipeline_type="custom" | User story agents were routed to pipeline_type="user_stories" making history/logs inconsistent with prototype runs (which stayed "custom"). Fix: removed the `user_stories` routing branch from `resolveDispatchType`; added user story agents to `AGENT_DELIVERABLE_MAP` with `{strategy:"streamed_text", name:"user_stories.md", mimetype:"text/markdown"}`. Engine `_apply_selections` already handles the override + forces clarify.mode=skip. Output renders via `GenericDeliverablePreview` → `MarkdownPreview`. All custom-composer runs now consistently show `type=custom` in logs and history. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (custom composer) | INV-1/3/12/SC-001 ✅ | Done |
@@ -79,6 +80,81 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-063 — KAN-113: Fix version dropdown wrong relative age (timezone-naive datetime)
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-113`
+
+#### Root Cause
+
+`backend/app/api/runs.py` — `WorkflowRunResponse` and `FamilyMemberResponse` both declare `created_at: datetime` and `completed_at: Optional[datetime]` without any timezone-aware serialization configuration.
+
+SQLAlchemy's `DateTime` column (`workflow.py` lines 38-41) stores datetimes without timezone info (uses `DateTime`, not `DateTime(timezone=True)`). When read back from SQLite, the datetime object has `tzinfo=None` — a naive datetime — even though it was originally written as `datetime.now(timezone.utc)`.
+
+Pydantic v2 serializes a naive datetime as `"2026-07-21T10:30:00"` (no `+00:00` or `Z` suffix). JavaScript's `Date.parse()` treats an ISO 8601 string without a timezone suffix as **local time** per the ECMAScript spec. For a user in UTC+5:30 (India), this adds 5.5 hours to the epoch value, making a freshly-created run appear as "5h ago" rather than "just now".
+
+Trace:
+```
+WorkflowRun.created_at = datetime(2026,7,21,10,30,0)  ← naive (no tzinfo)
+  → FamilyMemberResponse.created_at = same naive datetime
+  → Pydantic v2 JSON: "2026-07-21T10:30:00"  ← NO +00:00
+  → JS Date.parse("2026-07-21T10:30:00") treats as LOCAL time (UTC+5:30 adds 5.5h)
+  → Date.now() - then = tiny positive or negative → shows "5h ago"
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 36 §3 (`FamilyMemberResponse` / Workstream A read surface) + Phase 5 §3 (`WorkflowRunResponse` / typed artifacts persistence)
+- **Relevant register section:** `_register-parts/05-typed-artifacts-persistence-ownership-1b.md` §3 and Phase 36 §3
+- **Deleted code verified (not resurrected):** N/A — new serializer code only
+- **Locked decisions respected:** INV-12 — the fix reuses the `_coerce_to_aware_utc` pattern already established in `backend/app/core/dependencies.py` lines 20-31, applied as a `@field_serializer` at the API boundary
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/runs.py` | Added `timezone` to `from datetime import datetime, timezone` | Required by the serializer to call `.replace(tzinfo=timezone.utc)` |
+| `backend/app/api/runs.py` | Added `field_serializer` to `from pydantic import BaseModel, Field, field_serializer` | Required for the `@field_serializer` decorator |
+| `backend/app/api/runs.py` | Added `@field_serializer("created_at", "completed_at")` method `_serialize_dt` to `WorkflowRunResponse` | Promotes naive UTC datetimes to timezone-aware before JSON serialization |
+| `backend/app/api/runs.py` | Added same `@field_serializer("created_at", "completed_at")` to `FamilyMemberResponse` | Same fix — this is the model consumed by the version dropdown's `formatRelativeAge` |
+
+The serializer logic:
+```python
+@field_serializer("created_at", "completed_at")
+def _serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+    if v is None:
+        return None
+    if v.tzinfo is None:
+        v = v.replace(tzinfo=timezone.utc)
+    return v.isoformat()
+```
+Result: `"2026-07-21T10:30:00+00:00"` instead of `"2026-07-21T10:30:00"`.
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — Python API model only
+- **INV-3** (golden parity): not affected — no engine or event stream changes; golden snapshots do not cover API JSON serialization
+- **INV-12** (no duplication): the `_coerce_to_aware_utc` helper in `dependencies.py` is the prior art for this pattern; `@field_serializer` is the Pydantic v2 canonical way to apply it at the serialization boundary
+- **SC-001** (zero engine edits): not affected — API model only
+
+#### Verification
+
+Mental trace with fix applied:
+1. SQLite returns `datetime(2026,7,21,10,30,0)` (naive)
+2. `FamilyMemberResponse._serialize_dt()` called with that value
+3. `v.tzinfo is None` → `v = v.replace(tzinfo=timezone.utc)` → `datetime(2026,7,21,10,30,0, tzinfo=UTC)`
+4. `.isoformat()` → `"2026-07-21T10:30:00+00:00"` ✅
+5. Frontend `Date.parse("2026-07-21T10:30:00+00:00")` → correct UTC epoch
+6. `Date.now() - then` → correct small delta → "just now" or "4m ago" ✅
+
+UTC-aware datetimes on Postgres (already have `tzinfo`): `v.tzinfo is None` is False → `.isoformat()` called directly → no change in behavior.
+
+#### Notes
+
+- The same naive-datetime issue potentially exists in other API files (analytics.py, user_workflows.py, etc.) for any `created_at` / `updated_at` fields, but those are lower-priority since they don't feed the `formatRelativeAge` function in the UI.
+- The underlying SQLAlchemy column (`DateTime` without `timezone=True`) is intentionally left unchanged — switching to `DateTime(timezone=True)` would require a migration and has risks on SQLite compatibility. The serializer boundary fix is the correct minimal approach.
+- Backend server restart required after this change.
 
 ---
 

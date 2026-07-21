@@ -21,11 +21,11 @@ Security carried over VERBATIM from the original handlers:
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
@@ -122,6 +122,19 @@ class WorkflowRunResponse(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    # KAN-113: SQLite returns timezone-naive datetimes even though we write UTC.
+    # Pydantic v2 serialises a naive datetime without a +00:00 suffix, so
+    # JavaScript Date.parse() treats it as local time → wrong "Nh ago" display.
+    # Promote to UTC-aware before ISO-formatting (matches _coerce_to_aware_utc
+    # in dependencies.py — same pattern, applied at the serialisation boundary).
+    @field_serializer("created_at", "completed_at")
+    def _serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+        if v is None:
+            return None
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        return v.isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -925,6 +938,16 @@ class FamilyMemberResponse(BaseModel):
     parent_run_id: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
+
+    # KAN-113: same UTC-promotion serialiser as WorkflowRunResponse (SQLite naive
+    # datetime → JavaScript Date.parse local-time misread → wrong "Nh ago" label).
+    @field_serializer("created_at", "completed_at")
+    def _serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+        if v is None:
+            return None
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        return v.isoformat()
 
 
 class RunFamilyResponse(BaseModel):
