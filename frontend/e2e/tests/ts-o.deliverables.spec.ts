@@ -4,8 +4,8 @@
  * IDE, od_ppt deck iframe, od_prototype iframe) + the neutral empty state, the
  * three preview tabs, and the header copy affordance.
  *
- * Setup per case: goto + runWith(user_stories framing) → mockWs.start(...) with
- * the case's pipelineType → run agents → mockWs.complete({ pipelineType,
+ * Setup per case: goto + runWith(user_stories framing) → mockSse.start(...) with
+ * the case's pipelineType → run agents → mockSse.complete({ pipelineType,
  * finalOutput }). pipeline_start's pipeline_type drives the workflowType sync in
  * DashboardLayout (od_prototype→prototype, od_ppt→ppt, app_builder passthrough),
  * so the right renderer mounts on completion.
@@ -29,14 +29,14 @@ const SAMPLE_APP_FILES = [
 
 /** Start a pipeline of `pipelineType`, run all its agents, then complete it. */
 async function runToComplete(
-  mockWs: import("../fixtures/mockWs").MockWs,
+  mockSse: import("../fixtures/mockSse").MockSse,
   pipelineType: keyof typeof AGENTS,
   finalOutput: string,
 ) {
   const agents = AGENTS[pipelineType];
-  mockWs.start(agents, { pipelineType });
-  for (const a of agents) await runAgent(mockWs, a.id);
-  mockWs.complete({ pipelineType, finalOutput });
+  mockSse.start(agents, { pipelineType });
+  for (const a of agents) await runAgent(mockSse, a.id);
+  mockSse.complete({ pipelineType, finalOutput });
 }
 
 test.describe("TS-O — deliverable renderers", () => {
@@ -45,17 +45,26 @@ test.describe("TS-O — deliverable renderers", () => {
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
   });
 
-  test("TS-O-01 empty preview before completion shows the neutral state", async ({ dashboard, mockWs }) => {
+  test("TS-O-01 empty preview before completion shows the neutral state", async ({ dashboard, mockSse }) => {
     // Start + run agents but do NOT complete — no deliverable yet.
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockWs, a.id);
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
 
-    await expect(dashboard.previewEmpty()).toBeVisible();
+    // Phase 42-02 (§B) auto-tabs a live/building run to Steps, so open the Preview
+    // tab to observe its pre-completion chrome.
+    await dashboard.previewTab().click();
+
+    // Phase 39 redesign: while the run is still in-flight (isRunning) with no
+    // content, the preview shows the streaming "Building your deliverable…"
+    // placeholder inside PreviewChrome (the neutral "Output will appear here"
+    // now only shows for a settled/idle empty run). This is the heir of the
+    // pre-completion neutral state.
+    await expect(dashboard.page.getByText(/Building your deliverable/)).toBeVisible();
   });
 
-  test("TS-O-02 user_stories renders the Product Backlog with stats", async ({ dashboard, mockWs }) => {
-    await runToComplete(mockWs, "user_stories", SAMPLE_BACKLOG);
+  test("TS-O-02 user_stories renders the Product Backlog with stats", async ({ dashboard, mockSse }) => {
+    await runToComplete(mockSse, "user_stories", SAMPLE_BACKLOG);
 
     // The h1 backlog header (".first()" — the sample's epic title also reads
     // "Product Backlog", rendered later as an h2).
@@ -68,8 +77,8 @@ test.describe("TS-O — deliverable renderers", () => {
     await expect(dashboard.page.getByText("Copy MD")).toBeVisible();
   });
 
-  test("TS-O-03 app_builder renders the file-tree IDE", async ({ dashboard, mockWs }) => {
-    await runToComplete(mockWs, "app_builder", SAMPLE_APP_FILES);
+  test("TS-O-03 app_builder renders the file-tree IDE", async ({ dashboard, mockSse }) => {
+    await runToComplete(mockSse, "app_builder", SAMPLE_APP_FILES);
 
     // The IDE chrome appears once ≥1 file parses. Two filename: blocks → "2 files".
     await expect(dashboard.page.getByText(/^\d+ files$/)).toBeVisible();
@@ -77,15 +86,15 @@ test.describe("TS-O — deliverable renderers", () => {
     await expect(dashboard.page.getByRole("button", { name: "Download ZIP" })).toBeVisible();
   });
 
-  test("TS-O-04 od_ppt renders the deck in a sandboxed iframe", async ({ dashboard, mockWs }) => {
-    await runToComplete(mockWs, "od_ppt", SAMPLE_DECK);
+  test("TS-O-04 od_ppt renders the deck in a sandboxed iframe", async ({ dashboard, mockSse }) => {
+    await runToComplete(mockSse, "od_ppt", SAMPLE_DECK);
 
     await expect(dashboard.deckIframe()).toBeVisible();
   });
 
-  test("TS-O-05 od_prototype renders the prototype iframe", async ({ dashboard, mockWs }) => {
+  test("TS-O-05 od_prototype renders the prototype iframe", async ({ dashboard, mockSse }) => {
     await runToComplete(
-      mockWs,
+      mockSse,
       "od_prototype",
       "<!DOCTYPE html><html><body><h1>App</h1></body></html>",
     );
@@ -95,8 +104,8 @@ test.describe("TS-O — deliverable renderers", () => {
     await expect(dashboard.prototypeIframe()).toBeVisible({ timeout: 10000 });
   });
 
-  test("TS-O-06 the three tabs exist and Files switches content", async ({ dashboard, mockWs }) => {
-    await runToComplete(mockWs, "user_stories", SAMPLE_BACKLOG);
+  test("TS-O-06 the three tabs exist and Files switches content", async ({ dashboard, mockSse }) => {
+    await runToComplete(mockSse, "user_stories", SAMPLE_BACKLOG);
 
     await expect(dashboard.previewTab()).toBeVisible();
     await expect(dashboard.filesTab()).toBeVisible();
@@ -110,12 +119,15 @@ test.describe("TS-O — deliverable renderers", () => {
     await expect(dashboard.page.getByRole("button", { name: "Download All" })).toBeVisible();
   });
 
-  test("TS-O-08 header copy button appears once content is present", async ({ dashboard, mockWs }) => {
-    // No content yet → no header copy button.
-    await expect(dashboard.page.locator('button[title="Copy"]')).toHaveCount(0);
+  test("TS-O-08 run header settles with Share + Download once content is present", async ({ dashboard, mockSse }) => {
+    // Phase 39 (RUNUI-06/07): the old header [title="Copy"] icon button was retired
+    // with the mock run-header redesign. The run header now settles (data-run-state
+    // ="complete") and exposes Share + Download once the deliverable is present.
+    await runToComplete(mockSse, "user_stories", SAMPLE_BACKLOG);
 
-    await runToComplete(mockWs, "user_stories", SAMPLE_BACKLOG);
-
-    await expect(dashboard.page.locator('button[title="Copy"]')).toBeVisible();
+    const runHeader = dashboard.page.locator('[data-testid="run-header"]');
+    await expect(runHeader).toHaveAttribute("data-run-state", "complete");
+    await expect(dashboard.page.getByRole("button", { name: /Copy a link to this run/ })).toBeVisible();
+    await expect(dashboard.page.getByRole("button", { name: /Download the deliverable/ })).toBeVisible();
   });
 });

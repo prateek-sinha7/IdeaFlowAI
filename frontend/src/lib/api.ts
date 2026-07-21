@@ -7,6 +7,7 @@ import type {
   AuthResponse,
   ChatMessage,
   ChatSession,
+  FamilyMember,
   RunFamily,
   User,
   WorkflowRun,
@@ -41,9 +42,9 @@ export function clearToken(): void {
  * post-logout redirect at the call site (the dashboard's handleLogout does so).
  *
  * Pass an empty string when no token is available; the request will 401 and
- * the catch will swallow it. (See the WS-expired close handler in
- * useWebSocket.ts which legitimately calls clearToken() directly — the token
- * is already invalid, so /logout would just 401.)
+ * the catch will swallow it. (See the JWT-expired close handler in
+ * useHandoffSocket.ts which legitimately calls clearToken() directly — the
+ * token is already invalid, so /logout would just 401.)
  */
 export async function logout(token: string): Promise<void> {
   try {
@@ -76,12 +77,37 @@ class ApiError extends Error {
   }
 }
 
+// BUG-013 Part B — fail-fast timeout for the REST client. When the browser's
+// ~6-connections-per-origin pool is saturated (per-run SSE streams), a call can
+// hang forever with no free socket → a silent idle screen. Wrap every request in
+// an AbortController that aborts after REQUEST_TIMEOUT_MS so a starved/hung call
+// rejects with a typed, catchable ApiError instead of hanging. Generous (~30s) so
+// it never aborts a legitimately-slow brief ingest / large-deliverable fetch.
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
-  const response = await fetch(url, options);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    // No current request() caller passes its own signal, so a direct assignment
+    // is safe.
+    response = await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    // On abort the fetch throws a DOMException AbortError — translate it to a
+    // typed, catchable ApiError (status 0) so callers surface a clear timeout
+    // instead of an opaque hang (matches the reopen catch at page.tsx).
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, `Request timeout after ${REQUEST_TIMEOUT_MS}ms (aborted)`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({
@@ -330,6 +356,77 @@ export async function getWorkflows(
   return raw.map(normalizeWorkflowRun);
 }
 
+// --- Analytics API (SC-1) ---
+//
+// Structural mirror of the backend `AnalyticsSummary` Pydantic model
+// (backend/app/api/analytics.py) — field-for-field, generic type/model keys
+// (SC-001/INV-1: no workflow-name branch). Numbers only.
+
+export interface AnalyticsKpis {
+  total: number;
+  completed: number;
+  failed: number;
+  success_rate: number;
+}
+
+export interface AnalyticsTokenTotals {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  total: number;
+}
+
+export interface AnalyticsDailyBucket {
+  date: string;
+  total: number;
+  completed: number;
+  failed: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+export interface AnalyticsPipelineRollup {
+  type: string;
+  count: number;
+  total_tokens: number;
+  cost: number;
+  avg_duration: number;
+}
+
+export interface AnalyticsModelRollup {
+  model_id: string;
+  count: number;
+  total_tokens: number;
+  cost: number;
+}
+
+export interface AnalyticsSummary {
+  kpis: AnalyticsKpis;
+  daily: AnalyticsDailyBucket[];
+  pipelines: AnalyticsPipelineRollup[];
+  models: AnalyticsModelRollup[];
+  spend: number;
+  token_totals: AnalyticsTokenTotals;
+  type_avg_duration_sec: Record<string, number>;
+}
+
+/**
+ * Fetch the owner-scoped, date-scoped analytics summary (38-01). Changing
+ * `range` re-queries the server (SC-1 recompute) — no client-side rollup of
+ * raw runs. `range` is a UI enum: today|3d|7d|30d|90d|all.
+ */
+export async function getAnalyticsSummary(
+  token: string,
+  range: string
+): Promise<AnalyticsSummary> {
+  return request<AnalyticsSummary>(
+    `/api/analytics/summary?range=${encodeURIComponent(range)}`,
+    { method: "GET", headers: authHeaders(token) }
+  );
+}
+
 export async function getWorkflow(
   token: string,
   workflowId: string
@@ -351,6 +448,127 @@ export async function getRunFamily(
     method: "GET",
     headers: authHeaders(token),
   });
+}
+
+/** One agent's summary-safe telemetry from GET /api/runs/{id}/summary.
+ *  Mirrors the backend `_SUMMARY_SAFE_AGENT_KEYS` projection field-for-field
+ *  (runs.py) — identity + KPI ONLY; the raw output / input_prompt /
+ *  thinking_text / tool_calls are NEVER echoed (V7 leak guard). Every field is
+ *  optional because the server projects only the keys present on each stored
+ *  agent record. */
+export interface RunSummaryAgent {
+  agent_id?: string;
+  name?: string;
+  role?: string;
+  icon?: string;
+  duration?: number | null;
+  error?: string | null;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+}
+
+/** The aggregated, read-only summary of an owned run — the data spine for the
+ *  Run-detail page (SHELL-03). Mirrors the backend `RunSummaryResponse`
+ *  field-for-field (runs.py): every key maps 1:1 to an existing `WorkflowRun`
+ *  column or the owned family walk (no invented fields). Raw wire shape
+ *  (snake_case), unnormalized, like getRunFamily/getChainContext. `members`
+ *  reuses the family-member type so `{ root_id, members }` slots straight into
+ *  the shared `VersionTimeline` as a `RunFamily`. */
+export interface RunSummary {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  /** The owner's own top-level brief (run.input) — feeds the revision-instruction
+   *  preview in the detail version timeline. Never child-agent output/secrets. */
+  input?: string | null;
+  duration: number | null;
+  agent_count: number;
+  token_usage: {
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    total_tokens?: number;
+  };
+  error: string | null;
+  agents: RunSummaryAgent[];
+  root_id: string;
+  members: FamilyMember[];
+}
+
+/** Fetch the aggregated run summary (KPI stats + per-agent breakdown + failure
+ *  banner data + revision-family timeline) for an owned run. Owner-gated (JWT).
+ *  Returns the raw wire shape (unnormalized snake_case) like getRunFamily. */
+export async function getRunSummary(
+  token: string,
+  runId: string
+): Promise<RunSummary> {
+  return request<RunSummary>(`/api/runs/${runId}/summary`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+/** One durable run_events row from GET /api/runs/{id}/events (mirrors the
+ *  backend projection, runs.py:897-908): the SAME rows the SSE replays, in the
+ *  raw unnormalized wire shape (snake_case). `payload_json` is the event's data
+ *  bag — passed downstream verbatim (no normalization; consumers dedup on
+ *  `event_id`). */
+export interface RunEventRow {
+  seq: number;
+  event_id: string;
+  type: string;
+  payload_json: Record<string, unknown>;
+}
+
+/** The GET /api/runs/{id}/events envelope (runs.py:897-909). */
+export interface RunEventsResponse {
+  workflow_id: string;
+  after: number;
+  events: RunEventRow[];
+}
+
+/** A durable event frame shaped like the WS/SSE `{ type, data }` envelope the
+ *  page router + useRunChat already consume. */
+export interface DurableFrame {
+  type: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Fetch a run's durable `run_events` rows (DEF-44-12-4). Owner-scoped (JWT);
+ * hits the read-only endpoint `GET /api/runs/{id}/events?after=N` — the SAME
+ * rows the SSE stream replays. A fresh fetch at `after=0` returns the full
+ * history; idempotency is guaranteed downstream by `event_id` dedup (the page's
+ * `seenEventIdsRef` / the hook's `seenRef`), so replaying a full fetch over an
+ * already-attached live tail double-counts nothing.
+ *
+ * Returns each row mapped to a `{ type, data }` frame (data = `payload_json`).
+ * DEFENSIVELY tolerates a missing/empty `events` array (a mock catch-all `{}`
+ * or a legacy shape yields `[]` rather than throwing). Does NOT normalize the
+ * payload — consumers key on the snake_case `event_id`/`seq` inside it.
+ */
+export async function getRunEvents(
+  token: string,
+  runId: string,
+  afterSeq = 0,
+): Promise<DurableFrame[]> {
+  const res = await request<RunEventsResponse>(
+    `/api/runs/${encodeURIComponent(runId)}/events?after=${afterSeq}`,
+    { method: "GET", headers: authHeaders(token) },
+  );
+  return (res?.events ?? []).map((row) => ({
+    type: row.type,
+    // Merge the row's authoritative `event_id` + `seq` COLUMNS over payload_json
+    // (BUG-018): a durable Concierge chat_reply carries its DISTINCT event_id
+    // ("chat-reply:{message_id}") only in the column, so surfacing it lets
+    // upsertNarratorMessage key the reply distinctly and APPEND it below the
+    // paired user question instead of overwriting it. The column is
+    // authoritative, so it wins over any same-named payload key.
+    data: { ...(row.payload_json ?? {}), event_id: row.event_id, seq: row.seq },
+  }));
 }
 
 /** A single artifact node from GET /api/runs/{id}/artifacts (mirrors the
@@ -437,6 +655,116 @@ export async function deleteWorkflow(
     }));
     throw new ApiError(response.status, body.detail ?? body);
   }
+}
+
+// --- Run command API (Phase 44 W2 / CHAT-07 up-channel over REST) ---
+//
+// Owner-scoped, terminal-fenced HTTP counterparts to the paused-run WS commands
+// (backend/app/api/run_commands.py). Each mirrors its Pydantic request body
+// verbatim; a cross-owner / missing run resolves to 404 server-side (IDOR→404),
+// matching the WS owner fence — surfaced here as an ApiError(404).
+
+/** Body for POST /api/runs/{id}/gate — the four gate actions (GateCommand,
+ *  run_commands.py). `action` is the generic discriminator (SC-001 — no
+ *  workflow name): approve (optional `edited_content`) / reject / redo
+ *  (`instructions`) / update_specs (`analysis_report`). `edited_content`
+ *  survives ONLY on /gate (set_review_response) — /messages CHANNEL_GATE
+ *  drops it (WR-03), which is why gates route here. */
+export interface GatePayload {
+  gate_key: string;
+  action?: "approve" | "reject" | "redo" | "update_specs";
+  approved?: boolean;
+  edited_content?: string | null;
+  instructions?: string;
+  analysis_report?: string;
+}
+
+/**
+ * Resolve a paused HITL review gate over REST (mirrors WS `approve_review`).
+ * Routes to POST /api/runs/{id}/gate — NOT /messages — so `edited_content` is
+ * preserved through set_review_response (WR-03). Owner-gated server-side.
+ */
+export async function postGate(
+  token: string,
+  runId: string,
+  body: GatePayload,
+): Promise<{ ok: boolean; action: string; gate_key: string }> {
+  return request<{ ok: boolean; action: string; gate_key: string }>(
+    `/api/runs/${encodeURIComponent(runId)}/gate`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+/**
+ * Cooperatively cancel a run over REST (mirrors WS `cancel_pipeline`). The WS
+ * frame was connection-scoped and carried no id; the REST path threads the run
+ * id explicitly. Owner-gated server-side; idempotent when no live run exists.
+ */
+export async function postCancel(
+  token: string,
+  runId: string,
+): Promise<{ ok: boolean; run_id: string; cancelled?: boolean }> {
+  return request<{ ok: boolean; run_id: string; cancelled?: boolean }>(
+    `/api/runs/${encodeURIComponent(runId)}/cancel`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+    },
+  );
+}
+
+/**
+ * Submit clarify answers over REST (mirrors WS `submit_questionnaire`). Targets
+ * POST /api/runs/{id}/answers (AnswersCommand) — which needs NO `message_id` —
+ * closing the R4 422 the /messages (MessageCommand) path raised. Keeps the
+ * ISS-027 `skip_clarification` force-proceed passthrough. Owner-gated.
+ */
+export async function postAnswers(
+  token: string,
+  runId: string,
+  body: {
+    responses: Array<{ question_id: string; answer: string }>;
+    skip_clarification?: boolean;
+  },
+): Promise<{ ok: boolean; run_id: string; count: number }> {
+  return request<{ ok: boolean; run_id: string; count: number }>(
+    `/api/runs/${encodeURIComponent(runId)}/answers`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+/**
+ * Launch a child PPT revision run over REST (mirrors WS `run_revision`, Strategy A).
+ * Targets POST /api/runs/{parentRunId}/revisions (RevisionCommand) — the byte-twin
+ * of the same server path: _mint_revision_row + _drive_revision_to_queue ->
+ * engine._handle_revision. Preserves the server-side artifact seed, the
+ * planning-context prepend, and the exact-kind `derived_from` lineage. The parent
+ * linkage is the PATH run id (bug (b): no orphan — source_workflow_run_id is set
+ * server-side from parent_run_id). Owner-gated on the parent server-side
+ * (cross-owner / missing -> 404). Returns the created revision `run_id`, which the
+ * caller can attach; the run then streams over SSE like any other (W1).
+ */
+export async function postRevision(
+  token: string,
+  parentRunId: string,
+  body: { target_artifact_type: string; instruction: string },
+): Promise<{ run_id: string }> {
+  return request<{ run_id: string }>(
+    `/api/runs/${encodeURIComponent(parentRunId)}/revisions`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export async function changePassword(
@@ -610,7 +938,7 @@ export async function getCapabilities(
  * shape: `user_launchable` is the DECLARED product-visibility flag (SC-001 —
  * the catalog filters on it, never a hardcoded workflow-name list), and the
  * presentation fields (`display_name`/`icon`/`launch_surface`) are inert
- * catalog metadata for the data-driven WorkflowCatalog.
+ * catalog metadata for the data-driven HomeLaunchGrid.
  */
 export interface WorkflowSummary {
   id: string;
@@ -626,7 +954,7 @@ export interface WorkflowSummary {
 
 /**
  * Fetch the live, manifest-derived workflow catalog (Plan 20-02). Auth-gated
- * (JWT); the data-driven WorkflowCatalog renders its rows from this list —
+ * (JWT); the data-driven HomeLaunchGrid renders its rows from this list —
  * never a hardcoded list (SC-001). Named `getWorkflowDefinitions` because
  * `getWorkflows` is already taken by the run-history fetcher (`/api/runs`).
  */
@@ -933,4 +1261,137 @@ export async function getRunHookRuns(
     method: "GET",
     headers: authHeaders(token),
   });
+}
+
+// ── Audit-tab read endpoints (SC-3, phase 32 plan 03) ───────────────────────
+// The Audit tab reads three owner-scoped, read-only audit projections per run.
+// Each endpoint applies a two-layer owner gate server-side and resolves a
+// cross-owner / missing run to 404 (never a foreign row). The fetchers below
+// map that 404 to an EMPTY typed envelope so the tab renders gracefully and
+// NEVER surfaces another owner's data (T-32-09-01). Any other error rethrows.
+
+/** One governance-gate audit row (GET /api/runs/{id}/gate-events). */
+export interface GateEventRow {
+  id: string;
+  run_id: string;
+  /** e.g. the step / agent the gate fired on. */
+  step: string | null;
+  /** gate kind: human | validation | approval | security. */
+  gate: string | null;
+  /** verdict: pass | block | wait_human. */
+  outcome: string | null;
+  detail: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+export interface GateEventsResponse {
+  workflow_id: string;
+  gate_events: GateEventRow[];
+}
+
+/** One validator-run audit row (GET /api/runs/{id}/validation-results). */
+export interface ValidationResultRow {
+  id: string;
+  run_id: string;
+  step: string | null;
+  validator: string | null;
+  /** severity ladder: CRITICAL | HIGH | MEDIUM | LOW. */
+  severity: string | null;
+  attempt: number | null;
+  /** the validator's issue list (JSON, shape validator-specific). */
+  issues: unknown;
+  created_at: string | null;
+}
+
+export interface ValidationResultsResponse {
+  workflow_id: string;
+  validation_results: ValidationResultRow[];
+}
+
+/** One exec-invocation audit row (GET /api/runs/{id}/exec-runs). */
+export interface ExecRunRow {
+  id: string;
+  run_id: string;
+  step: string | null;
+  /** the invoked argv (JSON). */
+  argv_json: unknown;
+  /** disposition: allowed | denied | killed. */
+  outcome: string | null;
+  exit_code: number | null;
+  duration_ms: number | null;
+  /** the exec-policy snapshot in force for this invocation (JSON). */
+  policy_snapshot_json: unknown;
+  /** TRUNCATED output digest only — never raw child output (ASVS V7). */
+  output_digest: string | null;
+  created_at: string | null;
+}
+
+export interface ExecRunsResponse {
+  workflow_id: string;
+  exec_runs: ExecRunRow[];
+}
+
+/**
+ * Fetch the run's governance-gate audit rows for the Audit tab (SC-3).
+ * A cross-owner / missing run resolves to an empty envelope (404 → []),
+ * never a foreign row.
+ */
+export async function getRunGateEvents(
+  token: string,
+  workflowId: string,
+): Promise<GateEventsResponse> {
+  try {
+    return await request<GateEventsResponse>(
+      `/api/runs/${encodeURIComponent(workflowId)}/gate-events`,
+      { method: "GET", headers: authHeaders(token) },
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return { workflow_id: workflowId, gate_events: [] };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Fetch the run's validator-run audit rows for the Audit tab (SC-3).
+ * A cross-owner / missing run resolves to an empty envelope (404 → []).
+ */
+export async function getRunValidationResults(
+  token: string,
+  workflowId: string,
+): Promise<ValidationResultsResponse> {
+  try {
+    return await request<ValidationResultsResponse>(
+      `/api/runs/${encodeURIComponent(workflowId)}/validation-results`,
+      { method: "GET", headers: authHeaders(token) },
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return { workflow_id: workflowId, validation_results: [] };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Fetch the run's exec-invocation audit rows for the Audit tab (SC-3).
+ * A cross-owner / missing run resolves to an empty envelope (404 → []).
+ * The projection carries only the truncated output_digest (never raw output).
+ */
+export async function getRunExecRuns(
+  token: string,
+  workflowId: string,
+): Promise<ExecRunsResponse> {
+  try {
+    return await request<ExecRunsResponse>(
+      `/api/runs/${encodeURIComponent(workflowId)}/exec-runs`,
+      { method: "GET", headers: authHeaders(token) },
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return { workflow_id: workflowId, exec_runs: [] };
+    }
+    throw err;
+  }
 }

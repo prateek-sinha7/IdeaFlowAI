@@ -64,3 +64,15 @@ Register-corrected: items the shell teardown flagged "backend-needed" that **alr
 ## 3. Figure-to-field pinning (Phase 28 deliverable, seed list)
 
 Every number the design shows must map to a producing field: per-agent duration/tokens → `agent_complete` payload; run totals + cache split → `pipeline_complete` totals / `workflow_runs.token_usage` (P26); est. cost → `estimated_cost_usd` (shared `estimate_cost_usd`, cache-discounted); context-source sizes → `agent_input.context_sources`; cache −% → cache telemetry + compaction ratios; version numbers → `/family` `revision_index` (1-based chronological, `created_at ASC, id ASC`). Phase 28 completes and pins this list with exact field names verified in code.
+
+---
+
+## CORRECTIONS (2026-07-07 post-merge verification)
+
+1. **§1 Gate-paused row:** actions are now Approve / Reject (via a two-step confirmation dialog; confirmed reject navigates home + resets — KAN-95) / Redo+instructions / **Update the Specs** (analyze gates; KAN-101). On `pipeline_cancelled/failed` the gate card auto-dismisses and `approve_review` is fenced with `pipeline_not_running` (KAN-100) — gate actions are unavailable post-terminal.
+2. **§1 add a loop-back state:** `update_specs` triggers an in-run specify→plan→analyze sub-pipeline (Building-like; driven by re-fired `agent_start` on already-done agents) that returns to the SAME gate — distinct from both "Building" and "Revision running (child run)". Narrator card: "Revising spec — cycle N". Terminology: **spec-revision loop** (intra-run) ≠ **revision run** (family child).
+3. **§1 planner window:** between questionnaire-submit and `pipeline_start`, PlanningOverlay shows (questions cleared, run id set — KAN-97); name it in the clarify→building transition.
+4. **§1 Building row / §2 Steps L3:** the final `task_progress` fires BEFORE the build agent's fix-loop — checklist caps at N-1 until truly done (KAN-99).
+5. **§2 row "Steps L2 output ✓exists (persisted)":** nuance — a human gate-edit persists to the artifact graph but is NOT re-emitted over WS; the FE retains it client-side (`retainAgentEdit`, KAN-98).
+6. **§2 coverage:** the "image upload" rows should read the image spine as LANDED (run-entry, payload-transient — ND-10 for persistence); remaining = files endpoint, uploaded_files provider, per-turn carrier, resize.
+7. **§1 gate row driving signal:** gates are event-driven — declared gates may not fire when `gate_agent_ids` excludes the agent (KAN-94).

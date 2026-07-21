@@ -94,6 +94,15 @@ def _synthesize_step(agent_id: str, sel: dict | None) -> dict:
         step["__invalid_selection__"] = sel
         return step
 
+    # D5/FANOUT-03: emit the user-selected strategy, overriding the single_shot
+    # default (:86). Keyed GENERICALLY on the ``strategy`` lever — no workflow/
+    # strategy/agent-name literal (INV-1/SC-001) — so a composed fan-out selection
+    # becomes a fan-out step at the trust=user re-compile. An absent / empty /
+    # non-string strategy keeps the safe single_shot default. ``fanout``/``task_source``
+    # already ride the generic projection loop below (:128-131).
+    if isinstance(sel.get("strategy"), str) and sel["strategy"]:
+        step["strategy"] = sel["strategy"]
+
     validators = list(sel.get("validators") or [])
     gates = list(sel.get("gates") or [])
 
@@ -138,6 +147,7 @@ def synthesize_manifest(
     agent_ids: list[str],
     selections: dict | None,
     *,
+    deliverable: dict | None = None,
     limits: dict | None = None,
 ) -> WorkflowManifest:
     """Synthesize a ``WorkflowManifest`` from a saved composition + selections map.
@@ -174,7 +184,13 @@ def synthesize_manifest(
         # user-allowed deliverable (``single_file``) so it never FALSE-rejects a
         # clean selections map; the real run deliverable comes from the engine's
         # own file-backed plan at run entry (this synthesized manifest never runs).
-        deliverable={"strategy": "single_file", "name": "output.md"},
+        # Option B (KAN-112): when the caller passes an explicit ``deliverable``
+        # override (the user selected an output type in the custom composer via the
+        # reserved ``__deliverable__`` key in selections), use it; otherwise fall back
+        # to the safe compile-target default.  The synthesized manifest is ONLY used
+        # by the trust=user re-compile — the engine's _apply_selections picks up the
+        # override from the selections map directly (not from this manifest).
+        deliverable=deliverable or {"strategy": "single_file", "name": "output.md"},
         planner="run",
         clarify={"mode": "auto", "defaults": []},
         limits=wf_limits,

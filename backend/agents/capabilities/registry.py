@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 #                  code_compile, code_test, code_lint  (10-04 / EXEC-02 — exec via the handle)
 #                  api_prefix  (19-02 / ISS-005 — infra /api/v1 backstop, user_allowed=True)
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
-# context_provider: opendesign, previous_run
+# context_provider: opendesign, previous_run, repo (09-03), uploaded_files (30-02 / UPLD-03)
 # input_provider:  run_images  (260707-edw — image-input Wave 1, user_allowed=True)
 # task_parser:     heading_tasks
 # gate:            human, validation, approval, security  (08-02)
@@ -134,6 +134,10 @@ _KNOWN: set[tuple[str, str]] = {
     ("repo_inventory", "default"),         # 09-03 / REPO-01 — kernel-side stdlib inventory
     ("context_pack", "default"),           # 09-03 / REPO-03 — kernel-side targeted context subset
     ("context_provider", "repo"),          # 09-03 / REPO-03 — surfaces the ContextPack to agents
+    ("context_provider", "uploaded_files"), # 30-02 / UPLD-03 — sticky uploaded-doc context
+    ("compaction", "chat_history"),        # 33 / D-08 — bound composed chat history
+    ("context_provider", "conversation"),  # 33 / D-08 — compacted chat run_events as context
+    ("chat", "concierge"),                 # 33 / D-05 (new KIND — free string, no if/elif)
     ("mcp_server", "github"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
     ("mcp_server", "gitlab"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
     ("mcp_server", "jira"),                # 09-05 / MCP-02 — read-scoped (user_allowed=True)
@@ -292,6 +296,14 @@ def discover() -> None:
         "agents.capabilities.repo_inventory.inventory",
         "agents.capabilities.context_pack.pack",
         "agents.capabilities.context_providers.repo",
+        # 30-02 / UPLD-03 — the uploaded_files context provider (kernel-pure: reads
+        # the run's own .uploads sidecar via the ctx.runner handle, never app.*).
+        "agents.capabilities.context_providers.uploaded_files",
+        # 33 / D-08 — the two kernel-pure bounded-chat-history capabilities (the
+        # concierge is NOT here — it is app-side, landing in 33-02). Both reach only
+        # the ctx-scoped read surface / the registry, never app.*.
+        "agents.capabilities.compaction.chat_history",
+        "agents.capabilities.context_providers.conversation",
         # 09-05 / MCP-02 — the allow-listed mcp_server catalog (registration DATA
         # only; the live client is app-side McpClientAdapter).
         "agents.capabilities.mcp_servers.catalog",
@@ -319,6 +331,7 @@ def discover() -> None:
         "app.agents.validators",
         "app.agents.runtime",  # 09-01 / RUNTIME-01 — LocalSandboxRuntime self-registers
         "app.agents.repo_index",  # 09-03 / REPO-02 — tree-sitter symbol index (heavy dep isolated)
+        "app.agents.chat",  # 33 / D-05 — chat:concierge self-registers (app-side, DeepAgentRunner)
     )
     for pkg in _forward_packages:
         try:

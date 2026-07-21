@@ -1,0 +1,14 @@
+Flowin
+Copyright (c) Flowin.
+
+This product includes software derived from nexu-io/open-design
+(https://github.com/nexu-io/open-design), Apache License 2.0.
+
+The derived mechanisms are clean-room reimplementations written from a
+behavioral specification (there is NO build-time dependency on, and no bundled
+copy of, the open-design source). They live under
+frontend/src/components/chat/runtime/ and are individually attributed in the
+per-file header comments and in THIRD-PARTY-NOTICES.md.
+
+A copy of the Apache License 2.0 is available at
+https://www.apache.org/licenses/LICENSE-2.0

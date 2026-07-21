@@ -44,6 +44,7 @@ vi.mock("./MarkdownPreview", () => ({ MarkdownPreview: () => <div data-testid="m
 vi.mock("./AppBuilderPreview", () => ({ AppBuilderPreview: () => <div data-testid="appbuilder-preview" /> }));
 vi.mock("@/components/results/FilesTab", () => ({ FilesTab: () => <div data-testid="files-tab" /> }));
 vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
+vi.mock("@/components/results/AuditTab", () => ({ AuditTab: () => <div data-testid="audit-tab" /> }));
 
 // Minimal valid PipelineRunState — required fields only, plus the failure
 // flags under test. Mirrors the shape useWorkflow produces.
@@ -78,8 +79,27 @@ function makeAgent(id: string, name: string): AgentRunState {
 const AFFORDANCE_COPY = /this run did not complete successfully/i;
 const NEUTRAL_COPY = /output will appear here/i;
 
-describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)", () => {
-  it("terminal+failed (pipelineState.failed) → shows the affordance, hides the neutral empty-state, lists the failed agent's NAME (ISS-024)", () => {
+// Phase 42-03 (§D / Group D): the amber DegradedRunAffordance is RETIRED on the
+// run screen for a terminal-FAILED / DEGRADED run — those runs now drop the
+// Preview tab entirely (tabs become [Steps, Files, Audit]) and default to Audit
+// (Hexaware Run - Failed tab:'audit'). The affordance component stays exported for
+// RunDetailPage.tsx (history reopen, §8 decision 4 OUT OF SCOPE), and a CANCELLED
+// reopen still keeps its Preview affordance (below). The red failed treatment now
+// lives in the lane / Steps / header (§4 KEEP), not this amber card.
+function expectFailedTabSet() {
+  // No Preview surface; the tab set is [Steps, Files, Audit].
+  expect(screen.queryByTestId("tab-preview")).toBeNull();
+  const tabs = screen.getAllByRole("tab");
+  expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Steps", "Files", "Audit"]);
+  // Defaults to Audit.
+  expect(screen.getByTestId("tab-audit")).toHaveAttribute("aria-selected", "true");
+  // The amber affordance is gone; the neutral empty-state never shows (no Preview).
+  expect(screen.queryByText(AFFORDANCE_COPY)).not.toBeInTheDocument();
+  expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
+}
+
+describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (Group D)", () => {
+  it("terminal+failed (pipelineState.failed) → drops the Preview tab, defaults to Audit, retires the amber affordance", () => {
     render(
       <PreviewPanel
         workflowType="user_stories"
@@ -88,21 +108,14 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
           isRunning: false,
           failed: true,
           failedAgents: ["story-writer"],
-          // ISS-024: pipelineState.agents carries the id→name source on the live
-          // path — the affordance must surface the NAME, not the raw id.
           agents: [makeAgent("story-writer", "Story Writer")],
         })}
       />,
     );
-
-    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
-    expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
-    // ISS-024: the human NAME appears, not the raw id.
-    expect(screen.getByText("Story Writer")).toBeInTheDocument();
-    expect(screen.queryByText("story-writer")).not.toBeInTheDocument();
+    expectFailedTabSet();
   });
 
-  it("terminal+degraded (pipelineState.degraded) → shows the affordance, hides the neutral empty-state, lists the failed agent's NAME (ISS-024)", () => {
+  it("terminal+degraded (pipelineState.degraded) → drops the Preview tab, defaults to Audit, retires the amber affordance", () => {
     render(
       <PreviewPanel
         workflowType="ppt"
@@ -116,15 +129,10 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
         })}
       />,
     );
-
-    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
-    expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
-    // ISS-024: human NAME, not the id.
-    expect(screen.getByText("Slide Validator")).toBeInTheDocument();
-    expect(screen.queryByText("ppt-validator")).not.toBeInTheDocument();
+    expectFailedTabSet();
   });
 
-  it("ISS-024: a failed-agent id absent from pipelineState.agents falls back to the raw id (never blank)", () => {
+  it("terminal+failed with multiple failed agents → still drops the Preview tab + defaults to Audit (no amber affordance)", () => {
     render(
       <PreviewPanel
         workflowType="user_stories"
@@ -133,17 +141,13 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
           isRunning: false,
           failed: true,
           failedAgents: ["story-writer", "unknown-agent"],
-          // Only one agent is named; the other id has no name source.
           agents: [makeAgent("story-writer", "Story Writer")],
         })}
       />,
     );
-
-    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
-    // Resolved name for the known id…
-    expect(screen.getByText("Story Writer")).toBeInTheDocument();
-    // …and a fallback to the raw id for the unknown one (not blank).
-    expect(screen.getByText("unknown-agent")).toBeInTheDocument();
+    expectFailedTabSet();
+    // The retired affordance means its raw-id / name list no longer renders here.
+    expect(screen.queryByText("unknown-agent")).not.toBeInTheDocument();
   });
 
   it("streaming+empty (isRunning, no terminal flag) → keeps the neutral empty-state, NOT the affordance", () => {
@@ -194,41 +198,29 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
   });
 
-  it("reopen+failed (reopenedRunStatus='failed', no content) → shows the affordance + the reopened agent's NAME via reopenedAgentNameById (ISS-024)", () => {
+  it("reopen+failed (reopenedRunStatus='failed', no content) → drops the Preview tab, defaults to Audit, retires the amber affordance", () => {
     render(
       <PreviewPanel
         workflowType="prototype"
         isStreaming={false}
         reopenedRunStatus={"failed" as WorkflowStatus}
         reopenedFailedAgents={["proto-builder"]}
-        // ISS-024: the live pipelineState can't name a reopened run's agents — the
-        // dashboard threads the id→name map built from the run detail's
-        // agentOutputs. The affordance must surface the NAME.
         reopenedAgentNameById={{ "proto-builder": "Build Agent" }}
       />,
     );
-
-    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
-    expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
-    // ISS-024: the human NAME appears, not the raw id.
-    expect(screen.getByText("Build Agent")).toBeInTheDocument();
-    expect(screen.queryByText("proto-builder")).not.toBeInTheDocument();
+    expectFailedTabSet();
   });
 
-  it("ISS-024: reopen+failed with NO name map falls back to the raw id (older runs, never blank)", () => {
+  it("reopen+failed with NO name map → still drops the Preview tab + defaults to Audit (no amber affordance)", () => {
     render(
       <PreviewPanel
         workflowType="prototype"
         isStreaming={false}
         reopenedRunStatus={"failed" as WorkflowStatus}
         reopenedFailedAgents={["proto-builder"]}
-        // No reopenedAgentNameById (e.g. an older run with no agentOutputs) — the
-        // raw id must still render rather than a blank list item.
       />,
     );
-
-    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
-    expect(screen.getByText("proto-builder")).toBeInTheDocument();
+    expectFailedTabSet();
   });
 
   it("reopen+cancelled (reopenedRunStatus='cancelled', no content) → shows the cancelled-specific copy, NOT the failed/degraded copy", () => {
@@ -246,7 +238,7 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
   });
 
-  it("reopen+degraded (reopenedRunStatus='degraded', no content) → shows the affordance with the wired failed-agent list (WR-01 + IN-01)", () => {
+  it("reopen+degraded (reopenedRunStatus='degraded', no content) → drops the Preview tab, defaults to Audit, retires the amber affordance (WR-01)", () => {
     render(
       <PreviewPanel
         workflowType="prototype"
@@ -255,15 +247,10 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
         reopenedFailedAgents={["domain-analyst", "story-estimator"]}
       />,
     );
-
-    // WR-01: a degraded run reopened from history with no partial deliverable
-    // surfaces the failure affordance, not the neutral empty-state.
-    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
-    expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
-    // IN-01: the real reopened failed-agent ids appear (not an empty list).
-    expect(screen.getByText("domain-analyst")).toBeInTheDocument();
-    expect(screen.getByText("story-estimator")).toBeInTheDocument();
-    // A degraded reopen is NOT a cancel — keeps the failed/degraded copy.
+    // WR-01: a degraded reopen with no partial deliverable is a terminal failure —
+    // it now drops Preview and lands on Audit (no neutral empty-state, no amber card).
+    expectFailedTabSet();
+    // A degraded reopen is NOT a cancel — the cancelled copy never appears.
     expect(screen.queryByText(/this run was cancelled/i)).not.toBeInTheDocument();
   });
 

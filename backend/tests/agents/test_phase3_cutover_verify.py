@@ -223,6 +223,33 @@ _DOCUMENTED_EVENT_TYPES = frozenset(
         "gate_blocked",
         "validation_warning",
         "gate_wait_human",
+        # ── Chat-lane event types (POR D-01, Phase 29+) ─────────────────────
+        # ADDITIVE forward vocabulary for the run-chat lane that lands in
+        # Phase 29+ (POST /api/runs/{id}/messages persistence + narrator
+        # projections + the SSE stream_attached replay handshake). The SCRIPTED
+        # characterization harness emits NONE of these — a run has no interactive
+        # chat lane — so adding them here is PARITY-NEUTRAL: it only widens the
+        # allowed superset checked by TestNewEngineEventVocabulary, and the 5
+        # goldens stay byte/event-identical (INV-3). test_chat_event_neutrality
+        # pins that these never fire on any golden pipeline.
+        #   * ``chat_message`` — a user turn persisted on the run chat lane
+        #     (Phase 29 POST /api/runs/{id}/messages). Carries a FE-generated
+        #     ``message_id`` idempotency key (run-specific → stripped, see below).
+        #   * ``chat_reply``   — a narrator/assistant projection back to the lane.
+        #   * ``stream_attached`` — the SSE reconnect handshake announcing the
+        #     replay cursor (``replayed_through_seq``, run-specific → stripped).
+        "chat_message",
+        "chat_reply",
+        "stream_attached",
+        # ── Concierge proposal event (Phase 33 / D-05) ──────────────────────
+        # The run Concierge (chat:concierge) disposes a proposal-only intent behind
+        # a confirm chip; when HELD (unconfirmed) the app layer persists a durable
+        # ``concierge_proposal`` run_events row (run_commands.py). It is ADDITIVE
+        # forward vocabulary for the run-chat lane — the SCRIPTED characterization
+        # harness has no Concierge, so it fires on NONE of the 5 goldens (proven by
+        # test_chat_event_neutrality), keeping them byte/event-identical (INV-3).
+        # 33-03 introduced NO other new event type (answers reuse ``chat_reply``).
+        "concierge_proposal",
     }
 )
 

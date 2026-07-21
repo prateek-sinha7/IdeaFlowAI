@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { ReactNode, RefObject } from "react";
 import { motion } from "motion/react";
 import { Sparkles, Lightbulb, Code, FileText, Layers } from "lucide-react";
 import type { ChatMessage, ProcessStep } from "@/types/index";
@@ -10,6 +11,12 @@ import { ProcessSteps } from "./ProcessSteps";
 import { ChatInput } from "./ChatInput";
 import { ErrorMessage } from "./ErrorMessage";
 import type { ChatMode } from "./ChatInput";
+import type { AgentEvent } from "./runtime/blocks.types";
+import {
+  useMeasuredVirtualWindow,
+  VIRTUALIZE_THRESHOLD,
+  type ScrollSurface,
+} from "./runtime/useMeasuredVirtualWindow";
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -21,6 +28,42 @@ export interface ChatPanelProps {
   onEditMessage?: (messageId: string, newContent: string) => void;
   messageMode?: ChatMode;
   processSteps?: ProcessStep[];
+  /** The nonce'd deep-link seam a narrator ResultCard fires (borrow #6). */
+  onRequestOpenTab?: (tab: string) => void;
+  /** Plan-01 agent event stream per assistant turn id — renders the block strip. */
+  eventsByMessageId?: Record<string, AgentEvent[]>;
+  /** Suppress the built-in ChatInput so the run lane can supply its own unified
+   *  composer (the composition root owns the mode-switched composer). Doubles as
+   *  the "in a run" signal — the greeting empty-state is suppressed (Phase 39,
+   *  RUNUI-06: the run lane is a structured transcript, not a greeting). */
+  hideComposer?: boolean;
+  /** Structured transcript adornments rendered at the FOOT of the scroll region
+   *  (Phase 39): the mock's inline "N clarifying questions" / "PIPELINE · N
+   *  agents" / deliverable / Awaiting-you cards. Scrolls with the transcript. */
+  transcriptFooter?: ReactNode;
+}
+
+/** A per-row height-measuring wrapper feeding the virtual window (borrow #5).
+ *  Guarded for environments without ResizeObserver (falls back to estimates). */
+function MeasuredItem({
+  index,
+  measure,
+  children,
+}: {
+  index: number;
+  measure: (i: number, h: number) => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measure(index, el.offsetHeight));
+    ro.observe(el);
+    measure(index, el.offsetHeight);
+    return () => ro.disconnect();
+  }, [index, measure]);
+  return <div ref={ref}>{children}</div>;
 }
 
 const SUGGESTION_CHIPS = [
@@ -60,27 +103,192 @@ export function ChatPanel({
   onEditMessage,
   messageMode,
   processSteps,
+  onRequestOpenTab,
+  eventsByMessageId,
+  hideComposer,
+  transcriptFooter,
 }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollContentRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom during streaming and when new messages arrive
+  const stickToBottomRef = useRef(true);
+  const lastUserIdRef = useRef<string | null>(null);
+
+  // Follow-intent: the user is "following" the stream only while near the bottom.
+  // A single scroll up flips this off so streaming never yanks them back down;
+  // scrolling back to the bottom re-arms it.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent, isStreaming]);
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const dist =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      stickToBottomRef.current = dist < 120;
+    };
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Detect a fresh user turn and force the view to the bottom (re-arming follow).
+  // Continuous stream-following (chunk AND typewriter growth) lives in the
+  // ResizeObserver below, not here — so this effect only handles the "user just
+  // SENT" case. Guarded: jsdom (tests) has no scrollIntoView — degrade, not throw.
+  useEffect(() => {
+    const end = messagesEndRef.current;
+    if (!end || typeof end.scrollIntoView !== "function") return;
+
+    // A NEW user turn means the user just SENT — they want to see the answer.
+    // Force a scroll to the bottom and RE-ARM following, regardless of where they
+    // had scrolled (fixes: sending while scrolled up left the message + streaming
+    // reply off-screen). The transcript is append-only, so a changed last-user id
+    // is a fresh send; on mount it lands the view at the newest turn.
+    let lastUserId: string | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserId = messages[i].id;
+        break;
+      }
+    }
+    if (lastUserId && lastUserId !== lastUserIdRef.current) {
+      lastUserIdRef.current = lastUserId;
+      stickToBottomRef.current = true;
+      end.scrollIntoView({ behavior: "auto" });
+    }
+    // Continuous following (chunk-growth AND typewriter-frame growth) is owned by
+    // the ResizeObserver below — a single path that pins the bottom on ANY
+    // rendered-height change, so there is no between-chunk drift for the chunk
+    // clock to snap back (the Run-summary footer jitter). Deps therefore reduce
+    // to [messages] — this effect now only detects a fresh user turn.
+  }, [messages]);
 
   const hasMessages = messages.length > 0 || isStreaming;
+  // In a run context (hideComposer) the greeting/orbs empty-state is suppressed —
+  // the lane is a structured transcript (Phase 39, RUNUI-06). The greeting stays
+  // for the standalone chat usage (no run, its own composer).
+  const showGreeting = !hasMessages && !hideComposer;
+
+  // Follow the RENDERED height: a two-clock desync janks the footer otherwise —
+  // the typewriter (useSmoothText in MessageBubble) grows the reply's height on
+  // the rAF clock, but props (messages/streamingContent/isStreaming) only change
+  // on the chunk clock, so the follow effect above misses typewriter frames. A
+  // ResizeObserver on the transcript content wrapper pins the bottom on EVERY
+  // height change (chunk OR typewriter frame) while the user is following, so
+  // both clocks follow through ONE path and nothing drifts-then-snaps. Guarded
+  // for jsdom (no ResizeObserver → degrade). Writing scrollTop changes position,
+  // not the observed element's size, so this does not re-trigger itself.
+  useEffect(() => {
+    const content = scrollContentRef.current;
+    const container = scrollContainerRef.current;
+    if (!content || !container || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [showGreeting]);
+
+  // Borrow #5: engage the measured virtual window above VIRTUALIZE_THRESHOLD (80)
+  // messages; below it the hook disengages (full range, zero spacers) and the
+  // kit's naive auto-scroll stays. Called unconditionally (rules of hooks).
+  const virtual = useMeasuredVirtualWindow({
+    itemCount: messages.length,
+    scrollRef: scrollContainerRef as RefObject<ScrollSurface | null>,
+    estimateHeight: 220,
+  });
+  const isVirtualized = messages.length > VIRTUALIZE_THRESHOLD;
+
+  // Render one transcript row: an error banner, a narrator card, or a bubble.
+  const renderMessage = (message: ChatMessage, index: number): ReactNode => {
+    const isLastAssistant =
+      isStreaming &&
+      message.role === "assistant" &&
+      index === messages.length - 1;
+
+    const isError =
+      message.role === "assistant" &&
+      !message.cardKind &&
+      (message.content.startsWith("Error:") ||
+        (message as ChatMessage & { isError?: boolean }).isError === true);
+
+    if (isError) {
+      const errorContent = message.content.startsWith("Error: ")
+        ? message.content.slice(7)
+        : message.content;
+
+      let errorCode: string | undefined;
+      let recoverable = true;
+
+      if (errorContent.includes("[code:")) {
+        const codeMatch = errorContent.match(/\[code:(\w+)\]/);
+        const recoverableMatch = errorContent.match(/\[recoverable:(true|false)\]/);
+        if (codeMatch) errorCode = codeMatch[1];
+        if (recoverableMatch) recoverable = recoverableMatch[1] === "true";
+      }
+
+      const displayMessage = errorContent
+        .replace(/\[code:\w+\]/, "")
+        .replace(/\[recoverable:(true|false)\]/, "")
+        .trim();
+
+      return (
+        <ErrorMessage
+          key={message.id}
+          messageId={message.id}
+          message={displayMessage}
+          code={errorCode}
+          recoverable={recoverable}
+          onRetry={
+            recoverable
+              ? () => {
+                  for (let i = index - 1; i >= 0; i--) {
+                    if (messages[i].role === "user") {
+                      onSendMessage(messages[i].content);
+                      break;
+                    }
+                  }
+                }
+              : undefined
+          }
+        />
+      );
+    }
+
+    return (
+      <MessageBubble
+        key={message.id}
+        message={message}
+        isStreaming={isLastAssistant}
+        streamingContent={isLastAssistant ? streamingContent : undefined}
+        mode={isLastAssistant ? messageMode : undefined}
+        onRegenerate={onRegenerateMessage}
+        onEdit={onEditMessage}
+        events={eventsByMessageId?.[message.id]}
+        onRequestOpenTab={onRequestOpenTab}
+      />
+    );
+  };
 
   return (
     <div className="flex h-full flex-col" style={{ backgroundColor: 'var(--theme-bg)' }}>
-      {/* Scrollable message list */}
+      {/* Scrollable message list — the streaming transcript is an ARIA log
+          region (role=log + aria-live=polite) so assistive tech announces new
+          turns as they stream in. Shipping this from day one is the documented
+          open-design a11y landmine we must NOT repeat (evidence 06 §7 / POR §7). */}
       <div
         ref={scrollContainerRef}
+        data-testid="chat-transcript"
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-label="Chat transcript"
         className="flex-1 overflow-y-auto px-4 py-8 md:px-6 relative"
       >
         {/* Subtle dot grid pattern */}
         <div className="dot-grid absolute inset-0 pointer-events-none" />
-        {!hasMessages ? (
+        {showGreeting ? (
           <div className="flex h-full flex-col items-center justify-center px-4 relative overflow-hidden">
             {/* Animated gradient orbs — floating ambient background */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -191,78 +399,29 @@ export function ChatPanel({
             </motion.div>
           </div>
         ) : (
-          <div className="mx-auto max-w-4xl">
-            {messages.map((message, index) => {
-              const isLastAssistant =
-                isStreaming &&
-                message.role === "assistant" &&
-                index === messages.length - 1;
-
-              // Detect error messages
-              const isError =
-                message.role === "assistant" &&
-                (message.content.startsWith("Error:") ||
-                  (message as ChatMessage & { isError?: boolean }).isError === true);
-
-              if (isError) {
-                // Parse error details from content
-                const errorContent = message.content.startsWith("Error: ")
-                  ? message.content.slice(7)
-                  : message.content;
-
-                // Try to extract code and recoverable from structured error
-                let errorCode: string | undefined;
-                let recoverable = true;
-
-                if (errorContent.includes("[code:")) {
-                  const codeMatch = errorContent.match(/\[code:(\w+)\]/);
-                  const recoverableMatch = errorContent.match(/\[recoverable:(true|false)\]/);
-                  if (codeMatch) errorCode = codeMatch[1];
-                  if (recoverableMatch) recoverable = recoverableMatch[1] === "true";
-                }
-
-                const displayMessage = errorContent
-                  .replace(/\[code:\w+\]/, "")
-                  .replace(/\[recoverable:(true|false)\]/, "")
-                  .trim();
-
-                return (
-                  <ErrorMessage
-                    key={message.id}
-                    message={displayMessage}
-                    code={errorCode}
-                    recoverable={recoverable}
-                    onRetry={
-                      recoverable
-                        ? () => {
-                            // Find the last user message and resend
-                            for (let i = index - 1; i >= 0; i--) {
-                              if (messages[i].role === "user") {
-                                onSendMessage(messages[i].content);
-                                break;
-                              }
-                            }
-                          }
-                        : undefined
-                    }
-                  />
-                );
-              }
-
-              return (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  isStreaming={isLastAssistant}
-                  streamingContent={
-                    isLastAssistant ? streamingContent : undefined
-                  }
-                  mode={isLastAssistant ? messageMode : undefined}
-                  onRegenerate={onRegenerateMessage}
-                  onEdit={onEditMessage}
-                />
-              );
-            })}
+          <div ref={scrollContentRef} className="mx-auto max-w-4xl">
+            {isVirtualized ? (
+              <>
+                <div style={{ height: virtual.topSpacer }} aria-hidden="true" />
+                {messages
+                  .slice(virtual.startIndex, virtual.endIndex)
+                  .map((message, sliceIdx) => {
+                    const index = virtual.startIndex + sliceIdx;
+                    return (
+                      <MeasuredItem
+                        key={message.id}
+                        index={index}
+                        measure={virtual.measure}
+                      >
+                        {renderMessage(message, index)}
+                      </MeasuredItem>
+                    );
+                  })}
+                <div style={{ height: virtual.bottomSpacer }} aria-hidden="true" />
+              </>
+            ) : (
+              messages.map((message, index) => renderMessage(message, index))
+            )}
 
             {/* Process steps indicator — persists after streaming completes */}
             {processSteps && processSteps.length > 0 && (
@@ -278,14 +437,21 @@ export function ChatPanel({
                 <TypingIndicator />
               )}
 
+            {/* Structured transcript adornments (Phase 39) — the mock's inline
+                cards, rendered at the foot so they scroll with the transcript. */}
+            {transcriptFooter}
+
             {/* Scroll anchor */}
             <div ref={messagesEndRef} />
           </div>
         )}
       </div>
 
-      {/* Input bar */}
-      <ChatInput onSendMessage={onSendMessage} onSendMessageWithMode={onSendMessageWithMode} isStreaming={isStreaming} />
+      {/* Input bar — suppressed when the run lane supplies its own unified,
+          mode-switched composer (no dual composer). */}
+      {!hideComposer && (
+        <ChatInput onSendMessage={onSendMessage} onSendMessageWithMode={onSendMessageWithMode} isStreaming={isStreaming} />
+      )}
     </div>
   );
 }

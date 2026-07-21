@@ -73,7 +73,7 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
   }, [savedCustomTemplates, query]);
 
   return (
-    <div className="rounded-2xl border border-gray-200/70 bg-white overflow-hidden">
+    <div className="rounded-[var(--radius-card)] border border-line-border bg-surface-white overflow-hidden">
       {detailTemplate && (
         <TemplateDetailModal
           template={detailTemplate}
@@ -95,28 +95,30 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
       )}
 
       {/* ── Top bar: category tabs + upload button + search ──────────── */}
-      <div className="border-b border-gray-100">
+      <div className="border-b border-line-divider">
         {/* Category tabs row — tabs on left, Upload button on right */}
         <div className="flex items-center px-3 pt-3 pb-0 gap-2">
           {/* Scrollable tabs */}
-          <div className="flex items-center overflow-x-auto scrollbar-none flex-1 min-w-0">
+          <div role="tablist" className="flex items-center overflow-x-auto scrollbar-none flex-1 min-w-0">
             {CATEGORIES.map((cat) => (
               <button
                 key={cat}
                 type="button"
+                role="tab"
+                aria-selected={activeCategory === cat}
                 onClick={() => setActiveCategory(cat)}
                 className={`flex-shrink-0 rounded-t-lg px-3.5 py-1.5 text-[12px] font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 ${
                   activeCategory === cat
-                    ? "bg-gray-100 text-gray-900 font-semibold"
-                    : "text-gray-500 hover:text-gray-800"
+                    ? "bg-brand-fill text-ink-900 font-semibold"
+                    : "text-ink-500 hover:text-ink-800"
                 }`}
               >
                 {cat}
                 {cat === "Custom" && savedCustomTemplates.length > 0 && (
                   <span className={`inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold ${
                     activeCategory === "Custom"
-                      ? "bg-[#1B2A4A] text-white"
-                      : "bg-gray-200 text-gray-600"
+                      ? "bg-brand text-white"
+                      : "bg-line-divider text-ink-600"
                   }`}>
                     {savedCustomTemplates.length}
                   </span>
@@ -129,7 +131,7 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
           <button
             type="button"
             onClick={() => setShowUploadModal(true)}
-            className="flex-shrink-0 flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-white px-3 py-1.5 text-[11px] font-medium text-gray-500 hover:border-[#1B2A4A] hover:text-[#1B2A4A] hover:bg-[#1B2A4A]/5 transition-all mb-0.5"
+            className="flex-shrink-0 flex items-center gap-1.5 rounded-lg border border-dashed border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-500 hover:border-brand hover:text-brand hover:bg-brand-fill transition-all mb-0.5"
             title="Upload a custom HTML template"
           >
             <Upload className="h-3.5 w-3.5" />
@@ -140,13 +142,13 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
         {/* Search */}
         <div className="px-3 py-2">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-ink-400" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search templates…"
-              className="w-full rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-7 pr-3 text-[12px] text-gray-900 placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none"
+              className="w-full rounded-lg border border-line-border bg-surface-warm py-1.5 pl-7 pr-3 text-[12px] text-ink-900 placeholder:text-ink-400 focus:border-line-control focus:bg-surface-white focus:outline-none"
             />
           </div>
         </div>
@@ -159,21 +161,22 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
           filteredCustom.length === 0 && !query ? (
             /* Empty state — no custom templates yet */
             <div className="flex h-40 flex-col items-center justify-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50">
-                <Upload className="h-4 w-4 text-gray-400" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-line-border bg-surface-warm">
+                <Upload className="h-4 w-4 text-ink-400" />
               </div>
               <div className="text-center">
-                <p className="text-[12px] font-medium text-gray-600">No custom templates yet</p>
-                <p className="mt-0.5 text-[11px] text-gray-400">Upload an HTML file or paste a URL to get started</p>
+                <p className="text-[12px] font-medium text-ink-600">No custom templates yet</p>
+                <p className="mt-0.5 text-[11px] text-ink-400">Upload an HTML file or paste a URL to get started</p>
               </div>
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShowUploadModal(true)}
-                className="flex items-center gap-1.5 rounded-lg bg-[#1B2A4A] px-3 py-1.5 text-[11px] font-medium text-white hover:bg-[#0F1B33] transition-colors"
+                className="text-[11px]"
               >
                 <Upload className="h-3 w-3" />
                 Upload custom template
-              </button>
+              </Button>
             </div>
           ) : (
             <div
@@ -198,7 +201,7 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
               </div>
           )
         ) : filtered.length === 0 && (activeCategory !== "All" || savedCustomTemplates.length === 0) ? (
-          <div className="flex h-32 items-center justify-center text-[12px] text-gray-400">
+          <div className="flex h-32 items-center justify-center text-[12px] text-ink-400">
             No templates match your search.
           </div>
         ) : (
@@ -248,8 +251,8 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
       </div>
 
       {/* ── Footer count ─────────────────────────────────────────────── */}
-      <div className="border-t border-gray-100 px-4 py-1.5">
-        <span className="text-[10px] text-gray-400">
+      <div className="border-t border-line-divider px-4 py-1.5">
+        <span className="text-[10px] text-ink-400">
           {activeCategory === "Custom"
             ? `${savedCustomTemplates.length} custom template${savedCustomTemplates.length !== 1 ? "s" : ""}`
             : `${filtered.length} template${filtered.length !== 1 ? "s" : ""}${activeCategory !== "All" ? ` · ${activeCategory}` : ""}`
@@ -272,15 +275,15 @@ interface CustomCardProps {
 function CustomTemplateCard({ ct, selected, onSelect, onDelete }: CustomCardProps) {
   return (
     <div
-      className={`group relative flex flex-col overflow-hidden rounded-lg border bg-white text-left transition-all hover:shadow-sm ${
+      className={`group relative flex flex-col overflow-hidden rounded-lg border bg-surface-white text-left transition-all hover:shadow-sm ${
         selected
-          ? "border-[#1B2A4A] ring-2 ring-[#1B2A4A]/15 shadow-sm"
-          : "border-gray-200 hover:border-gray-300"
+          ? "border-brand ring-2 ring-brand/15 shadow-sm"
+          : "border-line-border hover:border-line-control"
       }`}
     >
       {/* Selected badge */}
       {selected && (
-        <div className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-[#1B2A4A]">
+        <div className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-brand">
           <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />
         </div>
       )}
@@ -289,7 +292,7 @@ function CustomTemplateCard({ ct, selected, onSelect, onDelete }: CustomCardProp
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="absolute left-1.5 top-1.5 z-10 hidden h-5 w-5 items-center justify-center rounded-full bg-white/90 text-gray-400 shadow-sm hover:text-red-500 group-hover:flex"
+        className="absolute left-1.5 top-1.5 z-10 hidden h-5 w-5 items-center justify-center rounded-full bg-surface-white/90 text-ink-400 shadow-sm hover:text-status-failed group-hover:flex"
         title="Remove custom template"
       >
         <X className="h-3 w-3" />
@@ -301,16 +304,16 @@ function CustomTemplateCard({ ct, selected, onSelect, onDelete }: CustomCardProp
         onClick={onSelect}
         className="flex flex-col flex-1 text-left focus:outline-none"
       >
-        <div className="flex h-[80px] items-center justify-center bg-gradient-to-br from-[#1B2A4A]/5 to-[#1B2A4A]/10">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white border border-gray-200 shadow-sm">
-            <Upload className="h-4 w-4 text-[#1B2A4A]" />
+        <div className="flex h-[80px] items-center justify-center bg-gradient-to-br from-brand/5 to-brand/10">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-white border border-line-border shadow-sm">
+            <Upload className="h-4 w-4 text-brand" />
           </div>
         </div>
         <div className="px-2 py-1.5">
-          <span className="block truncate text-[11px] font-medium text-gray-800 leading-tight">
+          <span className="block truncate text-[11px] font-medium text-ink-800 leading-tight">
             {ct.name}
           </span>
-          <span className="text-[9px] uppercase tracking-wide text-gray-400">
+          <span className="text-[9px] uppercase tracking-wide text-ink-400">
             {ct.source === "file" ? "HTML file" : "From URL"}
           </span>
         </div>
@@ -326,55 +329,35 @@ function NoTemplateCard({ selected, onSelect }: { selected: boolean; onSelect: (
     <button
       type="button"
       onClick={onSelect}
-      className={`flex flex-col overflow-hidden rounded-lg border bg-white text-left transition-all hover:shadow-sm focus:outline-none ${
+      className={`flex flex-col overflow-hidden rounded-lg border bg-surface-white text-left transition-all hover:shadow-sm focus:outline-none ${
         selected
-          ? "border-[#1B2A4A] ring-2 ring-[#1B2A4A]/15 shadow-sm"
-          : "border-gray-200 hover:border-gray-300"
+          ? "border-brand ring-2 ring-brand/15 shadow-sm"
+          : "border-line-border hover:border-line-control"
       }`}
     >
       {/* Selected badge */}
       {selected && (
-        <div className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-[#1B2A4A]">
+        <div className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-brand">
           <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />
         </div>
       )}
       {/* Visual area */}
-      <div className="flex h-[80px] items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 relative">
+      <div className="flex h-[80px] items-center justify-center bg-gradient-to-br from-surface-warm to-line-faint-row relative">
         <div className="flex flex-col items-center gap-1">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white">
-            <FileText className="h-4 w-4 text-gray-400" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-dashed border-line-control bg-surface-white">
+            <FileText className="h-4 w-4 text-ink-400" />
           </div>
         </div>
       </div>
       {/* Label */}
       <div className="px-2 py-1.5">
-        <span className="block truncate text-[11px] font-medium text-gray-800 leading-tight">
+        <span className="block truncate text-[11px] font-medium text-ink-800 leading-tight">
           No template
         </span>
-        <span className="text-[9px] uppercase tracking-wide text-gray-400">
+        <span className="text-[9px] uppercase tracking-wide text-ink-400">
           Blank canvas
         </span>
       </div>
-    </button>
-  );
-}
-
-// ── Upload custom card ────────────────────────────────────────────────────
-
-function UploadCustomCard({ onOpen }: { onOpen: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex flex-col items-center justify-center gap-1.5 overflow-hidden rounded-lg border-2 border-dashed border-gray-200 bg-white text-center transition-all hover:border-gray-300 hover:bg-gray-50 focus:outline-none"
-      style={{ minHeight: "110px" }}
-    >
-      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100">
-        <Upload className="h-3.5 w-3.5 text-gray-500" />
-      </div>
-      <span className="px-2 text-[10px] font-medium text-gray-500 leading-tight">
-        Upload custom
-      </span>
     </button>
   );
 }
@@ -393,15 +376,15 @@ function NoPreviewPlaceholder({ template }: { template: PrototypeTemplate }) {
   const icon = meta?.icon ?? "doc";
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-1.5 bg-gray-50/80 px-2">
-      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white border border-gray-200 shadow-sm">
+    <div className="flex h-full flex-col items-center justify-center gap-1.5 bg-surface-warm/80 px-2">
+      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-surface-white border border-line-border shadow-sm">
         {icon === "chart" ? (
-          <TrendingUp className="h-3.5 w-3.5 text-gray-400" />
+          <TrendingUp className="h-3.5 w-3.5 text-ink-400" />
         ) : (
-          <FileText className="h-3.5 w-3.5 text-gray-400" />
+          <FileText className="h-3.5 w-3.5 text-ink-400" />
         )}
       </div>
-      <span className="text-[9px] text-gray-400 text-center leading-tight">{label}</span>
+      <span className="text-[9px] text-ink-400 text-center leading-tight">{label}</span>
     </div>
   );
 }
@@ -469,15 +452,15 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
       ref={cardRef}
       type="button"
       onClick={() => onOpenDetail(template.id)}
-      className={`group relative flex flex-col overflow-hidden rounded-lg border bg-white text-left transition-all hover:shadow-sm focus:outline-none ${
+      className={`group relative flex flex-col overflow-hidden rounded-lg border bg-surface-white text-left transition-all hover:shadow-sm focus:outline-none ${
         selected
-          ? "border-[#1B2A4A] ring-2 ring-[#1B2A4A]/15 shadow-sm"
-          : "border-gray-200 hover:border-gray-300"
+          ? "border-brand ring-2 ring-brand/15 shadow-sm"
+          : "border-line-border hover:border-line-control"
       }`}
     >
       {/* Selected badge */}
       {selected && (
-        <div className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-[#1B2A4A]">
+        <div className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-brand">
           <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />
         </div>
       )}
@@ -490,7 +473,7 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
           // sandboxed (allow-scripts) iframe path below on 404/429/error.
           <>
             {!previewLoaded && (
-              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-line-faint-row to-line-divider" />
             )}
             {/* eslint-disable-next-line @next/next/no-img-element -- static same-origin thumbnail; next/image optimization + remotePatterns are unwanted overhead here */}
             <img
@@ -557,11 +540,11 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
 
       {/* Name */}
       <div className="px-2 py-1.5">
-        <span className="block truncate text-[11px] font-medium text-gray-800 leading-tight">
+        <span className="block truncate text-[11px] font-medium text-ink-800 leading-tight">
           {template.name}
         </span>
         {template.platform && (
-          <span className="text-[9px] uppercase tracking-wide text-gray-400">
+          <span className="text-[9px] uppercase tracking-wide text-ink-400">
             {template.platform}
           </span>
         )}

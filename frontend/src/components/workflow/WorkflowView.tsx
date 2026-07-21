@@ -37,7 +37,6 @@ interface WorkflowViewProps {
   pipelineType: "user_stories" | "ppt" | "prototype";
   userMessage: string;
   onClose: () => void;
-  websocketSend: (msg: string) => void;
   pipelineState?: PipelineRunState;
   onStartPipeline?: (type: string, message: string, agentIds?: string[]) => void;
   onResetPipeline?: () => void;
@@ -86,7 +85,6 @@ export function WorkflowView({
   pipelineType: initialType,
   userMessage: externalMessage,
   onClose,
-  websocketSend,
   pipelineState: externalPipelineState,
   onStartPipeline,
   onResetPipeline,

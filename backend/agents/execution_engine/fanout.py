@@ -112,7 +112,17 @@ def _select_workers(requests: list[dict], ctx: Any, step: Any) -> list[dict]:
                 f"fan-out request {i} resolved to an empty worker agent id "
                 f"(step agent_id={step_agent!r})"
             )
-        selected.append({"index": i, "agent_id": resolved, "input": req.get("input", "")})
+        selected.append(
+            {
+                "index": i,
+                "agent_id": resolved,
+                "input": req.get("input", ""),
+                # RESUME-06: carry the plan-global task id from the wave request to the
+                # record site so each spawned subagent_runs row is stamped at SPAWN
+                # (before the crash window). None on legacy/non-wave fan-out (dormant).
+                "task_id": req.get("task_id"),
+            }
+        )
     return selected
 
 
@@ -371,6 +381,11 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
             depth=depth,
             isolation=isolation,
             status="running",
+            # RESUME-06: stamp identity at SPAWN. worker_index=idx restarts at 0 per
+            # run_fanout call (wave-local, audit only); task_id is the plan-global id
+            # the resume skip cursor keys on (None on non-wave fan-out → dormant).
+            worker_index=idx,
+            task_id=worker.get("task_id"),
         )
         if row_id is not None:
             open_rows[idx] = row_id

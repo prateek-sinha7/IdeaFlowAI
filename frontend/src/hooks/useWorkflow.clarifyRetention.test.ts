@@ -3,7 +3,7 @@
  * survive the questionnaire panel unmount (retained in run-scoped state) and
  * must reset at the start of a fresh run (the startPipeline boundary).
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { useWorkflow } from "./useWorkflow";
 import type { ClarifyRound } from "@/types/index";
@@ -19,10 +19,11 @@ const r2: ClarifyRound = {
 
 describe("useWorkflow — retainClarifyRound", () => {
   it("appends rounds that survive, then resets to empty on a fresh run", () => {
-    const send = vi.fn(() => true);
-    const { result } = renderHook(() => useWorkflow(send));
+    const { result } = renderHook(() => useWorkflow());
 
-    act(() => result.current.startPipeline("prototype", "build it"));
+    act(() => {
+      void result.current.startPipeline("prototype", "build it");
+    });
     expect(result.current.pipelineState.clarifications).toEqual([]);
 
     act(() => result.current.retainClarifyRound(r1));
@@ -30,7 +31,9 @@ describe("useWorkflow — retainClarifyRound", () => {
     expect(result.current.pipelineState.clarifications).toEqual([r1, r2]);
 
     // A second fresh run resets the retained rounds (per-run boundary).
-    act(() => result.current.startPipeline("prototype", "build it again"));
+    act(() => {
+      void result.current.startPipeline("prototype", "build it again");
+    });
     expect(result.current.pipelineState.clarifications).toEqual([]);
   });
 });

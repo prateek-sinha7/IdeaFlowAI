@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -324,6 +325,138 @@ class ScopedStore:
             )
             query = self._scope_owner_ws(query, RunEvent)
             return query.order_by(RunEvent.seq.asc()).all()
+        finally:
+            if owned:
+                session.close()
+
+    async def append_event_next_seq(
+        self,
+        run_id: str,
+        *,
+        event_id: str,
+        type: str,
+        payload_json: Any,
+        _max_attempts: int = 8,
+    ) -> tuple[bool, int]:
+        """Idempotently append ONE ``run_events`` row, allocating the next contiguous
+        per-run ``seq`` under optimistic concurrency (Phase 29 CR-03).
+
+        The chat-lane writers (``chat_message`` up-channel + ``chat_reply`` narrator)
+        are a SECOND, concurrently-scheduled ``run_events`` writer for a ``run_id``
+        whose PRIMARY writer is the engine's own in-memory-counter event sink. A plain
+        read-``max(seq)+1``-then-``append_event`` races that sink (and, on a
+        double-submitted ``message_id``, itself): two writers can compute the same
+        ``seq`` before either commits. This serializes allocation OPTIMISTICALLY on the
+        additive ``uq_run_events_run_seq`` / ``uq_run_events_run_event`` constraints
+        (migration 0024), which reject a colliding insert so this method can:
+
+          * resolve a ``(run_id, event_id)`` collision as the idempotent no-op it is (a
+            concurrent duplicate ``message_id`` won the race → return its persisted
+            row), and
+          * re-derive ``seq`` past the new tail and retry on a ``(run_id, seq)``
+            collision (a racing writer took our seq), bounded so a hot run cannot spin.
+
+        Returns ``(created, seq)``: ``created=False`` when a row with ``event_id``
+        already exists (a replayed turn → no second row, D-01); ``seq`` is that row's
+        per-run seq. The engine's own sink is UNCHANGED — it keeps its fast in-memory
+        counter; on the rare seq collision the loser is arbitrated by the constraint
+        (the sink's best-effort ``persist`` degrades a dropped row to a warning; the
+        chat writer here retries) — so the DURABLE log never holds a duplicate seq.
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        for _ in range(max(1, _max_attempts)):
+            existing = await self.read_events(run_id, after_seq=0)
+            for row in existing:
+                if getattr(row, "event_id", None) == event_id:
+                    return False, int(getattr(row, "seq", 0) or 0)  # idempotent no-op
+            next_seq = (
+                max((int(getattr(r, "seq", 0) or 0) for r in existing), default=0) + 1
+            )
+            try:
+                await self.append_event(run_id, next_seq, event_id, type, payload_json)
+                return True, next_seq
+            except IntegrityError:
+                # A concurrent writer committed our (run_id, seq) or (run_id, event_id)
+                # first. Roll back any injected session so the next read is clean (a
+                # fresh/owned session was already closed by append_event's finally),
+                # then re-loop: our event_id may now exist (→ idempotent no-op) or the
+                # tail advanced (→ recompute seq past it).
+                if self._session is not None:
+                    self._session.rollback()
+                continue
+        raise RuntimeError(
+            f"append_event_next_seq: exhausted seq-allocation retries for run {run_id!r}"
+        )
+
+    # ------------------------------------------------------------------
+    # DeepLinkNonce — owner+workspace-scoped single-use deep-link store (WR-02)
+    # ------------------------------------------------------------------
+
+    async def mint_deep_link_nonce(
+        self,
+        *,
+        nonce: str,
+        run_id: str | None = None,
+        target: str | None = None,
+    ) -> str:
+        """Persist ONE ``deep_link_nonces`` row for an issued deep-link (WR-02).
+
+        Stamped with the helper principal ``(owner_id, workspace_id)`` (AUTHZ-01) so the
+        default-deny consume can only be satisfied by the SAME owner+workspace. Replaces
+        the Phase-29 process-global in-memory ``_ISSUED_NONCES`` set: the row is durable
+        (survives restart), owner-scoped (a cross-owner consume never resolves it —
+        T-43-03-SPOOF/IDOR), and single-use (``consumed_at`` is the terminal state minted
+        NULL here, flipped once by :meth:`consume_deep_link_nonce`). Returns the nonce.
+        """
+        from app.models.run_event import DeepLinkNonce
+
+        session, owned = self._acquire()
+        try:
+            session.add(
+                DeepLinkNonce(
+                    nonce=nonce,
+                    owner_id=self._owner_id,
+                    workspace_id=self._workspace_id,
+                    run_id=run_id,
+                    target=target,
+                )
+            )
+            session.commit()
+            return nonce
+        finally:
+            if owned:
+                session.close()
+
+    async def consume_deep_link_nonce(self, nonce: str) -> bool:
+        """Consume a deep-link nonce ONCE, owner+workspace-scoped (WR-02).
+
+        Returns ``True`` iff a row exists that is owner+workspace-matched AND unconsumed —
+        atomically marking it consumed in the SAME conditional UPDATE (``WHERE … AND
+        consumed_at IS NULL``), so a concurrent double-consume can flip exactly one row
+        (single-use, T-43-03-REPLAY). Returns ``False`` for a missing, cross-owner, or
+        already-consumed nonce — the API maps that False to a 404 (IDOR→404, never leaking
+        whether the nonce exists under a different owner — T-43-03-IDOR).
+        """
+        from app.models.run_event import DeepLinkNonce
+
+        session, owned = self._acquire()
+        try:
+            updated = (
+                session.query(DeepLinkNonce)
+                .filter(
+                    DeepLinkNonce.nonce == nonce,
+                    DeepLinkNonce.owner_id == self._owner_id,
+                    DeepLinkNonce.workspace_id == self._workspace_id,
+                    DeepLinkNonce.consumed_at.is_(None),
+                )
+                .update(
+                    {DeepLinkNonce.consumed_at: datetime.now(timezone.utc)},
+                    synchronize_session=False,
+                )
+            )
+            session.commit()
+            return updated == 1
         finally:
             if owned:
                 session.close()
@@ -947,6 +1080,8 @@ class ScopedStore:
         status: str,
         tokens: int | None = None,
         cost: Any = None,
+        worker_index: int | None = None,
+        task_id: str | None = None,
     ) -> str:
         """Insert one ``subagent_runs`` row stamped with the helper principal (FANOUT-10).
 
@@ -971,6 +1106,8 @@ class ScopedStore:
                 status=status,
                 tokens=tokens,
                 cost=cost,
+                worker_index=worker_index,
+                task_id=task_id,
             )
             session.add(row)
             session.commit()

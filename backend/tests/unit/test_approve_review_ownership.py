@@ -25,9 +25,7 @@ plus a source-order pin that the handler branch actually gates
 
 from __future__ import annotations
 
-import re
 import uuid
-from pathlib import Path
 
 import pytest
 
@@ -40,7 +38,9 @@ def _ws_db_env(monkeypatch):
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import StaticPool
 
-    from app.api import websocket as ws_module
+    # W4a (44-03): _review_gate_owned_by + _get_db relocated to app.api.run_engine
+    # (INV-12 extract-before-delete). Patch the seam at its new home.
+    from app.api import run_engine as ws_module
     from app.models.database import Base
 
     db_engine = create_engine(
@@ -144,38 +144,13 @@ def test_malformed_gate_keys_are_denied(_ws_db_env, bad_key):
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Wiring pin — the handler branch gates set_review_response on the predicate
+# Wiring pin — RETIRED (44-08).
+#
+# The source-order pin that the WS ``if msg_type == "approve_review":`` receive-loop
+# branch gated ``set_review_response`` behind the ownership predicate is SUPERSEDED:
+# the ``/ws/chat`` handler was deleted (44-07). The REST gate-command endpoint is the
+# live surface, and its ownership-before-write source-order wiring pin lives in
+# ``test_rest_gate_commands.py`` (cross-owner → 404, redo rides the same boundary).
+# The transport-neutral predicate behavior above (``_review_gate_owned_by``) stays
+# pinned here against ``app.api.run_engine`` (44-03 relocation).
 # ────────────────────────────────────────────────────────────────────────────
-
-
-def test_approve_review_branch_gates_set_review_response_on_ownership():
-    """Source-order pin: inside the ``approve_review`` branch the ownership
-    predicate must run BEFORE ``set_review_response`` (the grep-ratchet style
-    used by the banned-pattern/migration-ledger gates)."""
-    import app.api.websocket as ws_module
-
-    source = Path(ws_module.__file__).read_text(encoding="utf-8")
-    m = re.search(
-        r'if msg_type == "approve_review":(.*?)\n\s+if msg_type ==', source, re.S
-    )
-    assert m, "approve_review branch not found in websocket.py"
-    branch = m.group(1)
-
-    guard_at = branch.find("_review_gate_owned_by(")
-    write_at = branch.find("set_review_response(")
-    assert guard_at != -1, "approve_review no longer checks _review_gate_owned_by"
-    assert write_at != -1, "approve_review no longer calls set_review_response"
-    assert guard_at < write_at, (
-        "ownership must be verified BEFORE set_review_response "
-        "(CR-01: cross-user gate approval)"
-    )
-    # REDO-GATE test #4: the redo action rides the SAME owner-gated branch — both
-    # the redo write and the approve/reject write are AFTER the ownership predicate.
-    assert 'action == "redo"' in branch, (
-        "approve_review no longer handles the REDO-GATE action discriminator"
-    )
-    last_write_at = branch.rfind("set_review_response(")
-    assert guard_at < last_write_at, (
-        "the redo set_review_response must also be verified after ownership "
-        "(REDO-GATE: redo rides the same IDOR boundary)"
-    )

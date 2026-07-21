@@ -1,6 +1,5 @@
 ---
-consumes:
-- documentation-agent
+consumes: []
 context_from:
 - $previous
 description: Creates executive-ready reports with key metrics, insights, and recommendations.

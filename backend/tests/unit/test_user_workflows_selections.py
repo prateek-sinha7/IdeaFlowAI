@@ -42,8 +42,12 @@ from app.core.dependencies import get_current_user
 from app.models.database import Base, get_db
 from app.models.workflow_definition import WorkflowDefinition
 
+# CWF-001 D1: _AGENT_B is swot-analyst (consumes _AGENT_A's produced type), so the
+# default [_AGENT_A, _AGENT_B] composition is producer-first satisfiable (presorts
+# to itself). report-generator (consumes documentation-agent, never produced) would
+# now be rejected by the compose-time satisfiability guard.
 _AGENT_A = "market-research-agent"
-_AGENT_B = "report-generator"
+_AGENT_B = "swot-analyst"
 _DEFAULT_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 _NON_DEFAULT_MODEL = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
 _USER_VALIDATOR = "spec_plan_coverage"  # user_allowed=True
@@ -196,7 +200,7 @@ import asyncio  # noqa: E402
 
 import pytest as _pytest  # noqa: E402
 
-from app.api.websocket import _revalidate_selections_trust_user  # noqa: E402
+from app.api.run_engine import _revalidate_selections_trust_user  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +259,7 @@ def _compose_launch_overlay():
         }
     }
     base = compile_for_run("custom")
-    overlaid = ExecutionEngine._apply_selections(base, selections)
+    overlaid, _ = ExecutionEngine._apply_selections(base, selections)
     step = next(s for s in overlaid.steps if s.agent_id == _AGENT_A)
     return base, overlaid, step, selections
 
@@ -414,7 +418,7 @@ def test_bare_retry_coerces_and_reaches_compiled_step():
     from agents.execution_engine.engine import ExecutionEngine, compile_for_run
 
     selections = {_AGENT_A: {"retry": 4}}
-    overlaid = ExecutionEngine._apply_selections(compile_for_run("custom"), selections)
+    overlaid, _ = ExecutionEngine._apply_selections(compile_for_run("custom"), selections)
     step = next(s for s in overlaid.steps if s.agent_id == _AGENT_A)
     assert step.retry is not None and step.retry.max_attempts == 4
 
@@ -428,3 +432,236 @@ def test_zero_retry_omits_no_wrapper():
     assert _coerce_retry("0") is None
     step = _synthesize_step(_AGENT_A, {"retry": 0})
     assert "retry" not in step
+
+
+# ===========================================================================
+# FANOUT-03 (Plan 51-01, D5) — the synthesizer emits the user-selected strategy
+# generically (no workflow/agent-name literal), so a composed fan-out selection
+# becomes a fanout_batch step at the trust=user re-compile (unblocks the 51-04
+# engine overlay, which reads ``user_step.strategy``).
+# ===========================================================================
+
+
+def test_synthesize_step_emits_selected_fanout_strategy():
+    """A selection carrying ``strategy=fanout_batch`` (+ task_source/fanout) yields a
+    step whose ``strategy`` is the SELECTED value, carrying task_source + fanout
+    (which already ride the generic projection loop)."""
+    from agents.workflows.selections import _synthesize_step
+
+    sel = {
+        "strategy": "fanout_batch",
+        "task_source": {
+            "kind": "parsed",
+            "parser": "heading_tasks",
+            "source_step": _AGENT_A,
+        },
+        "fanout": {"mode": "parallel", "max_parallel": 4},
+    }
+    step = _synthesize_step(_AGENT_B, sel)
+    assert step["strategy"] == "fanout_batch"
+    assert step["task_source"] == sel["task_source"]
+    assert step["fanout"] == sel["fanout"]
+    assert step["agent"] == _AGENT_B
+
+
+def test_synthesize_step_defaults_single_shot_when_no_strategy():
+    """No / empty / lever-only selection keeps the safe single_shot default and
+    carries no task_source (parity with a lever-less saved step)."""
+    from agents.workflows.selections import _synthesize_step
+
+    for sel in (None, {}, {"validators": [_USER_VALIDATOR]}):
+        step = _synthesize_step(_AGENT_A, sel)
+        assert step["strategy"] == "single_shot"
+        assert "task_source" not in step
+
+
+def test_synthesize_step_ignores_empty_or_nonstring_strategy():
+    """Only a NON-EMPTY STRING strategy overrides the default (an empty / non-string
+    strategy falls back to single_shot) — the change keys solely on the generic
+    ``strategy`` key, never a name literal (INV-1/SC-001)."""
+    from agents.workflows.selections import _synthesize_step
+
+    assert _synthesize_step(_AGENT_A, {"strategy": ""})["strategy"] == "single_shot"
+    assert _synthesize_step(_AGENT_A, {"strategy": 123})["strategy"] == "single_shot"
+    assert _synthesize_step(_AGENT_A, {"strategy": None})["strategy"] == "single_shot"
+
+
+def test_fanout_selection_trust_compiles_under_user():
+    """End-to-end trust boundary: a fan-out selection (``fanout_batch`` strategy +
+    ``heading_tasks`` parser — both user_allowed=True) is ACCEPTED by the trust=user
+    compile and yields a compiled Step whose ``.strategy`` is the selected
+    fanout_batch, carrying the task_source + fanout. The producer step is untouched
+    (safe single_shot default — parity)."""
+    from agents.capabilities.registry import CapabilityRegistry
+    from agents.workflows.compiler import WorkflowCompiler
+    from agents.workflows.selections import synthesize_manifest
+
+    selections = {
+        _AGENT_B: {
+            "strategy": "fanout_batch",
+            "task_source": {
+                "kind": "parsed",
+                "parser": "heading_tasks",
+                "source_step": _AGENT_A,
+            },
+            "fanout": {"mode": "parallel", "max_parallel": 4},
+        }
+    }
+    manifest = synthesize_manifest("custom", [_AGENT_A, _AGENT_B], selections)
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="user"
+    )
+    worker = next(s for s in compiled.steps if s.agent_id == _AGENT_B)
+    assert worker.strategy == "fanout_batch"
+    assert worker.task_source is not None
+    assert worker.task_source.source_step == _AGENT_A
+    assert worker.task_source.parser == "heading_tasks"
+    assert worker.fanout is not None
+    producer = next(s for s in compiled.steps if s.agent_id == _AGENT_A)
+    assert producer.strategy == "single_shot"
+
+
+def test_fanout_selection_with_smuggled_grant_is_rejected_naming_it():
+    """A fan-out selection that ALSO smuggles a user_allowed=False grant (a
+    ``security`` gate) is REJECTED by the trust=user compile with a ``CompilerError``
+    NAMING the offending capability — the synthesizer only PROJECTS the strategy
+    string; the compiler is the authority (T-51-01-E)."""
+    from agents.capabilities.registry import CapabilityRegistry
+    from agents.workflows.compiler import CompilerError, WorkflowCompiler
+    from agents.workflows.selections import synthesize_manifest
+
+    selections = {
+        _AGENT_B: {
+            "strategy": "fanout_batch",
+            "task_source": {
+                "kind": "parsed",
+                "parser": "heading_tasks",
+                "source_step": _AGENT_A,
+            },
+            "gates": ["security"],  # smuggled user_allowed=False grant
+        }
+    }
+    manifest = synthesize_manifest("custom", [_AGENT_A, _AGENT_B], selections)
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    msg = str(exc.value).lower()
+    assert "security" in msg
+    assert "user-allowed" in msg or "user_allowed" in msg
+
+
+# ===========================================================================
+# FANOUT-02 / FANOUT-06 (Plan 51-04, D3) — THE CRUX: the engine overlay
+# ``_apply_selections`` carries strategy/fanout/task_source at BOTH the in-plan
+# step and the absent-agent synthesis site, returns the trust-compiled user-step
+# map, and keeps the empty path byte-identical + map empty (INV-3).
+# ===========================================================================
+
+# An agent that is NOT in the file-compiled ``custom`` base plan (the common case
+# for a composed ``custom`` run — ``allowed_custom_agent_ids`` unions ALL non-revision
+# base agents, so a composed run can carry agents absent from the base membership).
+_ABSENT_AGENT = "domain-analyst"
+
+
+def _fanout_sel(worker: str, source: str) -> dict:
+    """A minimal, GENERIC fan-out selection (no name literal in the kernel path)."""
+    return {
+        worker: {
+            "strategy": "fanout_batch",
+            "task_source": {
+                "kind": "parsed",
+                "parser": "heading_tasks",
+                "source_step": source,
+            },
+            "fanout": {"mode": "parallel", "max_parallel": 4},
+        }
+    }
+
+
+def test_apply_selections_carries_fanout_onto_in_plan_step():
+    """IN-PLAN carry: overlaying a fan-out selection onto a base-manifest step yields
+    ``strategy == fanout_batch`` + the selected ``task_source.source_step`` + a
+    populated ``fanout`` — the levers the old overlay DROPPED now reach the run plan."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    base = compile_for_run("custom")
+    overlaid, user_map = ExecutionEngine._apply_selections(
+        base, _fanout_sel(_AGENT_B, _AGENT_A)
+    )
+    step = next(s for s in overlaid.steps if s.agent_id == _AGENT_B)
+    assert step.strategy == "fanout_batch"
+    assert step.task_source is not None
+    assert step.task_source.source_step == _AGENT_A
+    assert step.task_source.parser == "heading_tasks"
+    assert step.fanout is not None
+    # A non-selected base step is untouched (no bleed) + the overlay REPLACES steps
+    # in place (never adds/removes) so the membership assertion stays valid.
+    assert [s.agent_id for s in overlaid.steps] == [s.agent_id for s in base.steps]
+    producer = next(s for s in overlaid.steps if s.agent_id == _AGENT_A)
+    assert producer.strategy == "single_shot"
+    # The returned user-step map carries the trust-compiled worker.
+    assert user_map[_AGENT_B].strategy == "fanout_batch"
+
+
+def test_apply_selections_absent_agent_carried_in_user_step_map():
+    """ABSENT-agent carry: for a composed agent NOT in the base manifest, passing it
+    via ``run_agent_ids`` yields a user-step map whose entry carries the fan-out step
+    the synthesis site would use (before the bare single_shot fallback)."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    base = compile_for_run("custom")
+    base_ids = [s.agent_id for s in base.steps]
+    assert _ABSENT_AGENT not in base_ids  # precondition: genuinely absent
+
+    # The producer (_AGENT_A) MUST be in the run BEFORE the absent worker: a fan-out
+    # worker sourcing an agent that isn't in the run is invalid (the source never
+    # produces), so run_agent_ids carries the producer first — the user's composed
+    # producer→worker order, which the synth manifest now preserves so the D9 upstream
+    # guard sees the producer as EARLIER regardless of base-manifest `order`.
+    overlaid, user_map = ExecutionEngine._apply_selections(
+        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_AGENT_A, _ABSENT_AGENT]
+    )
+    # The absent agent is NOT injected into the plan steps (membership assertion safe)…
+    assert [s.agent_id for s in overlaid.steps] == base_ids
+    # …but its trust-compiled fan-out step IS available in the returned map for the
+    # synthesis site to consult.
+    assert _ABSENT_AGENT in user_map
+    absent_step = user_map[_ABSENT_AGENT]
+    assert absent_step.strategy == "fanout_batch"
+    assert absent_step.task_source is not None
+    assert absent_step.task_source.source_step == _AGENT_A
+
+
+def test_apply_selections_absent_step_carries_default_hooks_benign_delta():
+    """BENIGN delta (Risk #6): the trust-compiled absent step carries the compiler's
+    DEFAULT hooks (``audit_logger``/``secret_scan``) a bare ``_Step`` synthesis lacked.
+    This is INTENDED (a composed absent agent now runs a real compiled step), asserted
+    here so it is not mistaken for a regression."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    base = compile_for_run("custom")
+    # Producer first, then the absent worker (a valid composed producer→worker order).
+    _, user_map = ExecutionEngine._apply_selections(
+        base, _fanout_sel(_ABSENT_AGENT, _AGENT_A), run_agent_ids=[_AGENT_A, _ABSENT_AGENT]
+    )
+    hooks = list(getattr(user_map[_ABSENT_AGENT], "hooks", []) or [])
+    assert "audit_logger" in hooks
+    assert "secret_scan" in hooks
+
+
+def test_apply_selections_empty_is_byte_identical_and_map_empty():
+    """EMPTY/None selections → ``(compiled_unchanged, {})`` at the ``has_selections``
+    short-circuit — the plan is the SAME object (byte-identical) and the user-step map
+    is empty, so BOTH consumption sites behave identically to today (INV-3)."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    base = compile_for_run("custom")
+    for empty in (None, {}):
+        overlaid, user_map = ExecutionEngine._apply_selections(base, empty)
+        assert overlaid is base  # unchanged plan (no re-compile, no replace)
+        assert user_map == {}
+    # run_agent_ids is ignored on the empty path (short-circuit before synth).
+    overlaid, user_map = ExecutionEngine._apply_selections(
+        base, None, run_agent_ids=[_ABSENT_AGENT]
+    )
+    assert overlaid is base
+    assert user_map == {}

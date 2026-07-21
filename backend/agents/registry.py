@@ -240,11 +240,16 @@ def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
         ``set(PIPELINE_AGENTS[that_revision])`` only. Revisions are
         intentionally tight (the revision flow assumes a fixed agent shape and
         the UI does not let the user inject agents into a revision run).
-      * ``"custom"``: ``set(PIPELINE_AGENTS["custom"])`` — the custom-utility
-        pool. (NOTE: the legacy implementation returned the union of ALL agents
-        across ALL pipelines here; Phase 6 deliberately tightens this to the
-        real ``custom`` pipeline per the migration spec. ``custom`` is therefore
-        NOT part of the legacy-parity guarantee — base + revision pipelines are.)
+      * ``"custom"``: the custom-utility pool UNION every non-revision,
+        non-internal base pipeline's agents — i.e. ``set(PIPELINE_AGENTS["custom"])``
+        plus each base pipeline's ids (see the ``pipeline_type == "custom"``
+        branch below). This lets the "compose a custom workflow" UI include any
+        base-pipeline agent (prototype, user_stories, ppt, app_builder, …) in a
+        ``custom`` run, so the launch allow-list matches what the composer pool
+        exposes. (This is the SAME union the base-pipeline branch returns; the
+        only pools excluded are the tight ``*_revision`` pipelines and the
+        internal ``chat`` pipeline. ``custom`` is NOT part of the legacy-parity
+        guarantee — base + revision pipelines are.)
       * unknown / unsupported (incl. the empty ``reverse_engineer`` pipeline):
         ``set()`` — the security fallback. The caller is still expected to
         reject unknown pipeline types up-front; this empty-set guarantees no

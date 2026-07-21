@@ -156,9 +156,13 @@ class SmartPlanner:
     Returns a complete PlanningContext in 2-5 seconds.
     """
 
-    def __init__(self, model_id: str | None = None) -> None:
+    def __init__(self, model_id: str | None = None, usage_sink=None) -> None:
         self.model_id = model_id
         self._llm = self._build_llm()
+        # ISS-033: optional run-usage sink. When set, the planner's model-call tokens
+        # are routed into the run's usage accounting (via the shared cached_invoke),
+        # instead of being silently dropped. None → counting is a no-op.
+        self._usage_sink = usage_sink
 
     def _build_llm(self):
         """Build the LLM client — Anthropic direct, Bedrock bearer-token, or Bedrock IAM."""
@@ -383,11 +387,21 @@ Return ONLY valid JSON, no other text:
         """Run the smart planner. Returns a complete PlanningContext dict."""
         from langchain_core.messages import HumanMessage
 
+        from app.agents.cached_invoke import cached_invoke
+
         prompt = self._build_prompt(brief, pipeline_type)
 
         try:
-            response = await self._llm.ainvoke([HumanMessage(content=prompt)])
-            raw = response.content if hasattr(response, "content") else str(response)
+            # ISS-033: route the direct model call through the ONE shared cached-invoke
+            # helper so this call is Bedrock-cache-eligible and its tokens are counted.
+            # Pass the planner's own tuned model (max_tokens=2048, temperature=0) as the
+            # instance so the request/output stays byte-identical (INV-3) — only the
+            # invoke path changes (cache-point placement + token counting are added).
+            raw, _usage = await cached_invoke(
+                [HumanMessage(content=prompt)],
+                model=self._llm,
+                usage_sink=self._usage_sink,
+            )
 
             # Extract JSON from response (handle markdown code blocks)
             json_match = re.search(r'\{[\s\S]*\}', raw)

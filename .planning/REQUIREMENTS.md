@@ -204,33 +204,55 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 
 ### Chat Channel (Phases 28–29)
 
-- [ ] **CHAT-01**: Inbound WS `chat_message` (idempotent by client `message_id`); turns persist as `run_events` rows (`chat_message`/`chat_reply`) through the single stamping boundary — replay, reopen, and owner-scoping inherited; zero new tables
-- [ ] **CHAT-02**: Mechanical intent router delivers turns by run state — clarify answer / gate action (approve·reject·redo+instructions) / steering note / revision — with zero model calls for routable turns
-- [ ] **CHAT-03**: Steering seam — consume-once `ectx.steering_notes` rendered as a `=== USER GUIDANCE ===` block at the next agent dispatch (redo idiom); sticky (uploads) vs one-shot (directives) semantics
-- [ ] **CHAT-04**: Narrator `chat_reply` result cards for clarify/gate/pipeline/deliverable milestones, deep-linking into the run tabs
-- [ ] **CHAT-05**: Family-anchored transcript — turns persist on the active run; FE stitches across parent/child runs via `GET /api/runs/{id}/family`
-- [ ] **CHAT-06**: Golden neutrality — new event types in `_DOCUMENTED_EVENT_TYPES`, volatile keys in `_VOLATILE_STRIP_KEYS`, characterization proof that chat never fires on golden paths
+- [x] **CHAT-01**: Chat turns enter via `POST /api/runs/{id}/messages` (idempotent by client `message_id`) and persist as `run_events` rows (`chat_message`/`chat_reply`) through the single stamping boundary — replay, reopen, and owner-scoping inherited; all server→client delivery rides the per-run SSE stream (D-01/D-13); zero new tables
+- [x] **CHAT-07**: Transport cutover (D-13) — per-run SSE stream (`Last-Event-ID`=`seq`, `stream_attached` handshake) + REST command endpoints replace `/ws/chat` IN FULL within Phase 29: wire-parity characterization green (SSE ≡ recorded WS frame sequences for the 5 golden pipelines), every inbound-handler test suite ported 1:1 (IDOR/ownership, terminal fences, redo/update_specs, questionnaire, cancel, revision, image caps), `user_message` ported to a POST+stream shim, app-level FE connection provider + server-derived reattach + gate re-arm on restart (D-14), deploy-ordered rollout, then the WS run-handlers + transport flag DELETED with grep ratchets + a ledger row (INV-12); `websocket_handoff.py` + inbound MCP untouched
+- [x] **CHAT-02**: Mechanical intent router delivers turns by run state — clarify answer / gate action (approve·reject·redo+instructions·**update_specs** — routing to the shipped KAN-101 spec-revision loop) / steering note / revision — with zero model calls for routable turns; gates treated as event-driven (KAN-94) and fenced on terminal runs (`pipeline_not_running`, KAN-100)
+- [x] **CHAT-03**: Steering seam — consume-once `ectx.steering_notes` rendered as a `=== USER GUIDANCE ===` block at the next agent dispatch (redo idiom); sticky (uploads) vs one-shot (directives) semantics
+- [x] **CHAT-04**: Narrator `chat_reply` result cards for clarify/gate/pipeline/deliverable milestones, deep-linking into the run tabs
+- [x] **CHAT-05**: Family-anchored transcript — turns persist on the active run; FE stitches across parent/child runs via `GET /api/runs/{id}/family`
+- [x] **CHAT-06**: Golden neutrality — new event types in `_DOCUMENTED_EVENT_TYPES`, volatile keys in `_VOLATILE_STRIP_KEYS`, characterization proof that chat never fires on golden paths
 
 ### Uploads & Multimodal (Phase 30)
 
-- [ ] **UPLD-01**: `POST /api/runs/{id}/files` (multipart, two-layer owner check → 404) persisting bytes under the run's `RunSandbox`
-- [ ] **UPLD-02**: `run_images` provider live end-to-end (WS ingress → engine → `HumanMessage` content blocks) incl. per-turn images
-- [ ] **UPLD-03**: Documents extract-to-sticky-context AND land in the sandbox for agent `read_file`; `context_provider:uploaded_files` registered; uploaded context present in every subsequent `agent_input`
-- [ ] **UPLD-04**: Launch-time attachments (incl. images, client-resized) ride `run_pipeline`
+- [x] **UPLD-01**: `POST /api/runs/{id}/files` (multipart, two-layer owner check → 404) persisting bytes under the run's `RunSandbox` — **DONE 30-01** (owner-scoped, capped, traversal-proof; docs land under reserved `.uploads/` + extract-text sidecar + manifest; deliverable-excluded, INV-3 dormant)
+- [~] **UPLD-02**: `run_images` provider live end-to-end (WS ingress → engine → `HumanMessage` content blocks) incl. per-turn images — **run-entry path LANDED 2026-07-07 pre-milestone** (IMAGE-INPUT-PLAN waves `edw`/`frv`/`gvq`, offline-proven for `prototype`; validation caps + vision guard included); **per-turn carrier LANDED 30-03 (2026-07-08)** — images on the Phase-29 `POST /api/runs/{id}/messages` path → `apply_turn_images` → `ectx.pending_turn_images` → engine `_drain_turn_images` → `run_images` → `_compose_input_blocks` blocks; cap-validated by the shared `_validate_images`; ND-10 payload-transient (retained:false, no bytes), INV-3 dormant, offline-proven (39 green + 15 goldens byte-identical); **remaining: live Bedrock proof (Phase 34/LIVE-02) + the DEF-30-03-1 live in-process ectx delivery handle (== DEF-29-09-1)**
+- [x] **UPLD-03**: Documents extract-to-sticky-context AND land in the sandbox for agent `read_file`; `context_provider:uploaded_files` registered; uploaded context present in every subsequent `agent_input`
+- [~] **UPLD-04**: Launch-time attachments (incl. images, client-resized) ride `run_pipeline` — **image attachments LANDED 2026-07-07 pre-milestone** (FE picker + base64 + preview chips on 3 surfaces → `run_pipeline` `images`); remaining: client-side resize, paste/drag-drop (Phase 31 UI)
 
 ### Chat Lane UI (Phase 31)
 
-- [ ] **CHATUI-01**: Revived in-repo chat kit renders the family transcript with streaming markdown, `aria-live`/`role="log"`, and the open-design borrow-list mechanisms (Apache-2.0 attribution)
-- [ ] **CHATUI-02**: Gate/clarify quick-actions available in-lane, mirroring Steps (single backend channel either way)
-- [ ] **CHATUI-03**: Attachment UI (picker/paste/drag-drop/preview/resize) + token-usage widget from P26 telemetry
+- [x] **CHATUI-01**: Revived in-repo chat kit renders the family transcript with streaming markdown, `aria-live`/`role="log"`, and the open-design borrow-list mechanisms (Apache-2.0 attribution)
+- [x] **CHATUI-02**: Gate/clarify quick-actions available in-lane, mirroring Steps (single backend channel either way)
+- [x] **CHATUI-03**: Attachment UI (picker/paste/drag-drop/preview/resize) + token-usage widget from P26 telemetry
 
 ### Run-Screen Redesign (Phase 32)
 
-- [ ] **RUNUI-01**: Token layer (black/beige/one-blue `#3C2CDA`, Manrope/Heebo) + shared primitives; run screens consume tokens, no new hardcoded palette
-- [ ] **RUNUI-02**: Run screen = chat lane (left) + Preview/Steps/Files/Audit (right); typed-renderer switcher as manual override over existing dispatch
-- [ ] **RUNUI-03**: Steps 3-level drill-down from real events (overview spine → agent detail + Context-received rail → task detail, dual task-loop/fanout source); gate/clarify inline
-- [ ] **RUNUI-04**: Audit tab reads new `gate_events`/`validation_results`/`exec_runs` endpoints; counters/filters/CSV-JSON export; status palette only for governance
-- [ ] **RUNUI-05**: E2E hardened — brittle color-class assertions fixed, `data-testid`s on chat surfaces, mockWs chat driver in use
+- [x] **RUNUI-01**: Token layer (black/beige/one-blue `#3C2CDA`, Manrope/Heebo) + shared primitives; run screens consume tokens, no new hardcoded palette
+- [x] **RUNUI-02**: Run screen = chat lane (left) + Preview/Steps/Files/Audit (right); typed-renderer switcher as manual override over existing dispatch
+- [x] **RUNUI-03**: Steps 3-level drill-down from real events (overview spine → agent detail + Context-received rail → task detail, dual task-loop/fanout source); gate/clarify inline
+- [x] **RUNUI-04**: Audit tab reads new `gate_events`/`validation_results`/`exec_runs` endpoints; counters/filters/CSV-JSON export; status palette only for governance
+- [x] **RUNUI-05**: E2E hardened — brittle color-class assertions fixed, `data-testid`s on chat surfaces, mockWs chat driver in use
+
+### Run-Screen Mock Fidelity (Phase 39)
+
+- [x] **RUNUI-06**: Every run-screen surface (left lane, run header, Preview/Steps/Files/Audit + all sub-navigation) matches its VelocityAI-New-UI mock across settled/live/failed to the intended-divergence register — proven by a side-by-side screenshot-diff gallery + human sign-off, not a prose claim (Phase 39 SC-1)
+- [x] **RUNUI-07**: Net-new as-is affordances land — Share (client-only link), the Version ▾ menu (from `runFamily`), the "Renders as" deliverable-type switch, and the fuller Audit categories (secret-scan / performance / behavioral) (Phase 39 SC-2)
+- [x] **RUNUI-08**: Data stays real & live (SC-001) — no cloned mock values; the deliverable renderers are reused not rebuilt; intended divergences (VelocityAI / My Workflows / nav underline) preserved (Phase 39 SC-3)
+- [ ] **RUNUI-09**: The mocked e2e suite is green again against feat/ui-2 (home-grid / launch-flow / run-family fixes) and the fidelity screenshot harness + side-by-side gallery run under `frontend/e2e` (Phase 39 SC-4)
+
+### Shell Mock Fidelity (Phase 40 [B6])
+
+Phase 40 [B6] is the shell-convergence completion — it does NOT mint new requirement
+ids; it OWNS and closes the existing **SHELL-01..04** (defined under "Shell
+Convergence (Phases 35–38)" below) through the same anti-drift, mock-fidelity method
+Phase 39 used for the run screen. The four Phase-40 success criteria map onto them as
+a fidelity lens (Wave 1 = 40-01 harness; Wave 2 = 40-02..07 surfaces; the Configure/
+Composer rebuild defers to Phase 41):
+
+- **SHELL-01 (Phase 40 SC-1 — fidelity):** Each in-scope shell surface + every sub-view/sub-tab/state matches its `Hexaware Workspace v2` mock to the intended-divergence register (ND-A..D carried + ND-W..Z), proven by the side-by-side shell gallery (`gallery-shell.html`) + a HUMAN sign-off — not a prose claim.
+- **SHELL-02 (Phase 40 SC-2 — as-is affordances):** The net-new as-is affordances land on live data — Home 3×2 deliverable card grid + "Jump back in" recents, Library card grids, Settings richer profile form, History filter chips / Sort tabs / date groups, the Catalogue grid.
+- **SHELL-03 (Phase 40 SC-3 — live data / SC-001):** Data stays real & live (SC-001/ND-D) — no cloned mock values, no fabricated fields (ND-Y); existing components reused, chrome/layout rebuilt; intended divergences (ND-A brand · ND-B "My Workflows" · ND-C nav underline · ND-W "Run History" · ND-X no Voice · ND-Y no fabricated profile fields · ND-Z Library drawer → Phase 41) preserved.
+- **SHELL-04 (Phase 40 SC-4 — oracle + green specs):** The blocked Catalogue is stubbed (`/api/user-workflows`) + the empty surfaces seeded, the shell fidelity oracle is formalized (repo-relative, `SHELL_CAPTURE`-gated, per-surface `--surface` gallery regeneration), and each touched surface's mocked-e2e spec is re-anchored green.
 
 ### Concierge & Compaction (Phase 33)
 
@@ -242,13 +264,79 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 
 - [ ] **LIVE-02**: Live-Bedrock pass — multi-turn chat with images, mid-run steering observed in next dispatch, Concierge Q&A, `cache_read>0` with multi-turn cache-point placement (closes the P26 deferral), Playwright live suite
 
-### Shell Convergence (Phases 35–38)
+### Shell Convergence (Phases 35–38, closed to mock fidelity in Phase 40 [B6])
 
 - [ ] **SHELL-01**: Shell chrome (dark top bar, nav pill Home·Library·My Workflows, profile menu, notifications) + reskin-only pages (Settings, pickers, Library) on the token layer
-- [ ] **SHELL-02**: Fused Home (launcher+grid+recents); History grouping/sort/delete; **My Workflows** rename + kebab actions; `WorkflowCatalog`→`HomeLaunchGrid`; "Catalogue" reserved for future marketplace (D-11)
-- [ ] **SHELL-03**: Run detail/reopen page off a run-summary endpoint aggregating existing data (agents, KPIs, failure banner, version timeline)
-- [ ] **SHELL-04**: Generic Configure surface (Describe/Templates/DS/Gates/Settings for every deliverable) + Agent drawer + Workflow dialog with `user_allowed` gating (ND-1/ND-7/ND-8 gated)
-- [ ] **SHELL-05**: Date-scoped analytics aggregations + chart components + per-deliverable estimates + notifications feed
+- [x] **SHELL-02**: Fused Home (launcher+grid+recents); History grouping/sort/delete; **My Workflows** rename + kebab actions; `WorkflowCatalog`→`HomeLaunchGrid`; "Catalogue" reserved for future marketplace (D-11)
+- [x] **SHELL-03**: Run detail/reopen page off a run-summary endpoint aggregating existing data (agents, KPIs, failure banner, version timeline)
+- [ ] **SHELL-04**: Generic Configure surface (Describe/Templates/DS/Gates/Settings for every deliverable) + Agent drawer + Workflow dialog with `user_allowed` gating (ND-1/ND-7/ND-8 gated) — **closed-by-Phase-41 [B7]**: the mock-fidelity rebuild of the single Configure screen (CFGUI-01/02) + the Library agent-detail drawer (CMPUI-05) close this requirement's Configure-surface + Agent-drawer clauses.
+- [x] **SHELL-05**: Date-scoped analytics aggregations + chart components + per-deliverable estimates + notifications feed
+
+### Configure Unification + Composer Rebuild (Phase 41 [B7])
+
+The two structural REBUILDS Phase 40 deferred — the unified **Configure** screen
+and the full-page **Composer** (Simple + Canvas) — to mock/proposal fidelity, plus
+the harness that unblocks their fidelity gates. Closes SHELL-04. Intended
+divergences ND-AE..AJ (see `41-UI-SPEC.md` / `assemble-phase41-gallery.mjs`).
+
+- [ ] **CFGUI-01**: The unified one-screen Configure surface — Step-1 brief + four accordions (Templates · Design System · Review Gates · Workflow Settings) + overlays — matches the mock (screenshot-diff + HUMAN sign-off), closed to the ND-AE..AI register.
+- [ ] **CFGUI-02**: ConfigureScreen revived as the SINGLE Configure screen with a real `onLaunch` through the existing `onStartPipeline` seam + in-app nav; the overlapping Configure code in IdeaInputPage (brief-launch) + LaunchWizard + WizardStepper is DELETED — no dual Configure implementation survives (INV-3).
+- [ ] **CMPUI-01**: The Composer is a full-page surface with entry from Home + edit-from-My-Workflows and a Simple⇄Canvas toggle, bound to the AgentsPopup shared data model; the modal shell is replaced (INV-3).
+- [ ] **CMPUI-02**: The Simple view matches `Hexaware Composer.dc.html` — identity card + reorderable agent rows + model picker + override chips + custom prompt + capability palette + skills & hooks + summary rail (screenshot-diff + HUMAN sign-off).
+- [ ] **CMPUI-03**: The hand-rolled node-graph Canvas view matches the APPROVED proposal `composer-canvas-proposal.html` — design-match HUMAN sign-off (ND-AJ); no graph library (D-CMP-CANVAS).
+- [x] **CMPUI-04**: Run-once launches through the existing `onStartPipeline` seam (functional test) + Save-to-catalogue reuses `createUserWorkflow`; no engine/backend/manifest change, no fabricated cost (ND-AG). *(41-06, commit 19f9fdf7 — composer-run.spec.ts mocked 2/2 green)*
+- [ ] **CMPUI-05**: The Library agent-detail right-drawer rebuilt from AgentCapabilitiesModal — closes SHELL-04's Agent-drawer clause (ND-Z).
+- [ ] **HARN-01**: The Configure template/DS/ppt APIs stubbed + seeded (opt-in) + the Phase-41 fidelity oracle formalized (repo-relative, per-surface `--surface`-regenerable, carrying ND-AE..AJ + a Canvas design-match target).
+
+## Milestone v3.0 Requirements — Top-Tier Resume & Durable Execution
+
+> POR: `.planning/RESUME-CAPABILITY-DESIGN-DRAFT.md` (all 7 design decisions LOCKED §8; LOCK-E/ND-4 supersede record §8.1). Continues the v1.0 RESUME-01..04 family. Substrate = `artifact_refs` (NOT git — Q1); cursor computed by the KERNEL, never an agent; every phase golden-safe (INV-3), additive-only (Q3), kernel name-free (INV-1/SC-001), single-dispatch-path (INV-12), deepagents-only (INV-13).
+
+### Resume Correctness (Phase 45 [R0])
+
+- [x] **RESUME-05**: A run interrupted mid-build resumes by re-entering the build step and completing ONLY the unfinished tasks — a partially-completed build is never classified "complete" and silently skipped (fixes the `engine.py:6002` first-task-persist bug). Completeness is strategy-conditional: task-granular steps (task_loop/wave) count tasks-in-current-list vs completed per-task artifacts; `single_shot` steps keep produced-ref/`step_completed` semantics byte-unchanged; `step_reused` (input_hash) behavior untouched.
+
+### Per-Task Substrate, Cursor & Live Layer (Phase 46 [R1])
+
+- [x] **RESUME-06**: `subagent_runs` carries per-child task identity — additive nullable `task_id` + `worker_index` columns (the pre-authorized CR-03-followup; free-String, named FK, reversible single-head after 0025), written at spawn (before the crash window — the 0023 `selections_json` precedent).
+- [x] **RESUME-07**: GENERIC per-task capture (Q7): every file a task wrote is durably captured per task — not just the declared deliverable file — superseding `persist_task_html`'s single-file scope so any future multi-file task workflow resumes from day one.
+- [x] **RESUME-08**: Durable→disk re-materialization: resume walks the latest durable `artifact_refs` (by `location`, `max(version)`, filtered to completed task keys) and rebuilds the fresh `RunSandbox` — including MERGE RE-ENTRY for an in-flight wave (fragments re-materialized + the per-wave merge re-run before remaining workers dispatch). Worktree/sandbox state reconstructs from `artifact_refs`, never from git.
+- [x] **RESUME-09**: Per-worker wave skip + per-task sequential skip: completed workers/tasks are never re-invoked on resume (identity-based kernel cursor — NOT the deleted-for-cause prefix-by-count skip); agents receive the completed work as injected context but never decide the skip set.
+- [x] **RESUME-10**: A resumed run is a first-class LIVE run: both resume paths (auto `restore_non_terminal_runs` branch (b) AND the Phase-50 user endpoint) thread `register_live_ectx` (+ unregister in `finally`) and `milestone_sink` — mid-run steering, per-turn images, Concierge context, and narrator milestone cards all work on resumed runs; milestone-card `seq` drawn from the engine counter (DEF-43-03-1, 0024 constraint).
+- [x] **RESUME-11**: Steering notes durably logged as `chat_message` rows but not yet drained at crash time are re-queued onto `ectx.steering_notes` at resume (no silent loss of accepted guidance).
+
+### Uploads Durability (Phase 47 [R2])
+
+- [x] **RESUME-12**: Uploaded documents' extracted text + manifest are persisted durably at ingest (additive, owner_id+workspace_id-scoped; existing per-file/count/aggregate caps unchanged) — closing the `.uploads/` disk-only hole (Q6).
+- [x] **RESUME-13**: The `uploaded_files` context provider falls back to the durable mirror when the sandbox `.uploads/` copy is missing, so a resumed run on a fresh sandbox keeps FULL document context in every subsequent `agent_input`. Images stay payload-transient (ND-10 locked — explicitly untouched).
+
+### Task Identity & Mutable Task List (Phase 48 [R3])
+
+- [x] **RESUME-14**: Content-addressed task identity — `task_key = sha256(upstream_context_hash · normalized_task_content · occurrence_ordinal)`: position-independent (reorder/insert-safe), duplicate-text-safe (ordinal), and upstream-aware (a spec edit rotates the keys so tasks built against a stale spec re-run); hash discipline inherited from `input_hash` (sorted, no timestamp/uuid — cross-restart stable).
+- [x] **RESUME-15**: The task list is user-editable as a VERSIONED `task_list` artifact (Q3): add/edit/delete mints a new version via the extended gate-Edit mechanism (KAN-98 path; `edited_content` rides `POST /{id}/gate` only — WR-03); old versions kept with `derived_from` lineage, `max(version)` wins; NO new tasks table (respects the "no new step-status table" lock).
+- [x] **RESUME-16**: AUTOMATIC reconciliation (Q2) on resume or re-run-after-edit: completed+present → skip + re-materialize + inject as prior context; new/edited/rotated → run; deleted-but-completed → excluded from the assembled deliverable at read time (rows NEVER deleted — `artifact_refs` immutable); spec edits auto-invalidate affected tasks with no confirm prompt.
+
+### Gate Survival (Phase 49 [R4])
+
+- [x] **RESUME-17**: Clarify AND review gates survive a backend restart: restart branch (a) flips fail→re-arm for compiled-manifest runs with durable state (WR-05 stateless/legacy path byte-untouched), rebuilt on the EXISTING seams (`derive_open_gate`/KAN-94 durable pendency + the D-14g `_dangling_review_gate` SSE re-emit — no parallel pending-arm store; `_gate_is_pending` gains a public accessor, closing the IN-02 debt); the review gate RE-ENTERS `_run_agent`'s loop AT its gate phase with the output reconstructed from `artifact_refs`, so ALL five gate actions (approve/reject/edit/redo/update_specs) work identically post-restart; the pre-existing red `test_restart_resume::test_waiting_for_user_run_is_rearmed_not_driven` flips GREEN (the KAN-88 restoration anchor).
+
+### Reopen & Fix (Phase 50 [R5])
+
+- [x] **RESUME-18**: A user can resume a terminal-FAILED run via `POST /api/runs/{id}/resume`: two-layer owner check (`user_id`, 404 never 403), overlap-guarded (`pipeline_already_running` precedent) and replay-idempotent (the P33 M4 lesson); recovers workspace_id from durable rows (never fresh-minted — Pitfall 2), `selections_json` (0023), completed steps/tasks via the cursor, and disk via re-materialization; re-registers in `_PIPELINE_QUEUES` BEFORE FE attach (BUG-015 live-attach semantics) reusing the `run_engine.py` bridge — NO third hand-copied driver; status transition (failed→running or a `run_resuming` EVENT per INV-12 preference) makes FE `AUTO_STREAM_STATUSES` auto-attach; live-layer callbacks threaded (RESUME-10 mechanism). Authorized by the LOCK-E/ND-4 supersede record (POR §8.1).
+
+## Fan-Out User-Facing Requirements — User-Composable Fan-Out (Phase 51 [PB])
+
+**Added:** 2026-07-20 · **Source of truth:** `.planning/PATH-B-FANOUT-COMPOSER-SCOPE.md` (implementation-ready, file:line-verified) + `.planning/FANOUT-USER-FACING-SCOPE.md`. Exposes the Phase-11 fan-out kernel to the composer with **no new engine power** (no security/trust flag flip, no new capability kind, no migration).
+
+### User-Composable Fan-Out in the Composer (Phase 51 [PB])
+
+- [ ] **FANOUT-01**: The builder exposes a per-step "fan out over a list" toggle on BOTH composer surfaces (canvas `CanvasConfigRail`, simple-view `AdvancedExpander`); enabling it persists `{strategy:"fanout_batch", task_source:{kind:"parsed", parser:"heading_tasks", source_step:<upstream>}}` (optional `fanout:{mode,max_parallel}`) into `workflows.manifest_json` on SAVE and the `selections` LAUNCH payload; toggling OFF clears the levers; empty selections are omitted so the plan stays byte-identical (INV-3). (scope §4a–c, §6c)
+- [ ] **FANOUT-02** *(the crux)*: `engine._apply_selections` carries `strategy`/`fanout`/`task_source` onto the run-plan step (each lever guarded on the user having selected it, so the empty-selections path stays byte-identical), AND the absent-from-base-manifest synthesis site (`engine.py:2285-2292`, the COMMON case for `custom`) consults the trust-compiled user-step map so a composed agent's fan-out reaches the run; `_apply_selections` returns the user-step map and its single live caller (`engine.py:1463`) threads the run's agent ids. Nothing fans out without this. (scope §1)
+- [ ] **FANOUT-03**: `selections._synthesize_step` emits the user-selected `strategy` (overriding the safe `single_shot` default at `selections.py:86`) GENERICALLY — no workflow/agent-name literal (INV-1/SC-001); `fanout`/`task_source` ride the existing projection loop; the throwaway trust-check manifest compiles under `trust="user"` at BOTH the SAVE and LAUNCH chokepoints. (scope §3)
+- [ ] **FANOUT-04**: Fan-out sourcing follows the INSERT-A-NODE producer model — enabling fan-out wires `task_source.source_step` to a DEDICATED `## Task N:` producer node, reusing an existing node ONLY when it is a known producer (v1 allow-list: `prototype-plan`) and otherwise INSERTING one; a chained agent's output contract is never rewritten; a single generic task-list-planner producer skill (a curated `AGENT.md`/inject fragment, NOT a new engine capability kind — work-item P0) ships and is surfaced by the composer's "Insert a producer" action. (scope §0, §4e)
+- [ ] **FANOUT-05**: An additive, INV-5-safe compile-time guard rejects a `fanout_batch` step whose `task_source.source_step` is not an EARLIER compiled step (passes for `sample_fanout`/`sample_wave`); the FE source picker offers only earlier agents, disables the toggle for the first agent (with a hint), and warns on an unknown producer; the runtime degrades safely (`fanout_batch.py:96-109`) when a source emits no `## Task N:` headings. (scope §5a/§5b)
+- [ ] **FANOUT-06**: No new engine power — no security/trust flag flip, no new capability kind, no migration (every capability used — `fanout_batch`, `heading_tasks`, `FanoutSpec`, `TaskSource` — is already registered + `user_allowed=True`); invariants hold: INV-1/SC-001 (kernel stays name-free; banned-pattern grep 0), INV-3 (5 characterization goldens byte/event-identical), INV-5 (no DSL — the guard is a pure-data check), INV-7/INV-12 (kernel owns spawn/isolation/merge/concurrency/budget; no second spawn path; merge engine-selected — no merge picker exposed), import-linter 4/0. (scope §5c)
+- [ ] **FANOUT-07**: Proof — OFFLINE a selections-driven composed fan-out characterization test (mirrors `tests/agents/test_sc001_fanout.py`) asserts N `subagent_spawned`/`subagent_result` events + a merged deliverable + SC-001 grep 0; unit tests cover the overlay (in-plan + absent-agent + empty-selections byte-identity), the synthesizer, and the compile guard; FE vitest covers the toggle/source-picker/persist. LIVE (orchestrator-owned) a builder-composed `producer → fanned worker` on Bedrock shows ≤4 concurrent parallel workers + per-worker results + a merged deliverable + NO `spawn_subagents` grant. (scope §6)
 
 ## v2 Requirements
 
@@ -443,36 +531,84 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CHAT-01 | Phase 29 [A1] | Pending |
-| CHAT-02 | Phase 29 [A1] | Pending |
-| CHAT-03 | Phase 29 [A1] | Pending |
-| CHAT-04 | Phase 29 [A1] | Pending |
-| CHAT-05 | Phase 29 [A1] | Pending |
-| CHAT-06 | Phase 28 [A0] | Pending |
-| UPLD-01 | Phase 30 [A2] | Pending |
-| UPLD-02 | Phase 30 [A2] | Pending |
-| UPLD-03 | Phase 30 [A2] | Pending |
+| CHAT-01 | Phase 29 [A1] | Complete |
+| CHAT-02 | Phase 29 [A1] | Complete |
+| CHAT-03 | Phase 29 [A1] | Complete |
+| CHAT-04 | Phase 29 [A1] | Complete |
+| CHAT-05 | Phase 29 [A1] | Complete |
+| CHAT-06 | Phase 28 [A0] | Complete |
+| CHAT-07 | Phase 29 [A1] | Complete |
+| UPLD-01 | Phase 30 [A2] | Complete (30-01) |
+| UPLD-02 | Phase 30 [A2] | Carrier landed 30-03 (offline); live Bedrock proof deferred (Phase 34/LIVE-02) |
+| UPLD-03 | Phase 30 [A2] | Complete |
 | UPLD-04 | Phase 30 [A2] | Pending |
-| CHATUI-01 | Phase 31 [A3] | Pending |
-| CHATUI-02 | Phase 31 [A3] | Pending |
-| CHATUI-03 | Phase 31 [A3] | Pending |
-| RUNUI-01 | Phase 32 [A4] | Pending |
-| RUNUI-02 | Phase 32 [A4] | Pending |
-| RUNUI-03 | Phase 32 [A4] | Pending |
-| RUNUI-04 | Phase 32 [A4] | Pending |
-| RUNUI-05 | Phase 32 [A4] | Pending |
+| CHATUI-01 | Phase 31 [A3] | Complete |
+| CHATUI-02 | Phase 31 [A3] | Complete |
+| CHATUI-03 | Phase 31 [A3] | Complete |
+| RUNUI-01 | Phase 32 [A4] | Complete |
+| RUNUI-02 | Phase 32 [A4] | Complete |
+| RUNUI-03 | Phase 32 [A4] | Complete |
+| RUNUI-04 | Phase 32 [A4] | Complete |
+| RUNUI-05 | Phase 32 [A4] | Complete |
 | CONC-01 | Phase 33 [A5] | Pending |
 | CONC-02 | Phase 33 [A5] | Pending |
 | CONC-03 | Phase 33 [A5] | Pending |
 | LIVE-02 | Phase 34 [A6] | Pending |
 | SHELL-01 | Phase 35 [B1] | Pending |
-| SHELL-02 | Phase 36 [B2] | Pending |
-| SHELL-03 | Phase 36 [B2] | Pending |
-| SHELL-04 | Phase 37 [B3] | Pending |
-| SHELL-05 | Phase 38 [B4] | Pending |
+| SHELL-02 | Phase 36 [B2] | Complete |
+| SHELL-03 | Phase 36 [B2] | Complete |
+| SHELL-04 | Phase 37 [B3] → Phase 41 [B7] | Pending (closed-by-Phase-41) |
+| SHELL-05 | Phase 38 [B4] | Complete |
+| RUNUI-06 | Phase 39 [B5] | Complete |
+| RUNUI-07 | Phase 39 [B5] | Complete |
+| RUNUI-08 | Phase 39 [B5] | Complete |
+| RUNUI-09 | Phase 39 [B5] | Pending |
+| CFGUI-01 | Phase 41 [B7] | Pending |
+| CFGUI-02 | Phase 41 [B7] | Pending |
+| CMPUI-01 | Phase 41 [B7] | Pending |
+| CMPUI-02 | Phase 41 [B7] | Pending |
+| CMPUI-03 | Phase 41 [B7] | Pending |
+| CMPUI-04 | Phase 41 [B7] | Complete (41-06) |
+| CMPUI-05 | Phase 41 [B7] | Pending |
+| HARN-01 | Phase 41 [B7] | Pending |
 
-**v2.0 counts:** P27=1 · P28=5 · P29=4 · P30=3 · P31=5 · P32=3 · P33=1 · P34=1 · P35=2 · P36=1 · P37=1 (= 28)
+**v2.0 counts:** P28=1 · P29=6 · P30=4 · P31=3 · P32=5 · P33=3 · P34=1 · P35=1 · P36=2 · P37=1 · P38=1 · P39=4 · P41=8 (= 40)
+
+### Milestone v3.0 Traceability (phases 45–50, registered 2026-07-18)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| RESUME-05 | Phase 45 [R0] | Complete (verified 4/4) |
+| RESUME-06 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-07 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-08 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-09 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-10 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-11 | Phase 46 [R1] | Complete (verified 8/8) |
+| RESUME-12 | Phase 47 [R2] | Complete (verified 4/4) |
+| RESUME-13 | Phase 47 [R2] | Complete (verified 4/4) |
+| RESUME-14 | Phase 48 [R3] | Complete (verified 4/4) |
+| RESUME-15 | Phase 48 [R3] | Complete (verified 4/4) |
+| RESUME-16 | Phase 48 [R3] | Complete (verified 4/4) |
+| RESUME-17 | Phase 49 [R4] | Complete |
+| RESUME-18 | Phase 50 [R5] | Complete (verified 5/5) |
+
+**v3.0 counts:** P45=1 · P46=6 · P47=2 · P48=3 · P49=1 · P50=1 (= 14; 100% mapped, each REQ → exactly one phase)
+
+### Fan-Out User-Facing Traceability (Phase 51 [PB], registered 2026-07-20)
+
+| REQ-ID | Phase | Status |
+|--------|-------|--------|
+| FANOUT-01 | Phase 51 [PB] | Planned |
+| FANOUT-02 | Phase 51 [PB] | Planned |
+| FANOUT-03 | Phase 51 [PB] | Planned |
+| FANOUT-04 | Phase 51 [PB] | Planned |
+| FANOUT-05 | Phase 51 [PB] | Planned |
+| FANOUT-06 | Phase 51 [PB] | Planned |
+| FANOUT-07 | Phase 51 [PB] | Planned |
+
+**Fan-out counts:** P51=7 (= 7; 100% mapped to Phase 51).
 
 ---
 *Requirements defined: 2026-06-06*
-*Last updated: 2026-07-07 — Milestone v2.0 requirement families registered (CHAT/UPLD/CHATUI/RUNUI/CONC/LIVE-02/SHELL, 27 REQ-IDs → phases 28–38) via /gsd-import of `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`. Prior: 2026-06-14 — Traceability table reconciled to one-row-per-REQ; 113 body REQ-IDs that were missing from the table (grouped-row drift) added; statuses refreshed to the verified-complete state (ISS-012).*
+*Last updated: 2026-07-19 — Milestone v3.0 COMPLETE offline: all 14 RESUME-05..18 requirements Complete (phases 45–50 executed + verified; live pass pending). Prior: 2026-07-18 — Milestone v3.0 requirement family registered (RESUME-05..18, 14 REQ-IDs → phases 45–50) from the POR `.planning/RESUME-CAPABILITY-DESIGN-DRAFT.md` (plan-ingestion, decisions pre-locked §8). Prior: 2026-07-07 — Milestone v2.0 requirement families registered (CHAT/UPLD/CHATUI/RUNUI/CONC/LIVE-02/SHELL, 27 REQ-IDs → phases 28–38) via /gsd-import of `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`. Prior: 2026-06-14 — Traceability table reconciled to one-row-per-REQ; 113 body REQ-IDs that were missing from the table (grouped-row drift) added; statuses refreshed to the verified-complete state (ISS-012).*

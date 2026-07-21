@@ -1,6 +1,5 @@
 ---
-consumes:
-- swot-analyst
+consumes: []
 context_from:
 - $previous
 description: Builds a phased product roadmap with milestones, priorities, and timelines.

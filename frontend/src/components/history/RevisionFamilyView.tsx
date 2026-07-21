@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import type { WorkflowRun, WorkflowStatus, RunFamily } from "@/types/index";
 import { parseRunInput } from "@/lib/runInput";
+// INV-12: the run-stat formatters live once in @/lib/runStats — no local copy.
+import { formatDuration, formatTokenCount } from "@/lib/runStats";
 
 // ─── Display helpers (mirrors WorkflowHistory.tsx:87-120 — small presentational
 // utilities copied so the family card renders the SAME row shape without a
@@ -54,12 +56,6 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function formatDuration(seconds?: number): string {
-  if (!seconds) return "";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-}
-
 // Normalize a run type to its base (od_prototype→prototype, od_ppt→ppt, strip
 // _revision) — SHARED by both the family-count and the type-filter tabs. Same
 // rule as WorkflowHistory.tsx:196-200 / :753-756 (SC-001: generic suffix, never
@@ -79,16 +75,16 @@ export function statusDotClass(status: WorkflowStatus): string {
   const base = "w-1.5 h-1.5 rounded-full ";
   switch (status) {
     case "completed":
-      return base + "bg-emerald-400";
+      return base + "bg-status-done";
     case "cancelled":
     case "degraded":
-      return base + "bg-amber-400";
+      return base + "bg-status-amber";
     case "failed":
-      return base + "bg-gray-300";
+      return base + "bg-status-queued";
     case "running":
     case "revising":
     default:
-      return base + "bg-blue-400";
+      return base + "bg-status-running";
   }
 }
 
@@ -138,33 +134,104 @@ export function groupRunsByFamily(runs: WorkflowRun[]): FamilyGroup[] {
   );
 }
 
+// ─── Today / Earlier / Older date buckets + tokens/duration sort (SHELL-02).
+// A grouping/sort layer that sits OVER groupRunsByFamily, derived ENTIRELY from
+// fields already on each list row — `root.created_at` for the bucket key,
+// `latest.duration` / `latest.tokenUsage.total_tokens` for the sort key. No new
+// fetch, no backend change (36-RESEARCH A2). Extended HERE (next to the family
+// grouping) rather than inline in WorkflowHistory.
+export type HistorySortKey = "recent" | "tokens" | "duration";
+export type DateBucketLabel = "Today" | "Earlier" | "Older";
+
+const BUCKET_ORDER: DateBucketLabel[] = ["Today", "Earlier", "Older"];
+
+// Today = same local calendar day; Earlier = within the last 7 days; Older = beyond.
+export function dateBucketOf(dateStr: string, now: Date = new Date()): DateBucketLabel {
+  const t = new Date(dateStr).getTime();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (t >= startOfToday) return "Today";
+  if (t >= startOfToday - 7 * 86_400_000) return "Earlier";
+  return "Older";
+}
+
+// Representative metric for a family — the displayed/latest member (the card row
+// renders the latest member's status/date), so the sort matches what is shown.
+function groupTokens(g: FamilyGroup): number {
+  return g.latest.tokenUsage?.total_tokens ?? 0;
+}
+function groupDuration(g: FamilyGroup): number {
+  return g.latest.duration ?? 0;
+}
+
+export interface HistorySection {
+  bucket: DateBucketLabel;
+  groups: FamilyGroup[];
+}
+
+// Partition family groups into Today/Earlier/Older (keyed on root.created_at) and
+// sort within each bucket by the chosen key. `recent` (default) = newest latest-
+// member first — preserves today's newest-first order. Only non-empty buckets are
+// returned, in Today → Earlier → Older order.
+export function bucketAndSortFamilies(
+  groups: FamilyGroup[],
+  sortKey: HistorySortKey = "recent",
+  now: Date = new Date(),
+): HistorySection[] {
+  const byBucket = new Map<DateBucketLabel, FamilyGroup[]>();
+  for (const g of groups) {
+    const bucket = dateBucketOf(g.root.createdAt, now);
+    const arr = byBucket.get(bucket);
+    if (arr) arr.push(g);
+    else byBucket.set(bucket, [g]);
+  }
+  const cmp = (a: FamilyGroup, b: FamilyGroup): number => {
+    if (sortKey === "tokens") {
+      const d = groupTokens(b) - groupTokens(a);
+      if (d !== 0) return d;
+    } else if (sortKey === "duration") {
+      const d = groupDuration(b) - groupDuration(a);
+      if (d !== 0) return d;
+    }
+    // recent + deterministic tie-break: newest latest-member first, then rootRunId.
+    const dt = new Date(b.latest.createdAt).getTime() - new Date(a.latest.createdAt).getTime();
+    if (dt !== 0) return dt;
+    return b.rootRunId.localeCompare(a.rootRunId);
+  };
+  const sections: HistorySection[] = [];
+  for (const bucket of BUCKET_ORDER) {
+    const arr = byBucket.get(bucket);
+    if (arr && arr.length > 0) sections.push({ bucket, groups: [...arr].sort(cmp) });
+  }
+  return sections;
+}
+
 // ─── StatusBadge — the pill from WorkflowHistory.tsx:902-918, extracted so both
 // the single-member row and the multi-member root row render the SAME badge for
 // their target member (the family's latest for a multi-member card).
 function StatusBadge({ status }: { status: WorkflowStatus }) {
   if (status === "completed") {
     return (
-      <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
+      <span className="text-[9px] font-semibold text-status-done bg-[var(--status-done-fill)] border border-[var(--status-done-border)] px-2 py-0.5 rounded-full">
         Done
       </span>
     );
   }
   if (status === "cancelled") {
     return (
-      <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
+      <span className="text-[9px] font-semibold text-status-amber bg-[var(--status-amber-fill)] border border-[var(--status-amber-border)] px-2 py-0.5 rounded-full">
         Cancelled
       </span>
     );
   }
   if (status === "failed") {
     return (
-      <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
+      <span className="text-[9px] font-semibold text-ink-500 bg-surface-warm border border-line-border px-2 py-0.5 rounded-full">
         Failed
       </span>
     );
   }
   return (
-    <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
+    <span className="text-[9px] font-semibold text-ink-500 bg-surface-warm border border-line-border px-2 py-0.5 rounded-full">
       Running
     </span>
   );
@@ -184,33 +251,71 @@ function RowMenu({
   onToggleMenu: (runId: string, e?: React.MouseEvent) => void;
   onDeleteClick: (runId: string, e?: React.MouseEvent) => void;
 }) {
+  const isOpen = openMenuId === runId;
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      onKeyDown={(e) => {
+        // a11y: Escape closes the open menu (toggling the same row closes it).
+        if (e.key === "Escape" && isOpen) { e.stopPropagation(); onToggleMenu(runId); }
+      }}
+    >
       <button
+        type="button"
         onClick={(e) => onToggleMenu(runId, e)}
-        className="flex items-center justify-center h-7 w-7 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label="Run actions"
+        className="flex items-center justify-center h-7 w-7 rounded-[var(--radius-button)] text-ink-300 hover:text-ink-900 hover:bg-surface-warm transition-colors"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
       <AnimatePresence>
-        {openMenuId === runId && (
+        {isOpen && (
           <motion.div
+            role="menu"
             initial={{ opacity: 0, scale: 0.95, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -4 }}
             transition={{ duration: 0.1 }}
-            className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[120px]"
+            className="absolute right-0 top-8 z-20 bg-surface-white border border-line-border rounded-[var(--radius-menu)] shadow-[var(--elevation-menu)] py-1 min-w-[120px]"
             onClick={(e) => e.stopPropagation()}
           >
             <button
+              type="button"
+              role="menuitem"
               onClick={(e) => onDeleteClick(runId, e)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-600 hover:bg-red-50 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5" /> Delete
             </button>
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── RowStats — the mock's right-aligned per-row token / elapsed column
+// (Hexaware Workspace v2.dc.html History row :398 — `r.tok` over `r.ago`). Both
+// values come from fields ALREADY on the list row (`tokenUsage.total_tokens`,
+// `created_at`), so there is no extra fetch. ND-D: never fabricate — the token
+// line is omitted when the run carries no usage datum (0 tokens), so a run with
+// no metered usage shows only its relative time, never a fake "0" count.
+function RowStats({ run }: { run: WorkflowRun }) {
+  const tokens = run.tokenUsage?.total_tokens ?? 0;
+  const ago = formatDate(run.createdAt);
+  if (tokens <= 0 && !ago) return null;
+  return (
+    <div className="w-[64px] flex-none text-right">
+      {tokens > 0 && (
+        <p className="text-[11px] font-semibold text-ink-700 tabular-nums leading-none">
+          {formatTokenCount(tokens)}
+        </p>
+      )}
+      {ago && (
+        <p className="text-[10px] text-ink-400 tabular-nums leading-none mt-0.5">{ago}</p>
+      )}
     </div>
   );
 }
@@ -245,29 +350,31 @@ export function FamilyGroupCard({
         animate={{ opacity: 1 }}
         transition={{ delay: index * 0.02 }}
         onClick={() => onSelectRun(run)}
-        className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors group"
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${run.title}, ${run.status}`}
+        onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); onSelectRun(run); } }}
+        className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-surface-warm focus-visible:bg-surface-warm outline-none transition-colors group"
       >
-        <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-gray-200 transition-colors">
-          <RootIcon className="h-4 w-4 text-gray-500" />
+        <div className="w-9 h-9 rounded-xl bg-surface-warm flex items-center justify-center flex-shrink-0 group-hover:bg-surface-warm transition-colors">
+          <RootIcon className="h-4 w-4 text-ink-500" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-gray-900 leading-tight">{run.title}</p>
+          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{run.title}</p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] text-gray-400">{rootMeta.label}</span>
-            <span className="text-gray-200">·</span>
-            <span className="text-[10px] text-gray-400">{formatDate(run.createdAt)}</span>
-            {run.duration && (
+            <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
+            {run.duration ? (
               <>
-                <span className="text-gray-200">·</span>
-                <span className="text-[10px] text-gray-400">{formatDuration(run.duration)}</span>
+                <span className="text-ink-200">·</span>
+                <span className="text-[10px] text-ink-400">{formatDuration(run.duration)}</span>
               </>
-            )}
+            ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <RowStats run={run} />
           <StatusBadge status={run.status} />
           <RowMenu runId={run.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
-          <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
         </div>
       </motion.div>
     );
@@ -289,46 +396,53 @@ export function FamilyGroupCard({
         animate={{ opacity: 1 }}
         transition={{ delay: index * 0.02 }}
         onClick={() => onSelectRun(latest)}
-        className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors group"
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${group.root.title} (latest version), ${latest.status}`}
+        onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); onSelectRun(latest); } }}
+        className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-surface-warm focus-visible:bg-surface-warm outline-none transition-colors group"
       >
-        <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-gray-200 transition-colors">
-          <RootIcon className="h-4 w-4 text-gray-500" />
+        <div className="w-9 h-9 rounded-xl bg-surface-warm flex items-center justify-center flex-shrink-0 group-hover:bg-surface-warm transition-colors">
+          <RootIcon className="h-4 w-4 text-ink-500" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-gray-900 leading-tight">{group.root.title}</p>
+          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{group.root.title}</p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] text-gray-400">{rootMeta.label}</span>
-            <span className="text-gray-200">·</span>
-            <span className="text-[10px] text-gray-400">{formatDate(latest.createdAt)}</span>
+            <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
+            {latest.duration ? (
+              <>
+                <span className="text-ink-200">·</span>
+                <span className="text-[10px] text-ink-400">{formatDuration(latest.duration)}</span>
+              </>
+            ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {/* "v{N}" count pill — filter-count-pill class (WorkflowHistory.tsx:806). */}
-          <span
-            aria-label={`${versionCount} versions`}
-            className="text-[9px] font-semibold px-1 rounded bg-gray-200 text-gray-500"
-          >
-            v{versionCount}
-          </span>
-          <StatusBadge status={latest.status} />
-          <RowMenu runId={group.root.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
-          {/* Chevron toggle — controlled-state rotate (NOT group-open, which only
-              fires inside a native <details>). */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {/* Purple "v{N}" version pill = the expand toggle (mock History row :397:
+              #ECEAFC fill / #3C2CDA text → bg-brand-fill / text-brand, chevron
+              rotates open). Merges the former grey count-pill + separate chevron
+              button into the single control the mock shows. The inner span keeps
+              the "{N} versions" a11y label; the button keeps the toggle label. */}
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
             aria-expanded={expanded}
             aria-label={expanded ? "Collapse versions" : "Show versions"}
-            className="flex items-center justify-center h-7 w-7 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand bg-brand-fill px-2 py-1 rounded-md hover:opacity-80 transition-opacity"
           >
-            <ChevronRight className={`h-3.5 w-3.5 text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`} />
+            <span aria-label={`${versionCount} versions`}>v{versionCount}</span>
+            <ChevronRight className={`h-2.5 w-2.5 text-brand transition-transform ${expanded ? "rotate-90" : ""}`} />
           </button>
+          <RowStats run={latest} />
+          <StatusBadge status={latest.status} />
+          <RowMenu runId={group.root.id} openMenuId={openMenuId} onToggleMenu={onToggleMenu} onDeleteClick={onDeleteClick} />
         </div>
       </motion.div>
 
       {/* Expanded child rows — indented (pl-8, AgentThinkingTab.tsx:119) chronological
           version rows v1..vN, each clickable to open that version. */}
       {expanded && (
-        <div className="divide-y divide-gray-50">
+        <div className="divide-y divide-line-faint">
           {group.members.map((member, i) => {
             // n = 1-based index of the parent within the family (fallback: the
             // previous sibling if the parent is not present in the list).
@@ -345,16 +459,16 @@ export function FamilyGroupCard({
                 type="button"
                 onClick={() => onSelectRun(member)}
                 aria-label={`Version ${i + 1}, ${member.status}`}
-                className="w-full text-left flex items-center gap-3 pl-8 pr-6 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors"
+                className="w-full text-left flex items-center gap-3 pl-8 pr-6 py-2.5 cursor-pointer hover:bg-surface-warm transition-colors"
               >
-                <span className="text-[9px] font-semibold px-1 rounded bg-gray-200 text-gray-500">
+                <span className="text-[9px] font-semibold px-1 rounded bg-surface-warm text-ink-500">
                   v{i + 1}
                 </span>
                 <span className={statusDotClass(member.status)} />
-                <span className="text-[12px] text-gray-700 truncate">{member.title}</span>
-                <span className="text-[10px] text-gray-400">{formatDate(member.createdAt)}</span>
+                <span className="text-[12px] text-ink-700 truncate">{member.title}</span>
+                <span className="text-[10px] text-ink-400">{formatDate(member.createdAt)}</span>
                 {member.parentRunId && (
-                  <span className="text-[10px] text-gray-400">↳ revises v{revisesN}</span>
+                  <span className="text-[10px] text-ink-400">↳ revises v{revisesN}</span>
                 )}
               </button>
             );
@@ -441,7 +555,7 @@ export function VersionTimeline({
   const instructionPreview = extractRevisionInstructionPreview(activeInput);
 
   return (
-    <div className="border-b border-gray-100 bg-white flex-shrink-0">
+    <div className="border-b border-line-divider bg-surface-white flex-shrink-0">
       {/* Chips row (mirrors the tab-bar container WorkflowHistory.tsx:574). */}
       <div
         role="radiogroup"
@@ -462,8 +576,8 @@ export function VersionTimeline({
               onClick={() => select(member.id)}
               className={`flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-md transition-colors ${
                 isActive
-                  ? "bg-[#1B2A4A] text-white"
-                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                  ? "bg-brand text-white"
+                  : "text-ink-500 hover:text-ink-700 hover:bg-surface-warm"
               }`}
             >
               <span aria-hidden className={statusDotClass(member.status as WorkflowStatus)} />
@@ -472,10 +586,13 @@ export function VersionTimeline({
           );
         })}
       </div>
-      {/* Context line — only for a revision member (non-null parent). */}
+      {/* Context line — only for a revision member (non-null parent). The quoted
+          instruction suffix renders ONLY when a preview exists, so an empty input
+          never yields dangling `— ''` quotes. */}
       {activeMember && activeMember.parent_run_id && (
-        <p className="px-5 pb-2 text-[10px] text-gray-400 truncate">
-          ↳ revises v{currentIdx} — &lsquo;{instructionPreview}&rsquo;
+        <p className="px-5 pb-2 text-[10px] text-ink-400 truncate">
+          ↳ revises v{currentIdx}
+          {instructionPreview ? <> — &lsquo;{instructionPreview}&rsquo;</> : null}
         </p>
       )}
     </div>

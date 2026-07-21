@@ -1,15 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Search, Clock, Puzzle, Webhook, X, Copy, Check,
   Tag, Zap, BookOpen, ChevronRight,
 } from "lucide-react";
 import { LIBRARY_AGENTS, CUSTOM_AGENTS } from "@/components/workflow/AgentLibraryData";
-import { AgentCapabilitiesModal } from "@/components/workflow/AgentsPopup";
+import { AgentCapabilitiesModal, type SelectionsMap } from "@/components/workflow/AgentsPopup";
 import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
 import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
+import { Tabs, type TabItem } from "@/components/ui/Tabs";
+import { Card } from "@/components/ui/Card";
+import { Pill } from "@/components/ui/Pill";
 import type { AgentDef } from "@/types/index";
 
 const ALL_AGENTS_COMBINED = [...LIBRARY_AGENTS, ...CUSTOM_AGENTS];
@@ -36,10 +39,15 @@ const PIPELINE_LABEL: Record<string, string> = {
   mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
 };
 
-const ICON_STYLES = [
-  { bg: "#E8EDF5", text: "#1B2A4A" }, { bg: "#F0EDE8", text: "#5C4A2A" },
-  { bg: "#EAF0EA", text: "#2A5C2A" }, { bg: "#F0E8EE", text: "#5C2A4A" },
-  { bg: "#E8EEF0", text: "#2A4A5C" }, { bg: "#F0EEE8", text: "#5C5A2A" },
+// Token-based avatar tints (was a retired-hex array) — cycle brand/warm
+// surfaces + ink/brand text so every agent chip stays on the Phase-32 palette.
+const ICON_TINTS = [
+  "bg-brand-fill text-brand",
+  "bg-surface-warm text-ink-700",
+  "bg-brand-fill text-ink-700",
+  "bg-surface-warm text-brand",
+  "bg-surface-paper text-ink-600",
+  "bg-brand-fill text-ink-600",
 ];
 
 function getInitials(name: string): string {
@@ -78,29 +86,25 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-[var(--scrim)] backdrop-blur-sm"
       onClick={onClose}
     >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 12 }}
-        transition={{ duration: 0.18 }}
+      <div
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-2xl overflow-hidden flex flex-col"
+        className="bg-surface-white rounded-2xl shadow-2xl border border-line-border w-full max-w-2xl overflow-hidden flex flex-col"
         style={{ maxHeight: "88vh" }}
       >
         {/* Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
+        <div className="px-6 pt-6 pb-4 border-b border-line-divider flex-shrink-0">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0">
-                <Puzzle className="h-5 w-5 text-gray-500" />
+              <div className="w-10 h-10 rounded-xl bg-brand-fill border border-brand-border flex items-center justify-center flex-shrink-0">
+                <Puzzle className="h-5 w-5 text-brand" />
               </div>
               <div>
-                <h2 className="text-[16px] font-bold text-gray-900 leading-tight">{skill.name}</h2>
+                <h2 className="font-sans text-[16px] font-bold text-ink-900 leading-tight">{skill.name}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200 capitalize">{skill.category}</span>
+                  <Pill className="capitalize text-ink-600">{skill.category}</Pill>
                 </div>
               </div>
             </div>
@@ -109,18 +113,18 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
                 onClick={handleCopy}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
                   copied
-                    ? "bg-gray-900 text-white border-gray-900"
-                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                    ? "bg-ink-900 text-white border-ink-900"
+                    : "bg-surface-white text-ink-600 border-line-control hover:bg-surface-warm hover:border-ink-300"
                 }`}
               >
                 {copied ? <><Check className="h-3 w-3" /> Copied!</> : <><Copy className="h-3 w-3" /> Copy content</>}
               </button>
-              <button onClick={onClose} className="h-8 w-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all">
+              <button onClick={onClose} className="h-8 w-8 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all">
                 <X className="h-4 w-4" />
               </button>
             </div>
           </div>
-          <p className="text-[12px] text-gray-600 leading-relaxed mt-3">{skill.description}</p>
+          <p className="text-[12px] text-ink-600 leading-relaxed mt-3">{skill.description}</p>
         </div>
 
         {/* Content */}
@@ -131,8 +135,8 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
               <div key={i}>
                 {section.heading && (
                   <div className="flex items-center gap-2 mb-2">
-                    <Zap className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                    <h3 className="text-[12px] font-bold text-gray-800 uppercase tracking-wide">{section.heading}</h3>
+                    <Zap className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
+                    <h3 className="font-sans text-[12px] font-bold text-ink-800 uppercase tracking-wide">{section.heading}</h3>
                   </div>
                 )}
                 <div className="space-y-1">
@@ -144,13 +148,13 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
                     if (isBullet || isNumbered) {
                       return (
                         <div key={j} className="flex items-start gap-2.5 py-0.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-gray-400 flex-shrink-0 mt-1.5" />
-                          <p className="text-[12px] text-gray-700 leading-relaxed">{text}</p>
+                          <div className="w-1.5 h-1.5 rounded-full bg-ink-400 flex-shrink-0 mt-1.5" />
+                          <p className="text-[12px] text-ink-700 leading-relaxed">{text}</p>
                         </div>
                       );
                     }
                     return (
-                      <p key={j} className="text-[12px] text-gray-600 leading-relaxed">{text}</p>
+                      <p key={j} className="text-[12px] text-ink-600 leading-relaxed">{text}</p>
                     );
                   })}
                 </div>
@@ -159,20 +163,20 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
           </div>
 
           {/* Raw content block */}
-          <div className="mx-6 mb-4 rounded-xl border border-gray-200 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+          <div className="mx-6 mb-4 rounded-xl border border-line-border overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-surface-warm border-b border-line-border">
               <div className="flex items-center gap-2">
-                <BookOpen className="h-3.5 w-3.5 text-gray-400" />
-                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">SKILL.md content</span>
+                <BookOpen className="h-3.5 w-3.5 text-ink-400" />
+                <span className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide">SKILL.md content</span>
               </div>
               <button
                 onClick={handleCopy}
-                className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-700 transition-colors"
+                className="flex items-center gap-1 text-[10px] text-ink-400 hover:text-ink-700 transition-colors"
               >
                 {copied ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
               </button>
             </div>
-            <pre className="px-4 py-3 text-[11px] text-gray-600 leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono bg-white">
+            <pre className="px-4 py-3 text-[11px] text-ink-600 leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono bg-surface-white">
               {skill.content}
             </pre>
           </div>
@@ -181,26 +185,26 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
           <div className="px-6 pb-5 space-y-3">
             {/* Tags */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Tag className="h-3 w-3 text-gray-400 flex-shrink-0" />
+              <Tag className="h-3 w-3 text-ink-400 flex-shrink-0" />
               {skill.tags.map(tag => (
-                <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-500">{tag}</span>
+                <Pill key={tag} className="text-ink-500">{tag}</Pill>
               ))}
             </div>
             {/* Compatible agents */}
             <div>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Compatible with</p>
+              <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5">Compatible with</p>
               <div className="flex flex-wrap gap-1.5">
                 {skill.compatible_agents.slice(0, 6).map(id => (
-                  <span key={id} className="text-[10px] px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-600 font-medium">{id}</span>
+                  <span key={id} className="text-[10px] px-2 py-0.5 rounded bg-surface-warm border border-line-border text-ink-600 font-medium">{id}</span>
                 ))}
                 {skill.compatible_agents.length > 6 && (
-                  <span className="text-[10px] text-gray-400">+{skill.compatible_agents.length - 6} more</span>
+                  <span className="text-[10px] text-ink-400">+{skill.compatible_agents.length - 6} more</span>
                 )}
               </div>
             </div>
           </div>
         </div>
-      </motion.div>
+      </div>
     </motion.div>
   );
 }
@@ -230,29 +234,25 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-[var(--scrim)] backdrop-blur-sm"
       onClick={onClose}
     >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 12 }}
-        transition={{ duration: 0.18 }}
+      <div
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-xl overflow-hidden flex flex-col"
+        className="bg-surface-white rounded-2xl shadow-2xl border border-line-border w-full max-w-xl overflow-hidden flex flex-col"
         style={{ maxHeight: "88vh" }}
       >
         {/* Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
+        <div className="px-6 pt-6 pb-4 border-b border-line-divider flex-shrink-0">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0">
-                <Webhook className="h-5 w-5 text-gray-500" />
+              <div className="w-10 h-10 rounded-xl bg-brand-fill border border-brand-border flex items-center justify-center flex-shrink-0">
+                <Webhook className="h-5 w-5 text-brand" />
               </div>
               <div>
-                <h2 className="text-[16px] font-bold text-gray-900 leading-tight">{hook.name}</h2>
+                <h2 className="font-sans text-[16px] font-bold text-ink-900 leading-tight">{hook.name}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-900 text-white">{hook.event}</span>
+                  <Pill className="bg-ink-900 text-white border-transparent">{hook.event}</Pill>
                 </div>
               </div>
             </div>
@@ -261,42 +261,42 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
                 onClick={handleCopy}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
                   copied
-                    ? "bg-gray-900 text-white border-gray-900"
-                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                    ? "bg-ink-900 text-white border-ink-900"
+                    : "bg-surface-white text-ink-600 border-line-control hover:bg-surface-warm hover:border-ink-300"
                 }`}
               >
                 {copied ? <><Check className="h-3 w-3" /> Copied!</> : <><Copy className="h-3 w-3" /> Copy</>}
               </button>
-              <button onClick={onClose} className="h-8 w-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all">
+              <button onClick={onClose} className="h-8 w-8 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all">
                 <X className="h-4 w-4" />
               </button>
             </div>
           </div>
-          <p className="text-[12px] text-gray-600 leading-relaxed mt-3">{hook.description}</p>
+          <p className="text-[12px] text-ink-600 leading-relaxed mt-3">{hook.description}</p>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {/* Event type explanation */}
-          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+          <div className="rounded-xl border border-line-divider bg-surface-warm px-4 py-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <Zap className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Event: {hook.event}</p>
+              <Zap className="h-3.5 w-3.5 text-ink-400" />
+              <p className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide">Event: {hook.event}</p>
             </div>
-            <p className="text-[12px] text-gray-600 leading-relaxed">{EVENT_DESCRIPTION[hook.event] ?? "Triggered by the specified event."}</p>
+            <p className="text-[12px] text-ink-600 leading-relaxed">{EVENT_DESCRIPTION[hook.event] ?? "Triggered by the specified event."}</p>
           </div>
 
           {/* Trigger */}
-          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">When it fires</p>
-            <p className="text-[12px] text-gray-700 font-medium">{hook.trigger}</p>
+          <div className="rounded-xl border border-line-divider bg-surface-warm px-4 py-3">
+            <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5">When it fires</p>
+            <p className="text-[12px] text-ink-700 font-medium">{hook.trigger}</p>
           </div>
 
           {/* How to use */}
           <div>
             <div className="flex items-center gap-2 mb-2.5">
-              <BookOpen className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">How to use</p>
+              <BookOpen className="h-3.5 w-3.5 text-ink-400" />
+              <p className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide">How to use</p>
             </div>
             <div className="space-y-2">
               {[
@@ -305,8 +305,8 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
                 `Best suited for: ${hook.compatible_agents.slice(0, 3).join(", ")}${hook.compatible_agents.length > 3 ? " and more" : ""}.`,
               ].map((step, i) => (
                 <div key={i} className="flex items-start gap-2.5">
-                  <div className="w-5 h-5 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-gray-500 mt-0.5">{i + 1}</div>
-                  <p className="text-[12px] text-gray-600 leading-relaxed">{step}</p>
+                  <div className="w-5 h-5 rounded-full bg-brand-fill border border-brand-border flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-brand mt-0.5">{i + 1}</div>
+                  <p className="text-[12px] text-ink-600 leading-relaxed">{step}</p>
                 </div>
               ))}
             </div>
@@ -314,11 +314,11 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
 
           {/* Compatible agents */}
           <div>
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Compatible agents</p>
+            <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-2">Compatible agents</p>
             <div className="flex flex-wrap gap-1.5">
               {hook.compatible_agents.map(id => (
-                <div key={id} className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-600">
-                  <ChevronRight className="h-2.5 w-2.5 text-gray-400" />
+                <div key={id} className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-surface-warm border border-line-border text-ink-600">
+                  <ChevronRight className="h-2.5 w-2.5 text-ink-400" />
                   {id}
                 </div>
               ))}
@@ -327,14 +327,14 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
 
           {/* Tags */}
           <div className="flex items-center gap-2 flex-wrap pt-1">
-            <Tag className="h-3 w-3 text-gray-400 flex-shrink-0" />
+            <Tag className="h-3 w-3 text-ink-400 flex-shrink-0" />
             {hook.tags.map(tag => (
-              <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-500">{tag}</span>
+              <Pill key={tag} className="text-ink-500">{tag}</Pill>
             ))}
           </div>
 
         </div>
-      </motion.div>
+      </div>
     </motion.div>
   );
 }
@@ -353,6 +353,17 @@ export function LibraryPage() {
   const [hookSearch, setHookSearch] = useState("");
   const [selectedSkill, setSelectedSkill] = useState<SkillDef | null>(null);
   const [selectedHook, setSelectedHook] = useState<HookDef | null>(null);
+
+  // Persist per-agent Config-tab selections across drawer open/close cycles.
+  // Keyed by agent.id → the SelectionsMap for that agent. A useRef keeps the
+  // map stable (no re-render on save) while surviving the drawer unmount.
+  const savedSelectionsRef = useRef<Record<string, SelectionsMap>>({});
+
+  const MAIN_TABS: TabItem[] = [
+    { id: "agents", label: `Agents  ${ALL_AGENTS_COMBINED.length}` },
+    { id: "skills", label: `Skills  ${SKILLS.length}`, icon: <Puzzle className="h-3.5 w-3.5" /> },
+    { id: "hooks", label: `Hooks  ${HOOKS.length}`, icon: <Webhook className="h-3.5 w-3.5" /> },
+  ];
 
   const filteredAgents = ALL_AGENTS_COMBINED.filter(agent => {
     const matchesCategory =
@@ -382,225 +393,175 @@ export function LibraryPage() {
     return matchEvent && matchSearch;
   });
 
+  const chipBase =
+    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] transition-colors";
+  const chipActive = "bg-surface-near-black border-transparent text-white font-medium";
+  const chipIdle =
+    "bg-surface-card border-line-border text-ink-500 hover:border-line-control hover:text-ink-700";
+
+  const countLine = `${ALL_AGENTS_COMBINED.length} agents · ${SKILLS.length} skills · ${HOOKS.length} hooks · tap any item to see its capabilities`;
+
   return (
-    <div className="flex flex-col h-full" style={{ background: "#f5f5f0" }}>
-      {/* ── Top bar — always full width, tabs never shift ── */}
-      <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 flex-shrink-0">
-        <div className="flex items-center gap-1">
-          <button onClick={() => setMainTab("agents")}
-            className={`px-4 py-2 rounded-lg text-[12px] font-semibold transition-colors ${mainTab === "agents" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"}`}>
-            Agents <span className="ml-1 text-[10px] opacity-70">{ALL_AGENTS_COMBINED.length}</span>
-          </button>
-          <button onClick={() => setMainTab("skills")}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-semibold transition-colors ${mainTab === "skills" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"}`}>
-            <Puzzle className="h-3.5 w-3.5" /> Skills <span className="text-[10px] opacity-70">{SKILLS.length}</span>
-          </button>
-          <button onClick={() => setMainTab("hooks")}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-semibold transition-colors ${mainTab === "hooks" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"}`}>
-            <Webhook className="h-3.5 w-3.5" /> Hooks <span className="text-[10px] opacity-70">{HOOKS.length}</span>
-          </button>
-        </div>
-        <div className="relative w-56">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-          <input type="text"
-            value={mainTab === "agents" ? searchQuery : mainTab === "skills" ? skillSearch : hookSearch}
-            onChange={e => {
-              if (mainTab === "agents") setSearchQuery(e.target.value);
-              else if (mainTab === "skills") setSkillSearch(e.target.value);
-              else setHookSearch(e.target.value);
-            }}
-            placeholder={`Search ${mainTab}...`}
-            className="w-full pl-9 pr-4 py-2 text-[12px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 transition-colors placeholder-gray-400"
-          />
-        </div>
-      </div>
-
-      {/* ── Body — sidebar + content side by side ── */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar — always rendered, content changes per tab */}
-        <div className="w-[200px] flex-shrink-0 bg-white border-r border-gray-200 flex flex-col py-5">
-          {mainTab === "agents" && (
-            <>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] px-5 mb-3">Categories</p>
-              <nav className="flex flex-col gap-0.5 px-3">
-                {CATEGORIES.map(cat => {
-                  const count = cat.id === "all" ? ALL_AGENTS_COMBINED.length
-                    : cat.id === "migration" ? ALL_AGENTS_COMBINED.filter(a => MIGRATION_TYPES.has(a.pipeline_type)).length
-                    : ALL_AGENTS_COMBINED.filter(a => a.pipeline_type === cat.id).length;
-                  const isActive = activeCategory === cat.id;
-                  const isSubItem = cat.id === "mulesoft_to_springboot" || cat.id === "dotnet_to_azure";
-                  return (
-                    <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
-                      className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-[13px] transition-colors text-left ${
-                        isActive ? "bg-gray-100 text-gray-900 font-medium"
-                        : cat.section ? "text-gray-700 font-semibold hover:bg-gray-50"
-                        : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                      } ${isSubItem ? "pl-6 text-[12px]" : ""}`}
-                    >
-                      <span>{cat.label}</span>
-                      <span className={`text-[11px] font-medium ${isActive ? "text-gray-600" : "text-gray-400"}`}>{count}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </>
-          )}
-
-          {mainTab === "skills" && (
-            <>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] px-5 mb-3">Category</p>
-              <nav className="flex flex-col gap-0.5 px-3">
-                {SKILL_CATEGORIES.map(cat => {
-                  const count = cat.id === "all" ? SKILLS.length : SKILLS.filter(s => s.category === cat.id).length;
-                  return (
-                    <button key={cat.id} onClick={() => setSkillCategory(cat.id)}
-                      className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-[12px] transition-colors text-left ${
-                        skillCategory === cat.id ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                      }`}>
-                      <span>{cat.label}</span>
-                      <span className="text-[10px] text-gray-400">{count}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </>
-          )}
-
-          {mainTab === "hooks" && (
-            <>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] px-5 mb-3">Event</p>
-              <nav className="flex flex-col gap-0.5 px-3">
-                {HOOK_EVENTS.map(ev => {
-                  const count = ev.id === "all" ? HOOKS.length : HOOKS.filter(h => h.event === ev.id).length;
-                  return (
-                    <button key={ev.id} onClick={() => setHookEvent(ev.id)}
-                      className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-[12px] transition-colors text-left ${
-                        hookEvent === ev.id ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                      }`}>
-                      <span>{ev.label}</span>
-                      <span className="text-[10px] text-gray-400">{count}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </>
-          )}
+    <div className="h-full overflow-y-auto bg-surface-paper">
+      <div className="max-w-[1320px] w-full mx-auto px-8 pt-6 pb-16">
+        {/* ── Header — h1 + count + search (leads above the tabs, per the mock) ── */}
+        <div className="flex items-end justify-between gap-5 mb-4">
+          <div>
+            <h1 className="font-sans text-[26px] font-light text-ink-900 tracking-[-0.01em] leading-none mb-1.5">Library</h1>
+            <p className="text-[13px] text-ink-400 leading-none">{countLine}</p>
+          </div>
+          <div className="relative w-[280px] flex-shrink-0">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[15px] w-[15px] text-ink-200" />
+            <input type="text"
+              value={mainTab === "agents" ? searchQuery : mainTab === "skills" ? skillSearch : hookSearch}
+              onChange={e => {
+                if (mainTab === "agents") setSearchQuery(e.target.value);
+                else if (mainTab === "skills") setSkillSearch(e.target.value);
+                else setHookSearch(e.target.value);
+              }}
+              placeholder={`Search ${mainTab}...`}
+              className="w-full pl-10 pr-4 py-[9px] text-[13px] text-ink-800 bg-surface-card border border-line-control rounded-[10px] focus:outline-none focus:border-brand transition-colors placeholder:text-ink-200"
+            />
+          </div>
         </div>
 
-        {/* Main content */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* ── Tab chrome — Tabs primitive, ND-C purple underline (kept) ── */}
+        <Tabs
+          tabs={MAIN_TABS}
+          active={mainTab}
+          onChange={(id) => setMainTab(id as "agents" | "skills" | "hooks")}
+          className="mb-5"
+        />
 
         {/* ── AGENTS ── */}
         {mainTab === "agents" && (
           <>
-            <div className="px-6 py-2 bg-white border-b border-gray-100 flex-shrink-0">
-              <p className="text-[11px] text-gray-400">{filteredAgents.length} agents · tap any agent to see its capabilities</p>
+            <div className="flex flex-wrap gap-[7px] mb-5">
+              {CATEGORIES.map(cat => {
+                const count = cat.id === "all" ? ALL_AGENTS_COMBINED.length
+                  : cat.id === "migration" ? ALL_AGENTS_COMBINED.filter(a => MIGRATION_TYPES.has(a.pipeline_type)).length
+                  : ALL_AGENTS_COMBINED.filter(a => a.pipeline_type === cat.id).length;
+                const isActive = activeCategory === cat.id;
+                return (
+                  <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
+                    className={`${chipBase} ${isActive ? chipActive : chipIdle}`}>
+                    {cat.label}<span className="opacity-50">{count}</span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="flex-1 overflow-y-auto p-5">
-              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {filteredAgents.map((agent, idx) => (
-                  <motion.div key={`${agent.pipeline_type}-${agent.id}`}
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    transition={{ delay: Math.min(idx * 0.015, 0.4) }}
-                    onClick={() => setSelectedAgent({ agent, index: idx })}
-                    className="flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-[11px] font-bold group-hover:scale-105 transition-transform"
-                        style={{ background: ICON_STYLES[idx % ICON_STYLES.length].bg, color: ICON_STYLES[idx % ICON_STYLES.length].text }}>
-                        {getInitials(agent.name)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-semibold text-gray-900 leading-tight group-hover:text-[#1B2A4A] transition-colors">{agent.name}</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wide font-medium">{PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type}</p>
-                      </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(288px,1fr))] gap-[13px]">
+              {filteredAgents.map((agent, idx) => (
+                <Card key={`${agent.pipeline_type}-${agent.id}`}
+                  onClick={() => setSelectedAgent({ agent, index: idx })}
+                  className="flex flex-col p-[17px] min-h-[180px] hover:border-line-control transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`w-10 h-10 rounded-[10px] flex items-center justify-center flex-shrink-0 text-[12px] font-bold ${ICON_TINTS[idx % ICON_TINTS.length]}`}>
+                      {getInitials(agent.name)}
                     </div>
-                    <p className="text-[10px] font-semibold text-gray-500 mb-1.5">{agent.role}</p>
-                    <p className="text-[11px] text-gray-500 leading-relaxed flex-1 mb-3 line-clamp-3">{agent.description}</p>
-                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                      <span className="flex items-center gap-1 text-[9px] text-gray-400"><Clock className="h-2.5 w-2.5" />~{agent.estimated_duration}s</span>
-                      <span className="text-[9px] text-gray-400 group-hover:text-[#1B2A4A] transition-colors font-medium">Tap to explore →</span>
+                    <div className="min-w-0">
+                      <p className="font-sans text-[14px] font-semibold text-ink-900 leading-tight group-hover:text-brand transition-colors">{agent.name}</p>
+                      <p className="text-[9px] text-ink-200 mt-1 uppercase tracking-[0.11em] font-semibold">{PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type}</p>
                     </div>
-                  </motion.div>
-                ))}
-              </div>
+                  </div>
+                  <p className="text-[12px] font-semibold text-ink-700 mb-1.5">{agent.role}</p>
+                  <p className="text-[12px] text-ink-400 leading-relaxed line-clamp-3">{agent.description}</p>
+                  <span className="flex-1" />
+                  <div className="flex items-center gap-2 mt-3.5 pt-3 border-t border-line-divider">
+                    <Clock className="h-[13px] w-[13px] text-ink-200" />
+                    <span className="text-[11.5px] text-ink-300">~{agent.estimated_duration}s</span>
+                    <span className="flex-1" />
+                    <span className="text-[11.5px] font-medium text-brand">Configure →</span>
+                  </div>
+                </Card>
+              ))}
             </div>
           </>
         )}
 
         {/* ── SKILLS ── */}
         {mainTab === "skills" && (
-          <div className="flex-1 overflow-y-auto p-5">
-            <p className="text-[11px] text-gray-400 mb-4">{filteredSkills.length} skills · tap any skill to see its full content</p>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {filteredSkills.map((skill, idx) => (
-                  <motion.div key={skill.id}
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    transition={{ delay: Math.min(idx * 0.02, 0.3) }}
-                    onClick={() => setSelectedSkill(skill)}
-                    className="flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group"
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="text-[13px] font-semibold text-gray-900 group-hover:text-[#1B2A4A] transition-colors">{skill.name}</p>
-                        </div>
-                        <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium capitalize">{skill.category}</p>
-                      </div>
-                      <Puzzle className="h-4 w-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0 mt-0.5" />
-                    </div>
-                    <p className="text-[11px] text-gray-600 leading-relaxed mb-3 flex-1 line-clamp-2">{skill.description}</p>
-                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                      <div className="flex flex-wrap gap-1">
-                        {skill.tags.slice(0, 3).map(tag => (
-                          <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-500">{tag}</span>
-                        ))}
-                      </div>
-                      <span className="text-[9px] text-gray-400 group-hover:text-[#1B2A4A] transition-colors font-medium flex-shrink-0 ml-2">View →</span>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
+          <>
+            <div className="flex flex-wrap gap-[7px] mb-5">
+              {SKILL_CATEGORIES.map(cat => {
+                const isActive = skillCategory === cat.id;
+                return (
+                  <button key={cat.id} onClick={() => setSkillCategory(cat.id)}
+                    className={`${chipBase} ${isActive ? chipActive : chipIdle}`}>
+                    {cat.label}
+                  </button>
+                );
+              })}
             </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
+              {filteredSkills.map((skill) => (
+                <Card key={skill.id}
+                  onClick={() => setSelectedSkill(skill)}
+                  className="p-4 hover:border-line-control transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2.5 mb-2.5">
+                    <span className="w-[30px] h-[30px] flex-shrink-0 rounded-lg bg-brand-fill grid place-items-center text-brand">
+                      <Puzzle className="h-[15px] w-[15px]" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-sans text-[13.5px] font-semibold text-ink-900 leading-tight group-hover:text-brand transition-colors">{skill.name}</p>
+                      <p className="text-[8.5px] text-ink-200 mt-0.5 uppercase tracking-[0.1em] font-semibold capitalize">{skill.category}</p>
+                    </div>
+                  </div>
+                  <p className="text-[12px] text-ink-400 leading-relaxed mb-2.5 line-clamp-2">{skill.description}</p>
+                  <div className="flex items-center flex-wrap gap-1.5">
+                    {skill.tags.slice(0, 3).map(tag => (
+                      <span key={tag} className="text-[10px] px-2 py-1 rounded-[5px] bg-surface-paper border border-line-border text-ink-500 font-medium">{tag}</span>
+                    ))}
+                    <span className="flex-1" />
+                    <span className="text-[11px] font-medium text-brand self-center group-hover:opacity-80 transition-opacity">View →</span>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </>
         )}
 
         {/* ── HOOKS ── */}
         {mainTab === "hooks" && (
-          <div className="flex-1 overflow-y-auto p-5">
-            <p className="text-[11px] text-gray-400 mb-4">{filteredHooks.length} hooks · tap any hook to see details</p>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {filteredHooks.map((hook, idx) => (
-                  <motion.div key={hook.id}
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    transition={{ delay: Math.min(idx * 0.02, 0.3) }}
-                    onClick={() => setSelectedHook(hook)}
-                    className="flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group"
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <p className="text-[13px] font-semibold text-gray-900 group-hover:text-[#1B2A4A] transition-colors">{hook.name}</p>
-                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-900 text-white flex-shrink-0">{hook.event}</span>
-                        </div>
-                        <p className="text-[10px] text-gray-400 italic">{hook.trigger}</p>
-                      </div>
-                      <Webhook className="h-4 w-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0 mt-0.5" />
-                    </div>
-                    <p className="text-[11px] text-gray-600 leading-relaxed mb-3 flex-1 line-clamp-2">{hook.description}</p>
-                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                      <div className="flex flex-wrap gap-1">
-                        {hook.tags.slice(0, 3).map(tag => (
-                          <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-500">{tag}</span>
-                        ))}
-                      </div>
-                      <span className="text-[9px] text-gray-400 group-hover:text-[#1B2A4A] transition-colors font-medium flex-shrink-0 ml-2">View →</span>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
+          <>
+            <div className="flex flex-wrap gap-[7px] mb-5">
+              {HOOK_EVENTS.map(ev => {
+                const isActive = hookEvent === ev.id;
+                return (
+                  <button key={ev.id} onClick={() => setHookEvent(ev.id)}
+                    className={`${chipBase} ${isActive ? chipActive : chipIdle}`}>
+                    {ev.label}
+                  </button>
+                );
+              })}
             </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
+              {filteredHooks.map((hook) => (
+                <Card key={hook.id}
+                  onClick={() => setSelectedHook(hook)}
+                  className="p-4 hover:border-line-control transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <p className="font-sans text-[13.5px] font-semibold text-ink-900 leading-tight group-hover:text-brand transition-colors">{hook.name}</p>
+                    <span className="flex-1" />
+                    <span className="text-[9px] font-semibold px-2 py-1 rounded-[5px] bg-surface-near-black text-white flex-shrink-0">{hook.event}</span>
+                  </div>
+                  <p className="text-[11.5px] text-ink-200 italic mb-2">{hook.trigger}</p>
+                  <p className="text-[12px] text-ink-400 leading-relaxed mb-2.5 line-clamp-2">{hook.description}</p>
+                  <div className="flex items-center flex-wrap gap-1.5">
+                    {hook.tags.slice(0, 3).map(tag => (
+                      <span key={tag} className="text-[10px] px-2 py-1 rounded-[5px] bg-surface-paper border border-line-border text-ink-500 font-medium">{tag}</span>
+                    ))}
+                    <span className="flex-1" />
+                    <span className="text-[11px] font-medium text-brand self-center group-hover:opacity-80 transition-opacity">View →</span>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </>
         )}
-      </div>
       </div>
 
       {/* Modals */}
@@ -610,6 +571,12 @@ export function LibraryPage() {
             agent={selectedAgent.agent}
             agentIndex={selectedAgent.index}
             onClose={() => setSelectedAgent(null)}
+            asDrawer
+            initialSelections={savedSelectionsRef.current[selectedAgent.agent.id] ?? {}}
+            onSelectionsChange={(next) => {
+              // Persist the selections for this agent so reopening restores them.
+              savedSelectionsRef.current[selectedAgent.agent.id] = next;
+            }}
           />
         )}
       </AnimatePresence>

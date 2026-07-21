@@ -915,9 +915,13 @@ class _FakeReviewEngine:
     def __init__(self, events) -> None:
         self._events = list(events)
         self.seen_output = None
+        self.seen_cancel = None
 
-    async def _run_review_gate(self, *, pipeline_run_id, agent_id, agent_name, output):
+    async def _run_review_gate(
+        self, *, pipeline_run_id, agent_id, agent_name, output, cancel_event=None
+    ):
         self.seen_output = output
+        self.seen_cancel = cancel_event
         for ev in self._events:
             yield ev
 
@@ -928,7 +932,7 @@ class _SpecStub:
         self.name = agent_id
 
 
-def _kernel_services(engine, *, scoped_store=None):
+def _kernel_services(engine, *, scoped_store=None, cancel_event=None):
     """Build a KernelServices with a minimal ectx (only the attrs the methods read)."""
     from agents.execution_engine.kernel_services import KernelServices
 
@@ -950,7 +954,7 @@ def _kernel_services(engine, *, scoped_store=None):
         attached_hooks=None,
         model_id=None,
         results=[],
-        cancel_event=None,
+        cancel_event=cancel_event,
     )
     return ks, ectx
 
@@ -980,6 +984,24 @@ async def test_run_human_gate_payload_none_is_byte_identical_string_path(monkeyp
 
     _ = [e async for e in ks.run_human_gate(object(), output="agent html output")]
     assert fake_engine.seen_output == "agent html output"  # string forwarded unchanged
+    assert fake_engine.seen_cancel is None  # no cancel_event supplied → None forwarded
+
+
+@pytest.mark.asyncio
+async def test_run_human_gate_threads_cancel_event_into_review_gate(monkeypatch):
+    """BUG-2 Cond B (quick-260720-ec4): run_human_gate forwards the SAME cooperative
+    cancel_event execute() holds into _run_review_gate, so a declared-gate-parked run
+    honors Stop via the existing cancel-aware race (RED pre-fix: seen_cancel is None)."""
+    import asyncio
+
+    ev = asyncio.Event()
+    fake_engine = _FakeReviewEngine([{"type": "review_gate_ready", "data": {}}])
+    ks, _ = _kernel_services(fake_engine, cancel_event=ev)
+    monkeypatch.setattr(ks, "_spec_for", lambda step: _SpecStub("step-x"))
+
+    _ = [e async for e in ks.run_human_gate(object(), output="agent html output")]
+
+    assert fake_engine.seen_cancel is ev  # the run-scoped cancel_event reached the delegate
 
 
 @pytest.mark.asyncio

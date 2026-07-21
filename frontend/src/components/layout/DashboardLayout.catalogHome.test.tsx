@@ -1,10 +1,10 @@
 /**
  * Phase 22 / 22-07 (UXFIX-03 / D-20) — catalog-as-home.
  *
- * Proves the data-driven `WorkflowCatalog` (GET /api/workflows) is the DEFAULT
+ * Proves the data-driven `HomeLaunchGrid` (GET /api/workflows) is the DEFAULT
  * home landing in DashboardLayout — NOT the hardcoded `CreationHub.WORKFLOWS`
  * array. The default `mainView` is "home" (no run staged); this test asserts
- * that the "home" view mounts WorkflowCatalog and does NOT mount CreationHub,
+ * that the "home" view mounts HomeLaunchGrid and does NOT mount CreationHub,
  * so the hardcoded workflow-name list no longer drives the default landing
  * (SC-001: no hardcoded name list on the default view).
  *
@@ -49,8 +49,8 @@ vi.mock("@/components/layout/AppHeader", () => ({
 vi.mock("@/components/home/CreationHub", () => ({
   CreationHub: () => <div data-testid="stub-creation-hub" />,
 }));
-vi.mock("@/components/catalog/WorkflowCatalog", () => ({
-  WorkflowCatalog: () => <div data-testid="stub-workflow-catalog" />,
+vi.mock("@/components/catalog/HomeLaunchGrid", () => ({
+  HomeLaunchGrid: () => <div data-testid="stub-workflow-catalog" />,
 }));
 vi.mock("@/components/library/LibraryPage", () => ({
   LibraryPage: () => <div data-testid="stub-library" />,
@@ -72,12 +72,6 @@ vi.mock("@/components/workflow/AgentProgressPanel", () => ({
 }));
 vi.mock("@/components/preview/PreviewPanel", () => ({
   PreviewPanel: () => <div data-testid="stub-preview" />,
-}));
-vi.mock("@/components/preview/QuestionnairePanel", () => ({
-  QuestionnairePanel: () => <div data-testid="stub-questionnaire" />,
-}));
-vi.mock("@/components/preview/ReviewGatePanel", () => ({
-  ReviewGatePanel: () => <div data-testid="stub-review-gate" />,
 }));
 vi.mock("@/components/ui/CompletionToast", () => ({
   CompletionToast: () => <div data-testid="stub-toast" />,
@@ -126,7 +120,7 @@ function renderLayout() {
 }
 
 describe("DashboardLayout — catalog-as-home (22-07 UXFIX-03 / D-20)", () => {
-  it("renders the data-driven WorkflowCatalog as the DEFAULT home landing", () => {
+  it("renders the data-driven HomeLaunchGrid as the DEFAULT home landing", () => {
     renderLayout();
     expect(screen.getByTestId("stub-workflow-catalog")).toBeInTheDocument();
   });

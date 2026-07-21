@@ -189,6 +189,74 @@ class WorkflowResolver:
             )
         return result.dag
 
+    def presort(self, agents: list) -> list:
+        """Order-independent produces/consumes satisfiability check + producer-first
+        topological pre-sort (CWF-001 D1). ADDITIVE — a NEW public entry point that
+        does NOT touch ``validate()`` / the ``idx < consumer_idx`` producer filter /
+        the ``max(upstream, …)`` tie-break.
+
+        Unlike ``validate()`` — which only counts a producer that is DECLARED before
+        the consumer (``idx < consumer_idx``) — ``presort`` treats ``produces`` as an
+        ORDER-INDEPENDENT set: a consumer is satisfiable iff SOME OTHER agent anywhere
+        in the list produces each of its non-exempt consumed types. It then reuses the
+        resolver's existing ``_detect_cycles`` + ``_topological_sort`` graph helpers
+        (INV-12 — no re-implemented DAG logic) to return the agents in producer-first
+        execution order — an order that ``validate()`` (byte-unchanged) will accept.
+
+        Determinism: ``_topological_sort`` seeds and scans in ``agents`` list order,
+        so the output is deterministic from the input order (the producer sets are
+        used only for edge membership).
+
+        Args:
+            agents: list[AgentSpec] — the USER composition to reorder.
+
+        Returns:
+            The same agents, producer-first (topological order).
+
+        Raises:
+            ValueError: prefixed ``"Workflow DAG is unsatisfiable: "`` when a consumed
+                non-exempt type has no producer among the agents (self excluded), when
+                a real produces/consumes cycle exists, or when ``agents`` is empty.
+        """
+        if not agents:
+            raise ValueError(
+                "Workflow DAG is unsatisfiable: Workflow must contain at least 1 agent."
+            )
+
+        # Order-independent producer map: artifact_type → set of producing agent ids
+        # over ALL agents (no index filter — this is the key difference from validate()).
+        produces_map: dict[str, set[str]] = defaultdict(set)
+        for agent in agents:
+            for artifact_type in getattr(agent, "produces", []):
+                produces_map[artifact_type].add(agent.id)
+
+        dependencies: dict[str, set[str]] = {agent.id: set() for agent in agents}
+        errors: list[str] = []
+
+        for consumer in agents:
+            for artifact_type in getattr(consumer, "consumes", []):
+                # Exempt types are always available — never unsatisfiable.
+                if artifact_type in _EXEMPT_TYPES:
+                    continue
+                # Exclude self — an agent cannot be its own upstream producer.
+                producers = produces_map.get(artifact_type, set()) - {consumer.id}
+                if not producers:
+                    errors.append(
+                        f"Agent '{consumer.id}' consumes '{artifact_type}' but no agent "
+                        f"in the workflow produces it."
+                    )
+                    continue
+                dependencies[consumer.id].update(producers)
+
+        if errors:
+            raise ValueError("Workflow DAG is unsatisfiable: " + "; ".join(errors))
+
+        cycle_errors = self._detect_cycles(agents, dependencies)
+        if cycle_errors:
+            raise ValueError("Workflow DAG is unsatisfiable: " + "; ".join(cycle_errors))
+
+        return self._topological_sort(agents, dependencies)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

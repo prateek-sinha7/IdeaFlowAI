@@ -28,6 +28,9 @@ vi.mock("@/lib/api", () => ({
   deleteWorkflow: (token: string, id: string) => mockDeleteWorkflow(token, id),
   getRunFamily: (token: string, id: string) => mockGetRunFamily(token, id),
   getRunArtifacts: (token: string, id: string, opts?: { kind?: string; includeContent?: boolean }) => mockGetRunArtifacts(token, id, opts),
+  // Detail summary column (RunDetailPage) is mounted but not asserted here — a
+  // benign rejection lands RunDetailPage in its graceful error state.
+  getRunSummary: () => Promise.reject(new Error("no summary in this suite")),
 }));
 
 vi.mock("@/components/preview/PPTPreview", () => ({ PPTPreview: () => <div /> }));
@@ -118,9 +121,12 @@ describe("WorkflowHistory reopen — clarify fetch + Starting point (C2)", () =>
 
     // StartingPointCard renders the run's brief (from selectedRun.input).
     await waitFor(() => expect(screen.getAllByText("Build a plain landing page brief.").length).toBeGreaterThan(0));
-    // ClarificationsCard renders the fetched round.
+    // ClarificationsCard renders the fetched round (Phase 39 plan 02: collapsed
+    // by default per the mock → expand it, then the Q&A + answer are visible;
+    // the answer renders with a check icon, not a "✓" literal).
+    fireEvent.click(screen.getByRole("button", { name: /clarifications/i }));
     expect(screen.getByText("Auth method?")).toBeInTheDocument();
-    expect(screen.getByText("✓ OAuth")).toBeInTheDocument();
+    expect(screen.getByText("OAuth")).toBeInTheDocument();
   });
 
   it("shows NO ClarificationsCard for a PROCEED reopen (empty artifacts)", async () => {

@@ -91,8 +91,9 @@ describe("Live StartingPointCard revision wiring (C-FLAG-1/2) — PreviewPanel",
       />,
     );
 
-    // Reach the Thinking tab → the REAL AgentThinkingTab mounts StartingPointCard.
-    fireEvent.click(screen.getByText("Thinking"));
+    // Reach the Steps tab (Phase 32 plan 07 relabel of "Thinking") → the REAL
+    // AgentThinkingTab mounts StartingPointCard.
+    fireEvent.click(screen.getByText("Steps"));
 
     // Active r2's parent is r1 (family index 1) → 1-based v2 → "revision of v2".
     await waitFor(() => expect(screen.getByText(/revision of v2/i)).toBeInTheDocument());
@@ -111,7 +112,7 @@ describe("Live StartingPointCard revision wiring (C-FLAG-1/2) — PreviewPanel",
       />,
     );
 
-    fireEvent.click(screen.getByText("Thinking"));
+    fireEvent.click(screen.getByText("Steps"));
 
     // The Starting-point card renders, but with no parent there is no chip.
     await waitFor(() => expect(screen.getByText("Revision request")).toBeInTheDocument());

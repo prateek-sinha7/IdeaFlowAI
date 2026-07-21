@@ -16,6 +16,9 @@ from app.models.workflow_definition import WorkflowDefinition  # noqa: F401
 from app.models.artifact_ref import ArtifactRef  # noqa: F401
 from app.models.workspace import Workspace  # noqa: F401
 from app.models.run_event import RunEvent  # noqa: F401
+# Phase 43 deep-link nonce store (0025) — imported here so Base.metadata sees it
+# for Alembic autogenerate/check + the in-memory-SQLite test harness (Pitfall 5).
+from app.models.run_event import DeepLinkNonce  # noqa: F401
 from app.models.run_capabilities import RunCapabilities  # noqa: F401
 # Phase 8 capability-hardening models (0016) — imported here so Base.metadata
 # sees them for Alembic autogenerate/check (Pitfall 5).

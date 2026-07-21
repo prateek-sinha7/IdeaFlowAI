@@ -84,7 +84,7 @@ class _MergeRunner:
     def agent_exists(self, agent_id):
         return True
 
-    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None):
+    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
         self._row_seq += 1
         return f"row-{self._row_seq}"
 

@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  AlertCircle, MoreHorizontal, Pencil, Copy, Trash2,
+  AlertCircle, MoreVertical, Pencil, Copy, Trash2,
   Play, Workflow, Clock, Cpu,
-  Search, Calendar,
+  Search,
 } from "lucide-react";
 import {
   getUserWorkflows, createUserWorkflow, renameUserWorkflow,
@@ -22,14 +22,14 @@ const PIPELINE_LABEL: Record<string, string> = {
   mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
 };
 
-// Matches ICON_STYLES used across Library / AgentsPopup — neutral palette only
+// Neutral avatar tints — Phase-32 @theme tokens only (no raw hex / stock palette).
 const ICON_STYLES = [
-  { bg: "#E8EDF5", text: "#1B2A4A" },
-  { bg: "#F0EDE8", text: "#5C4A2A" },
-  { bg: "#EAF0EA", text: "#2A5C2A" },
-  { bg: "#F0E8EE", text: "#5C2A4A" },
-  { bg: "#E8EEF0", text: "#2A4A5C" },
-  { bg: "#F0EEE8", text: "#5C5A2A" },
+  "bg-brand-fill text-brand",
+  "bg-surface-warm text-ink-700",
+  "bg-[var(--status-done-fill)] text-status-done",
+  "bg-[var(--status-amber-fill)] text-status-amber",
+  "bg-[var(--status-running-fill)] text-status-running",
+  "bg-surface-paper text-ink-600",
 ];
 
 function getInitials(name: string): string {
@@ -56,13 +56,6 @@ function formatRelativeDate(iso?: string | null): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function formatFullDate(iso?: string | null): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (isNaN(date.getTime())) return "";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
 /** Strip === Attached: filename === ... === End: filename === blocks, then trim.
  *  Returns the user's own text, or if ALL content was attachments,
  *  returns a summary of the attached filenames instead. */
@@ -84,6 +77,73 @@ function cleanBrief(raw: string): string {
 
 interface SavedWorkflowsPageProps {
   onLaunchSaved?: (saved: UserWorkflowSummary) => void;
+}
+
+// ── Kebab dropdown (module-level for a STABLE element identity) ──────────────
+// Defined outside the page so a parent state change re-renders (never remounts)
+// the trigger button — keeping aria-expanded live in place and the Escape-focus
+// ref stable. a11y: trigger exposes aria-haspopup/expanded; the panel is
+// role=menu with role=menuitem rows; Escape closes + refocuses the trigger.
+function KebabMenu({
+  row, isOpen, onToggle, onClose, onRename, onDuplicate, onDelete,
+}: {
+  row: UserWorkflowSummary;
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onRename: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape" && isOpen) {
+      e.stopPropagation();
+      onClose();
+      triggerRef.current?.focus();
+    }
+  };
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
+      <button
+        ref={triggerRef}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label="Workflow actions"
+        onClick={onToggle}
+        className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-300 hover:text-ink-600 hover:bg-surface-warm transition-colors"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            role="menu"
+            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            transition={{ duration: 0.1 }}
+            className="absolute right-0 top-8 z-20 bg-surface-white border border-line-border rounded-[var(--radius-menu)] shadow-[var(--elevation-menu)] py-1 min-w-[130px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button role="menuitem" onClick={onRename}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
+              <Pencil className="h-3.5 w-3.5" /> Rename
+            </button>
+            <button role="menuitem" onClick={onDuplicate}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
+              <Copy className="h-3.5 w-3.5" /> Duplicate
+            </button>
+            <div className="border-t border-line-divider my-0.5" />
+            <button role="menuitem" onClick={onDelete}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors">
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
@@ -147,76 +207,37 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
     } catch (e) { setSavedError((e as Error)?.message ?? "Delete failed."); }
   };
 
-  // ── Kebab dropdown (shared between list + grid) ───────────────────────────
-  const KebabMenu = ({ row }: { row: UserWorkflowSummary }) => (
-    <div className="relative" onClick={(e) => e.stopPropagation()}>
-      <button
-        onClick={() => setOpenMenuId(openMenuId === row.id ? null : row.id)}
-        className="h-7 w-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-      >
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
-      <AnimatePresence>
-        {openMenuId === row.id && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -4 }}
-            transition={{ duration: 0.1 }}
-            className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[130px]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button onClick={() => { setOpenMenuId(null); setRenameRow(row); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-gray-700 hover:bg-gray-50 transition-colors">
-              <Pencil className="h-3.5 w-3.5" /> Rename
-            </button>
-            <button onClick={() => handleDuplicate(row)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-gray-700 hover:bg-gray-50 transition-colors">
-              <Copy className="h-3.5 w-3.5" /> Duplicate
-            </button>
-            <div className="border-t border-gray-100 my-0.5" />
-            <button onClick={() => { setOpenMenuId(null); setDeleteConfirmId(row.id); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-600 hover:bg-red-50 transition-colors">
-              <Trash2 className="h-3.5 w-3.5" /> Delete
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-
   return (
-    <div className="flex flex-col h-full overflow-y-auto" style={{ background: "#f5f5f0" }}>
+    <div className="flex flex-col h-full overflow-y-auto bg-surface-paper">
       <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full px-6 py-10">
 
-        {/* ── Page header — matches WorkflowCatalog style ─────────────────── */}
+        {/* ── Page header — matches HomeLaunchGrid style ─────────────────── */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }} className="mb-8">
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.18em] mb-4">
+          <p className="text-[11px] font-semibold text-ink-400 uppercase tracking-[0.24em] mb-2">
             VelocityAI
           </p>
           <div className="flex items-end justify-between gap-4 flex-wrap">
             <div>
-              <h1 className="text-[32px] sm:text-[38px] font-normal italic text-gray-900 leading-tight tracking-tight"
-                style={{ fontFamily: "var(--font-fraunces)" }}>
-                Workflow Catalogue
+              <h1 className="text-[32px] sm:text-[38px] font-normal italic text-ink-900 leading-tight tracking-tight font-serif">
+                My Workflows
               </h1>
-              <p className="text-[14px] text-gray-500 leading-relaxed mt-1">
+              <p className="text-[14px] text-ink-500 leading-relaxed mt-1">
                 Your saved custom workflows — launch, manage and reuse them.
               </p>
             </div>
             {!loading && userWorkflows.length > 0 && (
               <div className="flex items-center gap-5 flex-shrink-0">
                 <div className="text-right">
-                  <p className="text-[22px] font-semibold text-gray-900 leading-none">{userWorkflows.length}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">workflow{userWorkflows.length !== 1 ? "s" : ""}</p>
+                  <p className="text-[22px] font-semibold text-ink-900 leading-none">{userWorkflows.length}</p>
+                  <p className="text-[11px] text-ink-400 mt-0.5">workflow{userWorkflows.length !== 1 ? "s" : ""}</p>
                 </div>
-                <div className="w-px h-8 bg-gray-200" />
+                <div className="w-px h-8 bg-line-divider" />
                 <div className="text-right">
-                  <p className="text-[22px] font-semibold text-gray-900 leading-none">
+                  <p className="text-[22px] font-semibold text-ink-900 leading-none">
                     {userWorkflows.reduce((s, w) => s + (w.agent_ids?.length ?? 0), 0)}
                   </p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">total agents</p>
+                  <p className="text-[11px] text-ink-400 mt-0.5">total agents</p>
                 </div>
               </div>
             )}
@@ -225,25 +246,25 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
 
         {/* ── Toolbar ─────────────────────────────────────────────────────── */}
         {!loading && userWorkflows.length > 0 && (
-          <div className="flex items-center gap-3 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <div className="flex items-center gap-3 mt-[22px] mb-[18px]">
+            <div className="relative w-full max-w-[340px]">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[15px] w-[15px] text-ink-400" />
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search workflows…"
-                className="w-full pl-9 pr-4 py-2 text-[12px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 placeholder-gray-400 transition-colors" />
+                className="w-full pl-10 pr-4 py-[9px] text-[13px] bg-surface-card border border-line-control rounded-[10px] focus:outline-none focus:border-line-faint placeholder-ink-400 transition-colors" />
             </div>
             {search && filtered.length < userWorkflows.length && (
-              <p className="text-[11px] text-gray-400">{filtered.length} of {userWorkflows.length}</p>
+              <p className="text-[11px] text-ink-400">{filtered.length} of {userWorkflows.length}</p>
             )}
           </div>
         )}
 
         {/* Loading */}
-        {loading && <p className="text-[11px] text-gray-400 py-4">Loading…</p>}
+        {loading && <p className="text-[11px] text-ink-400 py-4">Loading…</p>}
 
         {/* Error */}
         {savedError && (
-          <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-3 py-2 mb-4">
+          <div className="flex items-center gap-1.5 text-[11px] text-status-failed bg-[var(--status-failed-fill)] rounded-lg px-3 py-2 mb-4">
             <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />{savedError}
           </div>
         )}
@@ -252,11 +273,11 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
         {!loading && !savedError && userWorkflows.length === 0 && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             className="flex flex-col items-center gap-3 py-20 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-white border border-gray-200 flex items-center justify-center">
-              <Workflow className="h-6 w-6 text-gray-400" />
+            <div className="w-14 h-14 rounded-2xl bg-surface-white border border-line-border flex items-center justify-center">
+              <Workflow className="h-6 w-6 text-ink-400" />
             </div>
-            <p className="text-[14px] font-medium text-gray-600">No workflows saved yet</p>
-            <p className="text-[12px] text-gray-400 max-w-xs leading-relaxed">
+            <p className="text-[14px] font-medium text-ink-600">No workflows saved yet</p>
+            <p className="text-[12px] text-ink-400 max-w-xs leading-relaxed">
               Build a custom workflow from the home screen using "Create workflow" — it will appear here once saved.
             </p>
           </motion.div>
@@ -266,15 +287,15 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
         {!loading && userWorkflows.length > 0 && filtered.length === 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="flex flex-col items-center gap-2 py-12 text-center">
-            <Search className="h-7 w-7 text-gray-300" />
-            <p className="text-[13px] font-medium text-gray-500">No workflows match "{search}"</p>
-            <button onClick={() => setSearch("")} className="text-[12px] text-[#1B2A4A] hover:underline">Clear search</button>
+            <Search className="h-7 w-7 text-ink-300" />
+            <p className="text-[13px] font-medium text-ink-500">No workflows match "{search}"</p>
+            <button onClick={() => setSearch("")} className="text-[12px] text-brand hover:underline">Clear search</button>
           </motion.div>
         )}
 
         {/* ── CARD VIEW ─────────────────────────────────────────────────── */}
         {!loading && filtered.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {filtered.map((row, idx) => {
               const iconStyle = ICON_STYLES[idx % ICON_STYLES.length];
               const pipelineLabel = PIPELINE_LABEL[row.base_pipeline_type] ?? row.base_pipeline_type;
@@ -283,26 +304,33 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
                 <motion.div key={row.id}
                   initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.25, delay: Math.min(idx * 0.05, 0.3) }}
-                  className="group flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md transition-all">
+                  className="group flex flex-col min-h-[200px] bg-surface-card rounded-[14px] border border-line-border p-[17px] hover:border-line-faint hover:shadow-md transition-all">
                   {/* Header */}
                   <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-[11px] font-bold group-hover:scale-105 transition-transform"
-                      style={{ background: iconStyle.bg, color: iconStyle.text }}>
+                    <div className={`w-10 h-10 rounded-[11px] flex items-center justify-center flex-shrink-0 text-[13px] font-semibold group-hover:scale-105 transition-transform ${iconStyle}`}>
                       {getInitials(row.name)}
                     </div>
-                    <KebabMenu row={row} />
+                    <KebabMenu
+                      row={row}
+                      isOpen={openMenuId === row.id}
+                      onToggle={() => setOpenMenuId(openMenuId === row.id ? null : row.id)}
+                      onClose={() => setOpenMenuId(null)}
+                      onRename={() => { setOpenMenuId(null); setRenameRow(row); }}
+                      onDuplicate={() => handleDuplicate(row)}
+                      onDelete={() => { setOpenMenuId(null); setDeleteConfirmId(row.id); }}
+                    />
                   </div>
                   {/* Type badge */}
-                  <span className="self-start text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200 mb-1.5">
+                  <span className="self-start text-[9px] font-semibold uppercase tracking-[0.06em] px-2 py-1 rounded-[5px] bg-surface-warm text-ink-500 border border-line-control mb-1.5">
                     {pipelineLabel}
                   </span>
                   {/* Name */}
-                  <p className="text-[14px] font-semibold italic text-gray-900 group-hover:text-[#1B2A4A] transition-colors line-clamp-1">
+                  <p className="text-[15px] font-semibold italic text-ink-900 group-hover:text-brand transition-colors line-clamp-1">
                     {row.name}
                   </p>
                   {/* Description */}
                   {row.description
-                    ? <p className="text-[11px] text-gray-500 mt-1 leading-relaxed line-clamp-2 flex-1">{row.description}</p>
+                    ? <p className="text-[12px] text-ink-500 mt-1 leading-relaxed line-clamp-2 flex-1">{row.description}</p>
                     : null}
                   {/* Brief preview — from _wizard for all workflow types.
                       Strips === Attached: === file blocks so only the user's own
@@ -313,23 +341,23 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
                     const brief = rawBrief ? cleanBrief(rawBrief) : null;
                     if (!brief) return row.description ? null : <div className="flex-1" />;
                     return (
-                      <p className="text-[11px] text-gray-400 mt-1 leading-relaxed line-clamp-2 flex-1 italic">
+                      <p className="text-[11px] text-ink-400 mt-1 leading-relaxed line-clamp-2 flex-1 italic">
                         {brief}
                       </p>
                     );
                   })()}
                   {/* Metadata */}
-                  <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
-                    <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                  <div className="flex items-center gap-3 mt-3 pt-3 border-t border-line-divider">
+                    <span className="flex items-center gap-1 text-[10px] text-ink-400">
                       <Cpu className="h-3 w-3" />{agentCount} agent{agentCount !== 1 ? "s" : ""}
                     </span>
-                    <span className="flex items-center gap-1 text-[10px] text-gray-400 ml-auto">
+                    <span className="flex items-center gap-1 text-[10px] text-ink-400 ml-auto">
                       <Clock className="h-3 w-3" />{formatRelativeDate(row.updated_at)}
                     </span>
                   </div>
                   {/* Run button */}
                   <button onClick={() => onLaunchSaved?.(row)}
-                    className="mt-3 w-full flex items-center justify-center gap-1.5 rounded-lg bg-[#1B2A4A] px-3 py-2.5 text-[12px] font-semibold text-white hover:bg-[#243761] transition-colors">
+                    className="mt-3 w-full flex items-center justify-center gap-1.5 rounded-[10px] bg-brand px-3 py-2.5 text-[12px] font-semibold text-white hover:bg-brand-pressed transition-colors">
                     <Play className="h-3.5 w-3.5" />Run workflow
                   </button>
                 </motion.div>
@@ -353,31 +381,33 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
       <AnimatePresence>
         {deleteConfirmId && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/20 backdrop-blur-sm"
-            onClick={() => setDeleteConfirmId(null)}>
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-[var(--scrim)] backdrop-blur-sm"
+            onClick={() => setDeleteConfirmId(null)}
+            onKeyDown={(e) => { if (e.key === "Escape") setDeleteConfirmId(null); }}>
             <motion.div initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 8 }} transition={{ duration: 0.15 }}
+              role="dialog" aria-modal="true" aria-labelledby="delete-workflow-title"
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl border border-gray-200 shadow-2xl p-6 max-w-[340px] w-full mx-4">
+              className="bg-surface-white rounded-2xl border border-line-border shadow-[var(--elevation-modal)] p-6 max-w-[340px] w-full mx-4">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-                  <Trash2 className="h-5 w-5 text-gray-600" />
+                <div className="w-10 h-10 rounded-xl bg-surface-warm flex items-center justify-center">
+                  <Trash2 className="h-5 w-5 text-ink-600" />
                 </div>
                 <div>
-                  <h3 className="text-[13px] font-semibold text-gray-900">Delete workflow</h3>
-                  <p className="text-[11px] text-gray-400">This cannot be undone</p>
+                  <h3 id="delete-workflow-title" className="text-[13px] font-semibold text-ink-900">Delete workflow</h3>
+                  <p className="text-[11px] text-ink-400">This cannot be undone</p>
                 </div>
               </div>
-              <p className="text-[12px] text-gray-500 leading-relaxed mb-5">
-                The saved workflow will be permanently removed from your catalogue.
+              <p className="text-[12px] text-ink-500 leading-relaxed mb-5">
+                The saved workflow will be permanently removed from your saved workflows.
               </p>
               <div className="flex gap-2">
                 <button onClick={() => setDeleteConfirmId(null)}
-                  className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  className="flex-1 rounded-xl border border-line-border px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors">
                   Cancel
                 </button>
                 <button onClick={handleDeleteConfirm}
-                  className="flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-gray-800 transition-colors">
+                  className="flex-1 rounded-xl bg-ink-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-ink-800 transition-colors">
                   Delete
                 </button>
               </div>

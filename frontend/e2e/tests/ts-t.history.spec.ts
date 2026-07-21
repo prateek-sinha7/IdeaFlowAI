@@ -26,9 +26,11 @@ async function openHistory(page: Page) {
   // profile are the only always-present trailing buttons; the profile one is last.
   const headerButtons = page.locator("header button");
   await headerButtons.last().click();
-  await page.getByRole("button", { name: "Workflow History" }).click();
+  // Phase 39 redesign renamed the profile menu item + list heading to "Run History"
+  // and the dropdown items now carry role="menuitem" (not the implicit button role).
+  await page.getByRole("menuitem", { name: "Run History" }).click();
   // The history list header heading confirms we landed on the view.
-  await expect(page.getByRole("heading", { name: "Workflow History" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Run History" })).toBeVisible();
 }
 
 test.describe("TS-T — WorkflowHistory", () => {
@@ -105,7 +107,7 @@ test.describe("TS-T — WorkflowHistory", () => {
     await expect(page.getByText("Stories alpha")).toBeVisible();
   });
 
-  test("TS-T-03 reopen a completed run → detail view shows its output", async ({ dashboard, mockApi, page }) => {
+  test("TS-T-03 reopen a completed run → the SHARED run screen shows its output (BUG-002)", async ({ dashboard, mockApi, page }) => {
     mockApi.setRuns([
       makeRun({
         id: "r-open",
@@ -119,23 +121,28 @@ test.describe("TS-T — WorkflowHistory", () => {
     await dashboard.goto();
     await openHistory(page);
 
-    // Click the row → detail view opens. The detail surface carries the
-    // Preview / Files / Thinking tabs and renders the run output (UserStoryPreview).
+    // BUG-002: a History row tap now routes through onOpenRun → the SHARED run
+    // screen (execution-chat-lane + composer), NOT WorkflowHistory's divergent
+    // internal RunDetailPage (Preview/Files/Thinking). Its reopen deliverable now
+    // renders in the run screen's PreviewPanel — parity with the Home-recents path
+    // covered by ts-live-state (b).
     await page.getByText("Refunds backlog").click();
 
-    await expect(page.getByRole("button", { name: "Preview" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Files" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Thinking" })).toBeVisible();
+    // The shared run screen mounts (NOT the internal detail).
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
 
-    // The reopened preview renders the persisted backlog content.
+    // The reopened deliverable renders in the run screen's Preview tab.
+    await dashboard.previewTab().click();
     await expect(page.getByText("Product Backlog").first()).toBeVisible();
   });
 
-  test("TS-T-04 generic/custom reopen renders a SANDBOXED iframe (allow-scripts, no same-origin)", async ({ dashboard, mockApi, page }) => {
-    // A `custom`/unknown run whose output is HTML routes through the generic
-    // fallback: deriveDeliverableMimetype → text/html → the SAME sandboxed iframe
-    // as the live deliverable path (allow-scripts only, NEVER allow-same-origin).
-    // Mirrors WorkflowHistory.genericReopen.test.tsx in-browser.
+  test("TS-T-04 generic/custom run History tap opens the shared run screen (BUG-002 routing)", async ({ dashboard, mockApi, page }) => {
+    // A `custom`/unknown run whose output is HTML. BUG-002: the History tap now
+    // routes through onOpenRun → the shared run screen (execution-chat-lane),
+    // NOT WorkflowHistory's internal RunDetailPage. The sandboxed-iframe SECURITY
+    // contract for the generic reopen is pinned in-browser by
+    // WorkflowHistory.genericReopen.test.tsx; the run-screen rendering of it is
+    // covered by TS-T-04b below.
     mockApi.setRuns([
       makeRun({
         id: "r-generic",
@@ -151,14 +158,94 @@ test.describe("TS-T — WorkflowHistory", () => {
 
     await page.getByText("Custom deliverable").click();
 
+    // The shared run screen mounts (BUG-002 routing) — NOT the internal detail.
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
+    await expect(page.getByRole("tab", { name: /Steps/i })).toBeVisible();
+  });
+
+  test("TS-T-04b generic/custom reopen renders its SANDBOXED iframe in the shared run screen", async ({ dashboard, mockApi, page }) => {
+    // FOLLOW-UP (deferred-items.md / DEF-BUG-002-generic-reopen): after BUG-002
+    // routed History taps to the shared run screen, a reopened GENERIC/CUSTOM
+    // deliverable renders the empty "Output will appear here" state in the run
+    // screen's PreviewPanel (the reopen content seed does not repopulate
+    // genericDeliverable on this path). TYPED deliverables (user_stories — TS-T-03)
+    // render fine; the Home-recents path shares this generic-reopen gap, so BUG-002
+    // exposed rather than introduced it. The sandbox SECURITY contract itself stays
+    // covered by WorkflowHistory.genericReopen.test.tsx. Un-fixme once the run
+    // screen renders a reopened generic deliverable.
+    mockApi.setRuns([
+      makeRun({ id: "r-generic", title: "Custom deliverable", type: "custom", status: "completed", output: "<!DOCTYPE html><html><body><h1>Hi</h1></body></html>" }),
+    ]);
+    await dashboard.goto();
+    await openHistory(page);
+    await page.getByText("Custom deliverable").click();
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
+    await dashboard.previewTab().click();
     const iframe = page.locator('iframe[title="Deliverable Preview"]');
     await expect(iframe).toBeVisible();
-    // BLOCKING security contract: exactly allow-scripts, explicitly NOT same-origin.
     await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
     const sandbox = (await iframe.getAttribute("sandbox")) || "";
     expect(sandbox).not.toContain("allow-same-origin");
-    // The HTML deliverable is delivered via srcdoc (the heading is inside it).
     await expect(iframe).toHaveAttribute("srcdoc", /<h1>Hi<\/h1>/);
+  });
+
+  test("TS-T-04c od_ppt (and od_prototype) reopen renders its TYPED deliverable in the shared run screen (BUG-012)", async ({ dashboard, mockApi, page }) => {
+    // BUG-012: reopening a completed od_ppt run whose output is valid deck HTML
+    // rendered the neutral "Output will appear here" BLANK state instead of the
+    // deck. Root cause: the PreviewPanel render dispatch keyed on a stale
+    // `workflowType` default ("user_stories"), so detectedType/renderType never
+    // consulted the seeded pptContent and the ppt renderer holding the deck never
+    // fired. The DURABLE fix threads the viewed run's real type end-to-end
+    // (fullRun.type → contentSourceRunType → viewedRunType → effectiveReviseType →
+    // PreviewPanel), so the typed renderer fires for runs even OUTSIDE the recents
+    // window (History-tapped runs are not in recents — the exact failing case).
+    //
+    // FAIL-BEFORE (unmodified tree): the reopened od_ppt shows the blank state and
+    // the "Slide Deck Preview" iframe is absent. PASS-AFTER (Task 2 thread): the
+    // deck renders.
+    mockApi.setRuns([
+      makeRun({
+        id: "r-ppt",
+        title: "Pitch deck reopen",
+        type: "od_ppt",
+        status: "completed",
+        output: "<!DOCTYPE html><html><body><h1>DECK-SLIDE-1</h1></body></html>",
+        deliverable_mimetype: "text/html",
+      }),
+    ]);
+
+    await dashboard.goto();
+    await openHistory(page);
+    await page.getByText("Pitch deck reopen").click();
+
+    // The shared run screen mounts (BUG-002 routing).
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
+
+    // The deck renders in the Preview tab — the ppt renderer's "Slide Deck
+    // Preview" iframe is present AND the neutral blank state is absent.
+    await dashboard.previewTab().click();
+    await expect(page.locator('iframe[title="Slide Deck Preview"]')).toBeVisible();
+    await expect(page.getByText("Output will appear here")).toHaveCount(0);
+
+    // Sibling: an od_prototype reopen fires its typed prototype renderer once fed
+    // the right type (the same thread) — mirror, do not block on it.
+    mockApi.setRuns([
+      makeRun({
+        id: "r-proto",
+        title: "Prototype reopen",
+        type: "od_prototype",
+        status: "completed",
+        output: "<!DOCTYPE html><html><body><h1>PROTO-VIEW</h1></body></html>",
+        deliverable_mimetype: "text/html",
+      }),
+    ]);
+    await dashboard.goto();
+    await openHistory(page);
+    await page.getByText("Prototype reopen").click();
+    await expect(page.getByTestId("execution-chat-lane")).toBeVisible();
+    await dashboard.previewTab().click();
+    await expect(page.locator('iframe[title="Prototype Preview"]')).toBeVisible();
+    await expect(page.getByText("Output will appear here")).toHaveCount(0);
   });
 
   test("TS-T-06 delete a run via kebab → confirm modal → DELETE request", async ({ dashboard, mockApi, page }) => {
@@ -179,7 +266,9 @@ test.describe("TS-T — WorkflowHistory", () => {
     await row.getByRole("button").last().click();
 
     // Menu → Delete → confirm modal "Delete workflow" → confirm Delete.
-    await page.getByRole("button", { name: "Delete" }).click();
+    // The per-row menu Delete item is a role="menuitem" (RowMenu); the modal's
+    // confirm Delete (below) is a plain button.
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await expect(page.getByRole("heading", { name: "Delete workflow" })).toBeVisible();
 
     // The modal exposes Cancel + Delete; click the confirming Delete (the last one).

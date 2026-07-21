@@ -44,3 +44,9 @@ steps:
   - agent: report-generator
     strategy: single_shot
     gates: []
+  # Generic fan-out producer (Phase 51 / FANOUT-04). Kept in lock-step with
+  # PIPELINE_AGENTS["custom"] + the task-list-planner AGENT.md (order 9) so the
+  # engine membership assertion (engine.py:1701-1714) holds for a `custom` run.
+  - agent: task-list-planner
+    strategy: single_shot
+    gates: []

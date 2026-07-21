@@ -1,6 +1,5 @@
 ---
-consumes:
-- market-research-agent
+consumes: []
 context_from:
 - $previous
 description: Identifies your strengths, weaknesses, opportunities, and threats with clear actions.

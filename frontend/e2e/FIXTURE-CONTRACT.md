@@ -1,6 +1,6 @@
 # E2E Fixture Contract — how to write a Flowin Playwright spec
 
-This is the API contract every spec under `frontend/e2e/tests/` uses. The harness is **proven** (see the 4 reference specs: `ts-a.auth`, `ts-i.agent-panels`, `ts-q.terminal-states`, `ts-k.wave-tree` — all green). **Mimic them.** Mocked mode needs **no backend** — REST + WS are mocked in the browser.
+This is the API contract every spec under `frontend/e2e/tests/` uses. The harness is **proven** (see the reference specs: `ts-a.auth`, `ts-i.agent-panels`, `ts-q.terminal-states`, `ts-k.wave-tree`, `ts-sse` — all green). **Mimic them.** Mocked mode needs **no backend** — REST **and** the per-run SSE stream (the sole transport, 44-06) are mocked in the browser.
 
 ## Import & fixtures
 
@@ -15,58 +15,60 @@ import { AGENTS, runAgent, playGreenRun, playFailedRun, SAMPLE_HTML, SAMPLE_DECK
 |---|---|---|
 | `page` | Playwright Page | raw page |
 | `dashboard` | `DashboardPage` | navigation + locators (preferred) |
-| `mockWs` | `MockWs` | drive inbound WS events, assert outbound frames |
+| `mockSse` | `MockSse` | drive inbound SSE events, assert outbound REST commands |
 | `mockApi` | `MockApi` | mutate the REST backend (user/runs/capabilities) |
 | `tier` | option | `test.use({ tier: "basic" })` to change entitlement |
 
 ## DashboardPage (`dashboard`)
 
 ```ts
-await dashboard.goto({ tier? });                 // sets token + opens /dashboard at home (waits for heading + WS ready)
+await dashboard.goto({ tier? });                 // sets token + opens /dashboard at home (waits for heading; SSE attaches per-run, not on mount)
 await dashboard.selectWorkflow("Generate product requirements");  // click a CreationHub row by H2 label
 await dashboard.fillIdea("…"); await dashboard.runButton().click();
-await dashboard.runWith({ workflow?, idea, waitForFrame? });  // select + fill + Run + await run_pipeline frame → leaves you on execution view
+await dashboard.runWith({ workflow?, idea, waitForFrame? });  // select + fill + Run + await the recorded POST /api/runs command → leaves you on execution view
 await dashboard.openAdvanced();                  // opens AgentsPopup (asserts "Workflow configuration")
 await dashboard.openModelPicker();               // opens composer → asserts "Per-Agent Model"
 ```
 
-Locators (all return `Locator`): `homeHeading()`, `runButton()`, `ideaTextarea()`, `runningBadge()`, `doneBadge()`, `errorBadge()`, `stopButton()`, `newPipelineButton()`, `agentCardByName(name)`, `waveHeading()`, `waveEmpty()`, `waveGroup(i)`, `previewEmpty()`, `degradedHeading()`, `cancelledHeading()`, `failedAgentsLabel()`, `genericIframe()`, `deckIframe()`, `prototypeIframe()`, `previewTab()/filesTab()/thinkingTab()`, `questionnaireTitle()`, `reviewGateTitle("Specification Review"|"Task Plan Review")`, `approveButton()`, `rejectButton()`. `dashboard.page` and `dashboard.ws` are exposed.
+Locators (all return `Locator`): `homeHeading()`, `runButton()`, `ideaTextarea()`, `runningBadge()`, `doneBadge()`, `errorBadge()`, `stopButton()`, `newPipelineButton()`, `agentCardByName(name)`, `waveHeading()`, `waveEmpty()`, `waveGroup(i)`, `previewEmpty()`, `degradedHeading()`, `cancelledHeading()`, `failedAgentsLabel()`, `genericIframe()`, `deckIframe()`, `prototypeIframe()`, `previewTab()/filesTab()/thinkingTab()`, `questionnaireTitle()`, `reviewGateTitle("Specification Review"|"Task Plan Review")`, `approveButton()`, `rejectButton()`. `dashboard.page` and `dashboard.sse` are exposed.
 
-## MockWs (`mockWs`) — drive inbound events / assert outbound
+## MockSse (`mockSse`) — drive inbound SSE events / assert outbound REST commands
 
-**Lifecycle:** after `dashboard.runWith(...)` the app has sent `run_pipeline`. Then YOU drive the run:
+**Lifecycle:** after `dashboard.runWith(...)` the app has POSTed `run_pipeline` (`POST /api/runs`) and its SSE stream is attached. Then YOU drive the run:
 
 ```ts
-mockWs.start(AGENTS.user_stories, { pipelineType: "user_stories" });  // pipeline_start → seeds cards (resets seq)
-mockWs.agentStart("domain-analyst");        // → RUNNING badge
-mockWs.agentThinking("domain-analyst", "…");// → Reasoning(live) stream + ▌ cursor
-mockWs.agentChunk("domain-analyst", "…");   // appends to output (NOT shown live)
-mockWs.agentComplete("domain-analyst", { totalTokens: 3100 });  // → DONE badge + token pill
-mockWs.agentError("domain-analyst", "The model rejected this request.");  // → ERROR badge
-mockWs.plannerStart(); mockWs.plannerComplete("intent", "PROCEED"|"CLARIFY_REQUIRED");
-mockWs.questionnaireReady([{ id:"q1", text:"Audience?", options:["Execs","Devs"], answerType:"single" }]);
-mockWs.questionnaireComplete();
-mockWs.reviewGateReady({ gateKey:"g1", agentId:"prototype-specify", agentName:"Spec Writer", output:"## Spec\n…" });
-mockWs.reviewGateApproved();
-mockWs.waveStarted(0, "fanout", ["t1","t2"]); mockWs.waveCompleted(0,"fanout"); mockWs.waveFailed(0,"fanout");
-mockWs.subagentSpawned(0,"fanout","worker-a",0); mockWs.subagentResult(0,"fanout","worker-a",0);
-mockWs.complete({ pipelineType:"od_ppt", finalOutput: SAMPLE_DECK, deliverableMimetype?, deliverableFilename?, status?:"degraded", agentsFailed? });
-mockWs.failed({ agentsFailed:["a1"], error:"Operation not allowed" });  // → pipeline_failed
-mockWs.cancelled({ duration: 8 });          // → pipeline_cancelled
-mockWs.reconnected({ live:false, status:"completed"|"failed"|"running"|null });
-mockWs.emitStream("chunk", "user_stories"); // legacy `stream` frame
-mockWs.drop();          // simulate WS drop → app reconnects
-mockWs.expireJwt();     // close code 4001 → app clears token + redirects /login
+mockSse.start(AGENTS.user_stories, { pipelineType: "user_stories" });  // pipeline_start → seeds cards
+mockSse.agentStart("domain-analyst");        // → RUNNING badge
+mockSse.agentThinking("domain-analyst", "…");// → Reasoning(live) stream + ▌ cursor
+mockSse.agentChunk("domain-analyst", "…");   // appends to output (NOT shown live)
+mockSse.agentComplete("domain-analyst", { totalTokens: 3100 });  // → DONE badge + token pill
+mockSse.agentError("domain-analyst", "The model rejected this request.");  // → ERROR badge
+mockSse.plannerStart(); mockSse.plannerComplete("intent", "PROCEED"|"CLARIFY_REQUIRED");
+mockSse.questionnaireReady([{ id:"q1", text:"Audience?", options:["Execs","Devs"], answerType:"single" }]);
+mockSse.questionnaireComplete();
+mockSse.reviewGateReady({ gateKey:"g1", agentId:"prototype-specify", agentName:"Spec Writer", output:"## Spec\n…" });
+mockSse.reviewGateApproved();
+mockSse.waveStarted(0, "fanout", ["t1","t2"]); mockSse.waveCompleted(0,"fanout"); mockSse.waveFailed(0,"fanout");
+mockSse.subagentSpawned(0,"fanout","worker-a",0); mockSse.subagentResult(0,"fanout","worker-a",0);
+mockSse.complete({ pipelineType:"od_ppt", finalOutput: SAMPLE_DECK, deliverableMimetype?, deliverableFilename?, status?:"degraded", agentsFailed? });
+mockSse.failed({ agentsFailed:["a1"], error:"Operation not allowed" });  // → pipeline_failed
+mockSse.cancelled({ duration: 8 });          // → pipeline_cancelled
+mockSse.reconnected({ live:false, status:"completed"|"failed"|"running"|null });
+mockSse.emitStream("chunk", "user_stories"); // legacy `stream` frame
+mockSse.drop();          // simulate a stream drop → app re-attaches from its cursor
+mockSse.expireJwt();     // next attach 401s → app clears token + redirects /login
 ```
 
-**Assert outbound frames the app sent:**
+**Assert outbound REST commands the app sent** (the SSE up-channel — recorded from
+`POST /api/runs` + `/{id}/{answers,cancel,gate,revisions,messages}`, normalized to a
+`{ type, … }` shape; `waitForClientFrame` is a back-compat alias of `waitForCommand`):
 ```ts
-const f = await mockWs.waitForClientFrame("run_pipeline");   // resolves with the parsed frame
+const f = await mockSse.waitForCommand("run_pipeline");   // resolves with the recorded command
 expect(f.pipeline_type).toBe("user_stories");
 expect(f.model_overrides).toEqual({ "agent-id": "model-id" });
-await mockWs.waitForClientFrame("cancel_pipeline");
-mockWs.framesOfType("run_pipeline");        // all of a type
-mockWs.connectionCount;                      // socket opens (reconnect counting)
+await mockSse.waitForCommand("cancel_pipeline");           // POST /{id}/cancel
+mockSse.framesOfType("run_pipeline");        // all recorded commands of a type
+mockSse.connectionCount;                      // SSE stream attaches (reconnect counting)
 ```
 Frame fields are TOP-LEVEL on the parsed outbound object (e.g. `f.pipeline_type`, `f.agent_ids`, `f.model_overrides`, `f.attached_skills`).
 
@@ -83,7 +85,7 @@ mockApi.requests;   // recorded [{method,url,body}] for assertions
 ## CRITICAL gotchas (these caused real failures — avoid them)
 
 1. **Run is disabled until there are agents.** `user_stories`/`app_builder`/`od_ppt`/`prototype` seed default agents (Run enables once an idea is typed). **`custom` seeds NONE** → Run shows `Add agents first`. To run `custom`, open the composer and add an agent first, OR (if you only need the execution surface) use `user_stories` and just send the events you care about — the execution surface/wave panel mounts for any pipeline type.
-2. **Agent cards come from `pipeline_start`, not the pre-run seed.** Assert card names AFTER `mockWs.start([...])`. The names you assert must match the agent `name` you passed to `start()`.
+2. **Agent cards come from `pipeline_start`, not the pre-run seed.** Assert card names AFTER `mockSse.start([...])`. The names you assert must match the agent `name` you passed to `start()`.
 3. **`prototype`/`ppt` from home do NOT open IdeaInputPage** — they `router.push` to `/workflow/{prototype,ppt}/templates`. For the IdeaInputPage flow use `user_stories`/`app_builder`/`custom`/`migration`.
 4. **Almost no `data-testid`.** Use exact text / role / `iframe[title=...]` / `button[title=...]`. When unsure of an exact string, **open the component file** (`frontend/src/components/...`) and read it.
 5. **Durations are wall-clock** — assert regex (`/\d+(\.\d)?s/`), never exact values.

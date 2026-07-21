@@ -119,6 +119,58 @@ def test_0019_migration_uses_free_string_status() -> None:
     assert 'down_revision = "0018"' in text
 
 
+def test_0026_reversible_offline(fresh_db_url: str) -> None:
+    """RESUME-06: ``upgrade 0026`` adds task_id + worker_index; ``downgrade 0025``
+    drops them; ``upgrade 0026`` re-adds — a clean additive round-trip.
+
+    Pinned to the explicit ``0026``/``0025`` revisions (NOT ``head``/``-1``): the
+    ledger has PRE-EXISTING stale single-head asserts (test_migrations.py) proving
+    ``head`` is ambiguous here, and a ``-1`` from 0026 would land on 0025 anyway.
+    The existing subagent_runs columns survive the downgrade (only the two new
+    columns are dropped — additive-reversible)."""
+    cfg = _make_config(fresh_db_url)
+
+    # upgrade to 0026 — the two new nullable columns are present.
+    command.upgrade(cfg, "0026")
+    engine = create_engine(fresh_db_url)
+    inspector = inspect(engine)
+    assert inspector.has_table("subagent_runs"), "subagent_runs missing after upgrade 0026"
+    cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
+    assert "task_id" in cols, "task_id missing after upgrade 0026"
+    assert "worker_index" in cols, "worker_index missing after upgrade 0026"
+    # The pre-existing columns are untouched (additive, not a rewrite).
+    assert _EXPECTED_SUBAGENT_COLUMNS.issubset(cols), (
+        f"upgrade 0026 must not drop existing columns: missing "
+        f"{sorted(_EXPECTED_SUBAGENT_COLUMNS - cols)}"
+    )
+    engine.dispose()
+
+    # downgrade to 0025 drops ONLY the two new columns; the table + originals stay.
+    command.downgrade(cfg, "0025")
+    engine = create_engine(fresh_db_url)
+    inspector = inspect(engine)
+    assert inspector.has_table("subagent_runs"), (
+        "downgrade to 0025 must keep subagent_runs (only the 2 new columns drop)"
+    )
+    cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
+    assert "task_id" not in cols, "downgrade 0025 must drop task_id"
+    assert "worker_index" not in cols, "downgrade 0025 must drop worker_index"
+    assert _EXPECTED_SUBAGENT_COLUMNS.issubset(cols), (
+        "downgrade 0025 must keep the pre-0026 columns"
+    )
+    engine.dispose()
+
+    # upgrade back to 0026 re-adds the two columns (reversible).
+    command.upgrade(cfg, "0026")
+    engine = create_engine(fresh_db_url)
+    inspector = inspect(engine)
+    cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
+    assert "task_id" in cols and "worker_index" in cols, (
+        "re-upgrade 0026 must re-add task_id + worker_index"
+    )
+    engine.dispose()
+
+
 # ---------------------------------------------------------------------------
 # ScopedStore.record_subagent_run — scoped write + default-deny read
 # ---------------------------------------------------------------------------
@@ -210,6 +262,173 @@ async def test_cross_owner_subagent_read_returns_nothing(db_session):
 
     # The true owner still resolves it (the filter is not a blanket deny).
     assert len(await alice.read_subagent_runs("parent-run-1")) == 1
+
+
+# ---------------------------------------------------------------------------
+# RESUME-06 — spawn-time task identity threading (fan-out + wave)
+# ---------------------------------------------------------------------------
+
+
+def test_select_workers_preserves_task_id():
+    """``fanout._select_workers`` carries ``req['task_id']`` onto each selected worker
+    dict so the plan-global id survives from the wave request to the record site.
+
+    RED on HEAD: ``:115`` builds ``{"index","agent_id","input"}`` and DROPS task_id.
+    """
+    from agents.execution_engine.fanout import _select_workers
+
+    class _Runner:
+        allowed_workers: list = []
+        agent_exists = None
+
+    ctx = type("Ctx", (), {"runner": _Runner()})()
+    step = type("Step", (), {"agent_id": "build"})()
+    requests = [
+        {"agent": "self", "input": "b0", "task_id": "t-0"},
+        {"agent": "self", "input": "b1", "task_id": "t-1"},
+    ]
+    selected = _select_workers(requests, ctx, step)
+    assert [w["task_id"] for w in selected] == ["t-0", "t-1"]
+    # The existing keys are preserved (not clobbered).
+    assert [w["index"] for w in selected] == [0, 1]
+    assert all(w["agent_id"] == "build" for w in selected)
+    assert [w["input"] for w in selected] == ["b0", "b1"]
+
+
+def test_select_workers_task_id_defaults_none_when_absent():
+    """A request WITHOUT a task_id (legacy/non-wave fan-out) selects with
+    ``task_id=None`` — the column stays dormant on those rows (INV-3 golden-safe)."""
+    from agents.execution_engine.fanout import _select_workers
+
+    class _Runner:
+        allowed_workers: list = []
+        agent_exists = None
+
+    ctx = type("Ctx", (), {"runner": _Runner()})()
+    step = type("Step", (), {"agent_id": "build"})()
+    selected = _select_workers([{"agent": "self", "input": "b"}], ctx, step)
+    assert selected[0]["task_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_record_subagent_run_threads_worker_index_and_task_id(db_session):
+    """RESUME-06: ``worker_index`` + ``task_id`` kwargs land on the persisted row.
+
+    RED on HEAD: ``ScopedStore.record_subagent_run`` has no such kwargs (TypeError).
+    """
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    row_id = await store.record_subagent_run(
+        "parent-run-1",
+        parent_step="wave-step",
+        worker_agent="prototype-build",
+        depth=0,
+        isolation="shared_read",
+        status="running",
+        worker_index=2,
+        task_id="t-42",
+    )
+    row = db_session.query(SubagentRun).filter_by(id=row_id).one()
+    assert row.worker_index == 2
+    assert row.task_id == "t-42"
+
+    # Defaults stay None when not passed → dormant on scripted / golden runs (INV-3).
+    bare_id = await store.record_subagent_run(
+        "parent-run-1",
+        parent_step="s",
+        worker_agent="w",
+        depth=0,
+        isolation="shared_read",
+        status="running",
+    )
+    bare = db_session.query(SubagentRun).filter_by(id=bare_id).one()
+    assert bare.worker_index is None
+    assert bare.task_id is None
+
+
+@pytest.mark.asyncio
+async def test_wave_requests_carry_task_id():
+    """RESUME-06/RESUME-14: ``wave_scheduler`` builds each ``run_fanout`` request carrying
+    ``task_id`` = the content-addressed KEY wrapping the author id, so each spawned
+    ``subagent_runs`` row is stamped with the skip-cursor key. The key still lines up
+    one-to-one with the worker's body (identity ↔ input preserved); the DAG/dup-guard
+    keep operating on the author ``t.id``.
+
+    RED on HEAD: ``wave_scheduler.py:245`` built ``{"agent","input"}`` only.
+    """
+    from agents.capabilities import task_identity
+    from agents.capabilities.strategies.wave_scheduler import WaveSchedulerStrategy
+    from agents.workflows.plan import Task
+
+    captured: list = []
+
+    class _Runner:
+        def latest_typed_content(self, _step):
+            return ""
+
+        async def read_wave_runs(self):
+            return []
+
+        async def read_subagent_runs(self):
+            return []
+
+        async def record_wave_run(self, *, step, wave_index, task_ids, status):
+            return f"row-{wave_index}"
+
+        async def update_wave_run(self, row_id, *, status):
+            pass
+
+        async def run_fanout(self, requests, ctx, *, step=None):
+            captured.append([dict(r) for r in requests])
+            return
+            yield  # noqa: unreachable — makes this an async generator
+
+    ctx = type("Ctx", (), {"runner": _Runner(), "is_resuming": False})()
+    step = type(
+        "Step",
+        (),
+        {
+            "agent_id": "wave-step",
+            "task_source": type(
+                "TS", (), {"source_step": "plan", "parser": "json_tasks"}
+            )(),
+        },
+    )()
+    # Two disjoint-target tasks with no deps → a single wave [ta, tb].
+    tasks = [
+        Task(id="ta", title="ta", body="body-ta", targets=["a.txt"]),
+        Task(id="tb", title="tb", body="body-tb", targets=["b.txt"]),
+    ]
+
+    class _FakeParser:
+        def parse(self, _text):
+            return tasks
+
+    strat = WaveSchedulerStrategy()
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
+
+    _ = [ev async for ev in strat.run(step, ctx)]
+
+    assert captured, "run_fanout was never called"
+    all_reqs = [r for wave in captured for r in wave]
+    assert all_reqs, "no requests were dispatched"
+    assert all("task_id" in r for r in all_reqs), (
+        f"a wave request is missing task_id: {all_reqs}"
+    )
+    # RESUME-14: the request task_id is the content-addressed key (this fake exposes no
+    # upstream_context_hash handle → the strategy folds an empty upstream; all-distinct
+    # content → ordinals 0). The key wraps the author id.
+    key_ta = task_identity.compute_task_key(
+        "", task_identity.normalize_task_content(tasks[0]), 0
+    )
+    key_tb = task_identity.compute_task_key(
+        "", task_identity.normalize_task_content(tasks[1]), 0
+    )
+    assert {r["task_id"] for r in all_reqs} == {key_ta, key_tb}
+    # The content-addressed key lines up one-to-one with the worker's input body.
+    assert {(r["task_id"], r["input"]) for r in all_reqs} == {
+        (key_ta, "body-ta"),
+        (key_tb, "body-tb"),
+    }
 
 
 # ---------------------------------------------------------------------------

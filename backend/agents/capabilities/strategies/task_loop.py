@@ -72,6 +72,7 @@ import logging
 import time
 from typing import Any, AsyncIterator
 
+from agents.capabilities import task_identity
 from agents.capabilities.registry import CapabilityRegistry, register
 from agents.capabilities.task_parsers.heading_tasks import _count_plan_tasks
 
@@ -225,15 +226,68 @@ class TaskLoopStrategy:
 
         logger.info("task_loop: %d tasks for pipeline=%s", total_tasks, run_id)
 
+        # ── RESUME-14: content-addressed per-task keys (computed ONCE after parse) ──
+        # task_key = sha256(upstream_context_hash · normalized_content · occurrence_ordinal).
+        # The upstream hash is PER-STEP (identical for every task) so it is fetched once
+        # via the runner handle (the ONE engine home, INV-12); a fake/old handle lacking
+        # it degrades to "" (keys still deterministic within the run). These keys stamp
+        # the durable ``task_id`` slot (persist_task_html) AND drive the resume skip below,
+        # replacing the raw position — reorder/insert/duplicate/upstream-rotate safe.
+        _uhash_fn = getattr(runner, "upstream_context_hash", None)
+        _upstream_hash = _uhash_fn(step) if callable(_uhash_fn) else ""
+        if tasks:
+            _ordinals = task_identity.occurrence_ordinals(tasks)
+            _task_keys = [
+                task_identity.compute_task_key(
+                    _upstream_hash, task_identity.normalize_task_content(t), _ordinals[i]
+                )
+                for i, t in enumerate(tasks)
+            ]
+        else:
+            # No tasks parsed → a single fallback pass; synthesize one key over the
+            # empty task content (still a stable 64-char key, never a position).
+            _task_keys = [task_identity.compute_task_key(_upstream_hash, "", 0)]
+
         # Resolve the task-2+ compaction by NAME (D-02). The html_skeleton impl
         # lands in a later plan; resolve-by-name now, skip the call when no impl
         # is bound (the call site routes through resolve regardless).
         compaction_name = getattr(step, "compaction", None)
 
+        # ── RESUME-16 cumulative COMMON-PREFIX skip cursor (kernel-computed; 48-02) ──
+        # On a durable resume the kernel stamps ``ctx.resume_completed_ordered`` with the
+        # completed keys for THIS step in original build ORDER. Because each task EDITS the
+        # same evolving file, a completed key is only safe to skip while it MATCHES the
+        # current key at the SAME position: skip the longest common PREFIX ``p`` and re-run
+        # everything at/after the first divergence — even a suffix task whose own key
+        # matches a completed key (its predecessor changed → its basis changed, Pitfall 3).
+        # ``p==0`` (first task edited/deleted, or a task inserted at head) ⇒ skip nothing,
+        # run every current task from a clean basis (the kernel's boundary re-materialize
+        # restores NOTHING — never a negative-index restore). Read via getattr → None on a
+        # normal run ⇒ empty list ⇒ ``p==0`` ⇒ dispatch byte/event-identical (INV-3). The
+        # kernel decides the skip — the agent never does (INV-1); waves use set-membership.
+        _resume_ordered = getattr(ctx, "resume_completed_ordered", None)
+        _completed_ordered: list[str] = []
+        if _resume_ordered:
+            _completed_ordered = _resume_ordered.get(agent_id, []) or []
+        _prefix_skip = task_identity.common_prefix_length(_task_keys, _completed_ordered)
+
         for task_num in range(1, total_tasks + 1):
             if cancel_event is not None and cancel_event.is_set():
                 logger.info("task_loop: cancelled at task %d", task_num)
                 break
+
+            # RESUME-16 cumulative: a task inside the unchanged common PREFIX is NOT
+            # re-invoked (its deliverable is on disk from the kernel's boundary
+            # re-materialization). Skip run_agent dispatch + persist + fix-loop for it.
+            # Index-based on the ORDER-diff ``_prefix_skip`` (never set-membership — a
+            # suffix task whose predecessor changed MUST re-run, Pitfall 3). Dormant on a
+            # normal run (``_prefix_skip == 0`` ⇒ nothing skipped).
+            if task_num - 1 < _prefix_skip:
+                logger.info(
+                    "task_loop: skipping already-completed task %d on resume "
+                    "(common-prefix p=%d)", task_num, _prefix_skip
+                )
+                continue
 
             # STRATEGY-LOCAL scratch (D-03) — the current task block + counters.
             current_task_block = task_blocks[task_num - 1]
@@ -292,7 +346,10 @@ class TaskLoopStrategy:
             # loop's per-task dual-write (no event emitted; INV-3 parity).
             if hasattr(runner, "persist_task_html"):
                 await runner.persist_task_html(
-                    task_num, agent_id=agent_id, filename=filename
+                    task_num,
+                    agent_id=agent_id,
+                    filename=filename,
+                    task_key=_task_keys[task_num - 1],
                 )
 
             # WR-05 (07-09): snapshot the on-disk deliverable BEFORE the fix-loop so we
@@ -362,7 +419,10 @@ class TaskLoopStrategy:
                     post_fix_html = ""
                 if post_fix_html and post_fix_html != pre_fix_html:
                     await runner.persist_task_html(
-                        task_num, agent_id=agent_id, filename=filename
+                        task_num,
+                        agent_id=agent_id,
+                        filename=filename,
+                        task_key=_task_keys[task_num - 1],
                     )
 
         logger.info("task_loop: finished %d tasks for pipeline=%s", total_tasks, run_id)

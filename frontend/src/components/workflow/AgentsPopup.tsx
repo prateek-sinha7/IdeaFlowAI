@@ -19,14 +19,17 @@ import {
   getAgentPrompt,
   saveAgentPromptOverride,
   deleteAgentPromptOverride,
+  createUserWorkflow,
   type CapabilityEntry,
   type CapabilityModelEntry,
   type AgentPromptData,
 } from "@/lib/api";
+import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import type { AgentDef, WorkflowType, AttachedSkill, AttachedHook } from "@/types/index";
 import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
 import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
+import { Tabs } from "@/components/ui/Tabs";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -46,10 +49,12 @@ interface AgentsPopupProps {
   onAttachHook?: (hook: AttachedHook) => void;
   onDetachHook?: (hookId: string) => void;
   /**
-   * ISS-014 (MODEL-03): per-agent model overrides selected in the relocated
-   * AgentModelPicker (agentId -> modelId). Reported upward so IdeaInputPage can
-   * thread it into the run_pipeline payload as `model_overrides`. Additive —
-   * omit to ignore per-agent model selection (payload stays byte-identical).
+   * LEGACY (ISS-014 / MODEL-03) — per-agent model-overrides callback, retained
+   * for caller compatibility (the IdeaInputPage composer flow threads its own
+   * `model_overrides` for saved-workflow reload). AgentsPopup NO LONGER emits
+   * overrides here: per-agent model selection is the inline Model lever, reported
+   * via `onSelectionsChange` as `selections[id].model` — the single source of
+   * truth (the standalone AgentModelPicker that once drove this is gone).
    */
   onModelOverridesChange?: (modelOverrides: Record<string, string>) => void;
   /**
@@ -61,10 +66,11 @@ interface AgentsPopupProps {
    */
   onSelectionsChange?: (selections: SelectionsMap) => void;
   /**
-   * WR-01 (LAUNCH-EXISTING-PATH §4.6) — seed the AgentModelPicker's internal
-   * overrides map when launching a saved workflow, so editing one agent's model
-   * MERGES into (not replaces) the persisted overrides for the others. Absent ⇒
-   * the picker starts empty (the normal compose-from-scratch default).
+   * LEGACY (WR-01 / LAUNCH-EXISTING-PATH §4.6) — a saved-workflow model-override
+   * seed, retained for caller compatibility. AgentsPopup no longer reads it: the
+   * inline Model lever seeds per-agent model from `initialSelections`
+   * (`selections[id].model`); the IdeaInputPage composer flow still owns the
+   * separate model_overrides reload path.
    */
   initialModelOverrides?: Record<string, string>;
   /**
@@ -123,7 +129,10 @@ const REQUIRED_AGENT_IDS = new Set([
 
 type AgentRole = "locked" | "required" | "optional";
 
-function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
+// EXPORTED (41-04): reused by the full-page Composer (composer/AgentRow) for the
+// per-agent Core/Required lock badge — the SAME role predicate the modal uses,
+// so the composer and the retained modal agree on which agents are locked.
+export function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
   const isNativeLocked = LOCKED_AGENT_IDS.has(agentId);
   const isNativeRequired = REQUIRED_AGENT_IDS.has(agentId);
   if (!isNativeLocked && !isNativeRequired) return "optional";
@@ -163,19 +172,22 @@ function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
   return "optional";
 }
 
-const PIPELINE_LABEL: Record<string, string> = {
+// EXPORTED (41-04): the Composer's read-only Deliverable-type label (ND-AH) reads
+// the SAME pipeline→label map the modal uses.
+export const PIPELINE_LABEL: Record<string, string> = {
   user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
   app_builder: "App Builder", custom: "Custom",
   mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
 };
 
 const ICON_STYLES = [
-  { bg: "#E8EDF5", text: "#1B2A4A" }, { bg: "#F0EDE8", text: "#5C4A2A" },
+  { bg: "var(--brand-fill)", text: "var(--brand)" }, { bg: "#F0EDE8", text: "#5C4A2A" },
   { bg: "#EAF0EA", text: "#2A5C2A" }, { bg: "#F0E8EE", text: "#5C2A4A" },
   { bg: "#E8EEF0", text: "#2A4A5C" }, { bg: "#F0EEE8", text: "#5C5A2A" },
 ];
 
-function getAgentInitials(name: string): string {
+// EXPORTED (41-04): the Composer's AgentRow avatar reuses the modal's initials rule.
+export function getAgentInitials(name: string): string {
   const words = name.replace(/\s+agent$/i, "").split(" ");
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[1][0]).toUpperCase();
@@ -191,10 +203,25 @@ function getCapabilities(agent: AgentDef): string[] {
 
 // ─── AgentPromptSection (KAN-76) ─────────────────────────────────────────────
 // Collapsible section shown inside AgentCapabilitiesModal.
-// Displays the base AGENT.md prompt body; allows viewing and optionally editing
-// a per-user prompt override (stored server-side; AGENT.md is never mutated).
+// Displays the base AGENT.md prompt body (read-only view) and — unless
+// `surfaceOnly` is set — allows editing a per-user prompt override.
+//
+// ND-7 / LOCK-E (37-06): the Agent-drawer Config tab mounts this with
+// `surfaceOnly` so the override PERSISTENCE is DEFERRED — the write affordances
+// (Edit / Save override / Revert-to-default, which call PUT/DELETE
+// /api/agents/{id}/prompt) are OMITTED. The prompt body + override state stay
+// VIEW-only; no durable write path is reachable from the drawer.
 
-function AgentPromptSection({ agent }: { agent: AgentDef }) {
+// EXPORTED (41-04): the Composer's AgentRow "Custom prompt →" affordance reuses
+// this exact section (surfaceOnly) — no forked prompt editor.
+export function AgentPromptSection({
+  agent,
+  surfaceOnly = false,
+}: {
+  agent: AgentDef;
+  /** ND-7: when set, omit all write affordances — read-only prompt view only. */
+  surfaceOnly?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [promptData, setPromptData] = useState<AgentPromptData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -263,26 +290,26 @@ function AgentPromptSection({ agent }: { agent: AgentDef }) {
     : (promptData?.override ?? promptData?.prompt_body ?? "");
 
   return (
-    <div className="rounded-xl border border-gray-200 overflow-hidden">
+    <div className="rounded-xl overflow-hidden bg-surface-near-black">
       {/* Collapsible header */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors text-left"
       >
         <div className="flex items-center gap-2.5">
-          <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          <FileText className="h-4 w-4 text-ink-400 flex-shrink-0" />
           <div>
-            <p className="text-[11px] font-semibold text-gray-700">System Prompt</p>
-            <p className="text-[10px] text-gray-400">
+            <p className="text-[11px] font-semibold text-white">System Prompt</p>
+            <p className="text-[10px] text-ink-400">
               {promptData?.has_override ? "Custom override active" : "Base AGENT.md prompt"}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {promptData?.has_override && (
-            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#E8EDF5] text-[#1B2A4A]">overridden</span>
+            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-brand-fill text-brand">overridden</span>
           )}
-          <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-3.5 w-3.5 text-ink-400 transition-transform ${open ? "rotate-180" : ""}`} />
         </div>
       </button>
 
@@ -293,14 +320,14 @@ function AgentPromptSection({ agent }: { agent: AgentDef }) {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="overflow-hidden border-t border-gray-200"
+            className="overflow-hidden border-t border-white/10"
           >
-            <div className="bg-white">
+            <div className="bg-surface-near-black">
               {loading && (
-                <p className="text-[11px] text-gray-400 px-4 py-3">Loading prompt…</p>
+                <p className="text-[11px] text-ink-400 px-4 py-3">Loading prompt…</p>
               )}
               {error && (
-                <p className="text-[11px] text-red-500 px-4 py-3">{error}</p>
+                <p className="text-[11px] text-red-400 px-4 py-3">{error}</p>
               )}
               {!loading && !error && promptData && (
                 <>
@@ -308,11 +335,15 @@ function AgentPromptSection({ agent }: { agent: AgentDef }) {
                   <div className="flex items-center justify-between px-4 pt-3 pb-2 gap-2">
                     <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full border ${
                       promptData.has_override
-                        ? "bg-[#E8EDF5] text-[#1B2A4A] border-[#c8d4e8]"
-                        : "bg-gray-100 text-gray-500 border-gray-200"
+                        ? "bg-brand-fill text-brand border-brand-border"
+                        : "bg-white/10 text-ink-300 border-white/20"
                     }`}>
                       {promptData.has_override ? "Your override" : "Default AGENT.md"}
                     </span>
+                    {/* ND-7 / LOCK-E: the drawer Config tab passes `surfaceOnly`,
+                        which OMITS every write affordance (Revert / Edit → Save)
+                        so no durable override PUT/DELETE is reachable. */}
+                    {!surfaceOnly && (
                     <div className="flex items-center gap-1.5">
                       {promptData.has_override && !editMode && (
                         <button
@@ -332,10 +363,12 @@ function AgentPromptSection({ agent }: { agent: AgentDef }) {
                         </button>
                       )}
                     </div>
+                    )}
                   </div>
 
-                  {/* Prompt content */}
-                  {editMode ? (
+                  {/* Prompt content — surfaceOnly forces the read-only view (the
+                      edit textarea + Save override control are never reachable). */}
+                  {editMode && !surfaceOnly ? (
                     <div className="px-4 pb-3 space-y-2">
                       <textarea
                         value={draftContent}
@@ -365,9 +398,9 @@ function AgentPromptSection({ agent }: { agent: AgentDef }) {
                       </div>
                     </div>
                   ) : (
-                    <pre className="px-4 pb-4 text-[10.5px] text-gray-600 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-64 overflow-y-auto">
-                      {displayContent || <span className="text-gray-400 italic">No prompt body found.</span>}
-                    </pre>
+                    <p className="px-4 pb-4 pt-1 text-[13px] text-white font-sans leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-64 overflow-y-auto">
+                      {displayContent || <span className="text-ink-400 italic">No prompt body found.</span>}
+                    </p>
                   )}
                 </>
               )}
@@ -387,6 +420,8 @@ export function AgentCapabilitiesModal({
   attachedSkills: propSkills, attachedHooks: propHooks,
   onAttachSkill: propAttachSkill, onAttachHook: propAttachHook,
   onSelectionsChange, initialSelections, token,
+  priorAgents,
+  asDrawer = false,
 }: {
   agent: AgentDef;
   agentIndex: number;
@@ -399,6 +434,19 @@ export function AgentCapabilitiesModal({
   onSelectionsChange?: (selections: SelectionsMap) => void;
   initialSelections?: SelectionsMap;
   token?: string | null;
+  /**
+   * 51-06 — the pipeline agents preceding this one, threaded to the
+   * AdvancedExpander fan-out source picker so a single-agent config surface can
+   * still offer earlier steps as the fan-out `source_step` (D7/§4e).
+   */
+  priorAgents?: { id: string; name: string }[];
+  /**
+   * Render as a slide-in-from-right DRAWER (the Library agent-detail surface,
+   * mock `drawerOpen`) instead of the default centered modal. Only the shell
+   * (scrim layout + panel chrome + slide animation) changes — the four tab
+   * bodies (Overview/Skills/Hooks/Config) are identical across both forms.
+   */
+  asDrawer?: boolean;
 }) {
   // Always use context — works from Library page, Add agent modal, and AgentsPopup
   const ctx = useSkillsHooks();
@@ -406,6 +454,34 @@ export function AgentCapabilitiesModal({
   const attachedHooks = ctx.attachedHooks;
   const onAttachSkill = ctx.attachSkill;
   const onAttachHook = ctx.attachHook;
+
+  // SHELL-04 (37-06): the drawer is a 4-tab inspector. Overview is the default
+  // surface; Config carries the ND-7/LOCK-E surface-only prompt-override.
+  const [drawerTab, setDrawerTab] = useState<
+    "overview" | "skills" | "hooks" | "config"
+  >("overview");
+
+  // Local per-agent selections state for the Config tab when the caller does
+  // not supply onSelectionsChange (e.g. LibraryPage drawer). Merges with the
+  // prop-driven path so AdvancedExpander always renders in the Config tab.
+  const [localSelections, setLocalSelections] = useState<SelectionsMap>(initialSelections ?? {});
+  // Always notify BOTH the local state AND the parent prop so:
+  // - local display updates immediately (setLocalSelections)
+  // - parent persists the value (onSelectionsChange)
+  const effectiveOnSelectionsChange = (next: SelectionsMap) => {
+    setLocalSelections(next);
+    onSelectionsChange?.(next);
+  };
+  // Always use localSelections for the Config tab display — it is seeded from
+  // initialSelections on mount and updated by every lever change or Save call.
+  const effectiveSelections = localSelections;
+
+  // resetKey: incrementing this remounts ConfigLeversFlat (key prop), which
+  // re-seeds its localSel from the now-empty effectiveSelections — the correct
+  // React-idiomatic way to reset child state from a parent.
+  const [resetKey, setResetKey] = useState(0);
+  // saved: brief "Saved ✓" feedback on the Save button before closing.
+  const [saved, setSaved] = useState(false);
 
   // Custom skill editor state
   const [customSkillOpen, setCustomSkillOpen] = useState(false);
@@ -442,16 +518,26 @@ export function AgentCapabilitiesModal({
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/30 backdrop-blur-sm"
+      className={asDrawer
+        ? "fixed inset-0 z-[80] flex justify-end bg-black/40"
+        : "fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/30 backdrop-blur-sm"}
       onClick={onClose}
     >
       <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 12 }}
-        transition={{ duration: 0.18 }}
+        data-testid={asDrawer ? "agent-drawer" : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${agent.name} details`}
+        initial={asDrawer ? { x: "100%" } : { opacity: 0, scale: 0.96, y: 12 }}
+        animate={asDrawer ? { x: 0 } : { opacity: 1, scale: 1, y: 0 }}
+        exit={asDrawer ? { x: "100%" } : { opacity: 0, scale: 0.96, y: 12 }}
+        transition={asDrawer
+          ? { duration: 0.32, ease: [0.32, 0.72, 0, 1] }
+          : { duration: 0.18 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col"
+        className={asDrawer
+          ? "bg-surface-paper shadow-[-24px_0_60px_rgba(17,17,20,0.22)] w-[472px] max-w-full h-full overflow-hidden flex flex-col"
+          : "bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col"}
       >
         {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
@@ -470,25 +556,49 @@ export function AgentCapabilitiesModal({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="flex items-center gap-2 mt-3">
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-gray-100 text-gray-600 border-gray-200">{pipelineLabel}</span>
-            <span className="flex items-center gap-1 text-[10px] text-gray-400"><Clock className="h-3 w-3" />~{agent.estimated_duration}s</span>
-            {agent.has_skill && (
-              <span className="flex items-center gap-1 text-[10px] text-gray-600 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
-                <BookMarked className="h-2.5 w-2.5" />Skill support
-              </span>
-            )}
-          </div>
+          {/* SHELL-04: 4-tab inspector (Overview/Skills/Hooks/Config) — reuses
+              the shipped per-agent sections, distributed across tabs. */}
+          <Tabs
+            className="mt-3"
+            active={drawerTab}
+            onChange={(id) => setDrawerTab(id as typeof drawerTab)}
+            tabs={[
+              { id: "overview", label: "Overview" },
+              { id: "skills", label: "Skills" },
+              { id: "hooks", label: "Hooks" },
+              { id: "config", label: "Config" },
+            ]}
+          />
         </div>
 
         {/* Scrollable body */}
         <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
 
-          {/* 1. What this agent does */}
+          {/* Overview tab — what this agent does + pipeline step */}
+          {drawerTab === "overview" && (
+          <>
+          {/* Meta chip row — duration · pipeline-type · skill-support. Matches the
+              mock's Overview chip row (relocated out of the header, which now
+              mirrors the mock: avatar/name/role + tab bar only). Skill-support is
+              bound to the agent's REAL has_skill (SC-001/ND-D: never fabricate —
+              the chip is omitted when the agent declares no skill support). */}
+          <div className="flex items-center flex-wrap gap-2">
+            <span className="flex items-center gap-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 px-2.5 py-1 rounded-full">
+              <Clock className="h-3 w-3" />~{agent.estimated_duration}s
+            </span>
+            <span className="text-[11px] font-medium text-gray-700 bg-white border border-gray-200 px-2.5 py-1 rounded-full">{pipelineLabel}</span>
+            {agent.has_skill && (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-gray-700 bg-white border border-gray-200 px-2.5 py-1 rounded-full">
+                <BookMarked className="h-2.5 w-2.5" />Skill support
+              </span>
+            )}
+          </div>
+
+          {/* 1. What it does (mock heading) */}
           <div>
             <div className="flex items-center gap-2 mb-2.5">
               <Zap className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">What this agent does</p>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">What it does</p>
             </div>
             <div className="space-y-2">
               {capabilities.map((cap, i) => (
@@ -500,38 +610,91 @@ export function AgentCapabilitiesModal({
             </div>
           </div>
 
-          {/* Pipeline step */}
+          {/* 2. Role in pipeline — the agent's ROLE NAME (matches the mock's
+              "ROLE IN PIPELINE" block; the generic step index is dropped). */}
           <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Pipeline</p>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Role in pipeline</p>
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-medium px-2 py-0.5 rounded-md border bg-gray-100 text-gray-600 border-gray-200">{pipelineLabel}</span>
               <ChevronRight className="h-3 w-3 text-gray-300" />
-              <span className="text-[11px] text-gray-600 font-medium">Step {agent.order}</span>
+              <span className="text-[11px] text-gray-600 font-medium">{agent.role}</span>
             </div>
           </div>
 
-          {/* 2. System Prompt (KAN-76) */}
-          <AgentPromptSection agent={agent} />
-
-          {/* 3. Advanced Configuration levers (Model · Validator · Gate · Retry) */}
-          {onSelectionsChange && (
-            <div>
-              <div className="flex items-center gap-2 mb-2.5">
-                <Settings2 className="h-3.5 w-3.5 text-gray-400" />
-                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Configuration</p>
-                <span className="text-[9px] text-gray-400">Model · Validator · Gate · Retry</span>
-              </div>
-              <AdvancedExpander
-                agents={[{ id: agent.id, name: agent.name }]}
-                onSelectionsChange={onSelectionsChange}
-                initialSelections={initialSelections}
-                token={token}
-              />
-            </div>
+          {/* 3. System prompt (READ-ONLY) — mirror the mock's Overview "SYSTEM
+              PROMPT" block by reusing the SAME shared AgentPromptSection the Config
+              tab shows, with `surfaceOnly` (ND-7/LOCK-E: no textarea / Save /
+              Revert — the durable PUT/DELETE path stays unreachable). */}
+          <AgentPromptSection agent={agent} surfaceOnly />
+          </>
           )}
 
-          {/* 4. Skills — Suggested Skills */}
-          {suggestedSkills.length > 0 && (
+          {/* Config tab — per-agent configuration levers (Model · Validator · Gate ·
+              Retry) shown FLAT — no expand/collapse chrome, no System Prompt here. */}
+          {drawerTab === "config" && (
+          <>
+          <p className="text-[12px] text-ink-500 leading-relaxed">
+            Overrides for this agent. Defaults inherit from the workflow.
+          </p>
+
+          {/* Flat lever rows (reuse useAgentCapabilities + applyLeverPatch — same
+              source as AdvancedExpander, no forked logic, INV-12). */}
+          <ConfigLeversFlat
+            key={resetKey}
+            agentId={agent.id}
+            agentName={agent.name}
+            token={token ?? getToken()}
+            selections={effectiveSelections}
+            onSelectionsChange={effectiveOnSelectionsChange}
+          />
+
+          {/* Reset / Save agent buttons — match the design mock. */}
+          <div className="flex items-center gap-3 pt-2 border-t border-line-border">
+            <button
+              type="button"
+              onClick={() => {
+                // Clear parent selections and increment resetKey so React
+                // remounts ConfigLeversFlat with fresh empty localSel.
+                setSaved(false);
+                setLocalSelections({});
+                onSelectionsChange?.({});
+                setResetKey((k) => k + 1);
+              }}
+              className="flex-1 rounded-[10px] border border-line-control bg-surface-card px-4 py-2.5 font-sans text-[13px] font-medium text-ink-700 hover:bg-surface-warm"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                // Persist the current selections to the parent (e.g. LibraryPage
+                // savedSelectionsRef) so reopening the drawer restores them.
+                onSelectionsChange?.(localSelections);
+                // Show "Saved ✓" briefly before closing.
+                setSaved(true);
+                setTimeout(() => {
+                  setSaved(false);
+                  onClose();
+                }, 900);
+              }}
+              disabled={saved}
+              className={`flex-[2] rounded-[10px] px-4 py-2.5 font-sans text-[13px] font-semibold text-white ${
+                saved
+                  ? "bg-green-600 cursor-default"
+                  : "bg-brand hover:bg-brand-pressed"
+              }`}
+            >
+              {saved ? "✓ Saved" : "Save agent"}
+            </button>
+          </div>
+          </>
+          )}
+
+          {/* Skills tab — Suggested Skills + Custom skill */}
+          {drawerTab === "skills" && (
+          <>
+          {/* Suggested Skills */}
+          {suggestedSkills.length > 0 ? (
             <div>
               <div className="flex items-center gap-2 mb-2.5">
                 <Puzzle className="h-3.5 w-3.5 text-gray-400" />
@@ -564,10 +727,23 @@ export function AgentCapabilitiesModal({
                 })}
               </div>
             </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Puzzle className="h-8 w-8 text-gray-200 mb-3" />
+              <p className="text-[13px] font-medium text-gray-500">No suggested skills</p>
+              <p className="text-[11px] text-gray-400 mt-1 leading-relaxed max-w-[220px]">
+                No pre-built skills for this agent. Write a custom skill below.
+              </p>
+            </div>
+          )}
+          </>
           )}
 
+          {/* Hooks tab — Suggested Hooks */}
+          {drawerTab === "hooks" && (
+          <>
           {/* Suggested Hooks */}
-          {suggestedHooks.length > 0 && (
+          {suggestedHooks.length > 0 ? (
             <div>
               <div className="flex items-center gap-2 mb-2.5">
                 <Webhook className="h-3.5 w-3.5 text-gray-400" />
@@ -601,28 +777,30 @@ export function AgentCapabilitiesModal({
                 })}
               </div>
             </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Webhook className="h-8 w-8 text-gray-200 mb-3" />
+              <p className="text-[13px] font-medium text-gray-500">No suggested hooks</p>
+              <p className="text-[11px] text-gray-400 mt-1 leading-relaxed max-w-[220px]">
+                There are no pre-built hooks recommended for this agent.
+              </p>
+            </div>
+          )}
+          </>
           )}
 
-          {/* Custom skill */}
-          {agent.has_skill && (
-            <div className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
-              {/* Header — always visible, clickable to expand */}
+          {/* Skills tab (cont.) — Custom skill authoring */}
+          {drawerTab === "skills" && (
+          <>
+          {/* Custom skill — available for all agents (no has_skill gate) */}
+          <div className="rounded-xl overflow-hidden">
+              {/* Header — dashed full-width button; click toggles the editor open/closed */}
               <button
                 onClick={() => { setCustomSkillOpen(v => !v); setCustomAttached(false); }}
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-100 transition-colors text-left"
+                className="w-full flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl border border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors"
               >
-                <div className="flex items-center gap-2.5">
-                  <BookMarked className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                  <div>
-                    <p className="text-[11px] font-semibold text-gray-700">Custom skill</p>
-                    <p className="text-[10px] text-gray-400">Write your own SKILL.md instructions for this agent</p>
-                  </div>
-                </div>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors ${
-                  customSkillOpen ? "text-gray-400" : "text-gray-500 hover:text-gray-800"
-                }`}>
-                  {customSkillOpen ? "cancel" : "+ add custom"}
-                </span>
+                <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="text-[12px] font-medium">Write a custom skill</span>
               </button>
 
               {/* Inline editor — expands when open */}
@@ -633,37 +811,37 @@ export function AgentCapabilitiesModal({
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.18 }}
-                    className="overflow-hidden border-t border-gray-200"
+                    className="overflow-hidden mt-2 rounded-xl"
                   >
-                    <div className="px-4 py-3 space-y-3 bg-white">
+                    <div className="px-4 py-4 space-y-3 bg-surface-near-black rounded-xl">
                       {/* Skill name */}
                       <div>
-                        <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide block mb-1">Skill name</label>
+                        <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide block mb-1">Skill name</label>
                         <input
                           type="text"
                           value={customSkillName}
                           onChange={e => setCustomSkillName(e.target.value)}
                           placeholder={`e.g. ${agent.name} domain rules`}
-                          className="w-full px-3 py-2 text-[12px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 placeholder-gray-400 transition-colors"
+                          className="w-full px-3 py-2 text-[12px] text-white bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-white/40 placeholder-white/30 transition-colors"
                         />
                       </div>
                       {/* Skill content */}
                       <div>
-                        <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide block mb-1">
-                          Instructions <span className="text-gray-400 normal-case font-normal">(paste your SKILL.md content or write custom instructions)</span>
+                        <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide block mb-1">
+                          Instructions <span className="text-ink-400 normal-case font-normal">(paste your SKILL.md content or write custom instructions)</span>
                         </label>
                         <textarea
                           value={customSkillContent}
                           onChange={e => setCustomSkillContent(e.target.value)}
                           placeholder={`# ${agent.name} Custom Skill\n\nWrite domain-specific instructions here.\nThese will be injected into this agent's prompt.\n\n## Rules\n- Rule 1\n- Rule 2`}
                           rows={7}
-                          className="w-full px-3 py-2 text-[11px] font-mono bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 placeholder-gray-400 resize-none leading-relaxed transition-colors"
+                          className="w-full px-3 py-2 text-[13px] text-white font-sans bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-white/40 placeholder-white/30 resize-none leading-relaxed transition-colors"
                         />
-                        <p className="text-[9px] text-gray-400 mt-1">{customSkillContent.length} characters</p>
+                        <p className="text-[9px] text-ink-400 mt-1">{customSkillContent.length} characters</p>
                       </div>
                       {/* Attach button */}
-                      <div className="flex items-center justify-between">
-                        <p className="text-[10px] text-gray-400 leading-relaxed max-w-[200px]">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] text-ink-400 leading-relaxed">
                           This skill will be injected into the agent&apos;s prompt when the pipeline runs.
                         </p>
                         <button
@@ -683,7 +861,7 @@ export function AgentCapabilitiesModal({
                             setCustomSkillContent("");
                           }}
                           disabled={!customSkillName.trim() || !customSkillContent.trim()}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-900 text-white text-[11px] font-semibold hover:bg-gray-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white text-gray-900 text-[11px] font-semibold hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
                         >
                           {customAttached ? <><Check className="h-3 w-3" /> Attached</> : <><Plus className="h-3 w-3" /> Attach skill</>}
                         </button>
@@ -695,12 +873,13 @@ export function AgentCapabilitiesModal({
 
               {/* Success state */}
               {customAttached && !customSkillOpen && (
-                <div className="px-4 py-2 border-t border-gray-200 bg-white flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-gray-500" />
-                  <p className="text-[11px] text-gray-600 font-medium">Custom skill attached</p>
+                <div className="px-4 py-2 mt-2 rounded-xl bg-surface-near-black flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-ink-400" />
+                  <p className="text-[11px] text-white font-medium">Custom skill attached</p>
                 </div>
               )}
             </div>
+          </>
           )}
 
         </div>
@@ -712,7 +891,10 @@ export function AgentCapabilitiesModal({
 
 // ─── SkillsHooksTab ───────────────────────────────────────────────────────────
 
-function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
+// EXPORTED (41-04): the Composer's "Skills & hooks" card reuses this whole
+// section (skills + hooks pickers) — bound to the shared SkillsHooksContext, so
+// the modal and the composer share ONE attached-skills/hooks source of truth.
+export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
   const { attachedSkills, attachedHooks, attachSkill, detachSkill, attachHook, detachHook } = useSkillsHooks();
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [hooksOpen, setHooksOpen] = useState(false);
@@ -1090,7 +1272,7 @@ export function CapabilityPaletteSection({
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5 mb-2">
-        <Sliders className="h-3.5 w-3.5 text-[#1B2A4A]" />
+        <Sliders className="h-3.5 w-3.5 text-brand" />
         <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
           Capabilities
         </p>
@@ -1099,8 +1281,8 @@ export function CapabilityPaletteSection({
       {/* SURF-03: declared per-step capabilities of the opened workflow (compiled
           projection) — read-only, shown before composing. */}
       {declaredCapabilities && declaredCapabilities.length > 0 && (
-        <div className="mb-2 rounded-lg bg-[#1B2A4A]/5 border border-[#1B2A4A]/15 px-2.5 py-1.5">
-          <p className="text-[9px] font-semibold text-[#1B2A4A] uppercase tracking-widest mb-1">
+        <div className="mb-2 rounded-lg bg-brand/5 border border-brand/15 px-2.5 py-1.5">
+          <p className="text-[9px] font-semibold text-brand uppercase tracking-widest mb-1">
             Declared by this workflow
           </p>
           <div className="space-y-0.5">
@@ -1213,7 +1395,7 @@ export function CapabilityPaletteSection({
                             onClick={() => toggle(rowKey)}
                             aria-expanded={isOpen}
                             aria-label={`Configuration for ${cap.name}`}
-                            className="flex items-center justify-center h-5 w-5 rounded text-gray-400 hover:text-[#1B2A4A] flex-shrink-0"
+                            className="flex items-center justify-center h-5 w-5 rounded text-gray-400 hover:text-brand flex-shrink-0"
                           >
                             <Settings2 className="h-3 w-3" />
                             {isOpen ? (
@@ -1303,8 +1485,34 @@ export type StepSelection = {
   gates?: string[];
   model?: string;
   retry?: number;
+  // ── Fan-out levers (51-06 / FANOUT-01, D6/§4a) ────────────────────────────
+  // The composer persists a per-step fan-out selection generically (by
+  // agent_id — no workflow/agent name literal, SC-001). The kernel already
+  // owns spawn/isolation/merge; these three optional keys are the ONLY thing
+  // the composer adds. `_apply_selections` overlays them onto the compiled
+  // plan and the empty-selections path stays byte-identical (INV-3). The
+  // shared `applyLeverPatch` reducer needs NO change — toggling ON writes
+  // {strategy, task_source}, OFF clears them (undefined → key deleted).
+  strategy?: "fanout_batch";
+  task_source?: {
+    kind: "parsed";
+    parser: "heading_tasks" | "json_tasks";
+    source_step: string;
+  };
+  fanout?: { mode?: "parallel"; max_parallel?: number };
 };
 export type SelectionsMap = Record<string, StepSelection>;
+
+/**
+ * v1 known `## Task N:` producer allow-list (D7/§4e). A fan-out worker may
+ * REUSE an upstream node as its `source_step` ONLY when that node is a known
+ * task-list producer; otherwise the user is steered to INSERT a dedicated
+ * producer (D2 — fan-out is a change to the workflow SHAPE, never a job bolted
+ * onto a chained agent). `prototype-plan` is the shipped domain producer;
+ * `task-list-planner` is the generic producer skill shipped in 51-03. Grows as
+ * more producer skills ship. Keyed by agent id (name-free, SC-001).
+ */
+export const KNOWN_PRODUCERS: readonly string[] = ["prototype-plan", "task-list-planner"];
 
 /**
  * EMP-04 (D-07) coupling — MIRRORS the server-side rule in
@@ -1322,39 +1530,52 @@ const COUPLED_GATE_LABEL = "validation";
 const RETRY_OPTIONS = [1, 2, 3];
 
 /**
- * Per-agent "Advanced" expander (collapsed by default; D-05, agent ≈ step).
- * Exposes the representative lever-set — Validator → Gate → Model → Retry
- * (EMP-01) — sourced ENTIRELY from the live `/api/capabilities` palette payload
- * (user_allowed caps of the relevant kinds + the model catalog), never a
- * hardcoded option list (SC-001). Selecting a lever updates a per-step
- * selections map reported upward via `onSelectionsChange` (pure data — no new
- * run endpoint). Selecting a validator auto-attaches the `validation` gate
- * inline + announces it (EMP-04, `role="status"`).
- *
- * Exported so it can be render-tested in isolation; it remains EMBEDDED in the
- * AgentsPopup composer.
+ * PURE lever-patch reducer — the SINGLE writer of the per-step selection shape,
+ * extracted verbatim from `AdvancedExpander.updateLever` so any surface (the
+ * modal expander AND the Canvas inline config rail) applies IDENTICAL selection
+ * semantics (INV-3 — no forked lever logic). Applies `patch`, clears any unset
+ * key (empty/undefined/`""`/`[]` → the "Default" parity), and auto-attaches the
+ * coupled `validation` gate whenever validators are present (EMP-04 / D-07 — so
+ * the validators actually fire at run time, mirroring selections.py). BEHAVIOR-
+ * PRESERVING extraction: `updateLever` now delegates to this helper.
  */
-export function AdvancedExpander({
-  agents,
-  onSelectionsChange,
-  token,
-  initialSelections,
-}: {
-  agents: { id: string; name: string }[];
-  /** Reports the compact per-step selections map upward (the 22-04 shape). */
-  onSelectionsChange?: (selections: SelectionsMap) => void;
-  /** Optional JWT override (defaults to the stored token), mirroring the picker. */
-  token?: string | null;
-  /** WR-01 — seed the per-step selections when launching a saved workflow. */
-  initialSelections?: SelectionsMap;
-}) {
+export function applyLeverPatch(
+  current: StepSelection | undefined,
+  patch: Partial<StepSelection>,
+): StepSelection {
+  const cur: StepSelection = { ...(current ?? {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    const key = k as keyof StepSelection;
+    if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) {
+      delete cur[key];
+    } else {
+      // @ts-expect-error — keyed assignment across the union is safe here.
+      cur[key] = v;
+    }
+  }
+  // EMP-04 (D-07): a validator selection requires the `validation` gate. Auto-
+  // attach it (deduped) so the validators actually fire at run time.
+  if (cur.validators && cur.validators.length > 0) {
+    const gates = new Set(cur.gates ?? []);
+    gates.add(COUPLED_GATE);
+    cur.gates = Array.from(gates);
+  }
+  return cur;
+}
+
+/**
+ * Fetch + kind-filter the live `/api/capabilities` palette into the lever
+ * OPTIONS: `user_allowed` validator/gate names + the whole `model_catalog`
+ * (SC-001 — never a hardcoded option list). Extracted from `AdvancedExpander` so
+ * the Canvas inline config rail sources the SAME options from the SAME endpoint
+ * (INV-3). Returns the option arrays + the fetch loading/error state.
+ */
+export function useAgentCapabilities(token?: string | null) {
   const [validatorOptions, setValidatorOptions] = useState<string[]>([]);
   const [gateOptions, setGateOptions] = useState<string[]>([]);
   const [modelOptions, setModelOptions] = useState<CapabilityModelEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [selections, setSelections] = useState<SelectionsMap>(initialSelections ?? {});
 
   useEffect(() => {
     let cancelled = false;
@@ -1397,6 +1618,262 @@ export function AdvancedExpander({
     };
   }, [token]);
 
+  return { validatorOptions, gateOptions, modelOptions, loading, error };
+}
+
+/**
+ * Per-agent "Advanced" expander (collapsed by default; D-05, agent ≈ step).
+ * Exposes the representative lever-set — Validator → Gate → Model → Retry
+ * (EMP-01) — sourced ENTIRELY from the live `/api/capabilities` palette payload
+ * (user_allowed caps of the relevant kinds + the model catalog), never a
+ * hardcoded option list (SC-001). Selecting a lever updates a per-step
+ * selections map reported upward via `onSelectionsChange` (pure data — no new
+ * run endpoint). Selecting a validator auto-attaches the `validation` gate
+ * inline + announces it (EMP-04, `role="status"`).
+ *
+ * Exported so it can be render-tested in isolation; it remains EMBEDDED in the
+ * AgentsPopup composer.
+ */
+
+// ─── Config lever sub-components ─────────────────────────────────────────────
+
+/** Single config lever row — label + description on left, control on right. */
+function ConfigLeverRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-[12px] border border-line-border bg-surface-card px-5 py-3.5 min-h-[64px]">
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-ink-900 leading-tight">{label}</p>
+        <p className="text-[11px] text-ink-400 mt-0.5 leading-tight">{description}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Styled config lever dropdown. Uses onPointerDown on options so the selection
+ * fires BEFORE the document mousedown dismiss handler, solving the race.
+ * Must be defined at module level (never inside a render function).
+ */
+function ConfigLeverSelect({
+  leverId,
+  openLever,
+  setOpenLever,
+  ariaLabel,
+  value,
+  options,
+  onChange,
+}: {
+  leverId: string;
+  openLever: string | null;
+  setOpenLever: (id: string | null) => void;
+  ariaLabel: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  const isOpen = openLever === leverId;
+  const displayLabel = options.find((o) => o.value === value)?.label ?? "Default";
+
+  return (
+    <div className="relative flex-shrink-0 w-[140px]">
+      {/* Trigger */}
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onPointerDown={(e) => {
+          e.preventDefault(); // stop document mousedown dismiss
+          setOpenLever(isOpen ? null : leverId);
+        }}
+        className={`w-full flex items-center justify-between gap-1.5 rounded-[10px] border px-3 py-2 text-[13px] font-medium font-sans leading-none transition-colors ${
+          isOpen
+            ? "bg-surface-paper border-brand text-ink-900"
+            : "bg-surface-warm border-line-border text-ink-700 hover:border-brand/50"
+        }`}
+      >
+        <span className="truncate">{displayLabel}</span>
+        <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-ink-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+
+      {/* Styled option list */}
+      {isOpen && (
+        <div
+          role="listbox"
+          aria-label={ariaLabel}
+          className="absolute right-0 top-[calc(100%+4px)] z-[300] w-[200px] rounded-[12px] border border-line-border bg-surface-paper py-1.5 shadow-[0_8px_32px_rgba(17,17,20,0.14)]"
+        >
+          {[{ value: "", label: "Default" }, ...options].map((opt) => {
+            const isSelected = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onPointerDown={(e) => {
+                  e.preventDefault(); // prevent document mousedown dismiss
+                  onChange(opt.value);
+                  setOpenLever(null);
+                }}
+                className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left font-sans text-[13px] transition-colors ${
+                  isSelected
+                    ? "bg-brand/5 text-brand font-semibold"
+                    : "text-ink-800 hover:bg-surface-warm"
+                }`}
+              >
+                <span className="truncate">{opt.label}</span>
+                {isSelected && <Check className="h-3.5 w-3.5 flex-shrink-0 text-brand" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ConfigLeversFlat ─────────────────────────────────────────────────────────
+function ConfigLeversFlat({
+  agentId,
+  agentName,
+  token,
+  selections: initialSelectionsProp,
+  onSelectionsChange,
+}: {
+  agentId: string;
+  agentName: string;
+  token?: string | null;
+  selections: SelectionsMap;
+  onSelectionsChange: (s: SelectionsMap) => void;
+}) {
+  const { validatorOptions, gateOptions, modelOptions, loading, error } =
+    useAgentCapabilities(token);
+  const [openLever, setOpenLever] = useState<string | null>(null);
+  const [localSel, setLocalSel] = useState<SelectionsMap>(initialSelectionsProp);
+
+  const sel = localSel[agentId] ?? {};
+
+  const updateLever = (patch: Partial<StepSelection>) => {
+    const cur = applyLeverPatch(sel, patch);
+    const next: SelectionsMap = { ...localSel };
+    if (Object.keys(cur).length === 0) delete next[agentId];
+    else next[agentId] = cur;
+    setLocalSel(next);
+    onSelectionsChange(next);
+  };
+
+  // Dismiss on outside click — fires AFTER onPointerDown so selections go through first
+  useEffect(() => {
+    if (!openLever) return;
+    const handler = () => setOpenLever(null);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [openLever]);
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-1.5 text-[12px] text-red-600 bg-red-50 rounded-lg px-3 py-2">
+        <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />{error}
+      </div>
+    );
+  }
+  // Note: we do NOT early-return on `loading` — doing so causes a height
+  // change on every resetKey remount (loading→loaded) which makes the buttons
+  // below flash. Rendering rows with empty options while loading is visually
+  // identical ("Default" in every select) and avoids the layout shift.
+
+  const selectedValidator = sel.validators?.[0] ?? "";
+  const selectedGate = (sel.gates ?? []).find((g) => g !== COUPLED_GATE) ?? "";
+  const selectedRetry = sel.retry !== undefined ? String(sel.retry) : "";
+
+  return (
+    <div className="space-y-2">
+      <ConfigLeverRow label="Model" description="Reasoning model for this agent">
+        <ConfigLeverSelect
+          leverId="model" openLever={openLever} setOpenLever={setOpenLever}
+          ariaLabel={`Model for ${agentName}`}
+          value={sel.model ?? ""}
+          options={modelOptions.map((m) => ({ value: m.id, label: m.label }))}
+          onChange={(v) => updateLever({ model: v })}
+        />
+      </ConfigLeverRow>
+
+      <ConfigLeverRow label="Validator" description="Output validation pass">
+        <ConfigLeverSelect
+          leverId="validator" openLever={openLever} setOpenLever={setOpenLever}
+          ariaLabel={`Validator for ${agentName}`}
+          value={selectedValidator}
+          options={validatorOptions.map((n) => ({ value: n, label: n }))}
+          onChange={(v) => updateLever({ validators: v ? [v] : [] })}
+        />
+      </ConfigLeverRow>
+
+      <ConfigLeverRow label="Gate" description="Pause for human review">
+        <ConfigLeverSelect
+          leverId="gate" openLever={openLever} setOpenLever={setOpenLever}
+          ariaLabel={`Gate for ${agentName}`}
+          value={selectedGate}
+          options={gateOptions.map((n) => ({ value: n, label: n }))}
+          onChange={(picked) => {
+            const keepCoupled = (sel.validators?.length ?? 0) > 0 ? [COUPLED_GATE] : [];
+            updateLever({ gates: picked ? [...keepCoupled, picked] : keepCoupled });
+          }}
+        />
+      </ConfigLeverRow>
+
+      <ConfigLeverRow label="Retry" description="Auto-retry on failure">
+        <ConfigLeverSelect
+          leverId="retry" openLever={openLever} setOpenLever={setOpenLever}
+          ariaLabel={`Retry for ${agentName}`}
+          value={selectedRetry}
+          options={RETRY_OPTIONS.map((n) => ({ value: String(n), label: `${n} ${n === 1 ? "attempt" : "attempts"}` }))}
+          onChange={(v) => updateLever({ retry: v ? Number(v) : undefined })}
+        />
+      </ConfigLeverRow>
+    </div>
+  );
+}
+
+export function AdvancedExpander({
+  agents,
+  onSelectionsChange,
+  token,
+  initialSelections,
+  priorAgents,
+}: {
+  agents: { id: string; name: string }[];
+  /** Reports the compact per-step selections map upward (the 22-04 shape). */
+  onSelectionsChange?: (selections: SelectionsMap) => void;
+  /** Optional JWT override (defaults to the stored token), mirroring the picker. */
+  token?: string | null;
+  /** WR-01 — seed the per-step selections when launching a saved workflow. */
+  initialSelections?: SelectionsMap;
+  /**
+   * 51-06 (D7/§4e) — the pipeline agents that precede THIS expander's block, so
+   * the fan-out "Source list from" picker can offer earlier steps even when the
+   * expander renders a single agent (the per-agent config surface passes one
+   * agent). Combined with `agents.slice(0, idx)` for the intra-block order. When
+   * omitted (or empty for the first agent) the fan-out toggle is disabled.
+   */
+  priorAgents?: { id: string; name: string }[];
+}) {
+  // Lever OPTIONS + fetch state come from the SHARED hook (SC-001) — the same
+  // source the Canvas inline config rail uses (INV-3, no forked fetch/filter).
+  const { validatorOptions, gateOptions, modelOptions, loading, error } =
+    useAgentCapabilities(token);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selections, setSelections] = useState<SelectionsMap>(initialSelections ?? {});
+
   const toggle = (agentId: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -1410,34 +1887,20 @@ export function AdvancedExpander({
   const updateLever = (
     agentId: string,
     patch: Partial<StepSelection>,
-  ) =>
-    setSelections((prev) => {
-      const cur: StepSelection = { ...(prev[agentId] ?? {}) };
-      // Apply the patch; an empty/undefined value clears the key (no override).
-      for (const [k, v] of Object.entries(patch)) {
-        const key = k as keyof StepSelection;
-        if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) {
-          delete cur[key];
-        } else {
-          // @ts-expect-error — keyed assignment across the union is safe here.
-          cur[key] = v;
-        }
-      }
-      // EMP-04 (D-07): a validator selection requires the `validation` gate.
-      // Auto-attach it (deduped) so the validators actually fire at run time —
-      // mirroring selections.py. Removing all validators drops the auto gate
-      // unless the user explicitly picked it.
-      if (cur.validators && cur.validators.length > 0) {
-        const gates = new Set(cur.gates ?? []);
-        gates.add(COUPLED_GATE);
-        cur.gates = Array.from(gates);
-      }
-      const next: SelectionsMap = { ...prev };
-      if (Object.keys(cur).length === 0) delete next[agentId];
-      else next[agentId] = cur;
-      onSelectionsChange?.(next);
-      return next;
-    });
+  ) => {
+    // Delegate to the shared pure reducer (patch + clear-unset + validator→gate
+    // coupling) — the single writer of the selection shape (INV-3). A lever toggle
+    // is a single discrete click event, so the current-render `selections` closure
+    // is already the latest committed value (no functional-updater `prev` needed).
+    const cur = applyLeverPatch(selections[agentId], patch);
+    const next: SelectionsMap = { ...selections };
+    if (Object.keys(cur).length === 0) delete next[agentId];
+    else next[agentId] = cur;
+    setSelections(next);
+    // Notify the parent OUTSIDE the setState updater — the parent notify no longer
+    // fires during this child's render pass (setState-in-render cleanup).
+    onSelectionsChange?.(next);
+  };
 
   if (loading) {
     return (
@@ -1464,7 +1927,7 @@ export function AdvancedExpander({
 
   return (
     <div className="flex flex-col space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
-      {agents.map((agent) => {
+      {agents.map((agent, idx) => {
         const isOpen = expanded.has(agent.id);
         const region = `advanced-${agent.id}`;
         const sel = selections[agent.id] ?? {};
@@ -1478,14 +1941,14 @@ export function AdvancedExpander({
               onClick={() => toggle(agent.id)}
               aria-expanded={isOpen}
               aria-controls={region}
-              className="flex items-center gap-1.5 text-left text-[11px] font-semibold text-gray-700 hover:text-[#1B2A4A] py-1"
+              className="flex items-center gap-1.5 text-left text-[11px] font-semibold text-gray-700 hover:text-brand py-1"
             >
               {isOpen ? (
                 <ChevronDown className="h-3 w-3 flex-shrink-0" />
               ) : (
                 <ChevronRight className="h-3 w-3 flex-shrink-0" />
               )}
-              <Settings2 className="h-3 w-3 flex-shrink-0 text-[#1B2A4A]" />
+              <Settings2 className="h-3 w-3 flex-shrink-0 text-brand" />
               <span className="truncate flex-1 min-w-0">
                 Advanced — {agent.name}
               </span>
@@ -1513,7 +1976,7 @@ export function AdvancedExpander({
                         validators: e.target.value ? [e.target.value] : [],
                       })
                     }
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                   >
                     <option value="">Default</option>
                     {validatorOptions.map((name) => (
@@ -1549,7 +2012,7 @@ export function AdvancedExpander({
                         : keepCoupled;
                       updateLever(agent.id, { gates });
                     }}
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                   >
                     <option value="">Default</option>
                     {gateOptions.map((name) => (
@@ -1576,7 +2039,7 @@ export function AdvancedExpander({
                       onChange={(e) =>
                         updateLever(agent.id, { model: e.target.value })
                       }
-                      className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] min-w-[160px] max-w-[200px]"
+                      className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand min-w-[160px] max-w-[200px]"
                     >
                       <option value="">Default</option>
                       {modelOptions.map((m) => (
@@ -1633,7 +2096,7 @@ export function AdvancedExpander({
                           : undefined,
                       })
                     }
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                   >
                     <option value="">Default</option>
                     {RETRY_OPTIONS.map((n) => (
@@ -1644,12 +2107,140 @@ export function AdvancedExpander({
                   </select>
                 </div>
 
+                {/* Fan-out lever (51-06 / FANOUT-01, D6/§4c) — "Fan out over a
+                    list": one worker per `## Task N:` heading the source step
+                    emits. The kernel owns spawn/isolation/merge; the composer
+                    only persists {strategy, task_source} via the SHARED reducer
+                    (no reducer change). GUARDRAILS (D9/§5b): the source picker
+                    lists ONLY earlier agents; the toggle is disabled for a step
+                    with no upstream; a non-blocking warning steers the user to a
+                    known `## Task N:` producer (INSERT-A-NODE, D2/D7). */}
+                {(() => {
+                  // Earlier steps = the pipeline agents before THIS block
+                  // (priorAgents, from the per-agent config surface) followed by
+                  // any earlier agents WITHIN this expander's block (multi-agent
+                  // render). Either alone is empty in the two live mounts, so the
+                  // union is what makes "earlier agents only" real.
+                  const earlier = [
+                    ...(priorAgents ?? []),
+                    ...agents.slice(0, idx),
+                  ];
+                  const canFanout = earlier.length > 0;
+                  const fanoutOn = sel.strategy === "fanout_batch";
+                  const currentSource = sel.task_source?.source_step ?? "";
+                  // Default source (D7): the nearest earlier KNOWN producer if
+                  // one exists, else the immediately-preceding step (still valid
+                  // — the unknown-producer warning then steers to INSERT one).
+                  const defaultSource =
+                    [...earlier].reverse().find((a) =>
+                      KNOWN_PRODUCERS.includes(a.id),
+                    )?.id ?? earlier[earlier.length - 1]?.id;
+                  const sourceKnown =
+                    !!currentSource && KNOWN_PRODUCERS.includes(currentSource);
+                  return (
+                    <div className="flex flex-col gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <label
+                          htmlFor={`${region}-fanout`}
+                          className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                        >
+                          Fan out over a list
+                        </label>
+                        <input
+                          type="checkbox"
+                          id={`${region}-fanout`}
+                          aria-label={`Fan out over a list for ${agent.name}`}
+                          checked={fanoutOn}
+                          disabled={!canFanout}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              updateLever(agent.id, {
+                                strategy: "fanout_batch",
+                                task_source: {
+                                  kind: "parsed",
+                                  parser: "heading_tasks",
+                                  source_step: defaultSource ?? "",
+                                },
+                              });
+                            } else {
+                              updateLever(agent.id, {
+                                strategy: undefined,
+                                task_source: undefined,
+                                fanout: undefined,
+                              });
+                            }
+                          }}
+                          className="h-3.5 w-3.5 accent-brand disabled:opacity-40 disabled:cursor-not-allowed"
+                        />
+                      </div>
+
+                      {/* No upstream → the toggle can't source a list (D9). */}
+                      {!canFanout && (
+                        <p className="text-[10px] text-gray-400 leading-tight">
+                          Add an earlier step that outputs a task list to fan out
+                          over.
+                        </p>
+                      )}
+
+                      {/* Source picker — earlier steps ONLY (D9/§5b). */}
+                      {fanoutOn && canFanout && (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <label
+                              htmlFor={`${region}-fanout-source`}
+                              className="text-[11px] text-gray-600 flex-1 min-w-0"
+                            >
+                              Source list from
+                            </label>
+                            <select
+                              id={`${region}-fanout-source`}
+                              aria-label={`Source list for ${agent.name}`}
+                              value={currentSource}
+                              onChange={(e) =>
+                                updateLever(agent.id, {
+                                  task_source: {
+                                    kind: "parsed",
+                                    parser: "heading_tasks",
+                                    source_step: e.target.value,
+                                  },
+                                })
+                              }
+                              className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
+                            >
+                              {earlier.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Non-blocking unknown-producer warning (D7/§4e) —
+                              steer to INSERT a dedicated `## Task N:` producer;
+                              the compile guard (51-02) is the server backstop. */}
+                          {!sourceKnown && (
+                            <p className="flex items-start gap-1.5 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 leading-tight">
+                              <AlertCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                              <span>
+                                This step fans out one worker per{" "}
+                                <code>## Task N:</code> heading its source
+                                outputs — pick or insert a step that emits a task
+                                list.
+                              </span>
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* EMP-04 (D-07): auto-attach inline notice — a polite live
                     region so the gate-added message is announced. */}
                 {autoAttached && (
                   <div
                     role="status"
-                    className="flex items-center gap-1.5 text-[10px] text-[#1B2A4A] bg-[#1B2A4A]/5 border border-[#1B2A4A]/15 rounded-md px-2 py-1"
+                    className="flex items-center gap-1.5 text-[10px] text-brand bg-brand/5 border border-brand/15 rounded-md px-2 py-1"
                   >
                     <Info className="h-3 w-3 flex-shrink-0" />
                     Added required {COUPLED_GATE_LABEL} gate — this capability
@@ -1672,7 +2263,6 @@ const COLS = 3;
 export function AgentsPopup({
   isOpen, onClose, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
-  onModelOverridesChange, initialModelOverrides,
   onSelectionsChange, initialSelections,
   declaredCapabilities,
 }: AgentsPopupProps) {
@@ -1682,6 +2272,62 @@ export function AgentsPopup({
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [capAgent, setCapAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
   const [activeTab, setActiveTab] = useState<"agents" | "skills-hooks">("agents");
+
+  // ── Save-to-catalogue (Phase 21 / ND-12) ──────────────────────────────────
+  // The footer "Save workflow" persists the composed workflow to the OWNER-scoped
+  // /api/user-workflows via the existing NameWorkflowModal (REUSE — no new
+  // persistence; owner-only CRUD is the whole surface, ND-12 controls DECLARED
+  // OUT). The live per-step selections edited in AgentCapabilitiesModal are
+  // mirrored here so the save payload carries the composed `selections` map
+  // (agentId -> {validators?, gates?, model?, retry?}), the EXACT 22-04 shape.
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [liveSelections, setLiveSelections] = useState<SelectionsMap>(
+    initialSelections ?? {},
+  );
+  const handleSelectionsChange = useCallback(
+    (next: SelectionsMap) => {
+      setLiveSelections(next);
+      onSelectionsChange?.(next);
+    },
+    [onSelectionsChange],
+  );
+
+  const handleSaveWorkflow = useCallback(
+    async (name: string, description: string) => {
+      const token = getToken();
+      if (!token) {
+        setSaveError("Not authenticated.");
+        return;
+      }
+      setSaving(true);
+      setSaveError(null);
+      try {
+        await createUserWorkflow(token, {
+          name,
+          ...(description ? { description } : {}),
+          base_pipeline_type: pipelineType,
+          agent_ids: agents.map((a) => a.id),
+          // WR-03: per-agent model lives in `selections[id].model` (the inline
+          // Model lever) — the single source of truth the backend re-applies via
+          // `_apply_selections`. No separate `model_overrides` key: emitting the
+          // static seed alongside the live selections persisted a divergent
+          // model on reload. Omit the empty map → payload byte-identical (INV-3).
+          ...(Object.keys(liveSelections).length > 0
+            ? { selections: liveSelections }
+            : {}),
+        });
+        setSaveModalOpen(false);
+        onClose();
+      } catch (e) {
+        setSaveError((e as Error)?.message ?? "Failed to save workflow.");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [agents, pipelineType, liveSelections, onClose],
+  );
 
   const handleRemove = useCallback((agentId: string) => {
     if (getRole(agentId, pipelineType) !== "optional") return;
@@ -1807,7 +2453,7 @@ export function AgentsPopup({
                     <span className="flex items-center gap-1 text-gray-300"><Lock className="h-2.5 w-2.5" /> Core = locked</span>
                     <span className="text-gray-300">· Drag to reorder · × to remove</span>
                   </div>
-                  <button onClick={() => setLibraryOpen(true)} className="text-[10px] font-semibold text-gray-400 hover:text-[#1B2A4A] uppercase tracking-widest transition-colors flex-shrink-0 ml-4">
+                  <button onClick={() => setLibraryOpen(true)} className="text-[10px] font-semibold text-gray-400 hover:text-brand uppercase tracking-widest transition-colors flex-shrink-0 ml-4">
                     Browse agent library →
                   </button>
                 </div>
@@ -1879,7 +2525,7 @@ export function AgentsPopup({
                                 onDrop={() => handleDrop(globalIdx)}
                                 onDragEnd={handleDragEnd}
                                 className={`group relative bg-white rounded-lg border px-3 py-2.5 shadow-sm transition-all ${
-                                  isDragOver ? "border-[#1B2A4A] shadow-md" :
+                                  isDragOver ? "border-brand shadow-md" :
                                   locked ? "border-gray-200 opacity-80" :
                                   "border-gray-200 hover:border-gray-300 hover:shadow-md"
                                 } ${!locked ? "cursor-grab active:cursor-grabbing" : ""}`}
@@ -1929,12 +2575,6 @@ export function AgentsPopup({
                   </div>
                 </div>
 
-                {/* ISS-014 (MODEL-03): per-agent model picker, relocated here
-                    from the deleted WorkflowComposer. Populated from the live
-                    /api/capabilities model catalog (user_allowed only). A
-                    selection threads up via onModelOverridesChange →
-                    IdeaInputPage extraParams → run_pipeline model_overrides. */}
-
                 {/* End of shared scroll container (KAN-68 fix) */}
                 </div>
               </>
@@ -1953,14 +2593,34 @@ export function AgentsPopup({
 
             {/* Footer */}
             <div className="px-8 pb-6 flex-shrink-0 flex items-center justify-end gap-3 border-t border-gray-100 pt-4">
-              <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-gray-200 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+              {saveError && (
+                <span role="alert" className="text-[11px] text-status-failed mr-auto">
+                  {saveError}
+                </span>
+              )}
+              <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-line-border text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors">
                 Cancel
               </button>
-              <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-gray-900 text-[12px] font-semibold text-white hover:bg-gray-800 transition-colors">
-                Save changes
+              <button
+                onClick={() => { setSaveError(null); setSaveModalOpen(true); }}
+                className="px-5 py-2.5 rounded-xl bg-ink-900 text-[12px] font-semibold text-surface-white hover:bg-ink-800 transition-colors"
+              >
+                Save workflow
               </button>
             </div>
           </motion.div>
+
+          {/* Save-to-catalogue modal (REUSE — owner-scoped createUserWorkflow;
+              ND-12 controls DECLARED OUT — owner-only CRUD is the whole surface). */}
+          <AnimatePresence>
+            {saveModalOpen && (
+              <NameWorkflowModal
+                title="Save workflow"
+                onSave={handleSaveWorkflow}
+                onCancel={() => { if (!saving) setSaveModalOpen(false); }}
+              />
+            )}
+          </AnimatePresence>
 
           <AgentLibrary
             isOpen={libraryOpen}
@@ -1977,8 +2637,13 @@ export function AgentsPopup({
                 agent={capAgent.agent}
                 agentIndex={capAgent.index}
                 onClose={() => setCapAgent(null)}
-                onSelectionsChange={onSelectionsChange}
+                onSelectionsChange={handleSelectionsChange}
                 initialSelections={initialSelections}
+                // 51-06 — the upstream steps feed the fan-out source picker so a
+                // mid-pipeline step can fan out over an earlier producer's list.
+                priorAgents={agents
+                  .slice(0, capAgent.index)
+                  .map((a) => ({ id: a.id, name: a.name }))}
               />
             )}
           </AnimatePresence>

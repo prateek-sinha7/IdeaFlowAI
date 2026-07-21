@@ -2,10 +2,18 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook, ClarifyRound } from "@/types/index";
+// Commands are sent up-channel over REST through the RunConnectionProvider (the
+// SSE transport). SSE + REST is the sole transport (44-06 hard cutoff). The
+// shared handlePipelineMessage reducer is transport-agnostic and untouched.
+import { getToken, postAnswers } from "@/lib/api";
+import { useRunConnection } from "@/providers/RunConnectionProvider";
 
 export interface UseWorkflowReturn {
   pipelineState: PipelineRunState;
-  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => void;
+  // Returns the POST /api/runs promise resolving to the created run_id (so the
+  // caller can attachRun it for launch->attach, R4). SSE + REST is the sole
+  // transport (44-06).
+  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => Promise<string | null>;
   resetPipeline: () => void;
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;
@@ -29,17 +37,22 @@ const INITIAL_STATE: PipelineRunState = {
 };
 
 /**
- * Custom hook that manages workflow pipeline state and WebSocket communication.
- * Sends `run_pipeline` messages and handles incoming pipeline status updates.
- * Now includes `handleMessage` so the parent can route pipeline WebSocket messages here.
+ * Custom hook that manages workflow pipeline state. Launches runs over REST
+ * (POST /api/runs via the RunConnectionProvider) and handles incoming pipeline
+ * status updates. Includes `handleMessage` so the parent can route the SSE
+ * pipeline down-channel events here.
  */
-export function useWorkflow(websocketSend: (msg: string) => boolean | void): UseWorkflowReturn {
+export function useWorkflow(): UseWorkflowReturn {
   const [pipelineState, setPipelineState] = useState<PipelineRunState>(INITIAL_STATE);
   const startTimeRef = useRef<number | null>(null);
   const agentStartTimesRef = useRef<Record<string, number>>({});
 
+  // The app-level SSE run connection — commands ride its REST up-channel
+  // (POST /api/runs, POST /api/runs/{id}/answers). SSE is the sole transport.
+  const runConnection = useRunConnection();
+
   const startPipeline = useCallback(
-    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => {
+    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>): Promise<string | null> => {
       startTimeRef.current = Date.now();
       agentStartTimesRef.current = {};
 
@@ -107,9 +120,12 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
         Object.assign(payload, context);
       }
 
-      websocketSend(JSON.stringify(payload));
+      // Send the `run_pipeline` payload up-channel over REST (POST /api/runs).
+      // W1 (44-01): return the POST /api/runs promise (→ created run_id) so the
+      // caller can attachRun it (launch->attach, R4).
+      return runConnection.sendCommand(null, payload);
     },
-    [websocketSend]
+    [runConnection]
   );
 
   const resetPipeline = useCallback(() => {
@@ -132,14 +148,16 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   // ClarifyEngine force-proceeds immediately instead of re-asking up to 3 rounds.
   const submitQuestionnaire = useCallback(
     (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification = false) => {
-      websocketSend(JSON.stringify({
-        type: "submit_questionnaire",
-        pipeline_run_id: pipelineRunId,
+      // Post the answers to POST /api/runs/{id}/answers (AnswersCommand) — which
+      // takes `responses` with NO `message_id`, closing the R4 422 the /messages
+      // (MessageCommand) path raised. The ISS-027 `skip_clarification`
+      // force-proceed rides along.
+      void postAnswers(getToken() ?? "", pipelineRunId, {
         responses,
         skip_clarification: skipClarification,
-      }));
+      }).catch((e) => console.error("postAnswers failed", e));
     },
-    [websocketSend]
+    []
   );
 
   // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
@@ -155,7 +173,7 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   // Thinking tab displays the edited content (e.g. the reduced task list) rather
   // than the original pre-edit output from agent_complete. Called when
   // review_gate_approved arrives with edited:true, using the editedContent that
-  // was sent in the approve_review WS message.
+  // was sent on the gate approve command.
   const retainAgentEdit = useCallback((agentId: string, editedContent: string) => {
     setPipelineState((prev) => {
       const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
@@ -226,6 +244,10 @@ export function handlePipelineMessage(
         agents: agentStates,
         currentAgentIndex: 0,
         completedCount: 0,
+        // Phase 39 (RUNUI-06): surface the run's created_at so the lane header can
+        // render a relative age ("23h ago"). ADDITIVE optional — falls back to
+        // the receipt time when the event omits it.
+        createdAt: (msg.created_at as string) || prev.createdAt || new Date().toISOString(),
       }));
 
       // Persist pipeline_run_id to sessionStorage so reconnection works
@@ -258,12 +280,6 @@ export function handlePipelineMessage(
         // Replayed agent_start events are deduped upstream by shouldApplyEvent
         // (dashboard/page.tsx:276), so a live output is never wiped on reconnect.
         // Identity fields (id/name/role/icon/index) are preserved via the spread.
-        // KAN-101: a prototype-specify agent_start arriving while the agent is
-        // already "done" is a spec-revision re-run — the flag feeds the
-        // specRevisionCount bump below (revision-cycle badge). Its field
-        // clearing is subsumed by the FIX-039 unconditional reset.
-        const wasAlreadyDone = updated[agentIdx].status === "done";
-        const isSpecifyRerun = wasAlreadyDone && agentId === "prototype-specify";
         updated[agentIdx] = {
           ...updated[agentIdx],
           status: "running",
@@ -291,10 +307,6 @@ export function handlePipelineMessage(
           ...prev,
           agents: updated,
           currentAgentIndex: agentIdx,
-          // Bump the revision counter when specify re-starts
-          specRevisionCount: isSpecifyRerun
-            ? (prev.specRevisionCount ?? 0) + 1
-            : prev.specRevisionCount,
         };
       });
       return true;
@@ -345,7 +357,12 @@ export function handlePipelineMessage(
     case "agent_complete": {
       const agentId = msg.agent_id as string;
       const startTime = agentStartTimesRef.current[agentId];
-      const duration = startTime ? (Date.now() - startTime) / 1000 : null;
+      // Prefer an explicit server-provided duration; fall back to the measured
+      // start→complete wall time. ADDITIVE — existing events (no `duration`)
+      // keep the measured behavior unchanged.
+      const measured = startTime ? (Date.now() - startTime) / 1000 : null;
+      const duration =
+        typeof msg.duration === "number" ? (msg.duration as number) : measured;
 
       setPipelineState((prev) => {
         const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
@@ -453,6 +470,11 @@ export function handlePipelineMessage(
           cacheReadTokens: (msg.total_cache_read_tokens as number) || prev.cacheReadTokens || 0,
           cacheWriteTokens: (msg.total_cache_write_tokens as number) || prev.cacheWriteTokens || 0,
           modelId: (msg.model_id as string) || prev.modelId || undefined,
+          // Phase 39 (RUNUI-06): surface the deliverable filename/version that the
+          // event already carries so the lane can render the mock's deliverable
+          // card. ADDITIVE optional — undefined when the event omits them.
+          deliverableFilename: (msg.deliverable_filename as string) || prev.deliverableFilename,
+          deliverableVersion: (msg.deliverable_version as number) ?? prev.deliverableVersion,
         };
       });
       return true;
@@ -534,6 +556,13 @@ export function handlePipelineMessage(
           isRunning: false,
           totalDuration,
           completedCount: updated.filter((a) => a.status === "done").length,
+          // ISS-035 (SC-4): stamp the terminal cancelled marker (symmetric with
+          // pipeline_failed's `failed` flag above) so a downstream selector
+          // derives the LIVE-STATE-CONTRACT §1 cancelled state ("Cancelled by
+          // you") instead of falling through to idle. No chat message is pushed
+          // from the reducer — RunChatLane renders the transcript line off this
+          // marker + the generic RunLaneState (plan 06).
+          cancelled: true,
         };
       });
       return true;
@@ -595,11 +624,10 @@ export function handlePipelineMessage(
       // task-registered-before-queue race at the source — the live queue is
       // now registered synchronously with the driver task in
       // restore_non_terminal_runs — so this shape only occurs while the
-      // restore scan has not yet reached the run. A later transition of
-      // connectionStatus to "connected" re-sends reconnect_pipeline (the
-      // DashboardLayout reconnect effect); heartbeats alone do NOT re-trigger
-      // it (they are only emitted by an already-attached drainer). No new
-      // retry loop here (T-12-08-02).
+      // restore scan has not yet reached the run. The SSE transport
+      // (useRunStream) reconnects natively and replays from Last-Event-ID, so
+      // the tail arrives without any client-side re-attach frame. No new retry
+      // loop here (T-12-08-02).
       return true;
     }
 

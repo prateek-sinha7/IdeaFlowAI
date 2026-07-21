@@ -731,140 +731,665 @@ Plans:
 
 - [x] 22-06-PLAN.md — EMP-01/04 + DECIDE-02: per-agent Advanced expander (validator/gate/model/retry) + auto-attach + drop the model-picker tier filter (wave 3)
 
----
+### Phase 42: Run Screen State Fidelity — kill legacy full-screen takeovers so clarify, gate, planning, failed and live states match the VelocityAI mocks [B8]
 
-## Milestone v2.0 — Universal Run Chat & VelocityAI UI Convergence
+**Goal:** Every run state (planning · live · clarify · review-gate · complete · failed · revision) matches the three VelocityAI run mocks, by REMOVING the legacy full-screen right-panel takeovers so the already-built inline surfaces become reachable, plus the fidelity polish the mocks require, plus the settled agent-detail artifact cards — FRONTEND-ONLY (INV-3/LOCK-B), generically keyed (SC-001), closed on per-state screenshot-diff + human sign-off.
+**Requirements:** RUNUI-06, RUNUI-07, RUNUI-08, RUNUI-09
+**Depends on:** Phase 41
+**Plans:** 11/11 plans complete — frontend-only (INV-3/LOCK-B); per-state gallery sign-off closed the phase. **RUNUI-09 NOT yet met** — see the closeout note (33 mocked-e2e specs assert the pre-Phase-42 UI; dedicated reconciliation pass deferred, `42-.../deferred-items.md` D-42-1).
 
-**Plan of record:** `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md` (imported 2026-07-07 via `/gsd-import`; 0 blockers / 2 warnings approved). Locked decisions D-01..D-12 + open decision records ND-1..ND-9 live there — phases below are the execution skeleton; the POR is authoritative for scope detail.
+Plans:
 
-**Numbering note:** phases 23–27 are RESERVED — they name the post-milestone standalone efforts recorded in `.planning/IMPLEMENTATION-REGISTER.md` (23 Redo Gate · 24 Nav-Validation Hardening · 25 Revision Families & Run-Inputs · 26 Cost/Caching/Pricing · 27 Spec Revision Loop [KAN-101]). Milestone v2.0 = phases **28–38**.
+- [x] 42-01-PLAN.md — Fidelity harness: capture planning/clarify-awaiting/gate-awaiting states both sides (Wave 1)
+- [x] 42-02-PLAN.md — Kill the 3 takeover branches + auto-tab per state + re-home Cancel + delete QuestionnairePanel (Wave 2)
+- [x] 42-03-PLAN.md — Lane composer = plain hint during clarify/gate + failed run drops Preview/defaults Audit/retires DegradedRunAffordance (Wave 3)
+- [x] 42-04-PLAN.md — Delete dead code: AgentProgressPanel / WaveTreePanel / TodoCard + tests + stale comments (Wave 3)
+- [x] 42-05-PLAN.md — Extract shared artifactPreview module (discriminator + Spec/Tasks/Analysis parsers) + delete ReviewGatePanel.tsx (Wave 3)
+- [x] 42-06-PLAN.md — Steps phase pill + label + violet running-row + clarify submit copy + drop extra clarify affordances (Wave 3)
+- [x] 42-07-PLAN.md — Live Files-building hero + live Audit badge/monitoring banner (Wave 3)
+- [x] 42-08-PLAN.md — Gate = 2 buttons + plan-preview reusing artifactPreview (Wave 4)
+- [x] 42-09-PLAN.md — Settled agent-detail artifact cards (pages/tasks/checks + handoff) + F1/F2 deferrals (Wave 4)
+- [x] 42-10-PLAN.md — Inline reskin navy→brand (InlineClarify / InlineGate / ResultCard) (Wave 5)
+- [x] 42-11-PLAN.md — Full gallery regen + per-state human sign-off + ISS-035/036/037 + F1/F2 + register/ROADMAP reconcile (Wave 6)
 
-**Entry gate:** milestone v1.0 remains `verifying` — its consolidated live-Bedrock + Playwright close-out pass and `/gsd-complete-milestone` precede v2.0 *execution* (planning registered now by user decision at import).
-
-**Overview:** Chat becomes a first-class lane on every workflow run (pre-run composer · mid-run steering · post-run iteration), riding the existing WS transport + durable `run_events` + gate/clarify/redo seams — zero kernel edits (SC-001), zero new tables in v1. Images ride the dormant `run_images` capability; files ride the run sandbox; compaction is backend-owned; one `chat:concierge` capability (proposal-only) is the orchestrator for every workflow. Then the run screen converges to the Hexaware Run design (chat lane + Preview/Steps/Files/Audit, 3-level Steps drill-down), followed by shell convergence (Home/Library/My Workflows/History/Run detail/Configure/Analytics/Settings).
-
-### v2.0 Phases
-
-- [ ] **Phase 28: Chat Contracts & Guards [A0]** — event vocabulary + golden guards, artifact-block derivation contracts, live-state contract, mockWs chat driver, decision records ND-1..ND-9
-- [ ] **Phase 29: Chat Backbone [A1]** — WS `chat_message` ingress, run_events persistence + replay/reopen, mechanical intent router, steering seam, narrator cards
-- [ ] **Phase 30: Uploads & Multimodal [A2]** — `POST /api/runs/{id}/files`, `run_images` wiring, doc extract+sandbox, `context_provider:uploaded_files`, launch attachments
-- [ ] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget
-- [ ] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening
-- [ ] **Phase 33: Concierge + Compaction [A5]** — `chat:concierge` capability + confirm chips, `compaction:chat_history` + `context_provider:conversation`, post-run iteration chat
-- [ ] **Phase 34: Live Pass & Closure [A6]** — live Bedrock chat/images/steering/concierge, multi-turn cache placement (P26 deferral folds in), Playwright live, register sweeps
-- [ ] **Phase 35: Shell Chrome + Reskin Pages [B1]** — dark top bar + nav pill (Home · Library · My Workflows), profile menu, notifications, Settings, pickers, Library restyle
-- [ ] **Phase 36: Home + History + My Workflows [B2]** — fused Home, History grouping/sort + real delete, My Workflows rename + kebab actions, Run detail page + run-summary endpoint, `WorkflowCatalog`→`HomeLaunchGrid`
-- [ ] **Phase 37: Configure Unification [B3]** — generic per-run setup (templates/DS/gates/settings for every deliverable), Agent drawer, Workflow dialog, draft-run persistence (ND-1/ND-7/ND-8 gates)
-- [ ] **Phase 38: Analytics, Estimates & Notifications [B4]** — date-scoped aggregations, chart components, per-deliverable estimates, notifications feed
-
-### v2.0 Phase Details
+> **Closeout (42-11):** full run-screen fidelity gallery regenerated across every state (planning · live · clarify · gate · complete · failed), each paired against its mock; the clarify/gate TARGET frames corrected to the Live mock's canonical Steps-active state; ND register carries the Phase-42 divergences (**ND-W/ND-X/ND-Y**, ND-U SUPERSEDED, W0-42 RESOLVED). Registers reconciled: **ISS-035/036** flipped `OPEN`→`RESOLVED` (code landed 32-05, VERIFIED `32-VERIFICATION.md` Truth #8); **ISS-037** TodoCard clause closed (42-04); **F1** (coverage/counts aggregate) + **F2** (event-free `sections` extractor) recorded as deferred backend/additive follow-ups; the Phase-42 IMPLEMENTATION-REGISTER entry (deletions ledger + ND register + F1/F2) added. `tsc --noEmit` clean; `vitest` failure set = the 8 pre-existing baseline (zero net-new).
+>
+> **RUNUI-09 deferred (mocked-e2e reconciliation).** 33 `ts-*` mocked-e2e specs are red at HEAD because they assert the **pre-Phase-42** run-screen UI — the deleted full-screen `ReviewGatePanel` (ts-n ×9) / `QuestionnairePanel` "Quick Setup" (ts-m ×7) takeovers, the changed terminal/cancel/streaming/clarify-gate chrome (ts-i/j/q/r/x/chat), plus some pre-existing stale assertions that predate Phase 42 (e.g. ts-a TS-A-06's retired "NEW" pill, self-documented). Waves 42-02..42-10 changed the run-screen `src` but never reconciled these specs (only `zzz-baseline.spec.ts` was touched in-phase). This is a dedicated e2e-reconciliation pass (re-anchor selectors / `test.fixme` the deleted-panel specs to the inline surfaces — **never delete a spec**), tracked in `42-.../deferred-items.md`. RUNUI-09 stays **Pending** until that pass lands.
 
 ### Phase 28: Chat Contracts & Guards [A0]
+
 **Goal:** Every contract the later phases build against is pinned before code: event vocabulary + golden guards, Steps artifact-derivation rules, the live-state contract, the e2e chat driver, and the ND-1..ND-9 decision records.
 **Depends on:** — (first v2.0 phase; v1.0 close-out is the milestone entry gate)
 **Success Criteria:**
+
 1. `chat_message`/`chat_reply` registered in `_DOCUMENTED_EVENT_TYPES` + volatile keys in `_VOLATILE_STRIP_KEYS`, with a characterization proof that the 5 goldens stay byte-identical (chat events never fire on golden paths).
 2. Artifact-block derivation contracts written for Steps L2 (pages/tasks/checks/construction ← their exact data sources) and every run-screen figure pinned to its producing field (incl. `context_sources` verification).
 3. The D-12 live-state contract table exists as UI-SPEC input; the mockWs chat driver contract exists.
 4. ND-1..ND-9 each have a recorded decision.
 
-### Phase 29: Chat Backbone [A1]
-**Goal:** A user message reaches a run over WS, persists durably, routes by run state, and shapes the next agent dispatch — with full reconnect/reopen fidelity.
+**Plans:** 3/3 plans complete
+
+- [x] 28-01-PLAN.md — Golden-neutrality guards + characterization proof (chat event vocabulary + volatile keys; CHAT-06)
+- [x] 28-02-PLAN.md — Steps-L2 artifact-derivation contract + figure-to-field pinning + D-12 live-state contract (UI-SPEC input)
+- [x] 28-03-PLAN.md — mockWs e2e chat-driver contract + resolved-decisions record (LOCK-A..G, ND-1..ND-13)
+
+### Phase 29: Transport Cutover + Chat Backbone [A1]
+
+**Goal:** The transport becomes SSE-down + REST-up in full (D-13, WS run-path deleted at exit), and a user message reaches a run over the new transport, persists durably, routes by run state, and shapes the next agent dispatch — with browser-native reconnect/reopen fidelity.
 **Depends on:** Phase 28
 **Success Criteria:**
-1. WS `chat_message` (idempotent by client `message_id`) persists as `run_events` rows and replays on reconnect + reopen (full conversation survives disconnect → reconnect → reopen).
-2. The mechanical router delivers turns per state: clarify answer, gate action (approve/reject/redo+instructions), steering note, revision.
-3. A steering note lands in the next agent's composed context via `ectx.steering_notes` + `=== USER GUIDANCE ===` (offline fault-injection proof); consume-once semantics hold.
-4. Narrator `chat_reply` cards emit for clarify/gate/pipeline/deliverable milestones.
-5. INV-3 goldens byte-identical; lint-imports 4/0; kernel name-free (SC-001 grep 0).
+
+1. Wire-parity characterization green (the SSE stream replays the recorded WS frame sequences identically for the 5 golden pipelines); all inbound-handler test suites ported 1:1 to the REST endpoints; SSE+REST built ADDITIVELY alongside `/ws/chat` behind a transport flag (LOCK-B — NO deletion this unattended run; the WS-delete + ratchets + ledger row are a deferred supervised follow-up). Wire-parity characterization still built + green (CHAT-07).
+2. `POST /api/runs/{id}/messages` (idempotent by client `message_id`) persists as `run_events` rows; a full conversation survives page reload → native `Last-Event-ID` auto-reconnect → reopen; a gate answered via REST while the stream is down resumes correctly on reattach.
+3. The mechanical router delivers turns per state: clarify answer, gate action (approve/reject/redo+instructions/**update_specs** — routes to the shipped KAN-101 loop; terminal-fenced per KAN-100; event-driven per KAN-94), steering note, revision.
+4. A steering note lands in the next agent's composed context via `ectx.steering_notes` + `=== USER GUIDANCE ===` (offline fault-injection proof); consume-once semantics hold.
+5. Narrator `chat_reply` cards emit for clarify/gate/pipeline/deliverable milestones.
+6. INV-3 goldens byte-identical; lint-imports 4/0; kernel name-free (SC-001 grep 0).
+
+**Plans:** 10/10 plans complete
+
+Plans:
+
+- [x] 29-01-PLAN.md — Wire-parity characterization harness (binding gate: SSE projection ≡ recorded WS frames, 5 goldens) [wave 1]
+- [x] 29-02-PLAN.md — Per-run SSE stream `GET /events/stream` + Last-Event-ID resume + stream_attached handshake + gate re-arm (D-14g/h) [wave 2]
+- [x] 29-03-PLAN.md — REST commands: gate (4 actions + KAN-100 fence) / answers / cancel, suites ported 1:1 [wave 3]
+- [x] 29-04-PLAN.md — REST commands: run launch (+ image caps) / revisions / user_message POST+stream shim [wave 4]
+- [x] 29-05-PLAN.md — Attach/replay matrix (fresh·mid·live·terminal·cross-owner·restart·gate-answer-while-down = SC-2) [wave 5]
+- [x] 29-06-PLAN.md — e2e mock-SSE driver + additive chat frames (123 mocked specs stay green) [wave 1]
+- [x] 29-07-PLAN.md — FE transport adapter + app-level connection provider + server-derived reattach (D-14 a–f), flag-gated [wave 2]
+- [x] 29-08-PLAN.md — Steering seam `ectx.steering_notes` + `=== USER GUIDANCE ===` + ND-11 decision record (first design task) [wave 1]
+- [x] 29-09-PLAN.md — `POST /runs/{id}/messages` (idempotent) + mechanical intent router (CHAT-01/02/05) [wave 5]
+- [x] 29-10-PLAN.md — Narrator `chat_reply` cards (clarify/gate/pipeline/deliverable/spec_revision + deep-link nonce) [wave 6]
 
 ### Phase 30: Uploads & Multimodal [A2]
+
 **Goal:** Images and files enter runs — as vision input, as workspace files agents read, and as sticky launch context.
 **Depends on:** Phase 29
 **Success Criteria:**
+
 1. `POST /api/runs/{id}/files` (owner-scoped, IDOR→404) stores bytes under the run's `RunSandbox`.
-2. The dormant `run_images` provider is live end-to-end (WS ingress → `ectx.run_images` → `HumanMessage` content list, offline shape test) with per-turn image support.
+2. *(Run-entry image path ALREADY LANDED 2026-07-07 — IMAGE-INPUT-PLAN waves `edw`/`frv`/`gvq`, offline shape test green.)* Remaining: **per-turn** images ride the Phase 29 `chat_message` path into the next dispatch's content blocks.
 3. Uploaded documents are agent-readable (`read_file`) AND their extracted text is sticky context present in every subsequent `agent_input`.
 4. Launch-time attachments (incl. images) ride `run_pipeline`.
 
+**Plans:** 5 plans (planned 2026-07-08) — *(scope-trimmed: image-INGESTION spine already landed via IMAGE-INPUT-PLAN waves edw/frv/gvq; image-persistence DEFERRED per ND-10/LOCK-E)*
+
+- [x] 30-01-PLAN.md — UPLD-01: `POST /api/runs/{id}/files` (owner-scoped, capped) → RunSandbox + extract-to-`.uploads` sidecar [wave 1] ✅ 2026-07-08
+- [x] 30-02-PLAN.md — UPLD-03: `context_provider:uploaded_files` sticky context (zero engine edits, SC-001) [wave 2] ✅ 2026-07-08
+- [x] 30-03-PLAN.md — UPLD-02 residue: per-turn image carrier on the Phase-29 message path + ND-10 no-persistence lock [wave 1] ✅ 2026-07-08
+- [x] 30-04-PLAN.md — UPLD-04: client-side image resize + ND-10 "image not retained" reopen placeholder [wave 1] ✅ 2026-07-08
+- [x] 30-05-PLAN.md — IMPLEMENTATION-REGISTER entry for the landed image-input cluster (edw/frv/gvq) + ND-10 payload-transient disposition [wave 1] ✅ 2026-07-08
+
 ### Phase 31: Chat Lane MVP [A3]
+
 **Goal:** The chat lane ships inside the current skin — streaming bubbles, result cards deep-linking into tabs, quick actions, attachments — before any reskin.
 **Depends on:** Phases 29–30
 **Success Criteria:**
+
 1. The revived kit renders the family-stitched transcript (D-02) with streaming markdown + `aria-live`.
 2. Result cards deep-link into the run tabs (nonce'd seam); gate/clarify quick-actions work in-lane and mirror Steps.
 3. Attachment UI: file picker + paste + drag-drop + image preview + client resize; token-usage widget shows P26 fields.
 4. Open-design borrow-list mechanisms 1–7 integrated with Apache-2.0 attribution/NOTICE.
 
+**Plans:** 7/7 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 31-01-PLAN.md — Borrow-list pure primitives (#1 partial-json, #2 extractStreamingJsonString, #4 buildBlocks) + Apache-2.0 NOTICE (CHATUI-01) [wave 1]
+- [x] 31-02-PLAN.md — Borrow-list rendering (#3 tool-renderer registry, #5 measured virtualizer, #7 ThinkingBlock/todo/file-ops) (CHATUI-01) [wave 1]
+- [x] 31-03-PLAN.md — Chat transcript hook (useRunChat, D-02 family-anchored) + ChatMessage type + #6 nonce'd deep-link seam (CHATUI-01) [wave 1]
+- [x] 31-05-PLAN.md — In-lane gate/clarify quick-actions (4 gate actions incl update_specs KAN-101, terminal fence KAN-100, retained edit KAN-98) (CHATUI-02) [wave 1]
+
+**Wave 2**
+
+- [x] 31-06-PLAN.md — Attachment UI (paste + drag-drop + resizeImage, ND-10 placeholder) + P26 token widget (CHATUI-03) [wave 2, depends 31-03]
+
+**Wave 3**
+
+- [x] 31-04-PLAN.md — Revived chat lane composition root: streaming markdown + aria-live/role=log + narrator result cards + absorbed controls (CHATUI-01) [wave 3, depends 31-01/02/03/05/06]
+
+**Wave 4**
+
+- [x] 31-07-PLAN.md — Integrate: mount RunChatLane in execution left column + transport-agnostic wiring (LOCK-B) + PreviewPanel deep-link target + delta-verified mocked chat e2e + first data-testids (CHATUI-01/02/03) [wave 4, depends 31-04]
+
 ### Phase 32: Run-Screen Redesign [A4]
+
 **Goal:** The run screen converges to the Hexaware Run design: chat lane left; Preview/Steps/Files/Audit right; Steps is a 3-level drill-down.
 **Depends on:** Phase 31
 **Success Criteria:**
+
 1. Token layer (black/beige/one-blue `#3C2CDA`, Manrope/Heebo) + primitives land first; run screens consume them (no new hardcoded palette).
 2. Steps renders the 3-level drill-down (overview spine → agent detail + Context-received rail → task detail, dual-source) from real events; gate/clarify render inline in Steps.
 3. Audit tab reads the 3 new endpoints (`gate_events`/`validation_results`/`exec_runs`) with counters/filters + CSV/JSON export; governance keeps the status palette; one-chroma elsewhere.
 4. Failed/degraded/cancelled states faithful (P16 affordances + chat card); e2e green with brittle color assertions fixed + `data-testid`s added.
 
+**Plans:** 10/10 plans complete
+Plans:
+**Wave 1**
+
+- [x] 32-01-PLAN.md — Token layer: globals.css @theme rewrite + Manrope/Heebo fonts + token-guard test (Wave 1)
+- [x] 32-02-PLAN.md — Primitives: Button/Card/Tabs/Badge/Pill in components/ui + tests (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 32-03-PLAN.md — 3 additive owner-scoped Audit read endpoints (IDOR->404) + tests (Wave 2)
+- [x] 32-04-PLAN.md — SC-001 golden-neutral review_gate_ready flag (update_specs_eligible) + 5 goldens byte-identical (Wave 2)
+- [x] 32-05-PLAN.md — Chat-lane state: ISS-035 cancel marker + ISS-036 runId + SC-001 L2 fix + flag parse (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 32-06-PLAN.md — RunChatLane reskin + absorb AgentProgressPanel + cancelled/failed/degraded terminal renders (Wave 3)
+- [x] 32-07-PLAN.md — Right tab shell reskin + Thinking->Steps + Preview manual switcher (Wave 3)
+- [x] 32-08-PLAN.md — Steps 3-level drill-down + dual-source L3 + KAN-99 cap + inline gate/clarify + SC-001 de-literalize (Wave 3)
+- [x] 32-09-PLAN.md — Audit tab repoint to 3 endpoints + counters/filters + CSV/JSON export (Wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 32-10-PLAN.md — E2E hardening: re-anchor brittle color assertions to token/data-testid, verify BY DELTA (Wave 4)
+
 ### Phase 33: Concierge + Compaction [A5]
+
 **Goal:** Free-form conversation works on every run via ONE orchestrator capability, and long transcripts stay inside budget.
 **Depends on:** Phase 29 (Phase 32 not required)
 **Success Criteria:**
+
 1. `chat:concierge` (proposal-only tools, confirm chips, Haiku default, via `deep_agent_runner` — INV-13) answers run questions from real run data and its proposals execute only through existing channels.
 2. `compaction:chat_history` + `context_provider:conversation` bound the composed history (proof: long-transcript context stays under budget with recent turns verbatim).
 3. Post-run chat turns produce revision runs stitched into the family transcript.
 4. A brand-new custom workflow gets lane + router + Concierge with zero new code (SC-001 proof).
 
+**Plans:** 5/5 plans executed — VERIFIED (PASS-WITH-CONCERNS); offline-complete, live wiring + H1/M2/M3 → Phase 34 (--no-transition)
+Plans:
+**Wave 1**
+
+- [ ] 33-01-PLAN.md — Wave 1: compaction:chat_history + context_provider:conversation + registry lockstep (66→68) [D-08, SC-2]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 33-02-PLAN.md — Wave 2: chat:concierge capability (DeepAgentRunner/Haiku, read + proposal-only tools) + registry lockstep (68→69) [D-05, INV-13, SC-1]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 33-03-PLAN.md — Wave 3: router free-form→Concierge escalation + proposal→channel disposal + revision-family stitching [D-04, D-05, D-02, SC-1, SC-3]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 33-04-PLAN.md — Wave 4: FE — confirm-chip UX + compact affordance + composed-context/token display (extend RunChatLane/ChatTokenWidget) [D-05, D-08, SC-1]
+- [ ] 33-05-PLAN.md — Wave 4: SC-001 throwaway-manifest proof + manifest chat: data key (INV-5) + INV-3 golden neutrality (5 goldens byte-identical) [SC-001, INV-3]
+
 ### Phase 34: Live Pass & Closure [A6]
+
+> **⚠ SUPERSEDED by Phase 43** (Concierge Live Wiring and Live-Pass Closure) — never executed; its full worklist is carried and updated for Phases 35–42 in `43-CONTEXT.md`. Kept here for provenance.
+
 **Goal:** Everything proven live on Bedrock; registers updated; deferrals swept.
 **Depends on:** Phases 31, 33 (32 recommended)
 **Success Criteria:**
+
 1. Live multi-turn chat with images on a real run; steering mid-run observed in the next dispatch; Concierge Q&A live.
 2. `cache_read > 0` confirmed incl. multi-turn cache-point placement (P26 deferral closed or explicitly re-dispositioned; ISS-033 noted).
 3. Playwright live chat suite green; ISSUES/FIX registers + IMPLEMENTATION-REGISTER updated.
 
 ### Phase 35: Shell Chrome + Reskin Pages [B1]
+
 **Goal:** The app shell converges: dark top bar, nav pill (Home · Library · My Workflows), profile menu, notifications — plus all reskin-only pages.
 **Depends on:** Phase 32 (token layer)
 **Success Criteria:**
+
 1. Shell chrome matches the Workspace v2 idiom on tokens (no per-page palette forks); nav = Home · Library · My Workflows (D-11).
 2. Account Settings, Template/DS pickers, Review-gates popover, Library restyled with real controls where the mock had static text.
 
+**Plans:** 7/7 plans complete
+**Wave 1**
+
+- [x] 35-01-PLAN.md — Shell chrome: dark top bar + nav pill (My Workflows) + a11y profile menu + notifications panel + baseline capture (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 35-02-PLAN.md — Account Settings reskin (preserve wiring; no unbacked fields) (Wave 2)
+- [x] 35-03-PLAN.md — Template picker + detail/custom/card modals reskin (Wave 2)
+- [x] 35-04-PLAN.md — Design-System picker (LOCK-F ~14) + DS modals + Review-gates reskin (Wave 2)
+- [x] 35-05-PLAN.md — Library (Agents/Skills/Hooks) reskin with real controls (Wave 2)
+- [x] 35-06-PLAN.md — Login reskin + dark brand panel + Register tokenize (ND-12) (Wave 2)
+- [x] 35-07-PLAN.md — Admin reskin (keep Runs/Role/Joined + pw-create; defer Status/Last-active) (Wave 2)
+
 ### Phase 36: Home + History + My Workflows [B2]
+
 **Goal:** The three restructured list surfaces + the new Run detail page.
 **Depends on:** Phase 35
+**Requirements:** SHELL-02, SHELL-03
 **Success Criteria:**
+
 1. Fused Home: prompt launcher + deliverable grid + recents (merges `input`/`home` views).
 2. History: Today/Earlier/Older grouping, token/duration sort, real delete, revision families intact.
 3. "My Workflows" rename + working kebab actions; `WorkflowCatalog`→`HomeLaunchGrid` rename (D-11) — "Catalogue" reserved for the future marketplace.
 4. Run detail/reopen page live off a run-summary endpoint aggregating existing data (agents, KPIs, failure banner, version timeline).
 
+**Plans:** 5/5 plans executed
+**Wave 1**
+
+- [x] 36-01-PLAN.md — `WorkflowCatalog`→`HomeLaunchGrid` rename (D-11) + Fused Home (launcher + grid + recents) + HomeLaunchGrid reskin (Wave 1)
+- [x] 36-02-PLAN.md — Backend `GET /api/runs/{id}/summary` owner-scoped read endpoint aggregating existing data + tests (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 36-03-PLAN.md — "My Workflows" label reskin (drop "Catalogue") + kebab CRUD verify test (Wave 2)
+- [x] 36-04-PLAN.md — Run detail page (`RunDetailPage`) + `getRunSummary` client, reusing shared surfaces (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 36-05-PLAN.md — History Today/Earlier/Older grouping + tokens/duration sort + delete + KAN-96/KAN-92 preserve + RunDetailPage promotion + reskin (Wave 3)
+
 ### Phase 37: Configure Unification [B3]
+
 **Goal:** One generic per-run setup surface for every deliverable type; the agent drawer and workflow dialog give capabilities a real home.
 **Depends on:** Phase 36; ND-1/ND-7/ND-8 decided
+**Plans:** 5/6 plans executed
 **Success Criteria:**
+
 1. Configure screen: Describe + Templates + Design System + Review Gates + Workflow Settings for ANY deliverable type (declared run inputs, not prototype-only wizardry).
 2. Agent drawer (Overview/Skills/Hooks/Config) live against real data; Workflow dialog surfaces declared capabilities/context/compaction with `user_allowed` gating.
 3. Draft-run persistence per ND-1 disposition.
 
+Plans:
+**Wave 1**
+
+- [x] 37-01-PLAN.md — D-15/C: generic template/DS declared-signal run-launch seam (backend, additive, byte-identical goldens) [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 37-02-PLAN.md — Configure screen (generic per-run setup accordions) + client-side draft (ND-1) [Wave 2]
+- [x] 37-03-PLAN.md — Composer reskin (live /api/capabilities palette + AdvancedExpander + Save to user-workflows) [Wave 2]
+- [x] 37-04-PLAN.md — Wizard NEW-BUILD unified Template->DS->Discovery stepper + Web/Deck toggle + template-page reskin [Wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 37-05-PLAN.md — DS band-card restructure (real ~14) + wire orphaned DiscoveryForm as stepper step 3 [Wave 3]
+- [ ] 37-06-PLAN.md — Agent drawer 4-tab (Config surface-only, ND-7) + Workflow dialog (user_allowed gating) [Wave 3]
+
 ### Phase 38: Analytics, Estimates & Notifications [B4]
+
 **Goal:** The data-backed shell tail: real analytics, estimates, notifications.
 **Depends on:** Phase 35 (independent of 36/37)
 **Success Criteria:**
+
 1. Date-scoped analytics aggregations power the dashboard (filters actually recompute).
 2. Home deliverable cards show real time/agent estimates; notifications feed live (gate/running/done/failed).
+
+**Plans:** 5/5 plans complete
+Plans:
+**Wave 1**
+
+- [x] 38-01-PLAN.md — Owner-scoped `/api/analytics/summary` aggregation endpoint (Wave 1)
+- [x] 38-02-PLAN.md — Extracted token-styled SVG DonutChart + BarChart, a11y-labelled (Wave 1)
+- [x] 38-03-PLAN.md — Notifications feed: gate kind + wire failed/cancelled/gate transitions (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 38-04-PLAN.md — AnalyticsPage rewire to endpoint + full Phase-32 reskin + chart swap (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 38-05-PLAN.md — Home deliverable-card real estimates (~N agents · ~Xm) (Wave 3)
+
+### Phase 39: Run Screen Mock Fidelity [B5]
+
+**Goal:** Bring the run/execution screen to full visual fidelity with the VelocityAI-New-UI mocks (`Hexaware Run` / `Run - Live` / `Run - Failed`) — the left conversation lane, the run header, all four tabs (Preview / Steps / Files / Audit) with every sub-navigation level, across the settled / live-streaming / failed states — as-is. Re-aligns the run screen Phase 32 built.
+**Depends on:** Phase 32 (Run-Screen Redesign — the code this re-aligns), Phase 36 (D-11 nav), Phase 33 (Concierge)
+**Requirements:** RUNUI-06, RUNUI-07, RUNUI-08, RUNUI-09
+**Success Criteria:**
+
+1. Each run-screen surface (left lane, run header, Preview/Steps/Files/Audit, and the three run states) matches its mock to the intended-divergence register — proven by a side-by-side screenshot-diff against the mock, not a prose claim.
+2. Net-new as-is affordances land: Share, the Version ▾ menu, the "Renders as" deliverable-type switch, and the fuller Audit categories (secret-scan / performance / behavioral).
+3. Data stays real & live (SC-001): no cloning the mocks' hardcoded values; the deliverable renderers are reused, not rebuilt; intended divergences (brand "VelocityAI", "My Workflows", nav underline) are preserved.
+4. The mocked e2e suite is green again against feat/ui-2 (home-grid / launch-flow / run-family fixes) and the fidelity screenshot harness runs under `frontend/e2e`.
+
+**Plans:** 7/7 plans executed
+
+Plans:
+
+- [x] 39-07-PLAN.md — Repair stale mocked-e2e harness + formalize the fidelity screenshot oracle (Wave 1)
+- [x] 39-01-PLAN.md — Left conversation lane: structured transcript + lane header + live/failed states (Wave 2)
+- [x] 39-02-PLAN.md — Steps tab: overview spine → 2-col agent detail (sticky Context received) → task drill (Wave 2)
+- [x] 39-03-PLAN.md — Files tab: dark Final-output hero + agent-outputs timeline + Run-input cards (Wave 2)
+- [x] 39-04-PLAN.md — Audit tab: 6-stat grid + coverage banner + fuller categories over real fetches (Wave 2)
+- [x] 39-05-PLAN.md — Run header (Version/Share/Download/status) + tab order + shell wiring (Wave 3)
+- [x] 39-06-PLAN.md — Preview browser chrome + "Renders as" switch wrapping the reused renderers (Wave 4)
+
+### Phase 40: Shell Mock Fidelity (restyle surfaces) [B6]
+
+**Goal:** Bring the SHELL surfaces to full visual fidelity with the VelocityAI-New-UI `Hexaware Workspace v2` mock — Home, Library (Agents/Skills/Hooks +agent-detail), Analytics, Account Settings (4 tabs), Workflow History (3 states), and Catalogue / My Workflows — as-is, using the SAME anti-drift method Phase 39 used for the run screen. RESTYLE-FIRST: only the close-to-mock / merely-blocked surfaces, plus the harness fixes that unblock them. The Configure single-screen rebuild + the Composer full-page rebuild are DEFERRED to Phase 41.
+**Depends on:** Phase 39 (the fidelity oracle + shell oracle scaffolding this reuses), Phase 35/36/38 (the shell surfaces this re-aligns), Phase 36 (D-11 nav)
+**Requirements:** SHELL-01, SHELL-02, SHELL-03, SHELL-04
+**Success Criteria:**
+
+1. Each in-scope shell surface + every sub-view/sub-tab/state matches its `Hexaware Workspace v2` mock to the intended-divergence register — proven by the side-by-side shell gallery + a HUMAN sign-off (a blocking checkpoint), not a prose claim.
+2. Net-new as-is affordances land on live data: the Home 3×2 deliverable card grid + "Jump back in" recents, the Library card grids, the Settings richer profile form, the History filter chips / Sort tabs / date groups, the Catalogue card grid.
+3. Data stays real & live (SC-001/ND-D): no cloned mock values, no fabricated fields; intended divergences preserved (ND-A brand · ND-B "My Workflows" · ND-C nav underline · ND-W "Run History" · ND-X no Voice · ND-Y no fabricated profile fields · ND-Z Library drawer → Phase 41).
+4. The blocked Catalogue is stubbed (`/api/user-workflows`) + the empty surfaces seeded, the shell fidelity oracle is formalized (per-surface gallery), and each touched surface's mocked-e2e spec is re-anchored green.
+
+**Plans:** 7 plans (2 waves: 40-01 harness → 40-02..40-07 surfaces, parallel/disjoint files)
+
+Plans:
+
+- [x] 40-01-PLAN.md — Stub `/api/user-workflows` + seed History/Analytics/recents + formalize the shell fidelity oracle + own SHELL-01..04 (Wave 1) — Complete 2026-07-12 (c6c28c4f)
+- [x] 40-02-PLAN.md — Home: prompt-under-h1 (Attach + Build, no Voice) + 3×2 live card grid + "Jump back in" recents (Wave 2) — Complete 2026-07-12 (caa8e185; human-approved, closed to ND-A/D/X)
+- [x] 40-03-PLAN.md — Library: h1 + count + search header + Agents/Skills/Hooks card grids (agent-detail drawer → Phase 41, ND-Z) (Wave 2) — Complete 2026-07-12 (be885c58; +count-line capabilities hint; human-approved, closed to ND-A/B/C/D/Z)
+- [x] 40-04-PLAN.md — Analytics: styling + number-format parity pass over the live endpoint (Wave 2) — Complete 2026-07-12 (fc536cab + chart-primitive fidelity fix: tall bars + one dark peak, enlarged donut; human-approved, closed to ND-A/C/D + new ND-AA)
+- [x] 40-05-PLAN.md — Account Settings: Usage & Limits relabel + real-data richer profile form (ND-Y) + four mock-parity tabs (Wave 2) — Complete 2026-07-12 (ba3a0fe9 + label-fix dbdc5e61; human-approved, closed to ND-A/C/D/Y/AB/AC)
+- [x] 40-06-PLAN.md — Workflow History: keep "Run History" (ND-W) + filter chips + Sort tabs + date groups + 3 states (Wave 2) — Complete 2026-07-12 (552e0673 + row-level fidelity fix: per-row token/elapsed + purple version chip + always-visible kebab, Newest/Longest/Tokens sort, EARLIER THIS WEEK bucket, near-black active chip; human-approved, closed to ND-W/D)
+- [x] 40-07-PLAN.md — Catalogue / My Workflows: unblock + restyle the Catalogue grid, keep "My Workflows" (ND-B), 3 states (Wave 2) — Complete 2026-07-12 (f02fc671; human-approved, closed to ND-A/B/C/D/AD)
+
+### Phase 41: Configure Unification + Composer Rebuild [B7]
+
+**Goal:** Deliver the two structural REBUILDS Phase 40 deferred, to full mock/proposal fidelity using the same anti-drift method: (1) CONFIGURE — unify the split flow (IdeaInputPage + LaunchWizard + ConfigureScreen across two routes) into the mock's ONE "Configure your run" screen (Step-1 brief + four inline accordions Templates·Design System·Review Gates·Workflow Settings + overlays), reviving the dormant ConfigureScreen and DELETING the superseded impls (INV-3); (2) COMPOSER — a full-page custom-workflow surface with a Simple ⇄ Canvas view toggle bound to the AgentsPopup shared data model — the Simple view mock-fidelity to `Hexaware Composer.dc.html`, the Canvas view a hand-rolled node-graph designer matching the USER-APPROVED proposal `composer-canvas-proposal.html`. Plus the additive Composer Run-once wiring through the existing onStartPipeline seam (no engine change), and the Library agent-detail drawer (Phase-40 ND-Z deferral). Presentation-only except the one additive Run-wiring task.
+**Depends on:** Phase 40 (the shell fidelity oracle + shots this reuses), Phase 39 (the fidelity method), Phase 37 (SHELL-04 Configure surface this closes)
+**Requirements:** CFGUI-01, CFGUI-02, CMPUI-01, CMPUI-02, CMPUI-03, CMPUI-04, CMPUI-05, HARN-01 (closes SHELL-04)
+**Success Criteria:**
+
+1. The unified "Configure your run" screen (Step-1 brief + four accordions + overlays) matches its mock — screenshot-diff + a HUMAN sign-off — and no dual Configure implementation survives (IdeaInputPage brief-launch + LaunchWizard + WizardStepper deleted, INV-3); Start-run launches through the existing onStartPipeline seam.
+2. The Composer is a full-page surface (entry from Home + edit-from-My-Workflows) with a Simple ⇄ Canvas toggle bound to the AgentsPopup shared data model; the modal shell is replaced (INV-3). The Simple view matches `Hexaware Composer.dc.html` (HUMAN sign-off); the hand-rolled Canvas view matches the approved proposal `composer-canvas-proposal.html` (design-match HUMAN sign-off, ND-AJ; no graph library).
+3. Composer Run-once launches through the existing onStartPipeline seam (functional test) + Save-to-catalogue reuses createUserWorkflow — additive FE only, no engine/backend/manifest change, no fabricated cost (ND-AG). The Library agent-detail drawer (ND-Z) lands.
+4. Data stays real & live (SC-001/ND-D): live registries, "None selected" until picked (ND-AF), no fabricated cost; intended divergences preserved (ND-A/B/C/D carried + ND-AE..AJ new). The Configure template/DS/ppt APIs are stubbed + seeded and the Phase-41 fidelity oracle is formalized (per-surface regenerable + a canvas target).
+
+**Closeout (2026-07-14 — verifier PASSED 8/8, `41-VERIFICATION.md`):** SC-2/3/4 DELIVERED + human-signed-off (Simple mock-match · Canvas proposal-match · Run-once functional · Library drawer ND-Z resolved; ND register ND-AE..AM). **SC-1 REVERTED by user decision** (quick-260713-rcf, `131c4e30`): the unified Configure single-screen was abandoned because a bare `prototype` launch fails the backend `missing_template_context` guard — template/design-system selection stays in the intact `LaunchWizard`; INV-3 is honored via DELETION of ConfigureScreen (not unification). SC-2's "the modal shell is replaced" clause is SUPERSEDED — the AgentsPopup modal is RETAINED + REUSED (additive; not a dual implementation — the user-approved framing). Whole phase additive-FE-only (backend untouched, verified).
+
+**Plans:** 7 plans (6 waves: 41-01 harness → 41-02 Configure build → 41-03 Configure unify+delete → 41-04 Composer shell+Simple → {41-05 Canvas ‖ 41-07 Library drawer} → 41-06 Run wiring)
+
+Plans:
+
+- [x] 41-01-PLAN.md — Harness: template/DS/ppt API stubs + the Phase-41 fidelity oracle (ND-AE..AM) + B7 requirement docs (Wave 1)
+- [x] 41-02-PLAN.md — Configure build — BUILT (d7a947e1) then REVERTED (quick-260713-rcf, 131c4e30): the unified Configure screen was abandoned; prototype/ppt kept on the wizard (a bare `prototype` launch fails the backend `missing_template_context` guard); INV-3 honored via DELETION of ConfigureScreen (+ accordions + /workflow/configure + lib/draft.ts).
+- [x] 41-03-PLAN.md — Configure unify+delete wiring — BUILT (88f4db97) then REVERTED with 41-02; LaunchWizard + IdeaInputPage RETAINED (the delete was never executed).
+- [x] 41-04-PLAN.md — Composer shell + Simple view (mock-fidelity, human-signed-off); the AgentsPopup modal is RETAINED + reused — additive (corrected from "delete the modal") (Wave 4; ND-AK)
+- [x] 41-05-PLAN.md — Composer Canvas view: hand-rolled SVG node-graph + inline config rail + 2×2 docked summary matching the approved proposal (design-match signed-off); extracted `applyLeverPatch`/`useAgentCapabilities` (Wave 5; ND-AL)
+- [x] 41-07-PLAN.md — Library agent-detail drawer: `AgentCapabilitiesModal` → right drawer via an `asDrawer` variant + Overview-body tightening (ND-Z RESOLVED, human-signed-off) (Wave 5; ND-AM)
+- [x] 41-06-PLAN.md — Composer Run wiring: Run-once → `onStartPipeline('custom')` + Save-to-catalogue → `createUserWorkflow`; functional mocked-e2e (Wave 6; CMPUI-04)
 
 ### v2.0 Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 28. Chat Contracts & Guards [A0] | 0/? | Not started | — |
-| 29. Chat Backbone [A1] | 0/? | Not started | — |
+| 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
+| 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
-| 31. Chat Lane MVP [A3] | 0/? | Not started | — |
-| 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
-| 33. Concierge + Compaction [A5] | 0/? | Not started | — |
-| 34. Live Pass & Closure [A6] | 0/? | Not started | — |
-| 35. Shell Chrome + Reskin Pages [B1] | 0/? | Not started | — |
-| 36. Home + History + My Workflows [B2] | 0/? | Not started | — |
-| 37. Configure Unification [B3] | 0/? | Not started | — |
-| 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
+| 31. Chat Lane MVP [A3] | 7/7 | Complete    | 2026-07-08 |
+| 32. Run-Screen Redesign [A4] | 10/10 | Complete   | 2026-07-08 |
+| 33. Concierge + Compaction [A5] | 5/5 | Verified⚠ (P34 live) | — |
+| 34. Live Pass & Closure [A6] | 0/? | Superseded → Phase 43 | 2026-07-15 |
+| 43. Concierge Live Wiring & Live-Pass Closure [A6-redux] | 2/9 | In Progress|  |
+| 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
+| 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
+| 37. Configure Unification [B3] | 5/6 | In Progress|  |
+| 38. Analytics, Estimates & Notifications [B4] | 5/5 | Complete   | 2026-07-10 |
+| 39. Run Screen Mock Fidelity [B5] | 7/7 | Complete | 2026-07-12 |
+| 40. Shell Mock Fidelity (restyle) [B6] | 7/7 | Complete | 2026-07-12 |
+| 41. Configure Unification + Composer Rebuild [B7] | 7/7 | Complete (SC-1 Configure reverted) | 2026-07-14 |
+
+### Phase 43: Concierge Live Wiring and Live-Pass Closure [A6-redux]
+
+**Goal:** The milestone-end live pass — **carries/supersedes Phase 34** (never executed), updated for Phases 35–42. **Part A** (offline wiring): decide the transport fork (A.0 — SSE-activation vs WS-routed Concierge), then wire the dormant Concierge to a live caller (A.1 — attach the `RunChatLane` Concierge props + **re-route the settled-run free-text path so a status question is answered, not launched as a `*_revision`** + fix H1/M2/M3/M1 + the dead proposal-drain), mount the SSE provider (A.2), the steering live-drain (A.3 — also delivers per-turn images, DEF-30-03-1), and the narrator live call-site (A.4). **Part B** (needs Bedrock SSO): the 7 live checks (multi-turn chat+images · mid-run steering · Concierge Q&A · `cache_read>0` incl. multi-turn cache placement · LaunchWizard live launch · analytics/notification live · live Playwright chat suite) + the `default`-profile live re-confirms. **Part C** (closure): register/deferred-items sweeps, the WS→SSE deletion + INV-12 exit gate (LOCK-B), `/gsd-complete-milestone` v2.0. Full worklist + verified current file:line integration points + the stale-ref map in `43-CONTEXT.md`.
+**Requirements:** carries Phase-34 SC (live chat/images/steering/Concierge/cache/launch/analytics/Playwright) + the exhaustive live-deferred register (CONTEXT §5).
+**Depends on:** Phase 33 (the `chat:concierge` subsystem this wires), Phase 29 (chat backbone / SSE / steering / narrator seams), Phase 42 (the run-screen restructure that moved the FE integration points), Phase 30/37/38 (offline halves whose live-confirm folds in). **Supersedes Phase 34 [A6].**
+**Status:** SUPERVISED — Part A offline-doable; Part B needs live AWS Bedrock + the supervised SSE cutover; Part C is the exit gate. NOT autonomous.
+**Plans:** 2/9 plans executed
+
+Plans:
+
+**Wave 1 — Part A offline wiring (autonomous)**
+
+- [x] 43-01-PLAN.md — Backend Concierge defects: M2 (serialize read-tool ORM rows) + M3 (thread compiled onto _ConciergeCtx) + drain (drain_proposals) + H1 (durable-row confirm disposal, IDOR→404) + M1 (non-approve gate default) [A.1]
+- [x] 43-02-PLAN.md — FE Concierge composer re-routing: extend the useRunChat send contract + generic ask-vs-change classifier + attach the RunChatLane Concierge props at the mount [A.1]
+- [x] 43-03-PLAN.md — Narrator live call-site (engine event sink) + deep-link nonce hardening (WR-02: additive 0025 table, owner-scoped, single-use) [A.4]
+- [x] 43-04-PLAN.md — Shared cached-invoke helper (ISS-033/034): route SmartPlanner/ClarifyEngine/handoff Test+Compliance through cache-eligible, token-counted calls [A.x]
+
+**Wave 2 — Part A offline wiring (autonomous)**
+
+- [x] 43-05-PLAN.md — Steering live-drain + per-turn images: live-ectx registry (_live_ectx_for_run resolves the running ectx) + engine === USER GUIDANCE === drain (closes DEF-29-09-1 / DEF-30-03-1) [A.3] (depends 43-01, 43-03 — shared run_commands.py / engine.py)
+
+**Wave 3 — Part C SSE cutover (supervised)**
+
+- [ ] 43-06-PLAN.md — Mount RunConnectionProvider behind the SSE flag (A.2) + flip NEXT_PUBLIC_SSE_TRANSPORT ON + verify B.3 live Concierge Q&A (grounded, confirm-gated) [A.0, A.2, B.3]
+
+**Wave 4 — Part B live checks: chat/steering/cache (supervised)**
+
+- [ ] 43-07-PLAN.md — Live: B.1 (multi-turn chat + per-turn/document images) · B.2 (mid-run steering in next agent's live prompt) · B.4 (cache_read>0 + multi-turn placement + ISS-033 counted) [B.1, B.2, B.4]
+
+**Wave 5 — Part B live checks: launch/analytics/e2e (supervised)**
+
+- [ ] 43-08-PLAN.md — Live: B.5 (LaunchWizard live launch prototype+ppt) · B.6 (analytics round-trip + notification push) · B.7 (live Playwright chat suite) + default-profile re-confirms [B.5, B.6, B.7] (depends 43-07 — shared 43-LIVE-EVIDENCE.md)
+
+**Wave 6 — Part C closure (supervised)**
+
+- [~] 43-09-PLAN.md — WS→SSE deletion (INV-12 exit gate) + register reconciliation + /gsd-complete-milestone v2.0 [C.1, C.2, C.3, C.4] — **SUPERSEDED BY PHASE 44** (re-scoped to a hard cutoff; the C.3 deletion + run_revision retirement move to Phase 44; the milestone close becomes a separate later step). Not executed as 43-09.
+
+### Phase 44: SSE-only hard cutoff run_revision retirement and Part-B automation
+
+**Goal:** The **hard** WS→SSE cutoff (supersedes 43-09's flag-branch scope). Remove the `NEXT_PUBLIC_SSE_TRANSPORT`/`SSE_TRANSPORT_ENABLED` flags entirely, make SSE the sole transport, and delete `/ws/chat` — keeping `/ws/handoff` (D10 survivor). This is a FE-rewiring + BE-relocation project (the backend REST/SSE twin was built additively in Phase 29; the gap is the FE still emitting WS frames + the pipeline down-channel being WS-only). **W1** re-source the pipeline reducer from SSE + launch→attach bootstrap (the enabler); **W2** rewire gate/cancel/questionnaire to REST (gates → `POST /{id}/gate` to preserve `edited_content`); **W3** retire `run_revision` via Strategy A (`handleRevisePpt` → REST `/revisions`, full parity) + the confirm-first refinement chip + 2 pre-existing bug fixes; **W4** relocate the shared transport-neutral infra out of `websocket.py` + delete `/ws/chat` + `useWebSocket` + the flag; **W5** re-point the mocked e2e harness to SSE + a CI banned-pattern gate; **W6** a scripted Part-B live-smoke suite (B.6b + ISS-033 live tail). Grounded worklist + verified file:line seams in `44-CONTEXT.md`.
+**Requirements**: carries 43-09's C.3 (WS deletion / INV-12 exit gate) — re-scoped to a hard cutoff — + the run_revision retirement (D1/CTX-04) + the Part-B live re-confirm tail. LOCK-B precondition ("human validates the live cutover") is SATISFIED per `43-LIVE-EVIDENCE.md`.
+**Depends on:** Phase 43 (the supervised SSE cutover this deletes behind), Phase 29 (the additive REST/SSE twin). **Supersedes Phase 43-09.**
+**Status:** SUPERVISED — offline FE-rewire + BE-relocation + tests, then a live SSE smoke + a live-Bedrock Part-B lane. **Does NOT close the v2.0 milestone** (separate later step).
+**Plans:** 11/12 plans executed
+
+Plans:
+
+- [x] 44-01-PLAN.md — W1: re-source the pipeline down-channel from SSE + launch->attach bootstrap [wave 1]
+- [x] 44-02-PLAN.md — W3a: confirm-first refinement chip (RunChatLane) [wave 1]
+- [x] 44-03-PLAN.md — W4a: relocate shared transport-neutral infra to app/api/run_engine.py (endpoint stays) [wave 1]
+- [x] 44-04-PLAN.md — W2: rewire gate(->/gate, WR-03)/cancel/questionnaire to REST [wave 2]
+- [x] 44-05-PLAN.md — W3b: run_revision retirement Strategy A (handleRevisePpt -> REST /revisions) + 2 bug fixes [wave 3]
+- [x] 44-06-PLAN.md — W4-FE: remove the flag + delete useWebSocket + extract useHandoffSocket survivor [wave 4]
+- [x] 44-07-PLAN.md — W4b+W3c: delete /ws/chat endpoint + run_revision WS handler + BE flag (INV-12 exit gate) [wave 5]
+- [x] 44-08-PLAN.md — W5b: backend WS-test migration to REST + delete obsolete WS tests [wave 6]
+- [x] 44-09-PLAN.md — W5a: e2e harness -> SSE + re-point the mocked suite [wave 5]
+- [x] 44-10-PLAN.md — W5c: CI banned-pattern gate (the hard-cutoff ratchet) [wave 6]
+- [x] 44-11-PLAN.md — W6: offline Part-B (ISS-033 aux-token fold + mocked-SSE B.6b) [wave 6] — Complete 2026-07-16 (0dadd5da, b4a20c55)
+- [ ] 44-12-PLAN.md — W6 live lanes + supervised live SSE smoke (autonomous:false, Bedrock SSO) [wave 7]
+
+---
+
+## Milestone v3.0 — Top-Tier Resume & Durable Execution (Phases 45–50, registered 2026-07-18)
+
+> **Plan of record:** `.planning/RESUME-CAPABILITY-DESIGN-DRAFT.md` (POR) — grounded file:line current-state, the 7 LOCKED design decisions (§8), the LOCK-E/ND-4 supersede record (§8.1), and the full proposed architecture (§5) every phase plan below must follow. Requirements RESUME-05..18 (REQUIREMENTS.md). Branch: `feat/ui-2`. **Entry note:** v2.0's formal close-out (`/gsd-complete-milestone`) is still pending as a separate step — deliberately not blocking v3.0 planning (user decision 2026-07-18).
+>
+> **Milestone goal:** any interruption — process restart, crash, sandbox/TTL loss, paused gate, or a user-failed run — is resumable at **task/worker granularity, agent-agnostically**: the KERNEL (never an agent) reads durable state, computes exactly what is left, restores completed work to disk, and continues — including across user edits (add/change/delete) to the task list.
+>
+> **Locked decisions binding every phase (POR §8):** substrate = `artifact_refs`, NOT git (GIT-01 stays a separable future layer) · edit reconciliation fully AUTOMATIC · uploads persisted durably · ONE milestone, phases sequential R0→R5 · task list = versioned `task_list` artifact via the extended gate-Edit path (no new table) · gate survival = re-enter-at-gate on the derive_open_gate/D-14g seams (LangGraph interrupt REJECTED) · per-task capture GENERIC from day one.
+> **Guardrails on every phase (POR §7):** INV-1/SC-001 (kernel name-free; cursor keys on generic `run:step:task/worker/artifact` identity) · INV-2 (state on `ExecutionContext`/durable rows, never the singleton) · INV-3 (5 characterization goldens byte/event-identical; new events additive + dormant-on-goldens; `seq` from the engine counter — 0024 + DEF-43-03-1) · Q3 additive-only migrations (owner_id+workspace_id, free-String status, named FK, reversible; persist-at-creation per the 0023 precedent) · INV-12 (single `_execute_impl`/`run_fanout` dispatch path; reuse `resume_run`/`_apply_selections`/`_stamp_resume_marker`/the `run_engine.py` bridge; never a third launch-driver copy) · INV-5 (no manifest DSL) · INV-13 (deepagents only) · ports & adapters (`ctx.runner` / injected callbacks; lint-imports 4/0) · ownership via default-deny `ScopedStore` keyed on `user_id`.
+> **Out of scope (locked):** within-agent mid-token resume (checkpointer stays an optimization) · cross-node/distributed (N8) · image persistence (ND-10 — resumed runs lose `run_images` BY DESIGN; document, never fix) · real git output (GIT-01) · ECS runtime.
+
+### Phase 45: Resume Completeness Bug Fix [R0]
+
+**Goal**: A partially-completed build is never classified "complete" and silently skipped on resume — fix the `engine.py:6002` data-loss bug (`_first_incomplete_step` marks a task-granular step complete after its FIRST task persists) with a strategy-conditional completeness check. Standalone and urgent: fixes live data loss regardless of the rest of the milestone.
+**Depends on**: — (first v3.0 phase)
+**Requirements**: RESUME-05
+**Success Criteria** (what must be TRUE):
+
+  1. A run interrupted mid-build (task N of M persisted, N < M) resumes by RE-ENTERING the build step and completing tasks N+1..M — never skipping the step.
+  2. Completeness is strategy-conditional and generic (keyed on the compiled `step.strategy`/`task_source`, never a workflow name): task-granular steps count tasks-in-current-list vs completed per-task artifacts; `single_shot` steps keep produced-ref/`step_completed` semantics byte-unchanged.
+  3. `step_reused` (input_hash reuse) and `step_completed` behavior untouched; the 5 characterization goldens stay byte/event-identical (resume paths are dormant on scripted golden runs).
+  4. RED→GREEN: a restart-resume regression that FAILS on current HEAD (partial build silently skipped) passes after the fix.
+
+**Plans**: 1 plan
+Plans:
+
+- [x] 45-01-PLAN.md — Strategy-conditional task_loop completeness fix in `_first_incomplete_step` + RED→GREEN restart-resume regression (RESUME-05)
+
+### Phase 46: Per-Task Substrate, Cursor & Live-Layer Re-Registration [R1]
+
+**Goal**: Sub-agent / fan-out / sequential-task interruptions become resumable at task/worker granularity: add task identity to `subagent_runs` (the pre-authorized CR-03-followup), make per-task capture GENERIC (every file a task wrote — Q7), re-materialize durable state back to disk (incl. mid-wave merge re-entry), skip completed workers/tasks via a kernel-computed cursor, and make resumed runs first-class LIVE runs (live-ectx + milestone-sink re-registration — closing the Phase-43 dormancy).
+**Depends on**: Phase 45
+**Requirements**: RESUME-06, RESUME-07, RESUME-08, RESUME-09, RESUME-10, RESUME-11
+**Success Criteria** (what must be TRUE):
+
+  1. Additive migration (next head after 0025): nullable `task_id` + `worker_index` on `subagent_runs` (free-String, named FK, reversible single-head); rows written at SPAWN — before the crash window (the 0023 `selections_json` precedent).
+  2. GENERIC per-task capture: every file a task wrote is durably captured per task (supersedes `persist_task_html`'s single-declared-file scope; the hardcoded `kind="html_file"` literal handled/documented); proven on a multi-file task fixture, byte-neutral on the prototype path.
+  3. Durable→disk re-materialization: resume walks the latest durable `artifact_refs` (by `location`, `max(version)`, filtered to completed keys) and rebuilds the fresh `RunSandbox` — the missing half of `_hydrate_artifacts_from_store` (graph-only today); worktree/sandbox state reconstructs from `artifact_refs`, never from git (whose commits are ephemeral, POR §3.2).
+  4. Mid-wave merge re-entry: a crash between fragment-persist and the per-wave merge → fragments re-materialized to disk + the merge re-run for the in-flight wave BEFORE remaining workers/waves dispatch.
+  5. Per-worker wave skip + per-task sequential skip: completed workers/tasks are never re-invoked (identity-based kernel cursor threaded into `strategy.run` — NOT the deleted-for-cause prefix-by-count skip, 12-06 CR-03); the AGENT never decides the skip set but DOES receive completed work as injected context (existing context-injection machinery).
+  6. Resumed runs are live: BOTH resume paths thread `register_live_ectx` (+ unregister in `finally`) and `milestone_sink` (generic injected callables — no engine→app import); steering, per-turn images, Concierge context, and narrator milestone cards all function on a resumed run; milestone-card `seq` drawn from the engine counter (DEF-43-03-1).
+  7. Steering re-drain: durably-logged, undrained steering notes are re-queued onto `ectx.steering_notes` at resume.
+  8. Gates: 5 goldens byte/event-identical · lint-imports 4/0 · banned-pattern clean · restart-harness RED→GREEN per criterion.
+
+**Plans**: 5 plans (5 waves — sequential; file-ownership forces the chain: kernel_services shared by 01/02, engine.py by 03/04/05, wave_scheduler by 01/04)
+Plans:
+**Wave 1**
+
+- [x] 46-01-PLAN.md — Migration 0026 (task_id/worker_index on subagent_runs) + 3-layer spawn stamping (fanout + wave_scheduler) + reversibility/source-assertion test (RESUME-06) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 46-02-PLAN.md — Generic per-task capture at the persist_task_html seam (declared→html_file byte-identical, siblings→file_bundle deduped, .uploads/ excluded, event-free; subsumes, INV-12) (RESUME-07) [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 46-03-PLAN.md — Durable→disk re-materialization (_rematerialize_artifacts_to_disk @ engine.py:1350) + mid-wave merge re-entry (reuse run_fanout→_merge_fragments) (RESUME-08) [wave 3]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 46-04-PLAN.md — Kernel skip cursor (dormant resume_completed_task_ids ectx field) — task_loop per-task skip + wave_scheduler per-worker skip (identity-based; CR-03 satisfied) (RESUME-09) [wave 4]
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 46-05-PLAN.md — Live-layer re-registration on resume (fix resume_run _execute_impl bypass: milestone_sink + live_ectx_register/unregister + DEF-43-03-1 card seq) + steering re-drain (RESUME-10, RESUME-11) [wave 5]
+
+### Phase 47: Uploads Durability [R2]
+
+**Goal**: Uploaded documents survive resume (Q6): today `.uploads/` (raw bytes + extraction sidecars + `manifest.json`) is disk-only — a fresh sandbox silently loses the sticky uploaded-doc context and Postgres cannot restore it (POR Gap G). Persist the extracted text + manifest durably and teach the provider to fall back to the durable mirror.
+**Depends on**: Phase 46
+**Requirements**: RESUME-12, RESUME-13
+**Success Criteria** (what must be TRUE):
+
+  1. Upload ingest persists each document's extracted text + manifest durably (additive, owner_id+workspace_id-scoped; the existing per-file 10MB / count ≤20 / aggregate 40MB caps and the 415 image-rejection are byte-unchanged).
+  2. The `uploaded_files` context provider falls back to the durable mirror when the sandbox `.uploads/` copy is missing — a resumed run on a fresh sandbox carries FULL document context in every subsequent `agent_input` (sticky semantics preserved).
+  3. Resume re-materializes (or durably serves) the upload context with zero kernel workflow-name branches; the provider stays kernel-pure + self-gating on the declared inject token.
+  4. Images remain payload-transient — ND-10 stays locked and untouched (no image storage added anywhere); goldens byte-identical.
+
+**Plans**: 1 plan
+Plans:
+
+- [x] 47-01-PLAN.md — durable upload_text mirror at ingest (RESUME-12) + uploaded_files provider durable fallback (RESUME-13)
+
+### Phase 48: Task Identity & Mutable-List Reconciliation [R3]
+
+**Goal**: The task list becomes safely user-editable (add/change/delete) with automatic reconciliation (Q2): content-addressed task identity (upstream-namespaced + duplicate-safe) lets the kernel skip completed work, run new/edited work, and exclude deleted work — on resume AND on re-run-after-edit — with the task list living as a VERSIONED `task_list` artifact edited through the extended gate-Edit path (Q3).
+**Depends on**: Phase 46
+**Requirements**: RESUME-14, RESUME-15, RESUME-16
+**Success Criteria** (what must be TRUE):
+
+  1. `task_key = sha256(upstream_context_hash · normalized_task_content · occurrence_ordinal)`: reorder/insert-safe (position-independent), duplicate-text-safe (ordinal — the 12-06 WR-05 duplicate-guard precedent), upstream-aware (a spec edit — incl. the shipped `update_specs` loop — rotates keys so stale-spec tasks re-run); hash discipline inherited from `input_hash` (sorted, no timestamp/uuid — cross-restart stable).
+  2. User edits mint a NEW `task_list` artifact version via the extended gate-Edit mechanism (KAN-98 `_apply_declared_gate_edit` path; `edited_content` rides `POST /{id}/gate` only — WR-03); old versions kept with `derived_from` lineage; `max(version)` wins (`_latest_typed_content` F5 discipline); NO new tasks table (the 12-era "no new step-status table" lock holds).
+  3. AUTOMATIC reconciliation on resume or re-run-after-edit: completed+present → skip + re-materialize + inject as prior context; new/edited/rotated-key → run; deleted-but-completed → excluded from the assembled deliverable at READ time (rows never deleted — `artifact_refs` immutability contract); spec edits auto-invalidate affected tasks with no confirm prompt.
+  4. SC-001 grep-gated: reconciliation keys on generic identity only; a synthetic non-prototype task workflow exercises the whole reconcile path with zero engine edits.
+
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [x] 48-01-PLAN.md — Task-identity module (task_key) + upstream-hash single home + positions→keys write-path switch (RESUME-14)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 48-02-PLAN.md — Gate-edit derived_from lineage + cumulative common-prefix reconciler + boundary-version re-materialization (RESUME-15, RESUME-16)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 48-03-PLAN.md — Wave per-key + orphan-fragment exclusion + update_specs compose + SC-001 synthetic reconcile proof (RESUME-16)
+
+### Phase 49: Gate Resume Across Restart [R4]
+
+**Goal**: Clarify and review gates survive a backend restart (Q4): flip restart branch (a) from fail→re-arm for compiled-manifest runs with durable state, rebuilt on the EXISTING seams — `derive_open_gate` (KAN-94) for durable pendency + the D-14g `_dangling_review_gate` SSE re-emit — with the review gate RE-ENTERING `_run_agent`'s run+gate loop AT its gate phase so all five gate actions work identically post-restart. This is a *restoration done properly*: `waiting_for_user` was originally re-armed (WR-05 era) before KAN-88 flipped it to failed because nothing could wait; this phase supplies the waiter.
+**Depends on**: Phase 46 (re-materialization), Phase 48 (task-list versions feed gate previews)
+**Requirements**: RESUME-17
+**Success Criteria** (what must be TRUE):
+
+  1. Restart branch (a) re-arms instead of failing — ONLY for compiled-manifest runs with durable state (branch-(b) gating); the WR-05 stateless/legacy path and the 5 goldens stay byte-untouched.
+  2. No parallel pending-arm store: durable pendency derives from `derive_open_gate` + the durable event log; D-14g re-emits `review_gate_ready`/`questionnaire_ready` on SSE attach; `_gate_is_pending` gains a public accessor (closes the IN-02 private-dict debt).
+  3. Review-gate re-entry AT the gate phase: the step is classified "output produced, gate unresolved" from durable events + the persisted output artifact; `ectx.last_streamed` reconstructs from the persisted ref; ALL five actions — approve / reject / edit / redo (fresh `:redo{N}` threads) / update_specs (sub-pipeline) — work identically post-restart.
+  4. Clarify twin: the questionnaire wait re-arms with questions replayed from the durable `questionnaire_ready` event; answers flow through the unchanged `POST /{id}/answers` path.
+  5. The pre-existing RED test `test_restart_resume::test_waiting_for_user_run_is_rearmed_not_driven` flips GREEN (the KAN-88 restoration anchor); FE note honored: parked runs aren't auto-streamed (BUG-013 `AUTO_STREAM_STATUSES`) — the gate surfaces on open via D-14g, the intended UX.
+
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [x] 49-01-PLAN.md — Shared open-gate pendency (A3) + IN-02 store accessor + branch-(a) fail→re-arm classification (A1) + KAN-88 flip
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 49-02-PLAN.md — Review-gate re-entry AT the gate phase: offset override + gate_reentry sentinel + all five actions + redo/update_specs continuation (A2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 49-03-PLAN.md — Clarify twin replay driver (A5) + dormancy sweep + full at-risk regression battery
+
+### Phase 50: User Resume-From-Failed — Reopen & Fix [R5]
+
+**Goal**: A terminal-FAILED run becomes user-resumable (`POST /api/runs/{id}/resume`) — the "reopen & fix" headline (ND-4), authorized by the LOCK-E supersede record (POR §8.1). The endpoint is the only new surface; everything else reuses the shared resume tier built in Phases 45–49.
+**Depends on**: Phases 46, 48, 49 (the full resume tier)
+**Requirements**: RESUME-18
+**Success Criteria** (what must be TRUE):
+
+  1. Ownership + safety: two-layer owner check (`WorkflowRun.user_id` → `ScopedStore` default-deny; cross-owner/missing → 404, never 403); overlap guard (`pipeline_already_running` precedent — reject if the run is already live); replayed POSTs are idempotent (the Phase-33 M4 re-mint lesson).
+  2. State recovery: workspace_id recovered from durable owner-scoped rows (NEVER fresh-minted — Pitfall 2), `selections_json` re-applied (0023), completed steps/tasks via the Phase-46 cursor, disk via re-materialization.
+  3. Drive + stream wiring: the run re-registers in `_PIPELINE_QUEUES` BEFORE the FE attaches (BUG-015 non-live-attach semantics respected — the new attach goes live), reusing the `run_engine.py` resume bridge; NO third hand-copied driver beside `_drive_launch_to_queue`/`_drive_revision_to_queue`; the terminal status ladder stays behaviorally identical to the fail-safe launch driver (the D2 fix).
+  4. Status transition failed→running (or an additive `run_resuming`-style EVENT per INV-12 preference) so FE `AUTO_STREAM_STATUSES` auto-attaches; live-layer callbacks threaded (the Phase-46 RESUME-10 mechanism) so the reopened run has steering/Concierge/cards.
+  5. End-to-end proof: fail a run mid-build → `POST /resume` → completed tasks skipped, deliverable completed, family/history coherent; consolidated milestone-end live-Bedrock pass covers the full ladder (per the defer-live-verification convention, offline gates bind phase completion).
+
+**Plans**: 1 plan, 2 tasks, 1 wave (via /gsd-plan-phase 50)
+Plans:
+
+- [x] 50-01-PLAN.md — POST /api/runs/{id}/resume (endpoint + thin _drive_user_resume wrapper + guards) + failed→resume E2E & gate-at-failure battery
+
+### v3.0 Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 45. Resume Completeness Bug Fix [R0] | 1/1 | Complete   | 2026-07-18 |
+| 46. Per-Task Substrate, Cursor & Live Layer [R1] | 5/5 | Complete   | 2026-07-19 |
+| 47. Uploads Durability [R2] | 1/1 | Complete   | 2026-07-19 |
+| 48. Task Identity & Mutable List [R3] | 3/3 | Complete   | 2026-07-19 |
+| 49. Gate Resume Across Restart [R4] | 3/3 | Complete   | 2026-07-19 |
+| 50. User Resume-From-Failed [R5] | 1/1 | Complete   | 2026-07-19 |
+
+---
+
+## Fan-Out User-Facing (Phase 51 [PB], registered 2026-07-20)
+
+> Standalone next-sequential phase — **not** part of the v3.0 resume milestone (filed after it only because it is the next integer phase). Plan of record: `.planning/PATH-B-FANOUT-COMPOSER-SCOPE.md` (implementation-ready, every file:line re-verified) + `.planning/FANOUT-USER-FACING-SCOPE.md`. Branch: `feat/ui-2`.
+
+### Phase 51: User-Composable Fan-Out in the Composer (Path B)
+
+**Goal**: Make the engine's already-working fan-out capability (kernel `run_fanout` + `fanout_batch`/`wave_scheduler` strategies, shipped Phase 11) USER-COMPOSABLE from the builder — a per-step "fan out over a list" toggle — with zero hacks and no new engine power. Four mechanical changes close the gap: (1) `engine._apply_selections` (`engine.py:6257-6272`) must carry `strategy`/`fanout`/`task_source` onto the run-plan step (today only `validators`/`gates`/`model`/`retry`/`injects`) AND apply them at the absent-agent synthesis site (`engine.py:2285-2292` — the COMMON case for `custom`, since `allowed_custom_agent_ids("custom")` unions all base-pipeline agents); (2) `selections._synthesize_step` (`selections.py:86`) must emit the chosen strategy instead of hardcoding `single_shot`; (3) two composer surfaces gain a "fan out over a list" toggle + a dedicated-producer source picker; (4) a generic task-list-planner producer skill ships (P0) so fan-out isn't limited to the prototype domain. The producer model is INSERT-A-NODE (fan-out is a graph SHAPE change — a dedicated list-producer node feeds a fanned worker; a chained agent's output contract is NEVER retrofitted). **No security/trust flag flip, no new capability kind, no migration.**
+**Depends on**: Phase 11 (engine-owned fan-out/merge kernel), Phase 41 (configure/composer rebuild — CanvasConfigRail/AgentsPopup), Phase 18 (custom-workflow UX — StepSelection/selections)
+**Requirements**: FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-05, FANOUT-06, FANOUT-07
+**Success Criteria** (what must be TRUE):
+
+  1. A user-composed step with "fan out over a list" ENABLED actually spawns N workers at runtime — proven by an OFFLINE composed-fan-out characterization test (selections-driven, not a file manifest; mirrors `tests/agents/test_sc001_fanout.py`) asserting N `subagent_spawned`/`subagent_result` events + a merged deliverable. The crux: `_apply_selections` carries `strategy`/`fanout`/`task_source` at BOTH the in-plan step and the absent-agent synthesis site (`engine.py:2285-2292`), and `_synthesize_step` emits the selected strategy — all keyed on generic `agent_id`/lever keys, never a workflow/agent-name literal (INV-1/SC-001; banned-pattern grep stays 0).
+  2. The composer persists + threads the fan-out selection `{strategy:"fanout_batch", task_source:{kind:"parsed", parser:"heading_tasks", source_step}}` through SAVE (`trust="user"`) and LAUNCH on BOTH surfaces (canvas `CanvasConfigRail` + simple-view `AdvancedExpander`), and OMITS it when empty (the INV-3 empty-selections short-circuit).
+  3. Producer model honored (INSERT-A-NODE, scope §0): enabling fan-out wires `task_source.source_step` to a DEDICATED list-producer node — reuse is offered ONLY for a known `## Task N:` producer (v1 allow-list: `prototype-plan`), never a mutation of a chained agent; a generic task-list-planner producer skill ships (P0) for domain-general fan-out; the FE disables the toggle on the first agent and warns on an unknown producer.
+  4. An additive, INV-5-safe compile-time guard rejects a `fanout_batch` step whose `task_source.source_step` is not an EARLIER compiled step (passes for `sample_fanout`); NO security/trust flag flip, NO new capability kind, NO migration — every capability used (`fanout_batch`, `heading_tasks`, `FanoutSpec`, `TaskSource`) is already registered + `user_allowed=True`.
+  5. Invariants green: the 5 characterization goldens stay byte/event-identical (INV-3, `SNAPSHOT_UPDATE` unset); import-linter 4/0; the kernel still owns spawn/isolation/merge/concurrency/budget inside `run_fanout` with no second spawn path introduced (INV-7/INV-12); merge stays engine-selected (INV-7 — no merge picker exposed).
+  6. Live-Bedrock proof (orchestrator-owned, per the defer-live-verification convention — offline gates bind phase completion): a builder-composed `producer → fanned-worker` run shows ≤4 concurrent parallel `subagent_spawned` + per-worker `subagent_result` + a merged deliverable, with NO `spawn_subagents` grant required; contrasted against a fan-out-OFF control (single output).
+
+**Plans**: 7 plans (5 waves)
+Plans:
+
+**Wave 1** *(parallel — disjoint files)*
+- [ ] 51-01-PLAN.md — P2 synthesizer: `_synthesize_step` emits the selected strategy generically (FANOUT-03)
+- [ ] 51-02-PLAN.md — P5 compile guard: additive `source_step`-must-be-upstream check (FANOUT-05, FANOUT-06)
+- [ ] 51-03-PLAN.md — P0 generic `task-list-planner` producer skill + pool registration + stale-docstring fix (FANOUT-04)
+
+**Wave 2** *(depends 51-01)*
+- [ ] 51-04-PLAN.md — P1 the crux: `_apply_selections` carries strategy/fanout/task_source (in-plan + absent-agent) + return-signature/caller change (FANOUT-02, FANOUT-06)
+
+**Wave 3** *([BLOCKING] gate — depends 51-04)*
+- [ ] 51-05-PLAN.md — offline composed-fan-out characterization (N spawned/result + merged + SC-001 grep 0) + 5-golden byte-identity gate (FANOUT-07, FANOUT-06)
+
+**Wave 4** *(depends 51-05 [BLOCKING] + 51-03)*
+- [ ] 51-06-PLAN.md — FE shared `StepSelection` type + simple-view `AdvancedExpander` fan-out control + save/launch threading (FANOUT-01, FANOUT-04, FANOUT-05, FANOUT-07)
+
+**Wave 5** *(depends 51-06)*
+- [ ] 51-07-PLAN.md — FE canvas `CanvasConfigRail` fan-out control + `priorAgents` threading from `CanvasView` (FANOUT-01, FANOUT-04, FANOUT-05, FANOUT-07)
+
+> Live-Bedrock proof (SC #6) is ORCHESTRATOR-OWNED — not an executor task; offline gates (esp. the [BLOCKING] 51-05) bind phase completion.

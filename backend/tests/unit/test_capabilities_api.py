@@ -217,25 +217,27 @@ class TestTrustFlags:
 
 
 # ---------------------------------------------------------------------------
-# Additive WS events (API-03 / T-08-08-parity) — new event TYPES need no
-# websocket.py edit; the generic forward passes any event["type"] through.
+# Additive events (API-03 / T-08-08-parity) — new event TYPES need no transport
+# edit; the generic SSE forward passes any event type through.
+#
+# 44-08 cutover: the type-agnostic forward moved from the deleted WS drainer
+# (``websocket.py``) to the SSE stream (``run_stream.py::_sse_body`` builds
+# ``{"type": event_type, "data": ...}`` for the ``event_type`` passed by
+# ``_stream_events`` for EVERY row — ``_sse_frame(r.seq, r.type, r.payload_json)``).
 # ---------------------------------------------------------------------------
 
 
 class TestAdditiveEvents:
-    def test_new_event_types_need_no_websocket_edit(self):
-        # The generic forward (websocket.py ~595) emits {"type": event["type"]}
-        # for ANY event type — so validator_result/validation_warning/gate_*
-        # flow through unchanged. Assert the forward has no per-type allow-list
-        # that would have to be edited for the new types (additive-only proof).
+    def test_new_event_types_need_no_transport_edit(self):
+        # The generic SSE body keys off the passed ``event_type`` (not a closed set
+        # of named-event branches the new types would have to be added to) — so
+        # validator_result/validation_warning/gate_* flow through unchanged.
         import inspect
 
-        import app.api.websocket as ws
+        import app.api.run_stream as stream
 
-        src = inspect.getsource(ws)
-        # The generic dict forward keys off event["type"] (not a closed set of
-        # named-event branches the new types would have to be added to).
-        assert '"type": event["type"]' in src, (
-            "the generic event forward was changed; new event types must flow "
-            "through the type-agnostic forward (no rename/remove — additive only)"
+        src = inspect.getsource(stream)
+        assert '"type": event_type' in src, (
+            "the generic SSE event forward (_sse_body) was changed; new event types "
+            "must flow through the type-agnostic forward (no rename/remove — additive only)"
         )

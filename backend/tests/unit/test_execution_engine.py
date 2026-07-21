@@ -230,6 +230,58 @@ async def test_clarify_engine_skip_clarification_force_proceeds_round_1():
 
 
 @pytest.mark.asyncio
+async def test_clarify_engine_prearm_skip_before_questionnaire_ready_proceeds():
+    """BUG-R04: a skip submitted BEFORE ``questionnaire_ready`` must still PROCEED.
+
+    Reproduces the pre-arm lost-wakeup race: a client (the QA harness) POSTs
+    ``{responses:[], skip_clarification:true}`` in the window between the status
+    flip to ``waiting_for_user`` and the loop's ``event.clear()``. We simulate it
+    by seeding the store (responses=[] + force_proceed=True, which also sets the
+    resume event) BEFORE calling ``run()`` — so the loop's ``event.clear()`` at
+    the top of round 1 WIPES that set(). The ``ws`` callback does NOT re-submit
+    (a real pre-arm submitter is already done), so nothing re-arms the event.
+
+    Pre-fix: ``await event.wait()`` blocks forever on the wiped event → the run
+    sits at ``waiting_for_user`` (here, the ``asyncio.wait_for`` timeout fires).
+    Post-fix: the guard detects the already-stored (un-consumed) submission and
+    skips the wait, emitting exactly ONE ``questionnaire_ready`` and PROCEEDing.
+    """
+    engine = ClarifyEngine()
+    store = get_artifact_store()
+    pipeline_run_id = "run-clarify-prearm-skip"
+    events = []
+
+    async def ws(e):
+        # Record only — the pre-arm submitter already POSTed before run() began;
+        # it does NOT answer again in response to questionnaire_ready.
+        events.append(e)
+
+    # PRE-ARM: the skip landed before questionnaire_ready. This stores []+
+    # force_proceed=True AND sets the resume event; the loop's clear() then wipes
+    # the set(), stranding a naive await event.wait().
+    await store.set_questionnaire_responses(
+        pipeline_run_id, [], skip_clarification=True
+    )
+
+    ctx = {
+        "execution_gate": "CLARIFY_REQUIRED",
+        "missing_information": ["a", "b", "c", "d", "e"],
+        "explicit_constraints": [],
+    }
+    # Bounded wait so a regression is a clean TimeoutError (RED), never a hang.
+    result = await asyncio.wait_for(
+        engine.run(pipeline_run_id, ctx, ws, owner_id="user-test"),
+        timeout=5.0,
+    )
+
+    types = [e["type"] for e in events]
+    # Asked exactly ONCE, proceeded via the pre-arm force-proceed — no re-ask.
+    assert types.count("questionnaire_ready") == 1
+    assert "questionnaire_complete" in types
+    assert result["execution_gate"] == "PROCEED"
+
+
+@pytest.mark.asyncio
 async def test_clarify_engine_empty_submit_proceeds_after_one_round():
     """One-round-then-run: an empty submit (no force-proceed flag) no longer
     re-asks — the questionnaire is asked exactly once, then the run PROCEEDs via

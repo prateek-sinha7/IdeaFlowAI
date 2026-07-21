@@ -101,6 +101,10 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("integration_provider", "gitlab"),    # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
     ("integration_provider", "jira"),      # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
     ("integration_provider", "slack"),     # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("context_provider", "uploaded_files"), # 30-02 / UPLD-03 — sticky uploaded-doc context
+    ("compaction", "chat_history"),        # 33 / D-08 — bound composed chat history
+    ("context_provider", "conversation"),  # 33 / D-08 — compacted chat run_events as context
+    ("chat", "concierge"),                 # 33 / D-05 — app-side per-run proposal-only Concierge
 ]
 
 
@@ -156,8 +160,14 @@ def test_registered_count_is_exactly_fifty() -> None:
     # hook:audit_logger (default lifecycle audit hook — present in _KNOWN since KAN-73
     # but never reconciled into _EXPECTED_NAMES until now) = 64, plus the one 260707-edw
     # input-image capability (input_provider:run_images, image-input Wave 1 — the DORMANT
-    # backend spine, user_allowed=True) = 65.
-    assert len(_KNOWN) == 65
+    # backend spine, user_allowed=True) = 65, plus the one 30-02 uploaded-doc capability
+    # (context_provider:uploaded_files, UPLD-03 — surfaces the run's .uploads sidecar text
+    # as sticky agent context) = 66, plus the two 33 D-08 bounded-chat-history capabilities
+    # (compaction:chat_history — summarize-beyond-budget/keep-recent-verbatim +
+    # context_provider:conversation — compacted chat run_events as sticky context; the
+    # concierge lands app-side in 33-02 with its own 68→69 bump) = 68, plus the one 33
+    # D-05 orchestrator (chat:concierge, per-run proposal-only Concierge) = 69.
+    assert len(_KNOWN) == 69
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

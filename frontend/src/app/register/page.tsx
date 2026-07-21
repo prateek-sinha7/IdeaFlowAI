@@ -11,11 +11,8 @@ export default function RegisterPage() {
   const router = useRouter();
   useEffect(() => { router.replace("/login"); }, [router]);
   return (
-    <div
-      className="flex min-h-screen items-center justify-center px-4"
-      style={{ background: "#f5f5f0" }}
-    >
-      <p className="text-[13px] text-gray-500">Redirecting…</p>
+    <div className="flex min-h-screen items-center justify-center px-4 bg-surface-paper">
+      <p className="text-[13px] text-ink-500">Redirecting…</p>
     </div>
   );
 }

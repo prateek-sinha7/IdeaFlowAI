@@ -2,28 +2,32 @@
  * The mocked-mode test fixture. Import { test, expect } from here in every
  * mocked spec. Provides:
  *   - mockApi   : the REST backend stub (MockApi) — mutate mid-test if needed
- *   - mockWs    : the WS server stub (MockWs) — drive inbound events / assert outbound
+ *   - mockSse   : the SSE + REST run harness (MockSse) — drive inbound events /
+ *                 assert outbound REST commands (the sole transport, 44-06)
  *   - dashboard : the DashboardPage page object (navigation + locators)
  *   - tier      : test-option (default 'enterprise'); set via test.use({ tier: 'basic' })
  *
  * Fixtures install BEFORE navigation, so the mocks are armed when the dashboard
- * mounts and opens its WS / hits its REST endpoints.
+ * mounts and opens its SSE stream / hits its REST endpoints. `mockSse` lists
+ * `mockApi` as a dependency so its `**​/api/runs**` route registers AFTER the
+ * `**​/api/**` backend route and wins by Playwright's last-registered-first
+ * precedence (anything it does not own falls back to mockApi).
  */
 import { test as base, expect } from "@playwright/test";
 import { installMockApi, type MockApi, type Tier } from "./mockApi";
-import { installMockWs, type MockWs } from "./mockWs";
+import { installMockSse, type MockSse } from "./mockSse";
 import { DashboardPage } from "./dashboard";
 
 type Fixtures = {
   mockApi: MockApi;
-  mockWs: MockWs;
+  mockSse: MockSse;
   dashboard: DashboardPage;
   tier: Tier;
 };
 
 export const test = base.extend<Fixtures>({
   tier: ["enterprise", { option: true }],
-  // auto:true → the mocked REST + WS backend is installed for EVERY spec, even
+  // auto:true → the mocked REST + SSE backend is installed for EVERY spec, even
   // ones that only reference `page` (e.g. the login flow). This guarantees no
   // test ever hits a real backend and removes a footgun for spec authors.
   // NOTE: the fixture-callback's 2nd arg is renamed `provide` (not the conventional
@@ -35,18 +39,19 @@ export const test = base.extend<Fixtures>({
     },
     { auto: true },
   ],
-  mockWs: [
-    async ({ page }, provide) => {
-      const ws = await installMockWs(page);
-      await provide(ws);
+  mockSse: [
+    async ({ page, mockApi }, provide) => {
+      const sse = await installMockSse(page, mockApi);
+      await provide(sse);
     },
     { auto: true },
   ],
-  dashboard: async ({ page, mockWs, mockApi }, provide) => {
-    await provide(new DashboardPage(page, mockWs, mockApi));
+  dashboard: async ({ page, mockSse, mockApi }, provide) => {
+    await provide(new DashboardPage(page, mockSse, mockApi));
   },
 });
 
 export { expect };
-export type { MockApi, MockWs, Tier };
+export type { MockApi, MockSse, Tier };
 export { DashboardPage };
+export type { StubRunEventRow } from "./dashboard";

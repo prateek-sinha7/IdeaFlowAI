@@ -30,47 +30,36 @@ const PROTOTYPE_HTML =
   "<!DOCTYPE html><html><head><style>body{background:#fff}</style></head><body><h1>App</h1></body></html>";
 
 test.describe("TS-X — timing budgets", () => {
-  // ── TS-X-01 — client ping every 20000ms while the WS is open ────────────────
-  // useWebSocket starts a setInterval(…, 20000) on ws.onopen that sends
-  // {type:"ping"} while readyState === OPEN. This is a real keepalive that keeps
-  // long (2-4 min) build tasks alive through idle-dropping proxies. The only
-  // honest way to assert it is to wait one interval for the frame to actually
-  // arrive — so this is slow (≈21s) by nature. test.slow() grants the 3× timeout.
-  test("TS-X-01 client sends a keepalive ping ~every 20s while the WS is open", async ({ dashboard, mockWs }) => {
-    test.slow(); // 3× timeout — the first ping only fires after the full 20s interval.
-
-    await dashboard.goto();
-    // No run needed — the ping interval is armed on socket open, independent of
-    // any pipeline. Wait just past one 20000ms interval for the first ping frame.
-    const start = Date.now();
-    const ping = await mockWs.waitForClientFrame("ping", 25000);
-    const elapsedMs = Date.now() - start;
-
-    expect(ping.type).toBe("ping");
-    // It is a keepalive interval, so it must NOT fire immediately (would mean a
-    // tight loop, not a 20s timer) and must land inside the wait window.
-    expect(elapsedMs).toBeGreaterThan(15000);
-    expect(elapsedMs).toBeLessThanOrEqual(25000);
-    // Surface the observed latency so the report can record it.
-    console.log(`[TS-X-01] first keepalive ping arrived after ${elapsedMs}ms`);
+  // ── TS-X-01 — client keepalive ping (RETIRED with the WS transport) ──────────
+  // The old WS client armed a 20s setInterval that sent {type:"ping"} to keep the
+  // socket alive through idle-dropping proxies. SSE is now the sole transport
+  // (44-06): the keepalive is SERVER-side (`pipeline_heartbeat`/`pong` frames the
+  // client swallows) and liveness is maintained by the native fetch-stream +
+  // Last-Event-ID reconnect (useRunStream) — there is NO client-sent ping frame to
+  // observe. This case is retired; the SSE liveness/reconnect contract it guarded
+  // is exercised by ts-sse-resilience (drop → reattach) + TS-Y-01. The standalone
+  // fixme keeps the case visible in the report without skipping its siblings.
+  test("TS-X-01 client keepalive ping (retired — SSE server-heartbeat + native reconnect)", () => {
+    test.fixme(true, "client ping retired with the WS transport (44-06); SSE liveness = server heartbeat + native Last-Event-ID reconnect (ts-sse-resilience / TS-Y-01)");
   });
 
   // ── TS-X-05 — copy toast reverts after 2000ms ──────────────────────────────
-  // Two copy affordances both use setTimeout(()=>setCopied(false), 2000):
-  //   1. UserStoryPreview header: "Copy MD" ⇄ "Copied" (TEXT — easy, primary).
-  //   2. PreviewPanel header [title="Copy"]: <Copy/> ⇄ <Check class=…emerald-600>
-  //      (ICON swap — asserted via the rendered lucide <svg> class).
-  // We assert BOTH the success state appears and that it auto-reverts.
-  test("TS-X-05 copy toast shows a success state then reverts (UserStoryPreview text + header icon)", async ({ dashboard, mockWs }) => {
+  // The UserStoryPreview header "Copy MD" ⇄ "Copied" affordance uses
+  // setTimeout(()=>setCopied(false), 2000). We assert the success state appears
+  // and auto-reverts. (Phase 39: the old PreviewPanel-header [title="Copy"] icon
+  // affordance was retired with the mock's run-header redesign — the mock header
+  // carries Version/Share/Download, not a per-deliverable Copy — so only the
+  // renderer-level Copy is exercised here.)
+  test("TS-X-05 copy toast shows a success state then reverts (UserStoryPreview text)", async ({ dashboard, mockSse }) => {
     // Navigate + trigger a run so the WS is open and we're on the execution view.
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
 
     // Drive a green user_stories run so the backlog (with content) renders.
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
 
     // The parsed backlog renders the UserStoryPreview with its "Copy MD" button.
     const copyMd = dashboard.page.getByRole("button", { name: /Copy MD/ });
@@ -86,18 +75,6 @@ test.describe("TS-X — timing budgets", () => {
     await expect(copied).toBeVisible();
     // …and it reverts to "Copy MD" within the 2000ms window (poll past the timer).
     await expect(dashboard.page.getByRole("button", { name: /Copy MD/ })).toBeVisible({ timeout: 4000 });
-
-    // Also exercise the PreviewPanel header [title="Copy"] button. Its success
-    // state is an ICON swap: <Copy/> → <Check class="…text-emerald-600">. Assert
-    // the emerald check svg appears, then reverts. (Icon-only, so we target the
-    // rendered lucide class — documented as the header's only visible change.)
-    const headerCopy = dashboard.page.locator('button[title="Copy"]');
-    await expect(headerCopy).toBeVisible();
-    await headerCopy.click();
-    const checkIcon = headerCopy.locator("svg.text-emerald-600");
-    await expect(checkIcon).toBeVisible();
-    // The icon reverts to the plain copy glyph within the 2000ms window.
-    await expect(headerCopy.locator("svg.text-emerald-600")).toHaveCount(0, { timeout: 4000 });
   });
 
   // ── TS-X-08 — no spinner-forever: every terminal path resolves isRunning ────
@@ -112,50 +89,55 @@ test.describe("TS-X — timing budgets", () => {
       await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
     });
 
-    test("complete → terminal: Stop disappears and 'Done in …s' appears", async ({ dashboard, mockWs }) => {
+    test("complete → terminal: Stop disappears and 'Done in …s' appears", async ({ dashboard, mockSse }) => {
       const agents = AGENTS.user_stories;
-      mockWs.start(agents, { pipelineType: "user_stories" });
+      mockSse.start(agents, { pipelineType: "user_stories" });
       // While running, the Stop affordance (isRunning && !isCancelled) is present.
-      mockWs.agentStart(agents[0].id);
+      mockSse.agentStart(agents[0].id);
       await expect(dashboard.stopButton()).toBeVisible();
 
       // Complete the whole pipeline (Done-in requires completedCount === total).
-      for (const a of agents) await runAgent(mockWs, a.id);
-      mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
+      for (const a of agents) await runAgent(mockSse, a.id);
+      mockSse.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
 
-      // Terminal: header shows wall-clock "Done in …s" (regex — never an exact
-      // value) and the Stop button is gone → isRunning resolved to false.
-      await expect(dashboard.page.getByText(/Done in \d+(\.\d)?s/)).toBeVisible();
+      // Terminal: Phase 39 retired the AgentProgressPanel "Done in …s" header; the
+      // settled run now surfaces the Done status token (lane-run-status, done tone)
+      // and the Stop button is gone → isRunning resolved to false.
+      await expect(dashboard.doneBadge()).toBeVisible();
       await expect(dashboard.stopButton()).toHaveCount(0);
       await expect(dashboard.runningBadge()).toHaveCount(0);
     });
 
-    test("failed → terminal: degraded affordance appears (no stuck RUNNING)", async ({ dashboard, mockWs }) => {
+    test("failed → terminal: new failed chrome appears (no stuck RUNNING)", async ({ dashboard, mockSse }) => {
       // playFailedRun: start → every agent errors → pipeline_failed (ISS-016).
-      await playFailedRun(mockWs, "user_stories");
+      await playFailedRun(mockSse, "user_stories");
 
       await expect(dashboard.errorBadge().first()).toBeVisible();
-      // Terminal degraded affordance — the failed run resolved, not spinning.
-      await expect(dashboard.degradedHeading()).toBeVisible();
+      // Phase 42-03 (§D) RETIRED the amber DegradedRunAffordance on the run screen;
+      // the terminal-failed signal is now the RunChatLane failure card + the failed
+      // run-status token — the failed run resolved, not spinning.
+      await expect(dashboard.degradedHeading()).toHaveCount(0);
+      await expect(dashboard.page.getByText("What went wrong")).toBeVisible();
       await expect(dashboard.stopButton()).toHaveCount(0);
       await expect(dashboard.runningBadge()).toHaveCount(0);
     });
 
-    test("cancelled → terminal: 'Pipeline stopped' appears after the Stop ack", async ({ dashboard, mockWs }) => {
+    test("cancelled → terminal: 'Pipeline stopped' appears after the Stop ack", async ({ dashboard, mockSse }) => {
       const agents = AGENTS.user_stories;
-      mockWs.start(agents, { pipelineType: "user_stories" });
-      mockWs.agentStart(agents[0].id);
+      mockSse.start(agents, { pipelineType: "user_stories" });
+      mockSse.agentStart(agents[0].id);
       await expect(dashboard.runningBadge().first()).toBeVisible();
 
       // User stops the run; app sends cancel_pipeline, then the server acks.
       await dashboard.stopButton().click();
-      await mockWs.waitForClientFrame("cancel_pipeline");
-      mockWs.cancelled({ duration: 8 });
+      await mockSse.waitForClientFrame("cancel_pipeline");
+      mockSse.cancelled({ duration: 8 });
 
-      // Terminal: header flips to "Pipeline stopped" and running cards clear.
+      // Terminal: Phase 39 replaced the "Pipeline stopped" header with the
+      // RunChatLane terminal "Cancelled by you" card and running cards clear.
       // (Live cancel sets NO degraded flag — FIXTURE-CONTRACT gotcha #8 — so it
-      // is "Pipeline stopped", not the history-reopen "This run was cancelled".)
-      await expect(dashboard.page.getByText("Pipeline stopped")).toBeVisible();
+      // is "Cancelled by you", not the history-reopen "This run was cancelled".)
+      await expect(dashboard.page.getByText("Cancelled by you")).toBeVisible();
       await expect(dashboard.runningBadge()).toHaveCount(0);
       await expect(dashboard.stopButton()).toHaveCount(0);
     });
@@ -189,16 +171,16 @@ test.describe("TS-X-03 — questionnaire auto-advance (cross-ref)", () => {
 test.describe("TS-X-04 — prototype tweaks debounce → iframe rebuild", () => {
   test("a Tweaks change rebuilds the prototype iframe (token change debounced 400ms; preset immediate)", async ({
     dashboard,
-    mockWs,
+    mockSse,
   }) => {
     // ── Reach the prototype preview (mirror TS-O-05) ──────────────────────────
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "A todo app" });
 
     const agents = AGENTS.od_prototype;
-    mockWs.start(agents, { pipelineType: "od_prototype" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_prototype", finalOutput: PROTOTYPE_HTML });
+    mockSse.start(agents, { pipelineType: "od_prototype" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_prototype", finalOutput: PROTOTYPE_HTML });
 
     // PrototypePreview builds the Blob URL on an effect tick — poll for the iframe.
     const iframe = dashboard.prototypeIframe();

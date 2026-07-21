@@ -237,3 +237,18 @@ All three use the same **in-memory `asyncio.Event` resume registry** in `agents/
 
 ### Cross-cutting recommendation
 Every piece lands as **capabilities + app/WS-layer wiring + at most one additive migration (`0024`)** — never a kernel `if pipeline_type ==` branch (SC-001/INV-1). The redo-with-instructions flow is the single closest working analog for bidirectional injection; `run_events` is the persistence spine; `run_images` is the template for multimodal/file providers. Watch the collision with the existing internal `chat` pipeline + its frozen golden, and add any new event type/key to both `_DOCUMENTED_EVENT_TYPES` and `_VOLATILE_STRIP_KEYS`.
+
+---
+
+## CORRECTIONS (2026-07-07 post-merge verification — do not act on the superseded claims above)
+
+The verbatim report above predates the same-day merge of origin (KAN-92..101) and the image-input waves. Verified corrections:
+
+1. **§4 "NOT wired at ingress" — now FALSE on all three clauses.** WS `run_pipeline` reads `images` and passes `images=` (`websocket.py:879/:911/:2055`, with `_validate_images` at `:1887-1910`); `prototype/workflow.yaml:40` declares `input_providers: [run_images]`; `prototype-specify/AGENT.md:9-12` declares `injects: […, images]`. The image path is LIVE end-to-end for `prototype` (offline-proven, `test_prototype_image_optin.py`). Landed via `.planning/IMAGE-INPUT-PLAN.md` + quick tasks `260707-{edw,frv,gvq}`. Bonus hardening not in the original scope: mime allow-list, ~3.75MB/image + ≤20 + ~8MB aggregate caps, vision-model guard, `IMAGE_INPUT_ENABLED`. Images are **payload-transient** (never sandbox/DB/run_events) → do not survive reopen/replay (ND-10).
+2. **§4 "Only one upload surface … no persistence" — STILL TRUE.** UPLD-01/03 remain fully open (no `POST /runs/{id}/files`, no `context_provider:uploaded_files` — grep 0).
+3. **§1 `approve_review` actions — now FOUR:** `approve`/`redo`/**`update_specs`** (+ reject); `update_specs` carries `analysis_report` in the `instructions` field (`websocket.py:1417`). New WS error `pipeline_not_running` (recoverable:false) fences the channel on terminal runs (KAN-100).
+4. **§1 internal signals** now also include `_gate_update_specs` and `_revision_analyze_output` (never on the wire; absent from `_DOCUMENTED_EVENT_TYPES` by design).
+5. **§3 thread-id claim "nothing carries a running dialogue across invocations" — now has an EXCEPTION:** KAN-101's `_run_spec_revision_sub_pipeline` (`engine.py:4295`) re-runs specify→plan→analyze on their **BASE** thread_ids (no `:redo{N}`-style fork), accumulating dialogue across unlimited revision cycles — an unaudited checkpoint-replay risk (ND-11).
+6. **§2/§8 "redo is the single closest analog for bidirectional injection" — superseded:** `update_specs` is a richer shipped precedent (gate-triggered multi-agent sub-pipeline with its own consume-once seam `ectx.spec_revision_context`, cleared in `finally`; re-opens the same gate via `spec_revision_pending_output` without an extra model call). "Mid-generation injection is impossible" still holds.
+7. **§2 gate semantics:** `_run_review_gate` now races `cancel_event` (Stop dismisses a paused gate — the P23 F7 deferral is effectively shipped); `_evaluate_gates` skips the declared human gate when `gate_agent_ids` excludes the agent (KAN-94) — gates are event-driven, not manifest-driven.
+8. Many cited line numbers in §§1-3 shifted (KAN-100/101 insertions); re-grep before use.

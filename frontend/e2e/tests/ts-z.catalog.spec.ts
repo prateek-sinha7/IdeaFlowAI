@@ -77,9 +77,14 @@ async function mockWorkflows(page: import("@playwright/test").Page) {
   );
 }
 
-/** Navigate to the in-dashboard Catalog view via the header nav button. */
+/** Surface the data-driven catalog. Phase-39 RETIRED the separate "Catalog"
+ *  header nav — the catalog IS the home view now (HomeLaunchGrid, sourced from
+ *  GET /api/workflows and gated identically). The per-spec `/api/workflows` mock
+ *  is registered AFTER `dashboard.goto()`, so reload the page to force
+ *  HomeLaunchGrid to re-fetch and render the per-spec payload. */
 async function openCatalog(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: /^Catalog$/ }).click();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "What would you like to build today?" })).toBeVisible();
 }
 
 test.describe("TS-Z — workflow catalog (basic tier: filter + gating)", () => {
@@ -126,7 +131,12 @@ test.describe("TS-Z — workflow catalog (basic tier: filter + gating)", () => {
     await expect(rows).toHaveCount(2);
 
     // Click the entitled launchable row → handleSelectFeature → mainView "input".
-    await page.getByRole("button", { name: /Generate product requirements/i }).click();
+    // Scope to the launch row via its <h2> child — the Phase-39 row's sibling
+    // "Inspect …" Info button shares the label in its aria-label (strict-mode-safe).
+    await page
+      .getByRole("button")
+      .filter({ has: page.getByRole("heading", { level: 2, name: /Generate product requirements/i }) })
+      .click();
 
     // The existing IdeaInputPage surface appears: an idea textarea + the Run
     // button (the SAME launch surface CreationHub routes to). The actual run

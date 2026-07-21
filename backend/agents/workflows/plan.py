@@ -422,6 +422,14 @@ class CompiledWorkflow:
     # entry (it reuses the step's own agent).
     allowed_workers: list[str] = field(default_factory=list)
 
+    # chat: the workflow's optional chat/concierge DATA block (Plan 33-05 / INV-5).
+    # Carried verbatim from ``WorkflowManifest.chat`` by the compiler — the run
+    # Concierge (chat:concierge) reads it via ``getattr(compiled, "chat", {})`` and
+    # the FE surfaces it as suggested topics. Pure data: NO kernel/compiler branch
+    # keys off it. Default ``{}`` keeps every existing compiled plan byte-identical
+    # (INV-3) — the 5 characterization goldens declare no ``chat:`` block.
+    chat: dict = field(default_factory=dict)
+
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     model: ModelPolicy = field(default_factory=ModelPolicy)  # workflow default (§20)
     repo: RepoSpec | None = None                             # §15 (brownfield)

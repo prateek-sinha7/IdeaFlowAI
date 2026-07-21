@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X, Check, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 
 export interface CustomDesignSystem {
   id: string;          // always "custom:<name-slug>"
@@ -52,19 +53,19 @@ Describe the overall visual mood, key characteristics, and design philosophy.
 
 ## 2. Color Palette & Roles
 
-- **Primary** (\`#1a1a2e\`): Main brand color — used for CTAs and key interactive elements.
-- **Background** (\`#f8f9fa\`): Page background.
-- **Surface** (\`#ffffff\`): Card and panel backgrounds.
-- **Text** (\`#111827\`): Primary text.
-- **Muted** (\`#6b7280\`): Secondary text and labels.
-- **Accent** (\`#e63946\`): Highlight color — used sparingly.
-- **Border** (\`#e5e7eb\`): Dividers and borders.
+- **Primary** (\`<primary-hex>\`): Main brand color — used for CTAs and key interactive elements.
+- **Background** (\`<background-hex>\`): Page background.
+- **Surface** (\`<surface-hex>\`): Card and panel backgrounds.
+- **Text** (\`<text-hex>\`): Primary text.
+- **Muted** (\`<muted-hex>\`): Secondary text and labels.
+- **Accent** (\`<accent-hex>\`): Highlight color — used sparingly.
+- **Border** (\`<border-hex>\`): Dividers and borders.
 
 ## 3. Typography Rules
 
-- **Primary font**: Inter, system-ui, sans-serif
-- **Display font**: Georgia, serif (for headings)
-- **Mono font**: JetBrains Mono, monospace
+- **Primary font**: your sans-serif family (e.g. system-ui, sans-serif)
+- **Display font**: your display/serif family (for headings)
+- **Mono font**: your monospace family (for code)
 
 ## 4. Component Stylings
 
@@ -77,10 +78,10 @@ Describe grid, spacing, max-width, and layout patterns.
 ## 9. Agent Prompt Guide
 
 Quick reference for the AI agent:
-- Primary CTA: \`#1a1a2e\`
-- Background: \`#f8f9fa\`
-- Accent: \`#e63946\`
-- Font: Inter for body, Georgia for display
+- Primary CTA: \`<primary-hex>\`
+- Background: \`<background-hex>\`
+- Accent: \`<accent-hex>\`
+- Font: your body font, plus a display font for headings
 `;
 
 export function CustomDesignSystemModal({
@@ -126,28 +127,28 @@ export function CustomDesignSystemModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--scrim)] backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="Add custom design system"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="relative flex h-[85vh] w-[95vw] max-w-[780px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div className="relative flex h-[85vh] w-[95vw] max-w-[780px] flex-col overflow-hidden rounded-[var(--radius-card)] border border-line-border bg-surface-white shadow-[var(--elevation-modal)] font-sans">
 
         {/* Header */}
-        <header className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-6 py-4">
+        <header className="flex flex-shrink-0 items-center justify-between border-b border-line-divider px-6 py-4">
           <div>
-            <h2 className="text-[15px] font-semibold text-gray-900">
+            <h2 className="text-[15px] font-semibold text-ink-900 font-sans">
               {existing ? "Edit custom design system" : "Add custom design system"}
             </h2>
-            <p className="mt-0.5 text-[12px] text-gray-500">
+            <p className="mt-0.5 text-[12px] text-ink-500">
               Paste your DESIGN.md content — the pipeline will use it as the brand token source.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center justify-center rounded-lg border border-gray-200 p-1.5 text-gray-400 hover:text-gray-700 transition-colors"
+            className="flex items-center justify-center rounded-[var(--radius-button)] border border-line-control p-1.5 text-ink-400 hover:text-ink-700 transition-colors"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -157,8 +158,8 @@ export function CustomDesignSystemModal({
         <div className="flex flex-1 min-h-0 flex-col gap-4 overflow-y-auto px-6 py-5">
           {/* Name */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[12px] font-semibold text-gray-700">
-              Name <span className="text-red-500">*</span>
+            <label className="text-[12px] font-semibold text-ink-700">
+              Name <span className="text-status-failed">*</span>
             </label>
             <input
               type="text"
@@ -166,25 +167,25 @@ export function CustomDesignSystemModal({
               onChange={(e) => { setName(e.target.value); setError(null); }}
               placeholder="e.g. Acme Corp, My Startup, Dark Minimal"
               maxLength={60}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-[13px] text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+              className="rounded-[var(--radius-button)] border border-line-control px-3 py-2 text-[13px] text-ink-900 placeholder:text-ink-400 focus:border-brand-border focus:outline-none"
             />
           </div>
 
           {/* DESIGN.md content */}
           <div className="flex flex-1 min-h-0 flex-col gap-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-[12px] font-semibold text-gray-700">
-                DESIGN.md content <span className="text-red-500">*</span>
+              <label className="text-[12px] font-semibold text-ink-700">
+                DESIGN.md content <span className="text-status-failed">*</span>
               </label>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-400">
+                <span className="text-[10px] text-ink-400">
                   {body.length.toLocaleString()} / 80,000 chars
                 </span>
                 {!body && (
                   <button
                     type="button"
                     onClick={() => setBody(PLACEHOLDER)}
-                    className="text-[10px] font-medium text-[#1B2A4A] hover:underline"
+                    className="text-[10px] font-medium text-brand hover:underline"
                   >
                     Load example
                   </button>
@@ -194,44 +195,36 @@ export function CustomDesignSystemModal({
             <textarea
               value={body}
               onChange={(e) => { setBody(e.target.value); setError(null); }}
-              placeholder={`# My Brand\n\n## 2. Color Palette\n- Primary (#1a1a2e): ...\n\n## 3. Typography\n...`}
-              className="flex-1 min-h-[280px] resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-gray-800 placeholder:text-gray-400 focus:border-gray-400 focus:bg-white focus:outline-none"
+              placeholder={`# My Brand\n\n## 2. Color Palette\n- Primary (<primary-hex>): ...\n\n## 3. Typography\n...`}
+              className="flex-1 min-h-[280px] resize-none rounded-[var(--radius-button)] border border-line-control bg-surface-warm px-3 py-2.5 font-mono text-[12px] leading-relaxed text-ink-800 placeholder:text-ink-400 focus:border-brand-border focus:bg-surface-white focus:outline-none"
             />
           </div>
 
           {/* Format hint */}
-          <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
-            <p className="text-[11px] text-blue-700 leading-relaxed">
-              <strong>Format tip:</strong> Follow the 9-section DESIGN.md schema — Visual Theme, Color Palette, Typography, Component Stylings, Layout, Depth, Do's/Don'ts, Responsive, Agent Prompt Guide. The more specific your color tokens and typography rules, the better the output.
+          <div className="rounded-[var(--radius-button)] border border-brand-border bg-brand-fill px-4 py-3">
+            <p className="text-[11px] text-ink-600 leading-relaxed">
+              <strong className="text-brand">Format tip:</strong> Follow the 9-section DESIGN.md schema — Visual Theme, Color Palette, Typography, Component Stylings, Layout, Depth, Do's/Don'ts, Responsive, Agent Prompt Guide. The more specific your color tokens and typography rules, the better the output.
             </p>
           </div>
 
           {/* Error */}
           {error && (
-            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
-              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 text-red-500" />
-              <p className="text-[12px] text-red-700">{error}</p>
+            <div className="flex items-center gap-2 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-3 py-2">
+              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 text-status-failed" />
+              <p className="text-[12px] text-status-failed">{error}</p>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <footer className="flex flex-shrink-0 items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-          >
+        <footer className="flex flex-shrink-0 items-center justify-end gap-2 border-t border-line-divider px-6 py-4">
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="flex items-center gap-1.5 rounded-lg bg-[#1B2A4A] px-4 py-2 text-[12px] font-semibold text-white hover:bg-[#243660] transition-colors"
-          >
+          </Button>
+          <Button variant="primary" size="md" onClick={handleSave}>
             <Check className="h-3 w-3" strokeWidth={3} />
             {existing ? "Save changes" : "Add design system"}
-          </button>
+          </Button>
         </footer>
       </div>
     </div>

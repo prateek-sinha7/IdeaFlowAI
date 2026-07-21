@@ -10,6 +10,37 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-082 | 2026-07-21 | Always show "Write a custom skill" button on Skills tab — remove agent.has_skill gate | The custom skill button was gated on `agent.has_skill` so it never showed for agents without the flag. Every agent should be able to get a custom skill authored. Removed the gate. Also cleaned up the dangling `)}` JSX left from the removed conditional. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-081 | 2026-07-21 | Show empty state messages when no suggested skills or hooks for an agent | Skills/Hooks tabs rendered blank when suggestedSkills/suggestedHooks had 0 items — `{length > 0 && (...)}` with no else branch. Changed to ternary with an empty-state card (icon + message). | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-080 | 2026-07-21 | Fix Save button flash + double appearance on Reset — remove loading early-return from ConfigLeversFlat | Reset increments resetKey which remounts ConfigLeversFlat. On remount, useAgentCapabilities starts loading=true and the early-return `<p>Loading…</p>` caused a height change (tiny→4 big rows) that shifted the button row, creating the double-button flash. Removed the loading early-return (renders rows with empty options = same height always). Also added setSaved(false) to Reset and removed transition-all from Save button. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-079 | 2026-07-21 | Save feedback + working Reset for Config tab levers | Save button gave no feedback before closing. Reset only updated parent state but ConfigLeversFlat has its own localSel; dropdowns didn't reset. Fix: Save shows "✓ Saved" green state for 900ms; Reset increments resetKey which is passed as key prop to ConfigLeversFlat — React remounts it with fresh empty localSel. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-078 | 2026-07-21 | Persist Config-tab agent selections across drawer open/close cycles | AgentCapabilitiesModal is unmounted on close; all localSelections were lost. LibraryPage now uses a useRef map (savedSelectionsRef) keyed by agent.id. initialSelections passes saved values on open; onSelectionsChange writes back on every change and on Save. effectiveOnSelectionsChange now calls both setLocalSelections AND onSelectionsChange so both local display and parent persist stay in sync. | `frontend/src/components/library/LibraryPage.tsx`, `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-077 | 2026-07-21 | Restore styled custom dropdown using onPointerDown+preventDefault to beat mousedown dismiss | Native select options cannot be CSS styled (OS renders them). Custom dropdown needed but all previous attempts failed because onClick fires after mousedown dismiss. Fix: use onPointerDown+preventDefault on both trigger and options — pointer events fire before mousedown, so selection lands before the outside-click dismiss. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-076 | 2026-07-21 | Definitively fix Config lever selections — replace broken custom dropdown with native <select> | All custom dropdown attempts failed due to browser event sequencing (mousedown dismiss fires before click). Replaced ConfigLeverSelect entirely with native <select> + appearance-none + ChevronDown overlay. Native select onChange always fires reliably. Deleted the ConfigLeverSelect component and the outside-click useEffect entirely. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-075 | 2026-07-21 | Config lever option clicks close dropdown without selecting — add onMouseDown stopPropagation to listbox div | The document mousedown listener (used for outside-click dismiss) fired when user clicked an option button, calling setOpenLever(null) and unmounting the dropdown before the click event registered. Fixed by adding onMouseDown stopPropagation to the listbox div so options receive their click events. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-074 | 2026-07-21 | Config levers always show "Default" — fix by giving ConfigLeversFlat its own local selections state | Display was driven by selections PROP passed through effectiveSelections chain. Prop updates require parent re-render + prop drill, introducing a render cycle where `displayLabel` could read stale/empty data. Fixed by giving ConfigLeversFlat its own `localSel` useState seeded from props on mount; `updateLever` calls `setLocalSel` immediately so display is in sync. Still propagates up via `onSelectionsChange`. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-073 | 2026-07-21 | Config lever dropdown clicks do nothing — fix by hoisting CustomSelect/LeverRow to module scope | CustomSelect and LeverRow were defined inside ConfigLeversFlat body. React treats inline component definitions as new types on every render, causing remount instead of update when an option is clicked — breaking the selection. Hoisted to module-level ConfigLeverRow + ConfigLeverSelect with all state passed as props. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-072 | 2026-07-21 | Replace native <select> in Config levers with fully custom styled dropdown | Browser renders native OS dropdown for <select> which cannot be styled. Replaced with custom button+listbox (CustomSelect component): styled trigger pill, floating card list with hover/selected states, outside-click dismiss, one-open-at-a-time. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-071 | 2026-07-21 | Polish ConfigLeversFlat selects — consistent row height, custom chevron, Phase-32 font/tokens | Each native select rendered at different size and with ugly browser-default arrow. Added StyledSelect wrapper (appearance-none + absolute ChevronDown), fixed w-[130px] per select, min-h-[64px] per row, text-[13px] font-sans font-medium. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-070 | 2026-07-21 | Config tab: remove System Prompt, show flat Model/Validator/Gate/Retry rows without AdvancedExpander collapse chrome | AdvancedExpander has a per-agent expand/collapse toggle header; Config tab was showing System Prompt. Added ConfigLeversFlat (reuses useAgentCapabilities + applyLeverPatch, INV-12) that renders the 4 levers flat with label+select rows. Removed AgentPromptSection from Config tab. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-069 | 2026-07-21 | Show Model/Validator/Gate/Retry levers + Reset/Save buttons in Config tab for all callers | AdvancedExpander was gated on {onSelectionsChange && ...} so LibraryPage drawer (which passes no onSelectionsChange) showed only System Prompt. Added local selections state; AdvancedExpander now always renders; Reset/Save buttons added at bottom. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-068 | 2026-07-21 | Remove "Cancel" from custom skill button and darken the expanded editor form | Header button showed "Cancel" when expanded; form used light bg-white styling. Fixed: button always shows "+ Write a custom skill", form uses bg-surface-near-black with dark inputs, readable text, and inverted Attach button. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-067 | 2026-07-21 | Replace "Custom skill" card header with dashed full-width "+ Write a custom skill" button | Header used a complex card layout (icon + title + subtitle + right-side label). Target design is a simple full-width dashed-border centered button. Only the header visual changed; editor form, animation, success state untouched. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-066 | 2026-07-21 | Restyle AgentPromptSection to dark card with readable white sans-serif text | Container used light white card (border-gray-200 bg-white) and prompt body used tiny monospace font (font-mono text-[10.5px] text-gray-600). Changed to dark near-black card (bg-surface-near-black) with white readable prose text (text-[13px] text-white font-sans). | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-065 | 2026-07-21 | Remove Design System and Discovery tabs for PPT presentation wizard | STEP_TABS and STEP_IDS were hardcoded as 3 items; no way to suppress tabs per mode. Added `steps?: StepId[]` prop (default all 3) to WizardStepper; LaunchWizard passes `["template"]` for ppt mode. | `frontend/src/components/workflow/WizardStepper.tsx`, `frontend/src/components/workflow/LaunchWizard.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-064 | 2026-07-21 | Hide Web/Deck toggle in template picker — show only relevant gallery per launch context | Toggle rendered unconditionally in WizardStepper.tsx; no prop to suppress it. Added `showToggle?: boolean` (default false) to hide the toggle so prototype shows only web templates and PPT shows only deck templates. | `frontend/src/components/workflow/WizardStepper.tsx`, `frontend/src/components/workflow/WizardStepper.test.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-063 | 2026-07-21 | KAN-113: Fix version dropdown showing wrong relative age ("5h ago") due to timezone-naive datetime serialization | SQLAlchemy `DateTime` (no `timezone=True`) returns naive datetimes from SQLite. Pydantic v2 serializes them without `+00:00`, so JavaScript `Date.parse()` treats them as local time, adding the user's UTC offset to the age calculation. Fix: add `@field_serializer` to `WorkflowRunResponse` and `FamilyMemberResponse` to promote naive datetimes to UTC before ISO-formatting. | `backend/app/api/runs.py` | Phase 36 §3 (FamilyMemberResponse) + Phase 5 §3 (WorkflowRunResponse) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-062 | 2026-07-21 | Move "v1 draft" version chip to the left of the "Running · Streaming" status badge in RunHeader | Chip was placed after the `flex-1` spacer in JSX order, landing it on the right side. Moved it to the first child position in the flex row so it renders left of the StatusBadge. | `frontend/src/components/preview/RunHeader.tsx` | Phase 39 (RUNUI-06/07) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-061 | 2026-07-20 | KAN-112: Custom utility agent combinations fail with DAG unsatisfiable — all 8 custom agents had rigid `consumes` chain | Each custom agent declared `consumes: [previous-agent-id]` forming a fixed 8-agent chain. The `WorkflowResolver.validate()` rejected any subset as unsatisfiable (e.g. `report-generator` needs `documentation-agent`). Fixed by changing `consumes` from specific agent ids to `[]` on all 7 non-root custom agents. `context_from: [$previous]` already chains context correctly — `consumes` is only for typed artifact graph edges, which these agents don't need. | `backend/agents/prompts/swot-analyst/AGENT.md`, `backend/agents/prompts/roadmap-planner/AGENT.md`, `backend/agents/prompts/security-auditor/AGENT.md`, `backend/agents/prompts/test-case-generator/AGENT.md`, `backend/agents/prompts/performance-optimizer/AGENT.md`, `backend/agents/prompts/documentation-agent/AGENT.md`, `backend/agents/prompts/report-generator/AGENT.md` | Phase 7/8 (WorkflowResolver / agent AGENT.md) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-060 | 2026-07-17 | KAN-112: Make all custom-composer runs consistent — always pipeline_type="custom" | User story agents were routed to pipeline_type="user_stories" making history/logs inconsistent with prototype runs (which stayed "custom"). Fix: removed the `user_stories` routing branch from `resolveDispatchType`; added user story agents to `AGENT_DELIVERABLE_MAP` with `{strategy:"streamed_text", name:"user_stories.md", mimetype:"text/markdown"}`. Engine `_apply_selections` already handles the override + forces clarify.mode=skip. Output renders via `GenericDeliverablePreview` → `MarkdownPreview`. All custom-composer runs now consistently show `type=custom` in logs and history. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-059 | 2026-07-17 | KAN-112 Option B: Replace `custom_prototype` manifest copy with runtime deliverable override via `__deliverable__` selections key | `custom_prototype` was an exact copy of `prototype/workflow.yaml` with `clarify.mode:skip` — a manifest-copy anti-pattern (INV-12 violation). Option B: FE `resolveDispatchType` now returns `{type:"custom", deliverableOverride:{strategy,name,mimetype}}` for prototype agents; `handleRun` injects `__deliverable__` into the selections map; `engine._apply_selections` reads it, calls `DeliverableSpec(**override)` and `dataclasses.replace(compiled.clarify, mode="skip")` — same skip behaviour, zero manifest copy. `custom_prototype` manifest deleted; all references removed from loader/registry/entitlements/websocket/types/DashboardLayout/page.tsx. | `backend/agents/workflows/selections.py`, `backend/agents/execution_engine/engine.py`, `backend/agents/loader.py`, `backend/agents/registry.py`, `backend/app/core/entitlements.py`, `backend/app/api/websocket.py`, `frontend/src/types/index.ts`, `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx`, `backend/agents/workflows/custom_prototype/workflow.yaml` (deleted) | Phase 22 (custom composer) + SC-001 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-058 | 2026-07-16 | KAN-112: HTML prototype output from custom workflow — create `custom_prototype` manifest (SC-001) | The only path to HTML prototype output from the custom composer is a new SC-001 manifest. Dispatching `prototype` silently crashed (suspected SQLite lock from prior cancelled run; the `ectx.skip_clarification` dynamic attribute approach was also fragile). `custom_prototype` is an exact copy of the `prototype` manifest with `clarify.mode: skip` — bypasses the clarify gate without any engine edits. FE `resolveDispatchType` now sends `custom_prototype`; `DashboardLayout` normalises `custom_prototype → prototype` for rendering; `page.tsx` routes `custom_prototype` to `setPrototypeContent`. | `backend/agents/workflows/custom_prototype/workflow.yaml` (new), `backend/agents/loader.py`, `backend/agents/registry.py`, `backend/app/core/entitlements.py`, `frontend/src/types/index.ts`, `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 22 (custom composer) + SC-001 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-057 | 2026-07-16 | KAN-112 (continued): Prototype output from custom, brief-based recommendations, companion pipeline suggestions | Three gaps: (1) custom always dispatched as "custom" → streamed_text, no HTML; (2) no brief-based agent recommendations; (3) no companion-agent suggestions when partial pipeline added. Fix: `resolveDispatchType()` redirects prototype/ppt/user_stories agents to their native manifest; `AGENT_KEYWORDS` + `getAgentRecommendations()` chip strip; `COMPANION_GROUPS` amber banner when incomplete pipeline detected. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-056 | 2026-07-16 | KAN-112: Custom workflow — fix empty agent seed, add 8 default agents, fix add/remove limits, update blank-slate copy | `IdeaInputPage` seeded `pipelineAgents` from `LIBRARY_AGENTS.filter(type==="custom")` which returns `[]` (custom agents live in the separate `CUSTOM_AGENTS` export). Run button was always disabled for fresh custom runs. Three sites used the wrong filter: initial state, useEffect re-derive, and `defaultAgentIds`/`handleAddAgent`. Updated `TYPE_CONFIG["custom"]` copy and `workflow.yaml` catalog metadata. | `frontend/src/components/workflow/IdeaInputPage.tsx`, `backend/agents/workflows/custom/workflow.yaml` | Phase 22 (ISS-014 / custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-055 | 2026-07-16 | KAN-110 (follow-up): Replace page-number pagination with Load More button on Workflow History | FIX-051 implemented numbered pagination (Prev/1/2/…/Next); requirement was append-based Load More. Replaced `currentPage` state + `handleGoToPage` + pagination footer with `loadingMore` flag + `handleLoadMore` callback that appends `offset: runs.length`. Existing skeleton loading state was already sufficient. | `frontend/src/components/history/WorkflowHistory.tsx` | Frontend (FIX-051 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-051 | 2026-07-15 | KAN-110: Workflow history slow loading + add pagination — DB index + paginated frontend | No compound index on `workflow_runs(user_id, created_at)` caused full table scan on every history load; frontend fetched `limit:100` with no offset. Fix: migration 0025 adds `ix_workflow_runs_user_created`; `list_runs` gains `X-Total-Count` header; `getWorkflows` extended with `offset` + returns `{runs,total}`; `WorkflowHistory` changed to `limit:50` with Load More button. | `backend/alembic/versions/0024_stub_from_dev_branch.py` (stub), `backend/alembic/versions/0025_workflow_runs_user_created_index.py` (new), `backend/app/api/runs.py`, `frontend/src/lib/api.ts`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/components/analytics/AnalyticsPage.tsx`, `frontend/src/app/dashboard/page.tsx`, 5 test files | DB/API/Frontend (no engine phase) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-050 | 2026-07-15 | KAN-109: Add AI Coach Hub prototype template SKILL.md so the template appears in the gallery | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` was absent; `od_loader._load_one_template()` returns None when SKILL.md is missing, so the folder is silently skipped by `list_prototype_templates()`. example.html was present and correct. Fix: created SKILL.md with `od.mode: prototype` frontmatter + full agent build workflow instructions following the process-canvas pattern. | `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` (new) | OpenDesign templates (content, no phase) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-049 | 2026-07-13 | KAN-108: Prototype revision delivers blank/unchanged/broken prototypes silently — add Revision Validation Agent as second step + fix clarify.mode: auto | `prototype_revision` manifest declared only 1 step; the silent `revision_validation` post-step only catches regressions vs baseline (zero-delta no-op passes), not blank pages, broken navigation, or missing components. `clarify.mode: auto` fired questionnaire on every revision. Fix: new `prototype-revision-validate` agent (dedicated AGENT.md, `pipeline_type: prototype_revision`, `consumes: [prototype-revision-agent]`, `tools: [workspace]`) added as step 2; manifest updated to `clarify.mode: skip`; registry updated; goldens regenerated; phase5/characterization tests updated. | `backend/agents/workflows/prototype_revision/workflow.yaml`, `backend/agents/registry.py`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` (new), `backend/tests/agents/characterization/golden/prototype_revision.events.json`, `backend/tests/agents/characterization/golden/prototype_revision.html`, `backend/tests/agents/_scripted_model.py`, `backend/tests/agents/test_phase5_revision_validation.py` | Phase 7 (revision post-step / agent registry) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-001 | 2026-06-16 | Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows | Validator: "two short sentences" loophole allowed model to print full checklist as preamble without `<artifact>` wrapper → raw checklist rendered as deck. Composer: deepagents filesystem glob crashes on Windows (pathlib.rglob ValueError) → composer told to use context-injected files instead of tool calls | `backend/agents/prompts/od-ppt-validator/AGENT.md`, `backend/agents/prompts/od-ppt-composer/AGENT.md` | Phase 15 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-002 | 2026-06-16 | Vellum template not applied — example.html not injected into PPT composer context | opendesign provider `is_builder` gate used `{"prototype_emit_only", "prototype"}` set; `workspace` tool set excluded so PPT composer never received `example.html`; SKILL.md workflow says "clone example.html" but agent had no copy | `backend/agents/capabilities/context_providers/opendesign.py` | Phase 7 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-003 | 2026-06-16 | PPT/Prototype wizard hides brief textarea — stale `chain.from` in sessionStorage | `chain.from` was never removed from sessionStorage after previous chained run; on fresh wizard open the page read it, set `isChaining=true`, and hid the brief textarea and showed "CHAINED PRESENTATION · STEP 1 OF 1" | `frontend/src/app/workflow/ppt/templates/page.tsx`, `frontend/src/app/workflow/prototype/templates/page.tsx` | Phase 21 | INV-1/3/12/SC-001 ✅ | Done |
@@ -47,6 +78,8 @@
 | FIX-038 | 2026-07-05 | t2x regression: model_pricing.py hardcoded model-family literals violated INV-12 single-model-id-source and broke test_model_catalog::test_single_source_grep (passed at baseline eb3ccced, failed after t2x). | Fix (proper, no test-loosen): co-located a frozen Pricing dataclass + pricing field on ModelEntry in model_catalog.py (the single source); model_pricing.py now derives each model's Pricing FROM the catalog (exact get + region/version-normalized fallback + cheap default) and keeps only _regional_premium + estimate_cost_usd — ZERO model-id literals. Reconciliation pin ($24.85) preserved; goldens byte-identical; lint 4/0. | `backend/agents/capabilities/model_catalog.py`, `backend/agents/capabilities/model_pricing.py`, `backend/tests/agents/test_model_pricing.py` | quick-260705-ed8 | INV-1/3/12/13 · SC-001 ✅ | Done |
 | FIX-047 | 2026-07-07 | KAN-100: ReviewGatePanel stays interactive after Stop + Redo resumes cancelled pipeline — 4 root causes fixed | (1) `dashboard/page.tsx`: no `case "pipeline_cancelled"/"pipeline_failed"` to clear `reviewGateData` → panel stayed; (2) DashboardLayout `reviewGateData ?` had no `isPipelineRunning` guard; (3) `websocket.py` `approve_review` handler had no terminal state check — Redo could unblock gate; (4) `engine.py` `_run_review_gate` `await event.wait()` not cancel-aware — Stop never interrupted the gate | `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `backend/app/api/websocket.py`, `backend/agents/execution_engine/engine.py` | Phase 16/23 (terminal-state/REDO-GATE) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-048 | 2026-07-07 | KAN-101: Spec revision loop — "Update the Specs" button on analyze gate triggers specify → plan → analyze sub-pipeline with analysis report as context | No `update_specs` action in any layer: websocket.py had no branch, `_run_review_gate` had no signal, inline gate consumer had no sub-pipeline handler, no context injection in `_compose_context_message`, no FE button | `backend/app/api/websocket.py`, `backend/agents/execution_engine/engine.py`, `backend/agents/prompts/prototype-specify/AGENT.md`, `frontend/src/components/preview/ReviewGatePanel.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 23 (REDO-GATE pattern) / KAN-101 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-049 | 2026-07-10 | Live agent output not visible while a prototype agent runs — the Steps L2 detail "live" card was blank for every running agent (spec-writer / plan / analyze / build) | The engine emits only `agent_chunk` (the model's streamed output) per agent, never a separate `agent_thinking` event, so `agent.thinkingText` is ALWAYS empty — but `AgentDetailPanel` fed its live card from `thinkingText`, so a running agent showed a blank "Reasoning (live)" cursor with no text. Fix (FE-only): feed the live `agent.output` (from `agent_chunk`) into the card instead, labelled "Output (live)", scrollable + auto-follows the streaming tail; the completed output still renders via `OutputPreviewSection`. Verified fail-before/pass-after with a new spec. | `frontend/src/components/results/AgentDetailPanel.tsx`, `frontend/src/components/results/AgentDetailPanel.liveOutput.test.tsx` (new) | Phase 39/42 (run-screen Steps detail) · commit `182200b1` | INV-3 (FE-only, no golden) · SC-001 ✅ | Done |
+| FIX-050 | 2026-07-10 | (a) React duplicate-key errors (surfaced as the dev "N Issues" badge / SyntaxError) on reopened prototype / od_prototype runs from history; (b) the Deck-QA report text bled faintly through behind the rendered PPT slides | (a) Build-loop agents all share the `prototype-build` id, so `RunDetailPage`'s `key={agent_id ?? idx}` fallback never fired and React logged duplicate keys — fixed to an `agent_id`+`idx` composite key. (b) `PPTPreview`'s deck `<!DOCTYPE>`/`<html>` extraction used a loose search that matched the Deck-QA agent's inline-quoted `<!DOCTYPE html>` in its PREPENDED markdown report (≈char 52) instead of the real deck (≈char 1130), leaking the report into the deck iframe — fixed with a line-anchored regex + a trailing-after-`</html>` strip. Both FE-only, found via live Bedrock UI testing. | `frontend/src/components/history/RunDetailPage.tsx`, `frontend/src/components/preview/PPTPreview.tsx` | Phase 39/42 (run / history UI) · commit `5bd46942` | INV-3 (FE-only, no golden) · SC-001 ✅ | Done |
 | FIX-046 | 2026-07-07 | KAN-99: Prototype task checklist shows all tasks complete before build agent finishes — last task_progress fires before fix-loop | `currentTaskIndex` used `realtimeCompletedCount` directly; when last `task_progress` fires `realtimeCompletedCount === totalTasks` → `isDone` true for all tasks despite agent still running. Cap `currentTaskIndex` to `Math.min(realtimeCompletedCount, totalTasks-1)` when `!buildTrulyDone` so last task stays in active/spinner state until validate starts or `isRunning=false`. | `frontend/src/components/results/PrototypePipelineView.tsx` | Phase 3 (Thinking-view) · quick-260703-byv | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-045 | 2026-07-06 | KAN-98: ReviewGatePanel stale editedContent after Redo — prior edit forwarded instead of fresh output | `useEffect([output, gateKey])` reset `submitted`/`redoInstructions`/`showRejectConfirm` but NOT `editedContent` or `hasEdits`. After Redo delivered new output, stale `editedContent` (from round 1) differed from new `output` → `hasEdits=true` → `handleApprove` sent stale edit as if user had edited in round 2. Fix: add `setEditedContent(output)` + `setHasEdits(false)` to the existing `useEffect`. | `frontend/src/components/preview/ReviewGatePanel.tsx` | Phase 23 (REDO-GATE) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-044 | 2026-07-06 | KAN-97: Blank right panel after questionnaire submit — PlanningOverlay blocked by !activePipelineRunId guard | After submit/skip, `questionnaireQuestions=[]` and `questionnaireLoading=false` cleared the questionnaire panel, but `activePipelineRunId` stayed set → `!activePipelineRunId` in the PlanningOverlay condition was false → fell through to empty PreviewPanel. Fix: remove `!activePipelineRunId` from PlanningOverlay condition. QuestionnairePanel already has its own `(questionnaireLoading || questions.length > 0)` guard so it doesn't need this protection. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 2/18 (Universal Engine / Planning Overlay) | INV-1/3/12/SC-001 ✅ | Done |
@@ -56,7 +89,6 @@
 | FIX-040 | 2026-07-06 | KAN-93: Notification Panel shows raw context block text for chained/revision runs — addRunningNotification called with raw enrichedInput before marker stripping | 5 addRunningNotification call sites in DashboardLayout.tsx passed `enrichedInput.slice(0,60)` or `message.slice(0,60)` without stripping injected `=== CONTEXT FROM PREVIOUS ===` / `=== EXISTING PROTOTYPE HTML ===` markers. Fix: use already-computed `chainBrief`/`historyBrief` (stripped) in chain handlers; apply `parseRunInput()` in handleRunPipeline, handleQuestionnaireSubmit, handleQuestionnaireSkip | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 22 (notifications) · Phase 25 (parseRunInput) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-039 | 2026-07-06 | KAN-92: Workflow history incorrect titles — 3 root causes in websocket.py: wizard-chain reuses source title, run_revision never calls title gen, legacy revision placeholder shows raw HTML marker | (1) `_generate_workflow_title` wizard-chain path wrote source pipeline's Title verbatim with no pipeline_type suffix; (2) `_handle_revision_execution` set `title=f"Revision: {instruction[:50]}"` and never scheduled `_generate_workflow_title`; (3) `_handle_workflow_execution` WorkflowRun placeholder fell through to `or content` for revision messages starting with `=== EXISTING … ===`, showing raw HTML marker for 2-5s | `backend/app/api/websocket.py` | Phase 14/16/22 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-034 | 2026-07-04 | Bedrock prompt caching silently OFF + enable-only extended-thinking knob | deepagents' built-in AnthropicPromptCachingMiddleware caches ONLY ChatAnthropic, but prod runs ChatBedrockConverse → every build re-sent a ~45-68k fixed prefix uncached across ~300 turns (5-21M input tok). Fix: a provider-agnostic `_BedrockCachePointsMiddleware` sets model_settings cache_control on ChatBedrockConverse requests (config-gated BEDROCK_PROMPT_CACHE_ENABLED default ON, BEDROCK_PROMPT_CACHE_TTL '5m') so langchain_aws._apply_cache_points appends cachePoints ≈ 55-80% cheaper billed input; plus a THINKING_BUDGET_TOKENS knob (enable-only, default 0) threading a clamped thinking budget into both provider branches of build_model. | `backend/app/core/config.py`, `backend/app/agents/model_factory.py`, `backend/app/agents/deep_agent_runner.py`, `backend/tests/agents/test_bedrock_cache_and_thinking.py` | quick-260704-p10 | INV-1/3/12/13 · SC-001 ✅ | Done |
-| FIX-039 | 2026-07-07 | Regenerate appended (not replaced) an agent's streamed output — hitting "regenerate" at the plan gate re-ran the agent but the new stream concatenated onto the previous run's, so `PrototypePipelineView.parseTasks(planAgent.output)` read the STALE first `<tasks>` block: a regenerated 9-task plan still showed "1 Build Task". | Root cause: `useWorkflow.ts` `case "agent_start"` flipped the matched agent to `status:"running"` but never reset its per-run accumulators, while `case "agent_chunk"` does `output = output + chunk` (append) — so a 2nd agent_start left run-1's `output` in place and run-2's chunks appended onto stale v1. Fix (FE-only): in the `agent_start` case, reset THAT agent's run-scoped fields to their fresh-agent values BEFORE `status:"running"` — `output/thinking/thinkingText=""`, `toolCalls/validationIssues=[]`, `error=null`, `validationPassed=undefined`, plus overwrite-only `duration/token/inputPrompt/contextSources` cleared — preserving identity (`id/name/role/icon/index`) and never touching pipeline-level or other agents' state. Regenerate now REPLACES. Replay-safe: a replayed agent_start (same event_id) is deduped upstream by `shouldApplyEvent` (dashboard/page.tsx:276) so a live output is never wiped on WS reconnect. REJECTED alternative: the parser "read the LAST `<tasks>` block" band-aid — masks the concatenation and leaves agent output polluted. | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useWorkflow.regenerateReset.test.ts` | quick-260707-1p8 | INV-3 (FE-only, no golden impact) · SC-001 ✅ | Done |
 | FIX-039 | 2026-07-07 | OD template + PPT gallery previews slow — cards render a static thumbnail `<img>`, falling back to live HTML+JS iframe rendering when absent | Each gallery card mounted a sandboxed `<iframe sandbox="allow-scripts">` that fully renders `example.html` at 1280x720 (parse+style+layout+paint+JS-exec+asset fetches) just for a ~130px thumbnail. Rendering N full HTML documents is the gallery's dominant cost. | `frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`, `frontend/src/lib/prototype-api.ts`, `frontend/src/lib/ppt-api.ts` | Phase 4 (OD catalog UI) | INV-3 golden-neutral (FE-only; catalog thumbnails, not the deliverable renderer) ✅ | Done |
 | FIX-042 | 2026-07-08 | `GET /api/{prototype,ppt}/templates/{id}/thumbnail` returns 500 (not 404) when a thumbnail file is missing at request time | `get_template_thumbnail_path` trusted the `has_thumbnail` flag, which is computed once by the `lru_cache(maxsize=1)` `_all_templates()` at process start. A thumbnail deleted (or generated) after startup left the flag stale → the function returned a path to a missing file → `FileResponse` `os.stat`'d it mid-response → `FileNotFoundError` → `RuntimeError: File ... does not exist` → 500. Fix (backend-only): re-check `path.is_file()` on disk at serve time; return `None` (→ existing 404 branch) when the file is gone, so the gallery falls back to the FIX-041 live iframe. | `backend/app/services/od_loader.py` | Phase 4 (OD catalog UI) · builds on FIX-039/040/041 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-041 | 2026-07-08 | OD/PPT gallery card shows a broken/blank image when a thumbnail 404s — no fallback to the live iframe unless `has_thumbnail` is already false | The thumbnail `<img>` in `TemplateCard` and `CompactPPTCard` had an `onLoad` but NO `onError` handler; the thumbnail-vs-iframe choice keyed solely off the backend `has_thumbnail` flag. When that flag is stale (thumbnail generated at build time, not committed — FIX-040) or the file 404s at request time, the `<img>` fails silently and the card sticks on the pulse placeholder / broken image instead of degrading to the FIX-039 live iframe. Fix (FE-only): add a `thumbnailError` state; on `<img>` `onError`, set it (and force-mount the iframe), which nulls `thumbnailUrl` so the existing iframe fallback path renders. | `frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx` | Phase 4 (OD catalog UI) · builds on FIX-039/040 | INV-3 golden-neutral (FE-only; catalog thumbnails, not the deliverable renderer) ✅ | Done |
@@ -70,7 +102,354 @@
 
 ---
 
-### FIX-001 — PPT Preview Broken: Checklist Text + Invalid Output (Two Issues, One Root Cause)
+### FIX-066 — Restyle AgentPromptSection to dark card with readable white text
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix make the above changes` (dark card, better text font for System Prompt)
+
+#### Root Cause
+
+`frontend/src/components/workflow/AgentsPopup.tsx` — the `AgentPromptSection` component returned a light white card with four specific styling problems:
+
+1. Outer wrapper used `border border-gray-200` + white background → light card appearance
+2. Header texts used `text-gray-700` / `text-gray-400` → low contrast on light background
+3. Expanded body `<div>` had `bg-white` → no distinction between card and drawer background
+4. Prompt body `<pre>` used `font-mono text-[10.5px] text-gray-600` → tiny monospace text that looked like raw code instead of readable instructions
+
+The target design (Hexaware mock) shows a dark near-black rounded card with white readable prose text.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 37 (B3 — Configure + Composer/Wizard), Phase 41 (B7 — Configure Composer Rebuild)
+- **Relevant register section:** Phase 37/41 §3 (`AgentPromptSection` in `AgentsPopup.tsx`)
+- **Deleted code verified (not resurrected):** N/A — styling-only change
+- **Locked decisions respected:** INV-12 — `AgentPromptSection` is the single source; all 4 callsites (drawer Config, drawer Overview, AgentRow, CanvasConfigRail) inherit the change correctly. Phase-32 token layer (`bg-surface-near-black`, `text-ink-*`) used instead of raw hex.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Outer wrapper: `border border-gray-200` → `bg-surface-near-black` (no border) | Dark card background |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Header button: `hover:bg-gray-50` → `hover:bg-white/5` | Dark-appropriate hover |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Icon + labels: `text-gray-400/700` → `text-ink-400` / `text-white` | Readable on dark background |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Expanded border: `border-gray-200` → `border-white/10` | Subtle dark separator |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Expanded body: `bg-white` → `bg-surface-near-black` | Consistent dark card |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Source badge (default): `bg-gray-100 text-gray-500 border-gray-200` → `bg-white/10 text-ink-300 border-white/20` | Dark-card-appropriate pill |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Prompt body: `<pre> font-mono text-[10.5px] text-gray-600` → `<p> font-sans text-[13px] text-white leading-relaxed` | Larger, white, readable prose instead of monospace code |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — React styling only
+- **INV-3** (golden parity): not affected — no engine or event stream changes
+- **INV-12** (no duplication): `AgentPromptSection` remains the single source; change propagates to all 4 callsites correctly
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+
+All 4 callsites receive the dark card automatically:
+- Drawer Overview tab: `AgentsPopup.tsx` ~line 606
+- Drawer Config tab: `AgentsPopup.tsx` ~line 619
+- Composer AgentRow: `AgentRow.tsx` line 224
+- Canvas CanvasConfigRail: `CanvasConfigRail.tsx` line 366
+
+Tests query by `getByText(/system prompt/i)` or `getByRole("button", { name: /system prompt/i })` — not by className — so no test regressions.
+
+The edit textarea (when `surfaceOnly=false` and user clicks Edit) was intentionally left with its existing light styling — the target screenshot only shows the read-only state.
+
+#### Notes
+
+- The `font-mono` class on the `<pre>` tag was replaced with a `<p>` tag with `font-sans` — this is the key change that makes the text look like readable instructions rather than raw code.
+- `whitespace-pre-wrap` is preserved on the `<p>` to maintain line breaks from the AGENT.md content.
+- No backend restart needed — FE-only change.
+
+---
+
+### FIX-064 — Hide Web/Deck toggle in template picker (show only relevant gallery per launch context)
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix fix above changes` (hide Web/Deck filter; show web templates for prototype, deck templates for PPT)
+
+#### Root Cause
+
+`frontend/src/components/workflow/WizardStepper.tsx` lines 119–138 — the Web/Deck toggle `<div role="group">` block was rendered unconditionally whenever `activeStep === 0`. There was no prop to suppress it. The gallery content already correctly displayed based on the `mode` prop (`web` → `TemplateGallery`, `deck` → `PPTTemplateGallery`), but the toggle gave users the ability to manually switch between families mid-wizard, which was not the intended UX.
+
+When launched from `?mode=prototype` the toggle showed "Web" and "Deck" buttons above web templates. When launched from `?mode=ppt` the same toggle appeared above deck templates. The user wants the gallery locked to the launch mode with no toggle visible.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 37 (B3 — Configure + Composer/Wizard), Phase 41 (B7 — Configure Composer Rebuild)
+- **Relevant register section:** Phase 37 §3 (`WizardStepper`, `LaunchWizard`)
+- **Deleted code verified (not resurrected):** N/A — this is an additive prop, no prior deleted code involved
+- **Locked decisions respected:** SC-001/INV-1 — `mode` stays a generic data value, no workflow-name branch introduced
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/WizardStepper.tsx` | Added `showToggle?: boolean` to `WizardStepperProps` (default `false`); added `showToggle = false` to destructure; wrapped the toggle `<div>` block in `{showToggle && (...)}` | Hides the toggle by default; all existing callers (LaunchWizard) get the correct behavior without any prop change |
+| `frontend/src/components/workflow/WizardStepper.test.tsx` | Updated `Harness` component to accept `showToggle` prop; replaced the old toggle-swap test with: (1) a test confirming toggle is hidden by default, (2) a test confirming toggle still works when `showToggle={true}` | Test must reflect the new default behavior |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — `mode` stays a generic data value; no workflow-name branch
+- **INV-3** (golden parity): not affected — FE-only change, no backend, no engine, no golden snapshots
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+
+Mental trace with fix applied:
+1. User opens `/workflow/create?mode=prototype`
+2. `create/page.tsx` → `mode = "prototype"` → `LaunchWizard(initialMode="prototype")`
+3. `LaunchWizard` → `STEPPER_MODE["prototype"] = "web"` → `<WizardStepper mode="web" ...>` (no `showToggle` prop → defaults to `false`)
+4. `WizardStepper` → `showToggle = false` → `{false && <div>...</div>}` → toggle NOT rendered ✅
+5. `mode === "web"` → `<TemplateGallery>` renders → only web templates visible ✅
+
+PPT path: same but `mode="deck"` → `<PPTTemplateGallery>` renders → only deck templates visible ✅
+
+`LaunchWizard.test.tsx` not changed: it uses a mock stub of `WizardStepper` that directly exposes toggle buttons regardless of `showToggle`; those tests cover `handleModeChange` logic in `LaunchWizard` which remains intact.
+
+#### Notes
+
+- The `onModeChange` prop and `handleModeChange` logic in `LaunchWizard` are intentionally preserved — they remain available if cross-family switching is ever needed in future (just pass `showToggle={true}` to re-enable).
+- The `Globe` and `Presentation` icon imports in `WizardStepper.tsx` are preserved (they're needed if `showToggle={true}` is used).
+- No backend restart needed — FE-only change.
+
+---
+
+### FIX-063 — KAN-113: Fix version dropdown wrong relative age (timezone-naive datetime)
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-113`
+
+#### Root Cause
+
+`backend/app/api/runs.py` — `WorkflowRunResponse` and `FamilyMemberResponse` both declare `created_at: datetime` and `completed_at: Optional[datetime]` without any timezone-aware serialization configuration.
+
+SQLAlchemy's `DateTime` column (`workflow.py` lines 38-41) stores datetimes without timezone info (uses `DateTime`, not `DateTime(timezone=True)`). When read back from SQLite, the datetime object has `tzinfo=None` — a naive datetime — even though it was originally written as `datetime.now(timezone.utc)`.
+
+Pydantic v2 serializes a naive datetime as `"2026-07-21T10:30:00"` (no `+00:00` or `Z` suffix). JavaScript's `Date.parse()` treats an ISO 8601 string without a timezone suffix as **local time** per the ECMAScript spec. For a user in UTC+5:30 (India), this adds 5.5 hours to the epoch value, making a freshly-created run appear as "5h ago" rather than "just now".
+
+Trace:
+```
+WorkflowRun.created_at = datetime(2026,7,21,10,30,0)  ← naive (no tzinfo)
+  → FamilyMemberResponse.created_at = same naive datetime
+  → Pydantic v2 JSON: "2026-07-21T10:30:00"  ← NO +00:00
+  → JS Date.parse("2026-07-21T10:30:00") treats as LOCAL time (UTC+5:30 adds 5.5h)
+  → Date.now() - then = tiny positive or negative → shows "5h ago"
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 36 §3 (`FamilyMemberResponse` / Workstream A read surface) + Phase 5 §3 (`WorkflowRunResponse` / typed artifacts persistence)
+- **Relevant register section:** `_register-parts/05-typed-artifacts-persistence-ownership-1b.md` §3 and Phase 36 §3
+- **Deleted code verified (not resurrected):** N/A — new serializer code only
+- **Locked decisions respected:** INV-12 — the fix reuses the `_coerce_to_aware_utc` pattern already established in `backend/app/core/dependencies.py` lines 20-31, applied as a `@field_serializer` at the API boundary
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/runs.py` | Added `timezone` to `from datetime import datetime, timezone` | Required by the serializer to call `.replace(tzinfo=timezone.utc)` |
+| `backend/app/api/runs.py` | Added `field_serializer` to `from pydantic import BaseModel, Field, field_serializer` | Required for the `@field_serializer` decorator |
+| `backend/app/api/runs.py` | Added `@field_serializer("created_at", "completed_at")` method `_serialize_dt` to `WorkflowRunResponse` | Promotes naive UTC datetimes to timezone-aware before JSON serialization |
+| `backend/app/api/runs.py` | Added same `@field_serializer("created_at", "completed_at")` to `FamilyMemberResponse` | Same fix — this is the model consumed by the version dropdown's `formatRelativeAge` |
+
+The serializer logic:
+```python
+@field_serializer("created_at", "completed_at")
+def _serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+    if v is None:
+        return None
+    if v.tzinfo is None:
+        v = v.replace(tzinfo=timezone.utc)
+    return v.isoformat()
+```
+Result: `"2026-07-21T10:30:00+00:00"` instead of `"2026-07-21T10:30:00"`.
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — Python API model only
+- **INV-3** (golden parity): not affected — no engine or event stream changes; golden snapshots do not cover API JSON serialization
+- **INV-12** (no duplication): the `_coerce_to_aware_utc` helper in `dependencies.py` is the prior art for this pattern; `@field_serializer` is the Pydantic v2 canonical way to apply it at the serialization boundary
+- **SC-001** (zero engine edits): not affected — API model only
+
+#### Verification
+
+Mental trace with fix applied:
+1. SQLite returns `datetime(2026,7,21,10,30,0)` (naive)
+2. `FamilyMemberResponse._serialize_dt()` called with that value
+3. `v.tzinfo is None` → `v = v.replace(tzinfo=timezone.utc)` → `datetime(2026,7,21,10,30,0, tzinfo=UTC)`
+4. `.isoformat()` → `"2026-07-21T10:30:00+00:00"` ✅
+5. Frontend `Date.parse("2026-07-21T10:30:00+00:00")` → correct UTC epoch
+6. `Date.now() - then` → correct small delta → "just now" or "4m ago" ✅
+
+UTC-aware datetimes on Postgres (already have `tzinfo`): `v.tzinfo is None` is False → `.isoformat()` called directly → no change in behavior.
+
+#### Notes
+
+- The same naive-datetime issue potentially exists in other API files (analytics.py, user_workflows.py, etc.) for any `created_at` / `updated_at` fields, but those are lower-priority since they don't feed the `formatRelativeAge` function in the UI.
+- The underlying SQLAlchemy column (`DateTime` without `timezone=True`) is intentionally left unchanged — switching to `DateTime(timezone=True)` would require a migration and has risks on SQLite compatibility. The serializer boundary fix is the correct minimal approach.
+- Backend server restart required after this change.
+
+---
+
+### FIX-062 — Move "v1 draft" chip to left of "Running · Streaming" badge in RunHeader
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix please apply option A` (from `/velocity-ai-analyze` on the run header layout)
+
+#### Root Cause
+
+`frontend/src/components/preview/RunHeader.tsx` — the version chip `<span>` ("v1 draft") was placed **after** the `<div className="flex-1" />` spacer in the JSX flex row. Flex-1 pushes all subsequent siblings to the right edge, so the chip appeared in the top-right corner. The status badge ("Running · Streaming") was placed before the spacer on the left side.
+
+Sequence:
+```
+[StatusBadge LEFT] → [flex-1 spacer] → [v1 draft chip RIGHT] → [Share RIGHT]
+```
+
+The user wanted the chip on the **left of** the status badge, which requires it to be the first child in the flex container.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 39 (RUNUI-06/07) — `RunHeader` component built to match `Hexaware Run - Live.dc.html:159-166`
+- **Deleted code verified (not resurrected):** N/A — purely JSX ordering change
+- **Locked decisions respected:** Phase 39 D39-1 (mock-fidelity) — user explicitly overrides the original right-side placement
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/preview/RunHeader.tsx` | Moved the `{!isSettled && versionLabel && <span>...}` chip block from after the `flex-1` spacer to **before** the `{isSettled ? <VersionMenu/> : <StatusBadge/>}` block | Makes the chip the leftmost element in the flex row, rendering it to the left of the status badge |
+
+New render order:
+```
+[v1 draft chip] → [Running · Streaming badge] → [flex-1 spacer] → [Share button]
+```
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — React component only
+- **INV-3** (golden parity): not affected — no engine or event changes
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- Chip and badge are in the correct DOM order after the edit
+- `RunHeader.test.tsx` asserts presence of "v1 draft" text only (not position) — no test regression
+- `tsc` — no type changes; same props, same conditionals
+- Settled state: chip conditional `!isSettled` is false → chip not rendered → `VersionMenu` renders as before — zero regression on the settled state
+- Failed state: "v1 · partial" chip appears leftmost, then the red "Run failed" badge — also correct behavior
+
+#### Notes
+- The chip's styling, conditional logic, and text content are completely unchanged
+- Only JSX position was altered
+
+---
+
+### FIX-050 — KAN-109: Add AI Coach Hub SKILL.md to expose template in gallery
+
+**Date:** 2026-07-15
+**Triggered by:** `/velocity-ai-fix KAN-109 — add SKILL.md for ai-coach-hub template`
+
+#### Root Cause
+
+`skills/opendesign/design-templates/ai-coach-hub/SKILL.md` was absent. The loader
+`backend/app/services/od_loader.py::_load_one_template()` checks `(folder / "SKILL.md").is_file()`
+first and returns `None` if the file is missing — the folder is then silently excluded from
+`list_prototype_templates()` which only returns entries with `od.mode == "prototype"`. The
+`example.html` file was present and correct (six navigable screens, all `data-od-id` attributes,
+hash-based router, inline JS controller).
+
+Trace:
+```
+GET /api/prototype-templates/list
+  → list_prototype_templates()
+  → _all_templates()  [@lru_cache — cleared on restart]
+  → _load_one_template(ai-coach-hub/)
+  → skill_path = folder / "SKILL.md"
+  → if not skill_path.is_file(): return None   ← ai-coach-hub/ skipped
+  → template never added to result list
+  → gallery shows no AI Coach Hub card
+```
+
+#### Phase Context
+
+- **Phase(s) involved:** N/A — OpenDesign templates are pure content under `skills/`, not tracked by any engine phase.
+- **Relevant register section:** Not applicable (content file, no phase section).
+- **Deleted code verified (not resurrected):** No code deleted or modified.
+- **Locked decisions respected:** N/A — pure content addition.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `skills/opendesign/design-templates/ai-coach-hub/SKILL.md` | Created new file with `od.mode: prototype` frontmatter, name/description/triggers/od block, and full agent build workflow (pre-flight, domain replacement, JS data adaptation, six-screen self-check, nav integrity check, output contract) | `od_loader._load_one_template()` requires SKILL.md; `list_prototype_templates()` requires `od.mode == "prototype"` to include the template in the gallery |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): not affected — no engine code changed.
+- **INV-3** (golden parity): not affected — no agent or engine code changed.
+- **INV-12** (no duplication): not applicable — pure content addition.
+- **SC-001** (zero engine edits): not affected — zero engine edits.
+
+#### Verification
+
+1. Confirmed `od.mode: prototype` present in the new SKILL.md via grep.
+2. Backend restarted — `@lru_cache` on `_all_templates()` cleared.
+3. Template will appear at `http://localhost:3000/workflow/prototype/templates` with name "AI Coach Hub", tags DESKTOP and SAAS-PRODUCT, and the live preview.
+
+#### Notes
+
+- The template was previously built and verified working (screenshot confirmed by user), then reverted due to missing branch discipline. KAN-109 was created to track the redo.
+- The SKILL.md follows the exact `process-canvas/SKILL.md` pattern: YAML frontmatter with `od` block + markdown body with pre-flight / workflow / hard-rules / output-contract sections.
+- All six screen `data-page` ids and `data-od-id` attributes documented in the SKILL.md screen inventory table so agents know what to change vs preserve when re-skinning.
+
+---
+
+### FIX-049 — KAN-108: Add Revision Validation Agent to prototype_revision pipeline
+
+**Date:** 2026-07-13
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-108`
+
+#### Root Cause
+
+`backend/agents/workflows/prototype_revision/workflow.yaml` declared only one step (`prototype-revision-agent`). The silent `revision_validation` post-step fires after this agent and runs a regression-only fix loop (max 2 attempts). It only catches issues that are NEW compared to the pre-edit baseline. A no-op edit (edit_file anchor miss → file unchanged), blank pages, missing requested components, and broken navigation all produce a baseline delta of zero → fix loop exits → broken/unchanged prototype delivered with `pipeline_complete`. Additionally `clarify.mode: auto` fired a questionnaire on every revision run — prototype and od_ppt were corrected to `skip` in FIX-010/FIX-015 but `prototype_revision` was not updated.
+
+The `prototype-validate` agent (final step of the base `prototype` pipeline) already implements the needed comprehensive checks (fills empty pages, verifies navigation, enforces DS tokens, etc.) but declares `consumes: [prototype-build]` and `injects: [template, design_system]` — contracts that are incompatible with the `prototype_revision` pipeline where there is no `prototype-build` and design context is seeded via `previous_run` from the sandbox. Reusing it directly would cause the DAG satisfiability check to fail hard.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 7 (07-10/CR-06 — `revision_validation` post-step + agent registry). FIX-010/FIX-015 (clarify.mode: skip precedent).
+- **Relevant register section:** `_register-parts/07-prototype-as-manifest-parity-proof-sc-001-2.md` §3 (capabilities added)
+- **Deleted code verified (not resurrected):** No deleted code resurrected. The new agent is a forward addition.
+- **Locked decisions respected:** D-01 (SC-001: no workflow-name literals; manifest + AGENT.md only). D-14 (planner: run stays on `prototype_revision` — it rides `run_pipeline`, not the `run_revision` dispatch path that requires `planner: skip`). FIX-010/015 precedent: `clarify.mode: skip` is the correct setting for any pipeline whose launch surface already provides the complete brief.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/prompts/prototype-revision-validate/AGENT.md` | New file — dedicated Revision Validation Agent with `pipeline_type: prototype_revision`, `consumes: [prototype-revision-agent]`, `injects: []`, `tools: [workspace]`, `order: 2`. Same prompt body as `prototype-validate` adapted to read `design.md` via workspace tools (no opendesign injection needed — design.md is seeded from the parent run sandbox). | Cannot reuse `prototype-validate` — its `consumes: [prototype-build]` makes the DAG unsatisfiable in `prototype_revision`; a dedicated agent with correct contracts is required |
+| `backend/agents/workflows/prototype_revision/workflow.yaml` | Added second step `prototype-revision-validate` (strategy: single_shot, gates: []). Changed `clarify.mode` from `auto` to `skip`. | Adds the visible validation step after the revision; eliminates the questionnaire friction |
+| `backend/agents/registry.py` | Updated `prototype_revision` list from `["prototype-revision-agent"]` to `["prototype-revision-agent", "prototype-revision-validate"]`. | Single source of truth for pipeline membership |
+| `backend/tests/agents/_scripted_model.py` | Added scripted branch for `prototype-revision-validate` returning a clean text-only turn `["Validated — 1 page checked, no issues found."]` | Harness needs a script for every declared agent in the pipeline |
+| `backend/tests/agents/characterization/golden/prototype_revision.events.json` | Regenerated (SNAPSHOT_UPDATE=1) — now includes `prototype-revision-validate` events: `pipeline_start` with 2 agents, `agent_start/input/chunk/complete` for both, `pipeline_complete` with `agents_total: 2`. | INV-3: golden must reflect the new 2-agent event stream |
+| `backend/tests/agents/characterization/golden/prototype_revision.html` | Regenerated — deliverable is still `prototype.html` from the revision agent (validation agent text-only in scripted harness). | Byte snapshot stays valid |
+| `backend/tests/agents/test_phase5_revision_validation.py` | Updated 4 `turns_for` callbacks in `TestFixPolicyEndToEnd` and `TestEventVocabularyUnchanged` to return `_clean_revision_turns()` for `prototype-revision-validate`. Updated `test_internal_fix_loop_leaks_no_phantom_second_agent` assertions: `agent_start == 2`, `agent_complete == 2`, `starts == ["prototype-revision-agent", "prototype-revision-validate"]`, `edit_file count == 2`. | Tests were written for a 1-agent pipeline; update to reflect the correct 2-agent contract |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): not affected — no `if pipeline_type ==` literals added anywhere. The new agent is dispatched generically by the engine via manifest steps.
+- **INV-3** (golden parity): `prototype_revision` golden intentionally regenerated (new second agent step changes the event stream). Other 4 goldens (`prototype`, `od_prototype`, `od_ppt`, `app_builder`) pass unchanged — verified 8/8.
+- **INV-12** (no duplication): the new `prototype-revision-validate` agent has different DAG contracts from `prototype-validate` (`consumes`, `injects`, `pipeline_type`, `tools` all differ) — not a duplicate; reuse of `prototype-validate` was explicitly rejected because its contracts are incompatible with this pipeline.
+- **SC-001** (zero engine edits for new workflows): no engine edits. Change is manifest + AGENT.md + registry + test update only.
+
+#### Verification
+
+- `pytest tests/agents/test_characterization_prototype_revision.py` — **2/2 passed**
+- `pytest tests/agents/test_characterization_prototype.py tests/agents/test_characterization_od_ppt.py tests/agents/test_characterization_od_prototype.py tests/agents/test_characterization_app_builder.py` — **8/8 passed** (other goldens byte-identical)
+- `pytest tests/agents/test_phase5_revision_validation.py tests/agents/test_manifest_parity.py::test_planner_run_everywhere tests/agents/test_manifest_parity.py::test_run_revision_manifests_declare_planner_skip tests/agents/test_manifest_parity.py::test_run_revision_revision_agents_declare_no_template_injects` — **26/26 passed**
+- `pytest tests/agents/test_registry_capabilities.py` — all passed (no capability count change — new agent uses existing registered capabilities only)
+
+#### Notes
+
+- The `clarify.mode: skip` change makes `prototype_revision` consistent with `prototype` and `od_ppt` (FIX-010/FIX-015). The `clarify.defaults` list is unchanged — it's irrelevant when mode is `skip` but the existing list already matches the `_CUSTOM_DEFAULTS` fallback in `test_clarify_defaults_match_engine`.
+- The `test_clarify_defaults_match_engine` failures for `prototype`, `ppt`, `app_builder`, etc. are **pre-existing** and unrelated to this fix (they predate this session).
+- On live Bedrock, `prototype-revision-validate` will receive `design.md` from the parent run's sandbox (seeded by `previous_run` provider) and read `prototype.html` via `workspace` tools — no opendesign injection needed, which is correct since the design context is already materialized in the sandbox.
+
+---
 
 **Date:** 2026-06-16
 **Triggered by:** `#velocity-ai-fix PPT preview not showing correctly, multiple issues`
@@ -1362,427 +1741,7 @@ Four committed fixtures: **A `-full` must-FAIL** (5 genuine static dead + 17/17 
 **Invariants:** INV-1/3/12/13 ✅ (additive; no migration; kernel-pure/app→app imports; goldens byte/event-identical). **Status:** Done.
 **Known standing item:** `test_characterization_od_ppt` fails offline only (pre-existing skills-asset/event-golden drift, unrelated to the validators) → CI/clean-env re-confirm.
 
----
-
-### FIX-039 — KAN-92: Workflow History Incorrect Titles (3 Root Causes)
-
-**Date:** 2026-07-06
-**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-92`
-
-#### Root Cause
-
-Three independent title-generation failures all in `backend/app/api/websocket.py`:
-
-**Root Cause 1 — Wizard-chain title reuses source pipeline's title verbatim**
-`_generate_workflow_title()` wizard-chain shortcut path (fired when `clean_content=""`, i.e. the entire input is a `=== CONTEXT FROM PREVIOUS PIPELINE ===` block): it extracted the `Title:` line from the context block (e.g. "Fintech App User Stories") and wrote it directly as the new run's title regardless of `pipeline_type`. For a chained prototype run the title "Fintech App User Stories" was persisted and emitted — identical to the parent's title, making history entries indistinguishable.
-
-**Root Cause 2 — `run_revision` title stays as raw instruction truncation forever**
-`_handle_revision_execution` created the `WorkflowRun` row with `title=f"Revision: {instruction[:50]}"` (a placeholder). Unlike `_handle_workflow_execution` (which schedules `asyncio.create_task(_generate_workflow_title(...))` after `db.commit()`), the revision path had no equivalent — the `create_task` call was simply never added. The "Revision: Change the color scheme to da..." placeholder therefore persisted as the permanent run title.
-
-**Root Cause 3 — Legacy revision placeholder shows `=== EXISTING PROTOTYPE HTML ===`**
-`_handle_workflow_execution`'s WorkflowRun creation used:
-```
-title=(_strip_pipeline_context(content) or _extract_title_from_context(content) or content or "Untitled")[:60]
-```
-For revision messages whose content starts with `=== EXISTING PROTOTYPE HTML ===` (the frontend-injected block), both `_strip_pipeline_context` and `_extract_title_from_context` return `""` (neither the `_WORKFLOW_TITLE_CONTEXT_MARKER` nor `_CHAIN_CONTEXT_TITLE` patterns match this marker). The chain falls through to `or content`, inserting the raw string `"=== EXISTING PROTOTYPE HTM"` (truncated to 60 chars) as the initial placeholder that shows in the history panel for 2-5 seconds until the async LLM title fires. The `_REVISION_REQUEST_MARKER` regex — which correctly extracts the user's actual revision instruction from the `=== REVISION REQUEST ===` section — was already defined but never tried in this fallback chain.
-
-#### Phase Context
-- **Phase(s) involved:** Phase 14 (run_revision real revision loop) · Phase 16 (WebSocket title gen pattern) · Phase 22 (WorkflowRun fields)
-- **Relevant register section:** `_register-parts/14-run-revision-real-revision-loop-f2-end-to-end.md`, Phase 16 §3
-- **Deleted code verified (not resurrected):** No deleted code involved. `_REVISION_REQUEST_MARKER` was already present and used in `_strip_pipeline_context`; we're adding a third call site only.
-- **Locked decisions respected:** Async title generation as best-effort background task is the established pattern per run_pipeline path — fix 2 replicates it exactly. No engine edits (SC-001).
-
-#### Fix Applied
-
-| File | Change | Why |
-|------|--------|-----|
-| `backend/app/api/websocket.py` | In `_generate_workflow_title` wizard-chain path: instead of writing `context_title[:60]` verbatim, build `chained_title = f"{context_title} – {hint.title()}"[:80]` using `_WORKFLOW_TITLE_PIPELINE_HINTS[pipeline_type]`; fallback to `context_title[:60]` when hint is absent | Disambiguates chained run titles from their parent — "Fintech App User Stories – Interactive Html Prototype" vs "Fintech App User Stories" |
-| `backend/app/api/websocket.py` | In `_handle_revision_execution`, after `db.close()`: add `asyncio.create_task(_generate_workflow_title(workflow_run_id=workflow_run_id, content=instruction, pipeline_type=revision_pipeline_type, websocket=websocket))` | Revision runs get the same async LLM-generated title as pipeline runs; `instruction` is clean user text so `_strip_pipeline_context` passes it through unchanged |
-| `backend/app/api/websocket.py` | In `_handle_workflow_execution` WorkflowRun creation title expression: insert `(lambda m: m.group(1).strip() if m else None)(_REVISION_REQUEST_MARKER.search(content or ""))` between `_extract_title_from_context(content)` and `or content` | For revision messages starting with `=== EXISTING … ===`, extracts the user's actual instruction from `=== REVISION REQUEST ===` section as placeholder instead of the raw HTML marker prefix |
-
-#### Invariants Verified
-- **INV-1** (no pipeline_type branches): not affected — `_WORKFLOW_TITLE_PIPELINE_HINTS.get()` is a dict lookup with a default, not an `if pipeline_type ==` branch in the engine kernel
-- **INV-3** (golden parity): not affected — title is a UI field on `WorkflowRun`, not present in characterization event snapshots; 5 goldens byte-identical
-- **INV-12** (no duplication): reuses existing `_generate_workflow_title`, `_REVISION_REQUEST_MARKER`, `_WORKFLOW_TITLE_PIPELINE_HINTS` — no new functions or duplicated logic
-- **SC-001** (zero engine edits): not affected — all 3 changes are in `websocket.py` app layer only
-
-#### Verification
-- Fix 1: `_generate_workflow_title` wizard-chain path reads `chained_title` from confirmed code review — suffix logic verified in context (lines 494–527)
-- Fix 2: `asyncio.create_task(_generate_workflow_title(...))` confirmed present at line 2330 after `db.close()`, before `_get_or_create_queue` — matches run_pipeline pattern exactly
-- Fix 3: Lambda expression for `_REVISION_REQUEST_MARKER` confirmed in WorkflowRun `title=` argument at line ~1752 — all 3 fallbacks (`_strip_pipeline_context`, `_extract_title_from_context`, `_REVISION_REQUEST_MARKER`) now tried before `or content`
-- Backend restarted successfully, `alembic=0023`, no import errors
-
-#### Notes
-- Fix 1 uses `.title()` on the hint string (e.g. `"interactive html prototype"` → `"Interactive Html Prototype"`) — may want to switch to title-case-only words in the hints dict if the capitalization looks off in production
-- Fix 2 means `run_revision` will briefly show "Revision: <50 chars>" and then update to the LLM title (~2-3s) — same UX as run_pipeline. The `workflow_title_update` WS event is handled by the frontend already
-- Fix 3 only improves the 2-5s placeholder window; the LLM title still fires and replaces it — the improvement is that the placeholder is now the readable instruction text rather than `=== EXISTING PROTOTYPE HTM`
-
----
-
-### FIX-040 — KAN-93: Notification Panel shows raw context block text (chained/revision runs)
-
-**Date:** 2026-07-06
-**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-93`
-
-#### Root Cause
-
-Five `addRunningNotification` call sites in `DashboardLayout.tsx` passed the raw enriched input (or raw pipeline message) `.slice(0,60)` as the notification title without stripping injected marker blocks first.
-
-For chained pipeline runs, `enrichedInput` is composed as `${chainBrief}\n\n${contextBlock}`. When `chainBrief` is `""` (wizard-chain where the user typed nothing — the brief was already embedded in the context block), `enrichedInput` starts directly with `=== CONTEXT FROM PREVIOUS PIPELINE (prototype) ===\nTitle: ...`. Slicing to 60 chars gives the raw marker text as the notification title.
-
-For revision runs, `message` may start with `=== EXISTING PROTOTYPE HTML ===` (the frontend-injected existing-artifact block). The same slice-without-strip exposes raw HTML marker text.
-
-The `parseRunInput()` function (Workstream C1, Phase 25 / INV-12's canonical FE parser) was already imported in `DashboardLayout.tsx` and already used in `handleChainPipeline`/`handleChainFromHistory` to build `chainBrief`/`historyBrief` — but was not applied at the `addRunningNotification` call sites.
-
-Additionally, the existing `updateAgentsTotal(notifId, agentCount, latestRun.title)` effect at line ~474 already updates the notification title to the LLM-generated clean title when `workflow_title_update` arrives (~2-3s later), so the title self-corrects even without this fix — the fix improves the initial placeholder.
-
-**Broken call sites:**
-1. `handleRunPipeline` (~line 871): `message.slice(0,60)` — message may be a revision blob
-2. `handleChainPipeline` (~line 968): `enrichedInput.slice(0,60)` — enrichedInput starts with `===` for wizard-chains
-3. `handleChainFromHistory` (~line 1045): `enrichedInput.slice(0,60)` — same
-4. `handleQuestionnaireSubmit` (~line 1122): `pendingPipelineRun.message.slice(0,60)` — same as #1
-5. `handleQuestionnaireSkip` (~line 1157): `pendingPipelineRun.message.slice(0,60)` — same as #1
-
-**Safe call sites (untouched):**
-- `odProtoNotifCreated` effect (line ~457): uses hardcoded label `"Prototype"` / `"Presentation"` — correct
-- `pendingOdProtoParams` effect (line ~693): uses `pendingOdProtoParams.brief` — wizard-collected clean text
-- `pendingOdPptParams` effect (line ~740): uses `pendingOdPptParams.brief` — same
-
-#### Phase Context
-- **Phase(s) involved:** Phase 22 (notification system) · Phase 25 / Workstream C1 (parseRunInput, INV-12 canonical parser)
-- **Relevant register section:** `_register-parts/22-capability-surfacing-and-user-empowerment-universal-runtime-.md` §3
-- **Deleted code verified (not resurrected):** No deleted code. `parseRunInput` is the live Workstream C1 parser, already imported.
-- **Locked decisions respected:** INV-12 — using the existing `parseRunInput`, not duplicating any strip logic.
-
-#### Fix Applied
-
-| File | Change | Why |
-|------|--------|-----|
-| `frontend/src/components/layout/DashboardLayout.tsx` | `handleRunPipeline`: replace `message.slice(0,60)` with `parseRunInput(message).revisionInstruction ?? parseRunInput(message).brief \|\| message).slice(0,60)` | Strips `=== EXISTING … ===` blocks from revision messages |
-| `frontend/src/components/layout/DashboardLayout.tsx` | `handleChainPipeline`: replace `enrichedInput.slice(0,60)` with `(chainBrief \|\| enrichedInput).slice(0,60)` | `chainBrief` is already the stripped user brief, computed above the call site |
-| `frontend/src/components/layout/DashboardLayout.tsx` | `handleChainFromHistory`: replace `enrichedInput.slice(0,60)` with `(historyBrief \|\| enrichedInput).slice(0,60)` | Same — `historyBrief` already stripped by `parseRunInput` above the call site |
-| `frontend/src/components/layout/DashboardLayout.tsx` | `handleQuestionnaireSubmit`: parse `pendingPipelineRun.message` with `parseRunInput`, use `revisionInstruction ?? brief` | Same strip needed — message is the same raw input from `handleRunPipeline` |
-| `frontend/src/components/layout/DashboardLayout.tsx` | `handleQuestionnaireSkip`: same as submit | Same |
-
-#### Invariants Verified
-- **INV-1** (no pipeline_type branches): not affected — FE-only change
-- **INV-3** (golden parity): not affected — no backend/golden snapshot changes
-- **INV-12** (no duplication): reuses existing `parseRunInput` (already imported) — no new strip logic
-- **SC-001** (zero engine edits): not affected — FE only
-
-#### Verification
-- TypeScript diagnostics: 0 errors after all 5 edits
-- All `addRunningNotification` call sites confirmed — grep shows 5 fixed sites + 3 safe untouched sites
-- No backend restart needed (FE-only change, frontend dev server already running)
-- The `updateAgentsTotal` title-update effect at line ~474 still fires when `workflow_title_update` arrives, replacing the initial title with the LLM-generated clean title (~2-3s later) — belt-and-suspenders
-
-#### Notes
-- For wizard-chains where `chainBrief=""` (pure context block input), `chainBrief || enrichedInput` falls back to `enrichedInput` which still starts with `===`. This edge case is caught by the backend's `_generate_workflow_title` (FIX-039) which fires ~2s later and calls `updateAgentsTotal` with the clean LLM title. The notification placeholder in this scenario improves slightly but won't be fully clean until the LLM title arrives — acceptable because wizard-chains always have `pipeline_type` info (e.g. "Prototype") visible elsewhere in the notification card.
-- The `pendingOdProtoParams`/`pptParams` effects intentionally left untouched — `.brief` is the wizard-collected clean user text, not an enriched input.
-
----
-
-### FIX-041 — KAN-94: Blank Specification Review Panel + ReviewGatesSection collapsed by default
-
-**Date:** 2026-07-06
-**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-94`
-
-#### Root Cause
-
-Two distinct UX gaps:
-
-**Gap 1 — Empty-state actions misleading:**
-`ReviewGatePanel.tsx` lines 355-363 rendered "No content was produced for review" as a plain info message, then fell through to the same full Actions footer (primary Approve button + Reject) as a content-bearing gate. Clicking "Approve & continue" with an empty spec passes `""` to `prototype-plan`, which then produces a broken task list, cascading into a broken build. The comment even said "never present a silently blank panel with live Approve/Reject buttons" but that was exactly what was rendered.
-
-**Gap 2 — ReviewGatesSection collapsed by default:**
-`ReviewGatesSection.tsx` line 44: `const [expanded, setExpanded] = useState(false)`. Users who open the prototype wizard and proceed without expanding the section get all 3 review gates active (prototype-specify, prototype-plan, prototype-analyze declare `gate: Human_Gate` in their AGENT.md frontmatter) without any visual indication. This is the main reason users encounter the gate unexpectedly.
-
-#### Phase Context
-- **Phase(s) involved:** Phase 8 (GATE-01/02 — ReviewGatePanel), Phase 23 (REDO-GATE)
-- **Relevant register section:** `_register-parts/08-capabilities-hardened-registry-gates-tool-perms-runtime-3.md` §3
-- **Deleted code verified (not resurrected):** No deleted code involved
-- **Locked decisions respected:** REDO-GATE F1b fence (`canRedo = !!onRedo && !!redoable`) unchanged — Redo block only renders when server set `redoable:true`
-
-#### Fix Applied
-
-| File | Change | Why |
-|------|--------|-----|
-| `frontend/src/components/preview/ReviewGatePanel.tsx` | Empty-state content area: replaced flat "approve or reject" text with amber warning icon + "The agent produced no output" heading + conditional guidance (Redo if available, else "Reject or continue") | Makes the situation clear and guides toward the safe recovery action (Redo) |
-| `frontend/src/components/preview/ReviewGatePanel.tsx` | Actions footer: branched on `!(hasEdits ? editedContent : output)?.trim()` to show a de-emphasized "Continue anyway (not recommended)" ghost button instead of the primary dark Approve button when output is empty | Prevents accidentally approving an empty spec; the ghost styling makes the risk apparent; the action is still available for power users who need to skip |
-| `frontend/src/components/workflow/ReviewGatesSection.tsx` | `useState(false)` → `useState(true)` for `expanded` initial state | Users now see the active gate checkboxes immediately when the section renders, so they know 3 review pauses will occur before launching |
-
-#### Invariants Verified
-- **INV-1** (no pipeline_type branches): not affected — FE-only
-- **INV-3** (golden parity): not affected — no backend/golden snapshot changes
-- **INV-12** (no duplication): reuses existing `handleApprove`, `canRedo`, `output` — no new logic
-- **SC-001** (zero engine edits): not affected — FE only
-
-#### Verification
-- TypeScript diagnostics: 0 errors on both changed files
-- Normal gate path (output non-empty): `!(output?.trim())` = false → normal primary Approve button rendered unchanged
-- Empty gate path (output empty): `!(output?.trim())` = true → de-emphasized "Continue anyway" shown; Redo section still renders if `canRedo`
-- ReviewGatesSection: `expanded=true` on mount — gate checkboxes visible immediately; user can collapse
-
-#### Notes
-- The `canRedo` check reuses the existing REDO-GATE F1b fence exactly — no change to when Redo renders; only the empty-state messaging references it
-- If the user edits content in the textarea (hasEdits=true, editedContent non-empty), the approve button switches back to the primary style correctly because `!(hasEdits ? editedContent : output)?.trim()` = false
-- The AcceptanceCriteria item "ReviewGatesSection expanded by default" is now met; the "auto-approve if empty" option from the Jira was deliberately not chosen — the human reviewer should be aware the agent produced nothing and consciously choose to continue, hence the de-emphasized button approach
-
----
-
-### FIX-042 — KAN-95: Reject & Cancel Pipeline Leaves User Stranded on Execution View
-
-**Date:** 2026-07-06
-**Triggered by:** `#velocity-ai-fix KAN-95`
-
-#### Root Cause
-
-`onRejectReview` in `frontend/src/app/dashboard/page.tsx` (lines 1341-1344) only sent the WS reject message and called `setReviewGateData(null)`. It did not:
-1. Set `cancelNavigatingHomeRef.current = true` — without this, `DashboardLayout.tsx:367`'s `pipelineState.isRunning` effect immediately overrides any `setMainView("home")` call, snapping the view back to `"execution"`.
-2. Call `setMainView("home")` — so the user stayed on the execution view.
-3. Call `onResetPipeline()` — so the agent list stayed in its cancelled/done state.
-
-The exact same pattern was already solved for KAN-90 (`handleCancelWorkflow` in `DashboardLayout.tsx`) — it sets `cancelNavigatingHomeRef.current = true` first, then navigates, then resets. That pattern just wasn't applied to the reject path.
-
-#### Phase Context
-- **Phase(s) involved:** Phase 8 (GATE-01/02 — ReviewGatePanel), Phase 23 (REDO-GATE)
-- **Relevant register section:** `_register-parts/08-capabilities-hardened-registry-gates-tool-perms-runtime-3.md` §3
-- **Deleted code verified (not resurrected):** No deleted code involved
-- **Locked decisions respected:** `onRejectReview` prop contract unchanged — WS send still fires; only navigation layer added
-
-#### Fix Applied
-
-| File | Change | Why |
-|------|--------|-----|
-| `frontend/src/components/layout/DashboardLayout.tsx` | Added `handleRejectReview` callback after `handleCancelWorkflow` — sets `cancelNavigatingHomeRef.current = true`, calls `setMainView("home")`, calls `onResetPipeline()`, then delegates to `onRejectReview(gateKey)` for the WS send + `reviewGateData` clear | Mirrors the KAN-90 `handleCancelWorkflow` pattern exactly; the `cancelNavigatingHomeRef` guard is load-bearing |
-| `frontend/src/components/layout/DashboardLayout.tsx` | Changed `onReject={onRejectReview \|\| (() => {})}` to `onReject={handleRejectReview}` in the ReviewGatePanel mount | Routes the reject through the new wrapper instead of the raw page.tsx callback |
-
-#### Invariants Verified
-- **INV-1** (no pipeline_type branches): not affected — FE-only
-- **INV-3** (golden parity): not affected — no backend/golden snapshot changes
-- **INV-12** (no duplication): reuses existing `cancelNavigatingHomeRef`, `setMainView`, `onResetPipeline` — exact same pattern as `handleCancelWorkflow`
-- **SC-001** (zero engine edits): not affected — FE only
-
-#### Verification
-- TypeScript diagnostics: 0 errors after both edits
-- Trace: user clicks Reject → `handleRejectReview(gateKey)` fires → `cancelNavigatingHomeRef=true` → `setMainView("home")` → `onResetPipeline()` → `onRejectReview(gateKey)` → WS send → `setReviewGateData(null)` → `pipelineState.isRunning` effect fires but `cancelNavigatingHomeRef` is true → effect returns without overriding → user sees home view
-- No backend restart needed (FE-only change)
-
-#### Notes
-- `handleRejectReview` does NOT need to send `cancel_pipeline` separately — the `onRejectReview` prop already sends `approve_review{approved:false}` which triggers the backend pipeline cancellation via the review gate path (not the cancel_pipeline WS handler)
-- The `cancelNavigatingHomeRef` guard is consumed (reset to false) in the `pipelineState.isRunning` effect — so it only fires once per navigate-home action, which is the correct behavior
-
----
-
-### FIX-048 — KAN-101: Spec Revision Loop — "Update the Specs" action on analyze gate
-
-**Date:** 2026-07-07
-**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-101`
-
-#### Root Cause
-No existing path for re-running specify → plan → analyze before the build step. `_run_review_gate` only handled `approve`, `reject`, and `redo` actions. The inline gate consumer in `_run_agent` only had `_gate_redo` for in-place agent re-run. No sub-pipeline mechanism, no `onUpdateSpecs` frontend button, no analysis context injection into `_compose_context_message`.
-
-Trace: user clicks "Update the Specs" (absent) → FE sends `approve_review{action:"update_specs"}` (unhandled) → `store.set_review_response(action="update_specs")` (unhandled) → `_run_review_gate` yields nothing useful → sub-pipeline never runs.
-
-#### Phase Context
-- **Phase(s) involved:** Phase 23 (REDO-GATE — flat `while True:` loop pattern), Phase 13 (HITL gate primitive), Phase 7 (SC-001 / INV-1 no name branches)
-- **Relevant register section:** Phase 23 `REDO-GATE-PLAN.md` §B (loop locals, consume-once, redo_directive pattern)
-- **Deleted code verified (not resurrected):** No deleted code involved
-- **Locked decisions respected:** INV-1 (action discriminator, not agent_id/pipeline_type), INV-3 (goldens unaffected — no new WS event keys), SC-001 (ectx scratch field, structural path)
-
-#### Fix Applied
-| File | Change | Why |
-|------|--------|-----|
-| `backend/app/api/websocket.py` | Added `elif action == "update_specs"` branch that reads `analysis_report` from `message_data` and calls `store.set_review_response(action="update_specs", instructions=analysis_report)` | Routes the new WS action to the ArtifactStore |
-| `backend/agents/execution_engine/engine.py` — `_run_review_gate` | Added `if action == "update_specs"` branch after the `redo` branch: transitions state to `generating`, yields `{"type": "_gate_update_specs", "analysis_report": instructions}` | New internal signal for the inline gate consumer |
-| `backend/agents/execution_engine/engine.py` — `_run_agent` loop locals | Added `spec_revision_attempt = 0` loop local alongside `redo_attempt` | Tracks revision cycle depth; loop-local (consume-once pattern) |
-| `backend/agents/execution_engine/engine.py` — `_run_agent` while-loop top | Added `pending_revision_output` sentinel check: if `ectx.spec_revision_pending_output` is set, skip the model call and re-open the gate with the new output directly | Allows the while-loop to re-open the analyze gate after the sub-pipeline without re-running the model |
-| `backend/agents/execution_engine/engine.py` — inline gate consumer | Added `elif gate_event.get("type") == "_gate_update_specs"` branch that calls `_run_spec_revision_sub_pipeline`, collects the new analysis output, stores it on `ectx.spec_revision_pending_output`, and `break`s to re-enter the while-loop | Triggers the sub-pipeline and loops back to re-open the gate |
-| `backend/agents/execution_engine/engine.py` — new method `_run_spec_revision_sub_pipeline` | Re-runs ordered_agents[index-2] (specify), ordered_agents[index-1] (plan), and spec (analyze) in sequence using `_run_agent` with `ectx.spec_revision_context = analysis_report` injected; yields all events upstream; returns new analyze output via `_revision_analyze_output` internal signal | Sub-pipeline helper: structural (position-based), not name-based |
-| `backend/agents/execution_engine/engine.py` — `_compose_context_message` | Added `elif revision_context := getattr(ectx, "spec_revision_context", "")` block appending `=== SPEC KIT ANALYSIS REPORT (REVISION CONTEXT) ===` block when set | Injects analysis report into specify/plan/analyze context during revision cycle |
-| `backend/agents/prompts/prototype-specify/AGENT.md` | Added `## REVISION MODE` section with rules for targeted spec fixing when the analysis report block is present | Guides the model to fix specific issues rather than regenerate from scratch |
-| `frontend/src/components/preview/ReviewGatePanel.tsx` | Added `onUpdateSpecs` prop; added `handleUpdateSpecs` callback; added "Update the Specs" button (rendered only when `isAnalysis && !!onUpdateSpecs`); renamed approve button to "Accept & continue to build" for analysis gate | User-visible action on the analyze gate |
-| `frontend/src/components/layout/DashboardLayout.tsx` | Added `onUpdateSpecsReview` prop to interface + destructuring; wired into `<ReviewGatePanel onUpdateSpecs={onUpdateSpecsReview}>` | Prop pass-through |
-| `frontend/src/app/dashboard/page.tsx` | Added `onUpdateSpecsReview` callback that sends `{type:"approve_review", gate_key, action:"update_specs", analysis_report}` and clears `reviewGateData` | FE sends the wire message and clears the panel |
-
-#### Invariants Verified
-- **INV-1** (no pipeline_type branches): All engine branching keyed on generic `action == "update_specs"` string and generic `ectx.spec_revision_context`/`ectx.spec_revision_pending_output` scratch fields. Zero `pipeline_type` or `agent_id` literals.
-- **INV-3** (golden parity): No new keys emitted on the WS event wire (the `_gate_update_specs` and `_revision_analyze_output` types are internal signals never forwarded; the analysis report rides `instructions` in `set_review_response` which is already in-memory only). Goldens never interact with review gates → byte-identical, no regen needed.
-- **INV-12** (no duplication): Sub-pipeline calls `_run_agent` — the same agent execution path. No second runner.
-- **SC-001** (zero engine edits for new workflows): Sub-pipeline is position-based (index-2, index-1, index), not name-based. Any workflow can benefit from this if it has the right shape.
-
-#### Verification
-- Backend started clean (no import errors, startup log shows `Backend ready`)
-- Frontend TypeScript diagnostics: 0 errors on all 3 changed files
-- Trace: user clicks "Update the Specs" → `handleUpdateSpecs` → `onUpdateSpecs(gateKey, output)` → page.tsx sends `{action:"update_specs", analysis_report:output}` → WS handler reads `analysis_report`, calls `store.set_review_response(action="update_specs", instructions=analysis_report)` → engine's `_run_review_gate` reads action, yields `_gate_update_specs` → inline consumer calls `_run_spec_revision_sub_pipeline` → specify runs with `spec_revision_context` injected → plan runs → analyze runs → `_revision_analyze_output` carries new analysis text → stored on `ectx.spec_revision_pending_output` → while-loop continues → pending output check at top → gate re-opens with new analysis → user sees new analysis panel
-
-#### Notes
-- The revision loop is unlimited (no hard cap on `spec_revision_attempt`) — consistent with the KAN-101 requirement
-- Stop button during a revision cycle is cancel-aware: `_run_spec_revision_sub_pipeline` checks `cancel_event.is_set()` before each agent and yields `_gate_rejected` if set
-- The `gate_agent_ids` deselection at the run level means that if the user runs the prototype pipeline with specify/plan gates deselected, the sub-pipeline will also skip those gates — correct behavior
-- The Thinking tab (PrototypePipelineView) will show the revision cycle's agent events updating the existing specify/plan/analyze cards in-place (Option B from the analysis). Full versioned history is a follow-on enhancement
-
-| FIX-049 | 2026-07-09 | KAN-102: Context Received section always empty for first agent — user brief, template, design system, and images not shown | `_build_context_sources` only iterated `_filter_consumed_outputs` (prior agent outputs); for index=0 consumed={} always so context_sources=[] always; OD template/DS blocks, user brief, and images were never modelled as ContextSource entries | `backend/agents/execution_engine/engine.py`, `frontend/src/types/index.ts`, `frontend/src/components/results/AgentThinkingTab.tsx` | Phase 3 (FR-015) / KAN-102 | INV-1/3/12/SC-001 ✅ | Done |
-
----
-
-### FIX-049 — KAN-102: Context Received section always empty for first agent
-
-**Date:** 2026-07-09
-**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-102`
-
-#### Root Cause
-`_build_context_sources` in `engine.py:5116` only iterated `_filter_consumed_outputs` which returns prior-agent outputs. For the first agent (`index=0`), `consumed={}` always → `context_sources=[]` always → the "Context Received" section was hidden entirely. The user brief, OD template body, design system body, and attached images are all present in `context_message` / `input_blocks` / `ectx.od_context` but were never surfaced as `ContextSource` entries.
-
-Trace:
-`_run_agent` (engine.py:2768) → `_build_context_sources(spec, ordered_agents, ectx)` → `_filter_consumed_outputs` returns `{}` for index=0 → `context_sources=[]` → `agent_input` event emitted with empty `context_sources` → `useWorkflow.ts agent_input handler` stores `contextSources=[]` → `AgentThinkingTab.tsx:560` `agent.contextSources.length > 0` is false → `ContextSourcesRow` never rendered.
-
-#### Phase Context
-- **Phase(s) involved:** Phase 3 (T043 — `agent_input` event, FR-015 context sources)
-- **Relevant register section:** Phase 3 `_register-parts/03-token-trim-measured-change-0c.md`
-- **Deleted code verified (not resurrected):** No deleted code involved
-- **Locked decisions respected:** INV-1 positional check (`agent_index == 0`) not a pipeline_type or spec.id branch; Locked Decision #3 (split transport) preserved — context_message stays text str, images ride input_blocks only; goldens safe via `context_sources` already in `_VOLATILE_STRIP_KEYS`
-
-#### Fix Applied
-| File | Change | Why |
-|------|--------|-----|
-| `backend/agents/execution_engine/engine.py` | Extended `_build_context_sources` signature with `agent_index`, `user_message`, `input_blocks` (all defaulted for backward compat). Added run-originating source entries for `is_first_agent` (index==0): `type="run_input"` for user brief, `type="context_block"` for template and DS from `ectx.od_context`, `type="image"` for attached images. Updated call site at line 2768 to pass `agent_index=index, user_message=user_message, input_blocks=input_blocks`. | First agent context sources were always empty — the original consumed-outputs loop only covered inter-agent handoffs |
-| `frontend/src/types/index.ts` | Extended `ContextSource` interface with `type: "run_input" \| "context_block" \| "image"` variants, plus `label`, `size_chars`, `count` optional fields | New source types need FE type coverage |
-| `frontend/src/components/results/AgentThinkingTab.tsx` | Updated `ContextSourcesRow` to render new source types with icons (📄 for run_input, 🎨 for context_block, 🖼 for image) and size labels | Display the new source chips |
-
-#### Invariants Verified
-- **INV-1** (no pipeline_type branches): `is_first_agent = (agent_index == 0)` is the identical positional predicate used in `_compose_context_message`. Zero pipeline_type or spec.id literals.
-- **INV-3** (golden parity): `context_sources` is in `_VOLATILE_STRIP_KEYS` in `_normalize.py` (line ~119). All 5 characterization goldens strip it entirely — adding new entries has zero impact on goldens. No regen needed.
-- **INV-12** (no duplication): `ectx.od_context` is already the single source for template/DS metadata. Read via `getattr(ectx, "od_context", None) or {}`, same pattern as the TEMPLATE COMPLIANCE block in `_compose_context_message`.
-- **SC-001** (zero engine edits for new workflows): observability enrichment only — no control-flow changes, no new agent dispatch paths.
-
-#### Verification
-- Backend started clean with no import errors
-- Frontend TypeScript diagnostics: 0 errors on all 3 changed files
-- Trace with fix: `_build_context_sources(spec, ordered_agents, ectx, agent_index=0, user_message=..., input_blocks=[...])` → `is_first_agent=True` → appends run_input + context_block(s) + image entries → `context_sources=[{...}, ...]` → FE `contextSources.length > 0` → `ContextSourcesRow` renders chips
-
-#### Notes
-- For user_stories / app_builder / custom pipelines (no od_context): only the "📄 User brief" chip appears — correct.
-- For od_prototype: "📄 User brief" + "🎨 Template: web-prototype" + "🎨 Design system: github" chips appear.
-- For prototype with image attachment: "📄 User brief" + "🖼 1 image" chips appear (plus template/DS if od_prototype).
-- Downstream agents (index > 1) continue to show prior-agent handoff chips unchanged — no regression.
-- KAN-103 (prototype revision missing od_context) is a companion issue that this fix exposes more clearly — when prototype revision runs, the revision agent at index=0 will now show "📄 User brief" but NOT template/DS chips (because od_context=None in _handle_revision). KAN-103 remains open.
-
-| FIX-050 | 2026-07-09 | KAN-104: Prototype revision agent AGENT.md restructured for task planning, mandatory design.md read, and incremental execution | AGENT.md "How to work" jumped directly from read_file to edit_file with no analysis, no write_todos planning, no dependency ordering, and optional design.md read — agent processed all changes in a single undifferentiated pass | `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Phase 14 (revision) / KAN-104 | INV-1/3/12/SC-001 ✅ | Done |
-| FIX-051 | 2026-07-20 | ISS-035: Agent/workflow discovery split across two sources of truth — `PIPELINE_AGENTS` hand-maintained dict vs. AGENT.md frontmatter | `get_pipeline_agents()` was already fully dynamic (scans AGENT.md via `list_agent_ids()`), but `get_all_agents_flat()`, `allowed_custom_agent_ids()`, and `app/api/workflows.py`'s `_KNOWN_WORKFLOW_IDS`/`list_workflows()` all read the hand-maintained `PIPELINE_AGENTS` dict directly — a new agent's AGENT.md was live for execution but invisible to the agent library, allow-list, and `/api/workflows` until someone hand-edited registry.py. Proven live: 8 fully-formed `spec_kit` agents existed on disk with zero PIPELINE_AGENTS references. | `backend/agents/registry.py`, `backend/app/api/workflows.py`, `backend/CLAUDE.md`, `backend/tests/agents/test_registry_discovery.py` (new), `backend/tests/unit/test_workflows_api.py`, `backend/tests/agents/test_manifest_coverage.py`, `backend/tests/agents/test_manifest_parity.py`, `backend/tests/agents/test_compiled_plan_runs.py`, `backend/tests/agents/test_id_alias_resolver.py`, `backend/tests/integration/test_pipeline_workflows.py`, `backend/tests/unit/test_execution_engine.py` | quick-260720-9pt / ISS-035 | INV-1/3/12/SC-001 ✅ | Done |
-
----
-
-### FIX-050 — KAN-104: Prototype Revision Agent task planning and mandatory DS awareness
-
-**Date:** 2026-07-09
-**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-104`
-
-#### Root Cause
-`backend/agents/prompts/prototype-revision-agent/AGENT.md` "How to work" section instructed the agent to jump directly from `read_file` to `edit_file` with no prior analysis or planning step. The `write_todos` native tool was technically available (workspace tool set returns `exclude_builtin=False` from `WorkspaceToolProvider.provide()` at `providers.py:74`) but was never referenced in the prompt. Additionally, the `design.md` read was marked "may" (optional), causing the agent to frequently skip template/DS context and invent CSS classes or color values inconsistent with the original design.
-
-#### Phase Context
-- **Phase(s) involved:** Phase 14 — run_revision real revision loop
-- **Relevant register section:** Phase 14 §5 locked decision: `od_context=None` for revision dispatch; no `template`/`design_system` injects on revision agents (pinned by `test_run_revision_revision_agents_declare_no_template_injects`)
-- **Deleted code verified (not resurrected):** No deleted code involved — AGENT.md prompt-only change
-- **Locked decisions respected:** YAML frontmatter `injects:` stays empty — NO `template` or `design_system` added. The design context is accessed via `read_file("design.md")` from the sandbox (seeded by `previous_run` provider), which is the correct mechanism and does not require `od_context` injection. The test constraint is fully satisfied.
-
-#### Fix Applied
-| File | Change | Why |
-|------|--------|-----|
-| `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Restructured "Your workspace" section: added `write_todos` to tool list; changed `design.md` from optional "may" to MANDATORY with explicit constraint to use only defined CSS classes/tokens; added `spec.md` usage guidance. Replaced 4-step "How to work" with a 4-phase structured process: Step 1 (mandatory context read including ls + design.md + prototype.html), Step 2 (analyze + write_todos), Step 3 (execute one task at a time with per-task verification), Step 4 (final read + summary). | The agent was skipping design context, conflating all changes into a single pass, and producing inconsistent styles. The new structure forces planning before execution and uses write_todos for dependency-ordered task tracking. |
-
-#### Invariants Verified
-- **INV-1** (no pipeline_type branches): Not affected — AGENT.md only
-- **INV-3** (golden parity): Not affected — `prototype_revision` is not in any of the 5 characterization goldens
-- **INV-12** (no duplication): Not affected — no code changes
-- **SC-001** (zero engine edits): Not affected — AGENT.md prompt change only
-- **Test constraint**: `test_run_revision_revision_agents_declare_no_template_injects` stays green — `injects:` frontmatter is unchanged (empty list), no `template` or `design_system` inject added
-
-#### Verification
-- AGENT.md reads cleanly; YAML frontmatter is byte-identical to HEAD except for the prompt body
-- `write_todos` is available to the agent via `workspace` tool set (`exclude_builtin=False`) without any backend changes
-- `design.md` is read via `read_file()` from the workspace sandbox (seeded by `previous_run` provider when the parent sandbox is alive within 48h) — no injection mechanism needed
-- No backend restart needed — AGENT.md is read at agent dispatch time
-
-#### Notes
-- This fix is complementary to KAN-103 (template_id persistence). Even after KAN-103 is implemented to make design.md reliably available, this prompt change ensures the agent actually uses it.
-- The `write_todos` tool creates an in-context todo list visible to the model. It is NOT persisted to the sandbox as a file — the agent's todo tracking is model-context-only.
-- The `spec.md` read guidance changed from "may read to ground your change" to a clear "read this to understand original intent when needed" — but it remains non-mandatory since many revision requests don't require spec context.
-
----
-
 ### FIX-039 — OD Gallery Previews: static thumbnail `<img>` with live HTML+JS iframe fallback
-
-**Date:** 2026-07-07
-**Triggered by:** user report — "why is it taking lots of time while rendering design template and design on web", plus the follow-up requirement: generate thumbnails at build time and, when a thumbnail is absent, render the iframe (HTML+JS) way.
-
-#### Root Cause
-The template gallery (`TemplateGallery.tsx` `CompactTemplateCard`, the larger `TemplateCard.tsx`) and the PPT gallery (`PPTTemplateGallery.tsx` `CompactPPTCard`) rendered each catalog card's preview as a **sandboxed `<iframe sandbox="allow-scripts">`** loading the template's real `example.html`, laid out at a full 1280x720 viewport and CSS-scaled to a ~130px thumbnail. The scale is cheap; the cost is that the browser **parses, styles, lays out, paints, and runs the JS of a complete standalone HTML document per card**, and each iframe re-fetches the preview's fonts/CSS/images. A gallery of N cards renders N full web pages just for thumbnails. (The design-system picker uses text chips, not iframes, so only its one-at-a-time detail modal is heavy.)
-
-#### Fix
-Each gallery card now renders a **static `<img loading="lazy" class="object-cover object-top">`** when a pre-rendered thumbnail exists (`has_thumbnail`), turning "render N HTML documents" into "load N cached images". When a thumbnail is absent, the card **falls back to the live `example.html` iframe with `sandbox="allow-scripts"`** (full HTML+JS rendering) — the original behavior — so nothing is lost before/without generation. The `<img>` carries an intentional `eslint-disable-next-line @next/next/no-img-element` (a tiny static same-origin thumbnail; `next/image` optimization + `remotePatterns` would be the very overhead we are removing). Detail modals keep `allow-scripts` for the interactive preview. (An interim iteration made the fallback iframe `sandbox=""` for a further speedup; reverted per the explicit "use iframe html+js" fallback requirement.)
-
-#### Files Changed
-`frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`, `frontend/src/lib/prototype-api.ts` (`has_thumbnail` + `getTemplateThumbnailUrl`), `frontend/src/lib/ppt-api.ts` (`has_thumbnail` + `getPPTTemplateThumbnailUrl`).
-
-#### Invariants Verified
-- **INV-3** (golden parity): not affected — FE-only; catalog thumbnails, not the deliverable renderer on the golden path.
-- **INV-1 / INV-12 / SC-001**: no engine/kernel edits, no pipeline_type branch, no duplication.
-
----
-
-### FIX-040 — OD gallery thumbnails generated at BUILD time
-
-**Date:** 2026-07-07
-
-#### Root Cause / Fix
-The `<img>` fast-path needs a pre-rendered screenshot. Generated at backend image build (Playwright/Chromium already installed for render_check; OpenDesign tree baked at /app/opendesign), NOT committed — so absent thumbnails degrade to the FIX-039 live iframe.
-
-#### Files Changed
-`backend/app/services/od_loader.py`, `backend/app/api/prototype_templates.py`, `backend/app/api/ppt_templates.py`, `backend/scripts/generate_template_thumbnails.py` (NEW), `backend/Dockerfile`, `.gitignore`.
-
----
-
-### FIX-041 — OD/PPT gallery card fallback to live iframe on thumbnail 404
-
-**Date:** 2026-07-08
-
-#### Root Cause / Fix
-The thumbnail `<img>` in `TemplateCard` and `CompactPPTCard` had an `onLoad` but NO `onError` handler. Fix: add a `thumbnailError` state; on `<img>` `onError`, set it (and force-mount the iframe).
-
-#### Files Changed
-`frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`.
-
----
-
-### FIX-042 — thumbnail endpoint returns 500 instead of 404 when file missing
-
-**Date:** 2026-07-08
-
-#### Root Cause
-`get_template_thumbnail_path` trusted the `has_thumbnail` flag (cached at startup). A thumbnail deleted after startup left the flag stale → `FileResponse` `os.stat`'d a missing file → 500.
-
-#### Fix (backend-only)
-`get_template_thumbnail_path()` re-checks `path.is_file()` on disk at serve time; returns `None` when absent → existing 404 branch fires → card falls back to live iframe (FIX-041).
-
-#### Files Changed
-`backend/app/services/od_loader.py`.
-
----
-
-### FIX-043 — Template gallery thumbnail 429 flood + CompactTemplateCard missing onError
-
-**Date:** 2026-07-09
-
-#### Root Cause
-Two bugs: (1) `CompactTemplateCard` keyed the thumbnail `<img>` on `thumbnailUrl` alone — the `shouldMount` IntersectionObserver gate only controlled the iframe fallback, so all ~43 thumbnails fired simultaneously on gallery mount → 429. (2) Same component had no `thumbnailError` + `onError` handler — a 429/404 left the card stuck on pulse shimmer with no recovery.
-
-#### Fix
-Gate `thumbnailUrl` rendering behind `shouldMount` in both compact cards; add `thumbnailError` + `onError` to `CompactTemplateCard`.
-
-#### Files Changed
-`frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`.
 
 **Date:** 2026-07-07
 **Triggered by:** user report — "why is it taking lots of time while rendering design template and design on web", plus the follow-up requirement: generate thumbnails at build time and, when a thumbnail is absent, render the iframe (HTML+JS) way.
@@ -1842,112 +1801,246 @@ Design systems are out of scope — their picker is text chips, not an iframe gr
 `python -m py_compile scripts/generate_template_thumbnails.py` exit 0; ran locally `--only audio-jingle` → produced the thumbnail with bundled Chromium and the loader flipped `has_thumbnail=true` with a resolving path (artifact then removed — thumbnails are build outputs). `pytest tests/unit/test_template_assets.py` 18 passed; `lint-imports` 4/0. Frontend build green (see FIX-039). A full backend `docker build` was NOT run here (base-image pulls / apt are network-restricted in this environment); the Dockerfile step is ordered after the existing Chromium install + OpenDesign COPY and is best-effort (always exits 0), so it cannot break the build.
 
 #### Notes
-- Build-time cost: ~106 headless screenshots add a few minutes to the backend image build; acceptable for a one-time, cache-friendly step (only re-runs when the layer is invalidated).
-- Absent thumbnails (e.g. local dev without running the generator) degrade gracefully to the FIX-039 live HTML+JS iframe.
+- For user_stories / app_builder / custom pipelines (no od_context): only the "📄 User brief" chip appears — correct.
+- For od_prototype: "📄 User brief" + "🎨 Template: web-prototype" + "🎨 Design system: github" chips appear.
+- For prototype with image attachment: "📄 User brief" + "🖼 1 image" chips appear (plus template/DS if od_prototype).
+- Downstream agents (index > 1) continue to show prior-agent handoff chips unchanged — no regression.
+- KAN-103 (prototype revision missing od_context) is a companion issue that this fix exposes more clearly — when prototype revision runs, the revision agent at index=0 will now show "📄 User brief" but NOT template/DS chips (because od_context=None in _handle_revision). KAN-103 remains open.
 
-#### Follow-up — code-review cleanup (2026-07-08)
-- **Stale docstring corrected:** `od_loader.get_template_thumbnail_path`'s docstring still pointed at the deleted frontend generator `frontend/scripts/generate-template-thumbnails.mjs`; repointed to the real single source `backend/scripts/generate_template_thumbnails.py`. Doc-only.
-- **Dockerfile chown consistency:** the thumbnail-generation `RUN` re-chowned `/app/opendesign` with numeric `chown -R 10001:10001` while the surrounding `COPY`s use the named `--chown=flowin:flowin` form (the `flowin` user is uid/gid 10001, created earlier). Aligned to `chown -R flowin:flowin /app/opendesign` for readability; functionally identical.
-- **Test coverage added** (`backend/tests/integration/test_template_thumbnails.py`, NEW): exercises the previously-untested thumbnail serving path — loader `has_thumbnail` true/false vs disk, `get_template_thumbnail_path` present/absent/unknown, and the `GET /api/{prototype,ppt}/templates/{id}/thumbnail` route handlers returning `image/jpeg` when present and **404** for unknown ids and for a thumbnail deleted after load (the FIX-042 stale-flag on-disk re-check → clean 404, never a 500). 8 tests, all pass.
-- **Verification:** `pytest tests/integration/test_template_thumbnails.py` 8 passed; `lint-imports` 4/0. INV-3 golden-neutral (doc/comment/test + a build-step chown label only; deliverable renderer untouched).
----
-
-### FIX-041 — OD/PPT gallery card: fall back to the live iframe when a thumbnail 404s
-
-**Date:** 2026-07-08
-**Triggered by:** user requirement — "if thumbnail is not there than load template html in iframe … only if thumbnail is not there or 404 like."
-
-#### Root Cause
-FIX-039 renders each gallery card as a cheap static thumbnail `<img>` and only mounts the heavier live `example.html` iframe when no thumbnail exists; FIX-040 generates those thumbnails at backend-image build time (they are NOT committed). The thumbnail-vs-iframe decision in `TemplateCard` (prototype) and `CompactPPTCard` (PPT) keyed **solely** off the backend `has_thumbnail` flag, and the `<img>` had an `onLoad` handler but **no `onError` handler**. So whenever the flag was stale (local dev / an image built without the generator) or the file 404'd at request time, the `<img>` failed silently and the card was stuck on the pulse placeholder / broken image — it never degraded to the live iframe. The "no thumbnail at all" case already fell through to the iframe correctly; the missing case was the *runtime* load failure.
-
-#### Fix (frontend-only)
-In both cards:
-- Added a `thumbnailError` state (default `false`).
-- Gated the thumbnail URL on it: `thumbnailUrl = has_thumbnail && !thumbnailError ? getThumbnailUrl(id) : null`.
-- Added `onError` to the `<img>`: on load failure it sets `thumbnailError = true`, force-sets `shouldMount = true` (so the lazy iframe mounts even if the IntersectionObserver hadn't yet), and resets `previewLoaded = false`. Nulling `thumbnailUrl` makes the component fall through to the pre-existing `previewUrl && shouldMount` iframe branch — the exact FIX-039 fallback, now reached on 404 as well as on absence.
-
-No backend change; the `/thumbnail` endpoint still 404s as before — the fix just makes the client honour that 404.
-
-#### Files Changed
-`frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`.
-
-#### Invariants Verified
-- **INV-3**: FE-only; catalog thumbnails, not the deliverable renderer — golden-neutral, no regen.
-- **INV-1 / INV-12 / INV-13 / SC-001**: no engine/kernel/agent edits; no dual implementation (reuses the existing iframe fallback branch).
-
-#### Verification
-`npx tsc --noEmit` exit 0. `npx eslint` on both files: 0 errors (2 pre-existing warnings unrelated to this change — a `setState`-in-effect in the custom-template loader and an unused `onSelect` prop). The prototype `TemplateGallery.tsx` renders no thumbnails itself (delegates to `TemplateCard`), so no third card needed the patch.
-
-#### Notes
-- Behaviour now: thumbnail present and loads → cheap `<img>`; thumbnail absent (`has_thumbnail=false`) OR present-flag-but-404 → live `example.html` iframe; neither available → existing "No preview available" placeholder.
----
-
-### FIX-042 — Thumbnail endpoint returns 404 (not 500) when the file is missing at request time
-
-**Date:** 2026-07-08
-**Triggered by:** user test — deleted `design-templates/blog-post/thumbnail.jpg` and hit the endpoint; got a 500 (`RuntimeError: File at path … does not exist`) instead of a 404, so the fallback was only working by accident (the `<img>` errors on any failed load).
-
-#### Root Cause
-`od_loader.get_template_thumbnail_path()` decided whether to serve by reading `t.get("has_thumbnail")`. That flag is produced by `_all_templates()`, which is `@lru_cache(maxsize=1)` — evaluated **once at process start** and never invalidated. When a thumbnail is deleted (or generated) after the server boots, the cached flag stays `True`, the function returns `_TEMPLATES_DIR/<id>/thumbnail.jpg`, and the endpoint hands that path to `FileResponse`. Starlette then `os.stat`s the file lazily while sending the response, raises `FileNotFoundError` → `RuntimeError`, which surfaces as a 500. Both the prototype and PPT thumbnail endpoints route through this one function, so both were affected.
-
-#### Fix (backend-only)
-`get_template_thumbnail_path()` no longer trusts the cached flag for serving: it builds the path and re-checks `path.is_file()` on disk, returning `None` when the file is absent. The endpoints' existing `if path is None: raise HTTPException(404)` branch then produces a clean 404. Existence is still gated on `get_template(template_id)` first (unknown id → `None`). The `has_thumbnail` field in the catalog *listing* is left as-is (still cached) — the frontend can optimistically request the `<img>`, and on a 404 the FIX-041 `onError` handler falls the card back to the live `example.html` iframe.
-
-#### Files Changed
-`backend/app/services/od_loader.py`.
-
-#### Invariants Verified
-- **INV-1 / INV-12 / INV-13 / SC-001**: no engine/kernel/agent edits; single path resolver, no dual implementation.
-- **INV-3**: not on the deliverable/golden path (catalog asset serving); golden-neutral.
-- **Ports & Adapters**: change confined to `app.services.od_loader`.
-
-#### Verification
-`.venv` import check: after deleting `blog-post/thumbnail.jpg`, `get_template_thumbnail_path("blog-post")` → `None` (→ 404); `get_template_thumbnail_path("does-not-exist")` → `None`; 105 templates still flagged `has_thumbnail`, and sampled ids (`audio-jingle`, `clinical-case-report`, `contact-widget`) still resolve to a real on-disk path (happy path intact).
-
-#### Notes
-- End-to-end behaviour now: thumbnail on disk → 200 `<img>`; thumbnail missing/deleted → 404 → card renders the live `example.html` iframe (FIX-041); no more 500s from a stale cache.
+| FIX-050 | 2026-07-09 | KAN-104: Prototype revision agent AGENT.md restructured for task planning, mandatory design.md read, and incremental execution | AGENT.md "How to work" jumped directly from read_file to edit_file with no analysis, no write_todos planning, no dependency ordering, and optional design.md read — agent processed all changes in a single undifferentiated pass | `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Phase 14 (revision) / KAN-104 | INV-1/3/12/SC-001 ✅ | Done |
 
 ---
 
-### FIX-051 — ISS-035: Agent/workflow discovery single source of truth
+### FIX-050 — KAN-104: Prototype Revision Agent task planning and mandatory DS awareness
 
-**Date:** 2026-07-20
-**Triggered by:** User-directed investigation ("make sure the project is not using hardcoded agents… should get agents from folders") via `/velocity-analyze` → `/velocity-fix`
+**Date:** 2026-07-09
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-104`
 
 #### Root Cause
-`agents/registry.py`'s `get_pipeline_agents()` was already fully dynamic — it calls `list_agent_ids(pipeline_type)`, which scans every `AGENT.md` under `backend/agents/prompts/` and returns the ones whose `pipeline_type` frontmatter matches. That part worked correctly for pipeline execution. The bug: three other consumers read the **hand-maintained literal `PIPELINE_AGENTS` dict** directly instead of going through that scan — `get_all_agents_flat()` (registry.py:284), `allowed_custom_agent_ids()` (registry.py:314), and `app/api/workflows.py`'s `_KNOWN_WORKFLOW_IDS`/`list_workflows()` (workflows.py:38-243). So an agent's `AGENT.md` existing on disk with correct `pipeline_type`/`order` frontmatter was live for pipeline *execution* but invisible to the agent-library API, the custom-workflow security allow-list, and `GET /api/workflows`, until someone remembered `backend/CLAUDE.md`'s documented manual "Adding an Agent — Step 3: add the agent ID to PIPELINE_AGENTS."
-
-Proven live: 8 fully-formed `spec_kit` agents (`analyze-agent`, `deep-planner`, `clarify-agent`, `constitution-agent`, `plan-agent`, `research-agent`, `specify-agent`, `tasks-agent`) existed on disk with correct `pipeline_type: spec_kit` + unique `order`, and were in zero `PIPELINE_AGENTS` entries before this fix.
+`backend/agents/prompts/prototype-revision-agent/AGENT.md` "How to work" section instructed the agent to jump directly from `read_file` to `edit_file` with no prior analysis or planning step. The `write_todos` native tool was technically available (workspace tool set returns `exclude_builtin=False` from `WorkspaceToolProvider.provide()` at `providers.py:74`) but was never referenced in the prompt. Additionally, the `design.md` read was marked "may" (optional), causing the agent to frequently skip template/DS context and invent CSS classes or color values inconsistent with the original design.
 
 #### Phase Context
-- **Relevant register section:** `backend/CLAUDE.md` "Adding an Agent" / "Adding a Pipeline"; `.planning/ISSUES-REGISTER.md` ISS-035; full investigation in `.investigations/hardcoded-agents/FINDINGS.md` + `PLAN.md`
-- **Deleted code verified (not resurrected):** No deleted code involved; this replaces a still-live literal dict, not something previously removed
-- **Locked decisions respected:** `PIPELINE_AGENTS`'s role as "the registry says which agents belong to a pipeline" (backend/CLAUDE.md) is preserved — only *how the dict is populated* changed (scan vs. hand-typed), not its shape, its consumers, or the security-relevant `_INTERNAL_PIPELINES`/`allowed_custom_agent_ids` logic, which are untouched
+- **Phase(s) involved:** Phase 14 — run_revision real revision loop
+- **Relevant register section:** Phase 14 §5 locked decision: `od_context=None` for revision dispatch; no `template`/`design_system` injects on revision agents (pinned by `test_run_revision_revision_agents_declare_no_template_injects`)
+- **Deleted code verified (not resurrected):** No deleted code involved — AGENT.md prompt-only change
+- **Locked decisions respected:** YAML frontmatter `injects:` stays empty — NO `template` or `design_system` added. The design context is accessed via `read_file("design.md")` from the sandbox (seeded by `previous_run` provider), which is the correct mechanism and does not require `od_context` injection. The test constraint is fully satisfied.
 
 #### Fix Applied
 | File | Change | Why |
 |------|--------|-----|
-| `backend/agents/registry.py` | Replaced the ~150-line literal `PIPELINE_AGENTS` dict with `_discover_pipeline_agents()`, computed once at import time via `list_agent_ids(pt)` for every `SUPPORTED_PIPELINE_TYPES` value. Moved `_OD_ALIAS_BASE` earlier in the module and excluded its keys (`od_prototype`) from the scan — a pure id-alias, never a real `pipeline_type`, matching the original dict's behavior. Kept the explicit one-line `"ppt"` → `"od_ppt"` alias (no `AGENT.md` declares `pipeline_type: ppt`), closing WR-01 at the root. | Single source of truth: an agent's own frontmatter, not a hand-typed duplicate |
-| `backend/app/api/workflows.py` | Replaced `_KNOWN_WORKFLOW_IDS = frozenset(PIPELINE_AGENTS.keys())` with `_discover_manifest_ids()`: the intersection of `SUPPORTED_PIPELINE_TYPES` and `agents/workflows/<id>/workflow.yaml` presence. Updated `list_workflows()`'s iteration source to match. | `PIPELINE_AGENTS` can now legitimately contain a pipeline_type with agents but no manifest (`spec_kit`) — mirroring `PIPELINE_AGENTS.keys()` would 500 `GET /api/workflows`. The manifest-presence check is the actual precondition `compile_for_run()` requires, and correctly excludes non-pipeline test-fixture manifest dirs (`sample_brownfield`/`fanout`/`wave`, ISS-015) |
-| `backend/CLAUDE.md` | Removed the now-obsolete "Add the agent ID to PIPELINE_AGENTS" manual steps from "Adding an Agent" and "Adding a Pipeline" | The manual step no longer exists |
-| `backend/tests/agents/test_registry_discovery.py` (new) | Drift-prevention tests: no orphaned agent, `get_all_agents_flat()` completeness (spec_kit proof), pre-fix-list parity, ppt/od_ppt alias correctness | The actual ask: stop future drift, not just fix the one bug |
-| `backend/tests/unit/test_workflows_api.py` | Re-scoped 3 assertions from `PIPELINE_AGENTS.keys()` to `_KNOWN_WORKFLOW_IDS`; added `TestKnownWorkflowIdsDiscovery` (matches-disk, spec_kit-not-exposed, sample_*-not-exposed, every-known-id-compiles) | Same coupling bug the fix targets, now with an independent drift pin |
-| `backend/tests/agents/test_manifest_coverage.py`, `test_manifest_parity.py`, `test_compiled_plan_runs.py`, `test_id_alias_resolver.py` | Re-scoped parametrize lists from `sorted(PIPELINE_AGENTS)`/`set(PIPELINE_AGENTS)` to a locally-computed manifest-backed id set | These tests' true invariant was always "every compilable/dispatchable pipeline," which `PIPELINE_AGENTS` was previously a (now-broken) proxy for |
-| `backend/tests/integration/test_pipeline_workflows.py`, `backend/tests/unit/test_execution_engine.py` | Added an explicit `spec_kit` carve-out (`_STRUCTURALLY_INCOMPLETE`) to the DAG-structural-validation parametrize lists | Now that `spec_kit`'s real agents are visible, its genuinely unfinished `produces`/`consumes` contracts (`clarify-agent` consumes `'brief'`, nothing produces it) surface correctly — a real, pre-existing, out-of-scope gap, not a regression |
+| `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Restructured "Your workspace" section: added `write_todos` to tool list; changed `design.md` from optional "may" to MANDATORY with explicit constraint to use only defined CSS classes/tokens; added `spec.md` usage guidance. Replaced 4-step "How to work" with a 4-phase structured process: Step 1 (mandatory context read including ls + design.md + prototype.html), Step 2 (analyze + write_todos), Step 3 (execute one task at a time with per-task verification), Step 4 (final read + summary). | The agent was skipping design context, conflating all changes into a single pass, and producing inconsistent styles. The new structure forces planning before execution and uses write_todos for dependency-ordered task tracking. |
 
 #### Invariants Verified
-- **INV-1** (no pipeline_type branches): N/A — this is registry/discovery data, not engine dispatch logic; zero `engine.py` kernel changes
-- **INV-3** (golden parity): not on the deliverable/golden path; the 3 existing WR-01 fallback call sites (`engine.py:1466-1473`, `websocket.py:1782-1783`, `workflows.py:_spec_by_id`) needed **zero code changes** — they already fell back to `PIPELINE_AGENTS.get(id, [])`, which is now correctly populated instead of hand-duplicated
-- **INV-12** (no duplication): this fix's entire purpose is eliminating a duplicated source of truth (frontmatter + hand-typed dict → frontmatter only)
-- **SC-001** (zero engine edits for new workflows): unaffected — adding a workflow still requires a `workflow.yaml` manifest (unchanged), it just no longer *also* requires a `registry.py` edit
+- **INV-1** (no pipeline_type branches): Not affected — AGENT.md only
+- **INV-3** (golden parity): Not affected — `prototype_revision` is not in any of the 5 characterization goldens
+- **INV-12** (no duplication): Not affected — no code changes
+- **SC-001** (zero engine edits): Not affected — AGENT.md prompt change only
+- **Test constraint**: `test_run_revision_revision_agents_declare_no_template_injects` stays green — `injects:` frontmatter is unchanged (empty list), no `template` or `design_system` inject added
 
 #### Verification
-Consolidated run across every file touched or exercised by this fix (`test_registry.py`, `test_registry_helpers.py`, `test_registry_discovery.py`, `test_manifest_coverage.py`, `test_manifest_parity.py`, `test_id_alias_resolver.py`, `test_phase6_frontend_consistency.py`, `test_migration_ledger.py`, `test_workflows_api.py`, `test_agents_api_real_registry.py`, `test_execution_engine.py::test_all_pipelines_resolve_to_valid_dags`, `test_pipeline_workflows.py::TestStructuralRegression`): **236 passed, 28 failed, 14 skipped.** Every one of the 28 failures was individually traced to one of 4 pre-existing, unrelated root causes (`allowed_custom_agent_ids` cross-pipeline union design, stale `clarify.defaults` hardcoded snapshots, a stale FE-mirroring 4-vs-5-agent prototype list, one `dotnet_to_azure` launchable-flag assertion) — confirmed identical on the unmodified base branch via `git stash` before any change was made. Full detail in `.planning/quick/260720-9pt-agent-workflow-discovery-single-source-of-truth/260720-9pt-VERIFICATION.md`.
-
-`tests/agents/test_compiled_plan_runs.py`'s async engine-drive tests were not run to completion in this sandbox (no local Postgres — each DB-touching test blocks for a 30s pool-timeout, an environment limitation); one case was confirmed in isolation to fail on `psycopg_pool.PoolTimeout`, not an assertion about agent ids or compiled steps.
+- AGENT.md reads cleanly; YAML frontmatter is byte-identical to HEAD except for the prompt body
+- `write_todos` is available to the agent via `workspace` tool set (`exclude_builtin=False`) without any backend changes
+- `design.md` is read via `read_file()` from the workspace sandbox (seeded by `previous_run` provider when the parent sandbox is alive within 48h) — no injection mechanism needed
+- No backend restart needed — AGENT.md is read at agent dispatch time
 
 #### Notes
-- `spec_kit` remains a genuinely unfinished pipeline (no manifest, incomplete `produces`/`consumes` contracts) — this fix makes that gap visible and testable instead of silently hidden; whether to finish it (author a manifest + wire the contracts) is a separate product decision, explicitly out of scope.
-- Frontend `compatible_agents` hardcoded arrays (`frontend/src/data/hooks.ts`/`skills.ts`) contain stale agent IDs that don't match the real backend agent-id set — a real, separate bug documented in `.investigations/hardcoded-agents/FINDINGS.md` §6, explicitly deferred by user directive ("we can avoid the Frontend").
-- `REVISION_BASE_MAP`, `_INTERNAL_PIPELINES`, and the `ppt`/`od_ppt`/`od_prototype` alias tables remain small, hand-maintained, and intentionally so — they encode genuine decisions (security boundary, revision routing, id-aliasing), not agent membership, and were left untouched per the user's "don't touch so many places" directive.
-| FIX-043 | 2026-07-09 | Template gallery thumbnail 429 flood — compact cards loaded ALL thumbnails eagerly (no IntersectionObserver gate on `<img>` path) + `CompactTemplateCard` had no `onError` fallback | Two bugs: (1) `CompactTemplateCard` (TemplateGallery.tsx) keyed the thumbnail `<img>` on `thumbnailUrl` alone — the `shouldMount` IntersectionObserver gate only controlled the iframe fallback path, so all ~43 thumbnails fired simultaneously on gallery mount → 429 Too Many Requests from the server. (2) Same component had no `thumbnailError` state or `onError` handler (unlike `TemplateCard.tsx` and `CompactPPTCard` which both had it), so a 429/404 left the card stuck on the pulse shimmer with no recovery. `CompactPPTCard` (PPTTemplateGallery.tsx) had `onError` but the same missing `shouldMount` gate on the img path. Fix: gate `thumbnailUrl` rendering behind `shouldMount` in both compact cards (only visible cards fire requests); add `thumbnailError` + `onError` to `CompactTemplateCard` (on error, flip to iframe fallback — matching existing pattern in `TemplateCard.tsx`). | `frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx` | Phase 4 (OD catalog UI) · builds on FIX-039/041 | INV-3 golden-neutral (FE-only; catalog thumbnails) ✅ | Done |
+- The backend `_compute_root_ids` is intentionally NOT changed — it correctly walks `parent_run_id` ownership for all runs; the family membership decision belongs at the FE display layer (POR D7).
+- Multi-hop chains (prototype → user_stories → ppt) all share the original `root_run_id = prototype.id`. After this fix, each chained run in that chain emits as its own standalone entry since each has a different base type from the prototype root.
+- Same-type chaining edge case (e.g. prototype → prototype via chain, not revision): both runs have `baseWorkflowType = "prototype"` so they would still group together. This is an acceptable edge case since same-type chaining is rare and the behavior (grouping two prototypes) is not technically wrong. A future enhancement could add a `relationship_type` field to `WorkflowRun` to distinguish chain vs revision at the data layer.
+
+| FIX-053 | 2026-07-13 | KAN-106: Add delete option on individual revision version rows in expanded family list + reset stale version timeline after deletion | Child version rows in FamilyGroupCard rendered as plain `<button>` elements with no RowMenu; `handleDeleteConfirm` never reset `family` state leaving version timeline chips stale after deletion | `frontend/src/components/history/RevisionFamilyView.tsx`, `frontend/src/components/history/WorkflowHistory.tsx` | Phase 25 (B2 revision families) / KAN-106 | INV-1/3/12/SC-001 ✅ | Done |
+
+---
+
+### FIX-053 — KAN-106: Delete option on individual revision version rows
+
+**Date:** 2026-07-13
+**Triggered by:** `/velocity-ai-fix KAN-106`
+
+#### Root Cause
+Two separate gaps in the revision family UI:
+
+**Gap 1 — No delete affordance on child version rows:**
+The expanded child version rows in `FamilyGroupCard` (`RevisionFamilyView.tsx` ~lines 397-420) rendered as plain `<button>` elements with no overflow menu. The `RowMenu` component (which contains the Delete button) was already implemented and available, and the delete props (`openMenuId`, `onToggleMenu`, `onDeleteClick`) were already threaded through `FamilyGroupCard` props — but no `RowMenu` was placed on the child rows. A plain `<button>` can't host an overflow menu inside it (nested interactive elements violate HTML spec), so the child rows needed to be restructured from a flat `<button>` to a `<div class="group relative">` wrapper with a nested clickable area + `RowMenu` at the right edge.
+
+**Gap 2 — Stale version timeline after deletion:**
+`handleDeleteConfirm` in `WorkflowHistory.tsx` (~line 264) removed the deleted run from the `runs` local state via `setRuns(prev => prev.filter(...))` and cleared `selectedRun` if it matched. But it never called `setFamily(null)`. If the user had the detail view open showing the deleted run's family, the `VersionTimeline` chips remained stale (showing the now-deleted member) until the user navigated away and back.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 / Workstream B2 (`260702-uos`) — FamilyGroupCard + VersionTimeline
+- **Relevant register section:** Phase 25 §B2 key-decisions: `RowMenu` with delete is threaded through `FamilyGroupCard` props for the root card; Gap 1 extends it to child rows using the same prop threading
+- **Deleted code verified (not resurrected):** No deleted code — pure additive change to child row rendering and a one-line state reset
+- **Locked decisions respected:** INV-12 — `RowMenu` already exists and is reused; no new component. The `<div>` wrapper + nested `<button>` pattern is the correct HTML for this case (nested interactive elements require the outer element not be a button).
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/RevisionFamilyView.tsx` | Converted each expanded child version row from a flat `<button>` to a `<div class="group relative flex items-center">` wrapper containing a flex-1 `<button>` (clickable open-version area) + a `<RowMenu>` at the right edge (`pr-2 flex-shrink-0`) | Flat `<button>` cannot contain another `<button>` (RowMenu renders a button); the div wrapper keeps hover behavior, keyboard accessibility on the open-version button, and adds the hover-reveal delete menu |
+| `frontend/src/components/history/WorkflowHistory.tsx` | Added `setFamily(null)` in `handleDeleteConfirm` after the successful delete | The `family` state holds the `/family` API response; after a member is deleted it's stale. Resetting to null triggers the existing `useEffect` keyed on `selectedRun?.rootRunId` to re-fetch the family if the detail view is still open |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only presentational change
+- **INV-3** (golden parity): not affected — no backend/engine/golden changes
+- **INV-12** (no duplication): reuses existing `RowMenu` component — no new delete logic
+- **SC-001** (zero engine edits): not affected — FE only
+
+#### Verification
+- TypeScript diagnostics: 0 errors on both changed files
+- Trace Gap 1: expand a multi-revision family → each child row now shows hover-reveal MoreHorizontal button → click → Delete menu → `handleDeleteClick(member.id)` → `setDeleteConfirmId(member.id)` → `DeleteModal` appears → confirm → `handleDeleteConfirm` → `deleteWorkflow(token, member.id)` → run removed from list ✅
+- Trace Gap 2: after deletion, `setFamily(null)` → `useEffect` on `selectedRun?.rootRunId` re-fires → `getRunFamily(token, rootRunId)` → fresh family without the deleted member → VersionTimeline shows correct chips ✅
+- Backend `DELETE /api/runs/{id}` already correctly handles mid-chain deletion (nulls children's `parent_run_id`) — no backend change needed
+
+#### Notes
+- The `<div>` wrapper with nested `<button>` is the correct HTML pattern when a row needs both a full-row clickable area and a secondary control. The outer element must not be a `<button>` when it contains interactive children (HTML spec: interactive content must not be nested inside `<button>`).
+- The `setFamily(null)` reset only affects the `family` state variable; the `selectedRun` and its detail content remain visible. The re-fetch is triggered by the existing `useEffect` keyed on `selectedRun?.rootRunId` — if the detail is open, the family refreshes automatically.
+
+| FIX-054 | 2026-07-13 | KAN-107: Strip QA checklist text injected into PPT deck body before first slide + harden validator prompt | od-ppt-validator injects QA results as visible HTML elements inside `<body>` before slides; no backend step removed them; text rendered over first slide in iframe | `backend/agents/capabilities/deliverables/_artifact.py`, `backend/agents/capabilities/deliverables/ppt.py`, `backend/agents/prompts/od-ppt-validator/AGENT.md` | Phase 15 / Phase 7 (ppt deliverable) / KAN-107 | INV-1/3/12/SC-001 ✅ | Done |
+
+---
+
+### FIX-054 — KAN-107: Strip pre-slide QA body text from PPT deck + harden validator output contract
+
+**Date:** 2026-07-13
+**Triggered by:** `/velocity-ai-fix KAN-107`
+
+#### Root Cause
+The od-ppt-validator (Deck QA Agent) non-deterministically violates its output contract on live Haiku by injecting QA checklist results as visible HTML elements (`<p>`, `<div>`, bullet lines) inside the deck `<body>`, immediately before the `.stage` container or the first `<section class="slide">`. This text renders visibly in the iframe over the first presentation slide.
+
+The existing frontend mitigation (`htmlStart` slice in `PPTPreview.tsx`) only strips text appearing BEFORE `<!DOCTYPE html>` — it cannot remove HTML elements injected inside `<body>` after the doctype. The backend `ppt.py` resolver had no step to strip pre-slide body content, only `sanitize_carousel_deck_html` (which strips carousel-breaking CSS) and `unwrap_artifact`.
+
+This is the third recurrence of validator output leakage (FIX-001 removed the preamble-outside-artifact loophole; FIX-014 replaced `[ ]` checkbox syntax; FIX-054 strips in-body injections that survive both earlier fixes).
+
+The "Invalid presentation output" error (separate path) occurs when the validator emits a QA report with no HTML doctype at all — the frontend `isHtml` check catches it and shows the error UI. The new backend sanitizer also helps here by cleaning the body before the content reaches the frontend.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 15 (Live-Pass Prompt Contract Closure) + Phase 7 (ppt deliverable capability)
+- **Relevant register section:** Phase 15 §3 — validator output contract hardening (FIX-001/FIX-014 prior fixes); Phase 7 §3 — `_artifact.py` sanitizer pattern (INV-12 move-don't-copy single home)
+- **Deleted code verified (not resurrected):** No deleted code involved — new function added following the exact pattern of `sanitize_carousel_deck_html`
+- **Locked decisions respected:** INV-12 — new function in `_artifact.py` (the single home for deck sanitizers); no duplication. INV-1 — no pipeline_type branch; `strip_pre_slide_body_text` is a no-op on non-matching input.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/capabilities/deliverables/_artifact.py` | Added `strip_pre_slide_body_text(html)` function that removes any content between `<body>` opening tag and the first slide anchor (`.stage` div or `<section class="slide">`) | Deterministic backstop for validator body text injection; no-op on correct decks |
+| `backend/agents/capabilities/deliverables/ppt.py` | Added `strip_pre_slide_body_text` to import and chained it in `resolve()`: `unwrap_artifact(strip_pre_slide_body_text(sanitize_carousel_deck_html(last_streamed)))` | Applies the new sanitizer before the artifact is unwrapped |
+| `backend/agents/prompts/od-ppt-validator/AGENT.md` | Added explicit `❌ FORBIDDEN inside <body>` rule forbidding injection of any text/elements before `.stage` or `.slide` sections | Third prompt hardening; makes the body-injection failure mode explicit |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): `strip_pre_slide_body_text` is generic — it checks for `<body>` + slide indicators, never a pipeline_type literal. No-op on non-ppt HTML.
+- **INV-3** (golden parity): no golden re-baseline needed — the od_ppt golden was already regenerated in FIX-031. The new sanitizer is a no-op on the characterization fixture (which has no QA text injected in the body). Both backend `.py` changes are capability-layer only (never touched by the harness).
+- **INV-12** (no duplication): `strip_pre_slide_body_text` added to `_artifact.py` — the established single home for all deck sanitizers. `ppt.py` imports it from there.
+- **SC-001** (zero engine edits): not affected — capability deliverable layer only.
+
+#### Verification
+- Backend started cleanly with no import errors
+- `strip_pre_slide_body_text` is a no-op when `<body>` immediately precedes `.stage` or `.slide` (correct deck structure)
+- For a deck with QA text between `<body>` and the first slide, the text is removed and the deck renders correctly
+- The resolver chain now: `sanitize_carousel_deck_html` → `strip_pre_slide_body_text` → `unwrap_artifact`
+
+#### Notes
+- This is a defense-in-depth fix. The prompt hardening reduces but does not eliminate LLM non-determinism; the deterministic sanitizer catches what the prompt alone cannot prevent.
+- The `strip_pre_slide_body_text` function uses a targeted approach: find `<body>`, find first slide anchor, remove preamble. It does NOT attempt to parse full HTML — intentionally simple and narrow-scoped per the existing sanitizer pattern.
+- Follow-up: if the validator continues to produce "Invalid presentation output" errors (no HTML doctype at all), that is a separate failure mode requiring a different fix (the validator emitting a pure QA report with no deck).
+
+---
+
+### FIX-055 — KAN-110 (follow-up): Replace pagination with Load More + improve loading UX
+
+**Date:** 2026-07-16
+**Triggered by:** `/velocity-ai-fix KAN-110 — instead of pagination numbering we want load more option on the workflow history page. Also, we want to have some loader showing while the user waits for workflows list to appear.`
+
+#### Root Cause
+
+FIX-051 implemented page-based pagination (Prev / 1 / 2 / 3 / … / Next buttons). The requirement is a simpler append-based "Load More" button. Additionally, a loading skeleton was already rendered during the initial fetch (7 skeleton cards + spinner + "Loading workflows" text) — this part was already correct. The pagination state (`currentPage`, `handleGoToPage`) and the pagination footer (numbered page buttons) needed to be replaced with Load More semantics.
+
+Trace:
+```
+User opens Workflow History
+  → useEffect fires with currentPage dep → replaces runs array (page-flip behaviour)
+  → Pagination footer shows numeric Prev/1/2/3/Next buttons — NOT the desired UX
+  
+Wanted:
+  → Initial load replaces runs (stays the same)
+  → "Load More" button appends offset: runs.length to the existing list
+  → loadingMore spinner in button during the secondary fetch
+```
+
+#### Phase Context
+- **Phase(s) involved:** FIX-051 (KAN-110) / Frontend-only
+- **Relevant register section:** FIX-051 detailed entry above
+- **Deleted code verified (not resurrected):** `currentPage` state and `handleGoToPage` removed; no previously-deleted code resurrected
+- **Locked decisions respected:** Backend API contract (`limit`/`offset` + `X-Total-Count`) unchanged; `getWorkflows` return type unchanged
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/WorkflowHistory.tsx` | Removed `currentPage` state; replaced with `loadingMore: boolean`. Changed useEffect to always fetch `offset: 0` on mount/filterType change (replaces list). Added `handleLoadMore` callback that fetches `offset: runs.length` and appends. Removed page-based pagination footer; added "Load more / Loading… (spinner)" button shown only when `runs.length < totalRuns && !loading`. | Implements append-based Load More UX instead of page-flip pagination |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — pure FE component change.
+- **INV-3** (golden parity): not affected — no agent or engine code changed.
+- **INV-12** (no duplication): not applicable — FE-only.
+- **SC-001** (zero engine edits): not affected — zero engine edits.
+
+#### Verification
+- No TypeScript diagnostics on the changed file.
+- State simplification: `currentPage` removed, `loadingMore` added — no other components referenced `currentPage`.
+- Backend API unchanged — `getWorkflows(token, { limit, offset })` signature identical.
+- The existing skeleton loading state (7 cards + spinner + "Loading workflows" text) continues to show during the initial `loading=true` state.
+- `Load more` button appears only when `runs.length < totalRuns && !loading`; shows `Loader2` spinner when `loadingMore=true`.
+- Filter tab change resets the list to offset 0 (same as before).
+
+#### Notes
+- The `loadingMore` button spinner provides visual feedback during the secondary fetch without hiding the already-loaded runs.
+- The existing skeleton is sufficient for the initial load UX requirement — no additional change was needed there.
+- If a filter tab is active while runs are loaded with Load More, the `matchesFilter` client-side filter already handles type filtering across all loaded runs.
+
+---
+
+### FIX-056 — KAN-112: Custom Workflow — fix empty agent seed + blank-slate UX
+
+**Date:** 2026-07-16
+**Triggered by:** `/velocity-ai-fix KAN-112 — implement all requirements`
+
+#### Root Cause
+
+`IdeaInputPage.tsx` had four places that derived default agents for the custom workflow using `LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType)`. For `effectiveType === "custom"` this always returned `[]` because custom agents live in the separate `CUSTOM_AGENTS` export — `LIBRARY_AGENTS` has no entries with `pipeline_type: "custom"`. This caused:
+
+1. **Initial state seed** (`useState` initialiser): `pipelineAgents = []` → Run button disabled with "Add agents first"
+2. **useEffect re-derive**: same filter — clobbered state back to `[]` on type change
+3. **`defaultAgentIds` set**: empty → all 8 custom agents counted as "optional" → immediately hit the `maxOptional=8` cap; user could add 0 extra agents
+4. **`handleAddAgent` limit check**: same filter in the closure → optional count logic broken
+
+Additionally the `TYPE_CONFIG["custom"]` copy and `workflow.yaml` catalog metadata described generic assembly rather than the open-ended AI-driven vision.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 (ISS-014 — agent-composer live), Phase 20 (catalog metadata)
+- **Relevant register section:** `_register-parts/22-capability-surfacing…` §3 (ISS-014); Phase 20 §3 (WF-DB-01 catalog)
+- **Deleted code verified (not resurrected):** `CUSTOM_AGENTS` was already exported — no deleted code resurrected
+- **Locked decisions respected:** INV-12 — reused existing `CUSTOM_AGENTS` export, no new list created; SC-001 — no engine edits; workflow.yaml change is pure inert catalog metadata
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/IdeaInputPage.tsx` | Import `CUSTOM_AGENTS`; fix initial state seed to use `CUSTOM_AGENTS` for custom type; fix `useEffect` re-derive; fix `defaultAgentIds`; fix `handleAddAgent` closure | Ensures 8 default agents are pre-loaded; Run button enabled; add/remove limits correct |
+| `frontend/src/components/workflow/IdeaInputPage.tsx` | Update `TYPE_CONFIG["custom"]` — new heading "What do you want to achieve?", new subtitle communicating AI-driven orchestration | Blank-slate UX framing per KAN-112 AC |
+| `backend/agents/workflows/custom/workflow.yaml` | Update `display_name` and `description` catalog fields | Catalog tile communicates open-ended AI-driven workflow creation |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — pure FE component + inert YAML metadata
+- **INV-3** (golden parity): not affected — no agent, engine, or golden changes
+- **INV-12** (no duplication): verified — reused existing `CUSTOM_AGENTS` export from `AgentLibraryData.ts`; not duplicated
+- **SC-001** (zero engine edits): not affected — zero engine edits; workflow.yaml change is catalog metadata only
+
+#### Verification
+- TypeScript diagnostics on `IdeaInputPage.tsx`: no errors
+- Trace: fresh custom workflow open → `effectiveType === "custom"` → `CUSTOM_AGENTS.sort()` → `pipelineAgents = [8 agents]` → `pipelineAgents.length === 8 > 0` → Run button enabled
+- `defaultAgentIds` now contains all 8 CUSTOM_AGENTS ids → `optionalAgentCount = 0` → `canAddMore = true` → user can add up to 8 extra agents from other pipelines
+- Saved custom workflow reopen path unchanged: `initialAgentIds?.length` guard fires first, seed from `ALL_LIBRARY_AGENTS` (includes CUSTOM_AGENTS) — no regression
+- All other pipeline types (user_stories, ppt, prototype, app_builder, migration variants) use the original `LIBRARY_AGENTS.filter` path — no regression
+
+#### Notes
+- HTML prototype output via custom workflow (a separate future capability) is out of scope for this fix per KAN-112 acceptance criteria; tracked as a follow-up in KAN-112 description
+- AI-driven recommendation endpoint is also a follow-up item — the Smart Planner + Clarification Questions already provide contextual gathering; the active recommendation-before-run feature would be a separate backend endpoint

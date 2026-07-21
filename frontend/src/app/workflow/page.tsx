@@ -3,8 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken } from "@/lib/api";
-import { ENV } from "@/lib/env";
-import { useWebSocket } from "@/hooks/useWebSocket";
 import { WorkflowView } from "@/components/workflow/WorkflowView";
 import { AgentLibrary } from "@/components/workflow/AgentLibrary";
 import { BookOpen } from "lucide-react";
@@ -28,11 +26,6 @@ export default function WorkflowPage() {
     setToken(storedToken);
     setIsAuthenticated(true);
   }, [router]);
-
-  const { send } = useWebSocket({
-    url: ENV.WS_URL,
-    token,
-  });
 
   if (!isAuthenticated) {
     return (
@@ -64,7 +57,6 @@ export default function WorkflowPage() {
             pipelineType="user_stories"
             userMessage=""
             onClose={() => router.push("/dashboard")}
-            websocketSend={send}
           />
         </div>
       </div>

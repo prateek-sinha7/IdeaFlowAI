@@ -2,13 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe } from "@/lib/api";
-import { ENV } from "@/lib/env";
-import { useWebSocket } from "@/hooks/useWebSocket";
+import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents } from "@/lib/api";
+import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
+import type { RunConnectionPhase } from "@/hooks/useRunStream";
 import { useWorkflow } from "@/hooks/useWorkflow";
+// Phase 31 (CHATUI-01/02/03) — the chat-lane DATA layer + the nonce'd deep-link
+// seam + the app-level SSE connection. useRunChat folds the Phase-29 chat frames
+// into a transport-agnostic transcript; useTabDeepLink is the result-card →
+// tab seam (borrow #6); useRunConnection supplies the SSE transport when the
+// provider is mounted (inert default otherwise → the legacy WS path stays the
+// active, byte-identical transport, LOCK-B additive).
+import { useRunChat, type RunChatFrame } from "@/hooks/useRunChat";
+import { useTabDeepLink } from "@/hooks/useTabDeepLink";
+import { useRunConnection } from "@/providers/RunConnectionProvider";
 import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, WorkflowType, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
 import { deriveDeliverableMimetype, resolveReopenMimetype } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 // IN-01 (16 review): SHARED failed-agent-id parser (single source of truth, no
@@ -16,6 +25,37 @@ import type { ChatMode } from "@/components/chat/ChatInput";
 // history-reopen detail view so the two surfaces parse the persisted run `error`
 // identically. See lib/parseFailedAgents.ts for the marker contract.
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
+
+/**
+ * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
+ * shape (re-exported from useHandoffSocket) at the boundary, so the header /
+ * reconnect UI reflects the SSE connection — the sole run transport (44-06).
+ * `replaying`/`live` are "attached" → connected; `idle` (no active run) is
+ * treated as connected so an idle SSE app never shows a false disconnect banner.
+ */
+function phaseToConnectionStatus(phase: RunConnectionPhase): ConnectionStatus {
+  switch (phase) {
+    case "connecting":
+      return "connecting";
+    case "reconnecting":
+      return "reconnecting";
+    case "failed":
+      return "failed";
+    case "disconnected":
+      return "disconnected";
+    case "replaying":
+    case "live":
+    case "idle":
+    default:
+      return "connected";
+  }
+}
+
+// BUG-013: terminal run statuses for the reopen focus gate. A terminal run emits
+// no further SSE events, so focusing it on reopen would only pin a dead-stream
+// reconnect loop for the session; only NON-terminal reopens claim the sticky
+// focus. Keyed on the generic server status string (SC-001), never a workflow name.
+const REOPEN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "degraded"]);
 
 /**
  * Dashboard page - the main authenticated view.
@@ -103,16 +143,28 @@ export default function DashboardPage() {
   } | null>(null);
 
   // Phase 12 (§22 / RESUME-03) — wave/subagent tree state assembled from the
-  // additive wave_*/subagent_* lifecycle events, fed to the WaveTreePanel.
+  // additive wave_*/subagent_* lifecycle events, fed (via the `waves` passthrough)
+  // to AgentDetailPanel's inline construction/wave tree.
   const [waveGroups, setWaveGroups] = useState<WaveGroup[]>([]);
   // Per-run dedup substrate for the durable reconnect replay (RESUME-03 FE half):
   // every applied event_id is recorded so a replayed event is applied at most
   // once, and the max-seen seq is tracked so the reconnect can send after_seq.
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const lastSeqRef = useRef<number>(0);
-  // Stable getter so DashboardLayout's reconnect effect reads the current
-  // last-received seq without re-subscribing.
-  const getLastSeq = useCallback(() => lastSeqRef.current, []);
+  // BUG-005 — run-scope the pipeline_start reset. `trackedRunIdRef` holds the run
+  // THIS tab is driving/viewing: the ONLY run whose pipeline_start may reset this
+  // tab's clarify / active-run-id / seen-set. The SSE provider's non-run-scoped
+  // fan-out forwards EVERY frame from EVERY attached run to the single subscriber,
+  // so without this guard a CONCURRENT foreign run's pipeline_start wiped the
+  // viewed run's clarify (activePipelineRunId → null → the lane fell clarify→
+  // building). Synced below from activePipelineRunId ?? contentSourceRunId (NOT
+  // pipelineState.pipelineRunId — useWorkflow adopts the foreign id into it).
+  const trackedRunIdRef = useRef<string | null>(null);
+  // BUG-015 — the provider's detachRun, reached through a ref so the empty-deps
+  // handleWebSocketMessage (a useCallback([])) can release a completed run's focus
+  // WITHOUT closing over `runConnection` (declared later, which would break the
+  // stale-closure design). Synced from runConnection.detachRun in a useEffect below.
+  const detachRunRef = useRef<((runId: string) => void) | null>(null);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
@@ -122,6 +174,12 @@ export default function DashboardPage() {
   // launch path sources parent linkage from it (replaces the old fragile
   // currentWorkflowRunId heuristic).
   const [contentSourceRunId, setContentSourceRunId] = useState<string | null>(null);
+  // BUG-012: the durable viewed-run-type — the REAL type of the run that produced
+  // the on-screen content (fullRun.type), threaded to DashboardLayout so the
+  // PreviewPanel render dispatch keys on the viewed run's type even for runs
+  // OUTSIDE the recents window. Set on reopen; cleared on a fresh (non-revision)
+  // launch. Gated on !isPipelineRunning downstream so live launch->watch is byte-identical.
+  const [contentSourceRunType, setContentSourceRunType] = useState<WorkflowType | null>(null);
   const [questionnaireData, setQuestionnaireData] = useState<{
     questions: {
       id: string; question: string; options: string[]; answerType?: string;
@@ -141,6 +199,12 @@ export default function DashboardPage() {
     pipelineRunId: string;
     // REDO-GATE (F-fe3): generic server-set flag — the panel shows Redo iff true.
     redoable?: boolean;
+    // SC-001 (plan 04 → 06/08): name-free, structurally-derived server flags.
+    // The single FE parse point for KAN-101's "Update the Specs" affordance —
+    // plan 06 maps it into laneGate, plan 08 into the Steps inline gate. Parsed
+    // defensively (undefined when the backend omits them).
+    updateSpecsEligible?: boolean;
+    artifactKind?: string;
   } | null>(null);
   // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout.
   // `gateAgentIds` (Phase 6, T5b) flows into DashboardLayout's `gate_agent_ids`
@@ -292,6 +356,21 @@ export default function DashboardPage() {
       lastSeqRef.current = evSeq;
     }
 
+    // Phase 31 (CHATUI-03) — the Phase-29 chat frames feed the transcript, not
+    // the pipeline reducer. The chat transcript subscribes to the SSE fan-out
+    // directly (chatSubscribe → useRunChat); here we simply early-return so these
+    // frame types don't fall through into the pipeline switch below.
+    // `msg.type` is the StreamMessage union which does not enumerate the chat
+    // frame names; widen to string for the membership test.
+    const frameType = msg.type as string;
+    if (
+      frameType === "chat_message" ||
+      frameType === "chat_reply" ||
+      frameType === "stream_attached"
+    ) {
+      return;
+    }
+
     // Phase 12 (§22) — wave/subagent lifecycle events route into the wave-tree
     // state (statuses only, D-14). Dedup already happened at the TOP of the
     // handler (CR-05), so here we just fold the event into the wave groups, then
@@ -406,27 +485,52 @@ export default function DashboardPage() {
       // correct after_seq (run 1 left it at e.g. 500). NOTE: the just-deduped
       // pipeline_start event_id is re-recorded after the reset so a replay of
       // pipeline_start itself stays idempotent within the new run.
+      //
+      // BUG-005 — RUN-SCOPE the reset: the SSE provider's non-run-scoped fan-out
+      // forwards a CONCURRENT foreign run's pipeline_start to this single
+      // subscriber too. Running the reset for a foreign frame nulls the VIEWED
+      // run's activePipelineRunId/questionnaireData + poisons the shared seen-set,
+      // collapsing the viewed run's clarify to "0/0 BUILDING". So SKIP the reset
+      // when the incoming pipeline_run_id belongs to a DIFFERENT run than the one
+      // this tab tracks. When there is no tracked id yet, or the ids match, the
+      // reset runs exactly as before (launch / same-tab-new-run flow unregressed).
+      // CRITICAL: gate on `trackedRunIdRef.current` (a ref), NOT the
+      // activePipelineRunId/contentSourceRunId STATE — handleWebSocketMessage is a
+      // useCallback([]) whose closure captures the INITIAL (null) state, so a
+      // direct state read would treat every pipeline_start as foreign and break the
+      // launch reset (the DEF-44-12-4 stale-closure class).
       if (msg.type === "pipeline_start") {
-        resetReplayState({
-          seen: seenEventIdsRef.current,
-          setLastSeq: (n) => {
-            lastSeqRef.current = n;
-          },
-          setWaveGroups,
-        });
-        if (topEventId) seenEventIdsRef.current.add(topEventId);
-        // KAN-89: clear any stale reviewGateData from a previous run so the
-        // ReviewGatePanel never blocks the new pipeline's preview area.
-        // reviewGateData lives separately from pipelineState and is not cleared
-        // by onResetPipeline() — this is the canonical place to clear it since
-        // pipeline_start is the definitive "new run has begun" signal.
-        setReviewGateData(null);
-        // Clear stale questionnaire state from a previous run that may have
-        // been cancelled/failed while the clarify gate was open (questionnaire_complete
-        // never fired). Without this, the old questionnaire panel can flash or
-        // persist into the next run's preview area.
-        setQuestionnaireData(null);
-        setActivePipelineRunId(null);
+        const incomingRunId = (msg.data as Record<string, unknown> | undefined)
+          ?.pipeline_run_id as string | undefined;
+        const isForeignRun =
+          !!incomingRunId &&
+          !!trackedRunIdRef.current &&
+          incomingRunId !== trackedRunIdRef.current;
+        if (isForeignRun) {
+          // Foreign concurrent run — forward the frame to the reducer (below) but
+          // do NOT reset THIS tab's clarify / seen-set / review-gate.
+        } else {
+          resetReplayState({
+            seen: seenEventIdsRef.current,
+            setLastSeq: (n) => {
+              lastSeqRef.current = n;
+            },
+            setWaveGroups,
+          });
+          if (topEventId) seenEventIdsRef.current.add(topEventId);
+          // KAN-89: clear any stale reviewGateData from a previous run so the
+          // ReviewGatePanel never blocks the new pipeline's preview area.
+          // reviewGateData lives separately from pipelineState and is not cleared
+          // by onResetPipeline() — this is the canonical place to clear it since
+          // pipeline_start is the definitive "new run has begun" signal.
+          setReviewGateData(null);
+          // Clear stale questionnaire state from a previous run that may have
+          // been cancelled/failed while the clarify gate was open (questionnaire_complete
+          // never fired). Without this, the old questionnaire panel can flash or
+          // persist into the next run's preview area.
+          setQuestionnaireData(null);
+          setActivePipelineRunId(null);
+        }
       }
 
       handlePipelineMsgRef.current?.({
@@ -440,7 +544,27 @@ export default function DashboardPage() {
         // Revision Families (B1): the live completion source — the engine emits
         // pipeline_run_id in the pipeline_complete data (engine.py:2267). This is
         // the run a subsequent inline revise must link as its parent.
-        if (data.pipeline_run_id) setContentSourceRunId(data.pipeline_run_id as string);
+        // BUG-011: run-scope the set so a FOREIGN concurrent run's completion can
+        // no longer re-point the VIEWED content-source. Mirrors the BUG-005
+        // pipeline_start `isForeignRun` shape (gate on the trackedRunIdRef, not the
+        // stale-closure state). When the completing run IS the tracked/launched run
+        // (launch->watch) OR there is no tracked id yet, it is NOT foreign — so the
+        // set runs byte-identically to before; only a genuine foreign concurrent
+        // completion is skipped.
+        const completingRunId = data.pipeline_run_id as string | undefined;
+        const isForeignCompletion =
+          !!completingRunId &&
+          !!trackedRunIdRef.current &&
+          completingRunId !== trackedRunIdRef.current;
+        if (completingRunId && !isForeignCompletion) {
+          setContentSourceRunId(completingRunId);
+          // BUG-015 — release the tracked completing run's sticky focus so its
+          // terminal SSE stream unmounts (no reconnect, no ~14k re-replay). Reached
+          // via a ref (this handler is a useCallback([]) — never a direct
+          // runConnection reference). The rendered preview/content is already in
+          // state, so unmounting the connection does not remove it.
+          detachRunRef.current?.(completingRunId);
+        }
         const finalOutput = data.final_output as string;
         const pipelineType = data.pipeline_type as string;
 
@@ -764,6 +888,10 @@ export default function DashboardPage() {
             pipelineRunId: data.pipeline_run_id,
             // REDO-GATE (F-fe3): capture the generic server flag (default false).
             redoable: data.redoable ?? false,
+            // SC-001 (plan 04): defensively parse the name-free eligibility flag
+            // + artifact kind (undefined/false when the backend omits them).
+            updateSpecsEligible: data.update_specs_eligible ?? false,
+            artifactKind: data.artifact_kind,
           });
         }
         break;
@@ -813,15 +941,28 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // WebSocket connection
-  const { send, connectionStatus, reconnect } = useWebSocket({
-    url: ENV.WS_URL,
-    token,
-    onMessage: handleWebSocketMessage,
-  });
+  // ─── Phase 31/44 — the app-level SSE run connection (sole transport) ─────────
+  // The pipeline / questionnaire / review down-channel is sourced from
+  // runConnection.subscribe (below) and the chat transcript from chatSubscribe.
+  // SSE + REST is the only transport (44-06 hard cutoff) — no WebSocket client.
+  const runConnection = useRunConnection();
+
+  // BUG-015 — keep the ref pointed at the live detachRun so the empty-deps
+  // handleWebSocketMessage can release a completed run's focus without closing
+  // over runConnection (mirrors the handlePipelineMsgRef / trackedRunIdRef idiom).
+  useEffect(() => {
+    detachRunRef.current = runConnection.detachRun;
+  }, [runConnection.detachRun]);
+
+  // The status/reconnect the header UI reflects, sourced from the SSE connection
+  // phase; reconnect routes through the provider's server-derived reattach.
+  const effectiveConnectionStatus: ConnectionStatus = phaseToConnectionStatus(
+    runConnection.phase,
+  );
+  const effectiveReconnect = runConnection.reattach;
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow(send);
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow();
   // KAN-98: store pending gate edits so review_gate_approved can apply them to
   // the live agent state (planAgent.output etc.) for the Thinking tab display.
   const pendingGateEditRef = useRef<{ agentId: string; editedContent: string } | null>(null);
@@ -834,11 +975,81 @@ export default function DashboardPage() {
     handlePipelineMsgRef.current = handlePipelineMsg;
   }, [handlePipelineMsg]);
 
-  // Fire a staged od_prototype run as soon as the WebSocket is open.
-  // Re-reads from sessionStorage on every connect so backend restarts
-  // don't lose the pending run.
+  // BUG-005 — keep `trackedRunIdRef` pointed at the run this tab is driving/viewing
+  // so the pipeline_start reset (handleWebSocketMessage) can run-scope itself. Sync
+  // from activePipelineRunId (clarify-paused run) ?? contentSourceRunId (viewed/
+  // reopened run); keep the last id when BOTH go null (the building phase clears
+  // both but the tab is still driving that run). DELIBERATELY excludes
+  // pipelineState.pipelineRunId — useWorkflow.ts:243 adopts a foreign frame's
+  // pipeline_run_id into it, so tracking it would hijack the id to the foreign run.
   useEffect(() => {
-    if (connectionStatus !== "connected") return;
+    trackedRunIdRef.current = activePipelineRunId ?? contentSourceRunId ?? trackedRunIdRef.current;
+  }, [activePipelineRunId, contentSourceRunId]);
+
+  // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
+
+  // SSE is the LIVE pipeline down-channel. Feed the SAME handleWebSocketMessage
+  // router (pipeline / wave / questionnaire / review-gate switch, which
+  // dispatches to handlePipelineMsgRef) from the per-run SSE fan-out. The reducer
+  // is idempotent by event_id. `runConnection.subscribe` is a stable provider
+  // callback → no resubscribe churn.
+  const runSubscribe = runConnection.subscribe;
+  useEffect(() => {
+    const unsubscribe = runSubscribe((m) =>
+      handleWebSocketMessage({ type: m.type, data: m.data } as unknown as StreamMessage),
+    );
+    return unsubscribe;
+  }, [runSubscribe, handleWebSocketMessage]);
+
+  // The chat transcript frame subscription — the SSE per-run fan-out.
+  const chatSubscribe = useCallback(
+    (fn: (f: RunChatFrame) => void) => {
+      return runConnection.subscribe((m) =>
+        fn({ type: m.type, data: (m.data as Record<string, unknown>) ?? {} }),
+      );
+    },
+    [runConnection],
+  );
+
+  const { messages: runChatMessages, sendMessage: sendRunChatMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript } = useRunChat({
+    // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
+    // path hits the in-flight run instead of null-then-fresh-POST; fall back to
+    // the clarify-only activePipelineRunId when the build id is not yet set.
+    // DEF-44-12-1: then fall back to the currently-VIEWED run (contentSourceRunId,
+    // set on history/recents reopen) so a Concierge/steering/revision turn on an
+    // opened terminal run posts to POST /{id}/messages — NOT the null->/api/runs
+    // launch branch (which 422'd pre-fix). A live pipeline still wins the precedence.
+    runId: pipelineState.pipelineRunId ?? activePipelineRunId ?? contentSourceRunId,
+    subscribe: chatSubscribe,
+    // W1 (44-01): sendCommand resolves to the launched run_id (for
+    // launch->attach); the chat up-channel ignores that value, so adapt it to the
+    // Promise<void>-returning shape useRunChat expects.
+    // BUG-017: AWAIT (not void) the POST so the hook's `await sendCommand(...)`
+    // blocks until the reply is persisted — the DEF-44-12-2 re-fetch then lands
+    // after chat_reply exists and the Concierge reply renders on a completed run.
+    sendCommand: async (runId, payload) => {
+      await runConnection.sendCommand(runId, payload);
+    },
+    // SSE + REST is the sole transport (44-06) — the up-channel is sendCommand;
+    // there is no legacy WS send.
+    legacyWsSend: undefined,
+    // DEF-44-12-2 — after a send resolves, re-fetch the run's durable events so
+    // the Concierge reply (persisted durable-only, never queued → the live SSE
+    // tail never carries it) renders on an opened terminal/live run. The hook
+    // folds the returned frames through handleFrame (idempotent by event_id).
+    fetchEvents: (runId, afterSeq) =>
+      getRunEvents(getToken() ?? "", runId ?? "", afterSeq),
+  });
+
+  // The nonce'd deep-link seam (borrow #6): the lane's result cards call
+  // requestOpenTab; PreviewPanel consumes the pending {tab, nonce} (all tabs).
+  const runTabDeepLink = useTabDeepLink();
+
+  // Fire a staged od_prototype run once the SSE connection is ready (idle maps
+  // to "connected" — an idle app with no live run is still ready to launch over
+  // REST). Re-reads from sessionStorage so a staged run survives a reload.
+  useEffect(() => {
+    if (effectiveConnectionStatus !== "connected") return;
 
     let pending = pendingOdProtoRef.current;
     if (!pending) {
@@ -901,16 +1112,16 @@ export default function DashboardPage() {
       ...(pending.modelOverrides && Object.keys(pending.modelOverrides).length > 0 ? { modelOverrides: pending.modelOverrides } : {}),
       ...(pending.selections && Object.keys(pending.selections).length > 0 ? { selections: pending.selections } : {}),
       ...(pending.agentIds && pending.agentIds.length > 0 ? { agentIds: pending.agentIds } : {}),
+      ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
     });
-  // send and connectionStatus drive the re-run.
+  // effectiveConnectionStatus drives the re-run.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionStatus]);
+  }, [effectiveConnectionStatus]);
 
-  // Fire a staged od_ppt run as soon as the WebSocket is open.
-  // Re-reads from sessionStorage on every connect so backend restarts
-  // don't lose the pending run.
+  // Fire a staged od_ppt run once the SSE connection is ready (idle → connected).
+  // Re-reads from sessionStorage so a staged run survives a reload.
   useEffect(() => {
-    if (connectionStatus !== "connected") return;
+    if (effectiveConnectionStatus !== "connected") return;
 
     // Try ref first, then fall back to sessionStorage (handles reconnects)
     let pending = pendingOdPptRef.current;
@@ -973,119 +1184,10 @@ export default function DashboardPage() {
       ...(pending.modelOverrides && Object.keys(pending.modelOverrides).length > 0 ? { modelOverrides: pending.modelOverrides } : {}),
       ...(pending.selections && Object.keys(pending.selections).length > 0 ? { selections: pending.selections } : {}),
       ...(pending.agentIds && pending.agentIds.length > 0 ? { agentIds: pending.agentIds } : {}),
+      ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionStatus]);
-
-  // Send a message via WebSocket (for refinement chat)
-  const sendingRef = useRef(false);
-
-  const handleSendMessage = useCallback(
-    async (content: string) => {
-      if (sendingRef.current) return;
-      sendingRef.current = true;
-
-      try {
-        let chatId = activeChatId;
-
-        if (!chatId) {
-          const currentToken = getToken();
-          if (!currentToken) { sendingRef.current = false; return; }
-          try {
-            const newSession = await createChat(currentToken, content.slice(0, 50));
-            chatId = newSession.id;
-            setActiveChatId(chatId);
-          } catch (err) {
-            console.error("Failed to auto-create chat:", err);
-            sendingRef.current = false;
-            return;
-          }
-        }
-
-        const userMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          chatSessionId: chatId,
-          role: "user",
-          content,
-          createdAt: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, userMessage]);
-
-        setIsStreaming(true);
-        setStreamingContent("");
-        setCurrentMode("default");
-        setProcessSteps([]);
-        activePreviewSectionRef.current = null;
-        pptContentRef.current = "";
-        prototypeContentRef.current = "";
-        userStoryContentRef.current = "";
-        setUserStoryContent("");
-        setPptContent("");
-        setPrototypeContent("");
-
-        send(
-          JSON.stringify({
-            type: "user_message",
-            content,
-            chat_session_id: chatId,
-          })
-        );
-      } finally {
-        setTimeout(() => { sendingRef.current = false; }, 500);
-      }
-    },
-    [activeChatId, send]
-  );
-
-  // Send a message with a specific mode
-  const handleSendMessageWithMode = useCallback(
-    async (content: string, mode: ChatMode) => {
-      let chatId = activeChatId;
-
-      if (!chatId) {
-        const currentToken = getToken();
-        if (!currentToken) return;
-        try {
-          const newSession = await createChat(currentToken, content.slice(0, 50));
-          chatId = newSession.id;
-          setActiveChatId(chatId);
-        } catch (err) {
-          console.error("Failed to auto-create chat:", err);
-          return;
-        }
-      }
-
-      const userMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        chatSessionId: chatId,
-        role: "user",
-        content,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, userMessage]);
-
-      setIsStreaming(true);
-      setStreamingContent("");
-      setCurrentMode(mode);
-      setProcessSteps([]);
-      pptContentRef.current = "";
-      prototypeContentRef.current = "";
-      userStoryContentRef.current = "";
-      setUserStoryContent("");
-      setPptContent("");
-      setPrototypeContent("");
-
-      send(
-        JSON.stringify({
-          type: "user_message",
-          content,
-          chat_session_id: chatId,
-          mode,
-        })
-      );
-    },
-    [activeChatId, send]
-  );
+  }, [effectiveConnectionStatus]);
 
   // Select a chat session and load its messages
   const handleSelectChat = useCallback(
@@ -1175,6 +1277,69 @@ export default function DashboardPage() {
         // now the on-screen content, so an inline revise from here links it as
         // parent.
         setContentSourceRunId(fullRun.id);
+        // BUG-013: make the VIEWED run the single sticky SSE focus so a parked /
+        // building run streams live (multi-round clarify + resume→build) without
+        // waiting on the next refreshLiveRuns poll. GATED on non-terminal — a
+        // terminal run emits nothing, so focusing it would only pin a dead-stream
+        // reconnect loop. A new focus replaces the prior (no stream accumulation).
+        if (!REOPEN_TERMINAL_STATUSES.has(fullRun.status)) { runConnection.attachRun(fullRun.id); }
+        // BUG-012: capture the viewed run's REAL type so the PreviewPanel render
+        // dispatch keys on it (durable, independent of the recents window).
+        setContentSourceRunType(fullRun.type ?? null);
+
+        // DEF-44-12-4 (Piece 1) — bind the run-screen LIVE state (the Steps
+        // pipeline trace) to the run being VIEWED, not only the run launched
+        // in-session. `handleSelectWorkflowRun` sets contentSourceRunId (drives
+        // Preview/Files) but never seeded the pipeline reducer, so a history-
+        // opened run showed the empty "Start a pipeline…" placeholder. Seed it
+        // from the durable run_events — but ONLY when the opened run differs from
+        // the live launched run: re-seeding the launched run would replay-from-0
+        // over live progress and wipe gate/questionnaire state (page.tsx pipeline_start
+        // reset side effects). The same fetched frames feed Piece 3's transcript seed.
+        if (fullRun.id !== pipelineState.pipelineRunId) {
+          // Wire the VIEWED run's brief into the Steps surface (runInput=submittedBrief
+          // via DashboardLayout) so AgentThinkingTab's hasAnyData gate + header reflect
+          // the opened run, not a stale launched brief.
+          setSubmittedBrief(fullRun.input ?? "");
+          try {
+            // Reset the per-run FE replay state (seen-set / seq cursor / wave groups)
+            // and the reducer's agents[] so the prior run's state does not poison the
+            // new view (mirrors the launch path's pipeline_start reset + startPipeline).
+            resetReplayState({
+              seen: seenEventIdsRef.current,
+              setLastSeq: (n) => {
+                lastSeqRef.current = n;
+              },
+              setWaveGroups,
+            });
+            resetPipeline();
+            // Fetch the durable events and replay each through the PAGE ROUTER
+            // (handleWebSocketMessage), NOT the bare reducer — so each event_id lands
+            // in seenEventIdsRef and the subsequently-attached live SSE tail is deduped
+            // (idempotent, no double-count). pipeline_start rebuilds agents[]; the
+            // agent_* frames then fill it. Works for a live-opened run (durable seed +
+            // live tail continues) and a terminal-opened run (seed is the whole trace).
+            const durableFrames = await getRunEvents(currentToken, fullRun.id);
+            for (const frame of durableFrames) {
+              handleWebSocketMessage({
+                type: frame.type,
+                data: frame.data,
+              } as unknown as StreamMessage);
+            }
+            // DEF-44-12-4 (Piece 3) — seed the prior chat turns from the SAME
+            // once-fetched frames (do not fetch twice). The page router early-
+            // returns chat_message/chat_reply frames, so the transcript needs
+            // them folded through the hook's imperative seed. seedTranscript
+            // resets the hook's seen-set + seq cursor so Piece 2's re-fetch-after-
+            // send then pulls only newer events. Only fired on this deliberate
+            // view-change, so a live revision's family anchoring is preserved.
+            seedRunChatTranscript(durableFrames);
+          } catch (seedErr) {
+            // Log-and-continue: a seed fetch failure must not break the reopen
+            // content path already set above.
+            console.error("Failed to seed run trace on open:", seedErr);
+          }
+        }
 
         // WR-01 (16 review): "degraded" is a terminal status ISS-016 now persists
         // for partially-failed runs — it carries a real (partial) deliverable. Treat
@@ -1245,7 +1410,11 @@ export default function DashboardPage() {
         console.error("Failed to load workflow output:", err);
       }
     },
-    []
+    // DEF-44-12-4 — the closure now reads pipelineState.pipelineRunId and calls
+    // resetPipeline/setWaveGroups/handleWebSocketMessage/setSubmittedBrief, so
+    // they MUST be deps (refs seenEventIdsRef/lastSeqRef are stable, omitted).
+    // BUG-013: handleSelectWorkflowRun now calls runConnection.attachRun on reopen.
+    [pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection]
   );
 
   // Handle new chat creation from sidebar
@@ -1314,23 +1483,29 @@ export default function DashboardPage() {
       pptContent={pptContent}
       prototypeContent={prototypeContent}
       genericDeliverable={genericDeliverable}
-      connectionStatus={connectionStatus}
-      onSendMessage={handleSendMessage}
-      onSendMessageWithMode={handleSendMessageWithMode}
+      connectionStatus={effectiveConnectionStatus}
       onSelectChat={handleSelectChat}
       onNewChat={handleNewChat}
       onDeleteChat={handleDeleteChat}
       onLogout={handleLogout}
-      onReconnect={reconnect}
+      onReconnect={effectiveReconnect}
       messageMode={currentMode}
       chatTitleUpdate={chatTitleUpdate}
       processSteps={processSteps}
-      websocketSend={send}
       pipelineState={pipelineState}
       reopenedRunStatus={reopenedRunStatus}
       reopenedFailedAgents={reopenedFailedAgents}
       reopenedAgentNameById={reopenedAgentNameById}
       submittedBrief={submittedBrief}
+      // Phase 31 (CHATUI-01/02/03) — the family-anchored transcript + the
+      // transport-agnostic send, plus the nonce'd deep-link seam. The lane
+      // (mounted in DashboardLayout) consumes messages/send/requestOpenTab;
+      // PreviewPanel consumes the pending deep-link target for all tabs.
+      runChatMessages={runChatMessages}
+      runChatReplyStreaming={runChatReplyStreaming}
+      onRunChatSend={sendRunChatMessage}
+      onRequestOpenTab={runTabDeepLink.requestOpenTab}
+      deepLinkTarget={runTabDeepLink.pending}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
@@ -1353,17 +1528,42 @@ export default function DashboardPage() {
           // Revision Families (B1): a fresh run has no source until it completes —
           // clear so a stale source can't be sent as a revise parent.
           setContentSourceRunId(null);
+          // BUG-012: a fresh run has no viewed type yet — clear so a stale
+          // reopened type can't misroute the fresh run's live deliverable.
+          setContentSourceRunType(null);
+          // BUG-021: a fresh run starts a NEW conversation — clear the last-viewed
+          // run's transcript so its turns don't bleed into the new run's chat lane
+          // (the new run's frames fold into the empty transcript via handleFrame as
+          // they stream). Reuses the seedTranscript reset primitive with []; the
+          // history-open seed at :1336 (durableFrames) is untouched.
+          seedRunChatTranscript([]);
         }
-        // For revisions, keep existing content visible until new output arrives
-        startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams);
+        // For revisions, keep existing content visible until new output arrives.
+        // W1 (44-01) launch->attach (R4): the SSE launch (POST /api/runs) resolves
+        // to the created run_id; attach its SSE stream immediately so a run
+        // launched after boot streams live without waiting for the next
+        // refreshLiveRuns poll. The WS path returns null synchronously (attachRun
+        // no-op) — Promise.resolve normalizes both shapes.
+        void Promise.resolve(
+          startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams),
+        ).then((launchedRunId) => {
+          if (launchedRunId) {
+            runConnection.attachRun(launchedRunId);
+            // BUG-005 — recognize the just-launched run as self so its OWN
+            // pipeline_start still fires the WR-03 reset even when
+            // activePipelineRunId/contentSourceRunId are stale/null (a same-tab NEW
+            // run launched after a prior run completed). Set alongside attachRun.
+            trackedRunIdRef.current = launchedRunId;
+          }
+        });
       }}
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
       contentSourceRunId={contentSourceRunId}
+      contentSourceRunType={contentSourceRunType}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}
-      getLastSeq={getLastSeq}
       onSubmitQuestionnaire={submitQuestionnaire}
       onRetainClarifyRound={retainClarifyRound}
       reviewGateData={reviewGateData}
@@ -1375,33 +1575,45 @@ export default function DashboardPage() {
         if (editedContent && reviewGateData) {
           pendingGateEditRef.current = { agentId: reviewGateData.agentId, editedContent };
         }
-        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: true, edited_content: editedContent ?? null }));
+        // W2 (44-04): POST /{id}/gate carries edited_content (WR-03 — /messages
+        // CHANNEL_GATE would drop it). REST is the sole up-channel (44-06).
+        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+          gate_key: gateKey,
+          action: "approve",
+          approved: true,
+          edited_content: editedContent ?? null,
+        }).catch((e) => console.error("postGate approve failed", e));
       }}
       onRejectReview={(gateKey) => {
-        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: false }));
+        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+          gate_key: gateKey,
+          action: "reject",
+          approved: false,
+        }).catch((e) => console.error("postGate reject failed", e));
         setReviewGateData(null);
       }}
       onRedoReview={(gateKey, instructions) => {
         // REDO-GATE (F-fe3): re-run the gated agent in place. Rides the SAME
-        // approve_review owner-gated handler/resume channel as approve/reject —
-        // matches the Wave-1 wire contract (websocket.py: action="redo").
-        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, action: "redo", instructions }));
+        // owner-gated gate seam as approve/reject — action="redo".
+        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+          gate_key: gateKey,
+          action: "redo",
+          instructions,
+        }).catch((e) => console.error("postGate redo failed", e));
         // Clear the panel; the re-run re-emits a fresh review_gate_ready (same
         // gate_key, redoable=true) that re-opens it with the new output.
         setReviewGateData(null);
       }}
       onUpdateSpecsReview={(gateKey, analysisReport) => {
         // KAN-101: trigger the spec revision sub-pipeline (specify → plan → analyze)
-        // with the analysis report as context. Rides the SAME approve_review
-        // owner-gated handler — action="update_specs", analysis_report carries
-        // the text. The panel stays open; the backend will re-emit review_gate_ready
-        // when the sub-pipeline completes and the analyze gate re-opens.
-        send(JSON.stringify({
-          type: "approve_review",
+        // with the analysis report as context. Rides the SAME owner-gated gate
+        // seam — action="update_specs", analysis_report carries the text. The
+        // backend re-emits review_gate_ready when the analyze gate re-opens.
+        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
           gate_key: gateKey,
           action: "update_specs",
           analysis_report: analysisReport,
-        }));
+        }).catch((e) => console.error("postGate update_specs failed", e));
         // Clear the panel immediately; it will re-open when the backend
         // emits review_gate_ready with the new analysis output.
         setReviewGateData(null);

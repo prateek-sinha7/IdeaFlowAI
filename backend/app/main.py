@@ -15,8 +15,10 @@ from app.api.agents import router as agents_router
 from app.api.workflows import router as workflows_router
 from app.api.capabilities import router as capabilities_router
 from app.api.runs import router as runs_router
+from app.api.analytics import router as analytics_router
+from app.api.run_commands import router as run_commands_router
+from app.api.run_stream import router as run_stream_router
 from app.api.user_workflows import router as user_workflows_router
-from app.api.websocket import router as websocket_router
 from app.api.handoff import router as handoff_router
 from app.api.settings import router as settings_router
 from app.api.mcp import router as mcp_router
@@ -26,6 +28,7 @@ from app.api.prototype_templates import router as prototype_templates_router
 from app.api.ppt_templates import router as ppt_templates_router
 from app.api.admin import router as admin_router
 from app.api.file_extract import router as file_extract_router
+from app.api.run_files import router as run_files_router
 from app.core.config import settings
 from app.models.database import engine
 
@@ -134,10 +137,30 @@ async def lifespan(app: FastAPI):
         # WS pipeline registry and a reconnect mid-resume live-attaches. This
         # is the SINGLE wiring site — the engine never imports app.api (the
         # import-linter forbidden direction); the app layer injects callbacks.
-        from app.api import websocket as _ws_bridge
+        from app.api import run_engine as _ws_bridge
         engine_instance._resume_register_queue = _ws_bridge._register_resume_queue
         engine_instance._resume_register_task = _ws_bridge._register_resume_task
         engine_instance._resume_cleanup = _ws_bridge._cleanup_pipeline
+        # ── RESUME-10: wire the live-layer trio onto the engine so an AUTO-RESUMED run
+        # (restore_non_terminal_runs branch b) is a first-class LIVE run — it registers
+        # its rebuilt ectx (steering / per-turn images / Concierge resolve via
+        # _live_ectx_for_run) and emits narrator milestone cards, exactly as the REST/SSE
+        # launch path does. These are the SAME callables run_commands threads into
+        # engine.execute(...) at launch; app→app import (the kernel never imports app.*).
+        from app.api.run_commands import register_live_ectx, unregister_live_ectx
+        from app.agents.chat_narrator import persist_milestone_card
+        engine_instance._resume_live_ectx_register = register_live_ectx
+        engine_instance._resume_live_ectx_unregister = unregister_live_ectx
+        engine_instance._resume_milestone_sink = persist_milestone_card
+        # ── BUG-R03: arm the resume output-column persister on the SAME engine instance so an
+        # AUTO-RESUMED run (restore_non_terminal_runs branch b) persists its output-bearing
+        # WorkflowRun columns (output/agent_outputs/token_usage/duration/deliverable_*) on
+        # resume-completion — the columns _drive_launch_to_queue writes on the launch path but
+        # neither resume entry point replicated (the run then read empty from /chain-context,
+        # /summary, analytics, export). App→app import (the kernel never imports app.*); fired
+        # from _drive_resumed_stream's finally, reading the owner-scoped durable tail.
+        from app.api.run_commands import persist_resume_output_columns
+        engine_instance._resume_output_persist_sink = persist_resume_output_columns
         await engine_instance.restore_non_terminal_runs()
     except Exception as _startup_exc:
         logger.warning("Startup restoration failed (non-fatal): %s", _startup_exc)
@@ -170,8 +193,19 @@ app.include_router(agents_router)
 app.include_router(workflows_router)
 app.include_router(capabilities_router)
 app.include_router(runs_router)
+# SC-1 / SHELL-05 (38-01): additive, owner-scoped, READ-ONLY analytics
+# aggregation over existing WorkflowRun columns (its own /api/analytics prefix;
+# no new table / migration). Registered beside runs_router.
+app.include_router(analytics_router)
+# CHAT-07 / D-13: the per-run SSE down-channel — the SOLE run event transport
+# after the /ws/chat WebSocket was retired (44-07, INV-12 exit gate). Shares the
+# /api/runs prefix with runs_router (FastAPI allows multiple routers per prefix).
+app.include_router(run_stream_router)
+# CHAT-07 / D-13: the up-channel REST command endpoints (gate/answers/cancel) for
+# paused-run interactions — the sole command surface after /ws/chat retirement
+# (44-07). Thin over the SAME store/cancel seams. Shares the /api/runs prefix.
+app.include_router(run_commands_router)
 app.include_router(user_workflows_router)
-app.include_router(websocket_router)
 app.include_router(handoff_router)
 app.include_router(settings_router)
 app.include_router(mcp_router)
@@ -181,6 +215,9 @@ app.include_router(prototype_templates_router)
 app.include_router(ppt_templates_router)
 app.include_router(admin_router)
 app.include_router(file_extract_router)
+# UPLD-01: owner-scoped, capped document upload → RunSandbox ``.uploads/`` prefix
+# (additive — shares the /api/runs prefix; no new table / migration).
+app.include_router(run_files_router)
 
 
 @app.get("/health")

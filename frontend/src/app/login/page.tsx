@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Mail, Lock } from "lucide-react";
 import { login, ApiError } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,104 +36,136 @@ export default function LoginPage() {
   }
 
   return (
-    <div
-      className="flex min-h-screen items-center justify-center px-4"
-      style={{ background: "#f5f5f0" }}
-    >
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="w-full max-w-md"
+    <div className="flex min-h-screen">
+      {/* LEFT — dark brand panel (~46%); mirrors the 35-01 near-black shell idiom */}
+      <aside
+        data-testid="login-brand-panel"
+        className="hidden lg:flex lg:w-[46%] flex-col justify-between bg-surface-near-black px-12 py-14 border-r border-white/10"
       >
-        {/* Wordmark — display serif italic, matches the internal design system */}
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="text-center mb-10"
-        >
-          <p
-            className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.22em] mb-3"
-            style={{ fontFamily: "var(--font-inter)" }}
-          >
+        {/* Wordmark — brand dot + Manrope wordmark */}
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-button)] bg-brand">
+            <span className="h-2 w-2 rounded-full bg-white" />
+          </span>
+          <span className="text-base font-semibold tracking-tight text-white font-sans">
             VelocityAI
-          </p>
-          <h1
-            className="text-[40px] sm:text-[44px] font-normal italic text-gray-900 leading-[1.1] tracking-tight"
-            style={{ fontFamily: "var(--font-fraunces)" }}
-          >
-            Welcome back
-          </h1>
-          <p className="mt-3 text-[13px] text-gray-500 max-w-sm mx-auto leading-relaxed">
-            Sign in to continue building with your AI delivery agents.
-          </p>
-        </motion.div>
-
-        {/* Card */}
-        <div className="rounded-2xl border border-gray-200/80 bg-white p-7 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)]">
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-5 rounded-lg border border-red-200/70 bg-red-50/70 px-4 py-3 text-sm text-red-700"
-            >
-              {error}
-            </motion.div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label htmlFor="email" className="mb-1.5 block text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Email</label>
-              <div className="relative">
-                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                  className="w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3.5 py-2.5 text-gray-900 text-[14px] placeholder-gray-400 focus:border-[#1B2A4A] focus:outline-none focus:ring-2 focus:ring-[#1B2A4A]/10 transition-colors"
-                  placeholder="you@example.com"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="mb-1.5 block text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Password</label>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                  className="w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3.5 py-2.5 text-gray-900 text-[14px] placeholder-gray-400 focus:border-[#1B2A4A] focus:outline-none focus:ring-2 focus:ring-[#1B2A4A]/10 transition-colors"
-                  placeholder="••••••••"
-                />
-              </div>
-            </div>
-
-            <motion.button
-              whileHover={{ scale: 1.005 }}
-              whileTap={{ scale: 0.995 }}
-              type="submit"
-              disabled={isLoading}
-              className="w-full rounded-xl bg-[#1B2A4A] px-4 py-3 text-[13px] font-semibold text-white transition-all hover:bg-[#243456] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isLoading ? "Signing in…" : "Sign in"}
-            </motion.button>
-          </form>
+          </span>
         </div>
 
-        {/* Quiet footer — no self-register; contact admin */}
-        <p className="mt-6 text-center text-[11px] text-gray-400 leading-relaxed">
-          Access is by invitation. Contact your administrator for an account.
-        </p>
-      </motion.div>
+        {/* Brand statement */}
+        <div className="max-w-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-brand-on-dark mb-4 font-sans">
+            AI delivery, orchestrated
+          </p>
+          <h2 className="text-[32px] leading-[1.15] font-semibold tracking-tight text-white font-sans">
+            Ship faster with your agent workforce.
+          </h2>
+          <p className="mt-4 text-[14px] leading-relaxed text-white/60">
+            Compose, run, and review delivery workflows — every step traceable,
+            every artifact yours.
+          </p>
+        </div>
+
+        {/* Static decoration — value props (no wiring, no identity affordances) */}
+        <div className="flex flex-wrap gap-2">
+          {["Audit trail", "Role-based access", "Invitation-only"].map((tag) => (
+            <span
+              key={tag}
+              className="rounded-[var(--radius-pill)] border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/60"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      </aside>
+
+      {/* RIGHT — the wired form column */}
+      <div className="flex flex-1 items-center justify-center bg-surface-paper px-4 py-12">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="w-full max-w-md"
+        >
+          {/* Heading */}
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+            className="mb-8"
+          >
+            <h1 className="text-[36px] sm:text-[40px] font-semibold text-ink-900 leading-[1.1] tracking-tight font-sans">
+              Welcome back
+            </h1>
+            <p className="mt-3 text-[13px] text-ink-500 leading-relaxed">
+              Sign in to continue building with your AI delivery agents.
+            </p>
+          </motion.div>
+
+          {/* Card */}
+          <div className="rounded-[var(--radius-card)] border border-line-control bg-surface-card p-7 shadow-[var(--elevation-raised)]">
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed"
+              >
+                {error}
+              </motion.div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label htmlFor="email" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">Email</label>
+                <div className="input-focus relative rounded-[var(--radius-button)] border border-line-control bg-surface-card transition-colors">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400" />
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                    className="w-full rounded-[var(--radius-button)] bg-transparent pl-10 pr-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
+                    placeholder="you@example.com"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">Password</label>
+                <div className="input-focus relative rounded-[var(--radius-button)] border border-line-control bg-surface-card transition-colors">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400" />
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    className="w-full rounded-[var(--radius-button)] bg-transparent pl-10 pr-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+
+              <Button
+                variant="primary"
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3 text-[13px]"
+              >
+                {isLoading ? "Signing in…" : "Sign in"}
+              </Button>
+            </form>
+          </div>
+
+          {/* Quiet footer — no self-register; contact admin */}
+          <p className="mt-6 text-center text-[11px] text-ink-400 leading-relaxed">
+            Access is by invitation. Contact your administrator for an account.
+          </p>
+        </motion.div>
+      </div>
     </div>
   );
 }

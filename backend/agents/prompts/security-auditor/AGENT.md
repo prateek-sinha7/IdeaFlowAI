@@ -1,6 +1,5 @@
 ---
-consumes:
-- roadmap-planner
+consumes: []
 context_from:
 - $previous
 description: Reviews your product for security risks and provides a prioritized action plan.

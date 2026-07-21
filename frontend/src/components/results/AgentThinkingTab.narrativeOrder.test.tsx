@@ -33,7 +33,7 @@ function makePipelineState(): PipelineRunState {
 }
 
 describe("AgentThinkingTab — narrative order + a11y", () => {
-  it("renders StartingPoint → Planner → Clarifications in DOM order", () => {
+  it("renders StartingPoint → Clarifications in DOM order (Deep-Planner card retired)", () => {
     render(
       <AgentThinkingTab
         agents={[]}
@@ -44,12 +44,12 @@ describe("AgentThinkingTab — narrative order + a11y", () => {
     );
 
     const startingPoint = screen.getByText("Starting point");
-    const planner = screen.getByText("Deep Planner");
     const clarifications = screen.getByText("Clarifications");
 
-    // Starting point precedes Planner, Planner precedes Clarifications.
-    expect(startingPoint.compareDocumentPosition(planner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(planner.compareDocumentPosition(clarifications) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Phase 39 plan 02 (human ruling): the Deep-Planner card is removed from the
+    // Steps overview. Starting point still precedes Clarifications.
+    expect(screen.queryByText("Deep Planner")).toBeNull();
+    expect(startingPoint.compareDocumentPosition(clarifications) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("exposes both card headers as aria-expanded buttons", () => {

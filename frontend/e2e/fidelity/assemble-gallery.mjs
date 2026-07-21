@@ -1,0 +1,185 @@
+#!/usr/bin/env node
+/**
+ * assemble-gallery.mjs — the D39-6 fidelity ORACLE assembler.
+ *
+ * Pairs the TARGET shots (`shots/target/{tag}.png`, from capture-mocks.mjs) with
+ * OUR shots (`shots/current/{tag}.png`, from the FIDELITY_CAPTURE zzz-baseline
+ * spec) into ONE self-contained `gallery.html` — mock on the LEFT, ours on the
+ * RIGHT, per `{surface}__{state}` tag. Images are inlined as base64 data-URIs so
+ * the file is a single portable artifact a reviewer can open anywhere.
+ *
+ * A header block captions the INTENDED-DIVERGENCE REGISTER (ND-A..ND-Y) as
+ * "expected — ignore" so a reviewer never mistakes a registered divergence for a
+ * fidelity gap. There is deliberately NO automated pixel-diff: ND-D (our live
+ * data never equals the mock's hardcoded values) would make a pixel compare
+ * always "fail" — the fidelity judgment is a HUMAN review of this gallery.
+ *
+ * No new dependency — Node built-ins only.
+ *
+ * Usage:
+ *   node e2e/fidelity/assemble-gallery.mjs                 # all tags
+ *   node e2e/fidelity/assemble-gallery.mjs --surface steps # one surface section
+ */
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TARGET = join(HERE, "shots", "target");
+const CURRENT = join(HERE, "shots", "current");
+const OUT = join(HERE, "gallery.html");
+
+/** The intended-divergence register (39-01-PLAN ND-A..ND-G + ND-H per 39-07,
+ *  ND-I/ND-J added 39-01 for two live-data extras the lane renders vs the mock;
+ *  ND-K/ND-L added 39-02 for the Steps tab; ND-M resolved in 39-02; ND-N/ND-O
+ *  added 39-02 for the L3 task-detail live-data limits; ND-P added 39-02 for the
+ *  task↔wave mapping fallback after the construction split was reconciled into ONE
+ *  nested block; ND-Q added 39-03 for the Files hero's static 'validated' label;
+ *  ND-R..T added 39-04 (Audit); ND-U 39-05 SUPERSEDED by Phase-42 Group D (failed
+ *  now drops Preview/defaults Audit to match the mock); ND-V 39-06 (self-chromed
+ *  renderers); ND-W/ND-X/ND-Y added Phase-42 for the paused/planning + Steps-default
+ *  + settled artifact-card live-derived (F1/F2) divergences; W0-42 RESOLVED Phase-42). */
+const ND = [
+  ["ND-A", "Brand wordmark", 'mock "HEXAWARE" → we ship "VelocityAI"'],
+  ["ND-B", "Nav label", 'mock "Catalogue" → we ship "My Workflows" (D-11)'],
+  ["ND-C", "Nav active-state", "mock's treatment → our purple underline (ND-13.1)"],
+  ["ND-D", "All run data", "mock's hardcoded values → our LIVE data (SC-001)"],
+  ["ND-E", "Left-lane width", "mock 390px → our responsive md/lg widths"],
+  ["ND-F", "Prototype scrubber / image-slot", "demo-only — NOT reproduced"],
+  ["ND-G", "Deliverable renderers", "we REUSE the existing renderers (D39-3)"],
+  ["ND-H", "Share action", "client-only Share link in v1"],
+  ["ND-I", "Header Stop control (live)", "we KEEP a Stop while a run is live — essential run control the mock's live lane omits"],
+  ["ND-J", "Attachment chips on a failed run", "real run inputs show — the mock's specific failed example happened to have none"],
+  ["ND-K", "Steps overview live card", "we KEEP a live 'Starting point' (run input) card below the stepper — the mock's clean overview omits it (human-approved single live-data extra; the Deep-Planner card was DROPPED to match the mock)"],
+  ["ND-L", "Agent-detail artifact preview", "the mock hardcodes a per-agent artifact preview per agent kind — a 'pages' grid (Spec Writer), a task-count list (Task Planner), a checks/verdict grid (Analyzer/Validation). We have NO live structured page/task-count field, so for those agents we surface the real 'Agent output' section (raw live markdown) instead; the Validation agent's checks ARE surfaced live via the validation-result card, and the Build Agent's construction fan-out (waves + task rows) IS reproduced live. RESOLVED 39-02: the fan-out previously rendered as TWO blocks (a flat task list + a separate 'Wave / Subagent tree'); it is now the mock's SINGLE integrated block with tasks NESTED under their waves (INV-12 — no dual representation)"],
+  // ND-M RESOLVED (39-02): the settled "Review gate — X · approved" strips now
+  // render from the live getRunGateEvents fetch (mapped to their agent by `step`),
+  // matching the mock's settled spine — no longer a divergence.
+  ["ND-N", "L3 per-task tool calls", "the mock shows a tool-call list per construction task; our live trace records tool calls at the AGENT level, not attributed to an individual subagent task, so the L3 tool-call list is OMITTED (never the misleading agent-wide tools)"],
+  ["ND-O", "L3 per-task duration", "protoCompletedTasks carries {number,title,summary} with no per-task duration, so the L3 duration line — AND the nested construction task row's duration — is omitted unless live per-task timing is supplied (never fabricated)"],
+  ["ND-P", "Task↔wave grouping", "the mock hardcodes which tasks sit under which wave; our wave carries backend `taskIds` and the completed tasks carry a `number`, joined on the trailing integer of each taskId. When that join cleanly covers every task, tasks nest under their own wave; when it does not, ALL tasks nest under a single wave group (still ONE integrated block) — the honest fallback for a run whose taskIds don't map 1:1 to the completed-task set"],
+  ["ND-Q", "Files hero 'validated' label", "the Final-output hero's 'validated' suffix is the mock's static deliverable-passed affirmation — a settled run reaches Files only after its validation gate; the deliverable NAME / format / size are LIVE (ND-D), only the 'validated' word is a fixed composition label (39-03)"],
+  ["ND-R", "Audit filter row — no severity buttons", "39-04: the mock's Audit filter row is the category-group set (All / Governance / Security / Activity) + a 'Blocked / denied only' toggle + a search box — it has NO standalone severity filter. We adopt the mock's row exactly and RETIRE the prior CRITICAL/HIGH/MEDIUM/LOW filter buttons; severity stays visible as a per-row chip and the blocked-only toggle covers the 'show me the problems' need (INV-12 — no dual filter row)"],
+  ["ND-S", "Audit attribution — elided owner/workspace", "the mock hardcodes Run f3a1c9…e42 · Owner ak@hexaware.com · Workspace default · Started/Duration. The three owner-scoped audit fetches do NOT carry owner/workspace/started/duration, so we render the live Run id (truncated) + Started/Duration DERIVED from the row timestamps, and ELIDE owner/workspace rather than fabricate them (ND-D / T-39-04-01). A later wave may thread a live runMeta prop"],
+  ["ND-T", "Audit static UI copy + derived coverage + no PDF", "the coverage chips are DERIVED one-per-fine-category-present (not the mock's fixed 7-word list); the violet 'What is this?' explainer is static per-category UI copy (a genuine affordance, not run data); and the Export menu's 'Compliance report' option is DISABLED — CSV/JSON only, no signed PDF path (ND-6)"],
+  // ND-U SUPERSEDED (Phase-42 Group D): the earlier "keep ONE uniform tab model"
+  // ruling was REVERSED (user 2026-07-14) — a failed run now DROPS Preview and
+  // DEFAULTS to Audit to match the mock's failed composition, and the alert chroma
+  // is red (not amber). The failed tab set now MATCHES the mock, so this is no
+  // longer a divergence; the row is retained for provenance.
+  ["ND-U", "Failed-run tab set (SUPERSEDED Phase-42)", "39-05 kept a uniform four-tab model on failed; Phase-42 Group D REVERSED it — the failed run now DROPS Preview + DEFAULTS to Audit + uses red (not amber) to MATCH the mock. No longer a divergence (superseded); a failed run still shows DegradedRunAffordance on the run screen only (the history/reopen surface is untouched — §8.4)"],
+  ["ND-V", "Self-chromed renderers keep their own frame", "39-06: the mock frames every deliverable in ONE browser chrome, but our prototype/app_builder renderers bring their own frame — wrapping doubled it. Per the user's Option-B ruling (2026-07-11) self-chromed types render in their own frame with the 'Renders as' switch above; plain deliverables keep our chrome. No renderer edits (ND-G intact)"],
+  // Phase-42 intended divergences (continue the ND lettering from ND-V). W1+ removed
+  // the legacy full-screen takeovers and unshadowed the inline surfaces, so the
+  // paused/planning rows now render the mock-correct inline compositions — the three
+  // rows below capture what remains legitimately divergent after that fix.
+  ["ND-W", "Paused planning frame — no dedicated pre-agent overlay", "the mock has NO dedicated pre-agent planning frame; OUR planning state (running & 0 agents) surfaces as the lane phase-pill + the Steps 'Running' head rather than a full-screen prep overlay. The TARGET cell uses the Live mock's running `building` phase as the nearest reference (documented in the README W0 table) — expect the paired planning cells to differ in the pipeline detail, not the composition (Phase-42 W1)"],
+  ["ND-X", "Clarify/gate default to the Steps tab", "the paused clarify + gate compositions land on the Steps tab — the Live mock's canonical `state.tab:'steps'` (component :726; lane cards captioned 'status only; the questions/plan live in Steps' :90/:99). The left lane carries a status-only paused card (the 'Awaiting you' card / 'task plan needs approval' card); the questions and the plan-preview + approve controls live in Steps. Our inline clarify/gate mirror this (auto-tab per state, Phase-42 W1/Group B) (Phase-42)"],
+  ["ND-Y", "Settled agent-detail artifact cards use LIVE-derived values", "42-09 (decision 2): the settled agent-detail pages/sections · tasks · checks cards + handoff line render LIVE-derived counts (specializes ND-D), never the mock's fixed numbers, keyed on the generic `<spec>/<tasks>/<analysis>` discriminator (no agent-name literal). Two parses are BRITTLE pending backend/additive follow-ups: F1 (structured coverage/counts aggregate on `/runs/{id}/validation-results` — the checks card's coverage/verdict text) + F2 (event-free `sections` extractor + `/artifacts?kind=sections` — the pages/sections card). Both flagged in code + registered OUT OF SCOPE (Phase-42)"],
+  // W0-42 RESOLVED (Phase-42 W1+): the paused/planning rows no longer show the
+  // legacy full-screen takeover — the QuestionnairePanel/ReviewGatePanel/PlanningOverlay
+  // branches were removed (W1) + the panels deleted (W1/W4), so the rows now render
+  // the mock-correct inline Steps-active composition (see ND-W/ND-X). Row retained for
+  // provenance; it is a CLOSED temporary state, not a permanent divergence.
+  ["W0-42", "Paused/planning legacy takeover (RESOLVED Phase-42)", "the pre-fix legacy full-screen takeover that shadowed the paused/planning inline surfaces at Wave 0 — RESOLVED by Phase-42 W1+ (takeover branches removed, QuestionnairePanel + ReviewGatePanel deleted). The planning / clarifyawaiting / gateawaiting rows now render the inline Steps-active composition (ND-W/ND-X). CLOSED temporary state, NOT a permanent ND"],
+];
+
+const surfaceArg = process.argv.includes("--surface")
+  ? process.argv[process.argv.indexOf("--surface") + 1]
+  : null;
+
+async function pngTags(dir) {
+  const files = await readdir(dir).catch(() => []);
+  return files.filter((f) => f.endsWith(".png")).map((f) => f.replace(/\.png$/, ""));
+}
+
+async function dataUri(dir, tag) {
+  try {
+    const buf = await readFile(join(dir, `${tag}.png`));
+    return `data:image/png;base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function cell(src, missingLabel) {
+  return src
+    ? `<img loading="lazy" src="${src}" alt="">`
+    : `<div class="missing">${esc(missingLabel)}<br><small>run the capture step</small></div>`;
+}
+
+async function main() {
+  const tags = [...new Set([...(await pngTags(TARGET)), ...(await pngTags(CURRENT))])]
+    // Include the surface AND its sub-views (e.g. --surface steps → steps,
+    // steps-detail, steps-construction, steps-task) so the internal drill-down
+    // shots appear in the section, not just the top-level tab.
+    .filter((t) => {
+      if (!surfaceArg) return true;
+      const s = t.split("__")[0];
+      return s === surfaceArg || s.startsWith(`${surfaceArg}-`);
+    })
+    .sort();
+
+  const rows = [];
+  for (const tag of tags) {
+    const [target, current] = await Promise.all([dataUri(TARGET, tag), dataUri(CURRENT, tag)]);
+    const [surface, state] = tag.split("__");
+    rows.push(`
+      <section class="pair">
+        <h2>${esc(tag)} <span class="meta">${esc(surface || "")} · ${esc(state || "")}</span></h2>
+        <div class="cols">
+          <figure><figcaption>MOCK (target)</figcaption>${cell(target, "no target shot")}</figure>
+          <figure><figcaption>OURS (current)</figcaption>${cell(current, "no current shot")}</figure>
+        </div>
+      </section>`);
+  }
+
+  const ndRows = ND.map(([id, what, note]) => `<tr><td><b>${id}</b></td><td>${esc(what)}</td><td>${esc(note)}</td></tr>`).join("");
+
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Run-Screen Fidelity Gallery${surfaceArg ? ` — ${esc(surfaceArg)}` : ""}</title>
+<style>
+  :root { color-scheme: light; }
+  body { font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; margin: 0; background: #F4F3EE; color: #15161A; }
+  header { padding: 22px 28px; background: #fff; border-bottom: 1px solid #E2DFD6; position: sticky; top: 0; z-index: 2; }
+  header h1 { margin: 0 0 6px; font-size: 19px; }
+  header p { margin: 0; color: #6E6F76; }
+  .nd { margin: 14px 0 0; }
+  .nd summary { cursor: pointer; font-weight: 600; color: #3C2CDA; }
+  table { border-collapse: collapse; margin-top: 10px; width: 100%; max-width: 900px; }
+  td { border: 1px solid #E2DFD6; padding: 5px 9px; vertical-align: top; }
+  td:first-child { white-space: nowrap; color: #3C2CDA; }
+  main { padding: 24px 28px; display: flex; flex-direction: column; gap: 34px; }
+  .pair h2 { margin: 0 0 10px; font-size: 15px; }
+  .pair .meta { color: #9A9B92; font-weight: 400; font-size: 12px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  figure { margin: 0; background: #fff; border: 1px solid #E2DFD6; border-radius: 10px; overflow: hidden; }
+  figcaption { font: 600 11px/1 "Manrope", sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #9A9B92; padding: 9px 12px; border-bottom: 1px solid #EDEBE3; background: #FBFAF6; }
+  img { display: block; width: 100%; height: auto; }
+  .missing { padding: 40px 12px; text-align: center; color: #B24; }
+  .empty { padding: 60px; text-align: center; color: #9A9B92; }
+</style></head>
+<body>
+<header>
+  <h1>Run-Screen Fidelity Gallery${surfaceArg ? ` — <code>${esc(surfaceArg)}</code>` : ""}</h1>
+  <p>Mock (left) vs current (right), per <code>{surface}__{state}</code>. Human review only — no pixel-diff (ND-D live data ≠ mock values).</p>
+  <details class="nd" open>
+    <summary>Intended divergences — expected, ignore (ND-A..ND-Y); ND-U SUPERSEDED + W0-42 RESOLVED by Phase-42</summary>
+    <table>${ndRows}</table>
+  </details>
+</header>
+<main>
+  ${rows.length ? rows.join("\n") : '<div class="empty">No shots found. Run the capture steps first (see README.md).</div>'}
+</main>
+</body></html>`;
+
+  await writeFile(OUT, html, "utf8");
+  console.log(`[assemble-gallery] ${rows.length} pair(s)${surfaceArg ? ` for surface "${surfaceArg}"` : ""} → ${OUT}`);
+}
+
+main();

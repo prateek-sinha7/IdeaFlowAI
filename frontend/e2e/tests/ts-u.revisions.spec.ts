@@ -38,13 +38,19 @@ import { test, expect } from "../fixtures/test";
 import { AGENTS, runAgent, SAMPLE_DECK, SAMPLE_BACKLOG } from "../fixtures/scenarios";
 import { makeRun } from "../fixtures/mockApi";
 
+// A reopened od_ppt deliverable — non-deck narration text (the LV-02 shape: the
+// validator streamed prose, not a parseable deck). Non-empty so the reopen seeds
+// pptContent → the lane settles to "complete" and the confirm-first refinement
+// chip is reachable, while userStoryContent stays empty (only od_ppt content set).
+const OD_PPT_NARRATION = "Draft narration for the investor pitch — 6 slides covering market, product, and unit economics.";
+
 // A *different* deck so the post-revision iframe content is provably the new one.
 const REVISED_DECK = `<!DOCTYPE html><html><body>${Array.from({ length: 6 })
   .map((_, i) => `<section class="slide">Revised Slide ${i + 1}</section>`)
   .join("")}</body></html>`;
 
 test.describe("TS-U — revision runs", () => {
-  test("TS-U-01 od_ppt revise sends run_revision and renders the revised deck", async ({ dashboard, mockWs, mockApi }) => {
+  test("TS-U-01 od_ppt revise sends run_revision and renders the revised deck", async ({ dashboard, mockSse, mockApi }) => {
     // A completed parent run so currentWorkflowRunId resolves. After the od_ppt
     // run the workflowType normalises to "ppt", so the parent lookup matches a
     // run of type "ppt" (or "ppt_revision"). type:"ppt" is the match.
@@ -59,31 +65,39 @@ test.describe("TS-U — revision runs", () => {
 
     // ── Complete an od_ppt run ───────────────────────────────────────────────
     const agents = AGENTS.od_ppt;
-    mockWs.start(agents, { pipelineType: "od_ppt" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
+    mockSse.start(agents, { pipelineType: "od_ppt" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
 
-    // The PPT preview renders the deck iframe + the Revise bar.
+    // The PPT preview renders the deck iframe.
     await expect(dashboard.deckIframe()).toBeVisible();
-    const revInput = dashboard.page.getByPlaceholder(/Request changes, e\.g\. "Make slide 3 title bigger"/);
+    // Phase 39: the per-preview Revise bar was absorbed into the run lane composer.
+    // The settled ("complete") lane composer IS the revise-as-chat input, wired to
+    // the SAME handleRevisePpt dispatch → a free-text send is a revision.
+    const revInput = dashboard.page.getByPlaceholder(/Ask for a change or a follow-up/);
     await expect(revInput).toBeVisible();
-    const reviseBtn = dashboard.page.getByRole("button", { name: /Revise/ });
-    await expect(reviseBtn).toBeVisible();
 
-    // ── Type a change + click Revise → assert the outbound run_revision frame ──
+    // ── Type a change + send → assert the outbound run_revision frame ──
     await revInput.fill("Add a slide about ROI");
-    await reviseBtn.click();
+    await dashboard.page.getByTestId("chat-send").click();
+    // 44-02: a settled-run change request in the lane composer is HELD behind the
+    // confirm-first refinement chip; confirm to launch the revision (decision 5).
+    await dashboard.page.getByTestId("chat-refinement-confirm").click();
 
-    const frame = await mockWs.waitForClientFrame("run_revision");
-    expect(frame.parent_run_id).toBe("parent-ppt-1");
+    const frame = await mockSse.waitForClientFrame("run_revision");
+    // Phase 39: revising through the lane composer dispatches handleRevisePpt, which
+    // links the parent to `contentSourceRunId` — the ON-SCREEN run (the od_ppt run
+    // just completed = mockSse.currentRunId), not the seeded history run. This is the
+    // faithful parent of the deck being revised.
+    expect(frame.parent_run_id).toBe(mockSse.currentRunId);
     // od_ppt normalised → ppt ⇒ target is "ppt_output" (see header note).
     expect(frame.target_artifact_type).toBe("ppt_output");
     expect(frame.instruction).toBe("Add a slide about ROI");
 
     // ── Drive the revision run → revised deck shows ──────────────────────────
-    mockWs.start(agents, { pipelineType: "od_ppt_revision" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
+    mockSse.start(agents, { pipelineType: "od_ppt_revision" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
 
     // The deck iframe is still present and now carries the revised content.
     const deck = dashboard.deckIframe();
@@ -93,63 +107,104 @@ test.describe("TS-U — revision runs", () => {
       .toContain("Revised Slide");
   });
 
-  test("TS-U-02 a revision run shows NO clarify questionnaire", async ({ dashboard, mockWs, mockApi }) => {
+  test("TS-U-02 a revision run shows NO clarify questionnaire", async ({ dashboard, mockSse, mockApi }) => {
     mockApi.setRuns([makeRun({ id: "parent-ppt-2", title: "Deck", type: "ppt", status: "completed" })]);
 
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "An ROI deck" });
 
     const agents = AGENTS.od_ppt;
-    mockWs.start(agents, { pipelineType: "od_ppt" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
+    mockSse.start(agents, { pipelineType: "od_ppt" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
 
     await expect(dashboard.deckIframe()).toBeVisible();
-    await dashboard.page.getByPlaceholder(/Request changes, e\.g\. "Make slide 3 title bigger"/).fill("Add a slide about ROI");
-    await dashboard.page.getByRole("button", { name: /Revise/ }).click();
-    await mockWs.waitForClientFrame("run_revision");
+    // Phase 39: revise via the settled lane composer (absorbed the per-preview bar).
+    await dashboard.page.getByPlaceholder(/Ask for a change or a follow-up/).fill("Add a slide about ROI");
+    await dashboard.page.getByTestId("chat-send").click();
+    // 44-02: confirm the held refinement chip to launch the revision (decision 5).
+    await dashboard.page.getByTestId("chat-refinement-confirm").click();
+    await mockSse.waitForClientFrame("run_revision");
 
     // Drive the revision run to completion WITHOUT ever emitting questionnaire_ready
     // (revisions skip clarify — manifest planner: skip). The Quick Setup
     // questionnaire must never appear.
-    mockWs.start(agents, { pipelineType: "od_ppt_revision" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
+    mockSse.start(agents, { pipelineType: "od_ppt_revision" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
 
     await expect(dashboard.deckIframe()).toBeVisible();
     // No clarify form at any point of the revision run.
     await expect(dashboard.questionnaireTitle()).toHaveCount(0);
   });
 
-  test("TS-U-07 user-story revise sends a user_stories_revision run_pipeline frame", async ({ dashboard, mockWs }) => {
+  test("TS-U-07 user-story revise sends a user_stories_revision run_pipeline frame", async ({ dashboard, mockSse }) => {
     await dashboard.goto();
     await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
 
     // ── Complete a user_stories run so the backlog + Revise bar render ───────
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType: "user_stories" });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
 
     await expect(dashboard.page.getByText("Product Backlog").first()).toBeVisible();
-    const revInput = dashboard.page.getByPlaceholder(/Request changes, e\.g\. "Add a story for password reset"/);
+    // Phase 39: the per-preview Revise bar was absorbed into the run lane composer,
+    // wired to the SAME handleReviseUserStory dispatch (a settled free-text send is
+    // a revision → a user_stories_revision run_pipeline frame).
+    const revInput = dashboard.page.getByPlaceholder(/Ask for a change or a follow-up/);
     await expect(revInput).toBeVisible();
-    const reviseBtn = dashboard.page.getByRole("button", { name: /Revise/ });
-    await expect(reviseBtn).toBeVisible();
 
-    // ── Type a change + click Revise → assert the outbound run_pipeline frame ─
+    // ── Type a change + send → assert the outbound run_pipeline frame ─
     // The first run_pipeline (the parent run) was already sent by runWith, so we
     // wait for the SECOND one whose pipeline_type is the revision.
     await revInput.fill("Add a story for password reset");
-    await reviseBtn.click();
+    await dashboard.page.getByTestId("chat-send").click();
+    // 44-02: confirm the held refinement chip to launch the revision (decision 5).
+    await dashboard.page.getByTestId("chat-refinement-confirm").click();
 
-    const frame = await mockWs.waitForClientFrame(
+    const frame = await mockSse.waitForClientFrame(
       (f) => f.type === "run_pipeline" && f.pipeline_type === "user_stories_revision",
     );
     expect(frame.pipeline_type).toBe("user_stories_revision");
     // The change instruction is embedded in the (delimited) revision message.
     expect(String(frame.message)).toContain("Add a story for password reset");
     expect(String(frame.message)).toContain("=== EXISTING PRODUCT BACKLOG ===");
+  });
+
+  test("TS-U-09 reopen-revise: a REOPENED od_ppt run fires exactly one POST /revisions (BUG-003)", async ({ dashboard, mockSse, mockApi }) => {
+    // A COMPLETED od_ppt run in history/recents — reopened (not launched) so the
+    // isRunning-gated workflowType sync never fires and workflowType stays stale
+    // ("user_stories"). Before the fix the revise selector picked the WRONG handler
+    // (handleReviseUserStory, whose empty-userStoryContent guard no-ops), so "Run
+    // refinement" fired ZERO requests. The fix binds the selector to the VIEWED
+    // run's TYPE → handleRevisePpt → the self-sufficient contentSourceRunId REST
+    // path fires one POST /revisions.
+    const parentId = "od-ppt-reopen-1";
+    mockApi.setRuns([
+      makeRun({ id: parentId, title: "Investor pitch deck", type: "od_ppt", status: "completed", input: "A B2B carbon-accounting pitch", output: OD_PPT_NARRATION }),
+    ]);
+    await dashboard.stubRunEvents(parentId, []);
+
+    await dashboard.goto();
+    await dashboard.openRecent("Investor pitch deck");
+
+    // The reopened run settles to the "complete" lane → the revise-as-chat composer.
+    const revInput = dashboard.page.getByPlaceholder(/Ask for a change or a follow-up/);
+    await expect(revInput).toBeVisible();
+
+    // Type a CHANGE → held behind the confirm chip → confirm launches the revision.
+    await revInput.fill("Add a closing slide about carbon offsets");
+    await dashboard.page.getByTestId("chat-send").click();
+    await dashboard.page.getByTestId("chat-refinement-confirm").click();
+
+    // Fail-before: NO run_revision fires (wrong handler no-ops). Pass-after: exactly
+    // one POST /api/runs/{parent}/revisions, parented to the reopened run.
+    const frame = await mockSse.waitForCommand(
+      (c) => c.type === "run_revision" && c.parent_run_id === parentId,
+    );
+    expect(frame.instruction).toBe("Add a closing slide about carbon offsets");
+    expect(mockSse.framesOfType("run_revision")).toHaveLength(1);
   });
 
   // ── Backend / persistence / reconnect concerns — not mocked-UI observable ──

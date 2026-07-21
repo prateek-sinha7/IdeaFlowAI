@@ -84,6 +84,27 @@ def _extract_pptx(data: bytes) -> str:
         return ""
 
 
+def extract_upload_text(filename: str, data: bytes) -> str:
+    """Extract plain text from a document upload by its filename extension.
+
+    The SINGLE extraction impl (INV-12): both the ``/api/files/extract-text``
+    endpoint below and the UPLD-01 ``POST /api/runs/{id}/files`` upload endpoint
+    call this — there is no second copy of the PDF/DOCX/PPTX dispatch. Returns
+    the extracted text for a ``.pdf`` / ``.docx`` / ``.pptx`` filename, or ``""``
+    for any non-extractable extension (raw-only upload). Never raises — each
+    per-format extractor degrades to ``""`` on a parse error (image-based /
+    encrypted / corrupt document).
+    """
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext == "pdf":
+        return _extract_pdf(data)
+    if ext == "docx":
+        return _extract_docx(data)
+    if ext == "pptx":
+        return _extract_pptx(data)
+    return ""
+
+
 @router.post("/extract-text", response_model=ExtractResponse)
 async def extract_text(
     file: UploadFile,
@@ -110,12 +131,8 @@ async def extract_text(
             detail=f"File too large ({len(data) // 1024} KB). Maximum: {_MAX_FILE_BYTES // 1024} KB",
         )
 
-    if ext == "pdf":
-        text = _extract_pdf(data)
-    elif ext == "docx":
-        text = _extract_docx(data)
-    else:
-        text = _extract_pptx(data)
+    # ONE extraction impl (INV-12): the same dispatch the upload endpoint uses.
+    text = extract_upload_text(filename, data)
 
     if not text.strip():
         raise HTTPException(

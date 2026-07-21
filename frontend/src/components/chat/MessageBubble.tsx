@@ -5,8 +5,6 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   RefreshCw,
   Pencil,
-  Sparkles,
-  User,
   Copy,
   Check,
   Volume2,
@@ -17,9 +15,16 @@ import {
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage } from "@/types/index";
 import { useTextToSpeech } from "@/hooks/useTextToSpeech";
+import { useSmoothText } from "@/hooks/useSmoothText";
 import { ProcessSteps } from "./ProcessSteps";
 import { ArtifactCard } from "./ArtifactCard";
 import type { ChatMode } from "./ChatInput";
+import type { AgentEvent } from "./runtime/blocks.types";
+import { buildBlocks } from "./runtime/buildBlocks";
+import { renderToolBlock } from "./runtime/tool-renderers";
+import { ThinkingBlock } from "./blocks/ThinkingBlock";
+import { FileOpsSummary } from "./blocks/FileOpsSummary";
+import { ResultCard } from "./ResultCard";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -28,6 +33,43 @@ interface MessageBubbleProps {
   mode?: ChatMode;
   onRegenerate?: (messageId: string) => void;
   onEdit?: (messageId: string, newContent: string) => void;
+  /**
+   * Plan-01 agent event stream for an assistant turn (Phase 31, CHATUI-01). When
+   * present, the coalesced ChatBlock strip (thinking / tools / file-ops) renders
+   * above the markdown prose so an agent turn shows reasoning + tools, not just
+   * text. Absent for plain narrator/user turns.
+   */
+  events?: AgentEvent[];
+  /** The nonce'd deep-link seam a narrator ResultCard fires (borrow #6). */
+  onRequestOpenTab?: (tab: string) => void;
+}
+
+/**
+ * Render the coalesced plan-01 ChatBlock strip for an assistant turn: thinking →
+ * ThinkingBlock, tool → the plan-02 renderToolBlock registry, file_ops →
+ * FileOpsSummary. Text/usage blocks are omitted here — the prose is the markdown
+ * body below, and usage rides the lane's token widget. Every branch keys on the
+ * generic block `kind` (SC-001).
+ */
+function AgentBlockStrip({ events }: { events: AgentEvent[] }) {
+  const blocks = buildBlocks(events);
+  if (blocks.length === 0) return null;
+  return (
+    <div className="mb-3">
+      {blocks.map((block, i) => {
+        switch (block.kind) {
+          case "thinking":
+            return <ThinkingBlock key={i} block={block} />;
+          case "tool":
+            return <div key={i}>{renderToolBlock(block)}</div>;
+          case "file_ops":
+            return <FileOpsSummary key={i} block={block} />;
+          default:
+            return null;
+        }
+      })}
+    </div>
+  );
 }
 
 const MODE_LABELS: Record<string, { emoji: string; label: string }> = {
@@ -75,6 +117,8 @@ export function MessageBubble({
   mode,
   onRegenerate,
   onEdit,
+  events,
+  onRequestOpenTab,
 }: MessageBubbleProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -92,13 +136,18 @@ export function MessageBubble({
       ? streamingContent
       : message.content;
 
+  // Issue-2 (260719-rqo): smooth the reply's growth so the coarse ~70-180-char
+  // Bedrock deltas render as a steady flow instead of jumps. Only assistant text
+  // streams; a static (historical) message never grows, so this is a no-op there.
+  const smoothedContent = useSmoothText(displayContent, isAssistant);
+
   // Parse thinking blocks for assistant messages
   const { thinking, mainContent } = useMemo(() => {
     if (isAssistant) {
-      return parseThinkingBlocks(displayContent);
+      return parseThinkingBlocks(smoothedContent);
     }
-    return { thinking: null, mainContent: displayContent };
-  }, [displayContent, isAssistant]);
+    return { thinking: null, mainContent: smoothedContent };
+  }, [smoothedContent, isAssistant]);
 
   const handleEditSubmit = () => {
     if (editContent.trim() && editContent !== message.content) {
@@ -141,10 +190,40 @@ export function MessageBubble({
     { hour: "2-digit", minute: "2-digit" }
   );
 
+  // --- NARRATOR RESULT CARD ---
+  // A chat_reply narrator turn (carries a GENERIC cardKind) renders a ResultCard
+  // instead of a prose bubble. Keyed on the generic kind (SC-001); falls back to
+  // a normal assistant bubble when no deep-link seam is threaded.
+  if (message.cardKind && onRequestOpenTab) {
+    return (
+      <motion.div
+        data-testid="chat-message"
+        data-role="narrator"
+        data-message-id={message.id}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className="flex w-full mb-6"
+      >
+        <div className="mr-[9px] flex-shrink-0 pt-px">
+          <div className="grid h-[22px] w-[22px] place-items-center rounded-[6px] bg-surface-near-black">
+            <span className="h-[7px] w-[7px] rotate-45 rounded-[1px] bg-brand" />
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <ResultCard message={message} onRequestOpenTab={onRequestOpenTab} />
+        </div>
+      </motion.div>
+    );
+  }
+
   // --- USER MESSAGE ---
   if (isUser) {
     return (
       <motion.div
+        data-testid="chat-message"
+        data-role="user"
+        data-message-id={message.id}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: "easeOut" }}
@@ -152,18 +231,12 @@ export function MessageBubble({
         onMouseEnter={() => setShowActions(true)}
         onMouseLeave={() => setShowActions(false)}
       >
-        <div className="relative max-w-[80%] flex items-start gap-3">
+        <div className="relative max-w-[86%] flex items-start gap-3">
           {/* Message content */}
           <div className="flex-1 min-w-0">
-            {/* User message container */}
-            <div
-              className="rounded-2xl px-5 py-3.5 border"
-              style={{
-                backgroundColor: "var(--theme-accent)",
-                borderColor: "var(--theme-border)",
-                opacity: 0.85,
-              }}
-            >
+            {/* User message container — the mock's brand-tint bubble (Phase 39,
+                RUNUI-06): #ECEAFC fill, #DED9F7 border, 14/14/4/14 radius. */}
+            <div className="rounded-[14px_14px_4px_14px] border border-brand-border bg-brand-fill px-[13px] py-[10px]">
               {isEditing ? (
                 <div className="flex flex-col gap-2">
                   <textarea
@@ -192,7 +265,7 @@ export function MessageBubble({
                   </div>
                 </div>
               ) : (
-                <p className="text-[15px] leading-relaxed text-white whitespace-pre-wrap">
+                <p className="font-serif text-[13.5px] leading-[1.5] text-ink-800 whitespace-pre-wrap">
                   {displayContent}
                 </p>
               )}
@@ -233,16 +306,6 @@ export function MessageBubble({
               </AnimatePresence>
             )}
           </div>
-
-          {/* User Avatar */}
-          <div className="flex-shrink-0 pt-1">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-full border"
-              style={{ backgroundColor: "var(--theme-accent)", borderColor: "var(--theme-border)" }}
-            >
-              <User className="h-3.5 w-3.5 text-white" />
-            </div>
-          </div>
         </div>
       </motion.div>
     );
@@ -251,6 +314,9 @@ export function MessageBubble({
   // --- ASSISTANT MESSAGE ---
   return (
     <motion.div
+      data-testid="chat-message"
+      data-role="assistant"
+      data-message-id={message.id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
@@ -258,14 +324,15 @@ export function MessageBubble({
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >
-      {/* AI Avatar */}
-      <div className="mr-4 flex-shrink-0 pt-1">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-navy/60 border border-grey/15">
-          <Sparkles className="h-3.5 w-3.5 text-white/80" />
+      {/* AI Avatar — the mock's 22px near-black square with a rotated brand
+          diamond (Phase 39, RUNUI-06). */}
+      <div className="mr-[9px] flex-shrink-0 pt-px">
+        <div className="grid h-[22px] w-[22px] place-items-center rounded-[6px] bg-surface-near-black">
+          <span className="h-[7px] w-[7px] rotate-45 rounded-[1px] bg-brand" />
         </div>
       </div>
 
-      <div className="relative flex-1 min-w-0">
+      <div className="relative flex-1 min-w-0 font-serif text-[13.5px] leading-[1.55] text-ink-700">
         {/* Mode badge */}
         {mode && mode !== "default" && MODE_LABELS[mode] && (
           <div className="mb-2">
@@ -316,6 +383,10 @@ export function MessageBubble({
             </AnimatePresence>
           </div>
         )}
+
+        {/* Agent block strip — plan-01 ChatBlocks (thinking / tools / file-ops)
+            coalesced from the turn's event stream, above the prose. */}
+        {events && events.length > 0 && <AgentBlockStrip events={events} />}
 
         {/* Message content — NO bubble, flows naturally like a document */}
         <div className={`markdown-content ${isStreaming ? "streaming-cursor" : ""}`}>

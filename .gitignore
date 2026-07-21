@@ -60,6 +60,8 @@ frontend/eslint_out.txt
 skills/opendesign/design-templates/*/thumbnail.jpg
 
 
+# Kiro IDE files (personal, not for team use)
+.kiro/
 .kiro/*
 !.kiro/steering/
 !.kiro/skills/

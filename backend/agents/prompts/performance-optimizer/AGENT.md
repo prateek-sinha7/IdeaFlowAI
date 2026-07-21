@@ -1,6 +1,5 @@
 ---
-consumes:
-- test-case-generator
+consumes: []
 context_from:
 - $previous
 description: Identifies performance bottlenecks and recommends optimizations for speed.

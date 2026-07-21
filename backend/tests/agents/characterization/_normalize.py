@@ -138,14 +138,22 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # event goldens byte-identical (INV-3).
         "deliverable_mimetype",
         "deliverable_filename",
-        # ── Additive-but-parity-neutral review_gate_ready key (REDO-GATE F1b) ────
-        # The engine now stamps a generic ``redoable`` discriminator on every
-        # ``review_gate_ready`` (True from the inline call site, False from the
-        # declared path). It is metadata-only (the FE renders the Redo button iff
-        # set) and NOT in _REQUIRED_DATA_KEYS, so it is STRIPPED here — mirroring the
-        # deliverable_mimetype/deliverable_filename precedent — keeping the 5
-        # characterization event goldens byte-identical (INV-3).
+        # ── Additive-but-parity-neutral review_gate_ready keys (REDO-GATE F1b /
+        #    SC-001 KAN-101) ───────────────────────────────────────────────────
+        # The engine now stamps generic discriminators on every ``review_gate_ready``:
+        #   * ``redoable``             — True from the inline call site, False from the
+        #     declared path (the FE renders the Redo button iff set).
+        #   * ``update_specs_eligible`` / ``artifact_kind`` — the SC-001 name-free
+        #     update-specs discriminator, True only from the inline analyze/spec call
+        #     site (derived structurally from _artifact_kind_for, never an agent-id
+        #     literal); the FE drives the "Update the Specs" affordance off the flag.
+        # All three are metadata-only and NOT in _REQUIRED_DATA_KEYS, so they are
+        # STRIPPED here — mirroring the deliverable_mimetype/deliverable_filename
+        # precedent — keeping the 5 characterization event goldens byte-identical
+        # (INV-3).
         "redoable",
+        "update_specs_eligible",
+        "artifact_kind",
         # ── Additive-but-parity-neutral prompt-cache keys (ISS-032 / FIX-036) ────
         # The runner now surfaces the Bedrock prompt-cache split
         # (input_token_details.cache_read/cache_creation) → the engine threads it
@@ -166,6 +174,21 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # — this strip is belt-and-suspenders (metadata-only, NOT in _REQUIRED_DATA_KEYS)
         # so the 5 characterization event goldens stay byte-identical (INV-3).
         "image_count",
+        # ── Additive-but-parity-neutral chat-lane volatile subkeys (POR D-01, Phase 29+) ──
+        # The run-chat lane (chat_message/chat_reply/stream_attached) lands in
+        # Phase 29+ and carries two run-specific/client-generated subkeys:
+        #   * ``message_id``           — the FE-generated idempotency key on a
+        #     ``chat_message`` turn (client-random → never parity-stable).
+        #   * ``replayed_through_seq`` — the run-specific replay cursor on the
+        #     ``stream_attached`` SSE handshake (depends on how far the run got).
+        # No golden emits any chat event (the scripted harness has no chat lane),
+        # so this strip is belt-and-suspenders — mirroring the image_count
+        # precedent above: metadata-only, NOT in _REQUIRED_DATA_KEYS, so it keeps
+        # the 5 characterization event goldens byte-identical (INV-3). The
+        # ``stream_attached.live`` boolean is deterministic (not run-specific) and
+        # the ``chat_reply`` card discriminators are stable, so neither is stripped.
+        "message_id",
+        "replayed_through_seq",
     }
 )
 

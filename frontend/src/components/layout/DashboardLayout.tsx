@@ -3,32 +3,40 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { WifiOff, RefreshCw, Brain, Sparkles, Loader2 } from "lucide-react";
+import { WifiOff, RefreshCw, Loader2 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
-import { WorkflowCatalog } from "@/components/catalog/WorkflowCatalog";
+import { HomeLaunchGrid } from "@/components/catalog/HomeLaunchGrid";
 import { LibraryPage } from "@/components/library/LibraryPage";
 import { WorkflowHistory } from "@/components/history/WorkflowHistory";
 import { AccountSettings } from "@/components/settings/AccountSettings";
 import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
 import { SavedWorkflowsPage } from "@/components/savedworkflows/SavedWorkflowsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
-import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
-import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
+import { ComposerPage } from "@/components/workflow/composer/ComposerPage";
+// INV-3 (plan 06): the AgentProgressPanel run-lane mount was removed here — its
+// Stop/revise/suggestions controls are fully absorbed by RunChatLane. The
+// component itself is retained (its own suite + the plan-08 Steps relocation);
+// DashboardLayout no longer imports or mounts it.
+// Phase 31 (CHATUI-01/02/03) — the run-screen chat lane composition root. Mounted
+// as the execution-surface left column; it ABSORBS the AgentProgressPanel
+// Stop/revise/suggestions controls (D-12 composer-per-state, SC-001 generic).
+import { RunChatLane, type RunLaneState, type GateContext, type LaneSuggestion, type LaneProposal } from "@/components/chat/RunChatLane";
+import type { ReplyStreamingState, SendMessageOptions } from "@/hooks/useRunChat";
+import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
-import { QuestionnairePanel } from "@/components/preview/QuestionnairePanel";
-import { ReviewGatePanel } from "@/components/preview/ReviewGatePanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { parseRunInput } from "@/lib/runInput";
-import { getToken, getChainContext, getRunFamily } from "@/lib/api";
+import { getToken, getChainContext, getRunFamily, postCancel, postRevision } from "@/lib/api";
 import type { UserWorkflowSummary } from "@/lib/api";
-import type { ConnectionStatus } from "@/hooks/useWebSocket";
+import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
+import { useRunConnection } from "@/providers/RunConnectionProvider";
 
 export interface DashboardLayoutProps {
   activeChatId: string | null;
@@ -44,7 +52,9 @@ export interface DashboardLayoutProps {
   // generic fallback renderer (SC-001 — never a workflow-name branch).
   genericDeliverable?: GenericDeliverable;
   connectionStatus: ConnectionStatus;
-  onSendMessage: (content: string) => void;
+  // Legacy chat-sidebar send seam — the run chat lane rides onRunChatSend (REST);
+  // this remains as an optional fallback for the settled-run ASK path.
+  onSendMessage?: (content: string) => void;
   onSendMessageWithMode?: (content: string, mode: ChatMode) => void;
   onSelectChat: (chatId: string) => void;
   onNewChat: (chatSession: ChatSession) => void;
@@ -54,7 +64,6 @@ export interface DashboardLayoutProps {
   messageMode?: ChatMode;
   chatTitleUpdate?: { chat_session_id: string; title: string } | null;
   processSteps?: ProcessStep[];
-  websocketSend?: (msg: string) => void;
   pipelineState?: PipelineRunState;
   onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedSkills?: import("@/types/index").AttachedSkill[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void;
   onResetPipeline?: () => void;
@@ -64,6 +73,10 @@ export interface DashboardLayoutProps {
   // revision launch path sources parent linkage from this — replaces the fragile
   // currentWorkflowRunId heuristic (which mis-matched on double-revision types).
   contentSourceRunId?: string | null;
+  // BUG-012: the durable REAL type of the viewed run (page.tsx fullRun.type),
+  // preferred over the recents lookup so the PreviewPanel render dispatch keys on
+  // the viewed run's type even when it is outside the recents window.
+  contentSourceRunType?: WorkflowType | null;
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   // Phase 16 (ISS-017) — the persisted status of a history-reopened run. When a
   // failed/cancelled run is reopened it carries no content, so the run's
@@ -88,10 +101,6 @@ export interface DashboardLayoutProps {
   } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
-  // Phase 12 (RESUME-03) — reads the last-received seq for the active run so the
-  // reconnect_pipeline send can include `after_seq` for the durable replay
-  // (12-03). Returns 0 on a fresh load (no recorded seq ⇒ full-tail replay).
-  getLastSeq?: () => number;
   onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
   // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
   // state before the questionnaire panel clears (consumed by C2's ClarificationsCard).
@@ -106,6 +115,11 @@ export interface DashboardLayoutProps {
     // REDO-GATE (F-fe2): generic server-set flag threaded into the panel so the
     // Redo control renders only on redoable (inline) gates.
     redoable?: boolean;
+    // SC-001 (plan 04→06, KAN-101): name-free server flags parsed in page.tsx —
+    // the lane maps updateSpecsEligible into the InlineGateActions "Update the
+    // Specs" affordance and artifactKind into the approve relabel. Additive.
+    updateSpecsEligible?: boolean;
+    artifactKind?: string;
   } | null;
   onApproveReview?: (gateKey: string, editedContent?: string) => void;
   onRejectReview?: (gateKey: string) => void;
@@ -138,97 +152,41 @@ export interface DashboardLayoutProps {
   // Phase 12 (WAVE-03) — wave groups assembled from the live `wave_*` /
   // `subagent_*` WS events by dashboard/page.tsx. Optional + defaulted to []
   // so existing callers/tests that omit it are unaffected; a non-wave run
-  // feeds an empty list and WaveTreePanel renders its own empty state.
+  // feeds an empty list and AgentDetailPanel's inline construction/wave tree
+  // renders its own empty state.
   waves?: WaveGroup[];
   // Workstream C2 (POR §5 D3 / §6.2) — the live run's captured input (submittedBrief
   // in page.tsx, set in onStartPipeline). Threaded as PreviewPanel.runInput so the
   // StartingPointCard + Files "Run input" section render on the LIVE mount. Optional
   // and default-undefined → non-live callers/tests render unchanged.
   submittedBrief?: string;
+  // ─── Phase 31 (CHATUI-01/02/03) — run chat lane wiring ──────────────────────
+  // The family-anchored transcript + the transport-agnostic send from page.tsx's
+  // `useRunChat` (fed by the active transport — SSE flag ON or legacy WS OFF).
+  // Consumed by the RunChatLane mounted in the execution left column. Optional /
+  // default-undefined → non-live callers and existing test renders unchanged.
+  runChatMessages?: ChatMessage[];
+  // quick-260719-rqo (Issue 2 part 2) — the active streaming-reply hint from
+  // page.tsx's useRunChat. Threaded to RunChatLane so the lane can show the
+  // "reading run data…" indicator during the Concierge reply's read-tool freeze.
+  runChatReplyStreaming?: ReplyStreamingState | null;
+  onRunChatSend?: (
+    text: string,
+    attachments?: import("@/types/index").ChatAttachment[],
+    options?: SendMessageOptions,
+  ) => void;
+  // The nonce'd deep-link seam (borrow #6): the lane's result cards call
+  // onRequestOpenTab; PreviewPanel consumes deepLinkTarget for all tabs.
+  onRequestOpenTab?: (tab: string) => void;
+  deepLinkTarget?: import("@/hooks/useTabDeepLink").TabDeepLinkTarget | null;
 }
 
-type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows";
+type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
 
-// ─── Prep overlay — shown while we set up your run (planner + clarify), any workflow ───
-const PLANNING_STEPS = [
-  { icon: "🔍", label: "Reading your brief…" },
-  { icon: "🧠", label: "Understanding intent & context…" },
-  { icon: "📋", label: "Mapping out what's needed…" },
-  { icon: "✨", label: "Preparing your workflow…" },
-];
-
-function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
-  const [stepIdx, setStepIdx] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setStepIdx(i => (i + 1) % PLANNING_STEPS.length);
-    }, 1800);
-    return () => clearInterval(interval);
-  }, []);
-
-  const step = PLANNING_STEPS[stepIdx];
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full bg-white gap-6 px-8">
-      {/* Animated brain icon */}
-      <div className="relative">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A4A] to-blue-600 flex items-center justify-center shadow-lg">
-          <Brain className="h-8 w-8 text-white" />
-        </div>
-        {/* Pulse rings */}
-        <div className="absolute inset-0 rounded-2xl bg-[#1B2A4A]/20 animate-ping" style={{ animationDuration: "2s" }} />
-      </div>
-
-      {/* Status */}
-      <div className="text-center space-y-2">
-        <p className="text-[14px] font-bold text-gray-900">Getting things ready…</p>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={stepIdx}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.3 }}
-            className="flex items-center justify-center gap-2"
-          >
-            <span className="text-[16px]">{step.icon}</span>
-            <p className="text-[12px] text-gray-500 font-medium">{step.label}</p>
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      {/* What the planner is doing */}
-      <div className="w-full max-w-sm rounded-xl border border-gray-100 bg-gray-50 p-4 space-y-2.5">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-          <Sparkles className="h-3 w-3" /> Behind the scenes
-        </p>
-        {[
-          "Understanding your request",
-          "Inferring goals, tone & constraints",
-          "Spotting anything worth confirming",
-          "Setting up context for every step",
-        ].map((item, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${i <= stepIdx ? "bg-[#1B2A4A]" : "bg-gray-300"}`} />
-            <p className={`text-[11px] ${i <= stepIdx ? "text-gray-700" : "text-gray-400"}`}>{item}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Loading dots */}
-      <div className="flex items-center gap-1.5">
-        {[0, 1, 2].map(i => (
-          <div
-            key={i}
-            className="w-1.5 h-1.5 rounded-full bg-[#1B2A4A]/40 animate-bounce"
-            style={{ animationDelay: `${i * 0.15}s` }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
+// 43-02: a stable empty held-proposal list (referential identity preserved across
+// renders). The concierge_proposal holds arrive with the Part-C SSE transport
+// (43-06); wiring the confirm chip now keeps that a data change, not a re-wire.
+const RUN_CONCIERGE_PROPOSALS: LaneProposal[] = [];
 
 export function DashboardLayout({
   activeChatId,
@@ -250,7 +208,6 @@ export function DashboardLayout({
   messageMode,
   chatTitleUpdate,
   processSteps,
-  websocketSend,
   pipelineState,
   reopenedRunStatus,
   reopenedFailedAgents,
@@ -259,10 +216,10 @@ export function DashboardLayout({
   onResetPipeline,
   recentRuns,
   contentSourceRunId,
+  contentSourceRunType,
   onSelectWorkflowRun,
   questionnaireData,
   activePipelineRunId,
-  getLastSeq,
   onSubmitQuestionnaire,
   onRetainClarifyRound,
   reviewGateData,
@@ -278,8 +235,16 @@ export function DashboardLayout({
   userEmail,
   waves = [],
   submittedBrief,
+  runChatMessages,
+  runChatReplyStreaming,
+  onRunChatSend,
+  onRequestOpenTab,
+  deepLinkTarget,
 }: DashboardLayoutProps) {
   const router = useRouter();
+  // The app-level SSE connection — the sole run transport (44-06). Commands ride
+  // its REST up-channel; useRunStream owns Last-Event-ID replay.
+  const runConnection = useRunConnection();
   const [mainView, setMainView] = useState<MainView>(() => {
     // If an od_prototype or od_ppt run is staged (user came from the wizard),
     // start directly in execution view — avoids the home screen flash while
@@ -300,6 +265,9 @@ export function DashboardLayout({
     return "user_stories";
   });
   const [workflowInput, setWorkflowInput] = useState("");
+  // Tracks completed pipeline types (fed by the WS completion handlers). The
+  // run-lane chaining suggestions derive from canChainFrom(workflowType); this
+  // state is retained for the completion bookkeeping its setters perform.
   const [completedPipelineTypes, setCompletedPipelineTypes] = useState<WorkflowType[]>([]);
   const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
@@ -334,6 +302,8 @@ export function DashboardLayout({
     markCompleted,
     markFailed,
     markCancelled,
+    markGatePaused,
+    markGateResumed,
     markAllRead,
     clearAll,
   } = useNotifications();
@@ -432,8 +402,40 @@ export function DashboardLayout({
           }]);
         }
       }
+
+      // Terminal failure / cancellation — fire the matching notification off the
+      // GENERIC plan-05 pipelineState markers (failed / cancelled), NEVER a
+      // workflow name (SC-001/INV-1). The completed branch above already reset
+      // currentPipelineNotifId on success, so this only fires for a non-completed
+      // terminal run that still owns a notification id.
+      if (currentPipelineNotifId.current) {
+        if (pipelineState.failed) {
+          const notifId = currentPipelineNotifId.current;
+          currentPipelineNotifId.current = null;
+          markFailed(notifId);
+        } else if (pipelineState.cancelled) {
+          const notifId = currentPipelineNotifId.current;
+          currentPipelineNotifId.current = null;
+          markCancelled(notifId);
+        }
+      }
     }
   }, [pipelineState, workflowType, pptContent, userStoryContent, prototypeContent]);
+
+  // Gate pause/resume — a review gate OPENING pauses the notification and its
+  // RESOLVING resumes it, both off the GENERIC markers (reviewGateData +
+  // running), the SAME condition that drives runLaneState==="gate" (:1311) —
+  // never a workflow name (SC-001/INV-1). markGateResumed no-ops unless the
+  // notification is actually paused, so it never clobbers a terminal mark.
+  useEffect(() => {
+    if (!currentPipelineNotifId.current || !pipelineState?.isRunning) return;
+    if (reviewGateData) {
+      markGatePaused(currentPipelineNotifId.current);
+    } else {
+      markGateResumed(currentPipelineNotifId.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewGateData, pipelineState?.isRunning]);
 
   // Update notification progress as agents complete
   useEffect(() => {
@@ -494,23 +496,39 @@ export function DashboardLayout({
   // orphaned every history-launched revision. Parent linkage now comes from the
   // contentSourceRunId prop (page.tsx tracks the actual on-screen run).
 
-  // Handle PPT revision — Phase 3: send run_revision WS message when a
-  // completed run exists; fall back to the legacy text-injection pattern
-  // for backward compat with pre-Phase3 runs.
+  // Handle PPT revision — Phase 3: launch the revision over REST (POST
+  // /{id}/revisions) when a completed run exists; fall back to the legacy
+  // text-injection pattern for backward compat with pre-Phase3 runs.
   const handleRevisePpt = useCallback((instruction: string) => {
-    if (!pptxCode && !pptContent) return;
+    // BUG-003: do NOT let the empty-content guard block the self-sufficient REST
+    // path below. On a reopened od_ppt run both pptxCode (no ppt-code-generator
+    // agent → always undefined) and pptContent (empty when fullRun.output is empty
+    // — LV-02) are empty, so the old content-only early-return fired nothing.
+    // When a parent run id (contentSourceRunId) exists the handler
+    // proceeds to postRevision (:504), which reseeds the parent deck server-side
+    // and needs no local content. The legacy text-injection fallback (:519-536) is
+    // reached only when contentSourceRunId is falsy and still reads the content.
+    if (!contentSourceRunId && !pptxCode && !pptContent) return;
 
     const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
 
-    // Phase 3: use run_revision if we have a completed run ID
-    if (contentSourceRunId && websocketSend) {
+    // W3b (44-05): launch the revision when we have a completed parent run id.
+    // POST /{id}/revisions (Strategy A — the byte-twin of engine._handle_revision:
+    // server-side artifact seed + planning-context prepend + exact-kind
+    // derived_from lineage), then attach the returned run so it streams over SSE
+    // (W1). REST is the sole up-channel (44-06). contentSourceRunId is the
+    // explicit parent (bug (b): no orphaned run — source_workflow_run_id is
+    // written server-side from it).
+    if (contentSourceRunId) {
       const targetType = isOdPpt ? "od_ppt_output" : "ppt_output";
-      websocketSend(JSON.stringify({
-        type: "run_revision",
-        parent_run_id: contentSourceRunId,
+      void postRevision(getToken() ?? "", contentSourceRunId, {
         target_artifact_type: targetType,
         instruction,
-      }));
+      })
+        .then(({ run_id }) => {
+          if (run_id) runConnection.attachRun(run_id);
+        })
+        .catch((e) => console.error("postRevision failed", e));
       setWorkflowType((isOdPpt ? "od_ppt_revision" : "ppt_revision") as WorkflowType);
       if (onResetPipeline) onResetPipeline();
       return;
@@ -534,7 +552,7 @@ export function DashboardLayout({
         onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
       }
     }
-  }, [workflowType, pptxCode, pptContent, contentSourceRunId, websocketSend, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [workflowType, pptxCode, pptContent, contentSourceRunId, runConnection, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {
@@ -604,6 +622,15 @@ export function DashboardLayout({
     extraParams?: Record<string, unknown>;
   } | null>(null);
 
+  // BUG-007: object-identity latches for the launch-consumer effects. The only
+  // guard below is `if (!pendingOdProtoParams) return;` + an ASYNC clear, so
+  // React StrictMode's dev double mount-effect invoke passes it twice before the
+  // clear lands and mints two runs for one launch. A synchronous ref compare
+  // makes the SAME param object mint once while a NEW launch (new object) still
+  // mints — the ref persists across the same-instance double invoke.
+  const launchedProtoParamsRef = useRef<object | null>(null);
+  const launchedPptParamsRef = useRef<object | null>(null);
+
   // Fire any pending pipeline start as soon as the WebSocket is connected.
   useEffect(() => {
     if (connectionStatus !== "connected") return;
@@ -616,51 +643,9 @@ export function DashboardLayout({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);
 
-  // When the WebSocket reconnects while a pipeline is running, send
-  // reconnect_pipeline so the backend attaches the new WS to the running queue.
-  const activePipelineRunIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    activePipelineRunIdRef.current = activePipelineRunId ?? null;
-  }, [activePipelineRunId]);
-
-  // Also track pipelineState.pipelineRunId for reconnection
-  const pipelineRunIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (pipelineState?.pipelineRunId) {
-      pipelineRunIdRef.current = pipelineState.pipelineRunId;
-    }
-  }, [pipelineState?.pipelineRunId]);
-
-  useEffect(() => {
-    if (connectionStatus !== "connected") return;
-    // If a pipeline was running when we disconnected, reconnect to it.
-    // Check both in-memory state and sessionStorage (handles tab close/reopen).
-    const runId = pipelineRunIdRef.current
-      ?? activePipelineRunIdRef.current
-      ?? (typeof window !== "undefined" ? sessionStorage.getItem("active_pipeline_run_id") : null);
-
-    const isRunning = pipelineState?.isRunning
-      || (typeof window !== "undefined" && !!sessionStorage.getItem("active_pipeline_run_id"));
-
-    if (runId && isRunning && websocketSend) {
-      // Phase 12 (RESUME-03) — send the last-received seq as after_seq so the
-      // durable replay (12-03) delivers exactly the missed tail. 0 on a fresh
-      // load (no recorded seq) ⇒ the backend replays the full tail from 0; a
-      // legacy client that never recorded a seq is byte-identical (after_seq 0).
-      const afterSeq = getLastSeq ? getLastSeq() : 0;
-      websocketSend(JSON.stringify({
-        type: "reconnect_pipeline",
-        pipeline_run_id: runId,
-        after_seq: afterSeq,
-      }));
-      // If we recovered from sessionStorage but pipelineState doesn't know,
-      // at least update the run ID ref so future reconnects work
-      if (!pipelineRunIdRef.current) {
-        pipelineRunIdRef.current = runId;
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionStatus]);
+  // Reconnection is owned by the SSE transport (useRunStream) — it reconnects
+  // natively and replays from Last-Event-ID, so there is no client-side
+  // re-attach frame to send (44-06 hard cutoff).
 
   // When pendingOdProtoParams arrives (set by dashboard/page.tsx after the
   // When pendingOdProtoParams arrives, immediately start the od_prototype pipeline.
@@ -669,6 +654,10 @@ export function DashboardLayout({
   // emit questionnaire_ready mid-run if it needs clarification (CLARIFY_REQUIRED).
   useEffect(() => {
     if (!pendingOdProtoParams) return;
+    // BUG-007: latch on object identity BEFORE any side effect so the second
+    // StrictMode mount-invoke early-returns without a second mint.
+    if (launchedProtoParamsRef.current === pendingOdProtoParams) return;
+    launchedProtoParamsRef.current = pendingOdProtoParams;
     setMainView("execution");
     setWorkflowType("prototype");
     setQuestionnaireQuestions([]);
@@ -718,6 +707,10 @@ export function DashboardLayout({
   // emit questionnaire_ready mid-run if it needs clarification (CLARIFY_REQUIRED).
   useEffect(() => {
     if (!pendingOdPptParams) return;
+    // BUG-007: latch on object identity BEFORE any side effect so the second
+    // StrictMode mount-invoke early-returns without a second mint.
+    if (launchedPptParamsRef.current === pendingOdPptParams) return;
+    launchedPptParamsRef.current = pendingOdPptParams;
     setMainView("execution");
     setWorkflowType("ppt");
     setQuestionnaireQuestions([]);
@@ -771,14 +764,35 @@ export function DashboardLayout({
     selections: Record<string, Record<string, unknown>>;
     brief?: string;
     gateAgentIds?: string[];
+    // 41-04 — edit-from-My-Workflows carries the saved name/description into the
+    // full-page Composer (mainView='composer') so it mounts PRE-LOADED.
+    name?: string;
+    description?: string;
   } | null>(null);
 
-  // Navigate from Home to Input page
+  // Fused Home (SHELL-02 SC-1) — the launcher-brief captured on the home landing,
+  // and the pending brief handed to the input view for the generic launch path.
+  const [homeBrief, setHomeBrief] = useState("");
+  const [pendingHomeBrief, setPendingHomeBrief] = useState<string | undefined>(undefined);
+
+  // Navigate from Home to Input page — EXCEPT the custom-compose entry, which
+  // (41-04, D-CMP-ENTRY) opens the full-page Composer surface (mainView='composer')
+  // fresh instead of the brief/input view. All other deliverable types keep the
+  // existing home→input seam unchanged.
   const handleSelectFeature = useCallback((type: WorkflowType) => {
     setSavedComposition(null);
     setWorkflowType(type);
-    setMainView("input");
+    setMainView(type === ("custom" as WorkflowType) ? "composer" : "input");
   }, []);
+
+  // Fused Home launcher: carry the typed brief into the input view, then reuse the
+  // existing home→input seam. Wizard-routed types (prototype/ppt/requiresWizard) are
+  // intercepted INSIDE HomeLaunchGrid before this runs, so they keep their own brief
+  // entry. SC-001: keyed on the generic WorkflowType, never a workflow-name branch.
+  const handleHomeSelectFeature = useCallback((type: WorkflowType) => {
+    setPendingHomeBrief(homeBrief.trim() || undefined);
+    handleSelectFeature(type);
+  }, [homeBrief, handleSelectFeature]);
 
   // Launch a saved workflow — mirrors handleSelectFeature but carries the saved
   // composition into state so IdeaInputPage mounts PRE-LOADED. Run then flows
@@ -786,6 +800,9 @@ export function DashboardLayout({
   // sends agent_ids + merges model_overrides) → re-validated server-side at launch
   // (SC-001: pure-data replay, no engine/run-path edit, no `if saved` fork).
   const handleLaunchSaved = useCallback((saved: UserWorkflowSummary) => {
+    // Fused Home: a saved-workflow launch owns its own preload (initialInput via
+    // savedComposition.brief); clear any stale home-launcher brief so it can't leak.
+    setPendingHomeBrief(undefined);
     // WR-01: carry the persisted Advanced-lever selections so the launched saved
     // workflow re-loads AND re-sends them (previously selections never reached launch).
 
@@ -808,7 +825,7 @@ export function DashboardLayout({
         agentIds: saved.agent_ids,
       };
       sessionStorage.setItem("ppt.draft", JSON.stringify(draft));
-      router.push("/workflow/ppt/templates");
+      router.push("/workflow/create?mode=ppt");
       return;
     }
 
@@ -829,7 +846,7 @@ export function DashboardLayout({
         agentIds: saved.agent_ids,
       };
       sessionStorage.setItem("prototype.draft", JSON.stringify(draft));
-      router.push("/workflow/prototype/templates");
+      router.push("/workflow/create?mode=prototype");
       return;
     }
 
@@ -843,9 +860,14 @@ export function DashboardLayout({
       gateAgentIds: Array.isArray(saved.selections?._wizard?.gateAgentIds)
         ? (saved.selections!._wizard!.gateAgentIds as string[])
         : undefined,
+      name: saved.name,
+      description: saved.description ?? undefined,
     });
     setWorkflowType(saved.base_pipeline_type as WorkflowType);
-    setMainView("input");
+    // 41-04 — edit-from-My-Workflows opens the full-page Composer PRE-LOADED with
+    // the saved agents + selections (D-CMP-ENTRY). The composer's per-run Run wiring
+    // lands in 41-06; until then this is the authoring/edit entry for saved workflows.
+    setMainView("composer");
   }, [router]);
 
   // Run the pipeline from Input page — triggers questionnaire first
@@ -1066,7 +1088,7 @@ export function DashboardLayout({
         pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [] };
       }
     }
-  }, [websocketSend, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Handle questionnaire answers.
   //
@@ -1190,8 +1212,8 @@ export function DashboardLayout({
   }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Cancel the active pipeline from the clarification step and navigate to dashboard.
-  // Two-step sequence: submit_questionnaire(skip=true) unblocks the gate, then
-  // cancel_pipeline terminates the now-running pipeline. All state resets to initial.
+  // Two-step sequence: submit_questionnaire(skip=true) unblocks the gate, then a
+  // REST cancel terminates the now-running pipeline. All state resets to initial.
   // KAN-90: "Cancel Workflow" button in QuestionnairePanel confirmation dialog.
   const handleCancelWorkflow = useCallback(() => {
     // Set the flag BEFORE navigating so the isRunning effect doesn't fight us
@@ -1206,14 +1228,16 @@ export function DashboardLayout({
     if (activePipelineRunId && onSubmitQuestionnaire) {
       // Step 1: unblock the clarify gate (fire and forget)
       onSubmitQuestionnaire(activePipelineRunId, [], true);
-      // Step 2: cancel the now-unblocked pipeline after a short delay
+      // Step 2: cancel the now-unblocked pipeline after a short delay.
+      // W2 (44-04): POST /{id}/cancel with the run id threaded — REST is the sole
+      // up-channel (44-06).
       setTimeout(() => {
-        if (websocketSend) {
-          websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
-        }
+        void postCancel(getToken() ?? "", activePipelineRunId).catch((e) =>
+          console.error("postCancel (cancel workflow) failed", e),
+        );
       }, 200);
     }
-  }, [activePipelineRunId, onSubmitQuestionnaire, websocketSend, onResetPipeline]);
+  }, [activePipelineRunId, onSubmitQuestionnaire, onResetPipeline]);
 
   // Handle "Reject & cancel pipeline" from the ReviewGatePanel.
   // KAN-95: the raw onRejectReview prop (from page.tsx) only sends the WS message
@@ -1236,14 +1260,182 @@ export function DashboardLayout({
     setMainView(page as MainView);
   }, []);
 
-  // Follow-up / steer agents
-  const handleFollowUp = useCallback((message: string) => {
-    const refinedInput = `${workflowInput}\n\n---\nRefinement: ${message}`;
-    setWorkflowInput(refinedInput);
-    if (onStartPipeline) {
-      onStartPipeline(workflowType, refinedInput, undefined, attachedSkills, attachedHooks);
+  // ─── Phase 31 (CHATUI-01/02/03) — run chat lane derivations ──────────────────
+  // The revise handler selected by the run TYPE (the SAME expression the
+  // left-column AgentProgressPanel used before the lane absorbed it). Undefined
+  // when the current output type has no revise path.
+  //
+  // BUG-003: on a COMPLETED reopen the `workflowType` sync effect (:330) is
+  // isRunning-gated and never fires, leaving workflowType stale (likely
+  // "user_stories") → the selector picked the wrong handler (a no-op) for a
+  // reopened od_ppt run. Bind the selection to the VIEWED run's type when not
+  // running (mirrors BUG-001); fall back to workflowType while running/launching
+  // (viewedRunType undefined → byte-identical, no regression). SC-001-safe (keys
+  // on run.type, no workflow-name literal added to a guarded component).
+  // BUG-012: prefer the DURABLE threaded type (page.tsx fullRun.type); fall back
+  // to the recents lookup (identical value for in-recents runs; defined for
+  // out-of-recents runs where recents returns undefined).
+  // BUG-012 follow-up: prefer the durable reopened type REGARDLESS of running
+  // state (a reopened clarify/build run leaves isPipelineRunning true, so gating
+  // the whole expression on !isPipelineRunning wrongly dropped the viewed type on
+  // a non-terminal reopen). Only the recents fallback stays !isPipelineRunning-
+  // gated — contentSourceRunType is null on a fresh launch, so viewedRunType stays
+  // undefined there and launch->watch is byte-identical.
+  const viewedRunType =
+    contentSourceRunType ??
+    (!isPipelineRunning && contentSourceRunId != null
+      ? recentRuns?.find((r) => r.id === contentSourceRunId)?.type
+      : undefined);
+  const effectiveReviseType = viewedRunType ?? workflowType;
+  const activeReviseHandler =
+    (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision" || effectiveReviseType === "od_ppt" || effectiveReviseType === "od_ppt_revision") ? handleRevisePpt :
+    (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
+    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" || effectiveReviseType === "od_prototype" || !!prototypeContent) ? handleRevisePrototype :
+    (effectiveReviseType === "app_builder" || effectiveReviseType === "app_builder_revision") ? handleReviseAppBuilder :
+    undefined;
+
+  // ─── 43-02 (A.1 CRUX) — Concierge send seam + confirm round-trip ─────────────
+  // The lane's send seam: the options-capable `onRunChatSend` (POST /messages)
+  // when supplied, else the legacy `onSendMessage`. A settled-run ASK folds
+  // `{ concierge: true }` here; a confirm chip folds the held proposal's
+  // `{ concierge: true, confirm_proposal: { channel, params } }`. Per LOCK-B the
+  // WS transport does not deliver the concierge fields to the Concierge until the
+  // Part-C SSE cutover — this wires the DECISION + payload shape, not a live flip.
+  const runChatSend = useCallback(
+    (
+      text: string,
+      attachments?: import("@/types/index").ChatAttachment[],
+      options?: SendMessageOptions,
+    ) => {
+      if (onRunChatSend) onRunChatSend(text, attachments, options);
+      else onSendMessage?.(text);
+    },
+    [onRunChatSend, onSendMessage],
+  );
+
+  // Confirm a held consequential Concierge proposal: replay the confirm turn
+  // through the SAME send seam, carrying the durable proposal's channel + params
+  // verbatim (the backend H1 fence — 43-01 — locates its durable pending row and
+  // disposes from THAT, never from this client body). Reject simply dismisses.
+  const handleConfirmProposal = useCallback(
+    (p: LaneProposal) => {
+      runChatSend("", [], {
+        concierge: true,
+        confirm_proposal: { channel: p.channel, params: p.params },
+      });
+    },
+    [runChatSend],
+  );
+
+  // Held Concierge proposals surface. Empty until the Part-C SSE transport
+  // (43-06) delivers `concierge_proposal` holds onto the transcript-adjacent
+  // state; the confirm chip + handleConfirmProposal are wired now so that flip is
+  // a data change, not a wiring change (LOCK-B — no live transport in this plan).
+  const runConciergeProposals = RUN_CONCIERGE_PROPOSALS;
+
+  // Reject dismisses a held proposal WITHOUT executing anything (T-33-04-01).
+  // No local proposal state exists yet (the holds arrive with the Part-C
+  // transport), so this is a safe no-op until then.
+  const handleRejectProposal = useCallback((_id: string) => {
+    /* dismiss — nothing executes; real removal lands with the 43-06 holds surface */
+  }, []);
+
+  // Compaction has no backend trigger wired yet; the FE only ever SIGNALS (it
+  // never compresses, D-08). A no-op-safe handler until the Part-C trigger lands
+  // — deliberately NOT an invented backend call.
+  const handleCompact = useCallback(() => {
+    /* no-op: compaction trigger arrives with the Part-C transport (43-06) */
+  }, []);
+
+  // Stop (absorbed) — the SAME cooperative cancel the AgentProgressPanel fired.
+  // The pipeline_cancelled event drives the state reset (no eager onReset).
+  const handleStopPipeline = useCallback(() => {
+    // W2 (44-04): REST cancel (run id threaded) — the sole up-channel (44-06).
+    const runId = pipelineState?.pipelineRunId ?? activePipelineRunId;
+    if (runId) {
+      void postCancel(getToken() ?? "", runId).catch((e) =>
+        console.error("postCancel (stop) failed", e),
+      );
     }
-  }, [workflowInput, workflowType, onStartPipeline, attachedSkills, attachedHooks]);
+  }, [pipelineState, activePipelineRunId]);
+
+  // GENERIC live-run state that drives the D-12 composer mode (SC-001 — never a
+  // workflow name). Priority: gate > clarify > building > terminal-failure >
+  // complete (has deliverable) > idle.
+  const laneHasDeliverable = !!(userStoryContent || pptContent || prototypeContent || genericDeliverable?.content);
+  const laneClarifyOpen = questionnaireQuestions.length > 0 && (!!pendingPipelineRun || !!activePipelineRunId);
+  // Terminal keys off the GENERIC plan-05 markers (cancelled / failed /
+  // degraded) — never a workflow name (SC-001, LIVE-STATE-CONTRACT §1).
+  const runLaneState: RunLaneState =
+    reviewGateData && isPipelineRunning ? "gate" :
+    laneClarifyOpen ? "clarify" :
+    isPipelineRunning ? "building" :
+    (pipelineState?.failed || pipelineState?.cancelled || pipelineState?.degraded) ? "terminal" :
+    laneHasDeliverable ? "complete" :
+    "idle";
+
+  // Phase 39 (RUNUI-06) — the live run title for the lane header. BUG-001: bind
+  // it to the VIEWED run (contentSourceRunId), not recentRuns[0] (the most-recent
+  // run). On a fresh launch contentSourceRunId is null → recentRuns[0] = the
+  // just-launched run (byte-identical to the old primary flow). On a complete /
+  // history-reopen, contentSourceRunId = the viewed run → its own clean title. If
+  // the viewed run is outside the recents window (find → undefined) the ternary
+  // falls back to submittedBrief (the viewed run's own input on reopen), never a
+  // foreign run's title. SC-001-safe (keys on run.id). The lane falls back further
+  // to the first user turn.
+  const viewedRun =
+    contentSourceRunId != null
+      ? recentRuns?.find((r) => r.id === contentSourceRunId)
+      : undefined;
+  const latestRunTitle = viewedRun?.title;
+  const runHeaderTitle =
+    latestRunTitle && latestRunTitle !== "Untitled" ? latestRunTitle : submittedBrief;
+
+  // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props). The
+  // KAN-101 spec-loop affordance + approve relabel are mapped off the declared
+  // reviewGateData flags (SC-001) — mirrors the redoable mapping, no literal.
+  const laneGate: GateContext | undefined = reviewGateData
+    ? {
+        agentId: reviewGateData.agentId,
+        agentName: reviewGateData.agentName,
+        output: reviewGateData.output,
+        gateKey: reviewGateData.gateKey,
+        redoable: reviewGateData.redoable,
+        updateSpecsEligible: reviewGateData.updateSpecsEligible,
+        approveLabel: reviewGateData.artifactKind
+          ? `Approve the ${reviewGateData.artifactKind.replace(/_/g, " ")}`
+          : undefined,
+      }
+    : undefined;
+
+  // Clarify quick-actions → the SAME resume path the QuestionnairePanel uses.
+  // Maps the lane's ClarifyResponse[] onto the (answers, freeform) submit.
+  const handleLaneSubmitAnswers = useCallback(
+    (responses: ClarifyResponse[]) => {
+      const answers: Record<string, string[]> = {};
+      let freeform = "";
+      for (const r of responses) {
+        if (r.question_id === "freeform") {
+          freeform = r.answer;
+          continue;
+        }
+        answers[r.question_id] = r.answer ? [r.answer] : [];
+      }
+      handleQuestionnaireSubmit(answers, freeform);
+    },
+    [handleQuestionnaireSubmit],
+  );
+
+  // Suggested next steps (absorbed) — the chainable workflows as generic chips.
+  const laneSuggestions: LaneSuggestion[] = canChainFrom(workflowType)
+    ? CHAIN_OPTIONS
+        .filter((o) => baseWorkflowType(o.type) !== baseWorkflowType(workflowType))
+        .map((o) => ({ id: o.type, label: o.label }))
+    : [];
+  const handleLaneSuggestion = useCallback(
+    (id: string) => { handleChainPipeline(id as WorkflowType); },
+    [handleChainPipeline],
+  );
 
   // Map mainView to header page type
   const headerPage = mainView === "library" ? "library" :
@@ -1255,7 +1447,7 @@ export function DashboardLayout({
     mainView === "execution" ? "execution" : "home";
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: "#f5f5f0" }}>
+    <div className="flex flex-col h-screen w-full overflow-hidden bg-surface-paper">
       {/* Connection status banner */}
       <AnimatePresence>
         {connectionStatus === "reconnecting" && (
@@ -1291,7 +1483,7 @@ export function DashboardLayout({
         userTier={userTier}
         userEmail={userEmail}
         isPipelineRunning={isPipelineRunning}
-        pipelineType={workflowType}
+        pipelineType={effectiveReviseType}
         pipelineAgentsCompleted={pipelineState?.completedCount ?? 0}
         pipelineAgentsTotal={pipelineState?.agents?.length ?? 0}
         onGoToPipeline={() => setMainView("execution")}
@@ -1311,7 +1503,7 @@ export function DashboardLayout({
       {/* Main Content */}
       <div className="flex-1 min-h-0">
         <AnimatePresence mode="wait">
-          {/* HOME — the data-driven WorkflowCatalog is the DEFAULT landing
+          {/* HOME — the data-driven HomeLaunchGrid is the DEFAULT landing
               (UXFIX-03 / D-20). The hardcoded `CreationHub.WORKFLOWS` array no
               longer drives the default home — the catalog sources its rows from
               `GET /api/workflows`, so a brand-new launchable manifest appears
@@ -1327,7 +1519,29 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <WorkflowCatalog onSelectFeature={handleSelectFeature} onLaunchSaved={handleLaunchSaved} userTier={userTier} />
+              {/* FUSED HOME (SHELL-02 SC-1, restyled 40-02) — one landing owned by
+                  HomeLaunchGrid: the mock's prompt UNDER the h1 (Attach + Build,
+                  no Voice — ND-X), the SC-001 data-driven deliverable card grid,
+                  and the live "Jump back in" recents. The prompt state stays here
+                  (homeBrief) so it can ride into the launch via pendingHomeBrief;
+                  it is threaded down as controlled props. Build carries the brief
+                  down the existing launch fork (handleHomeSelectFeature). Wizard-
+                  routed types (prototype/ppt) still router.push inside
+                  HomeLaunchGrid — the fork is preserved. The `input` view is
+                  UNCHANGED and still reachable for the saved-workflow preload path
+                  (handleLaunchSaved). Recents deep-link via onSelectWorkflowRun →
+                  the execution view. Page-keys stay generic (SC-001/INV-1). */}
+              <div className="flex h-full flex-col bg-surface-paper">
+                <HomeLaunchGrid
+                  onSelectFeature={handleHomeSelectFeature}
+                  onLaunchSaved={handleLaunchSaved}
+                  userTier={userTier}
+                  brief={homeBrief}
+                  onBriefChange={setHomeBrief}
+                  onBuild={() => handleHomeSelectFeature("custom" as WorkflowType)}
+                  onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); }}
+                />
+              </div>
             </motion.div>
           )}
 
@@ -1359,6 +1573,7 @@ export function DashboardLayout({
               <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory}
             activeRunId={pipelineState?.pipelineRunId ?? null}
             onViewRunningPipeline={() => setMainView("execution")}
+            onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); }}
             onReviseUserStory={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("user_stories_revision");
@@ -1460,16 +1675,62 @@ export function DashboardLayout({
                 initialAgentIds={savedComposition?.agentIds}
                 initialModelOverrides={savedComposition?.modelOverrides}
                 initialSelections={savedComposition?.selections}
-                initialInput={savedComposition?.brief}
+                initialInput={savedComposition?.brief ?? pendingHomeBrief}
                 initialGateIds={savedComposition?.gateAgentIds}
                 // SURF-03 — the backend workflow id whose compiled per-step
                 // capabilities the composer surfaces. For a built-in launchable
                 // workflow opened from the catalog, `workflowType` IS the workflow id
-                // (WorkflowCatalog launches via `row.id as WorkflowType`); for a saved
+                // (HomeLaunchGrid launches via `row.id as WorkflowType`); for a saved
                 // workflow it is the persisted `base_pipeline_type` (set in
                 // handleLaunchSaved). Unknown ids (e.g. `custom`/`migration` meta) 404
                 // server-side and the strip simply does not render.
                 workflowId={workflowType}
+              />
+            </motion.div>
+          )}
+
+          {/* COMPOSER — full-page custom-workflow authoring surface (41-04).
+              ADDITIVE: reached from Home's "Compose a custom workflow" card and
+              edit-from-My-Workflows (pre-loaded). Reuses the AgentsPopup shared
+              data model + exported sub-components; the modal wrapper is retained
+              for the wizard/input inline-edit flow (INV-3). */}
+          {mainView === "composer" && (
+            <motion.div
+              key="composer"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.25 }}
+              className="h-full"
+            >
+              <ComposerPage
+                workflowType={workflowType}
+                onBack={handleGoHome}
+                // 41-06 (D-05 / D-CMP-RUN) — Run-once launches the composed workflow
+                // through the EXISTING onStartPipeline → startPipeline seam, mirroring
+                // the revision launch sites (reset → onStartPipeline with the SAME arg
+                // convention). `type` is the composer's fixed-at-entry base_pipeline_type
+                // ("custom" for the compose entry, ND-AH) — the SAME value Save persists.
+                // startPipeline flips pipelineState.isRunning → the surface auto-transitions
+                // to mainView='execution'. No new contract / endpoint / fabricated cost (ND-AG).
+                onRun={(type, brief, agentIds, extraParams) => {
+                  if (onResetPipeline) onResetPipeline();
+                  if (onStartPipeline) {
+                    onStartPipeline(type, brief, agentIds, attachedSkills, attachedHooks, extraParams);
+                  }
+                }}
+                initialAgentIds={savedComposition?.agentIds}
+                initialSelections={
+                  savedComposition?.selections
+                    ? (Object.fromEntries(
+                        Object.entries(savedComposition.selections).filter(
+                          ([k]) => k !== "_wizard",
+                        ),
+                      ) as import("@/components/workflow/AgentsPopup").SelectionsMap)
+                    : undefined
+                }
+                initialName={savedComposition?.name}
+                initialDescription={savedComposition?.description}
               />
             </motion.div>
           )}
@@ -1483,109 +1744,108 @@ export function DashboardLayout({
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="h-full flex flex-col md:flex-row"
-              style={{ background: "#f5f5f0" }}
+              style={{ background: "var(--surface-paper)" }}
             >
-              {/* Left Panel — Agent Progress.
-                  ISS-019: the column is a height-owning flex parent. The agent
-                  panel flexes to remaining space + scrolls its own cards; the
-                  wave panel is a non-shrinking bottom region that stays above
-                  the 1440×950 fold. The column itself no longer scrolls — scroll
-                  lives inside the two child regions. */}
+              {/* Left Panel — Phase 31/32 (CHATUI/SC-4): the RunChatLane is the
+                  primary left-column surface. It FULLY ABSORBS the AgentProgressPanel
+                  Stop / revise / suggestions controls (D-12 composer-per-state,
+                  SC-001 generic) and mounts the plan-05 gate/clarify quick-actions.
+                  INV-3 (plan 06): the duplicate AgentProgressPanel run-lane mount is
+                  REMOVED — the lane is now the SOLE stop/revise implementation. The
+                  AgentProgressPanel component is retained for the plan-08 Steps
+                  relocation (its per-agent detail also lives in the Thinking tab).
+                  ISS-019: the column is a height-owning flex parent — the lane
+                  flexes to remaining space and owns its own scroll; the wave panel
+                  is a non-shrinking capped bottom region. */}
               <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-gray-200 flex flex-col overflow-hidden bg-white">
-                <ErrorBoundary fallbackLabel="AgentProgress">
-                  <div className="flex-1 min-h-0 overflow-hidden">
-                  <AgentProgressPanel
-                    pipelineState={pipelineState || { isRunning: false, pipeline_type: "", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 }}
-                    workflowType={workflowType}
-                    onViewResults={() => {}}
-                    onRunAnother={handleGoHome}
-                    onFollowUp={handleFollowUp}
-                    // Allow chaining from every "deliverable" workflow plus
-                    // its revision counterpart (see lib/workflowChaining).
-                    // Migration and custom are deliberately excluded — too
-                    // heavy / too generic to auto-chain.
-                    onChainPipeline={canChainFrom(workflowType) ? handleChainPipeline : undefined}
-                    completedPipelineTypes={completedPipelineTypes}
-                    onCancelPipeline={() => {
-                      if (websocketSend) {
-                        websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
-                      }
-                      // Do NOT call onResetPipeline() here — the pipeline_cancelled
-                      // WebSocket event drives the state reset. Calling reset
-                      // immediately clears agents[] before the event arrives,
-                      // so the graceful agent state transition (running→idle) is skipped.
-                    }}
-                    // KAN-84: revision moved from thin right-panel input to left-panel
-                    // next-steps section. Wired to the existing handleRevise* callbacks.
-                    onRevise={
-                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt :
-                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory :
-                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
-                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder :
-                      undefined
-                    }
-                    reviseLabel={
-                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? "Revise Presentation" :
-                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? "Revise User Stories" :
-                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? "Revise Prototype" :
-                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? "Revise App Blueprint" :
-                      "Revise"
-                    }
-                  />
-                  </div>
-                </ErrorBoundary>
-                {/* Phase 12 (WAVE-03) — live wave/subagent tree. Rendered
-                    unconditionally so the panel slot is stable; WaveTreePanel
-                    owns the "No waves running." empty state for non-wave runs.
-                    ISS-019: non-shrinking bottom region (flex-shrink-0) capped
-                    at 40% so it never eats the agent panel; its own
-                    max-h-[260px] list scrolls within. */}
-                <ErrorBoundary fallbackLabel="WaveTree">
-                  <div className="flex-shrink-0 max-h-[40%] overflow-y-auto px-3 pt-3 pb-3 border-t border-gray-200">
-                    <WaveTreePanel waves={waves} />
-                  </div>
-                </ErrorBoundary>
-              </div>
-
-              {/* Right Panel — Planning overlay, Questionnaire, or Preview */}
-              <div className="flex-1 h-[55vh] md:h-full min-w-0 bg-white rounded-none md:rounded-l-none">
-                <ErrorBoundary fallbackLabel="Preview">
-                  {/* Show planning overlay while planner or clarify is working (no domain agents yet) and no questionnaire yet */}
-                  {pipelineState?.isRunning &&
-                   (pipelineState?.agents?.length ?? 0) === 0 &&
-                   !questionnaireLoading &&
-                   questionnaireQuestions.length === 0 &&
-                   !reviewGateData ? (
-                    <PlanningOverlay plannerSummary={pipelineState?.plannerSummary} />
-                  ) : reviewGateData && isPipelineRunning ? (
-                    <ReviewGatePanel
-                      agentId={reviewGateData.agentId}
-                      agentName={reviewGateData.agentName}
-                      output={reviewGateData.output}
-                      gateKey={reviewGateData.gateKey}
-                      onApprove={onApproveReview || (() => {})}
+                {/* The run chat lane — primary conversational surface. */}
+                <div data-testid="execution-chat-lane" className="flex-1 min-h-0 overflow-hidden">
+                  <ErrorBoundary fallbackLabel="RunChatLane">
+                    <RunChatLane
+                      messages={runChatMessages ?? messages}
+                      runState={runLaneState}
+                      // 43-02 (A.1 CRUX): the options-capable send seam so a
+                      // settled-run ASK can fold { concierge: true } onto the
+                      // payload (Concierge answer vs. onRevise revision).
+                      sendMessage={runChatSend}
+                      isStreaming={isStreaming}
+                      streamingContent={streamingContent}
+                      // quick-260719-rqo (Issue 2 part 2): the streaming-reply hint
+                      // that drives the mid-reply "reading run data…" indicator.
+                      replyStreaming={runChatReplyStreaming}
+                      pipelineState={pipelineState}
+                      onRequestOpenTab={onRequestOpenTab}
+                      // Phase 39 (RUNUI-06) — wire the lane run header's 39-01
+                      // slots with the real DashboardLayout data: Back-to-history
+                      // navigation, the live run title (clean backend title, else
+                      // the submitted brief), and the generic run type (SC-001 —
+                      // the pipeline_type string, never a workflow-name branch).
+                      onBackToHistory={() => setMainView("history")}
+                      runTitle={runHeaderTitle}
+                      runType={effectiveReviseType || pipelineState?.pipeline_type}
+                      // Absorbed AgentProgressPanel controls (Stop / revise / suggestions).
+                      onStop={handleStopPipeline}
+                      onRevise={activeReviseHandler}
+                      onRelaunch={handleGoHome}
+                      suggestions={laneSuggestions}
+                      onSuggestion={handleLaneSuggestion}
+                      // 43-02 (A.1 CRUX) — Concierge props wired at the mount.
+                      // `proposals` is the held-proposal surface: empty until the
+                      // Part-C SSE transport (43-06) delivers concierge_proposal
+                      // holds, then the SAME confirm chip fires handleConfirmProposal
+                      // (POST { concierge:true, confirm_proposal:{channel,params} }).
+                      // Reject dismisses without executing; compaction has no
+                      // backend trigger yet (no invented call) — a no-op-safe
+                      // onCompact + no explicit availability signal (LOCK-B).
+                      proposals={runConciergeProposals}
+                      onConfirmProposal={handleConfirmProposal}
+                      onRejectProposal={handleRejectProposal}
+                      compactAvailable={false}
+                      onCompact={handleCompact}
+                      // Plan-05 gate quick-actions (KAN-100/101 fences owned by the component).
+                      gate={laneGate}
+                      onApprove={onApproveReview}
                       onReject={handleRejectReview}
                       onRedo={onRedoReview}
-                      redoable={reviewGateData.redoable}
                       onUpdateSpecs={onUpdateSpecsReview}
-                    />
-                  ) : (questionnaireLoading || questionnaireQuestions.length > 0) && (pendingPipelineRun || activePipelineRunId) ? (
-                    <QuestionnairePanel
-                      questions={questionnaireQuestions}
-                      isLoading={questionnaireLoading}
-                      onSubmitAnswers={handleQuestionnaireSubmit}
-                      onSkip={handleQuestionnaireSkip}
-                      workflowType={workflowType}
+                      // Plan-05 clarify quick-actions.
+                      clarifyQuestions={questionnaireQuestions}
+                      onSubmitAnswers={handleLaneSubmitAnswers}
+                      onSkipClarify={handleQuestionnaireSkip}
+                      // Phase 42-02 (§A2 re-home) — Cancel-Workflow on the inline
+                      // clarify, bound to the existing owner-scoped handler (guarded
+                      // by an active run, matching the old QuestionnairePanel wiring).
                       onCancelWorkflow={activePipelineRunId ? handleCancelWorkflow : undefined}
                     />
-                  ) : (
-                    <PreviewPanel
+                  </ErrorBoundary>
+                </div>
+                {/* INV-3 (plan 06): the demoted per-agent AgentProgressPanel mount
+                    was REMOVED here — its Stop/revise/suggestions controls are fully
+                    absorbed by the RunChatLane composer above, leaving ONE stop/revise
+                    implementation. Per-agent detail relocates into Steps in plan 08. */}
+                {/* Phase 32 (plan 08 / ISS-019) + Phase 39/42-04: the separate
+                    below-the-fold wave-tree panel is gone. The live wave/subagent
+                    tree renders inside AgentDetailPanel's inline construction block
+                    (Steps drill-down) via the `waves` passthrough to PreviewPanel
+                    below. INV-12 — one wave-tree implementation. */}
+              </div>
+
+              {/* Right Panel — always PreviewPanel */}
+              <div className="flex-1 h-[55vh] md:h-full min-w-0 bg-white rounded-none md:rounded-l-none">
+                <ErrorBoundary fallbackLabel="Preview">
+                  {/* Phase 42-02 (§A1/§A2/§A3): the three legacy full-screen takeover
+                      branches (planning overlay / review-gate / questionnaire panels)
+                      were removed from this cascade so PreviewPanel — the sole host of
+                      the mock-matching inline Steps clarify/gate/planning surfaces —
+                      mounts during those very states. Gate/clarify still flow inline via
+                      the laneGate / clarifyQuestions passthrough below. */}
+                  <PreviewPanel
                       userStoryContent={userStoryContent || undefined}
                       pptContent={pptContent || undefined}
                       prototypeContent={prototypeContent || undefined}
                       genericDeliverable={genericDeliverable}
                       isStreaming={isStreaming}
-                      workflowType={workflowType}
+                      workflowType={effectiveReviseType}
                       rawPipelineType={pipelineState?.pipeline_type || workflowType}
                       pptxCode={pptxCode}
                       onRevisePpt={undefined}
@@ -1607,8 +1867,27 @@ export function DashboardLayout({
                       runFamily={runFamily}
                       liveRunId={contentSourceRunId ?? null}
                       runInput={submittedBrief}
+                      deepLinkTarget={deepLinkTarget}
+                      // Phase 32 (plan 06 → 07/08) — additive gate/clarify passthrough
+                      // so a future Steps surface can host the SAME inline gate/clarify
+                      // affordances the lane uses. Mirrors the RunChatLane wiring;
+                      // pinned to the shared GateContext/clarify shapes (SC-001).
+                      laneGate={laneGate}
+                      onApproveGate={onApproveReview}
+                      onRejectGate={handleRejectReview}
+                      onRedoGate={onRedoReview}
+                      onUpdateSpecsGate={onUpdateSpecsReview}
+                      clarifyQuestions={questionnaireQuestions}
+                      onSubmitClarify={handleLaneSubmitAnswers}
+                      onSkipClarify={handleQuestionnaireSkip}
+                      // Phase 42-02 (§A2 re-home) — Cancel-Workflow on the Steps
+                      // inline clarify, bound to the existing owner-scoped handler.
+                      onCancelWorkflow={activePipelineRunId ? handleCancelWorkflow : undefined}
+                      // Phase 32 (plan 08 / ISS-019) — the live wave/subagent tree
+                      // now mounts INSIDE the Steps drill-down (relocated from the
+                      // below-the-fold left slot). Forward the assembled groups.
+                      waves={waves}
                     />
-                  )}
                 </ErrorBoundary>
               </div>
             </motion.div>

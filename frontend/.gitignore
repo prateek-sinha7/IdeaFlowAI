@@ -44,3 +44,13 @@ next-env.d.ts
 /test-results/
 /e2e/.report/
 /playwright/.cache/
+
+# fidelity harness outputs (scripts + README committed; shots + gallery are not)
+/e2e/fidelity/shots/
+/e2e/fidelity/gallery.html
+# Phase 40 shell fidelity outputs
+/e2e/fidelity/shots-shell/
+/e2e/fidelity/gallery-shell.html
+# Phase 41 Configure + Composer fidelity gallery (shots reuse shots-shell/ above;
+# the vendored composer-canvas-proposal.html reference IS committed)
+/e2e/fidelity/gallery-phase41.html

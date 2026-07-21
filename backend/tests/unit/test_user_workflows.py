@@ -42,8 +42,12 @@ from app.models.database import Base, get_db
 from app.models.workflow_definition import WorkflowDefinition
 
 # A valid custom composition (custom needs enterprise tier).
+# CWF-001 D1: _AGENT_B is swot-analyst (consumes market-research-agent == _AGENT_A's
+# produced type), so [_AGENT_A, _AGENT_B] is a valid producer-first chain that
+# presorts to itself. report-generator (consumes documentation-agent, never produced)
+# would now be correctly rejected as unsatisfiable by the compose-time guard.
 _AGENT_A = "market-research-agent"
-_AGENT_B = "report-generator"
+_AGENT_B = "swot-analyst"
 _MODEL_ID = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
@@ -233,6 +237,50 @@ def test_post_rejects_empty_agent_ids(api):
     client, _ = api
     r = client.post("/api/user-workflows", json=_valid_body(agent_ids=[]))
     assert r.status_code == 422, r.text
+
+
+# --- CWF-001 D1: compose-time produces/consumes pre-sort + reject -----------
+
+
+def test_post_reorders_consumer_first_to_producer_first(api, db_session):
+    """A consumer-before-producer custom composition saves 201 with the persisted
+    agent_ids reordered producer-first — so it can never launch into a runtime
+    'Workflow DAG is unsatisfiable' death (the D1 repro, saved safely)."""
+    client, _ = api
+    # swot-analyst consumes market-research-agent → producer must come first.
+    body = {
+        "name": "Consumer-first save",
+        "base_pipeline_type": "custom",
+        "agent_ids": ["swot-analyst", "market-research-agent"],
+        "model_overrides": {},
+    }
+    r = client.post("/api/user-workflows", json=body)
+    assert r.status_code == 201, r.text
+    assert r.json()["agent_ids"] == ["market-research-agent", "swot-analyst"]
+    # And the PERSISTED row carries the producer-first order (not the sent order).
+    row = db_session.query(WorkflowDefinition).filter_by(id=r.json()["id"]).first()
+    import json as _json
+    assert _json.loads(row.agents) == ["market-research-agent", "swot-analyst"]
+
+
+def test_post_rejects_unsatisfiable_composition(api):
+    """A genuinely-unsatisfiable set (swot-analyst alone consumes market-research-agent,
+    which no selected agent produces) → 422 whose detail names the missing edge. No
+    orphan row is created."""
+    client, _ = api
+    body = {
+        "name": "Unsatisfiable save",
+        "base_pipeline_type": "custom",
+        "agent_ids": ["swot-analyst"],
+        "model_overrides": {},
+    }
+    r = client.post("/api/user-workflows", json=body)
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"]
+    assert "market-research-agent" in detail
+    assert "produces it" in detail
+    # No orphan row.
+    assert client.get("/api/user-workflows").json() == []
 
 
 def test_post_entitlement_gate_blocks_basic_tier(api):

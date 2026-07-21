@@ -234,6 +234,35 @@ class ExecutionContext:
     # durable pre-merge in Phase 11). ``False`` for every normal run ⇒ the strategy is
     # byte/event-identical (the mid-wave filter is dormant).
     is_resuming: bool = False
+    # The RESUME-09 per-step SKIP CURSOR (field below) — the set of
+    # already-completed task/worker identities per step, KERNEL-COMPUTED from the
+    # run's own owner-scoped durable rows (task_loop step: the DISTINCT ``task_id``
+    # set from ``store.tree`` where ``producer_agent == step agent``; wave step: the
+    # ``task_id`` set from ``read_subagent_runs`` where ``status == "complete"``) and
+    # stamped BEFORE the dispatch loop re-enters. The strategies READ it via a
+    # ``getattr(ctx, <field>, None)`` handle and SKIP the completed
+    # identities — the AGENT never decides the skip set (it still RECEIVES completed
+    # work as injected context via the unchanged ``latest_typed_content`` machinery;
+    # re-invocation of remaining work stays on the same ``run_agent``/``run_fanout``
+    # paths — INV-13). The read is a ``getattr(ctx, <field>, None)`` so an older ctx
+    # without the field degrades to no-skip. Keyed on ``task_id`` (plan-global,
+    # identity-based) NOT
+    # ``worker_index`` (wave-local, ambiguous — Edge-Case 5); a ``set`` de-dups the
+    # fix-loop re-persist of the same task_id (Edge-Case 1). Fail-safe direction is
+    # RE-RUN: any read failure / ambiguity leaves this ``None`` so nothing is skipped
+    # (data-loss-avoiding). ``None`` on every normal (non-resume) run so the strategies'
+    # ``getattr`` read is None and dispatch is byte/event-identical (INV-3 dormant;
+    # mirrors ``is_resuming``). Transient per-run scratch on the context (INV-2 — never
+    # the engine singleton). ``{step_agent_id: {task_id, ...}}``.
+    resume_completed_task_ids: "dict[str, set[str]] | None" = None
+    # resume_completed_ordered (RESUME-16 cumulative): for a task_loop step, the SAME
+    # completed keys as ``resume_completed_task_ids`` but in original build ORDER (by
+    # ``min(version)`` per task_id) — the ORDER the common-prefix reconcile needs (a SET
+    # cannot express "skip the matching PREFIX, re-run the divergence suffix"). Waves need
+    # no order (per-key set-membership). ``None`` on every normal run ⇒ empty prefix ⇒
+    # dispatch byte/event-identical (INV-3 dormant). Transient per-run scratch (INV-2).
+    # ``{task_loop_step_agent_id: [task_key, ...]}``.
+    resume_completed_ordered: "dict[str, list[str]] | None" = None
     # redo_directive: the optional free-text "redo with additional instructions"
     # note for a human-review-gate re-run (REDO-GATE). Additive per-run scratch (the
     # same D-03 idiom as build_task_number / current_step), so the generic
@@ -247,3 +276,54 @@ class ExecutionContext:
     # ``derived_from`` lineage of a re-run is intentionally NOT an ectx field — it is
     # a _run_agent loop local so it cannot leak across agents (F3).
     redo_directive: str = ""
+    # steering_notes: the consume-once MID-RUN steering queue (D-06 / CHAT-03 /
+    # ND-11 — the THIRD member of the consume-once injection-seam family beside
+    # ``redo_directive`` and KAN-101's ``spec_revision_context``; COEXIST, not
+    # unify, per ND-11-SEAM-DECISION.md). A user message to a RUNNING run cannot
+    # be injected mid-generation (an agent invocation runs to completion — D-03),
+    # so the mechanical router (29-09) ENQUEUES it here and the generic
+    # ``_compose_context_message`` injector renders the pending notes as a single
+    # ``=== USER GUIDANCE ===`` block at the NEXT agent dispatch (the marker family
+    # the chat launch surface strips — POR §6), then CLEARS them (read+clear during
+    # composition — the consume-once key-link). Each entry is a
+    # ``{"text": str, "sticky": bool}`` dict: a ONE-SHOT directive (``sticky``
+    # False) is rendered once then dropped; STICKY (uploaded-context) notes
+    # (``sticky`` True) persist and re-render on every subsequent dispatch (D-06
+    # sticky-vs-one-shot). Additive per-run scratch (the same D-03 idiom as
+    # ``redo_directive``) so the injector appends the block WITHOUT a signature
+    # change. Transient (NOT a durable field): across ``resume_run`` it is
+    # re-derived from the persisted ``run_events`` chat turns (ND-9 / 29-02), so
+    # no new column/table is added here (LOCK-B). Steering keys on THIS generic
+    # queue only — no workflow/agent name branch (SC-001/INV-1). Default-empty ⇒
+    # DORMANT on every golden run (no block emitted, no mutation) ⇒ INV-3
+    # byte-parity holds.
+    steering_notes: list = field(default_factory=list)
+    # pending_turn_images: the consume-once MID-RUN per-turn image queue (UPLD-02
+    # residue, 30-03). The IMAGE analogue of ``steering_notes``: images attached to
+    # an in-flight chat turn on the Phase-29 ``POST /api/runs/{id}/messages`` path are
+    # cap-validated (the shared ``_validate_images`` ingress caps) then enqueued here
+    # by ``chat_router.apply_turn_images``. The engine DRAINS this queue onto the
+    # ONE-SHOT ``turn_images_once`` carrier (below) at the NEXT dispatch (before
+    # ``_compose_input_blocks``) so an ``injects:[images]`` agent's HumanMessage carries
+    # the base64 image content-blocks — exactly where run-entry images already flow.
+    # Each entry is a normalized ``{mime_type, data(base64)}`` dict (mirrors
+    # ``_normalize_run_images``). PAYLOAD-TRANSIENT (ND-10/LOCK-E): never persisted to
+    # sandbox/DB/run_events — the durable ``chat_message`` row keeps its attachment refs
+    # stamped ``retained:false`` (no bytes); across ``resume_run`` this queue is empty
+    # (ND-9 — images do not survive replay/reopen). Additive per-run scratch (the same
+    # D-03 idiom as ``steering_notes``) keyed on THIS generic queue only — no
+    # workflow/agent name (SC-001/INV-1). Default-empty ⇒ DORMANT on every golden run
+    # (no image → nothing drained → dispatch payload byte-identical) ⇒ INV-3.
+    pending_turn_images: list = field(default_factory=list)
+    # turn_images_once: the CONSUME-ONCE render carrier for per-turn images (30-03,
+    # HI-01). DISTINCT from the sticky run-entry ``run_images`` above: ``run_images`` is
+    # set once at run entry and the ``run_images`` provider re-renders it on EVERY
+    # ``injects:[images]`` dispatch (legitimately sticky for the whole run), whereas this
+    # one-shot carrier holds only the images ``_drain_turn_images`` moved off
+    # ``pending_turn_images`` for the NEXT dispatch. ``_compose_input_blocks`` renders it
+    # into exactly THAT dispatch's blocks and then clears it (read+clear co-located, the
+    # ``steering_notes`` idiom), so a per-turn image reaches ONE dispatch and never
+    # re-delivers on a later one. (Draining per-turn images onto the sticky ``run_images``
+    # instead was the pre-fix bug: every subsequent dispatch re-attached the stale image.)
+    # Default-empty ⇒ DORMANT on every golden run (nothing to render) ⇒ INV-3 byte-parity.
+    turn_images_once: list = field(default_factory=list)

@@ -245,11 +245,11 @@ test.describe("TS-V — per-workflow end-to-end (LIVE, real Bedrock)", () => {
     //   • text/markdown  → a MarkdownPreview (no iframe), OR
     //   • other          → a "Deliverable ready" download card.
     // We accept ANY of these as proof the run produced a deliverable. A robust
-    // cross-cut: the PreviewPanel header flips "Generating..." → "Results" when
-    // content is present, so we wait on that too.
+    // cross-cut: the Phase-39 run header flips to its settled state
+    // (data-run-state="complete") once content is present, so we wait on that too.
     const genericIframe = page.locator('iframe[title="Deliverable Preview"]');
     const deliverableReady = page.getByText("Deliverable ready");
-    const resultsHeader = page.getByText("Results", { exact: true });
+    const resultsHeader = page.locator('[data-testid="run-header"][data-run-state="complete"]');
 
     await expect
       .poll(
@@ -277,7 +277,7 @@ test.describe("TS-V — per-workflow end-to-end (LIVE, real Bedrock)", () => {
     async () => {
       // ── WHY FIXME ──────────────────────────────────────────────────────────
       // CreationHub routes "Build an interactive prototype" to a hard nav
-      // (/workflow/prototype/templates), NOT IdeaInputPage. That wizard requires
+      // (/workflow/create?mode=prototype), NOT IdeaInputPage. That wizard requires
       // selecting BOTH a template (from a gallery loaded live via
       // listPrototypeTemplates) AND a design system (listDesignSystems) before
       // "Continue" enables — and the gallery cards are keyed on live template
@@ -286,7 +286,7 @@ test.describe("TS-V — per-workflow end-to-end (LIVE, real Bedrock)", () => {
       // driver:
       //
       //   1. await selectWorkflow(page, "Build an interactive prototype");
-      //      → page.waitForURL(/\/workflow\/prototype\/templates/);
+      //      → page.waitForURL(/\/workflow\/create\?mode=prototype/);
       //   2. await expect(page.getByRole("heading",
       //        { name: "Configure your prototype" })).toBeVisible();
       //   3. Fill the brief textarea (Section 1):
@@ -323,7 +323,7 @@ test.describe("TS-V — per-workflow end-to-end (LIVE, real Bedrock)", () => {
     "TS-V-03 od_ppt → Slide Deck Preview iframe (wizard-path live driver)",
     async () => {
       // ── WHY FIXME ──────────────────────────────────────────────────────────
-      // CreationHub routes "Pitch an idea" to /workflow/ppt/templates (hard nav,
+      // CreationHub routes "Pitch an idea" to /workflow/create?mode=ppt (hard nav,
       // not IdeaInputPage). The PPT wizard requires picking a deck template from
       // <PPTTemplateGallery> (loaded live via listPPTTemplates); a design system
       // is required ONLY when the chosen template declares design_system.requires.

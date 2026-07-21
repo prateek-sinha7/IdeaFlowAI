@@ -1,6 +1,5 @@
 ---
-consumes:
-- performance-optimizer
+consumes: []
 context_from:
 - $previous
 description: Writes clear documentation including README, API guides, and setup instructions.

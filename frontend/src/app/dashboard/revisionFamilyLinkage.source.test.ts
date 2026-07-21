@@ -22,8 +22,9 @@ describe("DashboardLayout revision linkage source", () => {
   });
 
   it("sources every linkage path from contentSourceRunId / sourceRunId", () => {
-    // Inline handlers read the prop; the ppt run_revision uses parent_run_id.
-    expect(dashboardLayout).toContain("parent_run_id: contentSourceRunId");
+    // 44-06: the ppt revision launches over REST (POST /{id}/revisions) with
+    // contentSourceRunId as the explicit parent passed to postRevision.
+    expect(dashboardLayout).toContain('postRevision(getToken() ?? "", contentSourceRunId,');
     expect(dashboardLayout).toContain("source_workflow_run_id: contentSourceRunId");
     // History onRevise* callbacks thread the per-run sourceRunId.
     expect(dashboardLayout).toContain("source_workflow_run_id: sourceRunId");
@@ -32,7 +33,11 @@ describe("DashboardLayout revision linkage source", () => {
 
 describe("dashboard page.tsx contentSourceRunId lifecycle", () => {
   it("sets the source on live completion and reopen, clears on fresh run", () => {
-    expect(dashboardPage).toContain("setContentSourceRunId(data.pipeline_run_id");
+    // BUG-011: the live-completion set is now run-scoped — the pipeline_run_id is
+    // read into `completingRunId` and the set is gated behind !isForeignCompletion.
+    // The linkage from the completion's pipeline_run_id is preserved.
+    expect(dashboardPage).toContain("const completingRunId = data.pipeline_run_id");
+    expect(dashboardPage).toContain("setContentSourceRunId(completingRunId)");
     expect(dashboardPage).toContain("setContentSourceRunId(fullRun.id)");
     expect(dashboardPage).toContain("setContentSourceRunId(null)");
   });

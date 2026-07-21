@@ -1,6 +1,5 @@
 ---
-consumes:
-- security-auditor
+consumes: []
 context_from:
 - $previous
 description: Creates comprehensive test scenarios covering happy paths, edge cases, and errors.

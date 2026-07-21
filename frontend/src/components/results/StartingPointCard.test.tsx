@@ -101,3 +101,57 @@ describe("StartingPointCard — reopen parity + empty", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+describe("StartingPointCard — ND-10 not-retained image placeholder", () => {
+  it("renders an honest placeholder for a retained:false image ref (no <img>)", () => {
+    const { container } = render(
+      <StartingPointCard
+        input="Design a login screen."
+        attachmentRefs={[{ kind: "image", retained: false }]}
+      />,
+    );
+
+    // The honest "not retained" placeholder is shown …
+    expect(screen.getByText(/image not retained/i)).toBeInTheDocument();
+    expect(screen.getByText(/not stored after the run/i)).toBeInTheDocument();
+    // … and NO <img> is rendered (bytes are never fetched/restored).
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("renders the placeholder even when the image ref is the only content", () => {
+    render(<StartingPointCard input="" attachmentRefs={[{ kind: "image", retained: false }]} />);
+    expect(screen.getByText("Starting point")).toBeInTheDocument();
+    expect(screen.getByText(/image not retained/i)).toBeInTheDocument();
+  });
+
+  it("pluralizes when multiple image refs are not retained", () => {
+    render(
+      <StartingPointCard
+        input="A brief."
+        attachmentRefs={[
+          { kind: "image", retained: false },
+          { kind: "image", retained: false },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/2 images not retained/i)).toBeInTheDocument();
+  });
+
+  it("shows NO placeholder when there are no image refs (no layout change)", () => {
+    render(<StartingPointCard input="A plain brief with no attachments." />);
+    expect(screen.queryByText(/not retained/i)).toBeNull();
+  });
+
+  it("shows NO placeholder for a retained image ref or a non-image ref", () => {
+    render(
+      <StartingPointCard
+        input="A brief."
+        attachmentRefs={[
+          { kind: "image", retained: true },
+          { kind: "document", retained: false },
+        ]}
+      />,
+    );
+    expect(screen.queryByText(/not retained/i)).toBeNull();
+  });
+});

@@ -1,0 +1,117 @@
+# SSE QA — UI Launch-Journey Scenarios (listed + tracked)
+
+> The launch-journey half of the live-SSE QA campaign ([test sheet](./SSE-QA-TEST-SHEET.md) · [bug log](./SSE-QA-BUG-LOG.md)). Grounded by a discovery agent that read the launch code + `IMPLEMENTATION-REGISTER.md` to EOF; every selector is from source (none invented).
+> **Status:** ⬜ pending · 🔄 running · ✅ pass · ❌ fail (→ BUG-id) · ⚠️ pass-with-concern · ⛔ blocked (tier/input-gated)
+> Every scenario also asserts **0 `/ws/chat`**. Screenshots → job scratch `shots-lj/`.
+
+## Ground-truth selector facts (read first — they reshape driving)
+1. **The launch surface has NO production `data-testid`s** — Home/`HomeLaunchGrid`, `LaunchWizard`, `WizardStepper`, template/DS galleries, `IdeaInputPage` — drive by `role`/TEXT/`aria-label`/`#home-launch-prompt`. Only `DesignSystemPicker` (`ds-band-*`) + the run-screen carry testids.
+2. **`CreationHub` is dead code**; live Home = `HomeLaunchGrid` (`DashboardLayout.tsx:1468`).
+3. Wizard launch button = **"Continue"** (`LaunchWizard.tsx:764`); IdeaInputPage = **"Run workflow"** (`IdeaInputPage.tsx:691`); Composer = **"Run once"** .
+4. Deliverable-preview testids (`ppt-preview`, `files-tab`, …) are **test-only mocks** — real renderers emit none; assert by role/text.
+5. Real tab testids = **`tab-preview` / `tab-thinking`(label "Steps") / `tab-files` / `tab-audit`** (`Tabs.tsx:41`).
+6. **Clarify + review-gate answer UIs render in the STEPS tab, not the chat lane** (`StepsOverviewSpine.tsx:88/231`); the lane only shows a status card + "Answer/Review in Steps" deep-link.
+7. Clarify is **mid-run** (`questionnaire_ready`), not a pre-launch step.
+8. Full driveable detail (per-scenario steps + selectors) captured at job scratch `launch-journeys.md`; appendix selector list mirrored at the bottom.
+
+## Entry map
+| Card | pipeline_type | Entry path | Tier |
+|---|---|---|---|
+| Generate product requirements | user_stories | Home card → IdeaInputPage → **Run workflow** | basic |
+| Pitch an idea | ppt→od_ppt | Home card → `/workflow/create?mode=ppt` (LaunchWizard, Deck) → **Continue** | basic |
+| Build an interactive prototype | prototype→od_prototype | Home card → `/workflow/create?mode=prototype` (LaunchWizard, Web) → **Continue** | pro |
+| Build an end-to-end application | app_builder | Home card → IdeaInputPage → **Run workflow** | pro |
+| Platform workflows | mulesoft_to_springboot / dotnet_to_azure | Home card → IdeaInputPage → pick path → **Run workflow** | enterprise |
+| Compose a custom workflow | custom | Home card → ComposerPage → **Run once** | enterprise |
+
+---
+
+## A — Launch journeys (entry-point × happy path)
+
+| ID | Scenario | Expected launch outcome | Status | Evidence/Notes |
+|----|----------|-------------------------|--------|----------------|
+| LJ-01 | Home composer prompt → **Build** | `onBuild` routes to input/composer with brief preloaded (fallback → custom) | ⬜ | `#home-launch-prompt` + `Build` btn |
+| LJ-02 | Generate product requirements (user_stories) → **Run workflow** | `onStartPipeline("user_stories")` → execution | ⬜ | |
+| LJ-03 | Pitch an idea (ppt) → LaunchWizard (Deck) → **Continue** | template REQUIRED → `onStartPipeline("od_ppt")` | ⬜ | |
+| LJ-04 | Build interactive prototype → LaunchWizard (Web) → **Continue** | DS REQUIRED, template optional → `onStartPipeline("od_prototype")` | ⬜ | BUG-005 area |
+| LJ-05 | Build end-to-end app (app_builder) → **Run workflow** | `onStartPipeline("app_builder")` | ⬜ | |
+| LJ-06 | Platform workflows (migration) → pick path → **Run workflow** | `onStartPipeline("mulesoft…"/"dotnet…")` | ⬜ | |
+| LJ-07 | Compose custom workflow → ComposerPage → **Run once** | `onStartPipeline("custom")` | ⬜ | |
+| LJ-08 | Home "Jump back in" recents → open run | `onSelectWorkflowRun` + execution view | ✅ | covered (BUG-001/002 found here) |
+| LJ-09 | Home Inspect / WorkflowDialog (look ≠ launch) | read-only inspector, no launch | ⬜ | |
+| LJ-10 | Saved workflow launch (My Workflows) | wizard/composer preloaded, launch as LJ-03/04/07 | ⬜ | |
+| LJ-11 | Chain-to-next from a completed run | brief hidden, context-from-previous → chained launch | ⬜ | |
+| LJ-12 | Wizard Web/Deck toggle mid-flow | resets template/agents/gates, preserves brief/DS/images | ⬜ | |
+
+## B — Per-stage run-screen rendering (chat / Steps / Files / Audit / Preview)
+
+| ID | Surface + state | Expected | Status | Evidence/Notes |
+|----|-----------------|----------|--------|----------------|
+| LJ-13 | Chat lane: BUILDING | header (Running pill, k/N agents, tokens), "Steer the run" composer, Stop | ✅ | partly (streaming shots) |
+| LJ-14 | Chat lane: CLARIFY | "Paused — n questions", "Answer in Steps" deep-link; pill "Clarifying" | ⬜ | questionnaire is in Steps |
+| LJ-15 | Chat lane: GATE | "Paused — task plan needs approval", "Review in Steps"; pill "Awaiting approval" | ⬜ | |
+| LJ-16 | Chat lane: COMPLETE + ask/refine | "Ask for a change…"; ASK→concierge, CHANGE→refinement chip | ⚠️ | concierge ✅; refinement chip = BUG-003 |
+| LJ-17 | Chat lane: TERMINAL (cancelled/failed/degraded) | terminal card + relaunch variants | ⬜ | cancelled path partly (B6) |
+| LJ-18 | Chat lane: narrator milestone ResultCards | clarify/gate/pipeline/deliverable/spec_revision cards + deep-links | ✅ | narrator cards seen live |
+| LJ-19 | Steps: spine + agent rows + L1→L2→L3 drilldown | spine phase pill, agent rows, agent detail (prompt/output/context), task detail | ✅ | drilldown shot (C5) |
+| LJ-20 | Steps: inline CLARIFY questionnaire | chips, "Submit answers & start the build", "Cancel workflow" | ✅ | clarify-ui shot |
+| LJ-21 | Steps: inline REVIEW GATE | Approve & build / Request changes (Update specs/Redo/Reject) / plan preview | ✅ | gate resume proven (A6) |
+| LJ-22 | Steps: construction block + settled artifact cards | subagent waves, spec/task-plan/governance cards | ⬜ | |
+| LJ-23 | Files tab | header, building-hero (running), Final-output hero + Preview/Download (settled), empty/failed states | ⬜ | |
+| LJ-24 | Audit tab | audit trail, records pill, live badge, export menu, filters, rows, verdict banner | ⬜ | |
+| LJ-25 | Preview tab + "Renders as" + version menu | per-type renderer, preview-chrome, renders-as-switch, Version/Share/Download | ⚠️ | user_stories ✅; pptx blank (BUG-003 area) |
+| LJ-26 | Tab host: auto-tab + failed-run behavior | clarify/gate/building→Steps, complete→Preview, failed-no-deliverable→Audit (Preview dropped) | ⬜ | |
+
+## C — Edge / error scenarios (expected-vs-bug)
+
+| ID | Scenario | Expected (correct) | Status | Evidence/Notes |
+|----|----------|--------------------|--------|----------------|
+| LJ-27 | Launch prototype WITHOUT a design system | **Continue DISABLED** + "Pick a design system" pill; no backend call | ✅ | `lj27-prototype-no-ds.png` — Continue disabled + pill shown, 0 POST /api/runs. The launch-gate HOLDS. |
+| LJ-28 | Launch ppt WITHOUT a template | **Continue DISABLED** + "Pick a template" pill | ✅ | `lj28-ppt-no-template.png` — Continue disabled + pill, no launch |
+| LJ-29 | Empty brief (all 3 paths) | launch button disabled | ✅ | Home Build disabled empty → enabled with brief |
+| LJ-30 | Tier-locked deliverable card | card disabled + Lock + "Requires {Tier} plan"; Inspect still works | ⬜ | QA user tier? |
+| LJ-31 | Cancel mid-clarify | "Cancel workflow" → terminal/cancelled | ⬜ | |
+| LJ-32 | Launch then immediately navigate away | staged draft fires once / re-fires; no double-launch | ⬜ | |
+| LJ-33 | Attach image then launch | image threaded out-of-band → spec-writer image_count≥1 (not inlined) | ⬜ | (fixed once in 260710-ftq) |
+| LJ-34 | Migration meta selected, no path chosen | Run disabled + "Pick a migration path" | ⬜ | |
+| LJ-35 | Zero agents in IdeaInputPage/Composer | Run disabled + "Add agents first" | ⬜ | |
+| LJ-36 | Malformed / stale wizard draft | try/catch ignores; one-shot; no crash | ⬜ | |
+
+---
+
+## Driver quick-reference (real production selectors)
+- **Home**: `#home-launch-prompt`, `getByRole('button',{name:'Build'})`, cards = `getByRole('button')` w/ the card `<h2>`, Inspect = `getByLabel('Inspect … details')`.
+- **LaunchWizard**: `getByLabel('Brief')`, Web/Deck = `getByRole('button',{name:'Web'|'Deck'})`, stepper = `getByRole('tab',{name:'Template'|'Design System'|'Discovery'})`, DS = `getByTestId('ds-band-select')`, launch = `getByRole('button',{name:'Continue'})`.
+- **IdeaInputPage**: brief by placeholder, Run = `getByRole('button',{name:/Run workflow|Add agents first|Pick a migration path/})`, migration tiles by label text.
+- **Composer**: `composer-deliverable-type`, Simple/Canvas = `getByRole('button',{name:'Simple'|'Canvas'})`, run = `getByRole('button',{name:/Run once/})`.
+- **Chat lane**: `execution-chat-lane`, `run-chat-lane`(`data-run-state`), `chat-transcript`, `chat-composer`(`data-composer-mode`), `chat-send`, `chat-stop`, `chat-relaunch`, `chat-terminal-{cancelled,failed,degraded}`, `chat-result-card`(+`-link`), `lane-run-{title,type,status,meta}`, `lane-{clarify,gate}-status`, `lane-deliverable`, `chat-refinement-{chip,confirm,dismiss}`.
+- **Tabs**: `tab-preview` / `tab-thinking` / `tab-files` / `tab-audit`; `steps-review-dot`.
+- **Steps**: `steps-agent-row`, `construction-{block,progress,task-row}`; gate `chat-gate-{approve,reject,redo,request-changes,update-specs,preview}`; clarify `chat-clarify-{chip,submit,cancel-workflow}`.
+- **Files**: `files-building-hero` else role/text.
+- **Audit**: `audit-{records-pill,live-badge,export-menu,verdict-banner,row,search,filter-*}`.
+- **Preview**: `preview-chrome`, `preview-url`, `preview-progress`, `renders-as-switch`, `renderer-pill`, `run-header`(`data-run-state`).
+
+---
+
+## Live results (2026-07-16 — on the FE-cluster-fixed UI, all 0 `/ws/chat`)
+
+**Cluster fix live-proven:**
+- **BUG-005** ✅ — run A held at clarify + run B building concurrently → A's 5 clarify questions survived ("Clarifying", NOT "0/0 BUILDING"). `proof-bug005-A-steps.png`.
+- **BUG-001** ✅ — same shot: title = "A budgeting app for freelancers" (VIEWED run A), not the newer run B.
+- **BUG-002** ✅ — Run History → tap → shared run screen with chat/revise lane; no "No agent data/No preview". `proof-bug002-history-tap.png`.
+- **BUG-003** ✅ offline (TS-U-09 RED→GREEN); live skipped (available od_ppt run had non-empty output, doesn't exercise the empty-output edge).
+- **BUG-004** ✅ — 25 concurrent SSE streams + REST command → 200, no pool exhaustion.
+
+**Launch journeys:** LJ-04 ✅ full prototype wizard launch (Continue gated on DS; launch fires; reaches run screen) — **⚠️ revealed BUG-007 double-mint (2× POST /api/runs)**. LJ-23 Files ✅ · LJ-24 Audit ✅ · LJ-25 Preview ✅ (all on the History-opened run). LJ-27/28/29 edge gates ✅. LJ-08/13/16/18/19/20/21 covered earlier.
+
+**New bugs:** **BUG-006 🟡** (investigating) — pipeline-type label stale for a history-opened run (app_builder shown as "USER_STORIES"; sibling of BUG-001). **BUG-007 🟡** — double-mint: one UI launch fires 2× `POST /api/runs`.
+
+## Final coverage tally (2026-07-16, on the fixed UI)
+
+**Driven live + PASS (24):** LJ-01 (home Build), LJ-02 (user_stories), LJ-04 (prototype wizard full launch), LJ-05 (app_builder), LJ-06 (migration entry), LJ-07 (custom composer), LJ-08 (recents open), LJ-09 (Inspect), LJ-12 (Web/Deck toggle), LJ-13 (BUILDING lane), LJ-14 (clarify lane card), LJ-15 (gate lane card), LJ-16 (COMPLETE lane + ask/refine), LJ-18 (narrator cards), LJ-19 (Steps L1→L3 drilldown), LJ-20 (Steps clarify questionnaire), LJ-21 (Steps review gate), LJ-23 (Files), LJ-24 (Audit), LJ-25 (Preview), LJ-27 (prototype no-DS gate), LJ-28 (ppt no-template gate), LJ-29 (empty-brief gate), LJ-34 (migration no-brief gate). **All 0 `/ws/chat`.**
+
+**Gate-proven, full flow not driven (2):** LJ-03 (ppt full launch — the no-template GATE is proven at LJ-28; the multi-step template-select modal wasn't driven), LJ-35 (zero-agents — the Advanced/agent controls render; the remove-all-agents disabled state wasn't driven).
+
+**Not driven (10) — reasons:** LJ-10 (saved-workflow launch) + LJ-11 (chain-to-next) need a saved workflow / a run to chain from. LJ-17 (terminal cancelled/failed cards), LJ-22 (construction block), LJ-26 (auto-tab to Audit on failure), LJ-31 (cancel-mid-clarify), LJ-32 (launch-then-navigate), LJ-36 (malformed draft) — **covered by the 139-passing mocked Playwright suite** (`ts-q.terminal-states`, `ts-chat`, `ts-t.history`, `ts-sse-resilience`); the live recents/History navigation for the older failed/cancelled runs was harness-flaky (the recents-open works — proven in the cluster live proofs — but selecting a specific *old* run needs the History list, which my selector kept mis-hitting). LJ-30 (tier-lock) = **N/A** (the QA user is enterprise; no locked cards). LJ-33 (attach-image) was fixed + live-proven earlier (quick-260710-ftq).
+
+**Net:** every launch ENTRY POINT (Section A) is driven or gate-proven live; every run-screen SURFACE (chat lane states, Steps L1→L3, Files, Audit, Preview) is captured live; every launch GATE (no-template/DS/brief/path) holds. The untested tail is terminal/edge *rendering* states already green in the mocked suite, plus saved-workflow/chain launches. **No new bugs surfaced in the launch-journey sweep** beyond BUG-006/007 (both fixed).

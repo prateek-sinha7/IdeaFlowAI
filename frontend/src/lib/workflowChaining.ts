@@ -38,7 +38,7 @@ export const CHAIN_OPTIONS: readonly ChainOption[] = [
     label: "Presentation",
     description: "Turn results into slides",
     requiresWizard: true,
-    wizardPath: "/workflow/ppt/templates",
+    wizardPath: "/workflow/create?mode=ppt",
   },
   {
     type: "user_stories",
@@ -50,7 +50,7 @@ export const CHAIN_OPTIONS: readonly ChainOption[] = [
     label: "Prototype",
     description: "Build interactive UI",
     requiresWizard: true,
-    wizardPath: "/workflow/prototype/templates",
+    wizardPath: "/workflow/create?mode=prototype",
   },
 ];
 

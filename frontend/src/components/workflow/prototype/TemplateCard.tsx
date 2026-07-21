@@ -62,22 +62,22 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
       ref={cardRef}
       type="button"
       onClick={() => onOpenDetail(template.id)}
-      className={`group relative flex flex-col overflow-hidden rounded-xl border bg-white text-left transition-all hover:shadow-md focus:outline-none ${
+      className={`group relative flex flex-col overflow-hidden rounded-[var(--radius-card)] border bg-surface-white text-left transition-all hover:shadow-md focus:outline-none ${
         selected
-          ? "border-[#1B2A4A] ring-2 ring-[#1B2A4A]/15 shadow-md"
-          : "border-gray-200/70 hover:border-gray-300"
+          ? "border-brand ring-2 ring-brand/15 shadow-md"
+          : "border-line-border hover:border-line-control"
       }`}
     >
       {/* Selected indicator */}
       {selected && (
-        <div className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#1B2A4A] text-white">
+        <div className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-brand text-white">
           <Check className="h-3.5 w-3.5" strokeWidth={3} />
         </div>
       )}
 
       {/* "Click to preview" hint on hover */}
       <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-        <span className="rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
+        <span className="rounded-full bg-surface-ink-black/60 px-3 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
           Click to preview
         </span>
       </div>
@@ -89,7 +89,7 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
           // document render. Falls back to the sandboxed (allow-scripts) iframe below.
           <>
             {!previewLoaded && (
-              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-line-faint-row to-line-divider" />
             )}
             {/* eslint-disable-next-line @next/next/no-img-element -- static same-origin thumbnail; next/image optimization + remotePatterns are unwanted overhead here */}
             <img
@@ -137,7 +137,7 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
             />
           </>
         ) : (
-          <div className="flex h-full items-center justify-center text-[10px] uppercase tracking-wider text-gray-400">
+          <div className="flex h-full items-center justify-center text-[10px] uppercase tracking-wider text-ink-400">
             {previewUrl ? "Loading preview…" : "No preview available"}
           </div>
         )}
@@ -146,16 +146,16 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
       {/* Meta */}
       <div className="flex flex-col gap-1 px-3.5 py-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[13px] font-semibold text-gray-900">
+          <span className="truncate text-[13px] font-semibold text-ink-900">
             {template.name}
           </span>
           {template.platform && (
-            <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-gray-500">
+            <Pill className="flex-shrink-0 px-1.5 text-[9px] uppercase tracking-wide">
               {template.platform}
-            </span>
+            </Pill>
           )}
         </div>
-        <p className="line-clamp-2 text-[11px] leading-snug text-gray-500">
+        <p className="line-clamp-2 text-[11px] leading-snug text-ink-500">
           {template.description}
         </p>
       </div>

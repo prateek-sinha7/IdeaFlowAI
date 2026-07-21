@@ -2,17 +2,29 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Eye, FolderDown, Brain, Shield, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
+import { Eye, FolderDown, Brain, Shield, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { FilesTab } from "@/components/results/FilesTab";
+import { FilesTab, downloadBlob } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
-import { LiveVersionChip, ReadOnlyVersionBanner } from "./LiveVersionChip";
+import { ReadOnlyVersionBanner } from "./ReadOnlyVersionBanner";
+// Phase 39 (RUNUI-06/07) — the mock's browser-chrome frame that WRAPS the reused
+// deliverable renderer (ND-G) with a real-filename URL bar (ND-D) + the "Renders
+// as" segmented type switch. A passive frame — no content rendering here.
+import { PreviewChrome, RendersAsSwitch } from "./PreviewChrome";
+// Phase 39 (RUNUI-06/07) — the mock's right-column run header (Version menu /
+// Share / Download / status badge) mounts above the tab row. It supersedes the
+// old in-preview version pill (INV-3/INV-12 — one version affordance).
+import { RunHeader } from "./RunHeader";
+import type { RunLaneState } from "@/components/chat/RunChatLane";
+// Phase 32 (plan 07) — shared run-screen underline-tab primitive (SC-1, D-15).
+import { Tabs } from "@/components/ui/Tabs";
 import type { WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
+import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
 import { getToken, getWorkflow } from "@/lib/api";
 import { ENV } from "@/lib/env";
 // ISS-024 — shared id→name resolution for the failed-agents list (no dual-impl).
@@ -175,6 +187,11 @@ function GenericDeliverablePreview({
 
   // HTML → sandboxed iframe (NO allow-same-origin — see T-18-05 above).
   if (mimetype === "text/html" || mimetype.startsWith("text/html")) {
+    // presentation.html from a custom-composer PPT run → PPTPreview for the
+    // styled deck viewer with navigation chrome. Keyed on filename (SC-001).
+    if (deliverable.filename === "presentation.html") {
+      return <PPTPreview content={content} isStreaming={false} pipelineType="od_ppt" onRevise={undefined} />;
+    }
     return (
       <div className="h-full flex flex-col overflow-hidden">
         <div className="flex-1 min-h-0 overflow-hidden">
@@ -189,8 +206,14 @@ function GenericDeliverablePreview({
     );
   }
 
-  // Markdown (or markdown-ish text) → MarkdownPreview.
+  // Markdown (or markdown-ish text) → check filename first for typed renderers,
+  // then fall back to plain MarkdownPreview.
   if (mimetype === "text/markdown" || mimetype === "text/x-markdown" || mimetype.startsWith("text/markdown")) {
+    // user_stories.md → UserStoryPreview (structured epic/story cards with
+    // Given/When/Then blocks). Keyed on filename, not workflow name (SC-001).
+    if (deliverable.filename === "user_stories.md") {
+      return <UserStoryPreview content={content} />;
+    }
     return <MarkdownPreview content={content} />;
   }
 
@@ -203,11 +226,11 @@ function GenericDeliverablePreview({
   return (
     <div className="flex h-full items-center justify-center px-6">
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
-          <FolderDown className="h-6 w-6 text-gray-500" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-warm">
+          <FolderDown className="h-6 w-6 text-ink-500" />
         </div>
-        <p className="text-sm font-semibold text-gray-900">Deliverable ready</p>
-        <p className="text-xs text-gray-500">
+        <p className="text-sm font-semibold text-ink-900">Deliverable ready</p>
+        <p className="text-xs text-ink-500">
           This deliverable ({deliverable.mimetype || "unknown type"}) can be downloaded from the Files tab.
         </p>
         <button
@@ -222,7 +245,7 @@ function GenericDeliverablePreview({
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
           }}
-          className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-line-border px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-surface-warm"
         >
           <Download className="h-3.5 w-3.5" />
           Download {deliverable.filename || "deliverable"}
@@ -245,7 +268,6 @@ interface PreviewPanelProps {
   // declared mimetype, never a workflow name.
   genericDeliverable?: GenericDeliverable;
   isStreaming?: boolean;
-  onCollapse?: () => void;
   initialTab?: string;
   onTabSelect?: (tab: string) => void;
   workflowType?: WorkflowType;
@@ -295,14 +317,61 @@ interface PreviewPanelProps {
   // correct). BOTH optional/default-undefined → existing renders unchanged.
   runInput?: string;
   clarifications?: import("@/types/index").ClarifyRound[];
+  // Phase 31 (CHATUI-02) — the nonce'd deep-link target a chat result-card mints
+  // via useTabDeepLink.requestOpenTab (borrow #6). PreviewPanel is the CONSUMER:
+  // an effect keyed on the nonce switches to the target tab for ALL panel tabs
+  // (the legacy initialTab only honored preview/files). The monotonic nonce
+  // makes a repeat deep-link to an already-open tab re-fire; a non-panel target
+  // (e.g. "steps" = the left lane column) is ignored here. Optional/default-null
+  // → existing renders unchanged (tsc-identity).
+  deepLinkTarget?: TabDeepLinkTarget | null;
+  // Phase 32 (plan 06 → 07/08) — additive optional passthrough of the run's
+  // active gate + clarify quick-action context so a future Steps surface can
+  // mount the same inline gate/clarify affordances the RunChatLane composer
+  // uses. Pinned to the existing GateContext / ClarifyQuestion / ClarifyResponse
+  // shapes (name-free, SC-001); default undefined → zero behavior change until
+  // plan 07/08 consumes them (tsc-identity, no regression for history/test callers).
+  laneGate?: import("@/components/chat/RunChatLane").GateContext;
+  onApproveGate?: (gateKey: string, editedContent?: string) => void;
+  onRejectGate?: (gateKey: string) => void;
+  onRedoGate?: (gateKey: string, instructions: string) => void;
+  onUpdateSpecsGate?: (gateKey: string, report: string) => void;
+  clarifyQuestions?: import("@/types/index").ClarifyQuestion[];
+  onSubmitClarify?: (
+    responses: import("@/components/chat/InlineClarifyActions").ClarifyResponse[],
+  ) => void;
+  onSkipClarify?: () => void;
+  /** Cancel the active pipeline from the inline Steps clarify (Phase 42-02 §A2 re-home). */
+  onCancelWorkflow?: () => void;
+  // Phase 32 (plan 08 / ISS-019) + Phase 39/42-04 — the live wave/subagent
+  // groups, forwarded to the Steps drill-down where AgentDetailPanel's inline
+  // construction/wave tree renders them (the separate WaveTreePanel was retired,
+  // INV-12). Optional/default-empty (tsc-identity).
+  waves?: import("@/types/index").WaveGroup[];
+  // Phase 39 (RUNUI-06/07) — run-header action wiring. Both optional/default-
+  // undefined so history + test renders are byte-unchanged (tsc-identity), and
+  // both have sensible in-component defaults. onShare copies the run deep link
+  // (ND-H, client-only — NO backend); onDownload downloads the primary deliverable.
+  onShare?: () => void;
+  onDownload?: () => void;
 }
 
+// Phase 39 (RUNUI-06 / D39 specifics #3) — tab order is Preview · Steps · Files ·
+// Audit (was Preview · Files · Steps · Audit). The internal id stays "thinking"
+// so the deep-link targets + tab testids (data-testid="tab-thinking") remain
+// stable; the "Thinking"→"Steps" relabel (Phase 32 plan 07) is preserved. The
+// mock's tab row is text-only, so the per-tab lucide icons are dropped here to
+// match (a Steps review-dot is threaded in instead when the run is paused).
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "preview", label: "Preview", icon: Eye },
+  { id: "thinking", label: "Steps", icon: Brain },
   { id: "files", label: "Files", icon: FolderDown },
-  { id: "thinking", label: "Thinking", icon: Brain },
   { id: "audit", label: "Audit", icon: Shield },
 ];
+
+// The generic tab ids PreviewPanel owns. A deep-link to any of these switches the
+// tab; other generic targets (e.g. "steps") belong to the left lane column.
+const PANEL_TAB_IDS: readonly PanelTab[] = ["preview", "files", "thinking", "audit"];
 
 // ─── ISS-017 (16-04) — terminal-empty degraded/failed affordance ──────────────
 // Rendered (instead of the neutral "Output will appear here") when a run is
@@ -348,12 +417,12 @@ export function DegradedRunAffordance({
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
           <AlertTriangle className="h-6 w-6 text-amber-500" />
         </div>
-        <p className="text-sm font-semibold text-gray-900">
+        <p className="text-sm font-semibold text-ink-900">
           {cancelled
             ? "This run was cancelled"
             : "This run did not complete successfully"}
         </p>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-ink-500">
           {cancelled
             ? "The run was stopped before producing a deliverable."
             : "No deliverable was produced. The run ended in a failed or degraded state."}
@@ -375,12 +444,12 @@ export function DegradedRunAffordance({
         {onRetry ? (
           <button
             onClick={() => onRetry("Retry this run")}
-            className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-line-border px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-surface-warm"
           >
             View details / retry
           </button>
         ) : (
-          <p className="mt-1 text-[11px] text-gray-400">
+          <p className="mt-1 text-[11px] text-ink-400">
             Open the Thinking tab to view details.
           </p>
         )}
@@ -389,18 +458,41 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
-  const [copied, setCopied] = useState(false);
-  // ─── B3 (POR §5 D5) — live version chip state ───────────────────────────────
+  // ─── Plan 07 — manual typed-renderer switcher override ───────────────────────
+  // null = follow the generic auto-dispatch (the PRIMARY route); a non-null value
+  // is a renderType/mimetype token (SC-001, never a workflow name) that FORCES a
+  // specific renderer for the current deliverable. Cleared back to auto on demand
+  // (the "Auto" option) and whenever the deliverable's renderType changes.
+  const [rendererOverride, setRendererOverride] = useState<string | null>(null);
+  // ─── B3 (POR §5 D5) — read-only older-version state ─────────────────────────
   // viewingVersion is the read-only older-version override ({ id, content }) or
-  // null (live latest on screen); pulse is the one-shot tick shown when the
-  // family grows on a revision-complete.
+  // null (live latest on screen). The version affordance itself now lives in the
+  // Phase-39 RunHeader Version menu (INV-12 — the old version-pill pulse tick is
+  // retired with it).
   const [viewingVersion, setViewingVersion] = useState<{ id: string; content?: string } | null>(null);
-  const [pulse, setPulse] = useState(false);
-  const prevMemberCount = useRef<number | null>(null);
+  // Phase 42-02 (§B / RUNUI-06) — latch for the state-keyed default-tab effect: the
+  // last generic run-state we auto-applied a tab for. Keyed on the state VALUE so the
+  // auto-select fires once per state transition and never overrides a later manual
+  // tab click within the same state (mirrors the initialTab effect idiom below).
+  const autoTabbedForState = useRef<string | null>(null);
 
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
+
+  // Phase 31 (CHATUI-02) — nonce'd deep-link consumer (borrow #6). A chat
+  // result-card click mints a fresh {tab, nonce}; switch to the target tab for
+  // ALL panel tabs (preview/files/thinking/audit) — one switch per click. The
+  // effect is keyed on the monotonic nonce, so a repeat deep-link to the
+  // already-active tab still re-fires, and a stale nonce cannot re-navigate. A
+  // non-panel target (e.g. "steps", owned by the left lane column) is ignored.
+  useEffect(() => {
+    const tab = deepLinkTarget?.tab;
+    if (tab && (PANEL_TAB_IDS as readonly string[]).includes(tab)) {
+      setActiveTab(tab as PanelTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkTarget?.nonce]);
 
   // ─── B3 — family/version derivation (UI-SPEC Surface 3) ──────────────────────
   // sortedMembers v1..vN by revision_index; latestId = last member (fallback
@@ -449,19 +541,6 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
 
   const handleBackToLatest = useCallback(() => setViewingVersion(null), []);
 
-  // A revision completed → the threaded family grew: tick the chip label with a
-  // one-shot animate-pulse (~1200ms), then clear.
-  useEffect(() => {
-    const count = runFamily?.members.length ?? 0;
-    if (prevMemberCount.current != null && count > prevMemberCount.current) {
-      setPulse(true);
-      const t = setTimeout(() => setPulse(false), 1200);
-      prevMemberCount.current = count;
-      return () => clearTimeout(t);
-    }
-    prevMemberCount.current = count;
-  }, [runFamily?.members.length]);
-
   // A new live run supersedes any active read-only view.
   useEffect(() => { setViewingVersion(null); }, [liveRunId]);
 
@@ -506,7 +585,16 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // escaped HTML — the contradiction the phase was chartered to remove.
   const KNOWN_RENDER_TYPES = ["user_stories", "ppt", "prototype", "app_builder"] as const;
   const isKnownRenderType = (KNOWN_RENDER_TYPES as readonly string[]).includes(renderType);
-  const hasGenericDeliverable = !isKnownRenderType && !!genericDeliverable?.content;
+  // BUG-008: on a terminal reopen the `isRunning`-gated workflowType binder never
+  // fires, so `renderType` sits at the stale "user_stories" default →
+  // `isKnownRenderType` is true and the old `!isKnownRenderType && …` gate starved
+  // `hasGenericDeliverable` → the Preview short-circuited to "Output will appear
+  // here". Decouple the signal from the stale gate: a present generic deliverable
+  // counts whenever the typed renderer for the (possibly-stale) renderType has
+  // nothing to show. Keys only on the generic typed-content slots + the structural
+  // isKnownRenderType check — NO workflow-name literal (SC-001).
+  const knownContentPresent = !!(effUserStoryContent || effPptContent || effPrototypeContent || pptxCode);
+  const hasGenericDeliverable = !!genericDeliverable?.content && (!isKnownRenderType || !knownContentPresent);
 
   const hasContent = !!(effUserStoryContent || effPptContent || effPrototypeContent || pptxCode || hasGenericDeliverable);
 
@@ -537,6 +625,24 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
   // cancelled signal is the reopened server status only.
   const isCancelledTerminal = reopenedRunStatus === "cancelled";
+  // ─── Phase 42-03 (§D / Group D) — terminal-FAILED run surface ────────────────
+  // A terminal FAILED run (failed/degraded with NO deliverable, and NOT a
+  // deliberate cancel) matches the Failed mock: tabs become [Steps, Audit, Files]
+  // with NO Preview surface, the default tab is Audit, and the amber
+  // DegradedRunAffordance is retired on the run screen (red, not amber, lives in
+  // the lane + Steps + header — all §4 KEEP). Keyed on the generic terminal-
+  // failure signal (SC-001 — never a workflow/agent-name literal). A failed run
+  // that still carries content keeps its Preview tab (content wins), and a
+  // cancelled run keeps its Preview affordance (§8 decision 4 — history untouched).
+  const terminalFailureNoDeliverable = showFailureAffordance && !isCancelledTerminal;
+  // Cancelled-terminal is the ONLY remaining consumer of the in-Preview
+  // DegradedRunAffordance mount on the run screen (failed/degraded drop the tab).
+  const showCancelledAffordance = showFailureAffordance && isCancelledTerminal;
+  // Drop the Preview tab for a terminal-failed run; every other state keeps the
+  // full four-tab set (Preview · Steps · Files · Audit).
+  const visibleTabs = terminalFailureNoDeliverable
+    ? TAB_CONFIG.filter((t) => t.id !== "preview")
+    : TAB_CONFIG;
   // NOTE: these are agent IDs (failedAgents/degradedFailedAgents on live;
   // reopenedFailedAgents on history). They are resolved to human names inside
   // DegradedRunAffordance via the agentNameById map built below.
@@ -555,6 +661,133 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     ...(reopenedAgentNameById || {}),
     ...buildAgentNameById(pipelineState?.agents),
   };
+
+  // ─── Phase 39 (RUNUI-06/07) — run-header state derivation ────────────────────
+  // The header keys off the SAME generic discriminator the lane uses (SC-001,
+  // mirrors DashboardLayout.runLaneState): gate (an active review gate while
+  // running) → clarify (open questions while running) → building (running) →
+  // terminal (a server failure signal) → complete (a settled deliverable) → idle.
+  // Never a workflow-name branch.
+  const hasActiveGate = !!laneGate && isStillRunning;
+  const hasOpenClarify = !!(clarifyQuestions && clarifyQuestions.length > 0) && isStillRunning;
+  const headerFailed = terminalFailure && !isCancelledTerminal;
+  const headerRunState: RunLaneState =
+    hasActiveGate ? "gate" :
+    hasOpenClarify ? "clarify" :
+    isStillRunning ? "building" :
+    headerFailed ? "terminal" :
+    hasContent ? "complete" :
+    "idle";
+  // The Steps tab shows a pulsing review dot while the run is paused on the user
+  // (an open gate or clarify round) — mirrors the mock's Live "review gate" dot.
+  const stepsReviewDot = headerRunState === "gate" || headerRunState === "clarify";
+
+  // ─── Phase 42-02 (§B / RUNUI-06) — state-keyed default tab ────────────────────
+  // Auto-select the correct tab whenever the run transitions to a new generic state
+  // (SC-001: keyed on headerRunState, NEVER a workflow/agent-name literal):
+  //   gate | clarify | building (live, incl. planning) → Steps ("thinking")
+  //   complete (settled deliverable)                    → Preview ("preview")
+  //   terminal-failed (no deliverable)                  → Audit ("audit")
+  //   terminal-failed WITH content | idle               → leave as-is
+  // The autoTabbedForState latch makes this fire ONCE per state transition, so a
+  // user's manual tab click within the same state is never clobbered on re-render.
+  //
+  // Phase 42-03 (§D / Group D): the Failed mock defaults to Audit (Hexaware Run -
+  // Failed tab:'audit') and has NO Preview surface. A terminal FAILED run with no
+  // deliverable now drops the Preview tab (visibleTabs) AND lands on Audit here.
+  // The latch keys on a generic discriminator that folds the failed-no-deliverable
+  // state into "failed" so the auto-select fires for it; a failed run that still
+  // carries content keeps Preview (content wins) and is left as-is.
+  const defaultTabDiscriminator = terminalFailureNoDeliverable ? "failed" : headerRunState;
+  useEffect(() => {
+    if (autoTabbedForState.current === defaultTabDiscriminator) return;
+    autoTabbedForState.current = defaultTabDiscriminator;
+    const target: PanelTab | null =
+      defaultTabDiscriminator === "failed" ? "audit" :
+      headerRunState === "complete" ? "preview" :
+      (headerRunState === "gate" || headerRunState === "clarify" || headerRunState === "building") ? "thinking" :
+      null;
+    if (target) setActiveTab(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultTabDiscriminator]);
+  // Live version label — derived from the live family (active member index) or the
+  // pipeline's deliverableVersion; default v1. NEVER the mock's fixed "v1"/"v2".
+  const familyVersionCount = runFamily?.members.length ?? 0;
+  const derivedVersionNumber =
+    activeIdx >= 0 ? activeIdx + 1
+      : pipelineState?.deliverableVersion ?? (familyVersionCount > 0 ? familyVersionCount : 1);
+  const headerVersionLabel = `v${derivedVersionNumber}`;
+  // Live building-badge inputs (generic/live — the current running agent name +
+  // step k of N from the live pipeline counts).
+  const headerAgents = pipelineState?.agents ?? [];
+  const currentAgentName = headerAgents.find((a) => a.status === "running")?.name;
+  const buildStepTotal = headerAgents.length || undefined;
+  const buildStepIndex = buildStepTotal
+    ? Math.min((pipelineState?.completedCount ?? 0) + 1, buildStepTotal)
+    : undefined;
+
+  // Failed-badge reason (ND ruling 2026-07-11) — name WHERE the run stopped using
+  // the SAME live signal the lane's failure card uses (resolveAgentNames on the
+  // failed-agent ids, already in scope above). Generic + live (ND-D): the first
+  // failed agent's human name (raw-id fallback), NEVER the mock's fixed "security
+  // gate" text. Empty → the badge stays the bare "Run failed".
+  const headerFailureReason = headerFailed
+    ? resolveAgentNames(failedAgentNames, failedAgentNameById)[0]
+    : undefined;
+
+  // Client-only Share (ND-H) — copy the owner-auth-gated run deep link. Composed
+  // from the live run id; NO backend call. Default provided here so the header is
+  // functional even when the caller does not override it.
+  const handleHeaderShare = useCallback(() => {
+    if (onShare) return onShare();
+    const runId = liveRunId ?? activeRunId ?? "";
+    if (!runId || typeof window === "undefined") return;
+    const link = `${window.location.origin}${window.location.pathname}?run=${encodeURIComponent(runId)}`;
+    void navigator.clipboard?.writeText(link);
+  }, [onShare, liveRunId, activeRunId]);
+
+  // Primary deliverable download — reuses FilesTab.downloadBlob (INV-12). Default
+  // downloads the on-screen deliverable content under its live filename.
+  const canHeaderDownload = headerRunState === "complete" && !!activeContent;
+  const handleHeaderDownload = useCallback(() => {
+    if (onDownload) return onDownload();
+    if (!activeContent) return;
+    const name = pipelineState?.deliverableFilename || `deliverable-${headerVersionLabel}.md`;
+    downloadBlob(activeContent, name, "text/markdown");
+  }, [onDownload, activeContent, pipelineState?.deliverableFilename, headerVersionLabel]);
+
+  // ─── Phase 39 (RUNUI-06/07) — PreviewChrome URL bar + open affordance ────────
+  // The REAL deliverable filename for the browser-chrome URL bar (ND-D live — the
+  // live deliverable name, the generic deliverable's filename, else a derived name;
+  // NEVER the mock's fixed "index.html").
+  const previewFilename =
+    pipelineState?.deliverableFilename ||
+    genericDeliverable?.filename ||
+    `deliverable-${headerVersionLabel}`;
+  // The chrome's open-in-new affordance — opens the on-screen deliverable in a new
+  // tab via a client-only blob URL (the same pattern PPTTabActions.handleFullScreen
+  // uses; NO network, no new surface). The chrome itself stays a passive frame.
+  const handlePreviewOpen = useCallback(() => {
+    const content = genericDeliverable?.content ?? activeContent;
+    if (!content || typeof window === "undefined") return;
+    const mimetype =
+      genericDeliverable?.mimetype ||
+      (renderType === "ppt" || renderType === "prototype" ? "text/html" : "text/markdown");
+    const blob = new Blob([content], { type: mimetype });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }, [genericDeliverable?.content, genericDeliverable?.mimetype, activeContent, renderType]);
+
+  // ─── ND-V (Option B ruling 2026-07-11) — self-chromed renderers ──────────────
+  // prototype (its own dots + prototype.preview URL + Tweaks/Source/Open) and
+  // app_builder (AppBuilderIDEPreview — a full FileTree + editor IDE) bring their
+  // OWN frame; wrapping them in our PreviewChrome browser frame doubled it. Skip
+  // our chrome for those two EFFECTIVE types (a forced override matches what
+  // actually renders), keeping the "Renders as" switch above the renderer.
+  const effectiveRenderType = rendererOverride ?? renderType;
+  const isSelfChromedRender =
+    effectiveRenderType === "prototype" || effectiveRenderType === "app_builder";
 
   // ─── UXFIX-04 / D-21 (22-07) — generic-primary deliverable dispatch TABLE ────
   // The 4 first-party render types are REGISTERED ENTRIES in a dispatch table
@@ -590,7 +823,80 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         : null,
   };
 
+  // ─── Plan 07 — typed-renderer switcher (manual override on top of dispatch) ──
+  // A new deliverable (renderType change) drops any stale override so the generic
+  // auto-dispatch resumes as the PRIMARY route.
+  useEffect(() => { setRendererOverride(null); }, [renderType]);
+
+  // Mimetype tokens the generic renderer can be forced into. These are DECLARED
+  // mimetype/render shapes (SC-001 — never a workflow name).
+  const MIMETYPE_OVERRIDES: Record<string, string> = {
+    html: "text/html",
+    markdown: "text/markdown",
+    zip: "application/zip",
+  };
+  const FIRST_PARTY_LABELS: Record<string, string> = {
+    user_stories: "User Stories",
+    ppt: "Slides",
+    prototype: "Prototype",
+    app_builder: "Code",
+  };
+  const MIMETYPE_LABELS: Record<string, string> = {
+    html: "HTML",
+    markdown: "Markdown",
+    zip: "Bundle",
+  };
+
+  // Switcher options — the set of typed renderers available for THIS deliverable,
+  // derived from the generic renderType/mimetype set (never a workflow name).
+  // Always leads with "Auto" (the generic auto-dispatch, i.e. no override).
+  const rendererOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [{ value: "auto", label: "Auto" }];
+    // The current first-party renderType is an explicit typed option when it has
+    // a registered renderer.
+    if (renderType in FIRST_PARTY_RENDERERS && FIRST_PARTY_LABELS[renderType]) {
+      opts.push({ value: renderType, label: FIRST_PARTY_LABELS[renderType] });
+    }
+    // A generic deliverable can be viewed through any of the mimetype renderers.
+    if (genericDeliverable?.content) {
+      for (const key of Object.keys(MIMETYPE_OVERRIDES)) {
+        opts.push({ value: key, label: MIMETYPE_LABELS[key] });
+      }
+    }
+    return opts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderType, genericDeliverable?.content]);
+
+  // Resolve a manual override value → a concrete renderer. First-party tokens
+  // route to their registered renderer; mimetype tokens re-run the generic
+  // renderer with the forced mimetype (preserving the P18 sandboxed-iframe
+  // contract owned by GenericDeliverablePreview). Returns null when the override
+  // cannot render the current content, so the caller falls back to the primary
+  // auto-dispatch.
+  const renderRendererOverride = (value: string): ReactNode | null => {
+    if (value in FIRST_PARTY_RENDERERS) {
+      return FIRST_PARTY_RENDERERS[value]?.() ?? null;
+    }
+    const mimetype = MIMETYPE_OVERRIDES[value];
+    if (!mimetype) return null;
+    const content = genericDeliverable?.content ?? activeContent ?? "";
+    if (!content) return null;
+    const forced: GenericDeliverable = { ...(genericDeliverable ?? {}), content, mimetype };
+    return <GenericDeliverablePreview deliverable={forced} agentOutputs={agentOutputs} />;
+  };
+
   const renderDeliverable = (): ReactNode => {
+    // 0) MANUAL OVERRIDE (plan 07) — the typed-renderer switcher. Layered ON TOP
+    //    of the generic dispatch: when the user has picked a specific renderer it
+    //    forces that one. When unset ("auto") the generic dispatch below runs
+    //    UNCHANGED as the PRIMARY route (the switcher never replaces or reorders
+    //    it). The override value is a renderType/mimetype token (SC-001).
+    if (rendererOverride && rendererOverride !== "auto") {
+      const forced = renderRendererOverride(rendererOverride);
+      if (forced) return forced;
+      // Override can't render this content → fall through to the primary route.
+    }
+
     // 1) First-party routed entry (if this renderType is registered AND its
     //    first-party content is present). A registered entry that yields null
     //    (no first-party content) deliberately falls through to the generic
@@ -609,94 +915,82 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   };
 
   const handleTabChange = (tabId: PanelTab) => { setActiveTab(tabId); onTabSelect?.(tabId); };
-  const handleCopy = () => {
-    if (activeContent) {
-      navigator.clipboard.writeText(activeContent);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
 
   return (
-    <div className="flex h-full flex-col bg-white border-l border-gray-200">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-        <h2 className="text-sm font-semibold text-gray-900">
-          {isStreaming ? "Generating..." : hasContent ? "Results" : "Preview"}
-        </h2>
-        <div className="flex items-center gap-1">
-          {/* B3 (POR §5 D5) — live version chip: first control in the cluster,
-              before Copy (UI-SPEC Surface 3 "Where"). Renders nothing unless the
-              on-screen content belongs to a ≥2-member revision family. */}
-          <LiveVersionChip
-            family={runFamily ?? null}
-            activeRunId={activeRunId}
-            isViewingOlder={isViewingOlder}
-            pulse={pulse}
-            onSelectVersion={handleSelectVersion}
-            onBackToLatest={handleBackToLatest}
-          />
-          {hasContent && (
-            <button
-              onClick={handleCopy}
-              className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
-              title="Copy"
-            >
-              {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-            </button>
-          )}
-          {onCollapse && (
-            <button
-              onClick={onCollapse}
-              className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
-              aria-label="Close preview"
-            >
-              <PanelRightClose className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="flex h-full flex-col bg-surface-paper">
+      {/* Phase 39 (RUNUI-06/07) — the mock's right-column run header row (Version
+          menu / Share / Download in the settled state; a status badge + version
+          chip in the live/failed states). Supersedes the old title+Copy+Collapse
+          header AND the old in-preview version pill (INV-3/INV-12: one version
+          affordance). Styling routes through the Phase-32 token layer. */}
+      <RunHeader
+        runState={headerRunState}
+        failed={headerFailed}
+        failureReason={headerFailureReason}
+        family={runFamily ?? null}
+        activeRunId={activeRunId}
+        versionLabel={headerVersionLabel}
+        onSelectVersion={handleSelectVersion}
+        onShare={handleHeaderShare}
+        onDownload={handleHeaderDownload}
+        canDownload={canHeaderDownload}
+        currentAgentName={currentAgentName}
+        buildStepIndex={buildStepIndex}
+        buildStepTotal={buildStepTotal}
+        clarifyCount={clarifyQuestions?.length}
+      />
 
       {/* B3 (POR §5 D5) — read-only amber banner: shown as a slim strip directly
           under the header while an older version is on screen. */}
       {isViewingOlder && (
-        <div className="px-4 py-2 border-b border-gray-200">
+        <div className="px-[30px] pt-3">
           <ReadOnlyVersionBanner versionNumber={activeIdx + 1} onBackToLatest={handleBackToLatest} />
         </div>
       )}
 
-      {/* Tab Bar — tabs on left, PPT action buttons on right when PPT is active */}
-      <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
-        <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5 w-fit">
-          {TAB_CONFIG.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.id)}
-                className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-all ${
-                  isActive ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                <Icon className="h-3 w-3" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
+      {/* Tab Bar — Phase 39: the mock's text-only tab row (Preview · Steps ·
+          Files · Audit, 30px gutter, 2px brand underline via the Tabs primitive).
+          The per-tab lucide icons are dropped to match the mock; the Steps tab
+          carries a pulsing review dot while the run is paused on the user (an open
+          gate / clarify round). PPT actions + the renderer switcher live in the
+          right cluster. */}
+      <div className="flex-none px-[30px] pt-4 flex items-center justify-between gap-2 border-b border-line-divider">
+        <Tabs
+          tabs={visibleTabs.map((tab) => ({
+            id: tab.id,
+            label: tab.label,
+            icon:
+              tab.id === "thinking" && stepsReviewDot ? (
+                <span
+                  aria-hidden
+                  data-testid="steps-review-dot"
+                  className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand"
+                />
+              ) : undefined,
+          }))}
+          active={activeTab}
+          onChange={(id) => handleTabChange(id as PanelTab)}
+        />
 
-        {/* PPT action buttons — shown only when PPT preview is active */}
-        {activeTab === "preview" && renderType === "ppt" && (pptContent || pptxCode) && (
-          <PPTTabActions
-            content={pptContent}
-            pptxCode={pptxCode}
-            isOdPpt={
-              rawPipelineType === "od_ppt" || rawPipelineType === "od_ppt_revision" ||
-              detectedType === "od_ppt" || detectedType === "od_ppt_revision"
-            }
-          />
-        )}
+        <div className="flex items-center gap-2">
+          {/* Phase 39 (RUNUI-07) — the renderer switcher was RESKINNED into the
+              PreviewChrome's "Renders as" segmented row (below the browser top bar),
+              replacing the old tab-bar <select>. It now surfaces for ANY deliverable
+              with more than one genuinely-available typed renderer (segmented
+              buttons, so no <option>-role collision with the Version menu). */}
+
+          {/* PPT action buttons — shown only when PPT preview is active */}
+          {activeTab === "preview" && renderType === "ppt" && (pptContent || pptxCode) && (
+            <PPTTabActions
+              content={pptContent}
+              pptxCode={pptxCode}
+              isOdPpt={
+                rawPipelineType === "od_ppt" || rawPipelineType === "od_ppt_revision" ||
+                detectedType === "od_ppt" || detectedType === "od_ppt_revision"
+              }
+            />
+          )}
+        </div>
       </div>
 
       {/* Tab Content */}
@@ -711,16 +1005,37 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0 overflow-y-auto"
             >
-              {showFailureAffordance ? (
+              {showCancelledAffordance ? (
+                // Phase 42-03 (§D / Group D): the FAILED run's amber
+                // DegradedRunAffordance is RETIRED on the run screen — a terminal-
+                // failed run now drops the Preview tab entirely (visibleTabs) and
+                // defaults to Audit, so this branch is never reached for it. The
+                // ONLY remaining consumer is a CANCELLED-terminal run (a deliberate
+                // user Stop, §8 decision 4 keeps history/reopen behavior), which
+                // keeps its Preview tab and its cancelled-specific affordance copy.
+                // DegradedRunAffordance stays exported for RunDetailPage.tsx:296.
                 <DegradedRunAffordance
                   failedAgents={failedAgentNames}
                   agentNameById={failedAgentNameById}
                   onRetry={onRevisePrototype || onRevisePpt || onReviseUserStory || onReviseAppBuilder}
                   cancelled={isCancelledTerminal}
                 />
+              ) : isStillRunning ? (
+                // Streaming build — the mock's chrome with a "building …" URL + an
+                // indeterminate progress bar (ND-F: no screenshot placeholder). The
+                // live renderer streams inside; a calm building state fills until then.
+                <PreviewChrome filename={previewFilename} versionLabel={headerVersionLabel} streaming>
+                  {hasContent ? (
+                    renderDeliverable()
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      <p className="text-xs text-ink-400">Building your deliverable…</p>
+                    </div>
+                  )}
+                </PreviewChrome>
               ) : !hasContent ? (
                 <div className="flex items-center justify-center h-full">
-                  <p className="text-xs text-gray-400">Output will appear here</p>
+                  <p className="text-xs text-ink-400">Output will appear here</p>
                 </div>
               ) : (
                 // ─── UXFIX-04 / D-21 (22-07) — generic-primary dispatch TABLE ──
@@ -734,7 +1049,43 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 // No visual regression: each first-party entry renders the exact
                 // same bespoke renderer as before; the generic entry preserves
                 // the CR-01 fix + the P18 sandboxed-iframe security contract.
-                <>{renderDeliverable()}</>
+                //
+                // Phase 39 (RUNUI-06/07): the settled deliverable is FRAMED in the
+                // mock's browser chrome (ND-G — the renderer is WRAPPED, not rebuilt).
+                // The "Renders as" switch reuses the existing rendererOptions/
+                // rendererOverride dispatch (ND-D live typed set); renderDeliverable()
+                // still applies the override, so the pills drive the SAME dispatch.
+                //
+                // ND-V (Option B ruling 2026-07-11): a SELF-CHROMED renderer
+                // (prototype = its own dots/URL/Source/Tweaks/Open; app_builder = a
+                // full IDE) brings its OWN frame, so wrapping it in our browser chrome
+                // doubled it. For those two EFFECTIVE types we skip our chrome (the
+                // renderer's frame is the single frame) but KEEP the "Renders as"
+                // switch above. Keyed on the EFFECTIVE type so a forced override
+                // matches what actually renders. Plain deliverables keep our chrome.
+                isSelfChromedRender ? (
+                  <div className="flex h-full flex-col">
+                    {rendererOptions.length > 1 && (
+                      <RendersAsSwitch
+                        rendererOptions={rendererOptions}
+                        rendererValue={rendererOverride ?? "auto"}
+                        onRendererChange={setRendererOverride}
+                      />
+                    )}
+                    <div className="min-h-0 flex-1">{renderDeliverable()}</div>
+                  </div>
+                ) : (
+                  <PreviewChrome
+                    filename={previewFilename}
+                    versionLabel={headerVersionLabel}
+                    rendererOptions={rendererOptions}
+                    rendererValue={rendererOverride ?? "auto"}
+                    onRendererChange={setRendererOverride}
+                    onOpen={handlePreviewOpen}
+                  >
+                    {renderDeliverable()}
+                  </PreviewChrome>
+                )
               )}
             </motion.div>
           )}
@@ -747,7 +1098,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} />
+              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
             </motion.div>
           )}
           {activeTab === "thinking" && (
@@ -759,7 +1110,31 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} revisionParentVersion={revisionParentVersion} originalBriefRootRunId={originalBriefRootRunId} />
+              <AgentThinkingTab
+                agents={agents || []}
+                pipelineState={pipelineState}
+                waves={waves}
+                runInput={runInput}
+                clarifications={clarifications ?? pipelineState?.clarifications}
+                revisionParentVersion={revisionParentVersion}
+                originalBriefRootRunId={originalBriefRootRunId}
+                /* Phase 32 (plan 07 → 08) — OPTIONAL gate/clarify passthrough.
+                   These are the same GateContext / ClarifyQuestion / callback
+                   shapes DashboardLayout (plan 06) now passes to PreviewPanel.
+                   They are forwarded to the Steps body so plan 08 can render the
+                   inline gate/clarify affordances here; dormant (declared but not
+                   yet consumed by AgentThinkingTab) until then — zero behavior
+                   change, name-free (SC-001). */
+                laneGate={laneGate}
+                onApproveGate={onApproveGate}
+                onRejectGate={onRejectGate}
+                onRedoGate={onRedoGate}
+                onUpdateSpecsGate={onUpdateSpecsGate}
+                clarifyQuestions={clarifyQuestions}
+                onSubmitClarify={onSubmitClarify}
+                onSkipClarify={onSkipClarify}
+                onCancelWorkflow={onCancelWorkflow}
+              />
             </motion.div>
           )}
           {activeTab === "audit" && (
@@ -774,6 +1149,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               <AuditTab
                 hookRuns={pipelineState?.hookRuns}
                 workflowRunId={pipelineState?.pipelineRunId}
+                isRunning={isStillRunning}
               />
             </motion.div>
           )}
@@ -872,7 +1248,7 @@ function PPTTabActions({
       {isOdPpt ? (
         <button
           onClick={handleDownloadHtml}
-          className="flex items-center gap-1.5 rounded-md bg-[#1B2A4A] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-[#2a3d5e] transition-colors"
+          className="flex items-center gap-1.5 rounded-[var(--radius-button)] bg-brand px-2.5 py-1 text-[11px] font-medium text-white hover:bg-brand-pressed transition-colors"
         >
           <Download className="h-3 w-3" />
           Download
@@ -881,7 +1257,7 @@ function PPTTabActions({
         <button
           onClick={handleDownloadPptx}
           disabled={isDownloading}
-          className="flex items-center gap-1.5 rounded-md bg-[#1B2A4A] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-[#2a3d5e] disabled:opacity-60 transition-colors"
+          className="flex items-center gap-1.5 rounded-[var(--radius-button)] bg-brand px-2.5 py-1 text-[11px] font-medium text-white hover:bg-brand-pressed disabled:opacity-60 transition-colors"
         >
           {isDownloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
           {isDownloading ? "Exporting…" : "Download"}
@@ -889,7 +1265,7 @@ function PPTTabActions({
       )}
       <button
         onClick={handleFullScreen}
-        className="flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:border-gray-300 hover:text-gray-800 transition-colors"
+        className="flex items-center gap-1 rounded-md border border-line-border bg-white px-2.5 py-1 text-[11px] text-ink-500 hover:border-line-control hover:text-ink-800 transition-colors"
         title="Open in new tab"
       >
         <ExternalLink className="h-3 w-3" />

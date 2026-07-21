@@ -24,6 +24,31 @@ export interface ChatMessageArtifact {
   summary: string;
 }
 
+// ─── Phase 31 (CHATUI-01) — chat-lane transcript contract ─────────────────────
+// A per-turn attachment ref carried on a chat turn. Payload-transient by ND-10 /
+// LOCK-E: an image/file attached to a run turn is NOT stored after the run, so
+// `retained:false` is the honest default the backend stamps on replay/reopen
+// (run_commands._persist_chat_message). `kind`/`name` are always present; the
+// mime + size are best-effort metadata the picker fills in on the live send.
+export interface ChatAttachment {
+  kind: "image" | "file";
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  retained: boolean;
+}
+
+// The consume-once deep-link descriptor a narrator result card carries so a card
+// can link to the run tab it reports (borrow #6, open-design). `tab` is a GENERIC
+// string tab id (never a workflow/agent name — SC-001); `nonce` makes the target
+// single-use and re-triggerable (see useTabDeepLink). Distinct from the live
+// navigation seam: this is the stored descriptor on the message, the seam mints
+// the navigation nonce when the card is actually clicked.
+export interface DeepLinkTarget {
+  tab: string;
+  nonce: number;
+}
+
 export interface ChatMessage {
   id: string;
   chatSessionId: string;
@@ -32,6 +57,21 @@ export interface ChatMessage {
   createdAt: string;
   steps?: ProcessStep[];
   artifact?: ChatMessageArtifact;
+  // ─── Phase 31 (CHATUI-01) additive/OPTIONAL fields — non-breaking (INV-3). ───
+  // Existing consumers (the dead-kit MessageBubble/ChatPanel) ignore these; they
+  // only appear on the family-anchored transcript the chat lane renders.
+  /** Per-turn attachment refs (payload-transient — ND-10). */
+  attachments?: ChatAttachment[];
+  /** Narrator result-card kind — a GENERIC milestone discriminator (SC-001),
+   *  never a workflow/agent literal. Present only on `chat_reply` narrator turns. */
+  cardKind?: "clarify" | "gate" | "pipeline" | "deliverable" | "spec_revision";
+  /** The deep-link a narrator card carries into a run tab (borrow #6). */
+  deepLink?: DeepLinkTarget;
+  /** Family anchoring (D-02): the run/thread this turn belongs to. A child
+   *  (revision) run's turns carry a different `runId` but stitch into the SAME
+   *  transcript array so the family transcript accumulates, never swaps. */
+  runId?: string;
+  threadId?: string;
 }
 
 export interface StreamMessage {
@@ -43,8 +83,8 @@ export interface StreamMessage {
   // The wave_started/wave_completed/wave_failed/subagent_spawned/subagent_result
   // entries are ADDITIVE (Phase 12 / §22) — the wave scheduler's wave/subagent
   // lifecycle events (statuses only, D-14). They flow through the same generic
-  // backend WS forward and the WaveTreePanel reads them; no existing event was
-  // renamed or removed.
+  // backend WS forward and AgentDetailPanel's inline construction/wave tree reads
+  // them; no existing event was renamed or removed.
   type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked" | "wave_started" | "wave_completed" | "wave_failed" | "subagent_spawned" | "subagent_result" | "pipeline_failed";
   chunk?: string;
   section?: string;
@@ -68,6 +108,11 @@ export interface ReviewGateReadyData {
   output: string;
   pipeline_run_id: string;
   redoable?: boolean;
+  // SC-001 (plan 04, KAN-101): name-free, structurally-derived flags the FE
+  // drives the "Update the Specs" affordance off — never an agent-id literal.
+  // Optional/additive; absent on gates that do not carry them.
+  update_specs_eligible?: boolean;
+  artifact_kind?: string;
 }
 
 /** One worker leaf under a wave group — an agent + its lifecycle status. */
@@ -87,7 +132,8 @@ export interface WaveWorker {
  * One wave group in the wave/subagent tree (Phase 12 / §22). Assembled from the
  * additive `wave_*` / `subagent_*` lifecycle events (statuses only — D-14, no
  * live token stream). The dashboard WS handler routes the events into this shape
- * (deduped by `event_id`) and feeds the list to the WaveTreePanel.
+ * (deduped by `event_id`) and feeds the list to AgentDetailPanel's inline
+ * construction/wave tree.
  */
 export interface WaveGroup {
   waveIndex: number;
@@ -524,6 +570,28 @@ export interface ToolCallEntry {
   timestamp: string;
 }
 
+/** A single clarify question surfaced to the user during a run's clarify pause.
+ *  Shared contract consumed by the inline clarify surfaces (InlineClarifyActions,
+ *  StepsOverviewSpine, RunChatLane, PreviewPanel/AgentThinkingTab). Relocated here
+ *  from the deleted QuestionnairePanel.tsx (Phase 42-02) so it survives the panel's
+ *  removal. */
+export interface ClarifyQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  allowMultiple?: boolean;
+  /** "single_choice" | "multi_select" | "short_text" | "hybrid" */
+  answerType?: string;
+  recommendedAnswer?: string;
+  recommendedReasoning?: string;
+  recommendedDisplay?: string;
+  ambiguityCategory?: string;
+  impactLevel?: string;
+}
+
+// Legacy alias — kept for callers that use the MCQQuestion type name.
+export type MCQQuestion = ClarifyQuestion;
+
 /** One answered clarify round (POR §6.5). Mirrors the backend kind="clarifications"
  *  artifact content — a JSON list of {question_id, question_text, impact_level,
  *  answer, round} grouped by round. Surfaced by C2's ClarificationsCard. */
@@ -568,16 +636,28 @@ export interface PipelineRunState {
   // Phase 16
   failed?: boolean;
   failedAgents?: string[];
+  // ISS-035 (Phase 32 / SC-4): additive terminal marker set by the
+  // pipeline_cancelled reducer case (mirrors the `failed` marker). A downstream
+  // selector (RunLaneState) derives the LIVE-STATE-CONTRACT §1 cancelled state
+  // ("Cancelled by you" ack + relaunch) from this flag instead of falling
+  // through to idle. Absent on non-cancelled runs.
+  cancelled?: boolean;
   // KAN-73 — live audit trail from hook_run WS events
   hookRuns?: HookRunEntry[];
   // Workstream C1 (POR §6.2/§6.5) — answered clarify rounds retained per run so
   // they survive the questionnaire panel unmount (consumed by C2's ClarificationsCard).
   clarifications?: ClarifyRound[];
-  // KAN-101: tracks how many spec revision cycles have been triggered by
-  // "Update the Specs". 0 = first run (no revision), 1 = first revision, etc.
-  // Incremented in handlePipelineMessage when prototype-specify agent_start fires
-  // on an agent that was already done (sub-pipeline re-run).
-  specRevisionCount?: number;
+  // Phase 39 (RUNUI-06) — the settled deliverable's filename/version, surfaced
+  // from the pipeline_complete event that ALREADY carries them (D39-4: the data
+  // already flows). Lets the run lane render the mock's "Delivered as v{n} ·
+  // <filename> · open in preview" card without a workflow-name branch (SC-001).
+  // ADDITIVE optional — no existing field/handler/consumer changed.
+  deliverableFilename?: string;
+  deliverableVersion?: number;
+  // Phase 39 (RUNUI-06) — the run's created_at (ISO), surfaced from pipeline_start
+  // so the lane header can render a relative age ("23h ago") for a settled run.
+  // ADDITIVE optional.
+  createdAt?: string;
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

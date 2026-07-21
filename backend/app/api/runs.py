@@ -21,11 +21,11 @@ Security carried over VERBATIM from the original handlers:
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
@@ -99,6 +99,10 @@ class WorkflowRunResponse(BaseModel):
     duration: Optional[float] = None
     error: Optional[str] = None
     token_usage: Optional[str] = None
+    # CWF-002 (fix c): the effective model the run used (WorkflowRun.model_id, migration
+    # 0014 column — now written by the launch driver). Auto-materialized into BOTH the
+    # list (summary) and detail responses by _run_response's model_fields getattr loop.
+    model_id: Optional[str] = None
     # UXFIX-02 (22-03 / D-19): the persisted declared/resolved deliverable shape
     # so history-reopen drives the deliverable mimetype from the persisted value
     # (legacy rows NULL → FE deriveDeliverableMimetype heuristic fallback, parity).
@@ -118,6 +122,19 @@ class WorkflowRunResponse(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    # KAN-113: SQLite returns timezone-naive datetimes even though we write UTC.
+    # Pydantic v2 serialises a naive datetime without a +00:00 suffix, so
+    # JavaScript Date.parse() treats it as local time → wrong "Nh ago" display.
+    # Promote to UTC-aware before ISO-formatting (matches _coerce_to_aware_utc
+    # in dependencies.py — same pattern, applied at the serialisation boundary).
+    @field_serializer("created_at", "completed_at")
+    def _serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+        if v is None:
+            return None
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        return v.isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -922,10 +939,124 @@ class FamilyMemberResponse(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
 
+    # KAN-113: same UTC-promotion serialiser as WorkflowRunResponse (SQLite naive
+    # datetime → JavaScript Date.parse local-time misread → wrong "Nh ago" label).
+    @field_serializer("created_at", "completed_at")
+    def _serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+        if v is None:
+            return None
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        return v.isoformat()
+
 
 class RunFamilyResponse(BaseModel):
     """The owned revision family of a run: its root + all owned descendants."""
 
+    root_id: str
+    members: list[FamilyMemberResponse]
+
+
+def _owned_family_members(
+    db: Session, user_id: str, root_id: str
+) -> list[FamilyMemberResponse]:
+    """BFS DOWN from ``root_id`` over OWNED children only → the ordered family
+    member list (1-based ``revision_index``, root's out-of-family parent nulled).
+
+    Extracted from ``get_run_family`` so ``get_run_summary`` reuses the SAME owned
+    walk instead of duplicating it (INV-12 / no dual impl). Every query is
+    owner-scoped (``user_id == user_id``) so no foreign run metadata enters the
+    list; a visited-id set guards a cyclic parent chain (threat T-A-04). Members
+    are ordered ``(created_at ASC, id ASC)`` — the id tiebreak makes same-timestamp
+    ordering deterministic on SQLite — and every non-root member's parent is
+    in-family by BFS construction, so the ``in members`` nulling never leaks a
+    foreign id.
+    """
+    members: dict[str, WorkflowRun] = {}
+    root_row = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.id == root_id, WorkflowRun.user_id == user_id)
+        .first()
+    )
+    if root_row is not None:
+        members[root_row.id] = root_row
+    frontier = {root_id}
+    visited = {root_id}
+    while frontier:
+        children = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.parent_run_id.in_(frontier),
+                WorkflowRun.user_id == user_id,
+            )
+            .all()
+        )
+        frontier = set()
+        for child in children:
+            if child.id in visited:
+                continue  # cycle guard — never re-enqueue an already-seen run
+            visited.add(child.id)
+            members[child.id] = child
+            frontier.add(child.id)
+
+    ordered = sorted(members.values(), key=lambda r: (r.created_at, r.id))
+    return [
+        FamilyMemberResponse(
+            id=r.id,
+            type=r.type,
+            title=r.title,
+            status=r.status,
+            revision_index=idx,
+            parent_run_id=(r.parent_run_id if r.parent_run_id in members else None),
+            created_at=r.created_at,
+            completed_at=r.completed_at,
+        )
+        for idx, r in enumerate(ordered, start=1)
+    ]
+
+
+# Per-agent fields that are summary-SAFE to surface (identity + KPI telemetry
+# only). Deliberately EXCLUDES the raw content fields — output / input_prompt /
+# thinking_text / tool_calls / context_sources — which could carry a secret, so
+# the summary never echoes untrusted agent bytes (threat T-36-02-Leak / V7).
+_SUMMARY_SAFE_AGENT_KEYS = (
+    "agent_id",
+    "name",
+    "role",
+    "icon",
+    "duration",
+    "error",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+)
+
+
+class RunSummaryResponse(BaseModel):
+    """Aggregated, read-only summary of an owned run — the data spine for the
+    Wave-2 Run-detail page (SHELL-03).
+
+    Every field maps to an EXISTING ``WorkflowRun`` column or the owned family
+    walk (ZERO invented fields, ZERO new tables/migrations). The endpoint only
+    READS, so the 5 backend goldens are untouched by construction (INV-3):
+      * KPI stats  → ``duration`` + ``agent_count`` + ``token_usage`` columns
+      * failure banner → ``status`` + ``error`` columns
+      * per-agent breakdown → ``agent_outputs`` (safe-projected, no raw bytes)
+      * version/revision timeline → the ``parent_run_id`` family walk (reused).
+    """
+
+    id: str
+    title: str
+    type: str
+    status: str
+    input: Optional[str] = None        # the owner's OWN top-level brief/prompt (run.input)
+    duration: Optional[float] = None
+    agent_count: int
+    token_usage: dict
+    error: Optional[str] = None
+    agents: list                       # per-agent breakdown (summary-safe fields only)
     root_id: str
     members: list[FamilyMemberResponse]
 
@@ -966,56 +1097,90 @@ def get_run_family(
     # foreign/missing link, so root is always an OWNED run id).
     root_id = _compute_root_ids(db, current_user.id, [workflow_run])[workflow_run.id]
 
-    # (c) Collect members by BFS DOWN from the root over OWNED children only.
-    # BFS-over-owned-children is exactly "all owned runs whose chain-root ==
-    # root" because the owned walk terminates at any foreign link. A visited-id
-    # set guards against a cyclic parent chain (threat T-A-04).
-    members: dict[str, WorkflowRun] = {}
-    root_row = (
-        db.query(WorkflowRun)
-        .filter(WorkflowRun.id == root_id, WorkflowRun.user_id == current_user.id)
-        .first()
-    )
-    if root_row is not None:
-        members[root_row.id] = root_row
-    frontier = {root_id}
-    visited = {root_id}
-    while frontier:
-        children = (
-            db.query(WorkflowRun)
-            .filter(
-                WorkflowRun.parent_run_id.in_(frontier),
-                WorkflowRun.user_id == current_user.id,
-            )
-            .all()
-        )
-        frontier = set()
-        for child in children:
-            if child.id in visited:
-                continue  # cycle guard — never re-enqueue an already-seen run
-            visited.add(child.id)
-            members[child.id] = child
-            frontier.add(child.id)
-
-    # (d) Deterministic chronological order; (e) 1-based revision_index. The
-    # root's parent is out-of-family (foreign/missing/null) so it is nulled here
-    # — every non-root member's parent is in-family by BFS construction, so no
-    # foreign id ever leaks into the response.
-    ordered = sorted(members.values(), key=lambda r: (r.created_at, r.id))
-    member_responses = [
-        FamilyMemberResponse(
-            id=r.id,
-            type=r.type,
-            title=r.title,
-            status=r.status,
-            revision_index=idx,
-            parent_run_id=(r.parent_run_id if r.parent_run_id in members else None),
-            created_at=r.created_at,
-            completed_at=r.completed_at,
-        )
-        for idx, r in enumerate(ordered, start=1)
-    ]
+    # (c)–(e) Collect + order the owned family via the shared BFS-down helper
+    # (deterministic chronological order, 1-based revision_index, root parent
+    # nulled). Extracted so /summary reuses the SAME owned walk (no dual impl).
+    member_responses = _owned_family_members(db, current_user.id, root_id)
     return RunFamilyResponse(root_id=root_id, members=member_responses)
+
+
+@router.get("/{workflow_id}/summary", response_model=RunSummaryResponse)
+def get_run_summary(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Aggregate an owned run into the Wave-2 Run-detail summary (SHELL-03).
+
+    Additive + READ-ONLY: reads ONLY existing ``WorkflowRun`` columns plus the
+    owned revision-family walk — inventing zero fields and adding zero tables /
+    migrations, so the 5 backend goldens are untouched by construction (INV-3)
+    and no engine/transport is touched (LOCK-B).
+
+    Owner-scoped via ``_owner_gate_or_404`` on ``WorkflowRun.user_id`` — the
+    principal, NEVER the nullable ``owner_id`` — so a cross-owner or missing run
+    resolves to 404 (IDOR → 404, never 403, never a 200 with another owner's
+    data; P13/P25). The owned family walk terminates at any foreign ancestor, so
+    no foreign run metadata leaks into the timeline (threat T-36-02-IDOR).
+    """
+    # (1) Owner gate — user_id keyed; missing / cross-owner → 404.
+    run = _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    # (2) Tolerant parse of the two stored JSON blobs. Stored text is never
+    # trusted to be well-formed → parse each inside try/except with a []/{}
+    # fallback so a malformed blob degrades to an empty aggregate, never a 500
+    # (DoS guard; mirrors the runs.py agent_outputs idiom above, threat
+    # T-36-02-DoS).
+    raw_agents: list = []
+    if run.agent_outputs:
+        try:
+            parsed = json.loads(run.agent_outputs)
+            if isinstance(parsed, list):
+                raw_agents = parsed
+        except Exception:
+            pass
+
+    token_usage: dict = {}
+    if run.token_usage:
+        try:
+            parsed_tu = json.loads(run.token_usage)
+            if isinstance(parsed_tu, dict):
+                token_usage = parsed_tu
+        except Exception:
+            pass
+
+    # (3) Per-agent breakdown — project ONLY the summary-safe identity + KPI
+    # fields; NEVER echo the raw output / input_prompt / thinking_text /
+    # tool_calls that could carry a secret (threat T-36-02-Leak / V7).
+    agents = [
+        {k: a.get(k) for k in _SUMMARY_SAFE_AGENT_KEYS if k in a}
+        for a in raw_agents
+        if isinstance(a, dict)
+    ]
+
+    # (4) Version/revision timeline — REUSE the owned ancestor walk for the root
+    # and the SAME owned BFS-down member list get_run_family builds (no dual impl).
+    root_id = _compute_root_ids(db, current_user.id, [run])[run.id]
+    members = _owned_family_members(db, current_user.id, root_id)
+
+    return RunSummaryResponse(
+        id=run.id,
+        title=run.title,
+        type=run.type,
+        status=run.status,
+        # The owner's OWN top-level brief (run.input) — owner-gated already; this is
+        # the same prompt the base detail showed the owner (the revision-instruction
+        # preview reads it). NEVER child-agent output/input_prompt/secrets (V7 keeps
+        # those out of the per-agent projection above).
+        input=run.input,
+        duration=run.duration,
+        agent_count=run.agent_count,
+        token_usage=token_usage,
+        error=run.error,
+        agents=agents,
+        root_id=root_id,
+        members=members,
+    )
 
 
 @router.get("/{workflow_id}/hook-runs")
@@ -1058,6 +1223,150 @@ async def get_hook_runs(
                 "event": r.event,
                 "outcome": r.outcome,
                 "detail": r.detail,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+def _owner_gate_or_404(db: Session, workflow_id: str, user_id: str) -> WorkflowRun:
+    """Layer-1 owner gate shared by the audit reads (mirrors ``get_hook_runs``).
+
+    Gates the run by ``WorkflowRun.user_id == current_user.id`` — the principal,
+    NEVER the nullable ``owner_id`` — so a cross-owner or missing run resolves to
+    404 (IDOR → 404, never 403, never a 200 with another owner's rows; P13/P25).
+    """
+    workflow_run = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.id == workflow_id, WorkflowRun.user_id == user_id)
+        .first()
+    )
+    if not workflow_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+    return workflow_run
+
+
+@router.get("/{workflow_id}/gate-events")
+async def get_gate_events(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the run's ``gate_events`` rows for the Audit tab (SC-3).
+
+    Additive, read-only, owner-scoped read over the engine-populated
+    ``gate_events`` table. Two-layer owner gate (mirrors ``get_hook_runs``):
+    Layer 1 gates the run by ``user_id`` (→ 404 on cross-owner/missing); Layer 2
+    re-filters the child rows by ``owner_id`` (defense-in-depth, T-32-03-01/03).
+    Rows are ordered by ``created_at`` ascending so the Audit tab shows events in
+    execution order.
+    """
+    _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    rows = (
+        db.query(GateEvent)
+        .filter(GateEvent.run_id == workflow_id, GateEvent.owner_id == current_user.id)
+        .order_by(GateEvent.created_at.asc())
+        .all()
+    )
+    return {
+        "workflow_id": workflow_id,
+        "gate_events": [
+            {
+                "id": r.id,
+                "run_id": r.run_id,
+                "step": r.step,
+                "gate": r.gate,
+                "outcome": r.outcome,
+                "detail": r.detail,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/{workflow_id}/validation-results")
+async def get_validation_results(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the run's ``validation_results`` rows for the Audit tab (SC-3).
+
+    Additive, read-only, owner-scoped read over the engine-populated
+    ``validation_results`` table. Two-layer owner gate identical to
+    ``get_gate_events`` (Layer 1 ``user_id`` → 404; Layer 2 ``owner_id``
+    re-filter). Ordered by ``created_at`` ascending.
+    """
+    _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    rows = (
+        db.query(ValidationResult)
+        .filter(
+            ValidationResult.run_id == workflow_id,
+            ValidationResult.owner_id == current_user.id,
+        )
+        .order_by(ValidationResult.created_at.asc())
+        .all()
+    )
+    return {
+        "workflow_id": workflow_id,
+        "validation_results": [
+            {
+                "id": r.id,
+                "run_id": r.run_id,
+                "step": r.step,
+                "validator": r.validator,
+                "severity": r.severity,
+                "attempt": r.attempt,
+                "issues": r.issues,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/{workflow_id}/exec-runs")
+async def get_exec_runs(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the run's ``exec_runs`` rows for the Audit tab (SC-3).
+
+    Additive, read-only, owner-scoped read over the engine-populated ``exec_runs``
+    table. Two-layer owner gate identical to ``get_gate_events``. The projection
+    surfaces the ``output_digest`` column AS STORED (truncated by design) and
+    NEVER re-reads or expands the raw child output, which could carry a secret
+    (T-32-03-02 / ASVS V7). Ordered by ``created_at`` ascending.
+    """
+    _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    rows = (
+        db.query(ExecRun)
+        .filter(ExecRun.run_id == workflow_id, ExecRun.owner_id == current_user.id)
+        .order_by(ExecRun.created_at.asc())
+        .all()
+    )
+    return {
+        "workflow_id": workflow_id,
+        "exec_runs": [
+            {
+                "id": r.id,
+                "run_id": r.run_id,
+                "step": r.step,
+                "argv_json": r.argv_json,
+                "outcome": r.outcome,
+                "exit_code": r.exit_code,
+                "duration_ms": r.duration_ms,
+                "policy_snapshot_json": r.policy_snapshot_json,
+                "output_digest": r.output_digest,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
             for r in rows

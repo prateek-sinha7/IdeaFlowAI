@@ -1,48 +1,179 @@
 @import "tailwindcss";
 
 /* ============================================
-   Flowin — Enterprise Light Theme
-   Clean white/gray palette with blue accent
+   Hexaware Run-Screen — Canonical Token Layer (D-15 / SC-1)
+   One chroma (brand #3C2CDA), warm ink, beige surfaces,
+   status ramp, resolved radius ladder. Sourced verbatim
+   from evidence 11 §B2/§B3/§B4 — NOT any single mock.
+   Consumed by the run subtree; downstream shells (Phases
+   34/35/36/37) gate on this layer. No per-page palette fork.
    ============================================ */
 
 @theme inline {
-  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
-  --font-serif: var(--font-fraunces), Georgia, "Times New Roman", serif;
-  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  /* Fonts — bound to next/font CSS vars exposed by app/layout.tsx */
+  --font-sans: var(--font-manrope), system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-heebo), Georgia, "Times New Roman", serif;
+  --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+
+  /* Brand (one chroma) */
+  --color-brand: var(--brand);
+  --color-brand-pressed: var(--brand-pressed);
+  --color-brand-fill: var(--brand-fill);
+  --color-brand-border: var(--brand-border);
+  --color-brand-violet-tint: var(--brand-violet-tint);
+  --color-brand-on-dark: var(--brand-on-dark);
+
+  /* Ink (warm ramp) */
+  --color-ink-900: var(--ink-900);
+  --color-ink-800: var(--ink-800);
+  --color-ink-700: var(--ink-700);
+  --color-ink-600: var(--ink-600);
+  --color-ink-500: var(--ink-500);
+  --color-ink-400: var(--ink-400);
+  --color-ink-300: var(--ink-300);
+  --color-ink-200: var(--ink-200);
+
+  /* Surface */
+  --color-surface-paper: var(--surface-paper);
+  --color-surface-warm: var(--surface-warm);
+  --color-surface-card: var(--surface-card);
+  --color-surface-white: var(--surface-white);
+  --color-surface-near-black: var(--surface-near-black);
+  --color-surface-ink-black: var(--surface-ink-black);
+
+  /* Line */
+  --color-line-border: var(--line-border);
+  --color-line-divider: var(--line-divider);
+  --color-line-control: var(--line-control);
+  --color-line-faint-row: var(--line-faint-row);
+  --color-line-faint: var(--line-faint);
+
+  /* Status ramp */
+  --color-status-running: var(--status-running);
+  --color-status-done: var(--status-done);
+  --color-status-failed: var(--status-failed);
+  --color-status-failed-strong: var(--status-failed-strong);
+  --color-status-amber: var(--status-amber);
+  --color-status-queued: var(--status-queued);
 }
 
 :root {
-  --background: #f5f5f0;
-  --foreground: #111827;
-  --surface: #ffffff;
-  --border: #e5e7eb;
-  --muted: #6b7280;
-  --accent: #2563eb;
-  --accent-foreground: #ffffff;
-  --accent-light: #eff6ff;
-  --sidebar-bg: #111827;
-  --sidebar-text: #d1d5db;
-  --sidebar-active: #ffffff;
-  --sidebar-hover: #1f2937;
-  --card: #ffffff;
-  --card-border: #e5e7eb;
-  --input-bg: #ffffff;
-  --input-border: #d1d5db;
-  --success: #059669;
-  --error: #dc2626;
-  --warning: #d97706;
+  /* ---- Brand (one chroma) ---- */
+  --brand: #3C2CDA;
+  --brand-pressed: #3324C4;
+  --brand-fill: #ECEAFC;
+  --brand-border: #DED9F7;
+  --brand-violet-tint: #F4F2FB;
+  --brand-on-dark: #8E88E8;
 
-  /* Legacy aliases for gradual migration */
-  --theme-bg: #f9fafb;
-  --theme-fg: #111827;
-  --theme-surface: #ffffff;
-  --theme-muted: #6b7280;
-  --theme-border: #e5e7eb;
-  --theme-accent: #2563eb;
-  --theme-input-bg: #ffffff;
-  --theme-sidebar-bg: #111827;
+  /* ---- Ink (warm ramp) ---- */
+  --ink-900: #15161A;
+  --ink-800: #20222B;
+  --ink-700: #3A3B42;
+  --ink-600: #5B5C63;
+  --ink-500: #6E6F76;
+  --ink-400: #8A8B82;
+  --ink-300: #9A9B92;
+  --ink-200: #A0A199;
+
+  /* ---- Surface ---- */
+  --surface-paper: #F0EEE7;
+  --surface-warm: #F6F4EE;
+  --surface-card: #FCFBF7;
+  --surface-white: #FFFFFF;
+  --surface-near-black: #111114;
+  --surface-ink-black: #0C0D12;
+
+  /* ---- Line ---- */
+  --line-border: #E6E3DB;
+  --line-divider: #E2DFD6;
+  --line-control: #E0DDD3;
+  --line-faint-row: #EDEBE3;
+  --line-faint: #C6C3B9;
+
+  /* ---- Status ramp (NEW — DS documents zero status colors) ---- */
+  --status-running: #3C2CDA;
+  --status-running-fill: #ECEAFC;
+  --status-running-border: #DED9F7;
+  --status-done: #1F7A4D;
+  --status-done-fill: #E7F0EA;
+  --status-done-border: #CFE3D6;
+  --status-failed: #A33A32;
+  --status-failed-strong: #8A2F28; /* darker red — failed card title + primary-button hover */
+  --status-failed-fill: #F5E5E2;
+  --status-failed-border: #E8CDC8;
+  --status-amber: #9A6B1E; /* cancelled + gate/review */
+  --status-amber-fill: #F5EEDD;
+  --status-amber-border: #E8DBC0;
+  --status-queued: #9A9B92; /* queued/neutral */
+  --status-queued-fill: #EFEDE6;
+  --status-queued-border: #E2DFD6;
+
+  /* ---- Severity ladder ---- */
+  --severity-low: #6E6F76;
+  --severity-medium: #9A6B1E;
+  --severity-high: #B4531E;
+  --severity-critical: #A33A32;
+
+  /* ---- Radius ladder (RESOLVED per mandate: button=10, card=14) ---- */
+  --radius-tag: 5px;
+  --radius-node: 8px;
+  --radius-button: 10px;
+  --radius-list-row: 11px;
+  --radius-menu: 12px;
+  --radius-card: 14px;
+  --radius-hero: 18px;
+  --radius-pill: 999px;
+
+  /* ---- Elevation ---- */
+  --elevation-raised: 0 1px 2px rgba(0, 0, 0, .08);
+  --elevation-menu: 0 12px 32px rgba(0, 0, 0, .12);
+  --elevation-notif: 0 16px 40px rgba(0, 0, 0, .18);
+  --elevation-modal: 0 30px 80px rgba(0, 0, 0, .30);
+
+  /* ---- Motion ---- */
+  --motion-collapse: max-height .4s cubic-bezier(.4, 0, .2, 1);
+  --motion-collapse-opacity: opacity .3s;
+  --motion-chevron: rotate .3s;
+  --motion-hover: .15s;
+  --focus-ring: 0 0 0 4px rgba(60, 44, 218, .15);
+
+  /* ---- Scrim ---- */
+  --scrim: rgba(17, 17, 20, .5);
+  --scrim-blur: blur(3px);
+
+  /* ---- Semantic base (repointed to the canonical palette) ---- */
+  --background: var(--surface-paper);
+  --foreground: var(--ink-900);
+  --surface: var(--surface-white);
+  --border: var(--line-border);
+  --muted: var(--ink-500);
+  --accent: var(--brand);
+  --accent-foreground: #ffffff;
+  --accent-light: var(--brand-fill);
+  --sidebar-bg: var(--surface-near-black);
+  --sidebar-text: var(--ink-300);
+  --sidebar-active: var(--surface-white);
+  --sidebar-hover: var(--ink-800);
+  --card: var(--surface-card);
+  --card-border: var(--line-border);
+  --input-bg: var(--surface-white);
+  --input-border: var(--line-control);
+  --success: var(--status-done);
+  --error: var(--status-failed);
+  --warning: var(--status-amber);
+
+  /* Legacy aliases — repointed to the new palette (values, not new keys) */
+  --theme-bg: var(--surface-warm);
+  --theme-fg: var(--ink-900);
+  --theme-surface: var(--surface-white);
+  --theme-muted: var(--ink-500);
+  --theme-border: var(--line-border);
+  --theme-accent: var(--brand);
+  --theme-input-bg: var(--surface-white);
+  --theme-sidebar-bg: var(--surface-near-black);
   --theme-hover: rgba(0, 0, 0, 0.04);
-  --theme-card: #ffffff;
+  --theme-card: var(--surface-card);
 }
 
 html {
@@ -118,7 +249,7 @@ body {
 
 /* Input focus ring */
 .input-focus:focus-within {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 0 0 2px rgba(60, 44, 218, 0.15);
   border-color: var(--accent);
 }
 
@@ -190,13 +321,13 @@ body {
 .markdown-content li::marker { color: #9ca3af; }
 
 .markdown-content code {
-  background: rgba(37, 99, 235, 0.06);
+  background: rgba(60, 44, 218, 0.06);
   padding: 0.2em 0.45em;
   border-radius: 5px;
   font-size: 0.85em;
   font-family: var(--font-mono);
-  color: #2563eb;
-  border: 1px solid rgba(37, 99, 235, 0.12);
+  color: var(--brand);
+  border: 1px solid rgba(60, 44, 218, 0.12);
 }
 
 .markdown-content pre {
@@ -228,7 +359,7 @@ body {
 }
 
 .markdown-content a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-.markdown-content a:hover { color: #1d4ed8; }
+.markdown-content a:hover { color: var(--brand-pressed); }
 
 .markdown-content hr {
   border: none;

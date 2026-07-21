@@ -20,7 +20,7 @@
  * Setup pattern: run a real pipeline (user_stories seeds agents so Run enables),
  * drive the agents (keeps pipelineState.isRunning true long enough for
  * DashboardLayout to sync workflowType from the declared pipeline_type), then
- * `mockWs.complete({...})` with the pipeline_type / mimetype under test.
+ * `mockSse.complete({...})` with the pipeline_type / mimetype under test.
  */
 import { test, expect } from "../fixtures/test";
 import { AGENTS, runAgent, SAMPLE_HTML, SAMPLE_DECK } from "../fixtures/scenarios";
@@ -45,18 +45,18 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
   //    workflowType from the declared pipeline_type (its sync effect is gated on
   //    isRunning); completing afterwards routes finalOutput by pipeline_type.
   async function runThenComplete(
-    mockWs: import("../fixtures/mockWs").MockWs,
+    mockSse: import("../fixtures/mockSse").MockSse,
     pipelineType: string,
     complete: { finalOutput: string; deliverableMimetype?: string; deliverableFilename?: string },
   ) {
     const agents = AGENTS.user_stories;
-    mockWs.start(agents, { pipelineType });
-    for (const a of agents) await runAgent(mockWs, a.id);
-    mockWs.complete({ pipelineType, ...complete });
+    mockSse.start(agents, { pipelineType });
+    for (const a of agents) await runAgent(mockSse, a.id);
+    mockSse.complete({ pipelineType, ...complete });
   }
 
-  test("TS-P-01 custom HTML → sandboxed iframe (allow-scripts, NO same-origin)", async ({ dashboard, mockWs }) => {
-    await runThenComplete(mockWs, "custom", {
+  test("TS-P-01 custom HTML → sandboxed iframe (allow-scripts, NO same-origin)", async ({ dashboard, mockSse }) => {
+    await runThenComplete(mockSse, "custom", {
       finalOutput: SAMPLE_HTML,
       deliverableMimetype: "text/html",
     });
@@ -71,8 +71,8 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
     expect(await iframe.getAttribute("srcdoc")).toContain("Habit Tracker");
   });
 
-  test("TS-P-02 markdown deliverable → escaped via MarkdownPreview (NO iframe, no script exec)", async ({ dashboard, page, mockWs }) => {
-    await runThenComplete(mockWs, "custom", {
+  test("TS-P-02 markdown deliverable → escaped via MarkdownPreview (NO iframe, no script exec)", async ({ dashboard, page, mockSse }) => {
+    await runThenComplete(mockSse, "custom", {
       finalOutput: "# Hi\n<script>window.__pwned=1</script>\n<img src=x onerror=alert(1)>",
       deliverableMimetype: "text/markdown",
     });
@@ -94,8 +94,8 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
     ).toBe(false);
   });
 
-  test("TS-P-04 unknown mimetype → safe download card, no iframe", async ({ dashboard, page, mockWs }) => {
-    await runThenComplete(mockWs, "custom", {
+  test("TS-P-04 unknown mimetype → safe download card, no iframe", async ({ dashboard, page, mockSse }) => {
+    await runThenComplete(mockSse, "custom", {
       finalOutput: "binarydata",
       deliverableMimetype: "application/octet-stream",
       deliverableFilename: "data.bin",
@@ -103,13 +103,17 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
 
     // A safe download affordance — never inline/iframe an unknown type (T-18-06).
     await expect(page.getByText("Deliverable ready")).toBeVisible();
-    await expect(page.getByRole("button", { name: /download/i })).toBeVisible();
+    // Phase 39: the run-header now also carries a "Download the deliverable" button,
+    // so scope the generic download-affordance assertion to the "Deliverable ready"
+    // card (its own filename download button) to avoid the header match.
+    const downloadCard = page.locator("div").filter({ hasText: "Deliverable ready" }).last();
+    await expect(downloadCard.getByRole("button", { name: /download/i })).toBeVisible();
     await expect(page.getByRole("button", { name: "Download data.bin" })).toBeVisible();
     await expect(dashboard.genericIframe()).toHaveCount(0);
   });
 
-  test("TS-P-05a od_ppt deck → iframe sandbox = allow-scripts allow-same-origin", async ({ dashboard, mockWs }) => {
-    await runThenComplete(mockWs, "od_ppt", { finalOutput: SAMPLE_DECK });
+  test("TS-P-05a od_ppt deck → iframe sandbox = allow-scripts allow-same-origin", async ({ dashboard, mockSse }) => {
+    await runThenComplete(mockSse, "od_ppt", { finalOutput: SAMPLE_DECK });
 
     const deck = dashboard.deckIframe();
     await expect(deck).toBeVisible();
@@ -118,8 +122,8 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
     expect(sandbox).toBe("allow-scripts allow-same-origin");
   });
 
-  test("TS-P-05b plain ppt deck → iframe sandbox = allow-scripts (NO same-origin)", async ({ dashboard, mockWs }) => {
-    await runThenComplete(mockWs, "ppt", { finalOutput: SAMPLE_DECK });
+  test("TS-P-05b plain ppt deck → iframe sandbox = allow-scripts (NO same-origin)", async ({ dashboard, mockSse }) => {
+    await runThenComplete(mockSse, "ppt", { finalOutput: SAMPLE_DECK });
 
     const deck = dashboard.deckIframe();
     await expect(deck).toBeVisible();
@@ -129,8 +133,8 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
     expect(sandbox || "").not.toContain("allow-same-origin");
   });
 
-  test("TS-P-05c prototype → iframe sandbox = allow-scripts allow-same-origin", async ({ dashboard, mockWs }) => {
-    await runThenComplete(mockWs, "od_prototype", { finalOutput: PROTOTYPE_HTML });
+  test("TS-P-05c prototype → iframe sandbox = allow-scripts allow-same-origin", async ({ dashboard, mockSse }) => {
+    await runThenComplete(mockSse, "od_prototype", { finalOutput: PROTOTYPE_HTML });
 
     const proto = dashboard.prototypeIframe();
     await expect(proto).toBeVisible();
@@ -138,8 +142,8 @@ test.describe("TS-P — generic deliverable dispatch + iframe sandbox matrix", (
     expect(sandbox).toBe("allow-scripts allow-same-origin");
   });
 
-  test("TS-P-06 XSS containment — custom HTML script cannot reach the parent window", async ({ dashboard, page, mockWs }) => {
-    await runThenComplete(mockWs, "custom", {
+  test("TS-P-06 XSS containment — custom HTML script cannot reach the parent window", async ({ dashboard, page, mockSse }) => {
+    await runThenComplete(mockSse, "custom", {
       finalOutput: XSS_HTML,
       deliverableMimetype: "text/html",
     });

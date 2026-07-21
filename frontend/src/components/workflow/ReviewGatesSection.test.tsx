@@ -116,15 +116,15 @@ describe("LIBRARY_AGENTS data integrity (reconciliation)", () => {
     expect(gateById["prototype-validate"]).toBeNull();
   });
 
-  it("PIPELINE_CATEGORIES counts are reconciled (ppt=3, prototype=4, all=54)", () => {
+  it("PIPELINE_CATEGORIES counts are reconciled (ppt=3, prototype=5, all=55)", () => {
     const counts = Object.fromEntries(
       PIPELINE_CATEGORIES.map((c) => [c.key, c.count]),
     );
     expect(counts.ppt).toBe(3);
-    expect(counts.prototype).toBe(4);
+    expect(counts.prototype).toBe(5);
     // `all` counts the LIBRARY_AGENTS pool (CUSTOM_AGENTS is a separate array).
     expect(counts.all).toBe(LIBRARY_AGENTS.length);
-    expect(counts.all).toBe(54);
+    expect(counts.all).toBe(55);
     expect(counts.custom).toBe(CUSTOM_AGENTS.length);
   });
 
@@ -244,6 +244,7 @@ describe("ReviewGatesSection — prototype pipeline", () => {
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     await user.click(checkboxes[0]); // uncheck specify
     await user.click(checkboxes[1]); // uncheck plan
+    await user.click(checkboxes[2]); // uncheck analyze
 
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(touched).toBe(true);
