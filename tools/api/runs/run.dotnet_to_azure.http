@@ -2,14 +2,13 @@
 # dotnet-inventory -> dotnet-user-stories -> dotnet-azure-target-mapping ->
 # dotnet-security-architecture -> dotnet-modernization -> dotnet-feature-coding -> ...
 #
-# IMPORTANT: run_pipeline and submit_questionnaire are sent on the SAME
-# WebSocket connection below, not two separate WS requests. Verified live:
-# a pipeline paused at the clarify gate (questionnaire_ready) can be
-# cancelled by the backend if the connection that started it disconnects
-# before submit_questionnaire arrives on a new connection — the "paused
-# pipeline survives disconnect" contract has a race right at that gate.
-# Keeping one connection open for the whole run_pipeline -> clarify ->
-# agents flow avoids the race entirely.
+# NOTE: the old WebSocket run_pipeline/submit_questionnaire flow (/ws/chat) was
+# retired — the backend now launches a run over plain REST
+# (POST /api/runs) and streams its events back over SSE
+# (GET /api/runs/{id}/events/stream). The two are fully decoupled transports
+# (unlike the old WS message channel), so there's no more "must share one
+# connection" race: the launch, the SSE stream, and the clarify-answer POST
+# are three independent HTTP calls.
 # Run with: httpyac send --all -e local tools/api/runs/run.dotnet_to_azure.http
 
 ### 1. Login
@@ -30,57 +29,72 @@ Content-Type: application/json
 GET {{apiRoot}}/api/agents/pipelines/dotnet_to_azure
 Authorization: Bearer {{jwt}}
 
-### 3. Run the pipeline, auto-skip clarification, wait for completion — all on one connection
-WS {{wsRoot}}/ws/chat?token={{jwt}}
+### 3. Launch the run
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
 
 {
-	"type": "run_pipeline",
 	"pipeline_type": "dotnet_to_azure",
 	"message": "Modernize a monolithic .NET Framework 4.8 web app (Web Forms + SQL Server on a VM) that manages customer support tickets, moving it to .NET 8 on Azure App Service with Azure SQL."
 }
 
+{{
+	exports.pipelineRunId = response.parsedBody.run_id;
+	console.log('launched run', exports.pipelineRunId);
+}}
+
+### 4. Stream events over SSE, auto-skip clarification, wait for completion
+SSE {{apiRoot}}/api/runs/{{pipelineRunId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
 {{@streaming
 	await new Promise((resolve) => {
 		let done = false;
-		let pipelineRunId = null;
+		let answered = false;
 		const finish = () => { if (!done) { done = true; resolve(); } };
-		$requestClient.nativeClient.on('message', (raw) => {
-			let data; try { data = JSON.parse(raw.toString()); } catch { data = null; }
+		$requestClient.addEventListener('message', async (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') {
+				console.error('SSE error', msg && msg.body);
+				finish();
+				return;
+			}
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
 			if (!data) return;
-			console.log('WS <-', data.type);
-			const runId = data.data && data.data.pipeline_run_id;
-			if (runId && !pipelineRunId) {
-				pipelineRunId = runId;
-				exports.pipelineRunId = runId;
-			}
-			if (data.type === 'questionnaire_ready') {
+			console.log('SSE <-', data.type);
+			if (data.type === 'questionnaire_ready' && !answered) {
+				answered = true;
 				console.log('-> auto-answering clarify gate with skip_clarification: true');
-				$requestClient.nativeClient.send(JSON.stringify({
-					type: 'submit_questionnaire',
-					pipeline_run_id: pipelineRunId,
-					responses: [],
-					skip_clarification: true,
-				}));
+				try {
+					await fetch(`${apiRoot}/api/runs/${pipelineRunId}/answers`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+						body: JSON.stringify({ responses: [], skip_clarification: true }),
+					});
+				} catch (e) {
+					console.error('POST /answers failed', e);
+				}
 			}
-			if (['pipeline_complete', 'pipeline_failed', 'pipeline_cancelled', 'error'].includes(data.type)) {
+			if (['pipeline_complete', 'pipeline_failed', 'pipeline_cancelled', 'budget_aborted', 'error'].includes(data.type)) {
 				finish();
 			}
 		});
-		$requestClient.nativeClient.on('close', finish);
-		$requestClient.nativeClient.on('error', finish);
+		$requestClient.addEventListener('disconnect', finish);
 		setTimeout(finish, 30 * 60 * 1000);
 	});
 }}
 
-### 4. Inspect the run
+### 5. Inspect the run
 GET {{apiRoot}}/api/runs/{{pipelineRunId}}
 Authorization: Bearer {{jwt}}
 
-### 5. Durable event replay
+### 6. Durable event replay (history poll — distinct from the live /events/stream SSE above)
 GET {{apiRoot}}/api/runs/{{pipelineRunId}}/events
 Authorization: Bearer {{jwt}}
 
-### 6. Typed artifact tree
+### 7. Typed artifact tree
 GET {{apiRoot}}/api/runs/{{pipelineRunId}}/artifacts?include=content
 Authorization: Bearer {{jwt}}
 
@@ -102,12 +116,12 @@ Authorization: Bearer {{jwt}}
 	}
 }}
 
-### 7. (Optional) Revision — chained off the run above
-# WS {{wsRoot}}/ws/chat?token={{jwt}}
+### 8. (Optional) Revision — chained off the run above
+# POST {{apiRoot}}/api/runs/{{pipelineRunId}}/revisions
+# Authorization: Bearer {{jwt}}
+# Content-Type: application/json
 #
 # {
-# 	"type": "run_revision",
-# 	"parent_run_id": "{{pipelineRunId}}",
 # 	"target_artifact_type": "dotnet_to_azure",
 # 	"instruction": "Use Azure Key Vault for the connection string instead of appsettings.json."
 # }

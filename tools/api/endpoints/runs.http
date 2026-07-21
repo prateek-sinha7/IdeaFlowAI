@@ -34,6 +34,141 @@ Authorization: Bearer {{jwt}}
 	}
 }}
 
+### Runs - Launch (starts a pipeline run; replaces the old WS "run_pipeline")
+# Live event streaming after launch requires SSE (text/event-stream), which
+# REST Client cannot consume — see tools/api/runs/*.run.http (httpyac, `SSE`
+# method) for the full launch -> stream -> clarify -> completion flow.
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"pipeline_type": "user_stories",
+	"message": "Build a simple todo list app for personal task tracking."
+}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: launched run', response.parsedBody.run_id);
+	}
+}}
+
+### Runs - Events stream (SSE) -- reference only
+# GET {{apiRoot}}/api/runs/{{workflowId}}/events/stream
+# Authorization: Bearer {{jwt}}
+# Last-Event-ID: 0
+#
+# text/event-stream response -- REST Client cannot consume this (no partial/
+# chunked-stream support). Use tools/api/runs/*.run.http (httpyac `SSE` method)
+# to actually drive this endpoint end-to-end.
+
+### Runs - Submit clarify answers (replaces the old WS "submit_questionnaire")
+POST {{apiRoot}}/api/runs/{{workflowId}}/answers
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"responses": [],
+	"skip_clarification": true
+}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist, or has no pending clarify gate (404)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, response.parsedBody);
+	} else {
+		console.log('OK:', response.parsedBody);
+	}
+}}
+
+### Runs - Resolve a Human_Gate review (replaces the old WS "approve_review")
+POST {{apiRoot}}/api/runs/{{workflowId}}/gate
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"gate_key": "replace-with-a-real-gate-key",
+	"action": "approve",
+	"approved": true
+}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: unknown/unowned/not-pending gate_key (404)');
+	} else if (sc === 409) {
+		console.log('SKIP: run is no longer running (409)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200/404/409, got', sc, response.parsedBody);
+	} else {
+		console.log('OK:', response.parsedBody);
+	}
+}}
+
+### Runs - Start a revision (replaces the old WS "run_revision")
+POST {{apiRoot}}/api/runs/{{workflowId}}/revisions
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"target_artifact_type": "user_stories",
+	"instruction": "Add a story for recurring/repeating tasks."
+}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: started revision run', response.parsedBody.run_id);
+	}
+}}
+
+### Runs - Cancel a running pipeline
+POST {{apiRoot}}/api/runs/{{workflowId}}/cancel
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else {
+		console.log('response:', sc, response.parsedBody);
+	}
+}}
+
+### Runs - Resume a run from a failed state
+POST {{apiRoot}}/api/runs/{{workflowId}}/resume
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else {
+		console.log('response:', sc, response.parsedBody);
+	}
+}}
+
 ### Runs - Export PPTX
 # Pure code generation from a previously-run pipeline's stored output — no
 # agent/LLM call happens here (see runs.py export_pptx). With the default

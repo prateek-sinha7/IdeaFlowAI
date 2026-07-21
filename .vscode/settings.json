@@ -1,5 +1,7 @@
 {
   "httpyac.environmentShowStatusBarItem": true,
+  "httpyac.addStreamingResponsesToHistory": false,
+  "httpyac.responseViewPrettyPrint": false,
   "httpyac.environmentVariables": {
     "local": {
       "apiRoot": "http://localhost:8000",

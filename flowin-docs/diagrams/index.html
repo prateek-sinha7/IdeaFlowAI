@@ -66,8 +66,18 @@ footer { margin-top:56px; font-size:11.5px; color:var(--ink-3); border-top:1px s
   <p class="lede">Personal reference hub for every interactive architecture diagram built for the VELOCITY-AI codebase — kept out of the project repo on purpose. Each card opens a standalone, pan/zoom, click-to-inspect HTML explorer sourced directly from the code.</p>
 
   <section>
-    <div class="section-head"><h2>Available</h2><span class="count">10</span></div>
+    <div class="section-head"><h2>Available</h2><span class="count">11</span></div>
     <div class="grid">
+
+      <a class="card live" href="./velocity-sse-vs-websocket.html">
+        <div class="kicker">Runtime transport</div>
+        <h3>SSE vs. WebSocket</h3>
+        <p>The retired /ws/chat model (one connection multiplexing every direction, and the disconnect race it caused) versus the current REST + SSE model (decoupled commands and events), the exact SSE wire mechanics of /events/stream, and a general field guide of things worth knowing about SSE.</p>
+        <div class="tags">
+          <span class="tag">Old Model: WebSocket</span><span class="tag">New Model: REST + SSE</span>
+          <span class="tag">SSE Wire Mechanics</span><span class="tag">SSE Field Guide</span>
+        </div>
+      </a>
 
       <a class="card live" href="./velocity-platform-layer-stack.html">
         <div class="kicker">Platform architecture</div>

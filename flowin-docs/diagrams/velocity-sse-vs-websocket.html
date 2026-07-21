@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VELOCITY-AI — SSE vs. WebSocket</title>
+<style>
+html,body { margin:0; padding:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { background:#f3f5fa; color:#1b2440; }
+@media (prefers-color-scheme: dark) { body { background:#12141c; color:#e7eaf3; } }
+:root[data-theme="dark"] body { background:#12141c; color:#e7eaf3; }
+:root[data-theme="light"] body { background:#f3f5fa; color:#1b2440; }
+.page-wrap { max-width: 1500px; margin: 0 auto; padding: 28px 24px 60px; }
+.page-wrap h1 { font-size: 22px; margin: 0 0 6px; }
+.page-wrap .lede { font-size: 13.5px; opacity: .65; margin: 0 0 20px; max-width: 900px; line-height:1.6; }
+
+.iarch {
+  --bg: #eef2f9;         --bg-stage: #f7faff;   --dot: #dbe3f3;
+  --panel: #ffffff;      --ink: #1b2440;        --ink-2: #3f4a6e;   --ink-3: #8592b3;
+  --line: #e4e9f3;       --edge: #9aa8c8;       --edge-label: #54608a;
+  --radius: 14px;
+  --shadow: 0 8px 26px rgba(30,50,90,.10);
+
+  --c-source: #3b6df6;  --c-source-bg: #e8effe;  --c-source-ln: #c5d8fb;
+  --c-install: #0e9aae; --c-install-bg: #e3f6f8; --c-install-ln: #b7e4ea;
+  --c-runtime: #b9820b; --c-runtime-bg: #fdf3dc; --c-runtime-ln: #f0dcac;
+  --c-plat: #7c5cff;    --c-plat-bg: #f0ebfe;    --c-plat-ln: #d5cbfb;
+  --c-hook: #d6469f;    --c-hook-bg: #fdeaf6;    --c-hook-ln: #f2c3e2;
+  --c-out: #12a06a;     --c-out-bg: #e5f6ee;     --c-out-ln: #bbe6d3;
+  --c-neutral: #54608a; --c-neutral-bg: #eef2fb; --c-neutral-ln: #d4ddec;
+  --c-danger: #e0405a;  --c-success: #12a06a;
+
+  position: relative; display: flex; flex-direction: column;
+  height: 84vh; min-height: 640px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; background: var(--panel); box-shadow: var(--shadow);
+  color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  .iarch {
+    --bg:#1a1d29; --bg-stage:#14161f; --dot:#242838; --panel:#1c1f2b;
+    --ink:#e7eaf3; --ink-2:#b7bfd6; --ink-3:#7d859f; --line:#2a2e40; --edge:#4b5372; --edge-label:#9aa4c4;
+    --c-source-bg:#182338; --c-source-ln:#233256;
+    --c-install-bg:#122a2c; --c-install-ln:#1c3f42;
+    --c-runtime-bg:#2c220f; --c-runtime-ln:#3f3016;
+    --c-plat-bg:#221a3a; --c-plat-ln:#332752;
+    --c-hook-bg:#33172a; --c-hook-ln:#492239;
+    --c-out-bg:#132a20; --c-out-ln:#1c3d2e;
+    --c-neutral-bg:#1e2233; --c-neutral-ln:#2c3149;
+  }
+}
+
+.tabs { display:flex; gap:2px; padding:8px 12px 0; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--line); }
+.tabs::-webkit-scrollbar { display:none; }
+.tab { font:inherit; font-size:12px; font-weight:550; color:var(--ink-3); background:none; border:none; cursor:pointer;
+  padding:8px 9px 10px; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s; white-space:nowrap; }
+.tab:hover { color: var(--ink-2); }
+.tab.active { color: var(--c-source); border-bottom-color: var(--c-source); font-weight:650; }
+.tab kbd { font-family:inherit; font-size:9.5px; color:var(--ink-3); border:1px solid var(--line); border-radius:4px; padding:0 3px; margin-right:5px; background:var(--panel); }
+.tab.active kbd { color: var(--c-source); border-color: var(--c-source-ln); }
+
+.iarch-main { flex:1; display:flex; min-height:0; }
+.stage-wrap { flex:1; position:relative; min-width:0; }
+.stage { position:absolute; inset:0; background-color:var(--bg-stage);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size:22px 22px;
+  overflow:hidden; cursor:grab; touch-action:none; }
+.stage.panning { cursor:grabbing; }
+.stage svg { display:block; width:100%; height:100%; }
+
+.view-title { position:absolute; top:14px; left:18px; pointer-events:none; font-size:12px; font-weight:650;
+  color:var(--ink-3); text-transform:uppercase; letter-spacing:.08em; }
+
+.zoombar { position:absolute; top:12px; right:14px; display:flex; gap:4px; background:var(--panel);
+  border:1px solid var(--line); border-radius:10px; padding:4px; box-shadow:var(--shadow); align-items:center; }
+.zbtn { font:inherit; font-size:14px; font-weight:600; color:var(--ink-2); background:none; border:none;
+  border-radius:7px; cursor:pointer; width:30px; height:28px; display:grid; place-items:center; transition:background .12s; }
+.zbtn:hover { background: var(--bg); color: var(--ink); }
+.zpct { font-size:11.5px; font-weight:600; color:var(--ink-3); min-width:44px; text-align:center; user-select:none; }
+.hint { position:absolute; bottom:12px; left:18px; pointer-events:none; font-size:11.5px; color:var(--ink-3);
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:5px 10px; opacity:.9; }
+
+.iarch-legend { position:absolute; bottom:12px; right:14px; display:flex; gap:10px; flex-wrap:wrap;
+  background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:7px 12px;
+  box-shadow:var(--shadow); max-width:60%; pointer-events:none; }
+.lg { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:550; color:var(--ink-2); }
+.lg i { width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+.panel { width:400px; border-left:1px solid var(--line); background:var(--panel); padding:20px;
+  overflow-y:auto; display:none; flex-shrink:0; }
+.panel.open { display:block; }
+.panel .p-kicker { font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+.panel h2 { font-size:16px; font-weight:700; margin:6px 0 10px; letter-spacing:-.01em; }
+.panel .p-path { display:inline-block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+  color:var(--ink-2); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:3px 8px;
+  margin-bottom:12px; word-break:break-all; }
+.panel p { font-size:13px; line-height:1.65; color:var(--ink-2); }
+.panel .p-close { float:right; font:inherit; font-size:12px; color:var(--ink-3); background:none;
+  border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; }
+.panel .p-close:hover { color: var(--ink); }
+.panel .p-empty { font-size:12.5px; color:var(--ink-3); line-height:1.6; margin-top:8px; }
+
+.p-list { margin-top:16px; border-top:1px solid var(--line); padding-top:4px; }
+.p-list-count { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin:10px 0 2px; }
+.p-list-group { font-size:11px; font-weight:700; color:var(--c-source); margin:14px 0 4px; padding-top:2px; }
+.p-list-group:first-of-type { margin-top:8px; }
+.p-item { padding:5px 0; border-bottom:1px solid var(--line); }
+.p-item:last-child { border-bottom:none; }
+.p-item-name { font-size:12px; font-weight:650; color:var(--ink); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.p-item-desc { font-size:11.5px; color:var(--ink-3); line-height:1.4; margin-top:1px; }
+
+.tip { position:fixed; z-index:50; pointer-events:none; display:none; max-width:340px; background:var(--panel);
+  color:var(--ink); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); padding:10px 12px;
+  font-size:12px; line-height:1.55; }
+.tip .t-name { font-weight:700; font-size:12.5px; margin-bottom:2px; }
+.tip .t-path { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--ink-3); margin-bottom:5px; }
+.tip .t-desc { color: var(--ink-2); }
+.tip .t-more { color: var(--ink-3); font-size:10.5px; margin-top:6px; }
+
+.grp-rect { fill: var(--panel); stroke: var(--line); stroke-width:1; rx:14; opacity:.55; }
+.grp-label { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.grp-sub { font-size:10.5px; font-weight:550; fill: var(--ink-3); }
+
+.node { cursor:pointer; }
+.node rect { stroke-width:1.25; filter: drop-shadow(0 1px 1.5px rgba(20,24,32,.13)); transition: filter .15s; }
+@media (prefers-color-scheme: dark) { .node rect { filter: drop-shadow(0 1.5px 3px rgba(0,0,0,.55)); } }
+.node:hover rect { stroke-width:2; filter: drop-shadow(0 3px 8px rgba(20,24,32,.2)); }
+.node.pinned rect { stroke-width:2.5; }
+.node .n-title { font-size:13px; font-weight:650; fill: var(--ink); }
+.node .n-sub { font-size:11px; fill: var(--ink-3); font-weight:480; }
+
+.src rect  { fill: var(--c-source-bg);  stroke: var(--c-source-ln); }
+.ins rect  { fill: var(--c-install-bg); stroke: var(--c-install-ln); }
+.run rect  { fill: var(--c-runtime-bg); stroke: var(--c-runtime-ln); }
+.plat rect { fill: var(--c-plat-bg);    stroke: var(--c-plat-ln); }
+.hook rect { fill: var(--c-hook-bg);    stroke: var(--c-hook-ln); }
+.out rect  { fill: var(--c-out-bg);     stroke: var(--c-out-ln); }
+.neu rect  { fill: var(--c-neutral-bg); stroke: var(--c-neutral-ln); }
+
+.edge { fill:none; stroke: var(--edge); stroke-width:1.6; }
+.edge.flow { stroke-dasharray:7 5; animation: dash 1.1s linear infinite; }
+.edge.dashed { stroke-dasharray:3 5; opacity:.75; }
+.edge.thick { stroke-width:2.4; }
+.edge.danger { stroke: var(--c-danger); }
+.edge.success { stroke: var(--c-success); }
+@keyframes dash { to { stroke-dashoffset:-12; } }
+.e-label { font-size:10.5px; font-weight:620; fill: var(--edge-label); paint-order:stroke;
+  stroke: var(--bg-stage); stroke-width:4px; stroke-linejoin:round; }
+.e-label.danger { fill: var(--c-danger); }
+.e-label.success { fill: var(--c-success); }
+
+@media (max-width: 900px) { .panel { display:none !important; } .iarch-legend { display:none; } }
+
+.back-btn { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--ink-2, #3f4a6e);
+  text-decoration:none; background:var(--panel, #fff); border:1px solid var(--line, #e4e9f3); border-radius:20px;
+  padding:6px 13px 6px 11px; margin-bottom:14px; transition:background .12s, color .12s; }
+.back-btn:hover { color:#3b6df6; border-color:#c5d8fb; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+  <a class="back-btn" href="./index.html">&larr; Diagram Library</a>
+  <h1>VELOCITY-AI — SSE vs. WebSocket</h1>
+  <p class="lede">How pipeline execution used to stream over one multiplexed WebSocket (<code>/ws/chat</code>, now deleted), how it streams today over REST + Server-Sent Events, the exact wire mechanics of that SSE endpoint, and a field guide of things worth knowing about SSE in general. Scroll to zoom, drag to pan, click a box for sourced detail. Press 1–4 to switch views.</p>
+
+  <div class="iarch">
+    <div class="tabs" id="tabs"></div>
+    <div class="iarch-main">
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--edge)"/>
+              </marker>
+              <marker id="arr-danger" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-danger)"/>
+              </marker>
+              <marker id="arr-success" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0.8 L9.5 5 L0 9.2 z" fill="var(--c-success)"/>
+              </marker>
+            </defs>
+            <g id="vp"></g>
+          </svg>
+          <div class="view-title" id="view-title"></div>
+          <div class="zoombar">
+            <button class="zbtn" id="z-out" title="Zoom out (−)">−</button>
+            <span class="zpct" id="z-pct">100%</span>
+            <button class="zbtn" id="z-in" title="Zoom in (+)">+</button>
+            <button class="zbtn" id="z-fit" title="Fit to screen (0)" style="font-size:12px">⤢</button>
+          </div>
+          <div class="hint" id="hint">scroll to zoom · drag to pan · click a box to pin details · keys 1–4 switch views</div>
+          <div class="iarch-legend" id="legend"></div>
+        </div>
+      </div>
+      <aside class="panel" id="panel">
+        <button class="p-close" id="p-close">✕ close</button>
+        <div id="p-body"><div class="p-empty">Click any box to see what it is, where it lives, and why it matters.</div></div>
+      </aside>
+    </div>
+    <div class="tip" id="tip"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const DIAGRAMS = [
+  {
+    id: 'ws-old', tab: 'Old Model: WebSocket', title: 'The retired /ws/chat model — one connection carrying every direction',
+    w: 1300, h: 1150,
+    legend: [
+      ['src','Client (frontend / httpyac)'], ['ins','Handshake / first frame'],
+      ['run','Runtime — connection & command handling'], ['hook','Command sent mid-connection / risk'],
+      ['neu','Pause point (decision)'], ['out','Terminal — connection closes'],
+    ],
+    groups: [],
+    nodes: [
+      ['w1','src', 90, 40, 620, 100, 'Client opens ws://.../ws/chat', ['Sec-WebSocket-Protocol: "bearer.<jwt>", "flowin.v1"'],
+        { k:'Client', p:'backend/app/api/websocket.py (deleted — historical)',
+          d:'A single WebSocket connection is opened once and reused for the ENTIRE lifetime of a run: launch, clarify, gates, revisions, and every progress event all rode this one socket, multiplexed as JSON frames.' }],
+      ['w2','ins', 90, 170, 620, 100, 'First frame: {"type": "run_pipeline", ...}', ['pipeline_type, message, template_id, agent_ids...'],
+        { k:'Handshake / first frame', p:'backend/app/api/websocket.py:828-921 (deleted — historical)',
+          d:'Launching a run was not a REST call — it was literally the first JSON message sent down the just-opened socket. There was no way to start a run without first opening this connection.' }],
+      ['w3','run', 90, 300, 620, 100, 'One asyncio task owns the whole connection', ['reads client frames AND writes server events on the same socket'],
+        { k:'Runtime', p:'backend/app/api/websocket.py (deleted — historical)',
+          d:'A single coroutine per connection both received inbound command frames and pushed outbound event frames. That coupling is the root of everything painful about this model — the connection was doing two jobs at once.' }],
+      ['w4','run', 90, 430, 620, 100, 'Server streams progress back down the SAME socket', ['agent_start, agent_chunk, tool_call, gate_status, ...'],
+        { k:'Runtime', p:'backend/app/api/websocket.py (deleted — historical)',
+          d:'Every engine event was pushed as an outbound frame on the identical connection the client used to send commands — client and server traffic were interleaved on one pipe.' }],
+      ['w5','neu', 90, 560, 620, 100, 'Pipeline pauses at questionnaire_ready', ['clarify.mode: auto fires on every pipeline before any agent runs'],
+        { k:'Pause point', p:'agents/workflows/<id>/workflow.yaml (clarify.mode)',
+          d:'Every pipeline in this system pauses here first. What the client does NEXT is where the old model got dangerous — see the two branches below.' }],
+      ['w6','run', 90, 690, 620, 100, 'Reply with submit_questionnaire on the SAME socket', ['{type: submit_questionnaire, pipeline_run_id, responses, skip_clarification}'],
+        { k:'Correct usage', p:'backend/app/api/websocket.py (deleted — historical)',
+          d:'The safe path: keep the original connection open and send the answer as a second frame on it. This is why every *.run.http file needed a "keep one connection open across the whole run_pipeline -> clarify -> agents flow" hack.' }],
+      ['w7','hook', 760, 690, 460, 100, 'Anti-pattern: open a FRESH connection instead', ['close conn A, then submit_questionnaire on a brand-new conn B'],
+        { k:'Risk', p:'tools/api/runs/README.md — "Findings from live verification" (historical)',
+          d:'The original design of these integration tests actually did this: one connection ran launch and closed as soon as questionnaire_ready arrived; a second, fresh connection sent the answer.' }],
+      ['w9','run', 90, 820, 620, 100, 'approve_review / run_revision — same pattern', ['every command was just another JSON frame on the one connection'],
+        { k:'Runtime', p:'backend/app/api/websocket.py (deleted — historical)',
+          d:'Gate approvals and revision kick-offs were not separate endpoints either — same multiplexed-frame idea, same one-socket-for-everything design.' }],
+      ['w8','hook', 760, 820, 460, 100, 'Race: pipeline can get marked "cancelled"', ['closing conn A can beat conn B\'s submit_questionnaire to the server'],
+        { k:'Verified live bug', p:'backend/app/api/websocket.py — WebSocketDisconnect handler (deleted — historical)',
+          d:'Even though the disconnect handler explicitly does NOT cancel a pipeline with a real pipeline_run_id, something in that specific gate-pause window still could mark the run cancelled if the timing lined up wrong. This was reproduced live with real credentials before the single-connection workaround was adopted.' }],
+      ['w10','out', 90, 950, 620, 100, 'Connection closes on a terminal event', ['pipeline_complete / pipeline_failed / pipeline_cancelled / error'],
+        { k:'Terminal', p:'backend/app/api/websocket.py (deleted — historical)',
+          d:'Once a terminal event fired, the one connection that had carried the entire run’s traffic — commands and events alike — closed for good.' }],
+    ],
+    edges: [
+      ['w1','b','w2','t','flow thick', ''],
+      ['w2','b','w3','t','flow thick', ''],
+      ['w3','b','w4','t','flow', ''],
+      ['w4','b','w5','t','flow', ''],
+      ['w5','b','w6','t','flow', 'safe: same connection'],
+      ['w5','r','w7','l','dashed', 'anti-pattern: fresh connection'],
+      ['w6','b','w9','t','flow', ''],
+      ['w7','b','w8','t','danger', 'races disconnect handling'],
+      ['w9','b','w10','t','flow thick', ''],
+    ],
+  },
+  {
+    id: 'rest-sse-new', tab: 'New Model: REST + SSE', title: 'Commands and events split into decoupled transports',
+    w: 1560, h: 800,
+    legend: [
+      ['ins','Command — independent REST POST'], ['run','Event — the one live SSE stream'],
+    ],
+    groups: [
+      ['g1', 20, 40,  730, 700, 'Commands — client → server, each its own HTTP request/response with its own Bearer auth', 'ins'],
+      ['g2', 770, 40, 770, 700, 'Events — server → client, ONE long-lived SSE connection', 'run'],
+    ],
+    nodes: [
+      ['c1','ins', 50, 90, 670, 100, 'POST /api/runs', ['launch — response body is {"run_id": "..."} immediately'],
+        { k:'Command', p:'backend/app/api/run_commands.py — LaunchCommand, @router.post("")',
+          d:'Replaces the old WS run_pipeline frame. Returns the run_id directly in the HTTP response — no more sniffing the first WS event for it.' }],
+      ['c2','ins', 50, 210, 670, 100, 'POST /api/runs/{id}/answers', ['submit clarify responses + skip_clarification'],
+        { k:'Command', p:'backend/app/api/run_commands.py — AnswersCommand, @router.post("/{run_id}/answers")',
+          d:'Replaces the old WS submit_questionnaire frame. Because this is now a totally separate HTTP request, it can never race a WS connection close — there is no shared connection to lose.' }],
+      ['c3','ins', 50, 330, 670, 100, 'POST /api/runs/{id}/gate', ['approve / reject / redo / update_specs'],
+        { k:'Command', p:'backend/app/api/run_commands.py — GateCommand, @router.post("/{run_id}/gate")',
+          d:'Replaces the old WS approve_review frame. Same four gate actions as before, now as one discriminated REST body.' }],
+      ['c4','ins', 50, 450, 670, 100, 'POST /api/runs/{id}/revisions', ['start a child revision run'],
+        { k:'Command', p:'backend/app/api/run_commands.py — RevisionCommand, @router.post("/{run_id}/revisions")',
+          d:'Replaces the old WS run_revision frame. parent_run_id is now the URL path segment instead of a body field.' }],
+      ['c5','ins', 50, 570, 670, 100, 'POST /api/runs/{id}/cancel  ·  /resume', ['stop a running pipeline, or restart one from a failed state'],
+        { k:'Command', p:'backend/app/api/run_commands.py — @router.post("/{run_id}/cancel"), @router.post("/{run_id}/resume")',
+          d:'Two more commands that never existed as distinct WS message types — cancel/resume are natural fits for REST verbs and didn’t need a bespoke frame protocol at all.' }],
+
+      ['e1','run', 800, 90, 710, 100, 'GET /api/runs/{id}/events/stream', ['Authorization: Bearer <jwt> — a normal header, no query-param hack'],
+        { k:'Event stream', p:'backend/app/api/run_stream.py — @router.get("/{workflow_id}/events/stream")',
+          d:'The sole run-event transport after /ws/chat was retired. Because this is a plain HTTP GET, it just uses a normal Bearer header — the old ?token= query-param fallback (needed only because of a WS subprotocol limitation) is gone entirely.' }],
+      ['e2','run', 800, 210, 710, 100, 'Durable replay + stream_attached handshake', ['catches a reconnect up to the current cursor before anything live'],
+        { k:'Event stream', p:'backend/app/api/run_stream.py — _iter_sse_frames()',
+          d:'Every attach — first-ever or a reconnect — starts by replaying any missed durable events, then emits a stream_attached frame: {pipeline_run_id, live, replayed_through_seq}. This is the spec-compliant, generic replacement for the old bespoke pipeline_reconnected event.' }],
+      ['e3','run', 800, 330, 710, 100, 'Live queue drain', ['agent_start, agent_chunk, tool_call, review_gate_ready, ...'],
+        { k:'Event stream', p:'backend/app/api/run_stream.py — _iter_sse_frames(), backend/app/api/run_engine.py',
+          d:'Once caught up, the generator forwards events off the same per-run asyncio.Queue the engine already produces — same event vocabulary as before, just delivered as SSE frames instead of WS frames.' }],
+      ['e4','run', 800, 450, 710, 100, 'Terminal event closes the stream', ['pipeline_complete / pipeline_failed / pipeline_cancelled / budget_aborted / error'],
+        { k:'Event stream', p:'backend/app/api/run_stream.py — _STREAM_TERMINAL_TYPES',
+          d:'The stream ends itself as soon as one of these arrives — the HTTP response simply finishes, no explicit close frame needed the way WS required one.' }],
+      ['e5','neu', 800, 570, 710, 100, 'Reconnect? Send Last-Event-ID', ['resumes exactly where the client left off — no missed events, no dupes'],
+        { k:'Reconnect', p:'backend/app/api/run_stream.py — last_event_id: Header(alias="Last-Event-ID")',
+          d:'A standard SSE header, not something this system invented — the browser’s native EventSource tracks and resends it automatically on auto-reconnect.' }],
+    ],
+    edges: [
+      ['c1','r','e1','l','dashed', 'run_id feeds the stream URL'],
+      ['c2','r','e3','l:0.5','dashed', 'shows up as questionnaire_complete'],
+      ['c3','r','e3','l:0.7','dashed', 'shows up as review_gate_approved'],
+      ['c4','r','e1','l:0.15','dashed', 'a NEW run_id → attach a NEW stream'],
+    ],
+  },
+  {
+    id: 'sse-mechanics', tab: 'SSE Wire Mechanics', title: 'Exactly what happens when a client attaches to /events/stream',
+    w: 900, h: 1250,
+    legend: [
+      ['src','Client'], ['ins','Ownership check'], ['run','Stream construction step'],
+      ['plat','Ops concern'], ['out','Terminal'], ['neu','Reconnect path'],
+    ],
+    groups: [],
+    nodes: [
+      ['m1','src', 170, 40, 560, 100, 'Client GETs the stream', ['Authorization: Bearer <jwt>  ·  optional Last-Event-ID header'],
+        { k:'Client request', p:'backend/app/api/run_stream.py — stream_run_events()',
+          d:'Just an ordinary authenticated GET. last_event_id defaults to None (fresh attach); a non-integer header value degrades to a full replay (0) rather than erroring.' }],
+      ['m2','ins', 170, 160, 560, 100, 'Two-layer owner check', ['ORM filter → 404  ·  ScopedStore.get_run() → 404 (never 403)'],
+        { k:'Ownership check', p:'backend/app/api/run_stream.py — mirrors runs.py::get_run_events',
+          d:'Cross-owner or missing run both 404 — identical, so a caller can never distinguish "doesn’t exist" from "not yours" (no enumeration signal, same IDOR-safe pattern used everywhere else in this API).' }],
+      ['m3','run', 170, 280, 560, 100, 'Durable replay', ['read_events(after_seq) → emit each row as an SSE frame'],
+        { k:'Stream construction', p:'backend/app/api/run_stream.py — _iter_sse_frames(), step 1',
+          d:'Every run_events row with seq > after_seq is replayed first, in ascending order, before anything live is considered — this is what makes a reconnect lossless.' }],
+      ['m4','run', 170, 400, 560, 100, 'stream_attached handshake', ['{pipeline_run_id, live, replayed_through_seq}'],
+        { k:'Stream construction', p:'backend/app/api/run_stream.py — _iter_sse_frames(), step 2',
+          d:'Emitted after replay, always. “live” reflects whether a per-run queue is actually registered (the run is still executing) or not (a finished run just gets replay + this handshake, no live tail).' }],
+      ['m5','run', 170, 520, 560, 100, 'D-14g gate re-arm', ['re-emits a dangling review_gate_ready if the client cursor is already past it'],
+        { k:'Stream construction', p:'backend/app/api/run_stream.py — _dangling_review_gate()',
+          d:'Handles the edge case where a page reloads mid-gate-pause with a cursor already past the gate’s own seq — without this, that reload would never see the gate again since durable replay filters on seq > after_seq.' }],
+      ['m6','run', 170, 640, 560, 100, 'Live queue drain', ['await queue.get() until the None sentinel or client disconnect'],
+        { k:'Stream construction', p:'backend/app/api/run_stream.py — _iter_sse_frames(), step 4',
+          d:'Forwards new engine events off the SAME per-run asyncio.Queue the old WS drainer used to feed from — the transport changed, the queue plumbing underneath didn’t.' }],
+      ['m7','plat', 170, 760, 560, 100, 'Keepalive ping + no-buffering headers', ['sse_starlette ping  ·  X-Accel-Buffering: no  ·  Cache-Control: no-cache'],
+        { k:'Ops concern', p:'backend/app/api/run_stream.py — EventSourceResponse(..., ping=..., headers={...})',
+          d:'Without these, an idle proxy (nginx, an ALB, etc.) can buffer the whole response and deliver events in a burst instead of live, or silently kill an idle connection. This is the single most common way a real SSE deployment quietly breaks.' }],
+      ['m8','out', 170, 880, 560, 100, 'Terminal event → stream ends', ['pipeline_complete / pipeline_failed / pipeline_cancelled / budget_aborted / error'],
+        { k:'Terminal', p:'backend/app/api/run_stream.py — _STREAM_TERMINAL_TYPES',
+          d:'The generator simply returns once one of these arrives — the HTTP response body finishes normally, same as any other request completing.' }],
+      ['m9','neu', 170, 1000, 560, 100, 'Client drops? Reconnect with Last-Event-ID', ['resumes exactly at the cursor — no missed events, no duplicate work'],
+        { k:'Reconnect path', p:'backend/app/api/run_stream.py — last_event_id header',
+          d:'A dropped connection is not a lost run — a fresh GET with the last-seen id: value as Last-Event-ID replays from that exact point via step 3 (Durable replay) above, then rejoins the live tail.' }],
+    ],
+    edges: [
+      ['m1','b','m2','t','flow thick', ''],
+      ['m2','b','m3','t','flow thick', ''],
+      ['m3','b','m4','t','flow', ''],
+      ['m4','b','m5','t','flow', ''],
+      ['m5','b','m6','t','flow', ''],
+      ['m6','b','m7','t','dashed', 'wraps the whole response'],
+      ['m6','b','m8','t:0.9','flow thick', 'terminal type seen'],
+      ['m8','b','m9','t','dashed', 'if the client instead just drops'],
+    ],
+  },
+  {
+    id: 'field-guide', tab: 'SSE Field Guide', title: 'Things worth knowing about SSE in general — not just this system',
+    w: 1580, h: 620,
+    legend: [
+      ['ins','Protocol basics'], ['run','Reconnect & resume'], ['plat','Limits & real-world gotchas'],
+    ],
+    groups: [
+      ['g1', 20, 30, 490, 560, 'Protocol basics — what SSE actually is on the wire', 'ins'],
+      ['g2', 530, 30, 490, 560, 'Reconnect & resume — how a dropped client catches back up', 'run'],
+      ['g3', 1040, 30, 490, 560, 'Limits & real-world gotchas', 'plat'],
+    ],
+    nodes: [
+      ['f1','ins', 45, 80, 440, 100, 'One-way: server → client only', ['no client→server frames on this connection'],
+        { k:'Protocol basics', p:'W3C/WHATWG EventSource spec',
+          d:'SSE cannot carry a message back to the server. Anything the client needs to say has to be its own separate HTTP request — which is exactly why this system’s answers/gate/revisions are plain POSTs, not frames on the stream.' }],
+      ['f2','ins', 45, 200, 440, 100, 'Plain HTTP, not a special protocol', ['GET + Content-Type: text/event-stream — no upgrade handshake'],
+        { k:'Protocol basics', p:'RFC 9110 (HTTP semantics) + WHATWG HTML Living Standard, §9.2',
+          d:'Unlike WebSocket (which needs an HTTP Upgrade to switch protocols), an SSE response is just a very long, never-closing ordinary HTTP response. Any HTTP-aware infrastructure already understands it.' }],
+      ['f3','ins', 45, 320, 440, 100, 'Wire format is just text lines', ['data: <payload>\\n\\n  ·  optional id: / event: / retry: lines'],
+        { k:'Protocol basics', p:'WHATWG HTML Living Standard, §9.2.6 (event stream format)',
+          d:'A blank line ends one event. Multi-line data: fields get concatenated with newlines. No binary framing, no length prefixes, no special parser needed — a human can read the raw bytes.' }],
+      ['f4','ins', 45, 440, 440, 100, 'Any HTTP client can read it', ['no special library needed server- or client-side'],
+        { k:'Protocol basics', p:'general',
+          d:'curl, httpyac’s SSE method, a browser’s native EventSource, or a bare fetch()+ReadableStream reader can all consume the exact same response — unlike WebSocket, which needs a dedicated client library on both ends.' }],
+
+      ['f5','run', 555, 80, 440, 100, 'The id: line drives resumability', ['browser EventSource auto-tracks it as "the last event id"'],
+        { k:'Reconnect & resume', p:'WHATWG HTML Living Standard, §9.2.4',
+          d:'Every frame can carry an id: line. The client remembers the most recent one it saw — this is the entire resumability mechanism, and it’s built into the spec, not invented per-application.' }],
+      ['f6','run', 555, 200, 440, 100, 'Last-Event-ID header on reconnect', ['browser resends it automatically; server replays only what was missed'],
+        { k:'Reconnect & resume', p:'WHATWG HTML Living Standard, §9.2.5',
+          d:'On auto-reconnect, a native EventSource sends the last id: it saw back as a Last-Event-ID request header, so the server can replay only the gap — never the whole history, never a silent gap.' }],
+      ['f7','run', 555, 320, 440, 100, 'Native EventSource can’t set headers', ['no Authorization header — can’t Bearer-auth a real browser EventSource'],
+        { k:'Reconnect & resume', p:'WHATWG HTML Living Standard — EventSource constructor',
+          d:'This is the single biggest practical gotcha with browser SSE: the constructor takes only a URL. Any auth has to go in the URL (leaky — logs, history, Referer) or you skip EventSource entirely.' }],
+      ['f8','run', 555, 440, 440, 100, 'Workaround: fetch + ReadableStream', ['used by this system’s frontend to keep Bearer auth'],
+        { k:'Reconnect & resume', p:'frontend/src/hooks/useRunStream.ts',
+          d:'Instead of new EventSource(url), the frontend does fetch(url, {headers: {Authorization}}) and reads the response body as a ReadableStream, parsing SSE frames by hand — trading the browser’s free auto-reconnect for the ability to send a normal Bearer header.' }],
+
+      ['f9','plat', 1065, 80, 440, 100, 'Browser per-origin connection limits', ['~6 concurrent HTTP/1.1 connections per tab per origin'],
+        { k:'Limits & gotchas', p:'HTTP/1.1 connection-pooling behavior (browser-implementation-defined)',
+          d:'Several open SSE tabs to the same origin can exhaust this pool and start starving other requests. HTTP/2 multiplexes many streams over one TCP connection and mostly removes this ceiling.' }],
+      ['f10','plat', 1065, 200, 440, 100, 'Proxies buffer by default', ['must disable buffering or events arrive in bursts, not live'],
+        { k:'Limits & gotchas', p:'backend/app/api/run_stream.py — X-Accel-Buffering: no, Cache-Control: no-cache',
+          d:'nginx, many load balancers, and some CDNs buffer response bodies by default — an SSE stream through one of these looks "stuck" and then dumps everything at once unless buffering is explicitly turned off end-to-end.' }],
+      ['f11','plat', 1065, 320, 440, 100, 'Text only — no binary frames', ['binary payloads must be base64 / JSON-encoded first'],
+        { k:'Limits & gotchas', p:'WHATWG HTML Living Standard, §9.2.6',
+          d:'WebSocket can send raw binary frames; SSE cannot. If a payload needs binary data, it has to be encoded to text (this system just JSON-encodes everything, which was already true on the WS side too).' }],
+      ['f12','plat', 1065, 440, 440, 100, 'Idle connections can be killed', ['needs a periodic keepalive or load balancers will time it out'],
+        { k:'Limits & gotchas', p:'backend/app/api/run_stream.py — EventSourceResponse(ping=SSE_KEEPALIVE_PING_SECONDS)',
+          d:'A long-running run with quiet gaps between events looks idle to network infrastructure. sse_starlette’s periodic comment-ping keeps the connection looking "alive" so nothing in between closes it early.' }],
+    ],
+    edges: [],
+  },
+];
+
+/* ═══════════════════════ svg helpers ═══════════════════════ */
+const NS = 'http://www.w3.org/2000/svg';
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function port(node, spec) {
+  const [side, offRaw] = spec.split(':');
+  const t = offRaw === undefined ? 0.5 : parseFloat(offRaw);
+  const [, , x, y, w, h] = node;
+  switch (side) {
+    case 'l': return { x, y: y + h * t, dx: -1, dy: 0 };
+    case 'r': return { x: x + w, y: y + h * t, dx: 1, dy: 0 };
+    case 't': return { x: x + w * t, y, dx: 0, dy: -1 };
+    case 'b': return { x: x + w * t, y: y + h, dx: 0, dy: 1 };
+  }
+}
+function edgeGeom(a, b) {
+  const dist = Math.hypot(b.x - a.x, b.y - a.y);
+  const k = Math.max(36, Math.min(dist * 0.42, 150));
+  const c1 = { x: a.x + a.dx * k, y: a.y + a.dy * k };
+  const c2 = { x: b.x + b.dx * k, y: b.y + b.dy * k };
+  const mid = {
+    x: 0.125 * a.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * b.x,
+    y: 0.125 * a.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * b.y,
+  };
+  return { d: `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`, mid };
+}
+
+const ROLE = { src:'source', ins:'install', run:'runtime', plat:'plat', hook:'hook', out:'out', neu:'neutral' };
+
+/* ═══════════════════════ render ═══════════════════════ */
+const vp = $('vp'), stage = $('stage'), svg = $('svg'), tip = $('tip');
+let current = 0, pinnedEl = null;
+const viewState = DIAGRAMS.map(() => null);
+
+function renderDiagram(d) {
+  vp.innerHTML = '';
+  const nodesById = {};
+  d.nodes.forEach(n => { nodesById[n[0]] = n; });
+
+  for (const [gid, x, y, w, h, label, cls] of d.groups) {
+    const g = el('g', {}, vp);
+    el('rect', { x, y, width: w, height: h, rx: 14, class: 'grp-rect' }, g);
+    const t = el('text', { x: x + 14, y: y + 24, class: 'grp-label' }, g);
+    t.textContent = label;
+    t.style.fill = `var(--c-${ROLE[cls] || 'neutral'})`;
+  }
+
+  const labels = [];
+  for (const [from, fs, to, ts, cls, label] of d.edges) {
+    const a = port(nodesById[from], fs);
+    const b = port(nodesById[to], ts);
+    const isDanger = /danger/.test(cls), isSuccess = /success/.test(cls);
+    const marker = isDanger ? 'url(#arr-danger)' : isSuccess ? 'url(#arr-success)' : 'url(#arr)';
+    const geo = edgeGeom(a, b);
+    el('path', { d: geo.d, class: 'edge ' + cls, 'marker-end': marker }, vp);
+    if (label) labels.push({ x: geo.mid.x, y: geo.mid.y, label, isDanger, isSuccess });
+  }
+
+  for (const n of d.nodes) {
+    const [id, cls, x, y, w, h, title, subs, info] = n;
+    const g = el('g', { class: 'node ' + cls, 'data-id': id }, vp);
+    el('rect', { x, y, width: w, height: h, rx: 10 }, g);
+    const hasSubs = subs && subs.length;
+    const titleY = hasSubs ? y + 22 : y + h / 2 + 4.5;
+    const tt = el('text', { x: x + w / 2, y: titleY, 'text-anchor': 'middle', class: 'n-title' }, g);
+    tt.textContent = title;
+    if (hasSubs) {
+      subs.forEach((s, i) => {
+        const st = el('text', { x: x + w / 2, y: y + 40 + i * 15, 'text-anchor': 'middle', class: 'n-sub' }, g);
+        st.textContent = s;
+      });
+    }
+    g.__data = { title, info: info || {}, cls };
+    g.addEventListener('mouseenter', () => showTip(g));
+    g.addEventListener('mousemove', moveTip);
+    g.addEventListener('mouseleave', hideTip);
+  }
+
+  for (const { x, y, label, isDanger, isSuccess } of labels) {
+    const lt = el('text', { x, y: y - 5, 'text-anchor': 'middle',
+      class: 'e-label' + (isDanger ? ' danger' : isSuccess ? ' success' : '') }, vp);
+    lt.textContent = label;
+  }
+}
+
+/* ═══════════════════════ tooltip + panel ═══════════════════════ */
+function showTip(g) {
+  const { title, info } = g.__data;
+  tip.innerHTML = `<div class="t-name">${esc(title)}</div>` +
+    (info.p ? `<div class="t-path">${esc(info.p)}</div>` : '') +
+    (info.d ? `<div class="t-desc">${esc(info.d)}</div>` : '') +
+    `<div class="t-more">click to pin</div>`;
+  tip.style.display = 'block';
+}
+function moveTip(e) {
+  const pad = 14;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const r = tip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+
+function itemHtml(it) {
+  return `<div class="p-item"><div class="p-item-name">${esc(it.n)}</div>` +
+    (it.d ? `<div class="p-item-desc">${esc(it.d)}</div>` : '') + `</div>`;
+}
+function renderList(list) {
+  if (Array.isArray(list)) {
+    return `<div class="p-list"><div class="p-list-count">${list.length} items</div>` +
+      list.map(itemHtml).join('') + `</div>`;
+  }
+  const total = list.groups.reduce((s, g) => s + g.items.length, 0);
+  return `<div class="p-list"><div class="p-list-count">${total} items</div>` +
+    list.groups.map(g => `<div class="p-list-group">${esc(g.label)}</div>` + g.items.map(itemHtml).join('')).join('') +
+    `</div>`;
+}
+
+const panel = $('panel'), pBody = $('p-body');
+function pin(g) {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = g; g.classList.add('pinned');
+  const { title, info, cls } = g.__data;
+  const hue = ROLE[cls.split(' ')[0]] || 'neutral';
+  pBody.innerHTML =
+    `<div class="p-kicker" style="color:var(--c-${hue})">${esc(info.k || 'Component')}</div>` +
+    `<h2>${esc(title)}</h2>` +
+    (info.p ? `<span class="p-path">${esc(info.p)}</span>` : '') +
+    `<p>${esc(info.d || 'No further detail — this element is illustrative.')}</p>` +
+    (info.list ? renderList(info.list) : '');
+  panel.classList.add('open');
+  panel.scrollTop = 0;
+}
+function unpin() {
+  if (pinnedEl) pinnedEl.classList.remove('pinned');
+  pinnedEl = null;
+  panel.classList.remove('open');
+}
+$('p-close').addEventListener('click', unpin);
+
+/* ═══════════════════════ pan & zoom ═══════════════════════ */
+const MINK = 0.3, MAXK = 3.2;
+function state() { return viewState[current]; }
+function apply() {
+  const s = state();
+  vp.setAttribute('transform', `translate(${s.tx},${s.ty}) scale(${s.k})`);
+  $('z-pct').textContent = Math.round(s.k * 100) + '%';
+}
+function fit() {
+  const d = DIAGRAMS[current];
+  const r = stage.getBoundingClientRect();
+  const k = Math.min(r.width / d.w, r.height / d.h) * 0.94;
+  viewState[current] = { k, tx: (r.width - d.w * k) / 2, ty: (r.height - d.h * k) / 2 };
+  apply();
+}
+function zoomAt(px, py, factor) {
+  const s = state();
+  const k2 = Math.min(MAXK, Math.max(MINK, s.k * factor));
+  const real = k2 / s.k;
+  s.tx = px - (px - s.tx) * real;
+  s.ty = py - (py - s.ty) * real;
+  s.k = k2;
+  apply();
+}
+stage.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const r = stage.getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0016));
+}, { passive: false });
+
+let drag = null;
+stage.addEventListener('pointerdown', (e) => {
+  drag = { x: e.clientX, y: e.clientY, tx: state().tx, ty: state().ty, moved: false, target: e.target };
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; stage.classList.add('panning'); }
+  if (drag.moved) { const s = state(); s.tx = drag.tx + dx; s.ty = drag.ty + dy; apply(); }
+});
+stage.addEventListener('pointerup', (e) => {
+  if (drag && !drag.moved) {
+    const g = drag.target.closest && drag.target.closest('.node');
+    if (g) pin(g); else unpin();
+  }
+  drag = null; stage.classList.remove('panning');
+});
+function centerZoom(factor) {
+  const r = stage.getBoundingClientRect();
+  zoomAt(r.width / 2, r.height / 2, factor);
+}
+$('z-in').addEventListener('click', () => centerZoom(1.25));
+$('z-out').addEventListener('click', () => centerZoom(0.8));
+$('z-fit').addEventListener('click', fit);
+
+/* ═══════════════════════ tabs / views ═══════════════════════ */
+const tabsEl = $('tabs');
+DIAGRAMS.forEach((d, i) => {
+  const b = document.createElement('button');
+  b.className = 'tab';
+  b.innerHTML = `<kbd>${i + 1}</kbd>${esc(d.tab)}`;
+  b.addEventListener('click', () => show(i));
+  tabsEl.appendChild(b);
+});
+
+function show(i) {
+  current = i;
+  document.querySelectorAll('.tab').forEach((t, j) => t.classList.toggle('active', j === i));
+  unpin(); hideTip();
+  const d = DIAGRAMS[i];
+  $('view-title').textContent = (i + 1) + ' · ' + d.title;
+  renderDiagram(d);
+  if (!viewState[i]) fit(); else apply();
+  const legend = $('legend');
+  legend.innerHTML = d.legend.map(([cls, label]) => {
+    const hue = ROLE[cls];
+    return `<span class="lg"><i style="background:var(--c-${hue}-bg);border:1.5px solid var(--c-${hue}-ln)"></i>${esc(label)}</span>`;
+  }).join('');
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', d.id);
+  history.replaceState(null, '', url);
+}
+
+/* ═══════════════════════ keyboard ═══════════════════════ */
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey) return;
+  if (e.key >= '1' && e.key <= String(Math.min(9, DIAGRAMS.length))) show(parseInt(e.key, 10) - 1);
+  else if (e.key === '+' || e.key === '=') centerZoom(1.25);
+  else if (e.key === '-') centerZoom(0.8);
+  else if (e.key === '0') fit();
+  else if (e.key === 'Escape') unpin();
+});
+window.addEventListener('resize', () => { if (state()) apply(); });
+
+/* ═══════════════════════ boot ═══════════════════════ */
+const wanted = new URL(window.location.href).searchParams.get('view');
+const idx = Math.max(0, DIAGRAMS.findIndex(d => d.id === wanted));
+show(idx === -1 ? 0 : idx);
+</script>
+</body>
+</html>

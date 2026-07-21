@@ -146,3 +146,31 @@ the `od_ppt`/`od_prototype` pipeline_type requirement, a stale
 streaming-script hang when the WS connection drops before a terminal event.
 `spec_kit` was dropped as a separate file per the manifest-check above
 (confirmed, not just suspected) and is documented instead in `README.md`.
+
+## Update: `/ws/chat` retired — migrated to REST + SSE
+
+The backend has since removed `/ws/chat` entirely (`backend/app/api/websocket.py`
+no longer exists). Pipeline execution is now:
+
+- **Launch**: `POST /api/runs` (was: WS `run_pipeline`) — returns `{run_id}`
+  directly, so there's no more sniffing the first event for `pipeline_run_id`.
+- **Live events**: `GET /api/runs/{id}/events/stream` — Server-Sent Events
+  (`sse_starlette`), authenticated with a normal `Authorization: Bearer <jwt>`
+  header (no more `?token=` query-param workaround — that was a WS-only
+  limitation). httpyac's `SSE` method drives this; events arrive via
+  `$requestClient.on('message', ...)` with the JSON body on `msg.data`.
+- **Clarify answers**: `POST /api/runs/{id}/answers` (was: WS
+  `submit_questionnaire`).
+- **Review gate**: `POST /api/runs/{id}/gate` (was: WS `approve_review`).
+- **Revision**: `POST /api/runs/{id}/revisions` (was: WS `run_revision`) —
+  `parent_run_id` is now the URL path segment, not a body field.
+
+Because launch/answers/gate are now independent REST calls instead of frames
+on the one WS connection that also carried events, **the old "must share one
+connection to avoid a cancellation race" constraint no longer applies** — the
+SSE stream and the command POSTs are decoupled transports by construction.
+Every `*.run.http` file's `{{@streaming}}` script now fires the
+`/answers` POST directly from inside the SSE message handler (using the
+sandbox's global `fetch`, since SSE is receive-only, unlike `WS`'s
+bidirectional `$requestClient.nativeClient.send()`), rather than needing to
+reuse the launch request's own connection.

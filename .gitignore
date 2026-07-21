@@ -73,3 +73,5 @@ frontend/package-lock.json
 # prototypes, and WS/HTTP transcripts. Local-only, never committed.
 /tools/api/runs/artifacts/
 /tools/api/runs/logs/
+tools/api/runs/.logs
+tools/api/runs/.artifacts

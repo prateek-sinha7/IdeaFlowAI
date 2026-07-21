@@ -1,0 +1,1973 @@
+{
+  "info": {
+    "_postman_id": "b7167379-4102-4dfd-a69a-dabd840db9f2",
+    "name": "VELOCITY-AI \u2014 Pipeline Runs (REST + SSE)",
+    "description": "Each Runs > <pipeline> folder is fully self-contained end to end: login, discovery (including picking a template/theme for PPT and Prototype before launch), launch (POST /api/runs, prompt lives in the request body's \"message\" field), watch it live over SSE in two legs (before and after answering the clarify questionnaire -- verified live that answering before the pause actually arms is silently dropped), resolve gates, and inspect results/artifacts. Auth/Agents/Capabilities/PPT/Prototype/User Workflows folders are standalone quick-reference copies of the same discovery calls. Import the sibling environment file and select it before running anything -- it already carries the seeded local QA login.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "1. Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/auth/login",
+            "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) \u2014 safe to re-run from any folder.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('jwt', body.token);",
+                  "    console.log('logged in as', body.user.email);",
+                  "} else {",
+                  "    console.error('login failed', pm.response.code, pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Standalone reference \u2014 the same Login request that's also step 1 inside every Runs use-case folder below, for quick re-auth without opening a pipeline folder."
+    },
+    {
+      "name": "Agents",
+      "item": [
+        {
+          "name": "Pipelines \u2014 user_stories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/pipelines/user_stories"
+          },
+          "response": []
+        },
+        {
+          "name": "Pipelines \u2014 od_ppt",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/pipelines/od_ppt"
+          },
+          "response": []
+        },
+        {
+          "name": "Pipelines \u2014 prototype",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/pipelines/prototype"
+          },
+          "response": []
+        },
+        {
+          "name": "Pipelines \u2014 app_builder",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/pipelines/app_builder"
+          },
+          "response": []
+        },
+        {
+          "name": "Pipelines \u2014 dotnet_to_azure",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/pipelines/dotnet_to_azure"
+          },
+          "response": []
+        },
+        {
+          "name": "Pipelines \u2014 mulesoft_to_springboot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/pipelines/mulesoft_to_springboot"
+          },
+          "response": []
+        },
+        {
+          "name": "Pipelines \u2014 custom",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/pipelines/custom"
+          },
+          "response": []
+        },
+        {
+          "name": "Library (flat, across all pipelines)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/library"
+          },
+          "response": []
+        }
+      ],
+      "description": "Standalone reference \u2014 quick lookup without opening a pipeline folder."
+    },
+    {
+      "name": "Capabilities",
+      "item": [
+        {
+          "name": "Model catalog",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/capabilities"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "PPT",
+      "item": [
+        {
+          "name": "Templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/ppt/templates"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Prototype",
+      "item": [
+        {
+          "name": "Templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/templates"
+          },
+          "response": []
+        },
+        {
+          "name": "Template detail \u2014 saas-landing",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/templates/saas-landing"
+          },
+          "response": []
+        },
+        {
+          "name": "Design systems",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/design-systems"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "User Workflows",
+      "item": [
+        {
+          "name": "Save a composition",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/user-workflows",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Competitive SWOT + roadmap\",\n  \"base_pipeline_type\": \"custom\",\n  \"agent_ids\": [\n    \"market-research-agent\",\n    \"swot-analyst\",\n    \"roadmap-planner\"\n  ],\n  \"model_overrides\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('userWorkflowId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List saved workflows",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/user-workflows"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete a saved workflow",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/user-workflows/{{userWorkflowId}}"
+          },
+          "response": []
+        }
+      ],
+      "description": "Persisting/reusing an agent_ids composition \u2014 independent of any specific launched run."
+    },
+    {
+      "name": "Runs",
+      "item": [
+        {
+          "name": "Reference",
+          "item": [
+            {
+              "name": "List runs",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs?limit=20&offset=0"
+              },
+              "response": []
+            },
+            {
+              "name": "List runs \u2014 filtered",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs?type=prototype&status_filter=completed"
+              },
+              "response": []
+            },
+            {
+              "name": "Get by ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}",
+                "description": "Swap in whichever {{runId_*}} variable you actually have set."
+              },
+              "response": []
+            },
+            {
+              "name": "Chain context",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}/chain-context"
+              },
+              "response": []
+            },
+            {
+              "name": "Family (revision lineage)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}/family"
+              },
+              "response": []
+            },
+            {
+              "name": "Hook runs",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}/hook-runs"
+              },
+              "response": []
+            },
+            {
+              "name": "Export PPTX (reference only \u2014 does not apply to od_ppt)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/export-pptx",
+                "description": "Always fails with \"Could not find PptxGenJS code\" for od_ppt runs -- export-pptx only works for pipelines with a ppt-code-generator agent, which od_ppt does not have.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"workflow_id\": \"{{runId_ppt}}\",\n  \"title\": \"Exported Deck\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Delete a run",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}",
+                "description": "Run LAST if you use this \u2014 deletes whatever {{runId_userStories}} currently points at."
+              },
+              "response": []
+            }
+          ],
+          "description": "Generic/admin endpoints on the runs resource \u2014 listing, history, lineage, cleanup. Not tied to any one launch flow."
+        },
+        {
+          "name": "User Stories",
+          "item": [
+            {
+              "name": "1. Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/auth/login",
+                "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) \u2014 safe to re-run from any folder.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('jwt', body.token);",
+                      "    console.log('logged in as', body.user.email);",
+                      "} else {",
+                      "    console.error('login failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Discovery \u2014 Agents in this pipeline",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/agents/pipelines/user_stories"
+              },
+              "response": []
+            },
+            {
+              "name": "3. Discovery \u2014 Model catalog (for optional model_overrides)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/capabilities"
+              },
+              "response": []
+            },
+            {
+              "name": "4. Launch  (the prompt lives in the \"message\" field of this request's body)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"pipeline_type\": \"user_stories\",\n  \"message\": \"Build a simple todo list app for personal task tracking, with due dates and priority levels.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('runId_userStories', body.run_id);",
+                      "    console.log('User Stories -> run_id', body.run_id);",
+                      "} else {",
+                      "    console.error('launch failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5. Watch Events (SSE) \u2014 part 1, until clarify  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}/events/stream",
+                "description": "Attaches to the live stream right after launch. Every pipeline here has clarify.mode: auto, so it ALWAYS pauses at questionnaire_ready (after workflow_validated -> planner_start -> planner_complete -> gate_status) before any agent runs. This request stays open/blocked until you stop it -- verified live that answering too early (before this pause is actually armed) is silently dropped, so you must let this request reach questionnaire_ready first. In the Postman app: watch it arrive, then cancel this request and move to the next one. Running via Newman: pass --timeout-request 10000 (or similar) so it's aborted automatically once the pause has had time to arm -- that's expected, not a bug."
+              },
+              "response": []
+            },
+            {
+              "name": "6. Submit Clarify Answers",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}/answers",
+                "description": "Send this only AFTER questionnaire_ready has actually arrived on the stream above (or after that request's timeout, which gives it enough time to arm) -- answering earlier is silently dropped, verified live.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "7. Watch Events (SSE) \u2014 part 2, until completion  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}/events/stream",
+                "description": "Re-attaches AFTER answering. A fresh GET replays everything durable from the start (so you still see workflow_validated through questionnaire_complete), then continues live through agent execution to a terminal event (pipeline_complete/pipeline_failed/pipeline_cancelled/budget_aborted/error). domain-analyst -> epic-architect -> story-estimator -> nfr-specialist -> backlog-reviewer -> backlog-compiler run in this window."
+              },
+              "response": []
+            },
+            {
+              "name": "8. Get Run",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}"
+              },
+              "response": []
+            },
+            {
+              "name": "9. Get Durable Events (history poll)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}/events?after=0",
+                "description": "Distinct from the live SSE stream above \u2014 a plain GET returning the durable event log so far. Useful to confirm what actually happened even if a Watch request above timed out."
+              },
+              "response": []
+            },
+            {
+              "name": "10. Get Artifacts",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}/artifacts?include=content"
+              },
+              "response": []
+            },
+            {
+              "name": "11. (Optional) Create Revision",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_userStories}}/revisions",
+                "description": "Chains a child revision run off {{runId_userStories}} \u2014 send this AFTER the run above has completed.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_artifact_type\": \"user_stories\",\n  \"instruction\": \"Add a story for recurring/repeating tasks.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "6-agent backlog pipeline. Fully self-contained \u2014 run top to bottom."
+        },
+        {
+          "name": "PPT (od_ppt)",
+          "item": [
+            {
+              "name": "1. Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/auth/login",
+                "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) \u2014 safe to re-run from any folder.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('jwt', body.token);",
+                      "    console.log('logged in as', body.user.email);",
+                      "} else {",
+                      "    console.error('login failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Discovery \u2014 Agents in this pipeline",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/agents/pipelines/od_ppt",
+                "description": "Must use \"od_ppt\", not the bare \"ppt\" alias -- bare \"ppt\" returns an empty agents list (verified live)."
+              },
+              "response": []
+            },
+            {
+              "name": "3. Discovery \u2014 Available PPT templates \u2014 pick a real template_id / theme",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/ppt/templates",
+                "description": "od-ppt-brief-analyst / od-ppt-composer declare template injection -- the Launch step below needs a real template_id (chosen from this list) or it fails immediately with \"missing_template_context\". This is the theme-selection step."
+              },
+              "response": []
+            },
+            {
+              "name": "4. Launch  (the prompt lives in the \"message\" field of this request's body)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"pipeline_type\": \"od_ppt\",\n  \"message\": \"Create a 10-slide investor pitch deck for a B2B SaaS analytics startup, covering problem, solution, market size, product, traction, and ask.\",\n  \"template_id\": \"guizang-ppt\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('runId_ppt', body.run_id);",
+                      "    console.log('PPT (od_ppt) -> run_id', body.run_id);",
+                      "} else {",
+                      "    console.error('launch failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5. Watch Events (SSE) \u2014 part 1, until clarify  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_ppt}}/events/stream",
+                "description": "Attaches to the live stream right after launch. Every pipeline here has clarify.mode: auto, so it ALWAYS pauses at questionnaire_ready (after workflow_validated -> planner_start -> planner_complete -> gate_status) before any agent runs. This request stays open/blocked until you stop it -- verified live that answering too early (before this pause is actually armed) is silently dropped, so you must let this request reach questionnaire_ready first. In the Postman app: watch it arrive, then cancel this request and move to the next one. Running via Newman: pass --timeout-request 10000 (or similar) so it's aborted automatically once the pause has had time to arm -- that's expected, not a bug."
+              },
+              "response": []
+            },
+            {
+              "name": "6. Submit Clarify Answers",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_ppt}}/answers",
+                "description": "Send this only AFTER questionnaire_ready has actually arrived on the stream above (or after that request's timeout, which gives it enough time to arm) -- answering earlier is silently dropped, verified live.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "7. Watch Events (SSE) \u2014 part 2, until completion  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_ppt}}/events/stream",
+                "description": "Re-attaches AFTER answering. A fresh GET replays everything durable from the start (so you still see workflow_validated through questionnaire_complete), then continues live through agent execution to a terminal event (pipeline_complete/pipeline_failed/pipeline_cancelled/budget_aborted/error). od-ppt-brief-analyst -> od-ppt-composer -> od-ppt-validator run in this window. The real deliverable is a self-contained HTML deck (Get Artifacts below) -- NOT a real .pptx."
+              },
+              "response": []
+            },
+            {
+              "name": "8. Resolve Gate (approve / reject / redo / update_specs)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_ppt}}/gate",
+                "description": "Only send this if part 2's stream paused on a review_gate_ready event (Human_Gate agents) instead of reaching a terminal event.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"gate_key\": \"<gate_key from the review_gate_ready event>\",\n  \"action\": \"approve\",\n  \"approved\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "9. Get Run",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_ppt}}"
+              },
+              "response": []
+            },
+            {
+              "name": "10. Get Durable Events (history poll)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_ppt}}/events?after=0",
+                "description": "Distinct from the live SSE stream above \u2014 a plain GET returning the durable event log so far. Useful to confirm what actually happened even if a Watch request above timed out."
+              },
+              "response": []
+            },
+            {
+              "name": "11. Get Artifacts",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_ppt}}/artifacts?include=content"
+              },
+              "response": []
+            },
+            {
+              "name": "12. (Optional) Create Revision",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_ppt}}/revisions",
+                "description": "Chains a child revision run off {{runId_ppt}} \u2014 send this AFTER the run above has completed.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_artifact_type\": \"ppt\",\n  \"instruction\": \"Make the traction slide more data-heavy with a growth chart callout.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "Must use pipeline_type \"od_ppt\", not the bare \"ppt\" alias. Starts with picking a real template_id (the \"theme\") from Discovery before Launch. od_ppt has no default Human_Gate agents today, so Resolve Gate is kept only for completeness."
+        },
+        {
+          "name": "Prototype (od_prototype)",
+          "item": [
+            {
+              "name": "1. Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/auth/login",
+                "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) \u2014 safe to re-run from any folder.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('jwt', body.token);",
+                      "    console.log('logged in as', body.user.email);",
+                      "} else {",
+                      "    console.error('login failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Discovery \u2014 Agents in this pipeline",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/agents/pipelines/prototype"
+              },
+              "response": []
+            },
+            {
+              "name": "3. Discovery \u2014 Available templates \u2014 pick a real template_id",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/prototype/templates"
+              },
+              "response": []
+            },
+            {
+              "name": "4. Discovery \u2014 One template's detail",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/prototype/templates/saas-landing"
+              },
+              "response": []
+            },
+            {
+              "name": "5. Discovery \u2014 Available design systems \u2014 pick a real design_system_id / theme",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/prototype/design-systems",
+                "description": "Note: \"linear\" (used elsewhere in this repo) is stale -- the real id is \"linear-app\". This is the theme-selection step."
+              },
+              "response": []
+            },
+            {
+              "name": "6. Launch  (the prompt lives in the \"message\" field of this request's body)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"pipeline_type\": \"od_prototype\",\n  \"message\": \"Build a focused landing page for an AI code review tool aimed at engineering managers.\",\n  \"template_id\": \"saas-landing\",\n  \"design_system_id\": \"linear-app\",\n  \"discovery\": {\n    \"audience\": \"engineering managers\",\n    \"cta\": \"Start free trial\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('runId_prototype', body.run_id);",
+                      "    console.log('Prototype (od_prototype) -> run_id', body.run_id);",
+                      "} else {",
+                      "    console.error('launch failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "7. Watch Events (SSE) \u2014 part 1, until clarify  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_prototype}}/events/stream",
+                "description": "Attaches to the live stream right after launch. Every pipeline here has clarify.mode: auto, so it ALWAYS pauses at questionnaire_ready (after workflow_validated -> planner_start -> planner_complete -> gate_status) before any agent runs. This request stays open/blocked until you stop it -- verified live that answering too early (before this pause is actually armed) is silently dropped, so you must let this request reach questionnaire_ready first. In the Postman app: watch it arrive, then cancel this request and move to the next one. Running via Newman: pass --timeout-request 10000 (or similar) so it's aborted automatically once the pause has had time to arm -- that's expected, not a bug."
+              },
+              "response": []
+            },
+            {
+              "name": "8. Submit Clarify Answers",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_prototype}}/answers",
+                "description": "Send this only AFTER questionnaire_ready has actually arrived on the stream above (or after that request's timeout, which gives it enough time to arm) -- answering earlier is silently dropped, verified live.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "9. Watch Events (SSE) \u2014 part 2, until completion  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_prototype}}/events/stream",
+                "description": "Re-attaches AFTER answering. A fresh GET replays everything durable from the start (so you still see workflow_validated through questionnaire_complete), then continues live through agent execution to a terminal event (pipeline_complete/pipeline_failed/pipeline_cancelled/budget_aborted/error). prototype-specify -> prototype-plan -> prototype-analyze -> prototype-build (per-task sub-agents) -> prototype-validate run in this window. prototype-specify/plan are default Human_Gate agents -- may pause on review_gate_ready instead of a terminal event."
+              },
+              "response": []
+            },
+            {
+              "name": "10. Resolve Gate (approve / reject / redo / update_specs)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_prototype}}/gate",
+                "description": "Only send this if part 2's stream paused on a review_gate_ready event (Human_Gate agents) instead of reaching a terminal event.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"gate_key\": \"prototype-specify\",\n  \"action\": \"approve\",\n  \"approved\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "11. Get Run",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_prototype}}"
+              },
+              "response": []
+            },
+            {
+              "name": "12. Get Durable Events (history poll)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_prototype}}/events?after=0",
+                "description": "Distinct from the live SSE stream above \u2014 a plain GET returning the durable event log so far. Useful to confirm what actually happened even if a Watch request above timed out."
+              },
+              "response": []
+            },
+            {
+              "name": "13. Get Artifacts",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_prototype}}/artifacts?include=content"
+              },
+              "response": []
+            },
+            {
+              "name": "14. (Optional) Create Revision",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_prototype}}/revisions",
+                "description": "Chains a child revision run off {{runId_prototype}} \u2014 send this AFTER the run above has completed.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_artifact_type\": \"prototype\",\n  \"instruction\": \"Add a pricing section with three tiers below the hero.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "Must use pipeline_type \"od_prototype\", not the bare \"prototype\" alias. Starts with picking a real template_id AND design_system_id (the \"theme\") from Discovery before Launch."
+        },
+        {
+          "name": "App Builder",
+          "item": [
+            {
+              "name": "1. Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/auth/login",
+                "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) \u2014 safe to re-run from any folder.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('jwt', body.token);",
+                      "    console.log('logged in as', body.user.email);",
+                      "} else {",
+                      "    console.error('login failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Discovery \u2014 All 15 agents in this pipeline, in order",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/agents/pipelines/app_builder"
+              },
+              "response": []
+            },
+            {
+              "name": "3. Launch  (the prompt lives in the \"message\" field of this request's body)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"pipeline_type\": \"app_builder\",\n  \"message\": \"Build a small internal expense-tracking app: employees submit expenses with receipts, managers approve or reject them, finance exports approved expenses to CSV.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('runId_appBuilder', body.run_id);",
+                      "    console.log('App Builder -> run_id', body.run_id);",
+                      "} else {",
+                      "    console.error('launch failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "4. Watch Events (SSE) \u2014 part 1, until clarify  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_appBuilder}}/events/stream",
+                "description": "Attaches to the live stream right after launch. Every pipeline here has clarify.mode: auto, so it ALWAYS pauses at questionnaire_ready (after workflow_validated -> planner_start -> planner_complete -> gate_status) before any agent runs. This request stays open/blocked until you stop it -- verified live that answering too early (before this pause is actually armed) is silently dropped, so you must let this request reach questionnaire_ready first. In the Postman app: watch it arrive, then cancel this request and move to the next one. Running via Newman: pass --timeout-request 10000 (or similar) so it's aborted automatically once the pause has had time to arm -- that's expected, not a bug."
+              },
+              "response": []
+            },
+            {
+              "name": "5. Submit Clarify Answers",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_appBuilder}}/answers",
+                "description": "Send this only AFTER questionnaire_ready has actually arrived on the stream above (or after that request's timeout, which gives it enough time to arm) -- answering earlier is silently dropped, verified live.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "6. Watch Events (SSE) \u2014 part 2, until completion  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_appBuilder}}/events/stream",
+                "description": "Re-attaches AFTER answering. A fresh GET replays everything durable from the start (so you still see workflow_validated through questionnaire_complete), then continues live through agent execution to a terminal event (pipeline_complete/pipeline_failed/pipeline_cancelled/budget_aborted/error). 15 agents run in this window (material-analyzer -> app-user-stories -> ... -- see Discovery above for the full ordered list). Large pipeline -- expect a long-running stream once agents start."
+              },
+              "response": []
+            },
+            {
+              "name": "7. Get Run",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_appBuilder}}"
+              },
+              "response": []
+            },
+            {
+              "name": "8. Get Durable Events (history poll)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_appBuilder}}/events?after=0",
+                "description": "Distinct from the live SSE stream above \u2014 a plain GET returning the durable event log so far. Useful to confirm what actually happened even if a Watch request above timed out."
+              },
+              "response": []
+            },
+            {
+              "name": "9. Get Artifacts",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_appBuilder}}/artifacts?include=content"
+              },
+              "response": []
+            },
+            {
+              "name": "10. (Optional) Create Revision",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_appBuilder}}/revisions",
+                "description": "Chains a child revision run off {{runId_appBuilder}} \u2014 send this AFTER the run above has completed.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_artifact_type\": \"app_builder\",\n  \"instruction\": \"Add a monthly spend-by-category report for finance.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "15-agent full-stack app pipeline. Fully self-contained \u2014 run top to bottom."
+        },
+        {
+          "name": "Dotnet to Azure",
+          "item": [
+            {
+              "name": "1. Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/auth/login",
+                "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) \u2014 safe to re-run from any folder.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('jwt', body.token);",
+                      "    console.log('logged in as', body.user.email);",
+                      "} else {",
+                      "    console.error('login failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Discovery \u2014 All agents in this pipeline, in order",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/agents/pipelines/dotnet_to_azure"
+              },
+              "response": []
+            },
+            {
+              "name": "3. Launch  (the prompt lives in the \"message\" field of this request's body)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"pipeline_type\": \"dotnet_to_azure\",\n  \"message\": \"Modernize a monolithic .NET Framework 4.8 web app (Web Forms + SQL Server on a VM) that manages customer support tickets, moving it to .NET 8 on Azure App Service with Azure SQL.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('runId_dotnetToAzure', body.run_id);",
+                      "    console.log('Dotnet to Azure -> run_id', body.run_id);",
+                      "} else {",
+                      "    console.error('launch failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "4. Watch Events (SSE) \u2014 part 1, until clarify  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_dotnetToAzure}}/events/stream",
+                "description": "Attaches to the live stream right after launch. Every pipeline here has clarify.mode: auto, so it ALWAYS pauses at questionnaire_ready (after workflow_validated -> planner_start -> planner_complete -> gate_status) before any agent runs. This request stays open/blocked until you stop it -- verified live that answering too early (before this pause is actually armed) is silently dropped, so you must let this request reach questionnaire_ready first. In the Postman app: watch it arrive, then cancel this request and move to the next one. Running via Newman: pass --timeout-request 10000 (or similar) so it's aborted automatically once the pause has had time to arm -- that's expected, not a bug."
+              },
+              "response": []
+            },
+            {
+              "name": "5. Submit Clarify Answers",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_dotnetToAzure}}/answers",
+                "description": "Send this only AFTER questionnaire_ready has actually arrived on the stream above (or after that request's timeout, which gives it enough time to arm) -- answering earlier is silently dropped, verified live.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "6. Watch Events (SSE) \u2014 part 2, until completion  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_dotnetToAzure}}/events/stream",
+                "description": "Re-attaches AFTER answering. A fresh GET replays everything durable from the start (so you still see workflow_validated through questionnaire_complete), then continues live through agent execution to a terminal event (pipeline_complete/pipeline_failed/pipeline_cancelled/budget_aborted/error). 13 agents run in this window (dotnet-inventory -> dotnet-user-stories -> dotnet-azure-target-mapping -> ... -- see Discovery above for the full ordered list)."
+              },
+              "response": []
+            },
+            {
+              "name": "7. Get Run",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_dotnetToAzure}}"
+              },
+              "response": []
+            },
+            {
+              "name": "8. Get Durable Events (history poll)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_dotnetToAzure}}/events?after=0",
+                "description": "Distinct from the live SSE stream above \u2014 a plain GET returning the durable event log so far. Useful to confirm what actually happened even if a Watch request above timed out."
+              },
+              "response": []
+            },
+            {
+              "name": "9. Get Artifacts",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_dotnetToAzure}}/artifacts?include=content"
+              },
+              "response": []
+            },
+            {
+              "name": "10. (Optional) Create Revision",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_dotnetToAzure}}/revisions",
+                "description": "Chains a child revision run off {{runId_dotnetToAzure}} \u2014 send this AFTER the run above has completed.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_artifact_type\": \"dotnet_to_azure\",\n  \"instruction\": \"Use Azure Key Vault for the connection string instead of appsettings.json.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "13-agent modernization pipeline. Fully self-contained \u2014 run top to bottom."
+        },
+        {
+          "name": "Mulesoft to Springboot",
+          "item": [
+            {
+              "name": "1. Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/auth/login",
+                "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) \u2014 safe to re-run from any folder.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('jwt', body.token);",
+                      "    console.log('logged in as', body.user.email);",
+                      "} else {",
+                      "    console.error('login failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Discovery \u2014 All agents in this pipeline, in order",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/agents/pipelines/mulesoft_to_springboot"
+              },
+              "response": []
+            },
+            {
+              "name": "3. Launch  (the prompt lives in the \"message\" field of this request's body)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"pipeline_type\": \"mulesoft_to_springboot\",\n  \"message\": \"Migrate a MuleSoft integration app that syncs orders between Salesforce and an internal SAP system via a REST API and a scheduled batch job, to Spring Boot on our own infrastructure.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('runId_mulesoft', body.run_id);",
+                      "    console.log('Mulesoft to Springboot -> run_id', body.run_id);",
+                      "} else {",
+                      "    console.error('launch failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "4. Watch Events (SSE) \u2014 part 1, until clarify  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_mulesoft}}/events/stream",
+                "description": "Attaches to the live stream right after launch. Every pipeline here has clarify.mode: auto, so it ALWAYS pauses at questionnaire_ready (after workflow_validated -> planner_start -> planner_complete -> gate_status) before any agent runs. This request stays open/blocked until you stop it -- verified live that answering too early (before this pause is actually armed) is silently dropped, so you must let this request reach questionnaire_ready first. In the Postman app: watch it arrive, then cancel this request and move to the next one. Running via Newman: pass --timeout-request 10000 (or similar) so it's aborted automatically once the pause has had time to arm -- that's expected, not a bug."
+              },
+              "response": []
+            },
+            {
+              "name": "5. Submit Clarify Answers",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_mulesoft}}/answers",
+                "description": "Send this only AFTER questionnaire_ready has actually arrived on the stream above (or after that request's timeout, which gives it enough time to arm) -- answering earlier is silently dropped, verified live.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "6. Watch Events (SSE) \u2014 part 2, until completion  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_mulesoft}}/events/stream",
+                "description": "Re-attaches AFTER answering. A fresh GET replays everything durable from the start (so you still see workflow_validated through questionnaire_complete), then continues live through agent execution to a terminal event (pipeline_complete/pipeline_failed/pipeline_cancelled/budget_aborted/error). 13 agents run in this window (mulesoft-inventory -> mulesoft-user-stories -> mulesoft-decomposition -> ... -- see Discovery above for the full ordered list)."
+              },
+              "response": []
+            },
+            {
+              "name": "7. Get Run",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_mulesoft}}"
+              },
+              "response": []
+            },
+            {
+              "name": "8. Get Durable Events (history poll)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_mulesoft}}/events?after=0",
+                "description": "Distinct from the live SSE stream above \u2014 a plain GET returning the durable event log so far. Useful to confirm what actually happened even if a Watch request above timed out."
+              },
+              "response": []
+            },
+            {
+              "name": "9. Get Artifacts",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_mulesoft}}/artifacts?include=content"
+              },
+              "response": []
+            },
+            {
+              "name": "10. (Optional) Create Revision",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_mulesoft}}/revisions",
+                "description": "Chains a child revision run off {{runId_mulesoft}} \u2014 send this AFTER the run above has completed.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_artifact_type\": \"mulesoft_to_springboot\",\n  \"instruction\": \"Add retry-with-backoff around the SAP call in the scaffolded scheduler.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "13-agent migration pipeline. Fully self-contained \u2014 run top to bottom."
+        },
+        {
+          "name": "Custom",
+          "item": [
+            {
+              "name": "1. Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/auth/login",
+                "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) \u2014 safe to re-run from any folder.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('jwt', body.token);",
+                      "    console.log('logged in as', body.user.email);",
+                      "} else {",
+                      "    console.error('login failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Discovery \u2014 Full agent library (flat, across all pipelines)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/agents/library"
+              },
+              "response": []
+            },
+            {
+              "name": "3. Discovery \u2014 Custom-utility agent pool specifically",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/agents/pipelines/custom"
+              },
+              "response": []
+            },
+            {
+              "name": "4a. Launch \u2014 Example A (custom pool: market-research, swot, roadmap)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"pipeline_type\": \"custom\",\n  \"message\": \"Research the competitive landscape for AI-assisted code review tools and produce a SWOT analysis with a prioritized roadmap.\",\n  \"agent_ids\": [\n    \"market-research-agent\",\n    \"swot-analyst\",\n    \"roadmap-planner\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('runId_customA', body.run_id);",
+                      "    console.log('custom (A) -> run_id', body.run_id);",
+                      "} else {",
+                      "    console.error('launch failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5a. Watch Events (SSE) \u2014 Example A, part 1, until clarify  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_customA}}/events/stream",
+                "description": "Attaches to the live stream right after launch. Every pipeline here has clarify.mode: auto, so it ALWAYS pauses at questionnaire_ready (after workflow_validated -> planner_start -> planner_complete -> gate_status) before any agent runs. This request stays open/blocked until you stop it -- verified live that answering too early (before this pause is actually armed) is silently dropped, so you must let this request reach questionnaire_ready first. In the Postman app: watch it arrive, then cancel this request and move to the next one. Running via Newman: pass --timeout-request 10000 (or similar) so it's aborted automatically once the pause has had time to arm -- that's expected, not a bug."
+              },
+              "response": []
+            },
+            {
+              "name": "6a. Submit Clarify Answers \u2014 Example A",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_customA}}/answers",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "7a. Watch Events (SSE) \u2014 Example A, part 2, until completion  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_customA}}/events/stream",
+                "description": "Re-attaches AFTER answering. A fresh GET replays everything durable from the start (so you still see workflow_validated through questionnaire_complete), then continues live through agent execution to a terminal event (pipeline_complete/pipeline_failed/pipeline_cancelled/budget_aborted/error). market-research-agent -> swot-analyst -> roadmap-planner run in this window."
+              },
+              "response": []
+            },
+            {
+              "name": "8a. Get Run \u2014 Example A",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_customA}}"
+              },
+              "response": []
+            },
+            {
+              "name": "9a. Get Artifacts \u2014 Example A",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_customA}}/artifacts?include=content"
+              },
+              "response": []
+            },
+            {
+              "name": "4b. Launch \u2014 Example B (user_stories + cross-pipeline agent splice)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs",
+                "description": "agent_ids must keep the full dependency chain intact -- dropping nfr-specialist/backlog-reviewer 422s with \"workflow_unsatisfiable\" since backlog-compiler consumes their outputs (found via live testing).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"pipeline_type\": \"user_stories\",\n  \"message\": \"Build a backlog for a personal finance budgeting app, informed by a quick competitive scan first.\",\n  \"agent_ids\": [\n    \"domain-analyst\",\n    \"market-research-agent\",\n    \"epic-architect\",\n    \"story-estimator\",\n    \"nfr-specialist\",\n    \"backlog-reviewer\",\n    \"backlog-compiler\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const body = pm.response.json();",
+                      "    pm.collectionVariables.set('runId_customB', body.run_id);",
+                      "    console.log('custom (B) -> run_id', body.run_id);",
+                      "} else {",
+                      "    console.error('launch failed', pm.response.code, pm.response.text());",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5b. Watch Events (SSE) \u2014 Example B, part 1, until clarify  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_customB}}/events/stream",
+                "description": "Attaches to the live stream right after launch. Every pipeline here has clarify.mode: auto, so it ALWAYS pauses at questionnaire_ready (after workflow_validated -> planner_start -> planner_complete -> gate_status) before any agent runs. This request stays open/blocked until you stop it -- verified live that answering too early (before this pause is actually armed) is silently dropped, so you must let this request reach questionnaire_ready first. In the Postman app: watch it arrive, then cancel this request and move to the next one. Running via Newman: pass --timeout-request 10000 (or similar) so it's aborted automatically once the pause has had time to arm -- that's expected, not a bug."
+              },
+              "response": []
+            },
+            {
+              "name": "6b. Submit Clarify Answers \u2014 Example B",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{apiRoot}}/api/runs/{{runId_customB}}/answers",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "7b. Watch Events (SSE) \u2014 Example B, part 2, until completion  \u2605 open in Postman's Stream view",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_customB}}/events/stream",
+                "description": "Re-attaches AFTER answering. A fresh GET replays everything durable from the start (so you still see workflow_validated through questionnaire_complete), then continues live through agent execution to a terminal event (pipeline_complete/pipeline_failed/pipeline_cancelled/budget_aborted/error). domain-analyst -> market-research-agent -> epic-architect -> story-estimator -> nfr-specialist -> backlog-reviewer -> backlog-compiler run in this window."
+              },
+              "response": []
+            },
+            {
+              "name": "8b. Get Run \u2014 Example B",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_customB}}"
+              },
+              "response": []
+            },
+            {
+              "name": "9b. Get Artifacts \u2014 Example B",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{apiRoot}}/api/runs/{{runId_customB}}/artifacts?include=content"
+              },
+              "response": []
+            }
+          ],
+          "description": "Open-agent / arbitrary agent composition. Two examples: (A) pipeline_type \"custom\" with explicit agent_ids from the custom pool; (B) a BASE pipeline (user_stories) with a cross-pipeline agent spliced in. Fully self-contained."
+        }
+      ],
+      "description": "Reference sub-folder plus one FULLY SELF-CONTAINED launch->watch(SSE)->answer->watch->inspect use case per pipeline -- each includes its own Login and Discovery (agent list, plus template/theme selection for PPT and Prototype) so it can be run top-to-bottom on its own, mirroring tools/api/runs/run.<pipeline>.http step for step."
+    }
+  ],
+  "variable": [
+    {
+      "key": "apiRoot",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "loginEmail",
+      "value": "qa-admin@flowinqa.com",
+      "type": "string"
+    },
+    {
+      "key": "loginPassword",
+      "value": "flowin-e2e-pass",
+      "type": "string"
+    },
+    {
+      "key": "jwt",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runId_userStories",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runId_ppt",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runId_prototype",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runId_appBuilder",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runId_dotnetToAzure",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runId_mulesoft",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runId_customA",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runId_customB",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userWorkflowId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

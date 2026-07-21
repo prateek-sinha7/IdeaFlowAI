@@ -9,14 +9,13 @@
 #      other base pipeline's agents" for any base pipeline_type
 #      (backend/agents/registry.py:219-298).
 #
-# IMPORTANT: run_pipeline and submit_questionnaire are sent on the SAME
-# WebSocket connection below, not two separate WS requests. Verified live:
-# a pipeline paused at the clarify gate (questionnaire_ready) can be
-# cancelled by the backend if the connection that started it disconnects
-# before submit_questionnaire arrives on a new connection — the "paused
-# pipeline survives disconnect" contract has a race right at that gate.
-# Keeping one connection open for the whole run_pipeline -> clarify ->
-# agents flow avoids the race entirely.
+# NOTE: the old WebSocket run_pipeline/submit_questionnaire flow (/ws/chat) was
+# retired — the backend now launches a run over plain REST
+# (POST /api/runs) and streams its events back over SSE
+# (GET /api/runs/{id}/events/stream). The two are fully decoupled transports
+# (unlike the old WS message channel), so there's no more "must share one
+# connection" race: the launch, the SSE stream, and the clarify-answer POST
+# are three independent HTTP calls.
 # Run with: httpyac send --all -e local tools/api/runs/run.custom.http
 
 ### 1. Login
@@ -43,45 +42,60 @@ Authorization: Bearer {{jwt}}
 
 ### === Example A: pipeline_type "custom", explicit agent_ids from the custom pool ===
 
-### 4a. Run, auto-skip clarification, wait for completion — all on one connection
-WS {{wsRoot}}/ws/chat?token={{jwt}}
+### 4a. Launch, using explicit agent_ids from the custom pool
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
 
 {
-	"type": "run_pipeline",
 	"pipeline_type": "custom",
 	"message": "Research the competitive landscape for AI-assisted code review tools and produce a SWOT analysis with a prioritized roadmap.",
 	"agent_ids": ["market-research-agent", "swot-analyst", "roadmap-planner"]
 }
 
+{{
+	exports.pipelineRunIdA = response.parsedBody.run_id;
+	console.log('launched run A', exports.pipelineRunIdA);
+}}
+
+### 4a-2. Stream events over SSE, auto-skip clarification, wait for completion
+SSE {{apiRoot}}/api/runs/{{pipelineRunIdA}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
 {{@streaming
 	await new Promise((resolve) => {
 		let done = false;
-		let pipelineRunId = null;
+		let answered = false;
 		const finish = () => { if (!done) { done = true; resolve(); } };
-		$requestClient.nativeClient.on('message', (raw) => {
-			let data; try { data = JSON.parse(raw.toString()); } catch { data = null; }
+		$requestClient.addEventListener('message', async (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') {
+				console.error('SSE error', msg && msg.body);
+				finish();
+				return;
+			}
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
 			if (!data) return;
-			console.log('WS <-', data.type);
-			const runId = data.data && data.data.pipeline_run_id;
-			if (runId && !pipelineRunId) {
-				pipelineRunId = runId;
-				exports.pipelineRunIdA = runId;
-			}
-			if (data.type === 'questionnaire_ready') {
+			console.log('SSE <-', data.type);
+			if (data.type === 'questionnaire_ready' && !answered) {
+				answered = true;
 				console.log('-> auto-answering clarify gate with skip_clarification: true');
-				$requestClient.nativeClient.send(JSON.stringify({
-					type: 'submit_questionnaire',
-					pipeline_run_id: pipelineRunId,
-					responses: [],
-					skip_clarification: true,
-				}));
+				try {
+					await fetch(`${apiRoot}/api/runs/${pipelineRunIdA}/answers`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+						body: JSON.stringify({ responses: [], skip_clarification: true }),
+					});
+				} catch (e) {
+					console.error('POST /answers failed', e);
+				}
 			}
-			if (['pipeline_complete', 'pipeline_failed', 'pipeline_cancelled', 'error'].includes(data.type)) {
+			if (['pipeline_complete', 'pipeline_failed', 'pipeline_cancelled', 'budget_aborted', 'error'].includes(data.type)) {
 				finish();
 			}
 		});
-		$requestClient.nativeClient.on('close', finish);
-		$requestClient.nativeClient.on('error', finish);
+		$requestClient.addEventListener('disconnect', finish);
 		setTimeout(finish, 15 * 60 * 1000);
 	});
 }}
@@ -114,49 +128,70 @@ Authorization: Bearer {{jwt}}
 
 ### === Example B: base pipeline "user_stories" with a cross-pipeline agent spliced in ===
 
-### 4b. Run user_stories but insert market-research-agent (from the custom pool)
-# between domain-analyst and epic-architect, auto-skip clarification, wait
-# for completion — all on one connection. Demonstrates that agent_ids can
-# reorder/subset/extend a base pipeline's own agents with agents from
-# elsewhere, not just the custom pool's own agent set.
-WS {{wsRoot}}/ws/chat?token={{jwt}}
+### 4b. Launch user_stories but insert market-research-agent (from the custom pool)
+# between domain-analyst and epic-architect. Demonstrates that agent_ids can
+# extend a base pipeline's own agents with an agent from elsewhere, not just
+# the custom pool's own agent set.
+# NOTE: agent_ids must keep the full dependency chain intact -- the backend
+# validates the resulting workflow as a DAG (POST /api/runs, "Workflow DAG is
+# unsatisfiable") and rejects it with 422 if a consumer agent (here,
+# backlog-compiler, which consumes nfr-specialist's and backlog-reviewer's
+# outputs) is kept while a producer it depends on is dropped. Verified live:
+# omitting nfr-specialist/backlog-reviewer here 422s with code
+# "workflow_unsatisfiable" even though every agent_id itself is valid.
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
 
 {
-	"type": "run_pipeline",
 	"pipeline_type": "user_stories",
 	"message": "Build a backlog for a personal finance budgeting app, informed by a quick competitive scan first.",
-	"agent_ids": ["domain-analyst", "market-research-agent", "epic-architect", "story-estimator", "backlog-compiler"]
+	"agent_ids": ["domain-analyst", "market-research-agent", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"]
 }
+
+{{
+	exports.pipelineRunIdB = response.parsedBody.run_id;
+	console.log('launched run B', exports.pipelineRunIdB);
+}}
+
+### 4b-2. Stream events over SSE, auto-skip clarification, wait for completion
+SSE {{apiRoot}}/api/runs/{{pipelineRunIdB}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
 
 {{@streaming
 	await new Promise((resolve) => {
 		let done = false;
-		let pipelineRunId = null;
+		let answered = false;
 		const finish = () => { if (!done) { done = true; resolve(); } };
-		$requestClient.nativeClient.on('message', (raw) => {
-			let data; try { data = JSON.parse(raw.toString()); } catch { data = null; }
+		$requestClient.addEventListener('message', async (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') {
+				console.error('SSE error', msg && msg.body);
+				finish();
+				return;
+			}
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
 			if (!data) return;
-			console.log('WS <-', data.type);
-			const runId = data.data && data.data.pipeline_run_id;
-			if (runId && !pipelineRunId) {
-				pipelineRunId = runId;
-				exports.pipelineRunIdB = runId;
-			}
-			if (data.type === 'questionnaire_ready') {
+			console.log('SSE <-', data.type);
+			if (data.type === 'questionnaire_ready' && !answered) {
+				answered = true;
 				console.log('-> auto-answering clarify gate with skip_clarification: true');
-				$requestClient.nativeClient.send(JSON.stringify({
-					type: 'submit_questionnaire',
-					pipeline_run_id: pipelineRunId,
-					responses: [],
-					skip_clarification: true,
-				}));
+				try {
+					await fetch(`${apiRoot}/api/runs/${pipelineRunIdB}/answers`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+						body: JSON.stringify({ responses: [], skip_clarification: true }),
+					});
+				} catch (e) {
+					console.error('POST /answers failed', e);
+				}
 			}
-			if (['pipeline_complete', 'pipeline_failed', 'pipeline_cancelled', 'error'].includes(data.type)) {
+			if (['pipeline_complete', 'pipeline_failed', 'pipeline_cancelled', 'budget_aborted', 'error'].includes(data.type)) {
 				finish();
 			}
 		});
-		$requestClient.nativeClient.on('close', finish);
-		$requestClient.nativeClient.on('error', finish);
+		$requestClient.addEventListener('disconnect', finish);
 		setTimeout(finish, 15 * 60 * 1000);
 	});
 }}

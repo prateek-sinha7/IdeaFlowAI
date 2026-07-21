@@ -1,17 +1,26 @@
 # Integration tests: pipelines end-to-end via the backend API
 
 Each `*.run.http` file in this folder is an end-to-end integration test for
-one pipeline type — login, discovery, `run_pipeline`, clarification, agent
-execution, and result inspection, driven entirely through the backend's real
-API surface (no frontend, no mocks). They're built for
+one pipeline type — login, discovery, launch, clarification, agent execution,
+and result inspection, driven entirely through the backend's real API surface
+(no frontend, no mocks). They're built for
 **[httpyac](https://httpyac.github.io/)**, not the REST Client VS Code
-extension used by `tools/api/endpoints/` — because starting a pipeline run is
-a **WebSocket** call (`ws://localhost:8000/ws/chat`), and REST Client cannot
-execute those. httpyac uses the same `.http` syntax plus a `WS` method and
-inline scripting, so one file can do REST + WebSocket + variable-passing
-together — and, unlike a one-off manual request, each file runs the same
-scripted assertions (status codes, event-type checks, artifact presence)
-every time, so a broken pipeline fails loudly instead of silently.
+extension used by `tools/api/endpoints/` — because a pipeline's live progress
+streams back over **SSE** (`GET /api/runs/{id}/events/stream`,
+`text/event-stream`), and REST Client cannot consume that. httpyac uses the
+same `.http` syntax plus an `SSE` method and inline scripting, so one file can
+do REST + SSE + variable-passing together — and, unlike a one-off manual
+request, each file runs the same scripted assertions (status codes,
+event-type checks, artifact presence) every time, so a broken pipeline fails
+loudly instead of silently.
+
+> **Migration note:** this folder originally used a WebSocket
+> (`ws://localhost:8000/ws/chat`) for both launching a run and receiving its
+> events, with a `WS` method. The backend has since retired `/ws/chat`
+> entirely in favor of REST + SSE (launch is `POST /api/runs`; live events are
+> `GET /api/runs/{id}/events/stream`; clarify/gate/revision are their own
+> REST POSTs). All files below reflect the current REST + SSE contract — see
+> "Findings from live verification" for what changed and why.
 
 This folder's output is split from its inputs: the `.run.http` test
 definitions live here directly; everything they generate — run transcripts in
@@ -20,6 +29,12 @@ checked in.
 
 See [`PLAN.md`](./PLAN.md) for the full design rationale and the research
 this was built from.
+
+**Prefer clicking through Postman instead?** See
+[`../postman/README.md`](../postman/README.md) — a Postman collection
+covering the same login → discovery → launch → SSE stream → clarify →
+inspect flow, worth it specifically because Postman renders `text/event-stream`
+as a live scrolling timeline rather than one static blob.
 
 ## Prereqs
 
@@ -44,11 +59,13 @@ if you want more control.
 `local` environment logs in as. Agent steps also need real LLM access
 (`ANTHROPIC_API_KEY` or AWS Bedrock credentials in `backend/.env`) to
 progress past the clarification gate — without it, every file still exercises
-login, the WebSocket handshake, `run_pipeline`, and the clarify round; agent
-execution itself will error with a provider auth error, which is a backend
-credentials issue, not a problem with these files.
+login, the SSE handshake, the launch, and the clarify round; agent execution
+itself will error with a provider auth error, which is a backend credentials
+issue, not a problem with these files.
 
 ## Running a file
+
+Either directly with httpyac:
 
 ```bash
 httpyac send --all -e local tools/api/runs/run.user_stories.http
@@ -59,73 +76,104 @@ one"). `-e local` selects the `local` environment from `http-client.env.json`.
 In VS Code with the httpyac extension, use the "Send Request" / "Send All"
 CodeLens above each `###` block instead.
 
+Or with the `run-http.sh` wrapper, which also captures a full transcript log
+and prints where the saved deliverable(s) landed:
+
+```bash
+./run-http.sh user_stories   # or: ppt, prototype, app_builder,
+                              #     dotnet_to_azure, mulesoft_to_springboot, custom
+```
+
+This runs `run.<pipeline>.http --all -e local`, tees the entire transcript to
+`logs/<pipeline>/<timestamp>.log`, and exports `RUN_TIMESTAMP` (used by
+`run.ppt.http`'s deliverable-save step, since a single ppt run can produce
+many differently-named decks). It first checks the backend is reachable
+(`http://localhost:8000/health`) and that `httpyac` is installed, failing
+fast with a clear message if either isn't true.
+
 ## How each file is structured
 
 1. **Login** (`POST /api/auth/login`) — captures `{{jwt}}` via a post-response
    script (`exports.jwt = response.parsedBody.token`) for every later request.
 2. **Discovery** (REST GETs) — lists the pipeline's agents / valid inputs
    (e.g. `run.prototype.http` lists real `template_id`/`design_system_id`
-   values) so you can see what the WS payload below is choosing from.
-3. **Run the pipeline** — `WS {{wsRoot}}/ws/chat?token={{jwt}}` sending a
-   `run_pipeline` message. Every pipeline here has `clarify.mode: auto`
-   (confirmed by reading each `agents/workflows/<id>/workflow.yaml`), so the
-   run **always pauses at a `questionnaire_ready` clarification gate**
-   before any agent runs — verified live against this backend. A
-   `{{@streaming}}` script listens on the raw WebSocket, logs every event
-   type, and captures `pipeline_run_id` the moment it appears in any event's
-   `data`.
-4. **Skip clarification and let it run** — a second `WS` request sends
-   `submit_questionnaire` with `skip_clarification: true` and the captured
-   `pipeline_run_id`, then streams events until a terminal one arrives
-   (`pipeline_complete`/`pipeline_failed`/`pipeline_cancelled`/`error`) or a
-   30-minute safety timeout.
+   values) so you can see what the launch payload below is choosing from.
+3. **Launch** — `POST /api/runs` with the pipeline's payload
+   (`pipeline_type`, `message`, and any pipeline-specific fields like
+   `template_id`). The response body is `{"run_id": "..."}` — captured
+   directly into `{{pipelineRunId}}`, no event-sniffing needed.
+4. **Stream events over SSE** — `GET /api/runs/{{pipelineRunId}}/events/stream`
+   with a normal `Authorization: Bearer {{jwt}}` header. Every pipeline here
+   has `clarify.mode: auto` (confirmed by reading each
+   `agents/workflows/<id>/workflow.yaml`), so the run **always pauses at a
+   `questionnaire_ready` clarification gate** before any agent runs —
+   verified live against this backend. A `{{@streaming}}` script listens on
+   the SSE stream, logs every event type, and on `questionnaire_ready` fires
+   a separate `POST /api/runs/{{pipelineRunId}}/answers` (via the script
+   sandbox's global `fetch`, since SSE is receive-only) with
+   `skip_clarification: true`. It resolves on a terminal event
+   (`pipeline_complete`/`pipeline_failed`/`pipeline_cancelled`/
+   `budget_aborted`/`error`) or a safety timeout.
 5. **Inspect the result** (REST GETs) — `/api/runs/{{pipelineRunId}}`,
-   `/events`, `/artifacts?include=content`.
-6. **Optional revision** — a commented-out block showing the matching
-   `run_revision` WS message chained off the run this file just produced.
+   `/events` (durable history poll — distinct from the live
+   `/events/stream` SSE endpoint), `/artifacts?include=content`.
+6. **Optional revision** — a commented-out block showing
+   `POST /api/runs/{{pipelineRunId}}/revisions` chained off the run this file
+   just produced.
 
-## Auth note: WebSocket via `?token=` query param
+## Auth note: SSE uses a normal `Authorization` header
 
-The backend's primary WS auth is
-`Sec-WebSocket-Protocol: bearer.<jwt>, flowin.v1` — but httpyac's underlying
-`ws` client rejects a manually-set `Sec-WebSocket-Protocol` header once the
-server echoes a subprotocol back ("Server sent a subprotocol but none was
-requested"), because `ws` expects protocols to be requested through its own
-client-options API, not a raw header. The backend also accepts a documented,
-deprecated `?token=<jwt>` query param specifically as a one-release fallback
-(`backend/app/api/websocket.py`) — these files use that, verified working
-end-to-end against a live backend. It logs a deprecation warning server-side;
-that's expected and harmless for local testing.
+Unlike the retired WS transport (which needed a `?token=` query-param
+workaround because of an `Sec-WebSocket-Protocol` limitation in httpyac's
+underlying `ws` client — see git history if curious), the SSE endpoint is
+just another authenticated REST call: a normal
+`Authorization: Bearer {{jwt}}` header, no query-param fallback needed. The
+frontend itself can't use the browser's native `EventSource` for the same
+reason (it can't set custom headers) — it uses `fetch` + a `ReadableStream`
+reader instead (`frontend/src/hooks/useRunStream.ts`).
 
 ## Streaming script pattern
 
-Every WS block in these files uses the same shape:
+Every SSE block in these files uses the same shape:
 
 ```js
 {{@streaming
   await new Promise((resolve) => {
     let done = false;
+    let answered = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
-    $requestClient.nativeClient.on('message', (raw) => {
-      let data; try { data = JSON.parse(raw.toString()); } catch { data = null; }
+    $requestClient.on('message', async (msg) => {
+      let data; try { data = JSON.parse(msg.data); } catch { data = null; }
       if (!data) return;
-      console.log('WS <-', data.type);
-      const runId = data.data && data.data.pipeline_run_id;
-      if (runId && !exports.pipelineRunId) exports.pipelineRunId = runId;
-      if (["questionnaire_ready", "pipeline_complete", "pipeline_failed", "pipeline_cancelled", "error"].includes(data.type)) {
+      console.log('SSE <-', data.type);
+      if (data.type === 'questionnaire_ready' && !answered) {
+        answered = true;
+        await fetch(`${apiRoot}/api/runs/${pipelineRunId}/answers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+          body: JSON.stringify({ responses: [], skip_clarification: true }),
+        });
+      }
+      if (["pipeline_complete", "pipeline_failed", "pipeline_cancelled", "budget_aborted", "error"].includes(data.type)) {
         finish();
       }
     });
+    $requestClient.on('error', finish);
+    $requestClient.on('close', finish);
     setTimeout(finish, 30 * 60 * 1000);
   });
 }}
 ```
 
-`$requestClient` is httpyac's live client for the current WS request;
-`.nativeClient` is the underlying `ws` `WebSocket` instance, so this listens
-to raw frames directly rather than relying on httpyac's own (whole-connection)
-response object. `exports.xxx` makes a variable available to every later
-request in the file.
+`$requestClient` is httpyac's live client for the current SSE request;
+`.on('message', ...)` fires per SSE frame, with the frame's raw `data:` line
+on `msg.data` (a JSON string: `{"type": ..., "data": {...}}`). Because SSE is
+one-way (server → client only, unlike `WS`'s bidirectional
+`$requestClient.nativeClient.send()`), the clarify-answer call is a plain
+`fetch()` POST fired from inside the message handler — `apiRoot`/`jwt` are
+available as bare variables in the script sandbox (the same environment
+bindings interpolated by `{{apiRoot}}`/`{{jwt}}` elsewhere in the file).
+`exports.xxx` makes a variable available to every later request in the file.
 
 ## Files
 
@@ -154,48 +202,57 @@ Every file in this folder was actually run against a local backend
 httpyac, not just written by inspection. That surfaced real issues that
 inspection alone wouldn't have caught:
 
+- **`/ws/chat` was retired in favor of REST + SSE.** Launching a run is now
+  `POST /api/runs` (returns `{run_id}` directly — no more sniffing the first
+  WS event for `pipeline_run_id`); live progress streams over
+  `GET /api/runs/{id}/events/stream` (SSE, `sse_starlette`), authenticated
+  with a normal `Authorization: Bearer` header — no more `?token=` query-param
+  workaround, since that was only needed to route around an `ws` client
+  limitation with `Sec-WebSocket-Protocol` headers. Clarify/gate/revision are
+  each their own REST POST (`/answers`, `/gate`, `/revisions`). This also
+  **eliminates the WS single-connection race** described further down: since
+  launch, the event stream, and the command POSTs are now decoupled
+  transports, there's no more "must keep one connection open across
+  `run_pipeline -> clarify -> agents`" constraint — a clarify answer is just
+  an independent POST fired from inside the SSE message handler, and it can't
+  race a connection close because there's no shared connection to close.
 - **`ppt`/`prototype` must use the `od_ppt`/`od_prototype` pipeline_type in
-  the WS message, not the bare alias.** The backend only loads template
-  context (`od_context`) when `pipeline_type` is exactly `"od_prototype"` or
-  `"od_ppt"` (`backend/app/api/websocket.py`, `_handle_workflow_execution`).
-  Sending `pipeline_type: "ppt"` or `"prototype"` with a valid `template_id`
-  still fails with `missing_template_context` — `template_id` is silently
-  ignored for the bare alias. The frontend always sends the `od_*` alias for
-  exactly this reason; `run.ppt.http` / `run.prototype.http` do the same.
-  REST discovery endpoints (`GET /api/agents/pipelines/...`) still use the
-  bare name (`ppt`, `prototype`) — only the WS `run_pipeline.pipeline_type`
-  needs the alias.
+  the launch payload, not the bare alias.** The backend only loads template
+  context (`od_context`) when `pipeline_type` resolves through the dedicated
+  od_* label (`backend/app/api/launch_context.py::resolve_launch_od_context`,
+  the REST-era home of this logic — previously
+  `backend/app/api/websocket.py`'s `_handle_workflow_execution`). Sending
+  `pipeline_type: "ppt"` or `"prototype"` with a valid `template_id` still
+  fails with `missing_template_context` — `template_id` is silently ignored
+  for the bare alias. The frontend always sends the `od_*` alias for exactly
+  this reason; `run.ppt.http` / `run.prototype.http` do the same. REST
+  discovery endpoints (`GET /api/agents/pipelines/...`) still use the bare
+  name (`ppt`, `prototype`) — only the launch payload's `pipeline_type` needs
+  the alias.
 - **`tools/api/endpoints/prototype.http`'s example `design_system_id: "linear"` is
   stale** — the real id in this backend's 150-design-system catalog is
   `linear-app`. `run.prototype.http` uses the correct id.
-- **The `{{@streaming}}` script must also resolve on the WS `close`/`error`
+- **The `{{@streaming}}` script must also resolve on the SSE `close`/`error`
   event, not just on a matching message type.** If the connection drops
-  before a terminal event arrives (which happens often in this environment —
-  see below), a script that only listens for `message` hangs for its full
-  timeout. Every block here also does
-  `$requestClient.nativeClient.on('close', finish)` /
-  `.on('error', finish)`.
-- **`run_pipeline` and `submit_questionnaire` must be sent on the SAME WS
-  connection, not two separate `WS` requests.** The original design used two
-  requests: one that ran `run_pipeline` and closed as soon as
-  `questionnaire_ready` arrived, and a second, fresh connection that sent
-  `submit_questionnaire`. Verified live with real Bedrock credentials: this
-  races against the backend's disconnect handling — a pipeline paused at the
-  clarify gate can get marked `"cancelled"` if the first connection closes
-  before the second connection's `submit_questionnaire` reaches it, even
-  though the backend's own design intent is for a paused pipeline to survive
-  a disconnect and resume from a new connection (`websocket.py`'s
-  `WebSocketDisconnect` handler explicitly does NOT cancel a pipeline with a
-  real `pipeline_run_id` — but something in that specific gate-pause window
-  still does). Every file here now keeps ONE connection open for the whole
-  `run_pipeline -> clarify -> agents` flow: the `{{@streaming}}` script calls
-  `$requestClient.nativeClient.send(JSON.stringify({...submit_questionnaire}))`
-  directly on `questionnaire_ready`, sidestepping the race entirely. A
-  Human_Gate review pause (`review_gate_*`, distinct from the clarify
-  questionnaire) is NOT auto-approved by this script — that's a genuine
-  human-wait, so `run.prototype.http` logs a warning and leaves a commented
-  `approve_review` block for you to send manually on a fresh connection if
-  the run pauses on one.
+  before a terminal event arrives, a script that only listens for `message`
+  hangs for its full timeout. Every block here also does
+  `$requestClient.on('close', finish)` / `.on('error', finish)`.
+- **(Historical — WS-only, no longer applicable)** The original design sent
+  `run_pipeline` and `submit_questionnaire` as two separate WS requests: one
+  that ran `run_pipeline` and closed as soon as `questionnaire_ready`
+  arrived, and a second, fresh connection that sent `submit_questionnaire`.
+  Verified live with real Bedrock credentials: this raced against the
+  backend's disconnect handling — a pipeline paused at the clarify gate could
+  get marked `"cancelled"` if the first connection closed before the second
+  connection's `submit_questionnaire` reached it. The fix at the time was
+  keeping one WS connection open for the whole `run_pipeline -> clarify ->
+  agents` flow. This entire class of bug is now moot under REST + SSE (see
+  the first bullet above) — kept here only as a record of what the old WS
+  files worked around, for anyone reading git history. A Human_Gate review
+  pause (`review_gate_ready`, distinct from the clarify questionnaire) is
+  still NOT auto-approved by these scripts — that's a genuine human-wait, so
+  `run.prototype.http` / `run.ppt.http` log a warning and leave a commented
+  `POST .../gate` block for you to send manually if the run pauses on one.
 
 - **`ppt`/`od_ppt` does NOT produce a real `.pptx`, and `POST /api/runs/export-pptx`
   does not apply to it.** The `od-ppt-brief-analyst -> od-ppt-composer ->
@@ -228,9 +285,9 @@ If a run hasn't reached `pipeline_complete` yet, there's no `deliverable`
 artifact and the script just logs that instead of writing a file — rerun
 that GET request once the pipeline finishes.
 
-Every pipeline_type here has `clarify.mode: auto`, so `run_pipeline` always
-pauses at `questionnaire_ready` before any agent runs — verified for all
-seven files. Agent execution itself could not be verified through to a real
+Every pipeline_type here has `clarify.mode: auto`, so a launch always pauses
+at `questionnaire_ready` before any agent runs — verified for all seven
+files. Agent execution itself could not be verified through to a real
 completed deliverable in this environment: the local AWS Bedrock bearer token
 had expired, so every agent call failed with `AccessDeniedException` inside
 LangChain/Bedrock. That is a local credentials issue, not a defect in these
