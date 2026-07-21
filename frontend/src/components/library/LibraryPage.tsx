@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Search, Clock, Puzzle, Webhook, X, Copy, Check,
   Tag, Zap, BookOpen, ChevronRight,
 } from "lucide-react";
 import { LIBRARY_AGENTS, CUSTOM_AGENTS } from "@/components/workflow/AgentLibraryData";
-import { AgentCapabilitiesModal } from "@/components/workflow/AgentsPopup";
+import { AgentCapabilitiesModal, type SelectionsMap } from "@/components/workflow/AgentsPopup";
 import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
 import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
@@ -354,6 +354,11 @@ export function LibraryPage() {
   const [selectedSkill, setSelectedSkill] = useState<SkillDef | null>(null);
   const [selectedHook, setSelectedHook] = useState<HookDef | null>(null);
 
+  // Persist per-agent Config-tab selections across drawer open/close cycles.
+  // Keyed by agent.id → the SelectionsMap for that agent. A useRef keeps the
+  // map stable (no re-render on save) while surviving the drawer unmount.
+  const savedSelectionsRef = useRef<Record<string, SelectionsMap>>({});
+
   const MAIN_TABS: TabItem[] = [
     { id: "agents", label: `Agents  ${ALL_AGENTS_COMBINED.length}` },
     { id: "skills", label: `Skills  ${SKILLS.length}`, icon: <Puzzle className="h-3.5 w-3.5" /> },
@@ -567,6 +572,11 @@ export function LibraryPage() {
             agentIndex={selectedAgent.index}
             onClose={() => setSelectedAgent(null)}
             asDrawer
+            initialSelections={savedSelectionsRef.current[selectedAgent.agent.id] ?? {}}
+            onSelectionsChange={(next) => {
+              // Persist the selections for this agent so reopening restores them.
+              savedSelectionsRef.current[selectedAgent.agent.id] = next;
+            }}
           />
         )}
       </AnimatePresence>

@@ -10,6 +10,23 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-082 | 2026-07-21 | Always show "Write a custom skill" button on Skills tab — remove agent.has_skill gate | The custom skill button was gated on `agent.has_skill` so it never showed for agents without the flag. Every agent should be able to get a custom skill authored. Removed the gate. Also cleaned up the dangling `)}` JSX left from the removed conditional. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-081 | 2026-07-21 | Show empty state messages when no suggested skills or hooks for an agent | Skills/Hooks tabs rendered blank when suggestedSkills/suggestedHooks had 0 items — `{length > 0 && (...)}` with no else branch. Changed to ternary with an empty-state card (icon + message). | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-080 | 2026-07-21 | Fix Save button flash + double appearance on Reset — remove loading early-return from ConfigLeversFlat | Reset increments resetKey which remounts ConfigLeversFlat. On remount, useAgentCapabilities starts loading=true and the early-return `<p>Loading…</p>` caused a height change (tiny→4 big rows) that shifted the button row, creating the double-button flash. Removed the loading early-return (renders rows with empty options = same height always). Also added setSaved(false) to Reset and removed transition-all from Save button. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-079 | 2026-07-21 | Save feedback + working Reset for Config tab levers | Save button gave no feedback before closing. Reset only updated parent state but ConfigLeversFlat has its own localSel; dropdowns didn't reset. Fix: Save shows "✓ Saved" green state for 900ms; Reset increments resetKey which is passed as key prop to ConfigLeversFlat — React remounts it with fresh empty localSel. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-078 | 2026-07-21 | Persist Config-tab agent selections across drawer open/close cycles | AgentCapabilitiesModal is unmounted on close; all localSelections were lost. LibraryPage now uses a useRef map (savedSelectionsRef) keyed by agent.id. initialSelections passes saved values on open; onSelectionsChange writes back on every change and on Save. effectiveOnSelectionsChange now calls both setLocalSelections AND onSelectionsChange so both local display and parent persist stay in sync. | `frontend/src/components/library/LibraryPage.tsx`, `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-077 | 2026-07-21 | Restore styled custom dropdown using onPointerDown+preventDefault to beat mousedown dismiss | Native select options cannot be CSS styled (OS renders them). Custom dropdown needed but all previous attempts failed because onClick fires after mousedown dismiss. Fix: use onPointerDown+preventDefault on both trigger and options — pointer events fire before mousedown, so selection lands before the outside-click dismiss. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-076 | 2026-07-21 | Definitively fix Config lever selections — replace broken custom dropdown with native <select> | All custom dropdown attempts failed due to browser event sequencing (mousedown dismiss fires before click). Replaced ConfigLeverSelect entirely with native <select> + appearance-none + ChevronDown overlay. Native select onChange always fires reliably. Deleted the ConfigLeverSelect component and the outside-click useEffect entirely. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-075 | 2026-07-21 | Config lever option clicks close dropdown without selecting — add onMouseDown stopPropagation to listbox div | The document mousedown listener (used for outside-click dismiss) fired when user clicked an option button, calling setOpenLever(null) and unmounting the dropdown before the click event registered. Fixed by adding onMouseDown stopPropagation to the listbox div so options receive their click events. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-074 | 2026-07-21 | Config levers always show "Default" — fix by giving ConfigLeversFlat its own local selections state | Display was driven by selections PROP passed through effectiveSelections chain. Prop updates require parent re-render + prop drill, introducing a render cycle where `displayLabel` could read stale/empty data. Fixed by giving ConfigLeversFlat its own `localSel` useState seeded from props on mount; `updateLever` calls `setLocalSel` immediately so display is in sync. Still propagates up via `onSelectionsChange`. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-073 | 2026-07-21 | Config lever dropdown clicks do nothing — fix by hoisting CustomSelect/LeverRow to module scope | CustomSelect and LeverRow were defined inside ConfigLeversFlat body. React treats inline component definitions as new types on every render, causing remount instead of update when an option is clicked — breaking the selection. Hoisted to module-level ConfigLeverRow + ConfigLeverSelect with all state passed as props. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-072 | 2026-07-21 | Replace native <select> in Config levers with fully custom styled dropdown | Browser renders native OS dropdown for <select> which cannot be styled. Replaced with custom button+listbox (CustomSelect component): styled trigger pill, floating card list with hover/selected states, outside-click dismiss, one-open-at-a-time. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-071 | 2026-07-21 | Polish ConfigLeversFlat selects — consistent row height, custom chevron, Phase-32 font/tokens | Each native select rendered at different size and with ugly browser-default arrow. Added StyledSelect wrapper (appearance-none + absolute ChevronDown), fixed w-[130px] per select, min-h-[64px] per row, text-[13px] font-sans font-medium. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-070 | 2026-07-21 | Config tab: remove System Prompt, show flat Model/Validator/Gate/Retry rows without AdvancedExpander collapse chrome | AdvancedExpander has a per-agent expand/collapse toggle header; Config tab was showing System Prompt. Added ConfigLeversFlat (reuses useAgentCapabilities + applyLeverPatch, INV-12) that renders the 4 levers flat with label+select rows. Removed AgentPromptSection from Config tab. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-069 | 2026-07-21 | Show Model/Validator/Gate/Retry levers + Reset/Save buttons in Config tab for all callers | AdvancedExpander was gated on {onSelectionsChange && ...} so LibraryPage drawer (which passes no onSelectionsChange) showed only System Prompt. Added local selections state; AdvancedExpander now always renders; Reset/Save buttons added at bottom. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-068 | 2026-07-21 | Remove "Cancel" from custom skill button and darken the expanded editor form | Header button showed "Cancel" when expanded; form used light bg-white styling. Fixed: button always shows "+ Write a custom skill", form uses bg-surface-near-black with dark inputs, readable text, and inverted Attach button. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-067 | 2026-07-21 | Replace "Custom skill" card header with dashed full-width "+ Write a custom skill" button | Header used a complex card layout (icon + title + subtitle + right-side label). Target design is a simple full-width dashed-border centered button. Only the header visual changed; editor form, animation, success state untouched. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-066 | 2026-07-21 | Restyle AgentPromptSection to dark card with readable white sans-serif text | Container used light white card (border-gray-200 bg-white) and prompt body used tiny monospace font (font-mono text-[10.5px] text-gray-600). Changed to dark near-black card (bg-surface-near-black) with white readable prose text (text-[13px] text-white font-sans). | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-065 | 2026-07-21 | Remove Design System and Discovery tabs for PPT presentation wizard | STEP_TABS and STEP_IDS were hardcoded as 3 items; no way to suppress tabs per mode. Added `steps?: StepId[]` prop (default all 3) to WizardStepper; LaunchWizard passes `["template"]` for ppt mode. | `frontend/src/components/workflow/WizardStepper.tsx`, `frontend/src/components/workflow/LaunchWizard.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-064 | 2026-07-21 | Hide Web/Deck toggle in template picker — show only relevant gallery per launch context | Toggle rendered unconditionally in WizardStepper.tsx; no prop to suppress it. Added `showToggle?: boolean` (default false) to hide the toggle so prototype shows only web templates and PPT shows only deck templates. | `frontend/src/components/workflow/WizardStepper.tsx`, `frontend/src/components/workflow/WizardStepper.test.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-063 | 2026-07-21 | KAN-113: Fix version dropdown showing wrong relative age ("5h ago") due to timezone-naive datetime serialization | SQLAlchemy `DateTime` (no `timezone=True`) returns naive datetimes from SQLite. Pydantic v2 serializes them without `+00:00`, so JavaScript `Date.parse()` treats them as local time, adding the user's UTC offset to the age calculation. Fix: add `@field_serializer` to `WorkflowRunResponse` and `FamilyMemberResponse` to promote naive datetimes to UTC before ISO-formatting. | `backend/app/api/runs.py` | Phase 36 §3 (FamilyMemberResponse) + Phase 5 §3 (WorkflowRunResponse) | INV-1/3/12/SC-001 ✅ | Done |
@@ -82,6 +99,66 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-066 — Restyle AgentPromptSection to dark card with readable white text
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix make the above changes` (dark card, better text font for System Prompt)
+
+#### Root Cause
+
+`frontend/src/components/workflow/AgentsPopup.tsx` — the `AgentPromptSection` component returned a light white card with four specific styling problems:
+
+1. Outer wrapper used `border border-gray-200` + white background → light card appearance
+2. Header texts used `text-gray-700` / `text-gray-400` → low contrast on light background
+3. Expanded body `<div>` had `bg-white` → no distinction between card and drawer background
+4. Prompt body `<pre>` used `font-mono text-[10.5px] text-gray-600` → tiny monospace text that looked like raw code instead of readable instructions
+
+The target design (Hexaware mock) shows a dark near-black rounded card with white readable prose text.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 37 (B3 — Configure + Composer/Wizard), Phase 41 (B7 — Configure Composer Rebuild)
+- **Relevant register section:** Phase 37/41 §3 (`AgentPromptSection` in `AgentsPopup.tsx`)
+- **Deleted code verified (not resurrected):** N/A — styling-only change
+- **Locked decisions respected:** INV-12 — `AgentPromptSection` is the single source; all 4 callsites (drawer Config, drawer Overview, AgentRow, CanvasConfigRail) inherit the change correctly. Phase-32 token layer (`bg-surface-near-black`, `text-ink-*`) used instead of raw hex.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Outer wrapper: `border border-gray-200` → `bg-surface-near-black` (no border) | Dark card background |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Header button: `hover:bg-gray-50` → `hover:bg-white/5` | Dark-appropriate hover |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Icon + labels: `text-gray-400/700` → `text-ink-400` / `text-white` | Readable on dark background |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Expanded border: `border-gray-200` → `border-white/10` | Subtle dark separator |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Expanded body: `bg-white` → `bg-surface-near-black` | Consistent dark card |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Source badge (default): `bg-gray-100 text-gray-500 border-gray-200` → `bg-white/10 text-ink-300 border-white/20` | Dark-card-appropriate pill |
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Prompt body: `<pre> font-mono text-[10.5px] text-gray-600` → `<p> font-sans text-[13px] text-white leading-relaxed` | Larger, white, readable prose instead of monospace code |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — React styling only
+- **INV-3** (golden parity): not affected — no engine or event stream changes
+- **INV-12** (no duplication): `AgentPromptSection` remains the single source; change propagates to all 4 callsites correctly
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+
+All 4 callsites receive the dark card automatically:
+- Drawer Overview tab: `AgentsPopup.tsx` ~line 606
+- Drawer Config tab: `AgentsPopup.tsx` ~line 619
+- Composer AgentRow: `AgentRow.tsx` line 224
+- Canvas CanvasConfigRail: `CanvasConfigRail.tsx` line 366
+
+Tests query by `getByText(/system prompt/i)` or `getByRole("button", { name: /system prompt/i })` — not by className — so no test regressions.
+
+The edit textarea (when `surfaceOnly=false` and user clicks Edit) was intentionally left with its existing light styling — the target screenshot only shows the read-only state.
+
+#### Notes
+
+- The `font-mono` class on the `<pre>` tag was replaced with a `<p>` tag with `font-sans` — this is the key change that makes the text look like readable instructions rather than raw code.
+- `whitespace-pre-wrap` is preserved on the `<p>` to maintain line breaks from the AGENT.md content.
+- No backend restart needed — FE-only change.
 
 ---
 

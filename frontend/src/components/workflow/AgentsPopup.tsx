@@ -290,17 +290,17 @@ export function AgentPromptSection({
     : (promptData?.override ?? promptData?.prompt_body ?? "");
 
   return (
-    <div className="rounded-xl border border-gray-200 overflow-hidden">
+    <div className="rounded-xl overflow-hidden bg-surface-near-black">
       {/* Collapsible header */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors text-left"
       >
         <div className="flex items-center gap-2.5">
-          <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          <FileText className="h-4 w-4 text-ink-400 flex-shrink-0" />
           <div>
-            <p className="text-[11px] font-semibold text-gray-700">System Prompt</p>
-            <p className="text-[10px] text-gray-400">
+            <p className="text-[11px] font-semibold text-white">System Prompt</p>
+            <p className="text-[10px] text-ink-400">
               {promptData?.has_override ? "Custom override active" : "Base AGENT.md prompt"}
             </p>
           </div>
@@ -309,7 +309,7 @@ export function AgentPromptSection({
           {promptData?.has_override && (
             <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-brand-fill text-brand">overridden</span>
           )}
-          <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-3.5 w-3.5 text-ink-400 transition-transform ${open ? "rotate-180" : ""}`} />
         </div>
       </button>
 
@@ -320,14 +320,14 @@ export function AgentPromptSection({
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="overflow-hidden border-t border-gray-200"
+            className="overflow-hidden border-t border-white/10"
           >
-            <div className="bg-white">
+            <div className="bg-surface-near-black">
               {loading && (
-                <p className="text-[11px] text-gray-400 px-4 py-3">Loading prompt…</p>
+                <p className="text-[11px] text-ink-400 px-4 py-3">Loading prompt…</p>
               )}
               {error && (
-                <p className="text-[11px] text-red-500 px-4 py-3">{error}</p>
+                <p className="text-[11px] text-red-400 px-4 py-3">{error}</p>
               )}
               {!loading && !error && promptData && (
                 <>
@@ -336,7 +336,7 @@ export function AgentPromptSection({
                     <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full border ${
                       promptData.has_override
                         ? "bg-brand-fill text-brand border-brand-border"
-                        : "bg-gray-100 text-gray-500 border-gray-200"
+                        : "bg-white/10 text-ink-300 border-white/20"
                     }`}>
                       {promptData.has_override ? "Your override" : "Default AGENT.md"}
                     </span>
@@ -398,9 +398,9 @@ export function AgentPromptSection({
                       </div>
                     </div>
                   ) : (
-                    <pre className="px-4 pb-4 text-[10.5px] text-gray-600 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-64 overflow-y-auto">
-                      {displayContent || <span className="text-gray-400 italic">No prompt body found.</span>}
-                    </pre>
+                    <p className="px-4 pb-4 pt-1 text-[13px] text-white font-sans leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-64 overflow-y-auto">
+                      {displayContent || <span className="text-ink-400 italic">No prompt body found.</span>}
+                    </p>
                   )}
                 </>
               )}
@@ -460,6 +460,28 @@ export function AgentCapabilitiesModal({
   const [drawerTab, setDrawerTab] = useState<
     "overview" | "skills" | "hooks" | "config"
   >("overview");
+
+  // Local per-agent selections state for the Config tab when the caller does
+  // not supply onSelectionsChange (e.g. LibraryPage drawer). Merges with the
+  // prop-driven path so AdvancedExpander always renders in the Config tab.
+  const [localSelections, setLocalSelections] = useState<SelectionsMap>(initialSelections ?? {});
+  // Always notify BOTH the local state AND the parent prop so:
+  // - local display updates immediately (setLocalSelections)
+  // - parent persists the value (onSelectionsChange)
+  const effectiveOnSelectionsChange = (next: SelectionsMap) => {
+    setLocalSelections(next);
+    onSelectionsChange?.(next);
+  };
+  // Always use localSelections for the Config tab display — it is seeded from
+  // initialSelections on mount and updated by every lever change or Save call.
+  const effectiveSelections = localSelections;
+
+  // resetKey: incrementing this remounts ConfigLeversFlat (key prop), which
+  // re-seeds its localSel from the now-empty effectiveSelections — the correct
+  // React-idiomatic way to reset child state from a parent.
+  const [resetKey, setResetKey] = useState(0);
+  // saved: brief "Saved ✓" feedback on the Save button before closing.
+  const [saved, setSaved] = useState(false);
 
   // Custom skill editor state
   const [customSkillOpen, setCustomSkillOpen] = useState(false);
@@ -607,34 +629,64 @@ export function AgentCapabilitiesModal({
           </>
           )}
 
-          {/* Config tab — per-agent prompt-override (ND-7 SURFACE-ONLY) +
-              Advanced levers. The override field renders but its PERSISTENCE is
-              DEFERRED (LOCK-E): no durable store, no save-to-server wiring is
-              added here — the surface is inert this phase. */}
+          {/* Config tab — per-agent configuration levers (Model · Validator · Gate ·
+              Retry) shown FLAT — no expand/collapse chrome, no System Prompt here. */}
           {drawerTab === "config" && (
           <>
-          {/* System Prompt (KAN-76) — ND-7/LOCK-E: surface only. `surfaceOnly`
-              omits the write affordances so the override persistence path
-              (PUT/DELETE /api/agents/{id}/prompt) is unreachable from here. */}
-          <AgentPromptSection agent={agent} surfaceOnly />
+          <p className="text-[12px] text-ink-500 leading-relaxed">
+            Overrides for this agent. Defaults inherit from the workflow.
+          </p>
 
-          {/* Advanced Configuration levers (Model · Validator · Gate · Retry) */}
-          {onSelectionsChange && (
-            <div>
-              <div className="flex items-center gap-2 mb-2.5">
-                <Settings2 className="h-3.5 w-3.5 text-gray-400" />
-                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Configuration</p>
-                <span className="text-[9px] text-gray-400">Model · Validator · Gate · Retry</span>
-              </div>
-              <AdvancedExpander
-                agents={[{ id: agent.id, name: agent.name }]}
-                onSelectionsChange={onSelectionsChange}
-                initialSelections={initialSelections}
-                token={token}
-                priorAgents={priorAgents}
-              />
-            </div>
-          )}
+          {/* Flat lever rows (reuse useAgentCapabilities + applyLeverPatch — same
+              source as AdvancedExpander, no forked logic, INV-12). */}
+          <ConfigLeversFlat
+            key={resetKey}
+            agentId={agent.id}
+            agentName={agent.name}
+            token={token ?? getToken()}
+            selections={effectiveSelections}
+            onSelectionsChange={effectiveOnSelectionsChange}
+          />
+
+          {/* Reset / Save agent buttons — match the design mock. */}
+          <div className="flex items-center gap-3 pt-2 border-t border-line-border">
+            <button
+              type="button"
+              onClick={() => {
+                // Clear parent selections and increment resetKey so React
+                // remounts ConfigLeversFlat with fresh empty localSel.
+                setSaved(false);
+                setLocalSelections({});
+                onSelectionsChange?.({});
+                setResetKey((k) => k + 1);
+              }}
+              className="flex-1 rounded-[10px] border border-line-control bg-surface-card px-4 py-2.5 font-sans text-[13px] font-medium text-ink-700 hover:bg-surface-warm"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                // Persist the current selections to the parent (e.g. LibraryPage
+                // savedSelectionsRef) so reopening the drawer restores them.
+                onSelectionsChange?.(localSelections);
+                // Show "Saved ✓" briefly before closing.
+                setSaved(true);
+                setTimeout(() => {
+                  setSaved(false);
+                  onClose();
+                }, 900);
+              }}
+              disabled={saved}
+              className={`flex-[2] rounded-[10px] px-4 py-2.5 font-sans text-[13px] font-semibold text-white ${
+                saved
+                  ? "bg-green-600 cursor-default"
+                  : "bg-brand hover:bg-brand-pressed"
+              }`}
+            >
+              {saved ? "✓ Saved" : "Save agent"}
+            </button>
+          </div>
           </>
           )}
 
@@ -642,7 +694,7 @@ export function AgentCapabilitiesModal({
           {drawerTab === "skills" && (
           <>
           {/* Suggested Skills */}
-          {suggestedSkills.length > 0 && (
+          {suggestedSkills.length > 0 ? (
             <div>
               <div className="flex items-center gap-2 mb-2.5">
                 <Puzzle className="h-3.5 w-3.5 text-gray-400" />
@@ -675,6 +727,14 @@ export function AgentCapabilitiesModal({
                 })}
               </div>
             </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Puzzle className="h-8 w-8 text-gray-200 mb-3" />
+              <p className="text-[13px] font-medium text-gray-500">No suggested skills</p>
+              <p className="text-[11px] text-gray-400 mt-1 leading-relaxed max-w-[220px]">
+                No pre-built skills for this agent. Write a custom skill below.
+              </p>
+            </div>
           )}
           </>
           )}
@@ -683,7 +743,7 @@ export function AgentCapabilitiesModal({
           {drawerTab === "hooks" && (
           <>
           {/* Suggested Hooks */}
-          {suggestedHooks.length > 0 && (
+          {suggestedHooks.length > 0 ? (
             <div>
               <div className="flex items-center gap-2 mb-2.5">
                 <Webhook className="h-3.5 w-3.5 text-gray-400" />
@@ -717,6 +777,14 @@ export function AgentCapabilitiesModal({
                 })}
               </div>
             </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Webhook className="h-8 w-8 text-gray-200 mb-3" />
+              <p className="text-[13px] font-medium text-gray-500">No suggested hooks</p>
+              <p className="text-[11px] text-gray-400 mt-1 leading-relaxed max-w-[220px]">
+                There are no pre-built hooks recommended for this agent.
+              </p>
+            </div>
           )}
           </>
           )}
@@ -724,26 +792,15 @@ export function AgentCapabilitiesModal({
           {/* Skills tab (cont.) — Custom skill authoring */}
           {drawerTab === "skills" && (
           <>
-          {/* Custom skill */}
-          {agent.has_skill && (
-            <div className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
-              {/* Header — always visible, clickable to expand */}
+          {/* Custom skill — available for all agents (no has_skill gate) */}
+          <div className="rounded-xl overflow-hidden">
+              {/* Header — dashed full-width button; click toggles the editor open/closed */}
               <button
                 onClick={() => { setCustomSkillOpen(v => !v); setCustomAttached(false); }}
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-100 transition-colors text-left"
+                className="w-full flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl border border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors"
               >
-                <div className="flex items-center gap-2.5">
-                  <BookMarked className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                  <div>
-                    <p className="text-[11px] font-semibold text-gray-700">Custom skill</p>
-                    <p className="text-[10px] text-gray-400">Write your own SKILL.md instructions for this agent</p>
-                  </div>
-                </div>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors ${
-                  customSkillOpen ? "text-gray-400" : "text-gray-500 hover:text-gray-800"
-                }`}>
-                  {customSkillOpen ? "cancel" : "+ add custom"}
-                </span>
+                <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="text-[12px] font-medium">Write a custom skill</span>
               </button>
 
               {/* Inline editor — expands when open */}
@@ -754,37 +811,37 @@ export function AgentCapabilitiesModal({
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.18 }}
-                    className="overflow-hidden border-t border-gray-200"
+                    className="overflow-hidden mt-2 rounded-xl"
                   >
-                    <div className="px-4 py-3 space-y-3 bg-white">
+                    <div className="px-4 py-4 space-y-3 bg-surface-near-black rounded-xl">
                       {/* Skill name */}
                       <div>
-                        <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide block mb-1">Skill name</label>
+                        <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide block mb-1">Skill name</label>
                         <input
                           type="text"
                           value={customSkillName}
                           onChange={e => setCustomSkillName(e.target.value)}
                           placeholder={`e.g. ${agent.name} domain rules`}
-                          className="w-full px-3 py-2 text-[12px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 placeholder-gray-400 transition-colors"
+                          className="w-full px-3 py-2 text-[12px] text-white bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-white/40 placeholder-white/30 transition-colors"
                         />
                       </div>
                       {/* Skill content */}
                       <div>
-                        <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide block mb-1">
-                          Instructions <span className="text-gray-400 normal-case font-normal">(paste your SKILL.md content or write custom instructions)</span>
+                        <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide block mb-1">
+                          Instructions <span className="text-ink-400 normal-case font-normal">(paste your SKILL.md content or write custom instructions)</span>
                         </label>
                         <textarea
                           value={customSkillContent}
                           onChange={e => setCustomSkillContent(e.target.value)}
                           placeholder={`# ${agent.name} Custom Skill\n\nWrite domain-specific instructions here.\nThese will be injected into this agent's prompt.\n\n## Rules\n- Rule 1\n- Rule 2`}
                           rows={7}
-                          className="w-full px-3 py-2 text-[11px] font-mono bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 placeholder-gray-400 resize-none leading-relaxed transition-colors"
+                          className="w-full px-3 py-2 text-[13px] text-white font-sans bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-white/40 placeholder-white/30 resize-none leading-relaxed transition-colors"
                         />
-                        <p className="text-[9px] text-gray-400 mt-1">{customSkillContent.length} characters</p>
+                        <p className="text-[9px] text-ink-400 mt-1">{customSkillContent.length} characters</p>
                       </div>
                       {/* Attach button */}
-                      <div className="flex items-center justify-between">
-                        <p className="text-[10px] text-gray-400 leading-relaxed max-w-[200px]">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] text-ink-400 leading-relaxed">
                           This skill will be injected into the agent&apos;s prompt when the pipeline runs.
                         </p>
                         <button
@@ -804,7 +861,7 @@ export function AgentCapabilitiesModal({
                             setCustomSkillContent("");
                           }}
                           disabled={!customSkillName.trim() || !customSkillContent.trim()}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-900 text-white text-[11px] font-semibold hover:bg-gray-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white text-gray-900 text-[11px] font-semibold hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
                         >
                           {customAttached ? <><Check className="h-3 w-3" /> Attached</> : <><Plus className="h-3 w-3" /> Attach skill</>}
                         </button>
@@ -816,13 +873,12 @@ export function AgentCapabilitiesModal({
 
               {/* Success state */}
               {customAttached && !customSkillOpen && (
-                <div className="px-4 py-2 border-t border-gray-200 bg-white flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-gray-500" />
-                  <p className="text-[11px] text-gray-600 font-medium">Custom skill attached</p>
+                <div className="px-4 py-2 mt-2 rounded-xl bg-surface-near-black flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-ink-400" />
+                  <p className="text-[11px] text-white font-medium">Custom skill attached</p>
                 </div>
               )}
             </div>
-          )}
           </>
           )}
 
@@ -1578,6 +1634,216 @@ export function useAgentCapabilities(token?: string | null) {
  * Exported so it can be render-tested in isolation; it remains EMBEDDED in the
  * AgentsPopup composer.
  */
+
+// ─── Config lever sub-components ─────────────────────────────────────────────
+
+/** Single config lever row — label + description on left, control on right. */
+function ConfigLeverRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-[12px] border border-line-border bg-surface-card px-5 py-3.5 min-h-[64px]">
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-ink-900 leading-tight">{label}</p>
+        <p className="text-[11px] text-ink-400 mt-0.5 leading-tight">{description}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Styled config lever dropdown. Uses onPointerDown on options so the selection
+ * fires BEFORE the document mousedown dismiss handler, solving the race.
+ * Must be defined at module level (never inside a render function).
+ */
+function ConfigLeverSelect({
+  leverId,
+  openLever,
+  setOpenLever,
+  ariaLabel,
+  value,
+  options,
+  onChange,
+}: {
+  leverId: string;
+  openLever: string | null;
+  setOpenLever: (id: string | null) => void;
+  ariaLabel: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  const isOpen = openLever === leverId;
+  const displayLabel = options.find((o) => o.value === value)?.label ?? "Default";
+
+  return (
+    <div className="relative flex-shrink-0 w-[140px]">
+      {/* Trigger */}
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onPointerDown={(e) => {
+          e.preventDefault(); // stop document mousedown dismiss
+          setOpenLever(isOpen ? null : leverId);
+        }}
+        className={`w-full flex items-center justify-between gap-1.5 rounded-[10px] border px-3 py-2 text-[13px] font-medium font-sans leading-none transition-colors ${
+          isOpen
+            ? "bg-surface-paper border-brand text-ink-900"
+            : "bg-surface-warm border-line-border text-ink-700 hover:border-brand/50"
+        }`}
+      >
+        <span className="truncate">{displayLabel}</span>
+        <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-ink-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+
+      {/* Styled option list */}
+      {isOpen && (
+        <div
+          role="listbox"
+          aria-label={ariaLabel}
+          className="absolute right-0 top-[calc(100%+4px)] z-[300] w-[200px] rounded-[12px] border border-line-border bg-surface-paper py-1.5 shadow-[0_8px_32px_rgba(17,17,20,0.14)]"
+        >
+          {[{ value: "", label: "Default" }, ...options].map((opt) => {
+            const isSelected = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onPointerDown={(e) => {
+                  e.preventDefault(); // prevent document mousedown dismiss
+                  onChange(opt.value);
+                  setOpenLever(null);
+                }}
+                className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left font-sans text-[13px] transition-colors ${
+                  isSelected
+                    ? "bg-brand/5 text-brand font-semibold"
+                    : "text-ink-800 hover:bg-surface-warm"
+                }`}
+              >
+                <span className="truncate">{opt.label}</span>
+                {isSelected && <Check className="h-3.5 w-3.5 flex-shrink-0 text-brand" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ConfigLeversFlat ─────────────────────────────────────────────────────────
+function ConfigLeversFlat({
+  agentId,
+  agentName,
+  token,
+  selections: initialSelectionsProp,
+  onSelectionsChange,
+}: {
+  agentId: string;
+  agentName: string;
+  token?: string | null;
+  selections: SelectionsMap;
+  onSelectionsChange: (s: SelectionsMap) => void;
+}) {
+  const { validatorOptions, gateOptions, modelOptions, loading, error } =
+    useAgentCapabilities(token);
+  const [openLever, setOpenLever] = useState<string | null>(null);
+  const [localSel, setLocalSel] = useState<SelectionsMap>(initialSelectionsProp);
+
+  const sel = localSel[agentId] ?? {};
+
+  const updateLever = (patch: Partial<StepSelection>) => {
+    const cur = applyLeverPatch(sel, patch);
+    const next: SelectionsMap = { ...localSel };
+    if (Object.keys(cur).length === 0) delete next[agentId];
+    else next[agentId] = cur;
+    setLocalSel(next);
+    onSelectionsChange(next);
+  };
+
+  // Dismiss on outside click — fires AFTER onPointerDown so selections go through first
+  useEffect(() => {
+    if (!openLever) return;
+    const handler = () => setOpenLever(null);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [openLever]);
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-1.5 text-[12px] text-red-600 bg-red-50 rounded-lg px-3 py-2">
+        <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />{error}
+      </div>
+    );
+  }
+  // Note: we do NOT early-return on `loading` — doing so causes a height
+  // change on every resetKey remount (loading→loaded) which makes the buttons
+  // below flash. Rendering rows with empty options while loading is visually
+  // identical ("Default" in every select) and avoids the layout shift.
+
+  const selectedValidator = sel.validators?.[0] ?? "";
+  const selectedGate = (sel.gates ?? []).find((g) => g !== COUPLED_GATE) ?? "";
+  const selectedRetry = sel.retry !== undefined ? String(sel.retry) : "";
+
+  return (
+    <div className="space-y-2">
+      <ConfigLeverRow label="Model" description="Reasoning model for this agent">
+        <ConfigLeverSelect
+          leverId="model" openLever={openLever} setOpenLever={setOpenLever}
+          ariaLabel={`Model for ${agentName}`}
+          value={sel.model ?? ""}
+          options={modelOptions.map((m) => ({ value: m.id, label: m.label }))}
+          onChange={(v) => updateLever({ model: v })}
+        />
+      </ConfigLeverRow>
+
+      <ConfigLeverRow label="Validator" description="Output validation pass">
+        <ConfigLeverSelect
+          leverId="validator" openLever={openLever} setOpenLever={setOpenLever}
+          ariaLabel={`Validator for ${agentName}`}
+          value={selectedValidator}
+          options={validatorOptions.map((n) => ({ value: n, label: n }))}
+          onChange={(v) => updateLever({ validators: v ? [v] : [] })}
+        />
+      </ConfigLeverRow>
+
+      <ConfigLeverRow label="Gate" description="Pause for human review">
+        <ConfigLeverSelect
+          leverId="gate" openLever={openLever} setOpenLever={setOpenLever}
+          ariaLabel={`Gate for ${agentName}`}
+          value={selectedGate}
+          options={gateOptions.map((n) => ({ value: n, label: n }))}
+          onChange={(picked) => {
+            const keepCoupled = (sel.validators?.length ?? 0) > 0 ? [COUPLED_GATE] : [];
+            updateLever({ gates: picked ? [...keepCoupled, picked] : keepCoupled });
+          }}
+        />
+      </ConfigLeverRow>
+
+      <ConfigLeverRow label="Retry" description="Auto-retry on failure">
+        <ConfigLeverSelect
+          leverId="retry" openLever={openLever} setOpenLever={setOpenLever}
+          ariaLabel={`Retry for ${agentName}`}
+          value={selectedRetry}
+          options={RETRY_OPTIONS.map((n) => ({ value: String(n), label: `${n} ${n === 1 ? "attempt" : "attempts"}` }))}
+          onChange={(v) => updateLever({ retry: v ? Number(v) : undefined })}
+        />
+      </ConfigLeverRow>
+    </div>
+  );
+}
+
 export function AdvancedExpander({
   agents,
   onSelectionsChange,
