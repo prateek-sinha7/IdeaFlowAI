@@ -162,7 +162,7 @@ def _classify(
         if etype == "questionnaire_complete":
             text = f"{n} clarifications answered" if n else "Clarifications answered"
         else:
-            text = f"Paused — {n} questions for you" if n else "Paused — questions for you"
+            text = "Before I build, I need to lock a few things down."
         return CARD_CLARIFY, text, f"clarify:{anchor}"
 
     if etype in _GATE_EVENTS:

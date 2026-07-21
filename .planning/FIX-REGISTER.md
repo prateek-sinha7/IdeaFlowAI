@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-083 | 2026-07-21 | KAN-114: Replace first clarification card (amber styled) with plain text bubble "Before I build, I need to lock a few things down." | Two independent paths fired on questionnaire_ready: (1) chat_narrator.py emitted a styled ResultCard with text "Paused — N questions for you"; (2) RunChatLane.tsx also showed an AwaitingCard. Fix: narrator text changed to fixed message; ResultCard.tsx now renders a plain prose bubble for clarify kind. AwaitingCard untouched. | `backend/app/agents/chat_narrator.py`, `frontend/src/components/chat/ResultCard.tsx`, `backend/tests/unit/test_chat_narrator.py` | Phase 31 (CHATUI-01) + Phase 43 (A6) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-082 | 2026-07-21 | Always show "Write a custom skill" button on Skills tab — remove agent.has_skill gate | The custom skill button was gated on `agent.has_skill` so it never showed for agents without the flag. Every agent should be able to get a custom skill authored. Removed the gate. Also cleaned up the dangling `)}` JSX left from the removed conditional. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-081 | 2026-07-21 | Show empty state messages when no suggested skills or hooks for an agent | Skills/Hooks tabs rendered blank when suggestedSkills/suggestedHooks had 0 items — `{length > 0 && (...)}` with no else branch. Changed to ternary with an empty-state card (icon + message). | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-080 | 2026-07-21 | Fix Save button flash + double appearance on Reset — remove loading early-return from ConfigLeversFlat | Reset increments resetKey which remounts ConfigLeversFlat. On remount, useAgentCapabilities starts loading=true and the early-return `<p>Loading…</p>` caused a height change (tiny→4 big rows) that shifted the button row, creating the double-button flash. Removed the loading early-return (renders rows with empty options = same height always). Also added setSaved(false) to Reset and removed transition-all from Save button. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
@@ -99,6 +100,58 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-083 — KAN-114: Replace styled clarify ResultCard with plain text bubble
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix KAN-114`
+
+#### Root Cause
+
+When `questionnaire_ready` fired, two independent code paths both rendered clarification-related boxes in the left chat lane simultaneously:
+
+1. **`backend/app/agents/chat_narrator.py` `_classify()`** — emitted a `chat_reply` with `card_kind="clarify"` and text `"Paused — N questions for you"`. The FE rendered this via `MessageBubble → ResultCard` as a styled amber card with the "Clarification needed" header (from `CARD_SPECS["clarify"]` in `ResultCard.tsx`).
+
+2. **`frontend/src/components/chat/RunChatLane.tsx` `renderTranscriptFooter()`** — independently rendered an `AwaitingCard` whenever `runState === "clarify"`, showing "Paused — N questions for you" with an "Answer in Steps" CTA.
+
+The user wants to KEEP the `AwaitingCard` (box 2) and replace box 1 with a plain conversational text bubble reading `"Before I build, I need to lock a few things down."`.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 31 (CHATUI-01 — ResultCard narrator architecture), Phase 43 (A6 — `chat_narrator.py` narrator projection)
+- **Relevant register section:** Phase 31 §3 (ResultCard), Phase 43 §3 (chat_narrator.py)
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** SC-001 — all changes keyed on generic `cardKind: "clarify"`, no workflow-name branch
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/agents/chat_narrator.py` | Changed `questionnaire_ready` narrator text from `f"Paused — {n} questions for you"` to the fixed string `"Before I build, I need to lock a few things down."` | Box 1 needs to be a conversational message, not a status repeat of box 2 |
+| `frontend/src/components/chat/ResultCard.tsx` | Added a `clarify`-specific render branch that returns a plain `<p>` text bubble + small "Answer in Steps" link; no styled card chrome, no amber icon/header | Box 1 should look like a conversational assistant message, not a status card |
+| `backend/tests/unit/test_chat_narrator.py` | Updated `test_clarify_card_from_questionnaire_ready` assertion from `assert "3" in card["text"]` to `assert card["text"] == "Before I build, I need to lock a few things down."` | Test was asserting the old dynamic count-bearing text which no longer applies |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — all changes keyed on generic `cardKind` / event type, no workflow name
+- **INV-3** (golden parity): Not affected — `chat_narrator` is dormant on scripted golden runs; the 5 characterization goldens are byte-identical
+- **INV-12** (no duplication): Not affected — single narrator path used; AwaitingCard unchanged
+- **SC-001** (zero engine edits for new workflows): Not affected — no engine edit; FE/app-layer only
+
+#### Verification
+
+- `ResultCard.tsx` `clarify` branch renders `data-testid="chat-result-card"` and `data-card-kind="clarify"` — existing test assertions still pass
+- Existing `test_clarify_card_from_questionnaire_ready` updated to assert the new fixed text
+- `renderTranscriptFooter()` for `runState === "clarify"` (the AwaitingCard) untouched — confirmed in `RunChatLane.tsx:1419–1431`
+- Backend restart required (chat_narrator.py changed)
+
+#### Notes
+
+- The `questionnaire_complete` text (`"N clarifications answered"`) is untouched — only the `questionnaire_ready` text changed
+- Same fix naturally applies to revision and chaining flows since they share the same `questionnaire_ready` event path through `chat_narrator.py`
+- The `CARD_SPECS["clarify"]` entry in `ResultCard.tsx` is kept (it defines `linkLabel: "Answer in Steps"` and `defaultTab: "steps"`) because the new clarify branch still reads `spec?.linkLabel` and `tab` from it
 
 ---
 
