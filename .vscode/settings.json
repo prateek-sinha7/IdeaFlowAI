@@ -1,8 +1,12 @@
 {
-  "rest-client.environmentVariables": {
+  "httpyac.environmentShowStatusBarItem": true,
+  "httpyac.environmentVariables": {
     "local": {
       "apiRoot": "http://localhost:8000",
-      "jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiMzBjYThiOS04OGVhLTRhZTItYmQ3Ni00YTdlNmVkNzQ2NjkiLCJleHAiOjE3ODQyODc4MTQsImlhdCI6MTc4NDIwMTQxNCwianRpIjoiMjljZDQ0NmItNTY0OS00MTg3LTk5NWItM2ZjN2Q4YWZhODE2In0.bB3cSIlsyOtWm9J7iUXdtBpdvVfk4_i8iJIivbMYVGo",
+      "wsRoot": "ws://localhost:8000",
+      "loginEmail": "{your_email_here}",
+      "loginPassword": "{your_password_here}",
+      "jwt": "{your_jwt_token_here}",
       "flowinApiKey": "flowin_replace_with_real_key",
       "workflowId": "replace-workflow-id",
       "chatId": "replace-chat-id",
@@ -14,15 +18,7 @@
     },
     "dev": {
       "apiRoot": "http://localhost:8000",
-      "jwt": "{your_jwt_token_here}",
-      "flowinApiKey": "flowin_replace_with_real_key",
-      "workflowId": "replace-workflow-id",
-      "chatId": "replace-chat-id",
-      "agentId": "code-reviewer",
-      "userWorkflowId": "replace-user-workflow-id",
-      "handoffToken": "replace-handoff-token",
-      "userId": "replace-user-id",
-      "apiKeyId": "replace-api-key-id"
+      "wsRoot": "ws://localhost:8000"
     }
   }
 }

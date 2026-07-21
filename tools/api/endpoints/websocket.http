@@ -1,0 +1,12 @@
+### WebSocket endpoints (reference)
+# Reference only — the REST Client protocol these files are written in
+# cannot execute WebSocket requests, and this collection is REST-only by
+# design (see tools/api/endpoints/api.http). For actually driving these
+# endpoints end-to-end (login -> run_pipeline -> clarify -> completion),
+# see the httpyac integration tests in tools/api/runs/*.http instead.
+#
+# ws://localhost:8000/ws/chat
+# Sec-WebSocket-Protocol: bearer.{{jwt}}, flowin.v1
+#
+# ws://localhost:8000/ws/handoff/{{handoffToken}}
+# Sec-WebSocket-Protocol: bearer.{{jwt}}, flowin.v1

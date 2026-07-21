@@ -1,6 +1,0 @@
-### WebSocket endpoints (reference)
-# ws://localhost:8000/ws/chat
-# Sec-WebSocket-Protocol: bearer.{{jwt}}, flowin.v1
-#
-# ws://localhost:8000/ws/handoff/{{handoffToken}}
-# Sec-WebSocket-Protocol: bearer.{{jwt}}, flowin.v1

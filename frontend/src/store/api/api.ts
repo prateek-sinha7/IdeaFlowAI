@@ -1,6 +1,6 @@
 /**
  * Consolidated axios-based API client. Each backend resource lives in its
- * own module (see docs/api/*.http for the endpoint reference this mirrors);
+ * own module (see tools/api/endpoints/*.http for the endpoint reference this mirrors);
  * this file re-exports them under one `api` namespace plus named exports for
  * direct imports. The shared axios instance (auto-attaches the JWT, maps
  * errors to the existing ApiError) lives in ./http.

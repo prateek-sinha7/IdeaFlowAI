@@ -1,5 +1,8 @@
 {
   "recommendations": [
+    "anweber.vscode-httpyac"
+  ],
+  "unwantedRecommendations": [
     "humao.rest-client"
   ]
 }

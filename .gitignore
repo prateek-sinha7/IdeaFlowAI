@@ -66,3 +66,8 @@ skills/opendesign/design-templates/*/thumbnail.jpg
 .run
 frontend/package-lock.json
 frontend/package-lock.json
+
+# Generated output from tools/api/runs/*.run.http integration tests — decks,
+# prototypes, and WS/HTTP transcripts. Local-only, never committed.
+/tools/api/runs/artifacts/
+/tools/api/runs/logs/

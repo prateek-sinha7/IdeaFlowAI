@@ -1,0 +1,229 @@
+### Runs - List
+GET {{apiRoot}}/api/runs?limit=20&offset=0
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ') — set a real {{jwt}} to exercise this assertion');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!Array.isArray(body)) {
+		console.error('FAIL: expected an array, got', body);
+	} else {
+		console.log('OK:', body.length, 'run(s)');
+	}
+}}
+
+### Runs - List filtered
+GET {{apiRoot}}/api/runs?type=prototype&status_filter=completed
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!Array.isArray(body) || !body.every(r => r.type === 'prototype' && r.status === 'completed')) {
+		console.error('FAIL: expected only type=prototype/status=completed runs, got', body);
+	} else {
+		console.log('OK:', body.length, 'completed prototype run(s)');
+	}
+}}
+
+### Runs - Export PPTX
+# Pure code generation from a previously-run pipeline's stored output — no
+# agent/LLM call happens here (see runs.py export_pptx). With the default
+# placeholder {{workflowId}} there's nothing to export from, so the expected
+# outcome IS the 400 below, not a successful download.
+POST {{apiRoot}}/api/runs/export-pptx
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"workflow_id": "{{workflowId}}",
+	"title": "Exported Deck"
+}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 200) {
+		console.log('OK: PPTX exported for a real workflow_id (200)');
+	} else if (sc === 400) {
+		console.log('OK (expected with the default placeholder workflowId): no PptxGenJS code found (400)');
+	} else {
+		console.error('FAIL: expected 200 or 400, got', sc, response.parsedBody);
+	}
+}}
+
+### Runs - Get by ID
+GET {{apiRoot}}/api/runs/{{workflowId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404) — set a real run id to exercise the 200 path');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, body);
+	} else if (typeof body.id !== 'string' || typeof body.status !== 'string') {
+		console.error('FAIL: expected a WorkflowRunResponse shape, got', body);
+	} else {
+		console.log('OK: run', body.id, 'status =', body.status);
+	}
+}}
+
+### Runs - Get by ID (nonexistent id, expect 404)
+GET {{apiRoot}}/api/runs/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 404) {
+		console.error('FAIL: expected 404 for a nonexistent run id, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: nonexistent run id correctly 404s');
+	}
+}}
+
+### Runs - Chain context
+GET {{apiRoot}}/api/runs/{{workflowId}}/chain-context
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, body);
+	} else if (typeof body.context_block !== 'string') {
+		console.error('FAIL: expected {workflow_id, pipeline_type, brief, structured_summary, agent_summaries, context_block} shape, got', body);
+	} else {
+		console.log('OK: chain-context for', body.workflow_id, '(' + body.context_block.length + ' chars)');
+	}
+}}
+
+### Runs - Artifacts tree
+GET {{apiRoot}}/api/runs/{{workflowId}}/artifacts
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, body);
+	} else if (!Array.isArray(body.artifacts)) {
+		console.error('FAIL: expected {artifacts: []} shape, got', body);
+	} else {
+		console.log('OK:', body.artifacts.length, 'artifact(s)');
+	}
+}}
+
+### Runs - Artifacts by kind
+GET {{apiRoot}}/api/runs/{{workflowId}}/artifacts?kind=clarifications&include=content
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, body);
+	} else if (!Array.isArray(body.artifacts) || !body.artifacts.every(a => a.kind === 'clarifications')) {
+		console.error('FAIL: expected only kind=clarifications artifacts, got', body);
+	} else {
+		console.log('OK:', body.artifacts.length, 'clarifications artifact(s)');
+	}
+}}
+
+### Runs - Events stream history
+GET {{apiRoot}}/api/runs/{{workflowId}}/events?after=0
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: events response received (200)');
+	}
+}}
+
+### Runs - Revision family
+GET {{apiRoot}}/api/runs/{{workflowId}}/family
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, body);
+	} else if (typeof body.root_id !== 'string' || !Array.isArray(body.members)) {
+		console.error('FAIL: expected {root_id, members: []} shape, got', body);
+	} else {
+		console.log('OK: family root =', body.root_id, '|', body.members.length, 'member(s)');
+	}
+}}
+
+### Runs - Hook runs
+GET {{apiRoot}}/api/runs/{{workflowId}}/hook-runs
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: hook-runs response received (200)');
+	}
+}}
+
+### Runs - Delete by ID
+# Run LAST — deletes {{workflowId}} if it exists and you have a real jwt.
+DELETE {{apiRoot}}/api/runs/{{workflowId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{workflowId}} does not exist for this user (404)');
+	} else if (sc !== 204) {
+		console.error('FAIL: expected 204 or 404, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: run deleted (204)');
+	}
+}}
