@@ -301,6 +301,16 @@ export function RunHeader({
       data-run-state={runState}
       className="flex flex-none items-center gap-[14px] px-[30px] pt-4"
     >
+      {/* Version chip — live/failed states: moved to the LEFT of the status badge
+          so it reads "[v1 draft] [Running · Streaming]" (Option A, user request).
+          Settled state: the VersionMenu below takes this slot instead. */}
+      {!isSettled && versionLabel && (
+        <span className="tabular-nums rounded-[8px] border border-line-control bg-surface-card px-2.5 py-[7px] font-serif text-[11.5px] font-normal leading-none text-ink-300">
+          {versionLabel}
+          {isRunning ? " draft" : isFailed ? " · partial" : ""}
+        </span>
+      )}
+
       {isSettled ? (
         <VersionMenu
           family={family}
@@ -321,15 +331,6 @@ export function RunHeader({
       )}
 
       <div className="flex-1" />
-
-      {/* Version chip — live/failed states carry a status-tinted version pill in
-          place of the interactive menu (mock: "v1 draft" / "v1 · partial"). */}
-      {!isSettled && versionLabel && (
-        <span className="tabular-nums rounded-[8px] border border-line-control bg-surface-card px-2.5 py-[7px] font-serif text-[11.5px] font-normal leading-none text-ink-300">
-          {versionLabel}
-          {isRunning ? " draft" : isFailed ? " · partial" : ""}
-        </span>
-      )}
 
       {/* Share — settled = enabled; running = disabled; failed = absent. */}
       {!isFailed && (

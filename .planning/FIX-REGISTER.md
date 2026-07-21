@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-062 | 2026-07-21 | Move "v1 draft" version chip to the left of the "Running · Streaming" status badge in RunHeader | Chip was placed after the `flex-1` spacer in JSX order, landing it on the right side. Moved it to the first child position in the flex row so it renders left of the StatusBadge. | `frontend/src/components/preview/RunHeader.tsx` | Phase 39 (RUNUI-06/07) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-061 | 2026-07-20 | KAN-112: Custom utility agent combinations fail with DAG unsatisfiable — all 8 custom agents had rigid `consumes` chain | Each custom agent declared `consumes: [previous-agent-id]` forming a fixed 8-agent chain. The `WorkflowResolver.validate()` rejected any subset as unsatisfiable (e.g. `report-generator` needs `documentation-agent`). Fixed by changing `consumes` from specific agent ids to `[]` on all 7 non-root custom agents. `context_from: [$previous]` already chains context correctly — `consumes` is only for typed artifact graph edges, which these agents don't need. | `backend/agents/prompts/swot-analyst/AGENT.md`, `backend/agents/prompts/roadmap-planner/AGENT.md`, `backend/agents/prompts/security-auditor/AGENT.md`, `backend/agents/prompts/test-case-generator/AGENT.md`, `backend/agents/prompts/performance-optimizer/AGENT.md`, `backend/agents/prompts/documentation-agent/AGENT.md`, `backend/agents/prompts/report-generator/AGENT.md` | Phase 7/8 (WorkflowResolver / agent AGENT.md) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-060 | 2026-07-17 | KAN-112: Make all custom-composer runs consistent — always pipeline_type="custom" | User story agents were routed to pipeline_type="user_stories" making history/logs inconsistent with prototype runs (which stayed "custom"). Fix: removed the `user_stories` routing branch from `resolveDispatchType`; added user story agents to `AGENT_DELIVERABLE_MAP` with `{strategy:"streamed_text", name:"user_stories.md", mimetype:"text/markdown"}`. Engine `_apply_selections` already handles the override + forces clarify.mode=skip. Output renders via `GenericDeliverablePreview` → `MarkdownPreview`. All custom-composer runs now consistently show `type=custom` in logs and history. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (custom composer) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-059 | 2026-07-17 | KAN-112 Option B: Replace `custom_prototype` manifest copy with runtime deliverable override via `__deliverable__` selections key | `custom_prototype` was an exact copy of `prototype/workflow.yaml` with `clarify.mode:skip` — a manifest-copy anti-pattern (INV-12 violation). Option B: FE `resolveDispatchType` now returns `{type:"custom", deliverableOverride:{strategy,name,mimetype}}` for prototype agents; `handleRun` injects `__deliverable__` into the selections map; `engine._apply_selections` reads it, calls `DeliverableSpec(**override)` and `dataclasses.replace(compiled.clarify, mode="skip")` — same skip behaviour, zero manifest copy. `custom_prototype` manifest deleted; all references removed from loader/registry/entitlements/websocket/types/DashboardLayout/page.tsx. | `backend/agents/workflows/selections.py`, `backend/agents/execution_engine/engine.py`, `backend/agents/loader.py`, `backend/agents/registry.py`, `backend/app/core/entitlements.py`, `backend/app/api/websocket.py`, `frontend/src/types/index.ts`, `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx`, `backend/agents/workflows/custom_prototype/workflow.yaml` (deleted) | Phase 22 (custom composer) + SC-001 | INV-1/3/12/SC-001 ✅ | Done |
@@ -78,6 +79,57 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-062 — Move "v1 draft" chip to left of "Running · Streaming" badge in RunHeader
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix please apply option A` (from `/velocity-ai-analyze` on the run header layout)
+
+#### Root Cause
+
+`frontend/src/components/preview/RunHeader.tsx` — the version chip `<span>` ("v1 draft") was placed **after** the `<div className="flex-1" />` spacer in the JSX flex row. Flex-1 pushes all subsequent siblings to the right edge, so the chip appeared in the top-right corner. The status badge ("Running · Streaming") was placed before the spacer on the left side.
+
+Sequence:
+```
+[StatusBadge LEFT] → [flex-1 spacer] → [v1 draft chip RIGHT] → [Share RIGHT]
+```
+
+The user wanted the chip on the **left of** the status badge, which requires it to be the first child in the flex container.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 39 (RUNUI-06/07) — `RunHeader` component built to match `Hexaware Run - Live.dc.html:159-166`
+- **Deleted code verified (not resurrected):** N/A — purely JSX ordering change
+- **Locked decisions respected:** Phase 39 D39-1 (mock-fidelity) — user explicitly overrides the original right-side placement
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/preview/RunHeader.tsx` | Moved the `{!isSettled && versionLabel && <span>...}` chip block from after the `flex-1` spacer to **before** the `{isSettled ? <VersionMenu/> : <StatusBadge/>}` block | Makes the chip the leftmost element in the flex row, rendering it to the left of the status badge |
+
+New render order:
+```
+[v1 draft chip] → [Running · Streaming badge] → [flex-1 spacer] → [Share button]
+```
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — React component only
+- **INV-3** (golden parity): not affected — no engine or event changes
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- Chip and badge are in the correct DOM order after the edit
+- `RunHeader.test.tsx` asserts presence of "v1 draft" text only (not position) — no test regression
+- `tsc` — no type changes; same props, same conditionals
+- Settled state: chip conditional `!isSettled` is false → chip not rendered → `VersionMenu` renders as before — zero regression on the settled state
+- Failed state: "v1 · partial" chip appears leftmost, then the red "Run failed" badge — also correct behavior
+
+#### Notes
+- The chip's styling, conditional logic, and text content are completely unchanged
+- Only JSX position was altered
 
 ---
 
