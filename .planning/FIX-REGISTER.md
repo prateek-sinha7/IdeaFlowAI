@@ -10,6 +10,8 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-065 | 2026-07-21 | Remove Design System and Discovery tabs for PPT presentation wizard | STEP_TABS and STEP_IDS were hardcoded as 3 items; no way to suppress tabs per mode. Added `steps?: StepId[]` prop (default all 3) to WizardStepper; LaunchWizard passes `["template"]` for ppt mode. | `frontend/src/components/workflow/WizardStepper.tsx`, `frontend/src/components/workflow/LaunchWizard.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-064 | 2026-07-21 | Hide Web/Deck toggle in template picker — show only relevant gallery per launch context | Toggle rendered unconditionally in WizardStepper.tsx; no prop to suppress it. Added `showToggle?: boolean` (default false) to hide the toggle so prototype shows only web templates and PPT shows only deck templates. | `frontend/src/components/workflow/WizardStepper.tsx`, `frontend/src/components/workflow/WizardStepper.test.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-063 | 2026-07-21 | KAN-113: Fix version dropdown showing wrong relative age ("5h ago") due to timezone-naive datetime serialization | SQLAlchemy `DateTime` (no `timezone=True`) returns naive datetimes from SQLite. Pydantic v2 serializes them without `+00:00`, so JavaScript `Date.parse()` treats them as local time, adding the user's UTC offset to the age calculation. Fix: add `@field_serializer` to `WorkflowRunResponse` and `FamilyMemberResponse` to promote naive datetimes to UTC before ISO-formatting. | `backend/app/api/runs.py` | Phase 36 §3 (FamilyMemberResponse) + Phase 5 §3 (WorkflowRunResponse) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-062 | 2026-07-21 | Move "v1 draft" version chip to the left of the "Running · Streaming" status badge in RunHeader | Chip was placed after the `flex-1` spacer in JSX order, landing it on the right side. Moved it to the first child position in the flex row so it renders left of the StatusBadge. | `frontend/src/components/preview/RunHeader.tsx` | Phase 39 (RUNUI-06/07) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-061 | 2026-07-20 | KAN-112: Custom utility agent combinations fail with DAG unsatisfiable — all 8 custom agents had rigid `consumes` chain | Each custom agent declared `consumes: [previous-agent-id]` forming a fixed 8-agent chain. The `WorkflowResolver.validate()` rejected any subset as unsatisfiable (e.g. `report-generator` needs `documentation-agent`). Fixed by changing `consumes` from specific agent ids to `[]` on all 7 non-root custom agents. `context_from: [$previous]` already chains context correctly — `consumes` is only for typed artifact graph edges, which these agents don't need. | `backend/agents/prompts/swot-analyst/AGENT.md`, `backend/agents/prompts/roadmap-planner/AGENT.md`, `backend/agents/prompts/security-auditor/AGENT.md`, `backend/agents/prompts/test-case-generator/AGENT.md`, `backend/agents/prompts/performance-optimizer/AGENT.md`, `backend/agents/prompts/documentation-agent/AGENT.md`, `backend/agents/prompts/report-generator/AGENT.md` | Phase 7/8 (WorkflowResolver / agent AGENT.md) | INV-1/3/12/SC-001 ✅ | Done |
@@ -80,6 +82,57 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-064 — Hide Web/Deck toggle in template picker (show only relevant gallery per launch context)
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix fix above changes` (hide Web/Deck filter; show web templates for prototype, deck templates for PPT)
+
+#### Root Cause
+
+`frontend/src/components/workflow/WizardStepper.tsx` lines 119–138 — the Web/Deck toggle `<div role="group">` block was rendered unconditionally whenever `activeStep === 0`. There was no prop to suppress it. The gallery content already correctly displayed based on the `mode` prop (`web` → `TemplateGallery`, `deck` → `PPTTemplateGallery`), but the toggle gave users the ability to manually switch between families mid-wizard, which was not the intended UX.
+
+When launched from `?mode=prototype` the toggle showed "Web" and "Deck" buttons above web templates. When launched from `?mode=ppt` the same toggle appeared above deck templates. The user wants the gallery locked to the launch mode with no toggle visible.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 37 (B3 — Configure + Composer/Wizard), Phase 41 (B7 — Configure Composer Rebuild)
+- **Relevant register section:** Phase 37 §3 (`WizardStepper`, `LaunchWizard`)
+- **Deleted code verified (not resurrected):** N/A — this is an additive prop, no prior deleted code involved
+- **Locked decisions respected:** SC-001/INV-1 — `mode` stays a generic data value, no workflow-name branch introduced
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/WizardStepper.tsx` | Added `showToggle?: boolean` to `WizardStepperProps` (default `false`); added `showToggle = false` to destructure; wrapped the toggle `<div>` block in `{showToggle && (...)}` | Hides the toggle by default; all existing callers (LaunchWizard) get the correct behavior without any prop change |
+| `frontend/src/components/workflow/WizardStepper.test.tsx` | Updated `Harness` component to accept `showToggle` prop; replaced the old toggle-swap test with: (1) a test confirming toggle is hidden by default, (2) a test confirming toggle still works when `showToggle={true}` | Test must reflect the new default behavior |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — `mode` stays a generic data value; no workflow-name branch
+- **INV-3** (golden parity): not affected — FE-only change, no backend, no engine, no golden snapshots
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+
+Mental trace with fix applied:
+1. User opens `/workflow/create?mode=prototype`
+2. `create/page.tsx` → `mode = "prototype"` → `LaunchWizard(initialMode="prototype")`
+3. `LaunchWizard` → `STEPPER_MODE["prototype"] = "web"` → `<WizardStepper mode="web" ...>` (no `showToggle` prop → defaults to `false`)
+4. `WizardStepper` → `showToggle = false` → `{false && <div>...</div>}` → toggle NOT rendered ✅
+5. `mode === "web"` → `<TemplateGallery>` renders → only web templates visible ✅
+
+PPT path: same but `mode="deck"` → `<PPTTemplateGallery>` renders → only deck templates visible ✅
+
+`LaunchWizard.test.tsx` not changed: it uses a mock stub of `WizardStepper` that directly exposes toggle buttons regardless of `showToggle`; those tests cover `handleModeChange` logic in `LaunchWizard` which remains intact.
+
+#### Notes
+
+- The `onModeChange` prop and `handleModeChange` logic in `LaunchWizard` are intentionally preserved — they remain available if cross-family switching is ever needed in future (just pass `showToggle={true}` to re-enable).
+- The `Globe` and `Presentation` icon imports in `WizardStepper.tsx` are preserved (they're needed if `showToggle={true}` is used).
+- No backend restart needed — FE-only change.
 
 ---
 

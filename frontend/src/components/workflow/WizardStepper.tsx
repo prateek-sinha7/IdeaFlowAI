@@ -35,6 +35,13 @@ export interface WizardStepperProps {
   mode: WizardMode;
   onModeChange: (mode: WizardMode) => void;
 
+  /**
+   * Whether to render the Web/Deck toggle control (default false — hidden).
+   * Pass `true` only when cross-family switching is explicitly desired.
+   * When false the gallery is fixed to the `mode` prop value.
+   */
+  showToggle?: boolean;
+
   // ── Web template step — props forwarded verbatim to the reused TemplateGallery ──
   webTemplates: PrototypeTemplate[];
   webSelectedId: string | null;
@@ -64,20 +71,28 @@ export interface WizardStepperProps {
   step?: number;
   onStepChange?: (step: number) => void;
 
+  /**
+   * Which steps to show as tabs (default: all three).
+   * Pass ["template"] for PPT/deck mode where DS + Discovery are not needed.
+   */
+  steps?: StepId[];
+
   className?: string;
 }
 
-const STEP_IDS = ["template", "design-system", "discovery"] as const;
-const STEP_TABS: TabItem[] = [
-  { id: "template", label: "Template" },
-  { id: "design-system", label: "Design System" },
-  { id: "discovery", label: "Discovery" },
-];
-const LAST_STEP = STEP_IDS.length - 1;
+const ALL_STEP_IDS = ["template", "design-system", "discovery"] as const;
+type StepId = (typeof ALL_STEP_IDS)[number];
+
+const STEP_TAB_LABELS: Record<StepId, string> = {
+  "template": "Template",
+  "design-system": "Design System",
+  "discovery": "Discovery",
+};
 
 export function WizardStepper({
   mode,
   onModeChange,
+  showToggle = false,
   webTemplates,
   webSelectedId,
   onWebSelect,
@@ -92,49 +107,61 @@ export function WizardStepper({
   discoverySlot,
   step,
   onStepChange,
+  steps = ["template", "design-system", "discovery"],
   className = "",
 }: WizardStepperProps) {
   const [stepState, setStepState] = useState(0);
   const activeStep = step ?? stepState;
 
+  // Derive the visible tab list and last step index from the `steps` prop.
+  const stepIds = steps;
+  const stepTabs: TabItem[] = steps.map((id) => ({ id, label: STEP_TAB_LABELS[id] }));
+  const lastStep = steps.length - 1;
+
   const goToStep = (next: number) => {
-    const clamped = Math.max(0, Math.min(LAST_STEP, next));
+    const clamped = Math.max(0, Math.min(lastStep, next));
     setStepState(clamped);
     onStepChange?.(clamped);
   };
+
+  // Resolve the actual step kind at the current index.
+  const activeStepId = stepIds[activeStep] ?? "template";
 
   return (
     <div className={["flex flex-col gap-6", className].filter(Boolean).join(" ")}>
       {/* ── Step header (reuses the shared underline-Tabs primitive) ─────────── */}
       <Tabs
-        tabs={STEP_TABS}
-        active={STEP_IDS[activeStep]}
-        onChange={(id) => goToStep(STEP_IDS.indexOf(id as (typeof STEP_IDS)[number]))}
+        tabs={stepTabs}
+        active={stepIds[activeStep]}
+        onChange={(id) => goToStep(stepIds.indexOf(id as StepId))}
       />
 
       {/* ── Step body ───────────────────────────────────────────────────────── */}
       <div>
-        {activeStep === 0 && (
+        {activeStepId === "template" && (
           <div className="flex flex-col gap-4">
-            {/* Web/Deck toggle — a generic segmented control keyed on `mode`. */}
-            <div
-              role="group"
-              aria-label="Deliverable family"
-              className="inline-flex items-center gap-0.5 self-start rounded-[var(--radius-button)] border border-line-border bg-surface-warm p-0.5"
-            >
-              <ModeButton
-                active={mode === "web"}
-                onClick={() => onModeChange("web")}
-                icon={<Globe className="h-3.5 w-3.5" />}
-                label="Web"
-              />
-              <ModeButton
-                active={mode === "deck"}
-                onClick={() => onModeChange("deck")}
-                icon={<Presentation className="h-3.5 w-3.5" />}
-                label="Deck"
-              />
-            </div>
+            {/* Web/Deck toggle — hidden by default (showToggle=false); shown only
+                when the caller explicitly opts in to cross-family switching. */}
+            {showToggle && (
+              <div
+                role="group"
+                aria-label="Deliverable family"
+                className="inline-flex items-center gap-0.5 self-start rounded-[var(--radius-button)] border border-line-border bg-surface-warm p-0.5"
+              >
+                <ModeButton
+                  active={mode === "web"}
+                  onClick={() => onModeChange("web")}
+                  icon={<Globe className="h-3.5 w-3.5" />}
+                  label="Web"
+                />
+                <ModeButton
+                  active={mode === "deck"}
+                  onClick={() => onModeChange("deck")}
+                  icon={<Presentation className="h-3.5 w-3.5" />}
+                  label="Deck"
+                />
+              </div>
+            )}
 
             {/* Reused template body — swapped by the toggle, never rebuilt. */}
             {mode === "web" ? (
@@ -157,9 +184,9 @@ export function WizardStepper({
           </div>
         )}
 
-        {activeStep === 1 && (dsSlot ?? <StepPlaceholder label="Design system step" />)}
+        {activeStepId === "design-system" && (dsSlot ?? <StepPlaceholder label="Design system step" />)}
 
-        {activeStep === 2 && (discoverySlot ?? <StepPlaceholder label="Discovery step" />)}
+        {activeStepId === "discovery" && (discoverySlot ?? <StepPlaceholder label="Discovery step" />)}
       </div>
 
       {/* ── Back / Next navigation ──────────────────────────────────────────── */}
@@ -176,7 +203,7 @@ export function WizardStepper({
         <button
           type="button"
           onClick={() => goToStep(activeStep + 1)}
-          disabled={activeStep === LAST_STEP}
+          disabled={activeStep === lastStep}
           className="inline-flex items-center gap-2 rounded-[var(--radius-button)] bg-brand px-5 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-brand-pressed disabled:cursor-not-allowed disabled:opacity-40"
         >
           Next

@@ -75,12 +75,13 @@ const DECK_TEMPLATES: PPTTemplate[] = [
   makeDeckTemplate({ id: "deck-beta", name: "Deck Beta Pitch" }),
 ];
 
-function Harness() {
+function Harness({ showToggle = false }: { showToggle?: boolean }) {
   const [mode, setMode] = useState<WizardMode>("web");
   return (
     <WizardStepper
       mode={mode}
       onModeChange={setMode}
+      showToggle={showToggle}
       webTemplates={WEB_TEMPLATES}
       webSelectedId={null}
       onWebSelect={vi.fn()}
@@ -94,8 +95,18 @@ function Harness() {
 }
 
 describe("WizardStepper — toggle swaps reused galleries + slot nav", () => {
-  it("Web/Deck toggle swaps the template-step body between the two reused galleries", () => {
+  it("hides the Web/Deck toggle by default (showToggle not passed)", () => {
     render(<Harness />);
+    // Toggle not rendered — no Web/Deck buttons visible.
+    expect(screen.queryByRole("button", { name: /web/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /deck/i })).not.toBeInTheDocument();
+    // Gallery still shows the correct mode (web by default).
+    expect(screen.getByText("Web Alpha Dashboard")).toBeInTheDocument();
+    expect(screen.queryByText("Deck Beta Pitch")).not.toBeInTheDocument();
+  });
+
+  it("shows Web/Deck toggle and swaps galleries when showToggle=true", () => {
+    render(<Harness showToggle />);
 
     // Web mode (default): the web gallery body renders; the deck one does not.
     expect(screen.getByText("Web Alpha Dashboard")).toBeInTheDocument();

@@ -678,6 +678,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           <WizardStepper
             mode={STEPPER_MODE[mode]}
             onModeChange={handleModeChange}
+            steps={mode === "ppt" ? ["template"] : ["template", "design-system", "discovery"]}
             webTemplates={webTemplates}
             webSelectedId={mode === "prototype" && !customTemplateBody ? selectedTemplateId : null}
             onWebSelect={handleSelectTemplate}
