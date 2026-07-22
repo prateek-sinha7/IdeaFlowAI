@@ -357,9 +357,9 @@ export function AgentPromptSection({
                       {!editMode && (
                         <button
                           onClick={handleEditStart}
-                          className="flex items-center gap-1 text-[10px] font-semibold text-gray-500 hover:text-gray-900 transition-colors px-2 py-0.5 rounded-md hover:bg-gray-100"
+                          className="flex items-center gap-1.5 text-[12px] font-semibold text-white/80 hover:text-surface-near-black transition-colors px-3 py-1 rounded-md border border-white/20 hover:bg-white"
                         >
-                          <Edit3 className="h-3 w-3" /> Edit
+                          <Edit3 className="h-3.5 w-3.5" /> Edit
                         </button>
                       )}
                     </div>
@@ -621,27 +621,18 @@ export function AgentCapabilitiesModal({
             </div>
           </div>
 
-          {/* 3. System prompt (READ-ONLY) — mirror the mock's Overview "SYSTEM
-              PROMPT" block by reusing the SAME shared AgentPromptSection the Config
-              tab shows, with `surfaceOnly` (ND-7/LOCK-E: no textarea / Save /
-              Revert — the durable PUT/DELETE path stays unreachable). */}
-          <AgentPromptSection agent={agent} surfaceOnly />
+          {/* 3. System prompt — full edit affordances (Edit / Save / Revert) moved
+              here from Config so users can read AND edit the prompt in one place
+              (KAN-119 UX improvement). */}
+          <AgentPromptSection agent={agent} />
           </>
           )}
 
           {/* Config tab — per-agent configuration levers (Model · Validator · Gate ·
               Retry) shown FLAT — no expand/collapse chrome. System Prompt editor
-              at the top (ND-7/LOCK-E superseded for the Library drawer Config tab —
-              full Edit / Save override / Revert-to-default affordances enabled so
-              the user can customise the agent prompt from this screen). */}
+              is in the Overview tab. */}
           {drawerTab === "config" && (
           <>
-          {/* System Prompt editor — full write affordances (surfaceOnly=false).
-              Overrides are stored at skills/users/{user_id}/{agent_id}/PROMPT_OVERRIDE.md
-              and injected at runtime by factory._compose_system_prompt (KAN-76).
-              A "Revert to default" button resets back to the base AGENT.md. */}
-          <AgentPromptSection agent={agent} />
-
           <p className="text-[12px] text-ink-500 leading-relaxed">
             Overrides for this agent. Defaults inherit from the workflow.
           </p>
