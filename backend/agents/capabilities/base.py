@@ -84,6 +84,23 @@ class ContextProvider(Protocol):
 
 
 @runtime_checkable
+class InputContentProvider(Protocol):
+    """Loads image/binary content-blocks appended to the model dispatch (image-input).
+
+    Distinct from ``ContextProvider`` (which returns a ``dict[str, str]`` block map
+    composed into the TEXT context message): this port returns a ``list`` of
+    multimodal content-blocks (e.g. ``{"type":"image","source_type":"base64",...}``)
+    that ride into the agent's model dispatch content-list, never the text prompt.
+    """
+
+    name: str
+
+    async def load(self, ctx: Any) -> list:
+        """Return a list of content-blocks to append to the model dispatch."""
+        ...
+
+
+@runtime_checkable
 class PostStep(Protocol):
     """A declared after-step behavior run once the step's agent has finished (§9 / CR-06).
 

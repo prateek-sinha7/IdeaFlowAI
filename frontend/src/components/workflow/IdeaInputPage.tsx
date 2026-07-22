@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import {
   ArrowLeft, ArrowRight, Paperclip, File, X, FileText,
   Presentation, Layout, Settings2, Mic, MicOff, GitBranch,
-  Save, Check,
+  Save, Check, Image as ImageIcon,
 } from "lucide-react";
 import { AgentsPopup } from "./AgentsPopup";
 import { ReviewGatesSection } from "./ReviewGatesSection";
@@ -14,6 +14,7 @@ import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { createUserWorkflow, getToken, getWorkflowDetail, extractFileText } from "@/lib/api";
+import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
 
@@ -187,6 +188,14 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const [ideaInput, setIdeaInput] = useState(initialInput ?? "");
   const [showAgents, setShowAgents] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
+  // KAN-91: file content stored separately so textarea stays clean.
+  // Composed into the pipeline message at send time, not at attach time.
+  const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
+  // Image-input Wave 2: captured images ride OUT-OF-BAND as the `images` payload
+  // field (Phase 25 D3) — a SEPARATE state from attachedFileContents (which is
+  // inlined into the brief text). base64 must NEVER enter the brief: one ~340KB
+  // image ≈ the whole ATTACH_MAX_CHARS cap.
+  const [attachedImages, setAttachedImages] = useState<{ name: string; mime_type: string; data: string }[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
@@ -338,6 +347,12 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     if (!ideaInput.trim() || pipelineAgents.length === 0) return;
     // For the migration meta-type, Run is gated on a sub-pipeline being chosen.
     if (isMigrationMeta && !migrationChoice) return;
+    // KAN-91: compose file content blocks into the message at send time,
+    // keeping the textarea clean. ATTACH_MAX_CHARS already applied at attach time.
+    const fileBlocks = attachedFileContents
+      .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
+      .join("");
+    const finalMessage = fileBlocks ? `${ideaInput.trim()}${fileBlocks}` : ideaInput.trim();
     // Only attach gate_agent_ids when the user actually touched the Review-gates
     // section; otherwise omit it entirely so the backend keeps its static default
     // (the run_pipeline payload is byte-identical to before this feature).
@@ -354,15 +369,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // untouched composer emits a byte-identical payload (INV-3 / SC-001).
     const selections = selectionsRef.current;
     const hasSelections = Object.keys(selections).length > 0;
+    // Image-input Wave 2: ship captured images OUT-OF-BAND as `images` (D3 —
+    // NEVER inlined into finalMessage). Include only when ≥1 image is attached
+    // so an image-less run emits a byte-identical payload (INV-3).
+    const hasImages = attachedImages.length > 0;
     const extraParams =
-      touched || hasOverrides || hasSelections
+      touched || hasOverrides || hasSelections || hasImages
         ? {
             ...(touched ? { gate_agent_ids: ids } : {}),
             ...(hasOverrides ? { model_overrides: overrides } : {}),
             ...(hasSelections ? { selections } : {}),
+            ...(hasImages ? { images: attachedImages } : {}),
           }
         : undefined;
-    onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id), effectiveType, extraParams);
+    onRun(finalMessage, pipelineAgents.map((a) => a.id), effectiveType, extraParams);
   };
 
   // Phase 21 (SAVE-FROM-BOTH composer entry) — "Save workflow" persists the
@@ -504,7 +524,30 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                 {attachedFiles.map((file, idx) => (
                   <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
                     <File className="h-2.5 w-2.5" /> {file.name}
-                    <button onClick={() => setAttachedFiles((p) => p.filter((_, i) => i !== idx))} className="ml-1 text-gray-400 hover:text-red-500">
+                    <button onClick={() => {
+                      setAttachedFiles((p) => p.filter((_, i) => i !== idx));
+                      // KAN-91: also remove stored content so it's not sent
+                      const removedName = attachedFiles[idx]?.name;
+                      if (removedName) {
+                        setAttachedFileContents((p) => p.filter((c) => c.name !== removedName));
+                      }
+                    }} className="ml-1 text-gray-400 hover:text-red-500">
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Attached images (Wave 2) — chips only; base64 never inlined (D3) */}
+            {attachedImages.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-5 pb-2">
+                {attachedImages.map((img, idx) => (
+                  <span key={`${img.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
+                    <ImageIcon className="h-2.5 w-2.5" /> {img.name}
+                    <button onClick={() => {
+                      setAttachedImages((p) => p.filter((_, i) => i !== idx));
+                    }} className="ml-1 text-gray-400 hover:text-red-500">
                       <X className="h-2.5 w-2.5" />
                     </button>
                   </span>
@@ -520,12 +563,33 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv"
+                  accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv,image/png,image/jpeg,image/webp,image/gif"
                   className="hidden"
                   onChange={(e) => {
                     const files = e.target.files;
                     if (files) {
                       Array.from(files).forEach((f) => {
+                        // Image-input Wave 2: images ride OUT-OF-BAND (D3) — they
+                        // are captured into attachedImages, NEVER into
+                        // attachedFileContents (which is inlined into the brief).
+                        const isImageFile =
+                          ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(f.type) ||
+                          /\.(png|jpe?g|webp|gif)$/i.test(f.name);
+                        if (isImageFile) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const result = (ev.target?.result as string) ?? "";
+                            // Strip the `data:<mime>;base64,` prefix — only the raw
+                            // base64 payload rides the `images` field.
+                            const rawBase64 = result.replace(/^data:[^;]+;base64,/, "");
+                            setAttachedImages((p) => [
+                              ...p,
+                              { name: f.name, mime_type: f.type || "image/png", data: rawBase64 },
+                            ]);
+                          };
+                          reader.readAsDataURL(f);
+                          return;
+                        }
                         const meta = {
                           name: f.name,
                           size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
@@ -537,10 +601,11 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                           const reader = new FileReader();
                           reader.onload = (ev) => {
                             const content = (ev.target?.result as string) ?? "";
-                            setIdeaInput((p) => {
-                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, 64000)}\n=== End: ${f.name} ===`;
-                              return p ? `${p}${block}` : block.trimStart();
-                            });
+                            // KAN-91: store content separately, not in textarea
+                            setAttachedFileContents((p) => [
+                              ...p,
+                              { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) },
+                            ]);
                           };
                           reader.readAsText(f);
                         } else if (isBinaryFile) {
@@ -548,21 +613,25 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                           if (jwt) {
                             extractFileText(jwt, f)
                               .then((res) => {
-                                setIdeaInput((p) => {
-                                  const truncNote = res.truncated ? "\n[Content truncated to 64,000 chars]" : "";
-                                  const block = `\n\n=== Attached: ${res.filename} ===\n${res.text}${truncNote}\n=== End: ${res.filename} ===`;
-                                  return p ? `${p}${block}` : block.trimStart();
-                                });
+                                // KAN-91: store extracted content separately
+                                const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
+                                setAttachedFileContents((p) => [
+                                  ...p,
+                                  { name: res.filename, content: `${res.text}${truncNote}` },
+                                ]);
                               })
                               .catch(() => {
-                                setIdeaInput((p) => p ? `${p}\n\n[Attached: ${f.name} — could not extract text]` : `[Attached: ${f.name} — could not extract text]`);
+                                // Extraction failed — store a placeholder so the agent knows the file was attached
+                                setAttachedFileContents((p) => [
+                                  ...p,
+                                  { name: f.name, content: "[could not extract text]" },
+                                ]);
                               });
                           } else {
-                            setIdeaInput((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
+                            setAttachedFileContents((p) => [...p, { name: f.name, content: "" }]);
                           }
-                        } else {
-                          setIdeaInput((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
                         }
+                        // For other file types: chip shows but no content is sent (no text to extract)
                       });
                     }
                     e.target.value = "";

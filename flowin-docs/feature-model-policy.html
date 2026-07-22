@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Policy — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-model-policy">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Model Policy</b></div>
+      <div class="spacer"></div>
+      <span class="tag">Phase 6</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Cross-cutting</div>
+        <h1>Model Policy</h1>
+        <p>Which LLM runs each agent is a resolved decision, not a hardcoded constant. A <code>ModelResolver</code> applies a strict precedence over an allow-listed <code>ModelCatalog</code>, with fallbacks and cost classes. <code>build_model()</code> then constructs the right client.</p>
+        <div class="kv"><span><b>Default:</b> Claude Haiku 4.5</span><span><b>Providers:</b> Bedrock / Anthropic</span><span><b>Cap:</b> MAX_OUTPUT_TOKENS = 32768</span></div>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Not every agent needs the biggest, most expensive model. Flowin picks the model for each agent using a clear order of precedence — a per-run user choice wins over a per-step setting, which wins over the agent's own default, and so on. And because letting users pass arbitrary model names is risky, those choices are checked against an allow-list before anything runs.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A model-selection policy (<code>ModelResolver</code>) over an allow-listed catalog, plus the <code>build_model()</code> client factory.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To balance cost and quality per agent and to block abuse via unknown/arbitrary model ids.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>A 5-tier precedence resolves the id; the factory builds ChatAnthropic or ChatBedrockConverse with token caps, timeouts, and a fallback chain.</p></div>
+        </div>
+      </div>
+
+      <h3>How a model is chosen for an agent</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Precedence (highest wins)</h3>
+      <table>
+        <thead><tr><th>Tier</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Per-run user override (<code>model_overrides[agent_id]</code>) — allow-list-validated against the ModelCatalog.</td></tr>
+          <tr><td>2</td><td>Per-step <code>model:</code> (from the compiled Step).</td></tr>
+          <tr><td>3</td><td>Per-agent <code>AGENT.md</code> model.</td></tr>
+          <tr><td>4</td><td>Workflow-default <code>model:</code> (CompiledWorkflow).</td></tr>
+          <tr><td>5</td><td>Session model / the Haiku default.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="grid g2">
+        <div class="card"><h4>build_model()</h4><p class="lead"><code>app/agents/model_factory.py</code>. Selects <code>ChatAnthropic</code> when <code>ANTHROPIC_API_KEY</code> is set (local dev), else <code>ChatBedrockConverse</code> (prod — IAM instance role or a bearer token). Botocore read-timeout + adaptive retries live here in one place. Per-call total timeout is <code>LLM_CALL_TIMEOUT_SECONDS = 900</code>.</p></div>
+        <div class="card"><h4>Token ceiling</h4><p class="lead">The API requires a finite <code>max_tokens</code>, so "no capping" means "run at the model max" — <code>MAX_OUTPUT_TOKENS = 32768</code> is applied uniformly by the factory, overriding the documented per-agent <code>max_tokens</code> in AGENT.md.</p></div>
+      </div>
+
+      <div class="callout warn"><div class="t">&#128274; The security chokepoint</div><p><code>model_overrides</code> is untrusted run-payload input. <code>_validate_model_overrides()</code> checks each entry against two allow-lists — <code>model_id &isin; ModelCatalog.ids()</code> and <code>agent_id &isin;</code> this run's agents — and rejects the run with <code>code: "invalid_model_override"</code> before <code>execute()</code>. This blocks unknown-provider / cost-abuse / invalid-model-crash vectors.</p></div>
+
+      <h3>Why tier-3 validation is deferred until it actually wins</h3>
+      <p class="muted"><code>ModelResolver.resolve()</code> has a deliberately subtle ordering worth calling out: it computes all 5 precedence tiers with a plain <code>or</code>-chain <i>first</i>, and only <b>after</b> that resolves does it catalog-validate whichever tier actually won. Why not validate every tier upfront? Because a higher-precedence override must be able to rescue a run even when a lower tier is broken — e.g. if an AGENT.md declares a retired model id (tier 3) but the user supplied a valid per-run override (tier 1), the override should win cleanly, and the stale AGENT.md value should never even be checked. Validating eagerly would incorrectly reject that run. The resolver validates tier-2 (<code>step.model</code>, sourced from a user-composed selections map) and tier-3 (AGENT.md) only when each is the tier that actually resolved — a real "defense in depth, but don't over-defend" design call.</p>
+
+      <h3>Fallback chains: tier-descent by cost class, not a hardcoded list</h3>
+      <p class="muted">When a model call hits a transient error, the engine doesn't just retry the same model — it walks a fallback chain. <code>ModelResolver.chain_for(model_id)</code> derives this automatically from the catalog's <code>cost_class</code> field (<code>premium</code> &#8594; <code>standard</code> &#8594; <code>cheap</code>): a premium model's default chain is <code>[standard, cheap]</code> (roughly Opus &#8594; Sonnet &#8594; Haiku), a standard model's is <code>[cheap]</code>, and a cheap model has nowhere left to fall back to. A manifest can override this with an explicit <code>fallback</code> list, but every entry in it is still catalog-validated — an explicit fallback naming an unknown model id raises just as loudly as an unvalidated override would.</p>
+      <p class="muted">The resolver doesn't just compute the chain once — it owns an active cursor (<code>set_chain</code> / <code>current</code> / <code>advance</code>) that the engine's retry loop drives directly, so one object is responsible for both <i>which model to try first</i> and <i>what to try next when that fails</i>.</p>
+
+      <h3>Classifying "worth switching models" — <code>_is_transient_throttle</code></h3>
+      <p class="muted">Not every model error should trigger a fallback. A <code>ValidationException</code> or an <code>AccessDeniedException</code> will fail identically on a fallback model too — retrying just wastes time and tokens. The classifier is a three-layer defensive check, because the exact exception shape depends on which client library wrapped it:</p>
+      <div class="grid g3">
+        <div class="card"><h4>1 &middot; botocore ClientError shape</h4><p class="lead">Checks <code>exc.response["Error"]["Code"]</code> against a set of known-transient Bedrock codes (<code>ThrottlingException</code>, <code>ServiceUnavailableException</code>, &hellip;), or the HTTP status against <code>{429, 500, 503, 529}</code>.</p></div>
+        <div class="card"><h4>2 &middot; a status attribute</h4><p class="lead">Anthropic-style clients expose <code>status_code</code>/<code>http_status</code> directly on the exception — checked against the same transient-status set.</p></div>
+        <div class="card"><h4>3 &middot; substring match, defensively</h4><p class="lead">As a last resort, the exception's type name + stringified message is searched for substrings like <code>"throttl"</code>, <code>"rate limit"</code>, <code>"overloaded"</code> — because <code>langchain-aws</code>/<code>langchain-anthropic</code> sometimes wrap the real error in ways that lose the structured fields.</p></div>
+      </div>
+      <p class="muted">Anything that doesn't match any of the three layers returns <code>False</code>, and the caller re-raises without switching models — a fail-loud default rather than silently masking a real configuration problem behind a model swap.</p>
+
+      <p class="muted">Bedrock production default: model <code>claude-haiku-4-5</code>, cross-region inference profile <code>eu.anthropic.claude-haiku-4-5-20251001-v1:0</code>, region <code>eu-central-1</code>. The handoff coding agent can override to Sonnet via <code>BEDROCK_CODING_MODEL_ID</code>.</p>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Model Policy</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Validate overrides", b:"chokepoint", bc:"b-amber", d:"At WS ingress, per-run model_overrides are allow-list-checked against the ModelCatalog + this run's agents. Bad = run rejected."},
+  {t:"Resolve per agent", b:"ModelResolver", bc:"b-cyan", d:"For each agent, apply the 5-tier precedence: user override > step model > AGENT.md > workflow default > session/Haiku."},
+  {t:"Pick provider", b:"build_model", bc:"b-green", d:"ANTHROPIC_API_KEY present &#8594; ChatAnthropic (local); else ChatBedrockConverse (prod)."},
+  {t:"Apply caps + retries", d:"max_tokens = 32768; botocore read-timeout + adaptive retries; 900s per-call total timeout."},
+  {t:"Fallback chain", d:"On a transient throttle, the resolver's declared fallback models are tried in order (the MODEL-02 chain)."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

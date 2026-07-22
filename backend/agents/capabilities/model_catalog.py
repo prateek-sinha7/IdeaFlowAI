@@ -28,6 +28,23 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class Pricing:
+    """Immutable per-SINGLE-token USD rates for one model.
+
+    Every field is a USD price per ONE token — the base / Anthropic-direct /
+    Bedrock-global rate, BEFORE any regional inference-profile premium. Fields:
+    ``input`` / ``output`` / ``cache_read`` / ``cache_write`` at the 5-minute and
+    1-hour TTL tiers.
+    """
+
+    input: float
+    output: float
+    cache_read: float
+    cache_write_5m: float
+    cache_write_1h: float
+
+
+@dataclass(frozen=True)
 class ModelEntry:
     """An immutable catalog record for one selectable model (MODEL-04 field set)."""
 
@@ -39,6 +56,11 @@ class ModelEntry:
     provider: str
     context_window: int
     user_allowed: bool
+    pricing: Pricing
+    # Vision-capability flag — gates image input at ingress (IMAGE-INPUT §3 Layer 5):
+    # `_validate_images` rejects an image set unless every effective run-level model
+    # is a catalog entry with `vision=True` (closes the raw-config escape hatch).
+    vision: bool
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +79,8 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         provider="bedrock",
         context_window=200000,
         user_allowed=True,
+        pricing=Pricing(1e-6, 5e-6, 0.1e-6, 1.25e-6, 2e-6),
+        vision=True,
     ),
     ModelEntry(
         id="eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -67,6 +91,8 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         provider="bedrock",
         context_window=200000,
         user_allowed=True,
+        pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
+        vision=True,
     ),
     ModelEntry(
         id="eu.anthropic.claude-sonnet-4-6",
@@ -77,6 +103,11 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         provider="bedrock",
         context_window=1000000,
         user_allowed=True,
+        # NOTE: Opus 4.6 / Sonnet 4.6 Bedrock $ are DERIVED — operator confirm on
+        # the live AWS pricing page (they mirror the 4.5 tier pending published
+        # Bedrock rates).
+        pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
+        vision=True,
     ),
     ModelEntry(
         id="eu.anthropic.claude-opus-4-5-20251101-v1:0",
@@ -87,6 +118,8 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         provider="bedrock",
         context_window=200000,
         user_allowed=True,
+        pricing=Pricing(5e-6, 25e-6, 0.5e-6, 6.25e-6, 10e-6),
+        vision=True,
     ),
     ModelEntry(
         id="eu.anthropic.claude-opus-4-6-v1",
@@ -97,6 +130,9 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         provider="bedrock",
         context_window=200000,
         user_allowed=True,
+        # Opus 4.6 Bedrock $ DERIVED (mirrors 4.5 premium tier) — operator confirm.
+        pricing=Pricing(5e-6, 25e-6, 0.5e-6, 6.25e-6, 10e-6),
+        vision=True,
     ),
 )
 

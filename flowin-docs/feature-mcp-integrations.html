@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP &amp; Integrations — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-mcp-integrations">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">MCP &amp; Integrations</b></div>
+      <div class="spacer"></div>
+      <span class="tag">Phase 9</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Cross-cutting</div>
+        <h1>MCP &amp; Integrations</h1>
+        <p>Agents can reach external systems through the Model Context Protocol. An allow-listed catalog of MCP servers plus thin integration-provider bridges surface tools (GitHub / GitLab / Jira / Slack) into an agent's runner via the same prewarm seam — one mechanism, no parallel SDK path.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Sometimes an agent needs to reach outside — read a GitHub repo, post to Slack, file a Jira ticket. Flowin does that through the Model Context Protocol (MCP): a vetted, trust-gated set of external tools. The powerful ones stay off the user palette; the safe ones can be granted and are handed to the agent as ordinary tools.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>An allow-listed catalog of MCP servers plus thin integration-provider bridges (GitHub / GitLab / Jira / Slack).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To let agents interact with external systems without a bespoke SDK path per service — one mechanism, trust-gated.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>A granted scope composes an MCP config; tools are prewarmed once at run entry and unioned into the agent's tool set (they augment, never replace, the runtime).</p></div>
+        </div>
+      </div>
+
+      <h3>How MCP tools reach an agent</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>The catalog (trust-gated)</h3>
+      <div class="grid g3">
+        <div class="cap"><div class="cn">github</div><div class="cd">Read-scoped &middot; user-grantable</div></div>
+        <div class="cap"><div class="cn">gitlab</div><div class="cd">Read-scoped &middot; user-grantable</div></div>
+        <div class="cap"><div class="cn">jira</div><div class="cd">Read-scoped &middot; user-grantable</div></div>
+        <div class="cap"><div class="cn">slack</div><div class="cd">Post-scoped &middot; user-grantable</div></div>
+        <div class="cap"><div class="cn">filesystem</div><div class="cd">Powerful &middot; user_allowed=false</div></div>
+        <div class="cap"><div class="cn">postgres</div><div class="cd">Powerful &middot; user_allowed=false</div></div>
+      </div>
+      <p class="muted">The powerful servers (<code>filesystem</code>, <code>postgres</code>) are gated off the user palette. Integration providers (<code>github</code>/<code>gitlab</code>/<code>jira</code>/<code>slack</code>) are thin MCP-backed bridges that surface the matching catalog server's tools.</p>
+
+      <div class="grid g2">
+        <div class="card"><h4>Prewarm seam</h4><p class="lead">The <code>McpClientAdapter</code> awaits <code>get_tools()</code> <b>once</b> at the async engine run-entry; the resolved tools are stashed on <code>ExecutionContext</code> / <code>AgentContext.prewarmed_mcp_tools</code>. The sync <code>create_runner</code> then unions them into the runner tool set without awaiting inside the running loop.</p></div>
+        <div class="card"><h4>Credentials</h4><p class="lead">MCP secrets are stored encrypted in the <code>mcp_credential</code> table (field encryption via <code>app/core/crypto.py</code>). They are referenced by key, never logged by value.</p></div>
+      </div>
+
+      <div class="callout"><div class="t">&#128279; One mechanism</div><p>Integrations and raw MCP servers share the same runner-binding path (INV-13: tools <em>augment</em> the deepagents runtime, they never replace it). A granted <code>integrations</code> scope composes an MCP server-config fragment the run-entry hands to the client adapter — no second SDK path.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; MCP &amp; Integrations</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Grant a scope", b:"integrations", d:"A workflow/step is granted an integration scope (e.g. github) or a catalog MCP server is selected."},
+  {t:"Compose server config", b:"IntegrationProvider", bc:"b-violet", d:"The provider composes the MCP server-config fragment for the run-entry from stored (encrypted) credentials."},
+  {t:"Prewarm tools", b:"McpClientAdapter", bc:"b-cyan", d:"At async run-entry, get_tools() is awaited once; the resolved tools are stashed on the context."},
+  {t:"Union into the runner", b:"create_runner", bc:"b-green", d:"The sync factory unions the prewarmed MCP tools into the agent's tool set without awaiting inside the loop."},
+  {t:"Agent uses them", d:"The agent can now call the external tools (read a repo, post to Slack, file a Jira issue) as ordinary tool calls, streamed as tool_call/tool_result events."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

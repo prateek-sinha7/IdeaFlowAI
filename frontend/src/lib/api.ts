@@ -7,6 +7,7 @@ import type {
   AuthResponse,
   ChatMessage,
   ChatSession,
+  RunFamily,
   User,
   WorkflowRun,
   WorkflowType,
@@ -253,17 +254,22 @@ interface RawWorkflowRun {
   title: string;
   type: string;
   status: string;
-  input: string;
-  output: string | null;
-  agent_outputs: string | null;
+  // KAN-110: input/output/agent_outputs are absent from the slim list response.
+  // They are present in the full single-run response (GET /api/runs/{id}).
+  input?: string | null;
+  output?: string | null;
+  agent_outputs?: string | null;
   agent_count: number;
   duration: number | null;
   error: string | null;
   token_usage: string | null;
-  model_id: string | null;
+  model_id?: string | null;
   // UXFIX-02 (22-03 / D-19): persisted declared/resolved deliverable shape.
   deliverable_mimetype?: string | null;
   deliverable_filename?: string | null;
+  // Revision Families (B1 / D1-D2-D7): optional so legacy raw rows still parse.
+  parent_run_id?: string | null;
+  root_run_id?: string;
   created_at: string;
   completed_at: string | null;
 }
@@ -289,13 +295,17 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     title: raw.title,
     type: raw.type as WorkflowType,
     status: raw.status as WorkflowRun["status"],
-    input: raw.input,
+    input: raw.input ?? "",
     output: raw.output ?? undefined,
     agentOutputs,
     tokenUsage,
     modelId: raw.model_id ?? undefined,
     deliverableMimetype: raw.deliverable_mimetype ?? undefined,
     deliverableFilename: raw.deliverable_filename ?? undefined,
+    // Revision Families (B1): a standalone/legacy run with no root is its own
+    // root — matches the backend's "standalone run → own id" semantics.
+    parentRunId: raw.parent_run_id ?? null,
+    rootRunId: raw.root_run_id ?? raw.id,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,
@@ -306,20 +316,30 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
 
 export async function getWorkflows(
   token: string,
-  options?: { type?: WorkflowType; limit?: number }
-): Promise<WorkflowRun[]> {
+  options?: { type?: WorkflowType; limit?: number; offset?: number }
+): Promise<{ runs: WorkflowRun[]; total: number }> {
   let path = "/api/runs";
   const params = new URLSearchParams();
   if (options?.type) params.set("type", options.type);
   if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
   const qs = params.toString();
   if (qs) path += `?${qs}`;
 
-  const raw = await request<RawWorkflowRun[]>(path, {
-    method: "GET",
-    headers: authHeaders(token),
-  });
-  return raw.map(normalizeWorkflowRun);
+  const rawResponse = await fetch(
+    (process.env.NEXT_PUBLIC_API_URL || "") + path,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  if (!rawResponse.ok) {
+    const text = await rawResponse.text().catch(() => "");
+    throw new Error(text || `HTTP ${rawResponse.status}`);
+  }
+  const total = parseInt(rawResponse.headers.get("X-Total-Count") || "0", 10);
+  const raw = (await rawResponse.json()) as RawWorkflowRun[];
+  return { runs: raw.map(normalizeWorkflowRun), total };
 }
 
 export async function getWorkflow(
@@ -331,6 +351,63 @@ export async function getWorkflow(
     headers: authHeaders(token),
   });
   return normalizeWorkflowRun(raw);
+}
+
+/** Fetch the revision family (root + ordered members) for a run.
+ *  Returns the raw wire shape (unnormalized snake_case) like getChainContext. */
+export async function getRunFamily(
+  token: string,
+  runId: string
+): Promise<RunFamily> {
+  return request<RunFamily>(`/api/runs/${runId}/family`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+/** A single artifact node from GET /api/runs/{id}/artifacts (mirrors the
+ *  backend node shape, runs.py:590-608). `content` is present ONLY when the
+ *  request was made with include=content. NOTE: nodes carry NO created_at. */
+export interface ArtifactNode {
+  id: string;
+  kind: string;
+  producer_step: string;
+  producer_agent: string;
+  task_id: string;
+  content_hash: string;
+  version: number;
+  visibility: string;
+  location: string;
+  parents: string[];
+  derived_from: string[];
+  children: string[];
+  content?: string;
+}
+
+export interface RunArtifactsResponse {
+  workflow_id: string;
+  artifacts: ArtifactNode[];
+}
+
+/** Fetch a run's artifact tree. Workstream C1 (POR §6.6) — the first FE
+ *  consumer of Workstream-A's `?kind=` filter. Returns the raw wire shape
+ *  verbatim (unnormalized) like getRunFamily/getChainContext. */
+export async function getRunArtifacts(
+  token: string,
+  runId: string,
+  opts?: { kind?: string; includeContent?: boolean }
+): Promise<RunArtifactsResponse> {
+  let path = `/api/runs/${runId}/artifacts`;
+  const params = new URLSearchParams();
+  if (opts?.kind) params.set("kind", opts.kind);
+  if (opts?.includeContent) params.set("include", "content");
+  const qs = params.toString();
+  if (qs) path += `?${qs}`;
+
+  return request<RunArtifactsResponse>(path, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
 }
 
 export interface ChainContext {

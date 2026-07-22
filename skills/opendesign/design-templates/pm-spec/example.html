@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Spec — Two-factor authentication for Northwind</title>
+<title>Spec — Two-factor authentication for Westport</title>
 <style>
   :root {
     --bg: #f5f7fa;
@@ -100,23 +100,23 @@
 <div class="page">
   <header class="top">
     <div class="top-left">
-      <span class="crumb">Northwind / Specs / Auth</span>
+      <span class="crumb">Westport / Specs / Auth</span>
       <span class="pill draft"><span class="pill dot"></span>Draft v0.4</span>
     </div>
     <div class="top-actions">
-      <span>Owner · Devon Park</span>
+      <span>Owner · Dana Platt</span>
       <span>Updated · 22 Oct 2025</span>
       <span>Reviewers · 4</span>
     </div>
   </header>
 
-  <h1>Two-factor authentication for the Northwind app.</h1>
-  <p class="summary">Add TOTP and security-key second factors to the Northwind login flow so enterprise customers can meet their internal controls and we can move from "considered" to "approved" on three pending deals.</p>
+  <h1>Two-factor authentication for the Westport app.</h1>
+  <p class="summary">Add TOTP and security-key second factors to the Westport login flow so enterprise customers can meet their internal controls and we can move from "considered" to "approved" on three pending deals.</p>
 
   <div class="meta-row">
     <span><strong>Squad</strong>Identity Platform</span>
-    <span><strong>Engineering lead</strong>Priya Banerjee</span>
-    <span><strong>Design lead</strong>Sasha Lin</span>
+    <span><strong>Engineering lead</strong>Priya Bhandari</span>
+    <span><strong>Design lead</strong>Sasha Lund</span>
     <span><strong>Target launch</strong>End Q4 (Dec 18)</span>
     <span><strong>Effort</strong>~6 eng-weeks</span>
   </div>
@@ -130,7 +130,7 @@
       </div>
       <div class="quote">
         <div class="body">"We love the product, but the absence of TOTP came up in two of three security reviews. Add it and we can sign."</div>
-        <div class="author">— Maya Reddy · CTO, Pioneer Robotics</div>
+        <div class="author">— Leah Novak · CTO, Summit Robotics</div>
       </div>
     </div>
   </section>
@@ -226,21 +226,21 @@
     <div class="questions">
       <div class="question">
         <p>Should we let members choose between TOTP and security keys, or pick the strongest available factor for them?</p>
-        <span class="assignee"><span class="avatar">DP</span>Devon Park · Oct 28</span>
+        <span class="assignee"><span class="avatar">DP</span>Dana Platt · Oct 28</span>
       </div>
       <div class="question">
         <p>Trusted-device cookie lifetime: 7 days, 30 days, or admin-configurable?</p>
-        <span class="assignee"><span class="avatar">PB</span>Priya Banerjee · Oct 29</span>
+        <span class="assignee"><span class="avatar">PB</span>Priya Bhandari · Oct 29</span>
       </div>
       <div class="question">
         <p>Do we surface a member's 2FA status in the admin user list, or only in the audit log?</p>
-        <span class="assignee"><span class="avatar">SL</span>Sasha Lin · Oct 30</span>
+        <span class="assignee"><span class="avatar">SL</span>Sasha Lund · Oct 30</span>
       </div>
     </div>
   </section>
 
   <footer>
-    <span>Northwind Identity Platform · spec-2fa</span>
+    <span>Westport Identity Platform · spec-2fa</span>
     <span>v0.4 · 22 October 2025</span>
   </footer>
 </div>

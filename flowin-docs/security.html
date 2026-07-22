@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Security Notes — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="security">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Security Notes</b></div>
+      <div class="spacer"></div>
+      <span class="tag">observations</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Platform</div>
+        <h1>Security Notes</h1>
+        <p>The platform has strong security defaults in several places and a couple of items worth flagging. This reflects what is verifiable in the current code — it is a set of observations from reading the source, not a full audit.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Flowin gets a lot of the security basics right by default — tokens are kept out of URLs and can be revoked, every run is scoped to its owner, capabilities are locked down unless explicitly granted, and manifests are parsed safely. There are also a couple of things worth tightening. This page separates the two honestly; it's an informed read of the code, not a formal audit.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>An overview of the platform's security posture as verifiable in the current source.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To make trust boundaries explicit and to flag the gaps clearly rather than glossing over them.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>JWT off the URL + revocation, owner-scoping everywhere, least-privilege capabilities, safe YAML parsing, and sanitized error output.</p></div>
+        </div>
+      </div>
+
+      <h3>The auth request path</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Strong by default</h3>
+      <div class="grid g2">
+        <div class="card"><span class="badge b-green">&#10003;</span><h4 style="margin-top:8px">SECRET_KEY boot guard</h4><p class="lead"><code>config.py</code> raises <code>SecretKeyMisconfigured</code> and refuses to boot if <code>SECRET_KEY</code> is empty, the shipped default, or &lt;32 chars — unless <code>ENV=development</code>.</p></div>
+        <div class="card"><span class="badge b-green">&#10003;</span><h4 style="margin-top:8px">JWT off the URL</h4><p class="lead">The WebSocket carries the JWT in the <code>bearer.&lt;jwt&gt;</code> subprotocol, not the query string — out of nginx logs and Referer headers. Tokens are revocable (logout jti + password-change blanket revocation), re-checked per message.</p></div>
+        <div class="card"><span class="badge b-green">&#10003;</span><h4 style="margin-top:8px">Least-privilege capabilities</h4><p class="lead">Tool permissions default off (<code>exec</code>/<code>network</code>/<code>secrets</code>/<code>spawn_subagents</code>). <code>exec</code> requires the <code>security</code>+<code>approval</code> gates. User/db manifests can't reference non-user-allowed capabilities or raise budget ceilings.</p></div>
+        <div class="card"><span class="badge b-green">&#10003;</span><h4 style="margin-top:8px">Safe by construction</h4><p class="lead">Manifests parse with <code>yaml.safe_load</code> only (no RCE); capability resolution is a static dict lookup (no <code>eval</code>/dynamic import); client-facing <code>agent_error</code> is sanitized so provider ARNs/region/model-id never reach the browser.</p></div>
+        <div class="card"><span class="badge b-green">&#10003;</span><h4 style="margin-top:8px">Ownership everywhere</h4><p class="lead">Runs, artifacts, saved workflows, and review-gate responses are owner-scoped (<code>ScopedStore</code> + per-row <code>owner_id</code>/<code>workspace_id</code>); cross-run writes are IDOR-guarded (unknown/unowned &#8594; 404).</p></div>
+        <div class="card"><span class="badge b-green">&#10003;</span><h4 style="margin-top:8px">Secrets never in code/CI</h4><p class="lead">Terraform generates <code>SECRET_KEY</code>/<code>db_password</code> into SSM SecureStrings (project CMK). CI scans with gitleaks/checkov/trivy before merge. Default <code>audit_logger</code> + <code>secret_scan</code> hooks fire on every step.</p></div>
+      </div>
+
+      <h3>Worth flagging</h3>
+      <div class="grid g2">
+        <div class="card"><span class="badge b-amber">&#9888;</span><h4 style="margin-top:8px">CORS is hardcoded</h4><p class="lead"><code>app/main.py</code> sets <code>allow_origins</code> to localhost origins literally — it does <b>not</b> read the existing <code>settings.CORS_ORIGINS</code>. Fine for a same-origin nginx deployment; a cross-origin browser client would need this widened, and it should be driven by config rather than a literal.</p></div>
+        <div class="card"><span class="badge b-amber">&#9888;</span><h4 style="margin-top:8px">Deprecated WS <code>?token=</code></h4><p class="lead">The WebSocket still accepts a transitional <code>?token=&lt;jwt&gt;</code> query param alongside the subprotocol path (it logs a deprecation warning on every use). Query-string tokens can land in logs — worth removing once no in-flight clients use it.</p></div>
+      </div>
+
+      <div class="callout"><div class="t">Scope</div><p>A full assessment would also cover dependency CVEs, rate limiting, the MCP credential flow end-to-end, and the gated-exec sandbox boundary in depth. WCAG compliance for the UI would require manual testing with assistive technologies.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Security Notes</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Client presents a JWT", b:"subprotocol", d:"The token rides the <code>bearer.&lt;jwt&gt;</code> WebSocket subprotocol (or Authorization header for REST) — never the URL."},
+  {t:"Decode + validate", b:"security.py", bc:"b-cyan", d:"Signature + expiry checked; the jti is checked against revoked_token; iat is compared to password_changed_at."},
+  {t:"Re-check per message", d:"On the WS, each message re-validates the token so a mid-session logout/revocation is caught immediately."},
+  {t:"Owner-scope the work", b:"ScopedStore", bc:"b-violet", d:"Every run/artifact/gate write is filtered by owner_id + workspace_id; cross-run access is IDOR-guarded."},
+  {t:"Least-privilege execution", b:"gates", bc:"b-amber", d:"Capabilities default off; exec requires security+approval gates; secret_scan blocks risky writes."},
+  {t:"Sanitize on the way out", bc:"b-green", d:"Errors are genericized on the wire; secrets are referenced by key, never logged by value."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

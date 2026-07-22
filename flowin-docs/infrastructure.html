@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infrastructure — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="infrastructure">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Infrastructure</b></div>
+      <div class="spacer"></div>
+      <span class="tag">AWS single-EC2</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Platform</div>
+        <h1>Infrastructure &amp; Deployment</h1>
+        <p>Flowin deploys as a <b>single-EC2</b> stack on AWS (branded <code>velocityai</code> in infra): the backend + frontend run as Docker Compose containers pulled from ECR, while Postgres and nginx run <b>natively on the host</b>. Everything is Terraform-managed in a layered reference format, applied by per-environment CodeBuild runners.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Flowin runs on a single AWS server. The app itself (backend + frontend) runs in Docker containers, while the database and the web server stay installed directly on the box — Postgres so backups stay simple, nginx so it can manage TLS certificates on its own schedule. Everything is described in Terraform, so the whole environment can be rebuilt from code.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A single-EC2 AWS deployment (containers for the app; native Postgres + nginx) provisioned by layered Terraform.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>A simple, backup-friendly, reproducible footprint that lives safely inside a shared AWS account.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Terraform layers (bootstrap &#8594; shared &#8594; foundation &#8594; app) + a CodeBuild pipeline that scans, builds images, and redeploys the host via SSM.</p></div>
+        </div>
+      </div>
+
+      <h3>Runtime topology (one EC2 instance)</h3>
+      <div class="diagram">
+        <div class="layer"><div class="ltitle">&#127760; Internet &#8594; nginx (host, native)</div><div class="ldesc">TLS terminator. Certs at <code>/etc/letsencrypt/live/&lt;fqdn&gt;</code>, renewed by certbot outside the app rebuild cycle. Proxies to the two loopback-bound containers.</div></div>
+        <div class="arrow-down">&#9660;</div>
+        <div class="grid g2" style="margin:6px 0">
+          <div class="layer" style="margin:0"><div class="ltitle">&#128051; frontend container</div><div class="ldesc">Next.js standalone, <code>127.0.0.1:3000</code>, 1G limit. <code>NEXT_PUBLIC_*</code> baked at build. Waits for backend health.</div></div>
+          <div class="layer" style="margin:0"><div class="ltitle">&#128051; backend container</div><div class="ldesc">FastAPI/uvicorn, <code>127.0.0.1:8000</code>, 8G limit. Volumes: <code>/app/skills</code> + <code>/app/runs</code>. 30s stop-grace to drain WS. Chromium + node baked in.</div></div>
+        </div>
+        <div class="arrow-down">&#9660; &nbsp;<code>host.docker.internal:5432</code></div>
+        <div class="layer"><div class="ltitle">&#128024; PostgreSQL (host, native)</div><div class="ldesc">On a separate encrypted EBS volume at <code>/var/lib/postgresql</code> (what EBS-snapshot backups capture). Bound to <code>127.0.0.1:5432</code>.</div></div>
+      </div>
+      <div class="callout"><div class="t">Why Postgres &amp; nginx aren't containerized</div><p>Postgres stays on the host so its data dir lives on the encrypted EBS volume the backup/DR story depends on (no extra fs/UID/fsync layer). nginx stays native because it consumes Let's Encrypt certs that renew on a different cadence than app-image rebuilds. nginx + Postgres are <em>infrastructure</em>; the app is the <em>deployable</em>.</p></div>
+
+      <h3>How a deploy reaches the box</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Terraform layers (<code>infra/terraform/</code>)</h3>
+      <p class="muted">Apply order: <code>bootstrap</code> &#8594; <code>shared</code> &#8594; <code>foundation(&lt;env&gt;)</code> &#8594; <code>app(&lt;env&gt;)</code>. Runs in a shared AWS Organizations account, so an <code>account_guard</code> aborts on the wrong account/region and account-wide resources are forbidden.</p>
+      <table>
+        <thead><tr><th>Layer</th><th>State</th><th>Contains</th></tr></thead>
+        <tbody>
+          <tr><td><code>bootstrap</code></td><td>local, once</td><td>S3 state bucket + DynamoDB lock + KMS + account guard + CI/CD runners.</td></tr>
+          <tr><td><code>shared</code></td><td>remote, once</td><td>ECR repos (<code>velocityai/backend</code>, <code>velocityai/frontend</code>) — promoted by tag.</td></tr>
+          <tr><td><code>foundation</code></td><td>per-env</td><td>KMS CMK, VPC + endpoints, EC2 instance-role IAM, SSM Parameter Store secrets, S3 backup bucket + AWS Backup vault.</td></tr>
+          <tr><td><code>app</code></td><td>per-env</td><td>EC2 + data EBS + EIP, DNS, the compose + <code>deploy.env</code> S3 objects (driven by <code>image_tag</code>), CloudWatch monitoring, Resource Groups.</td></tr>
+        </tbody>
+      </table>
+      <p class="muted">Modules: <code>account_guard</code>, <code>backups</code>, <code>compute</code>, <code>dns</code>, <code>ecr</code>, <code>iam</code>, <code>kms</code>, <code>monitoring</code>, <code>network</code>, <code>resourcegroups</code>, <code>secrets</code>. Three isolated envs: dev (10.40/16), stage (10.30/16), prod (10.20/16, bare prefix). Default <code>m6i.2xlarge</code>, region <code>eu-central-1</code>.</p>
+
+      <h3>Docker images &amp; tooling</h3>
+      <div class="grid g2">
+        <div class="card"><h4>backend/Dockerfile</h4><p class="lead">3 stages: builder (python:3.13-slim &#8594; wheels), pptx-builder (node:20 &#8594; pptxgenjs), runtime (slim + Playwright Chromium ~350MB + node). Non-root <code>flowin</code> (UID 10001). Entrypoint runs migrations then uvicorn.</p></div>
+        <div class="card"><h4>Quality gates (pyproject.toml)</h4><p class="lead">Ruff (F/E/W/B/PLE), <b>import-linter</b> (4 hexagonal contracts, 4/0), vulture (dead code), pytest + Hypothesis. Repo-root scanners: checkov, gitleaks, trivy, pre-commit.</p></div>
+      </div>
+
+      <div class="callout warn"><div class="t">Secrets never in code/CI</div><p>Terraform generates <code>SECRET_KEY</code> / <code>db_password</code> into SSM SecureStrings (project CMK); the host composes <code>/etc/velocityai/app.env</code> at start. The infra&harr;app contract is via generic env vars (<code>DATABASE_URL</code>, <code>SECRET_KEY</code>, <code>CORS_ORIGINS</code>), which is why the partial <code>flowin&#8594;velocityai</code> rebrand doesn't break anything.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Infrastructure</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Push to Git", b:"trigger", d:"dev/stage on a branch push, prod on a git tag / release."},
+  {t:"CodeBuild runs buildspec", b:"CI", bc:"b-cyan", d:"validate &#8594; security scan (gitleaks/checkov/trivy) &#8594; shared+foundation apply."},
+  {t:"Build + push images", b:"ECR", d:"Backend + frontend images are built and pushed to the shared ECR repos, tagged."},
+  {t:"app apply", b:"Terraform", bc:"b-violet", d:"The app layer writes the new <code>deploy.env</code> (image tag) + compose.yml to S3."},
+  {t:"SSM redeploy", b:"on host", bc:"b-green", d:"An SSM RunCommand tells the EC2 host to <code>docker compose pull &amp;&amp; up -d</code> the new tag."},
+  {t:"Migrations + serve", d:"The backend entrypoint runs Alembic, then uvicorn boots; the lifespan hook verifies the schema and resumes non-terminal runs."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

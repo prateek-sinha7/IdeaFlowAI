@@ -76,6 +76,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "compaction",
         "task_source",
         "post_step",  # declared post-step capability (07-10 / CR-06)
+        "require_render",  # per-step render fail-closed knob (quick-260701-bob)
         # forward surface (inert in Phase 4 — declared now, consumed Phase 6/7)
         "tools",
         "model",
@@ -209,6 +210,13 @@ class WorkflowCompiler:
                 raise CompilerError(f"unknown context_provider '{cp}' in {where}")
             self._check_trust(registry, "context_provider", cp, trusted, where)
 
+        # image-input Wave 1: validate declared input_provider references (mirrors the
+        # context_provider loop exactly). Dormant — no manifest declares the key.
+        for ip in getattr(manifest, "input_providers", []) or []:
+            if not registry.is_registered("input_provider", ip):
+                raise CompilerError(f"unknown input_provider '{ip}' in {where}")
+            self._check_trust(registry, "input_provider", ip, trusted, where)
+
         deliverable = self._compile_deliverable(manifest, registry, trusted)
 
         # ── Trust-conditional Limits materialization (FANOUT-09 / OBS-01) ─────
@@ -229,6 +237,7 @@ class WorkflowCompiler:
         clarify = ClarifySpec(
             mode=clarify_raw.get("mode", "auto"),
             defaults=list(clarify_raw.get("defaults", []) or []),
+            rounds=int(clarify_raw.get("rounds", 1) or 1),
         )
 
         # ── WIRE-01: top-level model: → CompiledWorkflow.model (D-14) ─────────
@@ -246,6 +255,7 @@ class WorkflowCompiler:
             steps=steps,
             model=workflow_model,
             context_providers=list(manifest.context_providers),
+            input_providers=list(getattr(manifest, "input_providers", []) or []),
             seed_files=dict(manifest.seed_files),
             # Phase 11 / FANOUT-03: the workflow-level named-worker allow-list, pure data
             # (INV-5). run_fanout validates a named worker against this list + the agent
@@ -546,6 +556,13 @@ class WorkflowCompiler:
         injects = list(raw.get("injects") or [])                          # WIRE-03
         fix = self._compile_fix_policy(raw.get("fix"), where)
         depends_on = list(raw.get("depends_on") or [])
+        # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB).
+        # Pure pass-through: None (absent) preserves the Settings-default behavior
+        # (skip-is-a-pass — INV-3); a declared bool threads to the render consumers.
+        raw_require_render = raw.get("require_render")
+        require_render = (
+            None if raw_require_render is None else bool(raw_require_render)
+        )
 
         return Step(
             agent_id=agent_id,
@@ -556,6 +573,7 @@ class WorkflowCompiler:
             validators=validators,
             compaction=compaction,
             post_step=post_step,
+            require_render=require_render,
             tools=effective_tools,
             fanout=fanout,
             on_conflict=on_conflict,

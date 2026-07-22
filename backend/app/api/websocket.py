@@ -15,6 +15,7 @@ from app.agents.chat_runner import ChatRunner
 from app.agents.llm_errors import map_exception as _map_llm_exception
 from app.agents.model_factory import ModelConfigurationError
 from app.agents.modes import get_mode_prompt
+from agents.capabilities.model_pricing import estimate_cost_usd
 from app.core.config import settings
 from app.core.security import decode_access_token, is_token_revoked
 from app.models.chat import ChatSession, Message
@@ -44,6 +45,20 @@ _PIPELINE_TASKS: dict[str, asyncio.Task] = {}  # pipeline_run_id → background 
 # wire receives the terminal and the FE clears its in-flight cards. Keyed by
 # pipeline_run_id only (SC-001 — no workflow/model name).
 _CANCEL_EVENTS: dict[str, asyncio.Event] = {}
+
+# ---------------------------------------------------------------------------
+# Image-input ingress caps (IMAGE-INPUT §3 Layer 1 / §12 F3)
+# ---------------------------------------------------------------------------
+# Untrusted base64 image bytes cross the browser → WS `run_pipeline` boundary.
+# `_validate_images` is the chokepoint (T-frv-01 DoS / T-frv-02 tampering):
+# a decompression-flood / count / aggregate-size vector is rejected here BEFORE
+# the multimodal HumanMessage is checkpointed + re-sent on model-fallback retry.
+_IMAGE_ALLOWED_MIMES = frozenset(
+    {"image/png", "image/jpeg", "image/webp", "image/gif"}
+)
+_IMAGE_MAX_BYTES_PER_IMAGE = int(3.75 * 1024 * 1024)  # ~3.75 MB raw per image
+_IMAGE_MAX_COUNT = 20  # max images per run
+_IMAGE_MAX_AGGREGATE_BYTES = 8 * 1024 * 1024  # ~8 MB raw across all images
 
 
 def _get_or_create_queue(pipeline_run_id: str) -> asyncio.Queue:
@@ -88,8 +103,19 @@ def _register_resume_task(pipeline_run_id: str, task: asyncio.Task) -> None:
     A reconnect_pipeline checks ``task.done()`` — a live resume driver makes
     _has_live_task true; a finished one naturally falls back to the durable
     replay + status branch.
+
+    KAN-88: also register a cancel_event so cancel_pipeline can cooperatively
+    stop a resumed run via the cooperative path instead of falling through to
+    the destructive task.cancel() fallback (which leaves the run in a bad state).
     """
     _PIPELINE_TASKS[pipeline_run_id] = task
+    # Register a cooperative cancel event for the resumed task so the Stop
+    # button works correctly. The engine's resume_run checks this event in
+    # its per-chunk / pre-agent cancel checks (the same mechanism as a
+    # normally-started pipeline run). Only register if no event already exists
+    # (idempotent — a double-register must not reset a set() event).
+    if pipeline_run_id not in _CANCEL_EVENTS:
+        _CANCEL_EVENTS[pipeline_run_id] = asyncio.Event()
 
 
 def _validate_model_overrides(
@@ -152,6 +178,92 @@ def _validate_model_overrides(
                 f"model_overrides for agent {agent_id!r} requests model "
                 f"{model_id!r}, which is not an allowed model"
             )
+    return None
+
+
+def _validate_images(
+    images: Any, *, effective_model_ids: set[str] | None = None
+) -> str | None:
+    """Cap- and vision-guard the UNTRUSTED per-run ``images`` ingress list.
+
+    The security chokepoint for the image-input feature (IMAGE-INPUT §3 Layer 1/5,
+    §12 F3). ``images`` is UNTRUSTED run-payload input crossing the browser → WS
+    boundary into ``ExecutionContext.run_images``. Same ``str | None`` contract as
+    ``_validate_model_overrides``: ``None`` when the set is valid (or empty — a
+    no-op, like ``_validate_model_overrides({})``); on the FIRST violation a
+    human-readable message. The caller emits ``code="invalid_image_input"`` and
+    refuses the run BEFORE any ``WorkflowRun`` is created or ``engine.execute`` is
+    called — never a silent drop.
+
+    Enforced in order (T-frv-01 DoS / T-frv-02 tampering):
+      * ``images`` must be a list;
+      * each entry a dict with a string ``mime_type`` + string ``data`` (CR-01
+        type guard — a malformed entry would otherwise crash the asyncio task);
+      * ``mime_type`` in the {png, jpeg, webp, gif} allow-list;
+      * per-image estimated raw bytes (``len(data) * 3 // 4``) ≤ 3.75 MB;
+      * ``len(images)`` ≤ 20;
+      * running aggregate raw bytes ≤ 8 MB (the checkpointed HumanMessage is
+        re-sent on model-fallback retry — §12 F3);
+      * vision guard: when ``effective_model_ids`` is provided, EVERY id must be a
+        ``ModelCatalog`` entry with ``vision=True`` (closes the raw-config /
+        non-vision-model escape hatch — T-frv-02).
+    """
+    if not images:
+        return None
+    if not isinstance(images, list):
+        return (
+            f"images must be a list of {{mime_type, data}} objects "
+            f"(got {type(images).__name__!r})"
+        )
+    if len(images) > _IMAGE_MAX_COUNT:
+        return (
+            f"too many images: {len(images)} exceeds the maximum of "
+            f"{_IMAGE_MAX_COUNT}"
+        )
+    aggregate_bytes = 0
+    for index, image in enumerate(images):
+        if not isinstance(image, dict):
+            return (
+                f"images[{index}] must be an object with string mime_type + data "
+                f"(got {type(image).__name__!r})"
+            )
+        mime_type = image.get("mime_type")
+        data = image.get("data")
+        if not isinstance(mime_type, str) or not isinstance(data, str):
+            return (
+                f"images[{index}] must carry a string mime_type + string data"
+            )
+        if mime_type not in _IMAGE_ALLOWED_MIMES:
+            return (
+                f"images[{index}] has unsupported mime_type {mime_type!r}; "
+                f"allowed: {sorted(_IMAGE_ALLOWED_MIMES)}"
+            )
+        raw_bytes = len(data) * 3 // 4
+        if raw_bytes > _IMAGE_MAX_BYTES_PER_IMAGE:
+            return (
+                f"images[{index}] is too large (~{raw_bytes} bytes); the per-image "
+                f"limit is {_IMAGE_MAX_BYTES_PER_IMAGE} bytes"
+            )
+        aggregate_bytes += raw_bytes
+        if aggregate_bytes > _IMAGE_MAX_AGGREGATE_BYTES:
+            return (
+                f"images exceed the aggregate size limit of "
+                f"{_IMAGE_MAX_AGGREGATE_BYTES} bytes (~{aggregate_bytes} bytes so far)"
+            )
+    # Vision guard: reject unless every effective run-level model is a vision-capable
+    # catalog entry. Import the kernel-pure catalog lazily (app → kernel is allowed;
+    # the catalog has no app.* reach so this stays import-clean).
+    if effective_model_ids:
+        from agents.capabilities.model_catalog import ModelCatalog
+
+        catalog = ModelCatalog()
+        for model_id in effective_model_ids:
+            entry = catalog.get(model_id)
+            if entry is None or not entry.vision:
+                return (
+                    f"image input requires a vision-capable model; "
+                    f"{model_id!r} is not a vision-capable catalog model"
+                )
     return None
 
 
@@ -234,6 +346,33 @@ def _review_gate_owned_by(gate_key: str, user_id: str) -> bool:
     finally:
         db.close()
     return row is not None
+
+
+def _review_gate_run_is_terminal(gate_key: str) -> bool:
+    """True iff the run named in ``gate_key`` is in a terminal state.
+
+    KAN-100: approve_review must be rejected for cancelled/failed runs so a
+    Redo (or Approve/Reject) on a stopped pipeline cannot unblock the gate
+    and resume agent execution. Keyed on the persisted WorkflowRun.status —
+    not the in-memory state machine — so it is accurate across WS reconnects.
+    Returns False (not terminal) when the row is absent or the status is not
+    a known terminal value, preserving the normal run path.
+    """
+    run_id = (gate_key or "").split(":", 1)[0]
+    if not run_id:
+        return False
+    db = _get_db()
+    try:
+        row = (
+            db.query(WorkflowRun.status)
+            .filter(WorkflowRun.id == run_id)
+            .first()
+        )
+    finally:
+        db.close()
+    if row is None:
+        return False
+    return row.status in ("cancelled", "failed", "degraded")
 
 
 def _extract_message_text(content: Any) -> str:
@@ -403,6 +542,45 @@ def _strip_pipeline_context(content: str) -> str:
     return stripped
 
 
+def _resolve_owned_parent_run_id(
+    db: Session, candidate_id: Optional[str], user_id: str
+) -> Optional[str]:
+    """Return ``candidate_id`` iff it names a WorkflowRun OWNED by ``user_id``.
+
+    Both parent-link ingress sites — the ``run_pipeline``
+    ``source_workflow_run_id`` link (``_handle_workflow_execution`` :1688) and
+    the ``run_revision`` row-creation ``parent_run_id`` link
+    (``_handle_revision_execution`` :2247) — route their parent linkage through
+    this single ownership-checked resolver (POR §3).
+
+    Why ownership, not mere existence: ``parent_run_id`` is an enforced FK
+    (migration 0013), so a stale/foreign id would abort run creation — the old
+    exists-only check degraded that to an unlinked run. But a FOREIGN row
+    linkage is strictly worse than a missing one: the revision-family read walk
+    (``runs.py`` ``/family`` + server-computed ``root_run_id``) follows
+    ``parent_run_id`` edges, so a persisted foreign parent would leak another
+    owner's run metadata into the family response. Engine ``assert_owns``
+    (``engine.py:4455``) already gates content reads; this gates the persisted
+    ROW linkage so the two defenses compose.
+
+    Keyed on ``WorkflowRun.user_id`` — the Phase-13 CR-01 ownership precedent —
+    NEVER the nullable backfilled ``owner_id`` (D-06). A falsy candidate issues
+    NO query and returns ``None``; a missing row or a row owned by another user
+    also returns ``None``; otherwise ``candidate_id`` is returned unchanged.
+    """
+    if not candidate_id:
+        return None
+    row = (
+        db.query(WorkflowRun.id)
+        .filter(
+            WorkflowRun.id == candidate_id,
+            WorkflowRun.user_id == user_id,
+        )
+        .first()
+    )
+    return candidate_id if row else None
+
+
 async def _generate_workflow_title(
     workflow_run_id: str,
     content: str,
@@ -440,12 +618,24 @@ async def _generate_workflow_title(
         context_title = _extract_title_from_context(content)
         if not context_title:
             return
+        # The context_title is the SOURCE pipeline's title (e.g. "Fintech App
+        # User Stories"). For a chained run the CURRENT pipeline_type differs
+        # (e.g. "prototype"), so we append a short suffix derived from the
+        # pipeline_type hint to distinguish the new run's title from its parent.
+        # E.g. "Fintech App User Stories" → "Fintech App User Stories – Interactive Prototype"
+        # Cap to 80 chars so the suffix never gets silently truncated to nothing.
+        hint = _WORKFLOW_TITLE_PIPELINE_HINTS.get(pipeline_type, "")
+        if hint:
+            # Capitalise the hint the same way a generated title would appear.
+            chained_title = f"{context_title} – {hint.title()}"[:80].strip()
+        else:
+            chained_title = context_title[:60].strip()
         db = _get_db()
         try:
             wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
             if wr is None:
                 return
-            wr.title = context_title[:60].strip()
+            wr.title = chained_title
             db.commit()
         finally:
             db.close()
@@ -454,7 +644,7 @@ async def _generate_workflow_title(
                 "type": "workflow_title_update",
                 "chunk": None,
                 "section": None,
-                "data": {"workflow_id": workflow_run_id, "title": context_title[:60].strip()},
+                "data": {"workflow_id": workflow_run_id, "title": chained_title},
             })
         except Exception:
             pass
@@ -680,6 +870,13 @@ async def websocket_chat(websocket: WebSocket):
                 # not only at save — Pitfall 3). Absent → None (every existing run is
                 # byte-identical — no overlay, no re-compile).
                 selections = message_data.get("selections") or None
+                # Image-input Wave 2: OUT-OF-BAND transient base64 image list riding
+                # the existing run_pipeline payload (D5 — no new WS event type). It
+                # NEVER enters the brief text / WorkflowRun.input (D3); it is
+                # cap-+vision-validated inside _handle_workflow_execution (once the
+                # effective model is known) and forwarded to engine.execute(images=).
+                # Absent → [] (a no-images run is byte-identical to today).
+                images = message_data.get("images") or []
 
                 # Tier gate — map od_* aliases to their base type for the check
                 from app.core.entitlements import can_run_pipeline
@@ -711,6 +908,7 @@ async def websocket_chat(websocket: WebSocket):
                         gate_agent_ids=gate_agent_ids,
                         model_overrides=model_overrides,
                         selections=selections,
+                        images=images,
                         template_id=message_data.get("template_id"),
                         design_system_id=message_data.get("design_system_id"),
                         discovery=message_data.get("discovery"),
@@ -1171,6 +1369,13 @@ async def websocket_chat(websocket: WebSocket):
                 gate_key = message_data.get("gate_key")
                 approved = message_data.get("approved", True)
                 edited_content = message_data.get("edited_content")  # None = no edits
+                # REDO-GATE: optional, backward-compatible "redo with additional
+                # instructions" action on the SAME owner-gated handler. A "redo"
+                # carries approved=False on the wire but is distinguished by ``action``
+                # so _run_review_gate re-runs the gated agent in place instead of
+                # cancelling. Defaults preserve the prior approve/reject behavior.
+                action = message_data.get("action", "approve")
+                instructions = message_data.get("instructions")
                 if not gate_key:
                     await websocket.send_json({
                         "type": "error", "chunk": None, "section": None,
@@ -1189,8 +1394,41 @@ async def websocket_chat(websocket: WebSocket):
                                  "code": "invalid_gate_key", "recoverable": True},
                     })
                     continue
+                # KAN-100: reject approve/reject/redo on a terminal (cancelled/
+                # failed) run so a Redo cannot resume a stopped pipeline.
+                # Keyed on the persisted DB status — not the in-memory state
+                # machine — so it is accurate after WS reconnects. The frontend
+                # should never reach this path (reviewGateData is cleared on
+                # pipeline_cancelled/pipeline_failed); this is the backend fence.
+                if _review_gate_run_is_terminal(gate_key):
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": "Pipeline is no longer running",
+                                 "code": "pipeline_not_running", "recoverable": False},
+                    })
+                    continue
                 store = get_artifact_store()
-                await store.set_review_response(gate_key, approved=approved, edited_content=edited_content)
+                # The owner check (above) has already run BEFORE this write — the
+                # redo action rides the SAME IDOR-mitigated boundary + resume channel.
+                if action == "redo":
+                    await store.set_review_response(
+                        gate_key, approved=False, action="redo", instructions=instructions
+                    )
+                elif action == "update_specs":
+                    # KAN-101: "Update the Specs" — trigger spec revision sub-pipeline.
+                    # The analysis report is passed as ``instructions`` so
+                    # _run_review_gate can thread it into the revision context.
+                    # Keyed on the GENERIC action discriminator (SC-001 / INV-1).
+                    analysis_report = message_data.get("analysis_report") or ""
+                    await store.set_review_response(
+                        gate_key, approved=False,
+                        action="update_specs",
+                        instructions=analysis_report,
+                    )
+                else:
+                    await store.set_review_response(
+                        gate_key, approved=approved, edited_content=edited_content
+                    )
                 continue
 
             if msg_type == "ping":
@@ -1379,16 +1617,37 @@ async def websocket_chat(websocket: WebSocket):
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: user={user.id}")
-        # Stop burning Bedrock tokens for a connection that's already gone.
-        # Without this, the pipeline task keeps streaming into a dead WS.
-        if current_pipeline_task is not None and not current_pipeline_task.done():
+        # KAN-88 (suspend behaviour): on WebSocketDisconnect, detach the
+        # WebSocket from the pipeline instead of cancelling it. The pipeline
+        # task keeps running headlessly — events are still written to the
+        # per-run queue and persisted to run_events. When the client
+        # reconnects it sends ``reconnect_pipeline`` with ``after_seq`` and
+        # re-attaches to the live queue (or replays the durable tail if the
+        # pipeline has already finished). This is the correct "suspend and
+        # resume from another place" behaviour.
+        #
+        # We do NOT cancel the task here. The only reason to cancel on
+        # disconnect was to avoid "burning Bedrock tokens for a dead WS" —
+        # but the pipeline's events go to the per-run QUEUE, not directly to
+        # the WS socket, so the queue simply accumulates events until a new
+        # drainer attaches. The run_events durable sink (PERSIST-03) also
+        # runs independently of the WS connection.
+        #
+        # Exception: if no durable substrate exists (the run has no
+        # pipeline_run_id, e.g. a legacy chat-only stream) we still cancel
+        # to avoid orphaned tasks.
+        _run_id_on_disconnect = _run_id_sink[0] if _run_id_sink else None
+        _task_is_pipeline = _run_id_on_disconnect is not None
+        if (
+            current_pipeline_task is not None
+            and not current_pipeline_task.done()
+            and not _task_is_pipeline
+        ):
+            # Legacy / no-run-id task — cancel as before.
             current_pipeline_task.cancel()
             try:
                 await current_pipeline_task
             except (asyncio.CancelledError, Exception):
-                # The task's CancelledError handler will have marked the
-                # WorkflowRun "cancelled" already; any send_json there will
-                # have failed silently because the WS is closed. That's fine.
                 pass
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
@@ -1415,6 +1674,7 @@ async def _handle_workflow_execution(
     gate_agent_ids: list[str] | None = None,
     model_overrides: dict | None = None,
     selections: dict | None = None,
+    images: list | None = None,
     template_id: str | None = None,
     design_system_id: str | None = None,
     discovery: dict | None = None,
@@ -1559,20 +1819,25 @@ async def _handle_workflow_execution(
     ]
     _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype", "od_ppt")
     if _template_injecting and _needs_template and not (od_context or {}).get("template_body"):
-        await websocket.send_json({
-            "type": "error", "chunk": None, "section": None,
-            "data": {
-                "error": (
-                    f"Pipeline {pipeline_type!r} agents "
-                    f"{_template_injecting} declare template injection, so the "
-                    "run requires a template (template_id) or an od_* alias — "
-                    "no template body could be loaded."
-                ),
-                "code": "missing_template_context",
-                "recoverable": False,
-            },
-        })
-        return
+        # KAN-87: no-template mode — the user explicitly chose not to select a template.
+        # The od_context has no_template=True, so template injection is intentionally absent.
+        # Only block if this is NOT a deliberate no-template run.
+        _is_no_template_run = bool((od_context or {}).get("no_template"))
+        if not _is_no_template_run:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {
+                    "error": (
+                        f"Pipeline {pipeline_type!r} agents "
+                        f"{_template_injecting} declare template injection, so the "
+                        "run requires a template (template_id) or an od_* alias — "
+                        "no template body could be loaded."
+                    ),
+                    "code": "missing_template_context",
+                    "recoverable": False,
+                },
+            })
+            return
 
     # ── model_overrides ingress validation (Phase 6 D-07, MODEL-03) ───────
     # The security chokepoint: validate the untrusted per-agent override map
@@ -1610,6 +1875,40 @@ async def _handle_workflow_execution(
         })
         return
 
+    # ── image-input ingress gate (IMAGE-INPUT §3 Layer 1/5, Wave 2) ───────────
+    # Cap- + vision-validate the untrusted transient `images` list BEFORE any run
+    # starts, then forward it to engine.execute(images=) → ExecutionContext.
+    # run_images. The base64 NEVER enters `content` / WorkflowRun.input / title
+    # (D3) — it rides out-of-band. When the flag is OFF or no images are supplied,
+    # `validated_images` stays [] and the run is byte-identical to today (clean
+    # off-switch — images are ignored, not rejected). A cap/vision violation emits
+    # `code="invalid_image_input"` and returns (no WorkflowRun, no execute) —
+    # mirrors the model_overrides rejection above; never a silent drop.
+    images = images or []
+    validated_images: list = []
+    if settings.IMAGE_INPUT_ENABLED and images:
+        # Effective run-level model: the session model (or the configured default)
+        # UNION any per-agent override target. Every one must be a vision-capable
+        # catalog entry or the image set is rejected (closes the raw-config hatch).
+        base_model = (
+            getattr(user, "preferred_model", None)
+            or settings.BEDROCK_INFERENCE_PROFILE_ID
+        )
+        effective_model_ids = {base_model} | {
+            m for m in model_overrides.values() if isinstance(m, str)
+        }
+        _image_error = _validate_images(
+            images, effective_model_ids=effective_model_ids
+        )
+        if _image_error is not None:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": _image_error,
+                         "code": "invalid_image_input", "recoverable": False},
+            })
+            return
+        validated_images = images
+
     # ── Create WorkflowRun record ─────────────────────────────────────────
     pipeline_run_id = str(_uuid.uuid4())
     # ISS-007 (16-02): register this run's COOPERATIVE cancel event and publish
@@ -1629,17 +1928,14 @@ async def _handle_workflow_execution(
     monotonic_start = time.monotonic()
     db = _get_db()
     try:
-        # Only link parent_run_id if the source run actually exists. parent_run_id
-        # is an enforced FK (migration 0013), so a stale/foreign id would abort
-        # run creation — degrade gracefully to an unlinked run instead.
-        parent_run_id = None
-        if source_workflow_run_id:
-            _src = (
-                db.query(WorkflowRun.id)
-                .filter(WorkflowRun.id == source_workflow_run_id)
-                .first()
-            )
-            parent_run_id = source_workflow_run_id if _src else None
+        # Only link parent_run_id if the source run exists AND is OWNED by the
+        # caller (POR §3). parent_run_id is an enforced FK (migration 0013), so a
+        # stale/foreign id would abort run creation — degrade gracefully to an
+        # unlinked run instead. Ownership (not mere existence) is enforced here so
+        # a foreign source id can never be persisted as a family edge that the
+        # runs.py family walk would follow to leak foreign run metadata — the
+        # single ownership-checked resolver keys on user.id (D-06).
+        parent_run_id = _resolve_owned_parent_run_id(db, source_workflow_run_id, user.id)
 
         workflow_run = WorkflowRun(
             # WorkflowRun.id IS the run identifier used end-to-end (engine, state
@@ -1647,7 +1943,7 @@ async def _handle_workflow_execution(
             # and set it as the PK so artifact writes resolve against this row.
             id=pipeline_run_id,
             user_id=user.id,
-            title=(_strip_pipeline_context(content) or _extract_title_from_context(content) or content or "Untitled")[:60].strip(),
+            title=(_strip_pipeline_context(content) or _extract_title_from_context(content) or (lambda m: m.group(1).strip() if m else None)(_REVISION_REQUEST_MARKER.search(content or "")) or content or "Untitled")[:60].strip(),
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
@@ -1753,6 +2049,10 @@ async def _handle_workflow_execution(
                 attached_hooks=attached_hooks or [],
                 model_id=getattr(user, "preferred_model", None) or None,
                 od_context=od_context,
+                # Image-input Wave 2: the cap-+vision-validated transient image
+                # list → ExecutionContext.run_images (Wave-1 carrier). [] when the
+                # flag is off / no images supplied → byte-identical to today.
+                images=validated_images,
                 gate_agent_ids=gate_agent_ids,
                 parent_run_id=parent_run_id,
                 model_overrides=model_overrides,
@@ -1800,6 +2100,10 @@ async def _handle_workflow_execution(
                     current_agent["input_tokens"] = update["data"].get("input_tokens", 0)
                     current_agent["output_tokens"] = update["data"].get("output_tokens", 0)
                     current_agent["total_tokens"] = update["data"].get("total_tokens", 0)
+                    # ISS-032: carry the per-agent prompt-cache split so the run-total
+                    # sum below prices the uncached input portion (no double-count).
+                    current_agent["cache_read_tokens"] = update["data"].get("cache_read_tokens", 0)
+                    current_agent["cache_write_tokens"] = update["data"].get("cache_write_tokens", 0)
                     # Only persist when this corresponds to a real agent_start.
                     # A trailing agent_complete (e.g. validator-timeout path) can
                     # fire after current_agent was already appended + reset to {},
@@ -1896,14 +2200,27 @@ async def _handle_workflow_execution(
                         # Aggregate token usage across all agents
                         total_input = sum(a.get("input_tokens", 0) or 0 for a in agent_outputs_collector)
                         total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
+                        # ISS-032: run-total prompt-cache split from the per-agent counts.
+                        total_cache_read = sum(a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector)
+                        total_cache_write = sum(a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector)
                         if total_input + total_output > 0:
                             wr.token_usage = json.dumps({
                                 "total_input_tokens": total_input,
                                 "total_output_tokens": total_output,
                                 "total_tokens": total_input + total_output,
-                                "estimated_cost_usd": round(
-                                    (total_input * 0.00000025) + (total_output * 0.00000125), 6
-                                ),  # Haiku pricing: $0.25/M input, $1.25/M output
+                                "total_cache_read_tokens": total_cache_read,
+                                "total_cache_write_tokens": total_cache_write,
+                                # ISS-032: price the uncached split (input − cache) plus
+                                # the cache tiers via the ONE shared estimate_cost_usd —
+                                # no double-count. input telemetry above stays the TOTAL.
+                                "estimated_cost_usd": estimate_cost_usd(
+                                    wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
+                                    input_tokens=max(0, total_input - total_cache_read - total_cache_write),
+                                    output_tokens=total_output,
+                                    cache_read_tokens=total_cache_read,
+                                    cache_write_tokens=total_cache_write,
+                                    cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+                                ),
                             })
                         if not wr.completed_at:
                             wr.completed_at = datetime.now(timezone.utc)
@@ -2189,15 +2506,12 @@ async def _handle_revision_execution(
             # test_revision_run_events_persist_and_resolve_on_real_db.
             owner_id=user.id,
             # Link the revision run to its parent so lineage stays intact
-            # (parent_run_id is an enforced FK — only set when the parent
-            # row actually exists, else creation would abort).
-            parent_run_id=(
-                parent_run_id
-                if db.query(WorkflowRun.id)
-                .filter(WorkflowRun.id == parent_run_id)
-                .first()
-                else None
-            ),
+            # (parent_run_id is an enforced FK — only set when the parent row
+            # exists AND is OWNED by the caller, else creation would abort or a
+            # foreign edge would leak into the family walk; POR §3). The engine
+            # still receives the caller's `parent_run_id` argument verbatim — only
+            # the persisted ROW column is conditioned on ownership (D-06).
+            parent_run_id=_resolve_owned_parent_run_id(db, parent_run_id, user.id),
             title=f"Revision: {instruction[:50]}",
             type=revision_pipeline_type,
             status="revising",
@@ -2210,6 +2524,19 @@ async def _handle_revision_execution(
         workflow_run_id = wr.id
     finally:
         db.close()
+
+    # Async title generation (best-effort, non-blocking) — mirrors the
+    # run_pipeline path (:1766). instruction is clean user text so
+    # _strip_pipeline_context returns it unchanged; the LLM generates a
+    # short descriptive title replacing the "Revision: …" placeholder.
+    asyncio.create_task(
+        _generate_workflow_title(
+            workflow_run_id=workflow_run_id,
+            content=instruction,
+            pipeline_type=revision_pipeline_type,
+            websocket=websocket,
+        )
+    )
 
     event_queue = _get_or_create_queue(pipeline_run_id)
 

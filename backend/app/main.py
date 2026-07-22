@@ -47,6 +47,7 @@ logging.basicConfig(
 logging.getLogger("app").setLevel(logging.DEBUG)
 logging.getLogger("app.agents").setLevel(logging.DEBUG)
 logging.getLogger("app.api").setLevel(logging.DEBUG)
+logging.getLogger("agents.factory").setLevel(logging.DEBUG)  # KAN-71: show prompt override usage
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -159,6 +160,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # KAN-110: expose X-Total-Count so the frontend can read the total run count
+    # for pagination without a separate request. Custom response headers are NOT
+    # accessible from browser fetch() by default — they must be explicitly listed
+    # in Access-Control-Expose-Headers.
+    expose_headers=["X-Total-Count"],
 )
 
 

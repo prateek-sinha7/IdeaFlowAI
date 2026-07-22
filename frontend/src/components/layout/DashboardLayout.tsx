@@ -21,9 +21,10 @@ import { ReviewGatePanel } from "@/components/preview/ReviewGatePanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
-import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable } from "@/types/index";
+import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
-import { getToken, getChainContext } from "@/lib/api";
+import { parseRunInput } from "@/lib/runInput";
+import { getToken, getChainContext, getRunFamily } from "@/lib/api";
 import type { UserWorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -58,6 +59,11 @@ export interface DashboardLayoutProps {
   onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedSkills?: import("@/types/index").AttachedSkill[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void;
   onResetPipeline?: () => void;
   recentRuns?: WorkflowRun[];
+  // Revision Families (B1 / D1-D7): the reliable "run id that produced the
+  // on-screen content", owned by page.tsx (pipeline_complete + reopen). Every
+  // revision launch path sources parent linkage from this — replaces the fragile
+  // currentWorkflowRunId heuristic (which mis-matched on double-revision types).
+  contentSourceRunId?: string | null;
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   // Phase 16 (ISS-017) — the persisted status of a history-reopened run. When a
   // failed/cancelled run is reopened it carries no content, so the run's
@@ -73,7 +79,13 @@ export interface DashboardLayoutProps {
   // failed agents (the live pipelineState can't name them). Threaded straight to
   // PreviewPanel's DegradedRunAffordance; unknown ids fall back to the raw id.
   reopenedAgentNameById?: Record<string, string>;
-  questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
+  questionnaireData?: {
+    questions: {
+      id: string; question: string; options: string[]; answerType?: string;
+      recommendedAnswer?: string; recommendedReasoning?: string;
+      recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
+    }[]
+  } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
   // Phase 12 (RESUME-03) — reads the last-received seq for the active run so the
@@ -81,6 +93,9 @@ export interface DashboardLayoutProps {
   // (12-03). Returns 0 on a fresh load (no recorded seq ⇒ full-tail replay).
   getLastSeq?: () => number;
   onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
+  // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
+  // state before the questionnaire panel clears (consumed by C2's ClarificationsCard).
+  onRetainClarifyRound?: (round: import("@/types/index").ClarifyRound) => void;
   // Review gate — shown when an agent with gate: Human_Gate completes
   reviewGateData?: {
     gateKey: string;
@@ -88,15 +103,23 @@ export interface DashboardLayoutProps {
     agentName: string;
     output: string;
     pipelineRunId: string;
+    // REDO-GATE (F-fe2): generic server-set flag threaded into the panel so the
+    // Redo control renders only on redoable (inline) gates.
+    redoable?: boolean;
   } | null;
   onApproveReview?: (gateKey: string, editedContent?: string) => void;
   onRejectReview?: (gateKey: string) => void;
+  // REDO-GATE (F-fe2): pass-through redo callback to the ReviewGatePanel.
+  onRedoReview?: (gateKey: string, instructions: string) => void;
+  // KAN-101: pass-through update-specs callback to the ReviewGatePanel.
+  onUpdateSpecsReview?: (gateKey: string, analysisReport: string) => void;
   pendingOdProtoParams?: {
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
     gateAgentIds?: string[];
     modelOverrides?: Record<string, string>;
     selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null;
   onClearPendingOdProto?: () => void;
@@ -106,6 +129,7 @@ export interface DashboardLayoutProps {
     gateAgentIds?: string[];
     modelOverrides?: Record<string, string>;
     selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null;
   onClearPendingOdPpt?: () => void;
@@ -116,16 +140,21 @@ export interface DashboardLayoutProps {
   // so existing callers/tests that omit it are unaffected; a non-wave run
   // feeds an empty list and WaveTreePanel renders its own empty state.
   waves?: WaveGroup[];
+  // Workstream C2 (POR §5 D3 / §6.2) — the live run's captured input (submittedBrief
+  // in page.tsx, set in onStartPipeline). Threaded as PreviewPanel.runInput so the
+  // StartingPointCard + Files "Run input" section render on the LIVE mount. Optional
+  // and default-undefined → non-live callers/tests render unchanged.
+  submittedBrief?: string;
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows";
 
-// ─── Planning overlay — shown while the planner analyzes the brief ─────────────
+// ─── Prep overlay — shown while we set up your run (planner + clarify), any workflow ───
 const PLANNING_STEPS = [
   { icon: "🔍", label: "Reading your brief…" },
-  { icon: "🧠", label: "Analyzing intent & context…" },
-  { icon: "📋", label: "Identifying what's needed…" },
-  { icon: "⚡", label: "Preparing your pipeline…" },
+  { icon: "🧠", label: "Understanding intent & context…" },
+  { icon: "📋", label: "Mapping out what's needed…" },
+  { icon: "✨", label: "Preparing your workflow…" },
 ];
 
 function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
@@ -153,7 +182,7 @@ function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
 
       {/* Status */}
       <div className="text-center space-y-2">
-        <p className="text-[14px] font-bold text-gray-900">Planner is thinking…</p>
+        <p className="text-[14px] font-bold text-gray-900">Getting things ready…</p>
         <AnimatePresence mode="wait">
           <motion.div
             key={stepIdx}
@@ -172,13 +201,13 @@ function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
       {/* What the planner is doing */}
       <div className="w-full max-w-sm rounded-xl border border-gray-100 bg-gray-50 p-4 space-y-2.5">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-          <Sparkles className="h-3 w-3" /> What the planner does
+          <Sparkles className="h-3 w-3" /> Behind the scenes
         </p>
         {[
-          "Detects if your brief has a clear topic",
-          "Infers audience, tone & constraints",
-          "Identifies what questions to ask",
-          "Prepares context for all agents",
+          "Understanding your request",
+          "Inferring goals, tone & constraints",
+          "Spotting anything worth confirming",
+          "Setting up context for every step",
         ].map((item, i) => (
           <div key={i} className="flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${i <= stepIdx ? "bg-[#1B2A4A]" : "bg-gray-300"}`} />
@@ -229,14 +258,18 @@ export function DashboardLayout({
   onStartPipeline,
   onResetPipeline,
   recentRuns,
+  contentSourceRunId,
   onSelectWorkflowRun,
   questionnaireData,
   activePipelineRunId,
   getLastSeq,
   onSubmitQuestionnaire,
+  onRetainClarifyRound,
   reviewGateData,
   onApproveReview,
   onRejectReview,
+  onRedoReview,
+  onUpdateSpecsReview,
   pendingOdProtoParams,
   onClearPendingOdProto,
   pendingOdPptParams,
@@ -244,6 +277,7 @@ export function DashboardLayout({
   userTier = "basic",
   userEmail,
   waves = [],
+  submittedBrief,
 }: DashboardLayoutProps) {
   const router = useRouter();
   const [mainView, setMainView] = useState<MainView>(() => {
@@ -268,7 +302,11 @@ export function DashboardLayout({
   const [workflowInput, setWorkflowInput] = useState("");
   const [completedPipelineTypes, setCompletedPipelineTypes] = useState<WorkflowType[]>([]);
   const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
-  const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{ id: string; question: string; options: string[] }[]>([]);
+  const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
+    id: string; question: string; options: string[]; answerType?: string;
+    recommendedAnswer?: string; recommendedReasoning?: string;
+    recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
+  }[]>([]);
   const [questionnaireLoading, setQuestionnaireLoading] = useState(false);
   const [pendingPipelineRun, setPendingPipelineRun] = useState<{
     type: WorkflowType;
@@ -301,6 +339,23 @@ export function DashboardLayout({
   } = useNotifications();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const currentPipelineNotifId = useRef<string | null>(null);
+  // KAN-90: when user explicitly cancels from the clarification step, block
+  // the auto-redirect-to-execution effect for one render cycle so the home
+  // navigation isn't immediately overridden by pipelineState.isRunning=true.
+  const cancelNavigatingHomeRef = useRef(false);
+
+  // ─── B3 (POR §5 D5) — revision family for the on-screen content ──────────────
+  // Fetched here (the minimal seam — DashboardLayout already receives
+  // contentSourceRunId AND mounts PreviewPanel) keyed on contentSourceRunId, and
+  // threaded into PreviewPanel as an optional prop. The .catch guarantees it
+  // never throws even if the endpoint is unavailable.
+  const [runFamily, setRunFamily] = useState<RunFamily | null>(null);
+  useEffect(() => {
+    if (!contentSourceRunId) { setRunFamily(null); return; }
+    getRunFamily(getToken() || "", contentSourceRunId)
+      .then(setRunFamily)
+      .catch(() => setRunFamily(null));
+  }, [contentSourceRunId]);
 
   const dismissToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -314,6 +369,12 @@ export function DashboardLayout({
   // UserStoryPreview instead of PrototypePreview.
   useEffect(() => {
     if (pipelineState?.isRunning) {
+      // KAN-90: if user just cancelled from the clarification step, don't
+      // force the execution view — they want to stay on home/dashboard.
+      if (cancelNavigatingHomeRef.current) {
+        cancelNavigatingHomeRef.current = false; // consume the flag
+        return;
+      }
       if (mainView !== "execution") {
         setMainView("execution");
       }
@@ -322,6 +383,25 @@ export function DashboardLayout({
       const normalised: WorkflowType = pt === "od_prototype" ? "prototype" : pt === "od_ppt" ? "ppt" : (pt as WorkflowType);
       if (normalised && normalised !== workflowType) {
         setWorkflowType(normalised);
+      }
+      // KAN-88 stale label fix: if currentPipelineNotifId still holds an old
+      // run's id when a new pipeline starts (the previous completion effect may
+      // not have run yet), clear it so the od_prototype notification guard
+      // (!currentPipelineNotifId.current) fires correctly and creates a fresh
+      // notification with the right type. Without this, a prototype run started
+      // after a user_stories run keeps showing "User Stories" in the header.
+      // We compare against the pipelineRunId so we only reset when a genuinely
+      // NEW run starts, not on every isRunning re-render.
+      const incomingRunId = pipelineState.pipelineRunId;
+      if (incomingRunId && currentPipelineNotifId.current) {
+        // If the current notif was created for a different run, reset it.
+        // We detect this by checking if the notification was created for the
+        // pipeline that just started (odProtoNotifCreated resets on !isRunning).
+        // A simple guard: if isRunning just became true AND odProtoNotifCreated
+        // is false (reset after last run), we're in a new run context.
+        if (!odProtoNotifCreated.current) {
+          currentPipelineNotifId.current = null;
+        }
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -362,7 +442,7 @@ export function DashboardLayout({
     }
   }, [pipelineState?.completedCount, pipelineState?.isRunning]);
 
-  // Detect when od_prototype starts (fired from dashboard/page.tsx directly,
+  // Detect when od_prototype/od_ppt starts (fired from dashboard/page.tsx directly,
   // not through handleQuestionnaireSubmit) and create a notification for it.
   const odProtoNotifCreated = useRef(false);
   useEffect(() => {
@@ -376,7 +456,10 @@ export function DashboardLayout({
       odProtoNotifCreated.current = true;
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, "prototype", "Prototype", 0);
+      // Use correct workflowType for od_ppt vs prototype
+      const wfType: WorkflowType = (pipelineState.pipeline_type === "od_ppt") ? "ppt" : "prototype";
+      const label = (pipelineState.pipeline_type === "od_ppt") ? "Presentation" : "Prototype";
+      addRunningNotification(notifId, wfType, label, 0);
     }
     if (!pipelineState?.isRunning) {
       odProtoNotifCreated.current = false;
@@ -405,10 +488,11 @@ export function DashboardLayout({
   // Extract Agent 3's (ppt-code-generator) output for early PPTX download
   const pptxCode = pipelineState?.agents.find(a => a.id === "ppt-code-generator" && a.status === "done")?.output || undefined;
 
-  // Track the current workflow run ID for revision updates
-  const currentWorkflowRunId = recentRuns?.find(
-    r => (r.type === workflowType || r.type === workflowType + "_revision") && r.status === "completed"
-  )?.id || "";
+  // Revision Families (B1 / D1-D7): the fragile currentWorkflowRunId heuristic is
+  // GONE — it guessed the parent by matching recentRuns on the current workflow
+  // type (with a double-revision-suffix branch that could never match) and
+  // orphaned every history-launched revision. Parent linkage now comes from the
+  // contentSourceRunId prop (page.tsx tracks the actual on-screen run).
 
   // Handle PPT revision — Phase 3: send run_revision WS message when a
   // completed run exists; fall back to the legacy text-injection pattern
@@ -419,11 +503,11 @@ export function DashboardLayout({
     const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
 
     // Phase 3: use run_revision if we have a completed run ID
-    if (currentWorkflowRunId && websocketSend) {
+    if (contentSourceRunId && websocketSend) {
       const targetType = isOdPpt ? "od_ppt_output" : "ppt_output";
       websocketSend(JSON.stringify({
         type: "run_revision",
-        parent_run_id: currentWorkflowRunId,
+        parent_run_id: contentSourceRunId,
         target_artifact_type: targetType,
         instruction,
       }));
@@ -450,7 +534,7 @@ export function DashboardLayout({
         onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
       }
     }
-  }, [workflowType, pptxCode, pptContent, currentWorkflowRunId, websocketSend, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [workflowType, pptxCode, pptContent, contentSourceRunId, websocketSend, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {
@@ -459,9 +543,10 @@ export function DashboardLayout({
     setWorkflowType("user_stories_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
-      onStartPipeline("user_stories_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
+      // Revision Families (B1): link the parent so the backend assembles the family.
+      onStartPipeline("user_stories_revision", revisionMessage, undefined, attachedSkills, attachedHooks, contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : undefined);
     }
-  }, [userStoryContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [userStoryContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle Prototype revision — surgical diff approach
   // Instead of asking the agent to reproduce the full HTML (which exceeds
@@ -477,11 +562,11 @@ export function DashboardLayout({
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
       // Phase 5: send source_workflow_run_id so the backend can seed the
-      // original run's spec/design into the revision sandbox. Only sent when a
-      // completed parent run exists (currentWorkflowRunId falls back to "").
-      onStartPipeline("prototype_revision", revisionMessage, undefined, attachedSkills, attachedHooks, currentWorkflowRunId ? { source_workflow_run_id: currentWorkflowRunId } : undefined);
+      // original run's spec/design into the revision sandbox. B1: sourced from the
+      // contentSourceRunId prop (the actual on-screen run) — undefined when none.
+      onStartPipeline("prototype_revision", revisionMessage, undefined, attachedSkills, attachedHooks, contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : undefined);
     }
-  }, [prototypeContent, currentWorkflowRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [prototypeContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle App Builder revision — re-run pipeline with existing blueprint + change instruction
   const handleReviseAppBuilder = useCallback((instruction: string) => {
@@ -490,9 +575,10 @@ export function DashboardLayout({
     setWorkflowType("app_builder_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
-      onStartPipeline("app_builder_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
+      // Revision Families (B1): link the parent so the backend assembles the family.
+      onStartPipeline("app_builder_revision", revisionMessage, undefined, attachedSkills, attachedHooks, contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : undefined);
     }
-  }, [userStoryContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [userStoryContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle incoming questionnaire data from WebSocket
   useEffect(() => {
@@ -604,10 +690,12 @@ export function DashboardLayout({
       // Advanced agent config from wizard AgentsPopup
       ...(pendingOdProtoParams.modelOverrides && Object.keys(pendingOdProtoParams.modelOverrides).length > 0 ? { model_overrides: pendingOdProtoParams.modelOverrides } : {}),
       ...(pendingOdProtoParams.selections && Object.keys(pendingOdProtoParams.selections).length > 0 ? { selections: pendingOdProtoParams.selections } : {}),
+      ...(pendingOdProtoParams.images && pendingOdProtoParams.images.length > 0 ? { images: pendingOdProtoParams.images } : {}),
     };
 
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, "prototype", pendingOdProtoParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdProtoParams.agentIds ?? [];
       if (connectionStatus === "connected") {
@@ -650,10 +738,12 @@ export function DashboardLayout({
       // Advanced agent config from wizard AgentsPopup
       ...(pendingOdPptParams.modelOverrides && Object.keys(pendingOdPptParams.modelOverrides).length > 0 ? { model_overrides: pendingOdPptParams.modelOverrides } : {}),
       ...(pendingOdPptParams.selections && Object.keys(pendingOdPptParams.selections).length > 0 ? { selections: pendingOdPptParams.selections } : {}),
+      ...(pendingOdPptParams.images && pendingOdPptParams.images.length > 0 ? { images: pendingOdPptParams.images } : {}),
     };
 
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, "ppt", pendingOdPptParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdPptParams.agentIds ?? [];
       if (connectionStatus === "connected") {
@@ -785,7 +875,11 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, resolvedType, message.slice(0, 60), 0);
+      // Strip injected context/revision markers before using as notification title
+      // so the panel never shows raw "=== EXISTING PROTOTYPE HTML ===" text.
+      const parsedMsg = parseRunInput(message);
+      const notifTitle = (parsedMsg.revisionInstruction ?? parsedMsg.brief ?? message).slice(0, 60);
+      addRunningNotification(notifId, resolvedType, notifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, extraParams);
       } else {
@@ -866,10 +960,15 @@ export function DashboardLayout({
       }
     }
 
-    const cleanBrief = workflowInput.split("\n\n===")[0].trim();
+    // Workstream C1 (INV-12): the single parser owns marker extraction. For a
+    // plain brief -> its clean brief; for a revision blob (starts with ===) ->
+    // the revision instruction (parseRunInput returns brief='' for a pure blob,
+    // so the empty-string fallback is subsumed).
+    const parsedChain = parseRunInput(workflowInput);
+    const chainBrief = parsedChain.revisionInstruction ?? parsedChain.brief;
     const enrichedInput = contextBlock
-      ? `${cleanBrief}\n\n${contextBlock}`
-      : cleanBrief;
+      ? `${chainBrief}\n\n${contextBlock}`.trim()
+      : chainBrief;
 
     if (onResetPipeline) onResetPipeline();
     setWorkflowInput(enrichedInput);
@@ -877,7 +976,10 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, nextType, enrichedInput.slice(0, 60), 0);
+      // chainBrief is the stripped user brief (no markers); use it as the
+      // notification title so the panel never shows raw context block text.
+      const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
+      addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
       } else {
@@ -937,8 +1039,10 @@ export function DashboardLayout({
       }
     }
 
-    const cleanBrief = (run.input || "").split("\n\n===")[0].trim();
-    const enrichedInput = contextBlock ? `${cleanBrief}\n\n${contextBlock}` : cleanBrief;
+    // Workstream C1 (INV-12): same single-parser rewire as handleChainPipeline.
+    const parsedHistory = parseRunInput(run.input || "");
+    const historyBrief = parsedHistory.revisionInstruction ?? parsedHistory.brief;
+    const enrichedInput = contextBlock ? `${historyBrief}\n\n${contextBlock}`.trim() : historyBrief;
 
     setWorkflowType(nextType);
     setWorkflowInput(enrichedInput);
@@ -952,7 +1056,10 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, nextType, enrichedInput.slice(0, 60), 0);
+      // historyBrief is the stripped user brief (no markers); use it so the
+      // panel never shows raw context block text for history-chained runs.
+      const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
+      addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
       } else {
@@ -981,6 +1088,23 @@ export function DashboardLayout({
       });
       if (freeformInput) {
         responses.push({ question_id: "freeform", answer: freeformInput });
+      }
+      // Workstream C1 (POR §6.5): fold the answered Q&A into run-scoped state
+      // BEFORE clearing the panel — order matters, else the round is lost.
+      if (onRetainClarifyRound) {
+        const round = {
+          round: (pipelineState?.clarifications?.length ?? 0) + 1,
+          qa: questionnaireQuestions.map((q) => {
+            const selected = answers[q.id];
+            return {
+              question_id: q.id,
+              question_text: q.question,
+              impact_level: q.impactLevel ?? "",
+              answer: selected && selected.length > 0 ? selected.join(", ") : null,
+            };
+          }),
+        };
+        onRetainClarifyRound(round);
       }
       setQuestionnaireQuestions([]);
       setQuestionnaireLoading(false);
@@ -1012,7 +1136,9 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
+      const parsedPending = parseRunInput(pendingPipelineRun.message);
+      const pendingNotifTitle = (parsedPending.revisionInstruction ?? parsedPending.brief ?? pendingPipelineRun.message).slice(0, 60);
+      addRunningNotification(notifId, pendingPipelineRun.type, pendingNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedSkills, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1024,7 +1150,7 @@ export function DashboardLayout({
         };
       }
     }
-  }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, questionnaireQuestions, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [activePipelineRunId, onSubmitQuestionnaire, onRetainClarifyRound, pipelineState, pendingPipelineRun, questionnaireQuestions, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Skip questionnaire.
   // New flow (ISS-027): submit empty answers WITH skip_clarification=true so the
@@ -1047,7 +1173,9 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
+      const parsedSkip = parseRunInput(pendingPipelineRun.message);
+      const skipNotifTitle = (parsedSkip.revisionInstruction ?? parsedSkip.brief ?? pendingPipelineRun.message).slice(0, 60);
+      addRunningNotification(notifId, pendingPipelineRun.type, skipNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedSkills, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1060,6 +1188,48 @@ export function DashboardLayout({
       }
     }
   }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+
+  // Cancel the active pipeline from the clarification step and navigate to dashboard.
+  // Two-step sequence: submit_questionnaire(skip=true) unblocks the gate, then
+  // cancel_pipeline terminates the now-running pipeline. All state resets to initial.
+  // KAN-90: "Cancel Workflow" button in QuestionnairePanel confirmation dialog.
+  const handleCancelWorkflow = useCallback(() => {
+    // Set the flag BEFORE navigating so the isRunning effect doesn't fight us
+    cancelNavigatingHomeRef.current = true;
+    // Navigate home and reset state IMMEDIATELY — before any async work
+    setMainView("home");
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(false);
+    setPendingPipelineRun(null);
+    if (onResetPipeline) onResetPipeline();
+
+    if (activePipelineRunId && onSubmitQuestionnaire) {
+      // Step 1: unblock the clarify gate (fire and forget)
+      onSubmitQuestionnaire(activePipelineRunId, [], true);
+      // Step 2: cancel the now-unblocked pipeline after a short delay
+      setTimeout(() => {
+        if (websocketSend) {
+          websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
+        }
+      }, 200);
+    }
+  }, [activePipelineRunId, onSubmitQuestionnaire, websocketSend, onResetPipeline]);
+
+  // Handle "Reject & cancel pipeline" from the ReviewGatePanel.
+  // KAN-95: the raw onRejectReview prop (from page.tsx) only sends the WS message
+  // and clears reviewGateData — it does not navigate. This wrapper sets
+  // cancelNavigatingHomeRef first (so the pipelineState.isRunning effect doesn't
+  // snap the view back to "execution"), resets pipeline state, and navigates home
+  // before delegating to the prop for the actual WS send.
+  const handleRejectReview = useCallback((gateKey: string) => {
+    // Set the guard BEFORE any state changes so the isRunning effect can't fight us
+    cancelNavigatingHomeRef.current = true;
+    // Navigate home and reset state immediately
+    setMainView("home");
+    if (onResetPipeline) onResetPipeline();
+    // Delegate to page.tsx for the WS send + reviewGateData clear
+    if (onRejectReview) onRejectReview(gateKey);
+  }, [onRejectReview, onResetPipeline]);
 
   // Header navigation — free navigation even while pipeline runs
   const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => {
@@ -1187,40 +1357,44 @@ export function DashboardLayout({
               className="h-full"
             >
               <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory}
-            onReviseUserStory={(instruction, content) => {
+            activeRunId={pipelineState?.pipelineRunId ?? null}
+            onViewRunningPipeline={() => setMainView("execution")}
+            onReviseUserStory={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("user_stories_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING PRODUCT BACKLOG ===\n${content}\n=== END EXISTING BACKLOG ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("user_stories_revision", msg, undefined, attachedSkills, attachedHooks);
+                // Revision Families (B1): history revisions previously sent NO
+                // parent → orphan runs. Thread selectedRun.id so the backend links it.
+                onStartPipeline("user_stories_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
               }
             }}
-            onRevisePpt={(instruction, content) => {
+            onRevisePpt={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("ppt_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING PRESENTATION CODE ===\n${content}\n=== END EXISTING CODE ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("ppt_revision", msg, undefined, attachedSkills, attachedHooks);
+                onStartPipeline("ppt_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
               }
             }}
-            onRevisePrototype={(instruction, content) => {
+            onRevisePrototype={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("prototype_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING PROTOTYPE HTML ===\n${content}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("prototype_revision", msg, undefined, attachedSkills, attachedHooks);
+                onStartPipeline("prototype_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
               }
             }}
-            onReviseAppBuilder={(instruction, content) => {
+            onReviseAppBuilder={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("app_builder_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING APP BLUEPRINT ===\n${content.slice(0, 40000)}\n=== END EXISTING BLUEPRINT ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("app_builder_revision", msg, undefined, attachedSkills, attachedHooks);
+                onStartPipeline("app_builder_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
               }
             }}
           />
@@ -1341,6 +1515,22 @@ export function DashboardLayout({
                       // immediately clears agents[] before the event arrives,
                       // so the graceful agent state transition (running→idle) is skipped.
                     }}
+                    // KAN-84: revision moved from thin right-panel input to left-panel
+                    // next-steps section. Wired to the existing handleRevise* callbacks.
+                    onRevise={
+                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt :
+                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory :
+                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
+                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder :
+                      undefined
+                    }
+                    reviseLabel={
+                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? "Revise Presentation" :
+                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? "Revise User Stories" :
+                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? "Revise Prototype" :
+                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? "Revise App Blueprint" :
+                      "Revise"
+                    }
                   />
                   </div>
                 </ErrorBoundary>
@@ -1360,22 +1550,24 @@ export function DashboardLayout({
               {/* Right Panel — Planning overlay, Questionnaire, or Preview */}
               <div className="flex-1 h-[55vh] md:h-full min-w-0 bg-white rounded-none md:rounded-l-none">
                 <ErrorBoundary fallbackLabel="Preview">
-                  {/* Show planning overlay while planner is running and no questionnaire yet */}
+                  {/* Show planning overlay while planner or clarify is working (no domain agents yet) and no questionnaire yet */}
                   {pipelineState?.isRunning &&
-                   pipelineState?.plannerStatus === "running" &&
+                   (pipelineState?.agents?.length ?? 0) === 0 &&
                    !questionnaireLoading &&
                    questionnaireQuestions.length === 0 &&
-                   !activePipelineRunId &&
                    !reviewGateData ? (
                     <PlanningOverlay plannerSummary={pipelineState?.plannerSummary} />
-                  ) : reviewGateData ? (
+                  ) : reviewGateData && isPipelineRunning ? (
                     <ReviewGatePanel
                       agentId={reviewGateData.agentId}
                       agentName={reviewGateData.agentName}
                       output={reviewGateData.output}
                       gateKey={reviewGateData.gateKey}
                       onApprove={onApproveReview || (() => {})}
-                      onReject={onRejectReview || (() => {})}
+                      onReject={handleRejectReview}
+                      onRedo={onRedoReview}
+                      redoable={reviewGateData.redoable}
+                      onUpdateSpecs={onUpdateSpecsReview}
                     />
                   ) : (questionnaireLoading || questionnaireQuestions.length > 0) && (pendingPipelineRun || activePipelineRunId) ? (
                     <QuestionnairePanel
@@ -1384,6 +1576,7 @@ export function DashboardLayout({
                       onSubmitAnswers={handleQuestionnaireSubmit}
                       onSkip={handleQuestionnaireSkip}
                       workflowType={workflowType}
+                      onCancelWorkflow={activePipelineRunId ? handleCancelWorkflow : undefined}
                     />
                   ) : (
                     <PreviewPanel
@@ -1395,10 +1588,10 @@ export function DashboardLayout({
                       workflowType={workflowType}
                       rawPipelineType={pipelineState?.pipeline_type || workflowType}
                       pptxCode={pptxCode}
-                      onRevisePpt={(workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt : undefined}
-                      onReviseUserStory={(workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory : undefined}
-                      onRevisePrototype={(workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype : undefined}
-                      onReviseAppBuilder={(workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder : undefined}
+                      onRevisePpt={undefined}
+                      onReviseUserStory={undefined}
+                      onRevisePrototype={undefined}
+                      onReviseAppBuilder={undefined}
                       agentOutputs={
                         pipelineState && pipelineState.agents.length > 0
                           ? pipelineState.agents
@@ -1411,6 +1604,9 @@ export function DashboardLayout({
                       reopenedRunStatus={reopenedRunStatus}
                       reopenedFailedAgents={reopenedFailedAgents}
                       reopenedAgentNameById={reopenedAgentNameById}
+                      runFamily={runFamily}
+                      liveRunId={contentSourceRunId ?? null}
+                      runInput={submittedBrief}
                     />
                   )}
                 </ErrorBoundary>

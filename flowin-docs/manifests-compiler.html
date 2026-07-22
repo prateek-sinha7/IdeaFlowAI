@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manifests &amp; Compiler — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="manifests-compiler">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Manifests &amp; Compiler</b></div>
+      <div class="spacer"></div>
+      <span class="tag">agents/workflows/</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Backend internals</div>
+        <h1>Manifests &amp; Compiler</h1>
+        <p>The declaration layer: how a workflow is <em>described</em> (a YAML manifest) becomes how it is <em>executed</em> (a typed, validated plan). It imports only stdlib + itself + the capability registry — never the kernel or the web layer.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> A workflow is a recipe written in YAML — a list of steps and the ingredients (capabilities) each step uses. The compiler is the sous-chef that reads the recipe, checks every ingredient actually exists, makes sure the steps can be done in a valid order, and hands the kernel a clean, ready-to-cook plan. If the recipe calls for something that doesn't exist, the compiler refuses — before any cooking starts.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The layer that reads a <code>workflow.yaml</code> and produces a typed, validated <code>CompiledWorkflow</code>.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>So workflows can be pure data — editable and safe, with no executable code — yet still fully validated before they run.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Load &#8594; strict-key validate &#8594; name-resolve every capability against the registry &#8594; topo-check the step DAG &#8594; emit the plan. No DSL, no <code>eval</code>.</p></div>
+        </div>
+      </div>
+
+      <h3>How a manifest becomes a plan</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <div class="grid g3">
+        <div class="card"><h4>manifest.py</h4><p class="lead"><code>load_manifest(id, base_dir)</code> reads <code>&lt;id&gt;/workflow.yaml</code> with <code>yaml.safe_load</code> only (no RCE surface) into a typed <code>WorkflowManifest</code>. <b>Not Pydantic.</b> Strict-key rejection: only <code>_ALLOWED_TOP_KEYS</code> are permitted.</p></div>
+        <div class="card"><h4>compiler.py</h4><p class="lead"><code>WorkflowCompiler.compile()</code> does exactly two things: name-resolve every capability against the registry (unknown = <code>CompilerError</code>), and map each raw step &#8594; a typed <code>Step</code> + topo-validate the DAG.</p></div>
+        <div class="card"><h4>plan.py</h4><p class="lead">The typed contract: <code>CompiledWorkflow</code>, <code>Step</code>, <code>ToolPermissions</code>, <code>ModelPolicy</code>, <code>TaskSource</code>, <code>FixPolicy</code>, <code>FanoutSpec</code>, <code>RetryPolicy</code>, <code>DeliverableSpec</code>, <code>ClarifySpec</code>, <code>Task</code>.</p></div>
+      </div>
+
+      <h3>A real manifest — <code>prototype/workflow.yaml</code></h3>
+      <p class="muted">Every value is a capability name the compiler resolves; there is no imperative logic.</p>
+      <pre><code>id: prototype
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, scope, priority, style, user_journeys, key_screens, interactions, personas]
+deliverable:
+  strategy: single_file          # DeliverableResolver capability
+  name: prototype.html
+context_providers: [opendesign]  # ContextProvider capability
+steps:
+  - agent: prototype-specify
+    strategy: single_shot
+    gates: [human]               # HITL review gate
+  - agent: prototype-plan
+    strategy: single_shot
+    gates: [human]
+  - agent: prototype-build
+    strategy: task_loop          # one sub-agent per task
+    task_source: {kind: parsed, parser: heading_tasks, target: tasks.md,
+                  source_step: prototype-plan, spec_step: prototype-specify}
+    validators: [html_static, html_render]
+    compaction: html_skeleton
+  - agent: prototype-validate
+    strategy: single_shot</code></pre>
+
+      <h3>Trust model &amp; secure defaults</h3>
+      <p class="muted">The compiler takes a <code>trust</code> level. <code>file</code>/<code>builtin</code> manifests are trusted; <code>user</code>/<code>db</code> manifests (from the composer / saved workflows) are untrusted and additionally checked against each capability's <code>user_allowed</code> flag.</p>
+      <div class="grid g2">
+        <div class="card"><h4>Untrusted can't escalate</h4><p class="lead">A user/db manifest referencing a non-user-allowed capability (<code>exec</code>, <code>secrets</code>, <code>spawn_subagents</code>) is a <code>CompilerError</code>. Budget <code>Limits</code> may only be lowered, never raised above the default ceiling.</p></div>
+        <div class="card"><h4>exec requires gates</h4><p class="lead">A step granting <code>tools.exec</code> must declare both the <code>security</code> and <code>approval</code> gates, or the compile fails. The compiler raises — it never auto-injects.</p></div>
+        <div class="card"><h4>Least privilege</h4><p class="lead">Effective tool permissions = <code>owner &cap; workflow_ceiling &cap; step_grant</code> (an AND-mask that can only lower). Ungranted steps keep <code>read_files</code> on, everything else off.</p></div>
+        <div class="card"><h4>Default audit hooks</h4><p class="lead">A step that declares no <code>hooks:</code> automatically gets <code>audit_logger</code> + <code>secret_scan</code> injected (KAN-73) — audit trail + security scan by default.</p></div>
+      </div>
+
+      <div class="callout"><div class="t">&#128274; Safe parsing</div><p><code>yaml.safe_load</code> only (a <code>!!python/object</code> tag cannot construct an arbitrary object). Any control-flow / DSL key (<code>when</code>/<code>if</code>/<code>for</code>/<code>${&hellip;}</code>) at any level is rejected by strict-key validation — that is exactly what keeps manifests pure data (INV-5).</p></div>
+
+      <h3>Every top-level key, and what happens if you misspell one</h3>
+      <p class="muted"><code>_ALLOWED_TOP_KEYS</code> in <code>manifest.py</code> is the exhaustive list — nothing else is legal at the top of a <code>workflow.yaml</code>. A typo or an unsupported field doesn't get silently ignored; <code>load_manifest</code> raises a <code>ManifestValidationError</code> naming the exact unknown key(s), before the compiler even sees the manifest.</p>
+      <table>
+        <thead><tr><th>Key</th><th>Required?</th><th>Type</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>id</code></td><td>required</td><td>str</td><td>The manifest id, e.g. <code>prototype</code>.</td></tr>
+          <tr><td><code>steps</code></td><td>required</td><td>list</td><td>Raw step dicts. May be <code>[]</code> — the <code>reverse_engineer</code> workflow is an intentional empty plan.</td></tr>
+          <tr><td><code>deliverable</code></td><td>required</td><td>dict</td><td><code>{strategy, name}</code> — which resolver capability produces the final artifact.</td></tr>
+          <tr><td><code>planner</code></td><td>required</td><td>str</td><td><code>"run"</code> or <code>"skip"</code> — whether the deep-planner agent runs before the steps.</td></tr>
+          <tr><td><code>clarify</code></td><td>required</td><td>dict</td><td><code>{mode, defaults}</code> — HITL clarify gate config.</td></tr>
+          <tr><td><code>version</code></td><td>optional</td><td>int</td><td>Defaults to <code>1</code>. Rejects a <code>bool</code> explicitly (a bool is an <code>int</code> subclass in Python — <code>version: true</code> is caught, not silently coerced to <code>1</code>).</td></tr>
+          <tr><td><code>context_providers</code></td><td>optional</td><td>list</td><td>Names of <code>ContextProvider</code> capabilities to inject (e.g. <code>opendesign</code>, <code>repo</code>).</td></tr>
+          <tr><td><code>seed_files</code></td><td>optional</td><td>dict</td><td>Which files to seed from a prior run (revision workflows).</td></tr>
+          <tr><td><code>allowed_workers</code></td><td>optional</td><td>list</td><td>The named-worker allow-list a heterogeneous fan-out step may spawn from.</td></tr>
+          <tr><td><code>model</code> / <code>limits</code></td><td>optional</td><td>dict</td><td>Forward/inert in earlier phases; <code>model</code> now feeds the per-workflow default tier, <code>limits</code> feeds <code>BudgetManager.from_limits</code>.</td></tr>
+          <tr><td><code>user_launchable</code></td><td>optional</td><td>bool</td><td>Gates catalog visibility only — never authorizes a run (launch stays tier-gated server-side). Strictly type-checked: <code>1</code> is rejected, not coerced.</td></tr>
+          <tr><td><code>display_name</code> / <code>description</code> / <code>icon</code> / <code>launch_surface</code></td><td>optional</td><td>str</td><td>Pure presentation metadata for the catalog UI. Never read by the compiler or kernel.</td></tr>
+        </tbody>
+      </table>
+      <p class="muted">Note what's <i>not</i> in that list: no <code>when</code>, no <code>if</code>, no <code>for</code>, no template expression syntax. That absence is the whole point of INV-5 — there is structurally nowhere in a manifest to write control flow, so a manifest can never do anything more dangerous than name capabilities and configure them.</p>
+
+      <h3>The typed plan a manifest compiles into (<code>plan.py</code>)</h3>
+      <p class="muted">Every dataclass below started life "declared but inert" — present in the schema with a safe default, but not yet consumed by any kernel behavior — and was switched on phase by phase as the corresponding capability landed. That staging is deliberate: the full shape of the eventual system was designed up front, so later phases only had to <i>activate</i> fields, never restructure the contract.</p>
+      <div class="grid g3">
+        <div class="card"><h4><code>Step</code></h4><p class="lead">One compiled DAG node: <code>agent_id</code>, <code>strategy</code>, <code>gates</code>, <code>hooks</code>, <code>task_source</code>, <code>post_step</code>, plus the forward fields <code>tools</code> (a <code>ToolPermissions</code>), <code>model</code>, <code>validators</code>, <code>fix</code>, <code>compaction</code>, <code>fanout</code>, <code>on_conflict</code>, <code>retry</code>, <code>injects</code>, <code>depends_on</code>.</p></div>
+        <div class="card"><h4><code>ToolPermissions</code></h4><p class="lead">The least-privilege grant set (INV-9): <code>read_files</code> defaults ON, everything else (<code>write_files</code>/<code>exec</code>/<code>git</code>/<code>network</code>/<code>spawn_subagents</code>) defaults OFF. <code>intersect_permissions(owner, workflow, step)</code> is a pure AND-mask across all three levels — the result can only ever narrow, never widen a grant.</p></div>
+        <div class="card"><h4><code>FanoutSpec</code></h4><p class="lead"><code>agent</code>/<code>count</code> for a self&times;N fan-out, or <code>workers</code> (a list of named worker ids) for a heterogeneous one — every named worker must also appear in <code>CompiledWorkflow.allowed_workers</code> AND the agent registry before <code>run_fanout</code> will spawn it.</p></div>
+        <div class="card"><h4><code>RetryPolicy</code></h4><p class="lead"><code>max_attempts</code> + <code>backoff_seconds</code> + <code>on</code> (error classes — only <code>"transient"</code> is wired today, reusing the single <code>_is_transient_throttle</code> classifier). A step declaring no retry is byte-identical to before the field existed — the wrapper is fully dormant.</p></div>
+        <div class="card"><h4><code>DeliverableSpec</code></h4><p class="lead"><code>strategy</code> + <code>name</code> + the important <code>revises_existing</code> flag: this — not a provider-name proxy check, not a workflow-id branch — is what tells the kernel a run edits an artifact in place rather than regenerating it fresh. Only <code>prototype_revision</code> sets it <code>True</code> today.</p></div>
+        <div class="card"><h4><code>RepoSpec</code> &amp; <code>Limits</code></h4><p class="lead"><code>RepoSpec.index</code> is a pure opt-in flag — the compiler only records it; the actual decision to build a symbol index lives inside the <code>repo_index</code> capability, never the compiler (INV-5 again). <code>Limits</code> feeds <code>BudgetManager.from_limits</code> directly.</p></div>
+      </div>
+      <p class="muted">The one universal design rule across every one of these types, stated directly in the source comments: <i>declare the full field now, consume it later, and never let a Phase-N behavior key off a field that isn't live yet.</i> That's how 22 phases landed without ever rewriting the manifest schema out from under itself.</p>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Manifests &amp; Compiler</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Read workflow.yaml", b:"load_manifest", d:"<code>yaml.safe_load</code> parses <code>agents/workflows/&lt;id&gt;/workflow.yaml</code> into a raw dict."},
+  {t:"Strict-key validation", b:"_ALLOWED_TOP_KEYS", d:"Any unknown top-level or step-level key is rejected by name &mdash; a control-flow/DSL field has nowhere to live."},
+  {t:"Build WorkflowManifest", d:"A typed dataclass (id, steps, deliverable, planner, clarify, context_providers, seed_files, catalog metadata) &mdash; not Pydantic."},
+  {t:"Name-resolve capabilities", b:"CapabilityRegistry", bc:"b-violet", d:"Every strategy / validator / gate / parser / deliverable / provider reference is checked against the registry. Unknown = CompilerError naming it."},
+  {t:"Trust check", b:"file vs user", bc:"b-amber", d:"Under trust='user' each reference must be user_allowed; privileged grants (exec/secrets/spawn) are rejected; Limits may only lower."},
+  {t:"Map + topo-validate steps", d:"Each raw step becomes a typed Step; the DAG is checked for cycles + duplicate agents; default audit_logger + secret_scan hooks are injected when none are declared."},
+  {t:"Emit CompiledWorkflow", bc:"b-cyan", d:"The typed, validated plan the kernel executes. The engine sources its agent sequence, deliverable, clarify defaults, and planner flag from this &mdash; no legacy dispatch fallback."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

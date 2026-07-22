@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook } from "@/types/index";
+import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook, ClarifyRound } from "@/types/index";
 
 export interface UseWorkflowReturn {
   pipelineState: PipelineRunState;
@@ -10,6 +10,12 @@ export interface UseWorkflowReturn {
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;
   submitQuestionnaire: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
+  // Workstream C1 (POR §6.5) — append an answered clarify round to the run-scoped
+  // state so the Q&A survives the questionnaire panel unmount. Reset per run.
+  retainClarifyRound: (round: ClarifyRound) => void;
+  // KAN-98 — overwrite an agent's retained output with the user's gate-approved
+  // edit so a later Redo forwards the edited content, not the stale original.
+  retainAgentEdit: (agentId: string, editedContent: string) => void;
 }
 
 const INITIAL_STATE: PipelineRunState = {
@@ -19,6 +25,7 @@ const INITIAL_STATE: PipelineRunState = {
   currentAgentIndex: -1,
   totalDuration: null,
   completedCount: 0,
+  clarifications: [],
 };
 
 /**
@@ -43,6 +50,10 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
         currentAgentIndex: -1,
         totalDuration: null,
         completedCount: 0,
+        // Workstream C1 — the single canonical per-run boundary: a fresh live
+        // run starts with no retained clarify rounds. The pipeline_start WS echo
+        // spreads prev (downstream of this) so this reset holds.
+        clarifications: [],
       });
 
       const payload: Record<string, unknown> = {
@@ -131,6 +142,30 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
     [websocketSend]
   );
 
+  // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
+  // state before the questionnaire panel clears, so the Q&A never vanishes.
+  const retainClarifyRound = useCallback((round: ClarifyRound) => {
+    setPipelineState((prev) => ({
+      ...prev,
+      clarifications: [...(prev.clarifications ?? []), round],
+    }));
+  }, []);
+
+  // KAN-98: apply a human-edited agent output to the live agent state so the
+  // Thinking tab displays the edited content (e.g. the reduced task list) rather
+  // than the original pre-edit output from agent_complete. Called when
+  // review_gate_approved arrives with edited:true, using the editedContent that
+  // was sent in the approve_review WS message.
+  const retainAgentEdit = useCallback((agentId: string, editedContent: string) => {
+    setPipelineState((prev) => {
+      const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+      if (agentIdx === -1) return prev;
+      const updated = [...prev.agents];
+      updated[agentIdx] = { ...updated[agentIdx], output: editedContent };
+      return { ...prev, agents: updated };
+    });
+  }, []);
+
   const isRunning = pipelineState.isRunning;
 
   return {
@@ -140,6 +175,8 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
     isRunning,
     handleMessage,
     submitQuestionnaire,
+    retainClarifyRound,
+    retainAgentEdit,
   };
 }
 
@@ -213,9 +250,52 @@ export function handlePipelineMessage(
         if (agentIdx === -1) return prev;
 
         const updated = [...prev.agents];
-        updated[agentIdx] = { ...updated[agentIdx], status: "running" };
+        // FIX-039: on (re)start, reset THIS agent's run-scoped accumulators to
+        // their fresh-agent values BEFORE the next run's chunks accumulate.
+        // Without this, a regenerate (2nd agent_start) leaves the prior run's
+        // `output` in place and agent_chunk APPENDS onto it (:275), so
+        // PrototypePipelineView.parseTasks reads the stale first <tasks> block.
+        // Replayed agent_start events are deduped upstream by shouldApplyEvent
+        // (dashboard/page.tsx:276), so a live output is never wiped on reconnect.
+        // Identity fields (id/name/role/icon/index) are preserved via the spread.
+        // KAN-101: a prototype-specify agent_start arriving while the agent is
+        // already "done" is a spec-revision re-run — the flag feeds the
+        // specRevisionCount bump below (revision-cycle badge). Its field
+        // clearing is subsumed by the FIX-039 unconditional reset.
+        const wasAlreadyDone = updated[agentIdx].status === "done";
+        const isSpecifyRerun = wasAlreadyDone && agentId === "prototype-specify";
+        updated[agentIdx] = {
+          ...updated[agentIdx],
+          status: "running",
+          // Accumulator fields rebuilt per run (agent_chunk/agent_thinking/
+          // tool_call/validator_result/agent_error/gate_*):
+          output: "",
+          thinking: "",
+          thinkingText: "",
+          toolCalls: [],
+          validationIssues: [],
+          error: null,
+          validationPassed: undefined,
+          // Overwrite-only fields — reset too so a re-run that errors before
+          // agent_complete/agent_input never shows the prior run's numbers:
+          duration: null,
+          inputTokens: undefined,
+          outputTokens: undefined,
+          totalTokens: undefined,
+          estimatedCostUsd: undefined,
+          inputPrompt: undefined,
+          contextSources: undefined,
+        };
 
-        return { ...prev, agents: updated, currentAgentIndex: agentIdx };
+        return {
+          ...prev,
+          agents: updated,
+          currentAgentIndex: agentIdx,
+          // Bump the revision counter when specify re-starts
+          specRevisionCount: isSpecifyRerun
+            ? (prev.specRevisionCount ?? 0) + 1
+            : prev.specRevisionCount,
+        };
       });
       return true;
     }
@@ -296,6 +376,8 @@ export function handlePipelineMessage(
           totalInputTokens: totalInput,
           totalOutputTokens: totalOutput,
           totalTokens: totalInput + totalOutput,
+          cacheReadTokens: (msg.total_cache_read_tokens as number) || prev.cacheReadTokens || 0,
+          cacheWriteTokens: (msg.total_cache_write_tokens as number) || prev.cacheWriteTokens || 0,
         };
       });
       return true;
@@ -368,6 +450,8 @@ export function handlePipelineMessage(
           totalOutputTokens: (msg.total_output_tokens as number) || prev.totalOutputTokens || 0,
           totalTokens: (msg.total_tokens as number) || prev.totalTokens || 0,
           estimatedCostUsd: (msg.estimated_cost_usd as number) || prev.estimatedCostUsd || 0,
+          cacheReadTokens: (msg.total_cache_read_tokens as number) || prev.cacheReadTokens || 0,
+          cacheWriteTokens: (msg.total_cache_write_tokens as number) || prev.cacheWriteTokens || 0,
           modelId: (msg.model_id as string) || prev.modelId || undefined,
         };
       });
@@ -686,6 +770,58 @@ export function handlePipelineMessage(
       const dagEdges = (data.dag_edges as Array<{ from: string; to: string; artifact_type: string }>) || [];
       const unresolvedEdges = (data.unresolved_edges as Array<{ consuming_agent_id: string; artifact_type: string }>) || [];
       setPipelineState((prev) => ({ ...prev, dagEdges, unresolvedEdges }));
+      return true;
+    }
+
+    case "validator_result": {
+      // Phase 8 (API-03) — capture validation issues for display in Thinking tab.
+      // These fire after a post_step: revision_validation (prototype revision)
+      // or any other validator gate. Store them on the agent whose step triggered.
+      const data = (msg.data as Record<string, unknown>) || msg;
+      const agentId = (data.agent_id as string) || "";
+      const issues = (data.issues as import("@/types/index").ValidationIssue[]) || [];
+      if (agentId && issues.length > 0) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = {
+            ...updated[agentIdx],
+            validationIssues: [...(updated[agentIdx].validationIssues || []), ...issues],
+          };
+          return { ...prev, agents: updated };
+        });
+      }
+      return true;
+    }
+
+    case "gate_passed": {
+      const data = (msg.data as Record<string, unknown>) || msg;
+      const agentId = (data.agent_id as string) || "";
+      if (agentId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = { ...updated[agentIdx], validationPassed: true };
+          return { ...prev, agents: updated };
+        });
+      }
+      return true;
+    }
+
+    case "gate_blocked": {
+      const data = (msg.data as Record<string, unknown>) || msg;
+      const agentId = (data.agent_id as string) || "";
+      if (agentId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = { ...updated[agentIdx], validationPassed: false };
+          return { ...prev, agents: updated };
+        });
+      }
       return true;
     }
 

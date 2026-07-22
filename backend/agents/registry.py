@@ -75,13 +75,19 @@ PIPELINE_AGENTS: dict[str, list[str]] = {
     "prototype": [
         "prototype-specify",
         "prototype-plan",
+        "prototype-analyze",
         "prototype-build",
         "prototype-validate",
     ],
 
-    # ── Prototype Revision pipeline — 1 agent ─────────────────────────────
+    # ── Prototype Revision pipeline — 2 agents (KAN-108) ─────────────────
+    # prototype-revision-agent edits prototype.html in place; prototype-revision-validate
+    # runs a comprehensive P0/P1 quality pass after — dedicated agent with correct
+    # consumes/injects contracts for this pipeline (prototype-validate declares
+    # consumes:[prototype-build] which is not present here).
     "prototype_revision": [
         "prototype-revision-agent",
+        "prototype-revision-validate",
     ],
 
     # ── App Builder pipeline — 15 agents ──────────────────────────────────

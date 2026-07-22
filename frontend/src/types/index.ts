@@ -51,6 +51,25 @@ export interface StreamMessage {
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
 }
 
+/**
+ * Inbound `review_gate_ready` event data shape (REDO-GATE F-fe5).
+ *
+ * `redoable` is a GENERIC, server-set discriminator (additive): the engine stamps
+ * it `true` ONLY from the inline human-gate call site (a structural path — no
+ * workflow/agent literal, SC-001). The FE renders the Redo control IFF `redoable`
+ * is true, so a declared/user-composed `gate:human` step (which carries
+ * `redoable=false`) shows NO Redo button. Optional + backward-compatible: an event
+ * without the field is treated as not-redoable.
+ */
+export interface ReviewGateReadyData {
+  gate_key: string;
+  agent_id: string;
+  agent_name: string;
+  output: string;
+  pipeline_run_id: string;
+  redoable?: boolean;
+}
+
 /** One worker leaf under a wave group — an agent + its lifecycle status. */
 export interface WaveWorker {
   agent: string;
@@ -264,6 +283,8 @@ export interface WorkflowRun {
     total_output_tokens: number;
     total_tokens: number;
     estimated_cost_usd: number;
+    total_cache_read_tokens?: number;
+    total_cache_write_tokens?: number;
     model_id?: string;
     per_agent?: Record<string, {
       input_tokens: number;
@@ -278,11 +299,36 @@ export interface WorkflowRun {
   // NULL rows → the heuristic fallback applies (parity).
   deliverableMimetype?: string;
   deliverableFilename?: string;
+  // Revision Families (B1 / D1-D2-D7): the child-run family model unified at the
+  // read layer. parentRunId is the run this run revised (null for a standalone /
+  // root run); rootRunId is the family root, computed server-side (a standalone
+  // run is its own root).
+  parentRunId: string | null;
+  rootRunId: string;
   createdAt: string;
   completedAt?: string;
   duration?: number;
   agentCount: number;
   error?: string;
+}
+
+// Revision Families (B1): raw wire shape from GET /api/runs/{id}/family. Carries
+// the API's snake_case field names on purpose (like ChainContext) — this is the
+// unnormalized read model the family view consumes directly.
+export interface FamilyMember {
+  id: string;
+  type: string;
+  title: string;
+  status: string;
+  revision_index: number;
+  parent_run_id: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface RunFamily {
+  root_id: string;
+  members: FamilyMember[];
 }
 
 export interface AgentThinkingEntry {
@@ -448,12 +494,15 @@ export interface AgentRunState {
   contextSources?: ContextSource[];
   toolCalls?: ToolCallEntry[];
   thinkingText?: string;
+  // KAN-81 — validation result from post_step: revision_validation
+  validationIssues?: ValidationIssue[];
+  validationPassed?: boolean;
 }
 
 /** A source of context for an agent — either a summarized prior-agent output
  *  or a typed Artifact from the Artifact_Store. */
 export interface ContextSource {
-  type: "summary" | "artifact";
+  type: "summary" | "artifact" | "run_input" | "context_block";
   // For type="summary":
   agent_id?: string;
   agent_name?: string;
@@ -462,6 +511,9 @@ export interface ContextSource {
   // For type="artifact":
   artifact_type?: string;
   artifact_size_chars?: number;
+  // For type="run_input" | "context_block" (KAN-102):
+  label?: string;
+  size_chars?: number;
 }
 
 /** A single tool invocation recorded in the Thinking tab. */
@@ -470,6 +522,19 @@ export interface ToolCallEntry {
   args: Record<string, unknown>;
   result: string | null;
   timestamp: string;
+}
+
+/** One answered clarify round (POR §6.5). Mirrors the backend kind="clarifications"
+ *  artifact content — a JSON list of {question_id, question_text, impact_level,
+ *  answer, round} grouped by round. Surfaced by C2's ClarificationsCard. */
+export interface ClarifyRound {
+  round: number;
+  qa: {
+    question_id: string;
+    question_text: string;
+    impact_level: string;
+    answer: string | null;
+  }[];
 }
 
 export interface PipelineRunState {
@@ -483,6 +548,8 @@ export interface PipelineRunState {
   totalOutputTokens?: number;
   totalTokens?: number;
   estimatedCostUsd?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   modelId?: string;
   // Phase 2 (Universal Engine) — planner + gate state
   pipelineRunId?: string;
@@ -503,6 +570,14 @@ export interface PipelineRunState {
   failedAgents?: string[];
   // KAN-73 — live audit trail from hook_run WS events
   hookRuns?: HookRunEntry[];
+  // Workstream C1 (POR §6.2/§6.5) — answered clarify rounds retained per run so
+  // they survive the questionnaire panel unmount (consumed by C2's ClarificationsCard).
+  clarifications?: ClarifyRound[];
+  // KAN-101: tracks how many spec revision cycles have been triggered by
+  // "Update the Specs". 0 = first run (no revision), 1 = first revision, etc.
+  // Incremented in handlePipelineMessage when prototype-specify agent_start fires
+  // on an agent that was already done (sub-pipeline re-run).
+  specRevisionCount?: number;
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

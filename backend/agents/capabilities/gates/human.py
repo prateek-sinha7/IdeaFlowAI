@@ -37,6 +37,13 @@ from agents.capabilities.registry import register
 # the outcome only). Kept in sync with engine._run_review_gate.
 _REJECTED = "_gate_rejected"
 _EDITED = "_gate_edited"
+# REDO-GATE F1a: the shared _run_review_gate may now emit _gate_redo. The DECLARED
+# human-gate path is NOT wired for redo in v1 (it is a PRE-step gate over the
+# PREVIOUS step's output — a different mechanism, the documented follow-up), so a
+# stray _gate_redo here (e.g. a scripted client sending action:"redo") MUST be
+# CONSUMED — never re-surfaced to the wire, never mapped to GATE_PASS. The FE never
+# offers Redo on a declared gate (review_gate_ready.redoable is False off this path).
+_REDO = "_gate_redo"
 
 
 @register(
@@ -84,12 +91,18 @@ class HumanGate:
         output = getattr(ctx, "last_streamed", "") or ""
 
         rejected = False
+        redo_seen = False
         edited_content: str | None = None
         async for event in delegate(step, output=output):
             etype = event.get("type")
             if etype == _REJECTED:
                 rejected = True
                 # internal signal — not re-surfaced as a gate event
+                continue
+            if etype == _REDO:
+                # REDO-GATE F1a: consume the redo signal — never yield it (no wire
+                # leak via _evaluate_gates), never let it fall through to GATE_PASS.
+                redo_seen = True
                 continue
             if etype == _EDITED:
                 # WR-04 (13 review fix): the user approved WITH edits. The edit
@@ -105,7 +118,14 @@ class HumanGate:
             # — yielded IMMEDIATELY so ready reaches the consumer pre-await (F1).
             yield event
 
-        outcome = GATE_BLOCK if rejected else GATE_PASS
+        # REDO-GATE F1a: a stray redo on the (un-wired) declared path maps to a
+        # NON-PASS outcome — GATE_WAIT_HUMAN ("still needs a human"), so the step does
+        # NOT silently advance. Reject still wins (GATE_BLOCK). This also writes an
+        # HONEST audit row (F9) instead of a misleading GATE_PASS.
+        outcome = (
+            GATE_BLOCK if rejected
+            else (GATE_WAIT_HUMAN if redo_seen else GATE_PASS)
+        )
         # The audit row keeps a CONTENT-FREE detail (no user payload persisted in
         # gate_events); the edited content itself rides the GateOutcome only.
         await write_gate_event(

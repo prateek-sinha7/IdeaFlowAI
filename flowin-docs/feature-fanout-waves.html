@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fan-out &amp; Waves — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-fanout-waves">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Fan-out &amp; Waves</b></div>
+      <div class="spacer"></div>
+      <span class="tag">Phases 11-12</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Cross-cutting</div>
+        <h1>Fan-out &amp; Waves</h1>
+        <p>Parallelism, owned by the kernel — never by the model. A step can fan out into N isolated workers that run in parallel and then merge, and a wave scheduler can topo-schedule tasks into parallel "waves" with durable mid-wave resume.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> When a step has lots of independent work, Flowin can split it across several workers running at once and then stitch the results back together. The important safety detail: the <em>engine</em> decides to parallelize, never the model — with strict budgets and isolated scratch spaces so workers can't step on each other.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>Kernel-owned fan-out (parallel workers + merge) and a wave scheduler (dependency-ordered parallel batches).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To speed up independent work safely, with budget caps and durable, resumable progress.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p><code>run_fanout</code> reserves budget, spawns isolated workers, then a <code>merge</code> capability combines outputs; waves persist to the DB for mid-wave resume.</p></div>
+        </div>
+      </div>
+
+      <h3>A fan-out step, end to end</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <div class="grid g2">
+        <div class="card"><h4>fanout_batch strategy</h4><p class="lead">Declared via a step's <code>fanout:</code> block (<code>mode</code>, <code>max_parallel</code>, <code>agent</code>/<code>count</code> for self&times;N, or <code>workers</code> for a heterogeneous set). The kernel's <code>run_fanout</code> owns the spawn control flow; each worker gets an isolated child sandbox so two workers writing the same path can't cross-contaminate before the merge.</p></div>
+        <div class="card"><h4>wave_scheduler strategy</h4><p class="lead">Parses a structured task list (<code>json_tasks</code>), topo-schedules tasks into waves by dependencies, runs each wave's tasks in parallel, and persists <code>wave_runs</code>. Prototype stays sequential; waves are opt-in per manifest.</p></div>
+      </div>
+
+      <h3>Isolation, merge &amp; budget</h3>
+      <table>
+        <thead><tr><th>Concern</th><th>Mechanism</th></tr></thead>
+        <tbody>
+          <tr><td>Spawn</td><td>The <code>spawn_subagents</code> tool is engineer-only (<code>user_allowed=false</code>); the kernel emits the spawn, the model never does. The library <code>task</code> tool is always excluded.</td></tr>
+          <tr><td>Isolation</td><td>Each worker runs in a <code>_ChildSandbox</code> rooted at its own dir (passed as <code>run_sandbox</code> to <code>create_runner</code>).</td></tr>
+          <tr><td>Merge</td><td>A <code>merge</code> capability combines worker outputs: <code>copy_disjoint</code>, <code>git_3way</code>, <code>json</code>, or <code>html_fragment</code>. On conflict, the step's <code>on_conflict</code> policy applies (<code>human_gate</code> / <code>merge_agent</code> / <code>partial</code> / <code>abort</code>).</td></tr>
+          <tr><td>Budget</td><td>The per-run <code>BudgetManager</code> caps max subagents / depth / wall-clock / tokens; a per-workspace aggregate ceiling guards against a multi-run fork-bomb. <code>reserve()</code> runs before any spawn.</td></tr>
+          <tr><td>Persistence</td><td><code>subagent_runs</code> + <code>wave_runs</code> tables make fragments durable pre-merge, so a mid-wave resume re-fans-out only the incomplete workers.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout"><div class="t">&#128202; Watching it live</div><p>The UI's <code>WaveTreePanel</code> renders the wave/worker tree from the additive <code>wave_started/completed/failed</code> + <code>subagent_spawned/result</code> events (statuses only — no live token stream per worker). N parallel workers of the same agent render as N distinct leaves keyed by worker index.</p></div>
+
+      <h3>Inside <code>run_fanout</code> — the one spawn path, step by step</h3>
+      <p class="muted"><code>fanout.py</code>'s own docstring numbers five sequential steps, and both entry points — the declarative <code>fanout_batch</code> strategy and the runtime <code>spawn_subagents</code> tool's structured request — funnel through this exact same function. Nothing else in the codebase spawns a subagent.</p>
+      <div class="grid g3">
+        <div class="card"><h4>1 &middot; Select workers</h4><p class="lead">A named worker must pass <b>two</b> checks — present in <code>allowed_workers</code> AND resolvable in the agent registry — both reached through the runner handle, never a direct import. A disallowed or unknown worker raises <code>FanoutError</code> before anything else happens: zero <code>subagent_runs</code> rows, no workspace allocated.</p></div>
+        <div class="card"><h4>2 &middot; Reserve budget</h4><p class="lead"><code>budget.reserve()</code> runs before any spawn (Pitfall 4 — enforcement-point discipline). A refused reservation emits a <code>budget_warning</code> event naming the breached dimension, then re-raises — with genuinely zero side effects, since nothing was spawned yet.</p></div>
+        <div class="card"><h4>3 &middot; Select isolation</h4><p class="lead">The scope is derived <b>solely</b> from the base workspace's <code>has_git</code> flag — never from the manifest. This is a deliberate INV-7 enforcement: a user-authored manifest has no field that could downgrade a worker's isolation, even if it wanted to.</p></div>
+      </div>
+      <div class="grid g2">
+        <div class="card"><h4>4 &middot; Spawn, bounded</h4><p class="lead">Parallel mode runs under <code>asyncio.Semaphore(min(declared, DEFAULT_MAX_CONCURRENCY))</code> — the engine enforces its own concurrency ceiling <b>regardless of what the manifest asks for</b>. A manifest requesting 100 parallel workers still runs at most <code>DEFAULT_MAX_CONCURRENCY</code> at a time (a direct DoS mitigation, T-11-01-02).</p></div>
+        <div class="card"><h4>5 &middot; Persist fragments, then merge</h4><p class="lead">Before any merge runs, <b>every file</b> a worker wrote is persisted as its own lineage-tracked fragment <code>ArtifactRef</code> — so a worker's complete output survives an abort or cancel even if the merge itself never happens. Only after that does the engine resolve a <code>MergeStrategy</code> by name and attempt the merge.</p></div>
+      </div>
+
+      <h3>What happens when a worker crashes, or you hit Stop, mid fan-out</h3>
+      <div class="grid g2">
+        <div class="card"><h4>One worker failing never aborts its siblings</h4><p class="lead">Inside <code>_run_one</code>, a worker's exception is caught, logged, and turned into a <code>status="failed"</code> result — the other workers keep running. Only a genuinely unexpected non-worker exception (say, a budget boundary raising mid-gather) triggers the harsher cancel-everything path.</p></div>
+        <div class="card"><h4>Cancellation mirrors that same discipline</h4><p class="lead">A cooperative cancel is checked before the wave starts, between sequential workers, and before the merge. Mid-flight, every outstanding task is cancelled and awaited, each in-flight worker flips its own <code>subagent_runs</code> row to <code>cancelled</code>, and a <code>finally</code> block reclaims <b>every</b> allocated isolated workspace — whether the run finished, crashed, or was cancelled. No leaked worktrees, no orphaned sandbox directories.</p></div>
+      </div>
+      <p class="muted">One more detail worth knowing if you ever look at a worktree-isolated fan-out's git history: a completed worker's edits are explicitly committed onto its own per-worker branch inside <code>_run_one</code> — without that commit, the subsequent <code>git_3way</code> merge would see nothing to integrate and the worktree teardown would silently destroy the uncommitted work.</p>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Fan-out &amp; Waves</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Step declares fanout", b:"manifest", d:"A step's <code>fanout:</code> block names the worker (self&times;N or a named worker set) and mode."},
+  {t:"Budget reserve", b:"BudgetManager", bc:"b-amber", d:"Before any spawn, the kernel reserves against per-run + per-workspace caps; over-budget aborts pre-spawn."},
+  {t:"Spawn isolated workers", b:"run_fanout", bc:"b-cyan", d:"The kernel spawns N workers, each in its own child sandbox; the model never spawns anything itself."},
+  {t:"Run in parallel", d:"Workers run concurrently (clamped to a safe max); each writes into its isolated sandbox. subagent_runs rows make fragments durable."},
+  {t:"Merge", b:"merge capability", bc:"b-violet", d:"copy_disjoint / git_3way / json / html_fragment combines the outputs; on conflict the on_conflict policy fires."},
+  {t:"Continue / resume", bc:"b-green", d:"The merged result feeds the next step. A backend restart mid-wave resumes only the incomplete workers."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

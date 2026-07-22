@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Why we rewrote our sync engine in Rust — Filebase</title>
+  <title>Why we moved our runtime to Firecracker microVMs — Nimbus</title>
   <style>
     :root {
       --bg: #fafaf9; --fg: #1c1b1a; --muted: #6b6964; --border: #e6e4e0;
@@ -35,46 +35,46 @@
 </head>
 <body>
   <article class="wrap" data-od-id="article">
-    <nav class="top"><a href="#">← Filebase blog</a></nav>
-    <div class="eyebrow">Engineering</div>
-    <h1>Why we rewrote our sync engine in Rust</h1>
+    <nav class="top"><a href="#">← Nimbus blog</a></nav>
+    <div class="eyebrow">Infrastructure</div>
+    <h1>Why we moved our runtime to Firecracker microVMs</h1>
     <div class="byline">
       <div class="avatar"></div>
-      <span>By Mira Hassan · April 22, 2026 · 8 min read</span>
+      <span>By Diego Restrepo · June 3, 2026 · 7 min read</span>
     </div>
-    <p class="lede">For two years our Go sync engine was good enough. Then video editors started joining the customer list, and the GC pauses we'd been politely ignoring turned into bug reports we couldn't ignore.</p>
+    <p class="lede">For two years our container-based runtime was good enough. Then latency-sensitive teams started shipping user-facing functions, and the cold starts we'd been politely ignoring turned into support tickets we couldn't ignore.</p>
     <div class="hero-figure" data-od-id="hero-figure"></div>
 
-    <p>The decision wasn't sudden. We'd been watching the GC pause distribution shift for six months before we admitted what the data was telling us. P50 latency was great. P99 was a horror movie. Customers syncing 30 GB of <code>.psd</code> files in active editing sessions were the ones writing in.</p>
+    <p>The decision wasn't sudden. We'd been watching the cold-start distribution shift for six months before we admitted what the data was telling us. Warm invocations were great. Cold ones were a horror movie. Customers invoking rarely-hit functions on the <code>256MB</code> tier were the ones writing in.</p>
 
-    <p>Rewriting an entire sync engine sounds like the kind of project a startup is told never to do. We did it anyway. Here's how it went, what surprised us, and the parts I'd do differently.</p>
+    <p>Replacing an entire function runtime sounds like the kind of project a startup is told never to do. We did it anyway. Here's how it went, what surprised us, and the parts I'd do differently.</p>
 
-    <h2>The trigger: GC pauses we couldn't fix</h2>
-    <p>Go's garbage collector is brilliant. It is also, fundamentally, a tradeoff. Our hot path allocated short-lived buffer slices on every block diff — and at our scale, on a heavy uploader, the collector ran often enough that the P99 pause crept past 50ms.</p>
+    <h2>The trigger: cold starts we couldn't fix</h2>
+    <p>Container isolation is battle-tested. It is also, fundamentally, a tradeoff. Every cold invocation pulled an image, started a container, and wired up networking — and at our scale, on a spiky endpoint, that startup chain pushed the P99 cold start past 900ms.</p>
 
-    <p>We tried the usual fixes: pooling buffers with <code>sync.Pool</code>, tuning <code>GOGC</code>, reducing allocations in the merge path. They each helped a little. None of them got us under 20ms, and the customers we cared about needed under 5.</p>
+    <p>We tried the usual fixes: holding warm capacity with <code>min-instances</code>, tuning the <code>image-cache</code>, trimming the startup path. They each helped a little. None of them got us under 300ms, and the customers we cared about needed under 50.</p>
 
-    <blockquote>"We can't fix this in Go. We can fix it in something without a GC."</blockquote>
+    <blockquote>"We can't fix this with containers. We can fix it with something that boots in milliseconds."</blockquote>
 
-    <p>Our staff engineer Sasha said this in a meeting in October. He was right. The question wasn't whether to leave Go. It was what to leave it for, and how much we could keep.</p>
+    <p>Our staff engineer Priya said this in a meeting in October. She was right. The question wasn't whether to leave containers. It was what to leave them for, and how much we could keep.</p>
 
     <h2>What we kept; what we threw out</h2>
-    <p>The CLI stayed in Go. The control plane stayed in Go. The bit that does block-level diffing in a hot loop on a customer's laptop — that became Rust. The boundary became a single FFI surface with a small, opinionated protocol.</p>
+    <p>The CLI stayed the same. The control plane stayed the same. The bit that actually executes customer code on every invocation — that moved to Firecracker microVMs. The boundary became a single supervisor process with a small, opinionated protocol.</p>
 
     <figure class="numbers">
-      <div class="stat"><div class="value">38ms → 4ms</div><div class="label">P99 sync latency</div></div>
-      <div class="stat"><div class="value">62%</div><div class="label">Memory drop</div></div>
-      <div class="stat"><div class="value">11 weeks</div><div class="label">From RFC to ship</div></div>
+      <div class="stat"><div class="value">920ms → 45ms</div><div class="label">P99 cold start</div></div>
+      <div class="stat"><div class="value">71%</div><div class="label">Idle cost drop</div></div>
+      <div class="stat"><div class="value">14 weeks</div><div class="label">From RFC to ship</div></div>
     </figure>
 
-    <p>The numbers above are real and from production. They are also misleading without context: the Rust port doesn't just remove the GC, it also removes a layer of abstraction we'd been carrying since the Go MVP.</p>
+    <p>The numbers above are real and from production. They are also misleading without context: microVMs don't just remove the container startup chain, they also remove a layer of orchestration we'd been carrying since the first MVP.</p>
 
     <h2>What I'd do differently</h2>
-    <p>One thing: the FFI boundary. We chose <code>cgo</code> for symmetry — Go calling Rust feels right when you already have Go everywhere. But the binding ceremony is brittle, and we ate two production incidents from string lifetime mistakes before we wrote a wrapper layer that handled them once.</p>
+    <p>One thing: the guest boundary. We chose <code>jailer</code> defaults for speed — Firecracker's tooling feels right when you want a microVM up fast. But the device setup is fiddly, and we ate two production incidents from misconfigured network namespaces before we wrote a supervisor layer that handled them once.</p>
 
-    <p>If I were starting today, I'd reach for <code>uniffi</code> or generate the bindings from a schema. The lessons isn't <em>don't use cgo</em>; it's <em>treat the boundary like an external API the moment you cross language families</em>.</p>
+    <p>If I were starting today, I'd reach for <code>firecracker-containerd</code> or drive the VMs from a declarative spec. The lesson isn't <em>don't use jailer</em>; it's <em>treat the guest boundary like a hostile edge the moment you run someone else's code</em>.</p>
 
-    <div class="endnote">Filebase is hiring engineers who like writing this kind of post. <a href="#">See open roles →</a></div>
+    <div class="endnote">Nimbus is hiring engineers who like writing this kind of post. <a href="#">See open roles →</a></div>
   </article>
 </body>
 </html>

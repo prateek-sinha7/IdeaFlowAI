@@ -40,6 +40,7 @@ OFFLINE SCAFFOLDING (test-only monkeypatches; NO production code changed):
 
 from __future__ import annotations
 
+import copy
 import os
 import sys
 import tempfile
@@ -413,11 +414,53 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             _ScriptedTurn(texts=["Done."], usage=(10, 5)),
         ]
 
+    # ── prototype-analyze (tools=[], text-only): the Spec Kit Analyzer runs at
+    # order 3 (specify → plan → ANALYZE → build → validate). It is READ-ONLY and
+    # TERMINAL — nothing consumes prototype-analyze and the prototype deliverable
+    # is read from the on-disk prototype.html, so this turn's text never touches
+    # the built artifact. Mirror the prototype-plan special-case (a faithful
+    # <analysis> report rather than the generic "output line one" stub) so the
+    # golden captures a realistic analyze stream. The text obeys the AGENT.md
+    # ABSOLUTE OUTPUT CONTRACT: first chars are <analysis>, ends with </analysis>,
+    # includes the report heading + a couple of finding lines + a
+    # "### Readiness verdict\nREADY TO BUILD" line. Fixed usage keeps token
+    # normalization deterministic; the exact bytes become the pinned output_length.
+    if agent_id == "prototype-analyze":
+        return [
+            _ScriptedTurn(
+                texts=[
+                    "<analysis>\n"
+                    "## Spec Kit Analysis Report\n\n"
+                    "### Summary\n"
+                    "The spec and task list are consistent and buildable; "
+                    "coverage is complete with no blocking gaps.\n\n"
+                    "### Findings\n"
+                    "| # | Category | Status | Detail |\n"
+                    "|---|----------|--------|--------|\n"
+                    "| 1 | Consistency | ✅ Clear | Tasks implement every spec page. |\n"
+                    "| 2 | Coverage gaps | ✅ Clear | All requirements mapped to a task. |\n\n"
+                    "### Issues requiring attention\n"
+                    "No blocking issues found.\n\n"
+                    "### Readiness verdict\n"
+                    "READY TO BUILD\n"
+                    "The artifacts are aligned; proceed to implementation.\n"
+                    "</analysis>"
+                ],
+                usage=(28, 16),
+            )
+        ]
+
     # ── prototype-validate (tools=prototype_emit_only): text-only run is fine —
     # it may call no tools (validation pass). Keep it pure text so the prototype
     # pipeline terminates deterministically.
     if agent_id == "prototype-validate":
         return [_ScriptedTurn(texts=["Validation passed. No P0 issues."], usage=(20, 10))]
+
+    # ── prototype-revision-validate (tools=workspace): reads prototype.html then
+    # emits a validation summary. Text-only — no file edits in the scripted harness
+    # (the golden just needs to see the agent fire; real edits happen on live Bedrock).
+    if agent_id == "prototype-revision-validate":
+        return [_ScriptedTurn(texts=["Validated — 1 page checked, no issues found."], usage=(20, 10))]
 
     # ── Code-gen agents (tools=workspace): write 2 files then a final text. ───
     # NEW world: native write_file(file_path=…, content=…).
@@ -506,8 +549,26 @@ async def _drive(pipeline_type: str, world: str = "new") -> list[dict]:
     _orig_compile_for_run = engine_mod.compile_for_run
 
     def _patched_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
-        compiled = _orig(pipeline_type)
+        # DEEP-COPY before mutating: engine.compile_for_run is @lru_cache'd, so it
+        # returns a SHARED CompiledWorkflow — mutating it in place would corrupt the
+        # cache for every later caller in the same pytest process (e.g. the compiler
+        # assertion in test_nav_coverage). Copy first, mutate the copy, leave the cached
+        # original pristine. (This also fixes the latent same-cache leak the pre-existing
+        # ``clarify.mode = 'off'`` write already had.)
+        compiled = copy.deepcopy(_orig(pipeline_type))
         compiled.clarify.mode = "off"
+        # quick-260701-erg: pin every compiled step's require_render=False for golden
+        # runs. The goldens are byte/event snapshots RECORDED at require_render=False
+        # semantics; the production manifests now flip require_render:true (prototype
+        # build + prototype_revision), so a browserless golden run would otherwise flip a
+        # step to skipped_blocked and diverge. Pinning False makes the 5 goldens knob-
+        # AND Chromium-independent (INV-3 defense-in-depth) — NOT a coverage hole: the
+        # require_render=true production behavior is covered by test_nav_coverage
+        # scenarios 4a/4b, and (with Chromium present) true/false are both status "ok",
+        # so the pin masks nothing real. Restored via compile_for_run in finally.
+        for s in getattr(compiled, "steps", []) or []:
+            if hasattr(s, "require_render"):
+                s.require_render = False
         return compiled
 
     engine_mod.compile_for_run = _patched_compile_for_run

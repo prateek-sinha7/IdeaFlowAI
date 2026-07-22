@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Check, FileText, TrendingUp, Upload, X } from "lucide-react";
-import { getTemplatePreviewUrl, type PrototypeTemplate } from "@/lib/prototype-api";
+import { getTemplatePreviewUrl, getTemplateThumbnailUrl, type PrototypeTemplate } from "@/lib/prototype-api";
 import { TemplateDetailModal } from "./TemplateDetailModal";
 import {
   CustomTemplateModal,
@@ -14,7 +14,7 @@ import {
 interface TemplateGalleryProps {
   templates: PrototypeTemplate[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
   onSelectCustomTemplate?: (ct: CustomTemplate | null) => void;
   selectedCustomTemplateId?: string | null;
 }
@@ -206,6 +206,17 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
             className="grid gap-2.5"
             style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}
           >
+            {/* KAN-87: No template / blank canvas card — shown first in All tab */}
+            {activeCategory === "All" && (
+              <NoTemplateCard
+                selected={selectedId === null && !selectedCustomTemplateId}
+                onSelect={() => {
+                  onSelect(null);
+                  if (onSelectCustomTemplate) onSelectCustomTemplate(null);
+                }}
+              />
+            )}
+
             {/* Saved custom templates — shown at top of All tab */}
             {activeCategory === "All" && savedCustomTemplates.map((ct) => (
               <CustomTemplateCard
@@ -308,6 +319,46 @@ function CustomTemplateCard({ ct, selected, onSelect, onDelete }: CustomCardProp
   );
 }
 
+// ── No template card (KAN-87) ────────────────────────────────────────────
+
+function NoTemplateCard({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex flex-col overflow-hidden rounded-lg border bg-white text-left transition-all hover:shadow-sm focus:outline-none ${
+        selected
+          ? "border-[#1B2A4A] ring-2 ring-[#1B2A4A]/15 shadow-sm"
+          : "border-gray-200 hover:border-gray-300"
+      }`}
+    >
+      {/* Selected badge */}
+      {selected && (
+        <div className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-[#1B2A4A]">
+          <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />
+        </div>
+      )}
+      {/* Visual area */}
+      <div className="flex h-[80px] items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 relative">
+        <div className="flex flex-col items-center gap-1">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white">
+            <FileText className="h-4 w-4 text-gray-400" />
+          </div>
+        </div>
+      </div>
+      {/* Label */}
+      <div className="px-2 py-1.5">
+        <span className="block truncate text-[11px] font-medium text-gray-800 leading-tight">
+          No template
+        </span>
+        <span className="text-[9px] uppercase tracking-wide text-gray-400">
+          Blank canvas
+        </span>
+      </div>
+    </button>
+  );
+}
+
 // ── Upload custom card ────────────────────────────────────────────────────
 
 function UploadCustomCard({ onOpen }: { onOpen: () => void }) {
@@ -363,10 +414,23 @@ interface CompactCardProps {
   onOpenDetail: (id: string) => void;
 }
 
+// A thumbnail 429 is transient (per-origin connection burst when the grid
+// paints), so retry once after a short delay before degrading to the heavier
+// live iframe. One retry is enough to clear a momentary rate-limit spike
+// without letting a genuinely-missing thumbnail stall the card.
+const MAX_THUMBNAIL_RETRIES = 1;
+const THUMBNAIL_RETRY_DELAY_MS = 800;
+
 function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardProps) {
   const cardRef = useRef<HTMLButtonElement>(null);
   const [shouldMount, setShouldMount] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
+  // The backend `has_thumbnail` flag can be stale or the file can 404/429 at
+  // request time. On <img> error, retry once then fall through to the
+  // live-iframe fallback.
+  const [thumbnailError, setThumbnailError] = useState(false);
+  const [thumbnailRetry, setThumbnailRetry] = useState(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const node = cardRef.current;
@@ -384,7 +448,21 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
     return () => observer.disconnect();
   }, []);
 
+  // Cancel any pending thumbnail retry if the card unmounts mid-backoff.
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, []);
+
   const previewUrl = template.has_preview ? getTemplatePreviewUrl(template.id) : null;
+  // Only use the thumbnail while it hasn't errored (404 / 429 / load failure).
+  // After a transient failure we append a `retry` query param to force the
+  // browser to re-request rather than reuse the failed/cached response.
+  const thumbnailUrl =
+    template.has_thumbnail && !thumbnailError
+      ? `${getTemplateThumbnailUrl(template.id)}${thumbnailRetry > 0 ? `?retry=${thumbnailRetry}` : ""}`
+      : null;
 
   return (
     <button
@@ -406,11 +484,50 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
 
       {/* Preview thumbnail */}
       <div className="relative overflow-hidden bg-gray-50" style={{ height: "80px" }}>
-        {previewUrl && shouldMount ? (
+        {thumbnailUrl && shouldMount ? (
+          // Pre-rendered screenshot of example.html — one cheap <img> load
+          // instead of a full iframe document render. Falls back to the
+          // sandboxed (allow-scripts) iframe path below on 404/429/error.
           <>
             {!previewLoaded && (
               <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
             )}
+            {/* eslint-disable-next-line @next/next/no-img-element -- static same-origin thumbnail; next/image optimization + remotePatterns are unwanted overhead here */}
+            <img
+              src={thumbnailUrl}
+              alt={template.name}
+              loading="lazy"
+              onLoad={() => setPreviewLoaded(true)}
+              onError={() => {
+                if (thumbnailRetry < MAX_THUMBNAIL_RETRIES) {
+                  // Likely a transient 429 from the request burst — retry once
+                  // after a short delay (bumps the `retry` query param to force
+                  // a fresh request) before degrading to the iframe.
+                  if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+                  retryTimerRef.current = setTimeout(() => {
+                    setPreviewLoaded(false);
+                    setThumbnailRetry((n) => n + 1);
+                  }, THUMBNAIL_RETRY_DELAY_MS);
+                } else {
+                  // Still failing after the retry — degrade to iframe below.
+                  setThumbnailError(true);
+                  setShouldMount(true);
+                  setPreviewLoaded(false);
+                }
+              }}
+              className="h-full w-full object-cover object-top"
+              style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 200ms ease-out" }}
+            />
+          </>
+        ) : previewUrl && shouldMount ? (
+          <>
+            {!previewLoaded && (
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+            )}
+            {/* Fallback when no pre-rendered thumbnail exists yet: render the
+                template's example.html live (HTML + JS) in a sandboxed iframe,
+                scaled down. Heavier than the <img>, but only hit until the
+                build-time thumbnail is generated. */}
             <iframe
               src={previewUrl}
               title={template.name}
@@ -429,8 +546,8 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
               }}
             />
           </>
-        ) : previewUrl ? (
-          // Has preview URL but not mounted yet — shimmer
+        ) : previewUrl || thumbnailUrl ? (
+          // Not visible yet (IntersectionObserver hasn't fired) — shimmer
           <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
         ) : (
           // No example.html — show what the template produces

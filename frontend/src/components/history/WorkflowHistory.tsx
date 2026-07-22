@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout,
   Loader2, ArrowLeft, Trash2, ChevronRight,
-  Search, MoreHorizontal, Sparkles, ArrowRight,
-  Download, ExternalLink,
+  Search, Sparkles, ArrowRight,
+  Download, ExternalLink, RefreshCw, X, Send,
 } from "lucide-react";
-import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
+import { getToken, getWorkflows, getWorkflow, deleteWorkflow, getRunFamily, getRunArtifacts } from "@/lib/api";
+import { parseClarificationArtifacts } from "@/lib/clarifications";
 import { PPTPreview } from "@/components/preview/PPTPreview";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
@@ -22,7 +23,7 @@ import { DegradedRunAffordance } from "@/components/preview/PreviewPanel";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
-import type { WorkflowRun, WorkflowType, AgentRunState } from "@/types/index";
+import type { WorkflowRun, WorkflowType, AgentRunState, RunFamily, ClarifyRound } from "@/types/index";
 import { resolveReopenMimetype } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
 // ISS-017 (gap-fix) — SHARED failed-agent-id parser (no dual-impl). The IDENTICAL
@@ -32,14 +33,25 @@ import { availableChainTargets } from "@/lib/workflowChaining";
 // SHARED with the live PreviewPanel path (no dual-impl). The history-reopen
 // source for names is the persisted run detail's agentOutputs ({agent_id,name}).
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
+// Revision Families (B2 / D3): client-side grouping by rootRunId + the family
+// root card (REUSE-FIRST — WORKSTREAM-B-UI-SPEC.md Surface 1).
+import { groupRunsByFamily, FamilyGroupCard, VersionTimeline, baseWorkflowType } from "./RevisionFamilyView";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
   onChainPipeline?: (run: WorkflowRun, nextType: WorkflowType) => void;
-  onReviseUserStory?: (instruction: string, content: string) => void;
-  onRevisePpt?: (instruction: string, content: string) => void;
-  onRevisePrototype?: (instruction: string, content: string) => void;
-  onReviseAppBuilder?: (instruction: string, content: string) => void;
+  // Revision Families (B1): each revise callback gains a required sourceRunId
+  // (selectedRun.id) so the launched revision links its parent run — history
+  // revisions previously sent no parent and produced orphan runs.
+  onReviseUserStory?: (instruction: string, content: string, sourceRunId: string) => void;
+  onRevisePpt?: (instruction: string, content: string, sourceRunId: string) => void;
+  onRevisePrototype?: (instruction: string, content: string, sourceRunId: string) => void;
+  onReviseAppBuilder?: (instruction: string, content: string, sourceRunId: string) => void;
+  // KAN-96: clicking a running run navigates to the live execution view instead
+  // of opening the history detail. activeRunId is the current pipeline's run id;
+  // onViewRunningPipeline switches the main view to "execution".
+  activeRunId?: string | null;
+  onViewRunningPipeline?: () => void;
 }
 
 // ─── Parse all filename: blocks from agent outputs for the IDE preview ────────
@@ -116,30 +128,87 @@ function formatDuration(seconds?: number): string {
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
-export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder }: WorkflowHistoryProps) {
+export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
+  // KAN-110 (revised): Load More pattern — append pages instead of replacing.
+  // PAGE_SIZE runs per fetch; loadingMore = subsequent page in flight.
+  const PAGE_SIZE = 50;
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [totalRuns, setTotalRuns] = useState(0);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  // Revision Families (B2 / D4): the open run's family (root + ordered members),
+  // fetched on detail open and keyed on the STABLE rootRunId so switching
+  // versions does NOT refetch the family.
+  const [family, setFamily] = useState<RunFamily | null>(null);
+  // Workstream C2 (POR §5 D4 / §6.6) — the open run's answered clarify rounds,
+  // fetched on reopen from getRunArtifacts(kind="clarifications") and parsed via
+  // parseClarificationArtifacts. Threaded to the Thinking + Files mounts.
+  const [clarifyRounds, setClarifyRounds] = useState<ClarifyRound[]>([]);
+  const [clarifyLoading, setClarifyLoading] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking" | "audit">("preview");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // Revision Families (B2 / D3): which family roots are expanded in the list,
+  // keyed by rootRunId (UI-SPEC Surface 1 — chevron toggles expansion).
+  const [expandedFamilies, setExpandedFamilies] = useState<Set<string>>(new Set());
+  // KAN-84: revision moved from thin right-panel bar to left-panel next-steps
+  const [reviseOpen, setReviseOpen] = useState(false);
+  const [revisionText, setRevisionText] = useState("");
+  const revisionRef = useRef<HTMLTextAreaElement>(null);
 
+  // Focus revision textarea when opened
+  useEffect(() => {
+    if (reviseOpen && revisionRef.current) revisionRef.current.focus();
+  }, [reviseOpen]);
+
+  // KAN-110 (revised): initial fetch on mount or filter change — replaces list.
+  // When filterType changes we reset back to the first page.
   useEffect(() => {
     const token = getToken();
     if (!token) return;
     setLoading(true);
-    getWorkflows(token, { limit: 100 })
-      .then((data) => setRuns(data))
+    setRuns([]);
+    getWorkflows(token, { limit: PAGE_SIZE, offset: 0 })
+      .then(({ runs: data, total }) => {
+        setRuns(data);
+        setTotalRuns(total);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterType]);
+
+  // KAN-110 (revised): append the next page to the existing list.
+  const handleLoadMore = useCallback(() => {
+    const token = getToken();
+    if (!token || loadingMore) return;
+    setLoadingMore(true);
+    getWorkflows(token, { limit: PAGE_SIZE, offset: runs.length })
+      .then(({ runs: data, total }) => {
+        setRuns((prev) => [...prev, ...data]);
+        setTotalRuns(total);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  }, [runs.length, loadingMore]);
 
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
+    // KAN-96: if this run is the currently-ACTIVE (still running) pipeline,
+    // navigate to the live execution view rather than opening the history detail.
+    // Guard on BOTH the id match AND the run status — pipelineState.pipelineRunId
+    // is not cleared when a pipeline completes, so a completed run must always
+    // open in the history detail view regardless of id match.
+    const isCurrentlyRunning = run.status === "running" || run.status === "revising";
+    if (activeRunId && run.id === activeRunId && isCurrentlyRunning && onViewRunningPipeline) {
+      onViewRunningPipeline();
+      return;
+    }
     setSelectedRun(run);
     setSelectedOutput(null);
     setDetailTab("preview");
@@ -155,6 +224,63 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       setSelectedRun(full);
       setSelectedOutput(full.output || null);
     } catch {}
+    finally { setLoadingDetail(false); }
+  }, [activeRunId, onViewRunningPipeline]);
+
+  // Revision Families (B2 / D4): fetch the open run's family. Keyed on the STABLE
+  // rootRunId (same for every member) so switching versions does NOT refetch;
+  // cancellable so a fast back-and-forth cannot land a stale family.
+  useEffect(() => {
+    if (!selectedRun) { setFamily(null); return; }
+    const token = getToken();
+    if (!token) return;
+    let cancelled = false;
+    getRunFamily(token, selectedRun.rootRunId)
+      .then((f) => { if (!cancelled) setFamily(f); })
+      .catch((err) => {
+        if (!cancelled) {
+          // Dev-observability only: log the swallowed failure, then keep the
+          // graceful degrade (the version affordance simply hides). No UI added.
+          console.warn("[revision-family] family fetch failed", err);
+          setFamily(null);
+        }
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRun?.rootRunId]);
+
+  // Workstream C2 (POR §5 D4 / §6.6): fetch the open run's clarify rounds on
+  // reopen. Keyed on selectedRun?.id (each version has its own clarify history);
+  // cancellable so a fast back-and-forth cannot land a stale result. A PROCEED
+  // run resolves to empty artifacts → [] → ClarificationsCard renders nothing.
+  useEffect(() => {
+    if (!selectedRun) { setClarifyRounds([]); return; }
+    const token = getToken();
+    if (!token) { setClarifyRounds([]); return; }
+    let cancelled = false;
+    setClarifyLoading(true);
+    getRunArtifacts(token, selectedRun.id, { kind: "clarifications", includeContent: true })
+      .then((resp) => { if (!cancelled) setClarifyRounds(parseClarificationArtifacts(resp.artifacts)); })
+      .catch(() => { if (!cancelled) setClarifyRounds([]); })
+      .finally(() => { if (!cancelled) setClarifyLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedRun?.id]);
+
+  // Revision Families (B2 / D4): load a chosen version into the SAME detail
+  // surface (mirrors the fetch half of handleSelectRun, but keyed by id and
+  // tab-preserving so a version switch feels like one workflow, not navigation).
+  const handleSelectVersion = useCallback(async (memberId: string) => {
+    const token = getToken();
+    if (!token) return;
+    setLoadingDetail(true);
+    try {
+      const full = await getWorkflow(token, memberId);
+      setSelectedRun(full);
+      setSelectedOutput(full.output || null);
+    } catch (err) {
+      // Dev-observability only: log the swallowed failure; behavior unchanged.
+      console.warn("[revision-family] version fetch failed", err);
+    }
     finally { setLoadingDetail(false); }
   }, []);
 
@@ -173,23 +299,35 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       await deleteWorkflow(token, deleteConfirmId);
       setRuns((prev) => prev.filter((r) => r.id !== deleteConfirmId));
       if (selectedRun?.id === deleteConfirmId) { setSelectedRun(null); setSelectedOutput(null); }
+      // KAN-106: reset family so the detail view VersionTimeline doesn't show
+      // stale chips after a member is deleted. The family is re-fetched
+      // automatically when selectedRun changes or the detail is reopened.
+      setFamily(null);
       setDeleteConfirmId(null);
     } catch {
       setDeleteError("Failed to delete run. Please try again.");
     }
   }, [deleteConfirmId, selectedRun]);
 
-  const filteredRuns = runs.filter((r) => {
-    // Normalize type for filtering: od_prototype→prototype, od_ppt→ppt, strip _revision suffix
-    const baseType = r.type === "od_prototype" ? "prototype"
-      : r.type === "od_ppt" ? "ppt"
-      : r.type === "od_ppt_revision" ? "ppt"
-      : r.type === "prototype_revision" ? "prototype"
-      : r.type.replace("_revision", "");
+  // Revision Families (B2): the per-run filter predicate, extracted so the
+  // grouped list can match a family if ANY member matches (UI-SPEC Surface 1).
+  // Same normalize-then-match logic as before (od_prototype→prototype, od_ppt→
+  // ppt, strip _revision; search on title) — via the SHARED baseWorkflowType.
+  const matchesFilter = useCallback((r: WorkflowRun) => {
+    const baseType = baseWorkflowType(r.type);
     const matchType = filterType === "all" || baseType === filterType || r.type === filterType;
     const matchSearch = !searchQuery || (r.title || "").toLowerCase().includes(searchQuery.toLowerCase());
     return matchType && matchSearch;
-  });
+  }, [filterType, searchQuery]);
+
+  const toggleFamily = useCallback((rootRunId: string) => {
+    setExpandedFamilies((prev) => {
+      const next = new Set(prev);
+      if (next.has(rootRunId)) next.delete(rootRunId);
+      else next.add(rootRunId);
+      return next;
+    });
+  }, []);
 
   // ─── Derived values for detail view — must be computed unconditionally ────
   // (Rules of Hooks: useMemo cannot be inside an if block)
@@ -279,6 +417,24 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const meta = TYPE_META[selectedRun.type] || TYPE_META.custom;
     const Icon = meta.icon;
     const workflowType = selectedRun.type as WorkflowType;
+    // KAN-105: compute a display label that tells the user HOW this run was
+    // created — revision, chained, or a fresh standalone run. Revision types
+    // already carry "(Revised)" in TYPE_META. For non-revision types, a
+    // parentRunId means it was created via the Chain action from another run.
+    const isRevisionType = workflowType.endsWith("_revision");
+    const isChainedRun = !isRevisionType && !!selectedRun.parentRunId;
+    const displayLabel = isChainedRun
+      ? `${meta.label} (Chained)`
+      : meta.label;
+    // ─── C-FLAG-1 (260703-174) — reopen StartingPointCard revision chip wiring ──
+    // revisionParentVersion = 1-based family index of selectedRun's PARENT, derived
+    // from the fetched `family` state (getRunFamily). family.members uses the same
+    // revision_index-ASC ordering the VersionTimeline derives from
+    // (RevisionFamilyView.tsx), so the chip's v-number matches the version timeline.
+    // originalBriefRootRunId is already threaded on the mount below.
+    const reopenSortedMembers = family ? [...family.members].sort((a, b) => a.revision_index - b.revision_index) : [];
+    const reopenParentIdx = selectedRun.parentRunId ? reopenSortedMembers.findIndex((m) => m.id === selectedRun.parentRunId) : -1;
+    const revisionParentVersion = reopenParentIdx >= 0 ? reopenParentIdx + 1 : undefined;
     const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
     const isAppBuilder = detailIsAppBuilder;
     const isPpt = workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision";
@@ -355,7 +511,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                 <Icon className="h-4 w-4 text-gray-500" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest">{meta.label}</p>
+                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest">{displayLabel}</p>
               </div>
               {selectedRun.status === "completed" && (
                 <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-full flex-shrink-0">Done</span>
@@ -368,65 +524,26 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             </div>
           </div>
 
-          {/* Token usage summary — shown when data is available */}
+          {/* Token usage — single compact line */}
           {selectedRun.tokenUsage && selectedRun.tokenUsage.total_tokens > 0 && (
-            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
-              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Token Usage</p>
-              <div className="space-y-1.5">
-                {/* Model name */}
-                {(selectedRun.tokenUsage.model_id || selectedRun.modelId) && (() => {
-                  const MODEL_NAMES: Record<string, string> = {
-                    "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  "Claude Haiku 4.5",
-                    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": "Claude Sonnet 4.5",
-                    "eu.anthropic.claude-sonnet-4-6":               "Claude Sonnet 4.6",
-                    "eu.anthropic.claude-opus-4-5-20251101-v1:0":   "Claude Opus 4.5",
-                    "eu.anthropic.claude-opus-4-6-v1":              "Claude Opus 4.6",
-                  };
-                  const mid = selectedRun.tokenUsage?.model_id || selectedRun.modelId || "";
-                  const modelName = MODEL_NAMES[mid] ?? mid.split(".").pop() ?? mid;
-                  return (
-                    <div className="flex items-center justify-between pb-1.5 border-b border-gray-200">
-                      <span className="text-[10px] text-gray-500">Model</span>
-                      <span className="text-[10px] font-semibold text-[#1B2A4A]">{modelName}</span>
-                    </div>
-                  );
-                })()}
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-gray-500">Input tokens</span>
-                  <span className="text-[10px] font-semibold text-gray-800">
-                    {selectedRun.tokenUsage.total_input_tokens.toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-gray-500">Output tokens</span>
-                  <span className="text-[10px] font-semibold text-gray-800">
-                    {selectedRun.tokenUsage.total_output_tokens.toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between border-t border-gray-200 pt-1.5">
-                  <span className="text-[10px] font-semibold text-gray-600">Total</span>
-                  <span className="text-[10px] font-bold text-gray-900">
-                    {selectedRun.tokenUsage.total_tokens.toLocaleString()}
-                  </span>
-                </div>
-                {/* Input/output ratio bar */}
-                <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#1B2A4A] rounded-full"
-                    style={{
-                      width: `${Math.round((selectedRun.tokenUsage.total_input_tokens / selectedRun.tokenUsage.total_tokens) * 100)}%`
-                    }}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] text-gray-400">Est. cost</span>
-                  <span className="text-[10px] font-semibold text-gray-700">
-                    {selectedRun.tokenUsage.estimated_cost_usd < 0.001
-                      ? "<$0.001"
-                      : `~$${selectedRun.tokenUsage.estimated_cost_usd.toFixed(3)}`}
-                  </span>
-                </div>
-              </div>
+            <div className="px-5 py-2 border-b border-gray-100 flex items-center gap-1.5 flex-wrap">
+              {(() => {
+                const t = selectedRun.tokenUsage!;
+                const input = t.total_input_tokens;
+                const output = t.total_output_tokens;
+                const total = t.total_tokens;
+                const fmt = (n: number) => n >= 1_000_000 ? `${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n/1_000).toFixed(1)}K` : String(n);
+                return (
+                  <>
+                    <span className="text-[9px]">⚡</span>
+                    <span className="text-[10px] font-bold text-gray-900">{fmt(total)} total</span>
+                    <span className="text-[10px] text-gray-400">·</span>
+                    <span className="text-[10px] text-gray-500">{fmt(input)} input</span>
+                    <span className="text-[10px] text-gray-400">·</span>
+                    <span className="text-[10px] text-gray-500">{fmt(output)} output</span>
+                  </>
+                );
+              })()}
             </div>
           )}
 
@@ -496,11 +613,20 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               without having to re-run from the home page. Excludes the
               already-completed pipeline (incl. its `_revision` form) via
               the shared availableChainTargets() rule. */}
-          {onChainPipeline &&
-           selectedRun.status === "completed" &&
+          {selectedRun.status === "completed" &&
            (() => {
-             const options = availableChainTargets(selectedRun.type as WorkflowType);
-             if (options.length === 0) return null;
+             // Determine which revise callback applies to this run type
+             const reviseCallback = (() => {
+               if (!selectedOutput) return undefined;
+               if (isPrototype && onRevisePrototype) return (instruction: string) => onRevisePrototype(instruction, selectedOutput, selectedRun.id);
+               if (isPpt && onRevisePpt) return (instruction: string) => onRevisePpt(instruction, selectedOutput, selectedRun.id);
+               if (isUserStory && onReviseUserStory) return (instruction: string) => onReviseUserStory(instruction, selectedOutput, selectedRun.id);
+               if (isAppBuilder && onReviseAppBuilder) return (instruction: string) => onReviseAppBuilder(instruction, selectedOutput || "", selectedRun.id);
+               return undefined;
+             })();
+             const reviseLabel = isPrototype ? "Revise Prototype" : isPpt ? "Revise Presentation" : isUserStory ? "Revise User Stories" : isAppBuilder ? "Revise App Blueprint" : "Revise";
+             const chainOptions = onChainPipeline ? availableChainTargets(selectedRun.type as WorkflowType) : [];
+             if (!reviseCallback && chainOptions.length === 0) return null;
              return (
                <div className="border-t border-gray-100 px-3 py-3 bg-gradient-to-br from-[#FAFBFF] to-[#F1F4FB] flex-shrink-0">
                  <div className="flex items-center gap-1.5 mb-2 px-1">
@@ -510,19 +636,72 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                    </p>
                  </div>
                  <div className="space-y-1.5">
-                   {options.map((opt) => (
+                   {/* KAN-84: Revision button in left sidebar */}
+                   {reviseCallback && (
+                     reviseOpen ? (
+                       <motion.div
+                         initial={{ opacity: 0, y: -4 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         className="rounded-xl border border-[#1B2A4A]/20 bg-white overflow-hidden"
+                       >
+                         <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
+                           <div className="flex items-center gap-1.5">
+                             <RefreshCw className="h-3 w-3 text-[#1B2A4A]" />
+                             <p className="text-[11px] font-semibold text-[#1B2A4A]">{reviseLabel}</p>
+                           </div>
+                           <button onClick={() => { setReviseOpen(false); setRevisionText(""); }} className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+                             <X className="h-3.5 w-3.5" />
+                           </button>
+                         </div>
+                         <div className="px-3 pb-3">
+                           <textarea
+                             ref={revisionRef}
+                             value={revisionText}
+                             onChange={(e) => setRevisionText(e.target.value)}
+                             onKeyDown={(e) => {
+                               if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && revisionText.trim()) {
+                                 reviseCallback(revisionText.trim());
+                                 setRevisionText(""); setReviseOpen(false);
+                               }
+                             }}
+                             placeholder="Describe what you'd like to change..."
+                             rows={3}
+                             className="w-full text-[11px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#1B2A4A]/40 transition-colors resize-y leading-relaxed min-h-[60px]"
+                           />
+                           <div className="flex items-center justify-between mt-2">
+                             <span className="text-[9px] text-gray-400">⌘↵ to send</span>
+                             <button
+                               onClick={() => { if (revisionText.trim()) { reviseCallback(revisionText.trim()); setRevisionText(""); setReviseOpen(false); } }}
+                               disabled={!revisionText.trim()}
+                               className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+                             >
+                               <Send className="h-3 w-3" /> Send
+                             </button>
+                           </div>
+                         </div>
+                       </motion.div>
+                     ) : (
+                       <button
+                         onClick={() => setReviseOpen(true)}
+                         className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3 py-2 text-left transition-all"
+                       >
+                         <div className="min-w-0">
+                           <p className="text-[11px] font-semibold text-gray-900 group-hover:text-white transition-colors">{reviseLabel}</p>
+                           <p className="text-[9px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">Request changes to the output</p>
+                         </div>
+                         <RefreshCw className="h-3 w-3 text-[#1B2A4A] group-hover:text-white group-hover:rotate-180 transition-all flex-shrink-0 ml-2" />
+                       </button>
+                     )
+                   )}
+                   {onChainPipeline && chainOptions.map((opt) => (
                      <button
                        key={opt.type}
                        onClick={() => onChainPipeline(selectedRun, opt.type)}
                        className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3 py-2 text-left transition-all"
                      >
                        <div className="min-w-0">
-                         <p className="text-[11px] font-semibold text-gray-900 group-hover:text-white transition-colors">
-                           {opt.label}
-                         </p>
-                         <p className="text-[9px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">
-                           {opt.description}
-                         </p>
+                         <p className="text-[11px] font-semibold text-gray-900 group-hover:text-white transition-colors">{opt.label}</p>
+                         <p className="text-[9px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">{opt.description}</p>
                        </div>
                        <ArrowRight className="h-3 w-3 text-[#1B2A4A] group-hover:text-white group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-2" />
                      </button>
@@ -535,6 +714,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
         {/* Main content — white panel */}
         <div className="flex-1 min-w-0 h-full flex flex-col bg-white border-l border-gray-200">
+          {/* Revision Families (B2 / D4): version timeline — renders only when the
+              family has >=2 members. Clicking a chip loads that version here. */}
+          <VersionTimeline
+            family={family}
+            activeRunId={selectedRun.id}
+            activeInput={selectedRun.input}
+            onSelectVersion={handleSelectVersion}
+          />
           {/* Tabs + PPT action buttons */}
           <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-gray-100 bg-white flex-shrink-0">
             <div className="flex items-center gap-1">
@@ -591,10 +778,24 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           {/* Content */}
           <div className="flex-1 min-h-0 overflow-hidden">
             {loadingDetail ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+              <div className="flex flex-col items-center justify-center h-full gap-3">
+                <div className="h-8 w-8 rounded-full border-2 border-gray-200 border-t-[#1B2A4A] animate-spin" />
+                <p className="text-[12px] text-gray-400">Loading workflow…</p>
               </div>
-            ) : detailTab === "preview" ? (
+            ) : (
+              /* Version-switch cross-fade (PreviewPanel.tsx:586-594 idiom): all
+                 tabs re-render together keyed on selectedRun.id so a version
+                 switch feels like one workflow, not navigation. */
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={selectedRun.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="h-full"
+                >
+                  {detailTab === "preview" ? (
               !selectedOutput && !isAppBuilder ? (
                 // ISS-017 (gap-fix): a reopened terminal-FAILED/cancelled/degraded
                 // run with no content shows the SAME affordance the live path uses
@@ -616,12 +817,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   {isUserStory && selectedOutput && (
                     <UserStoryPreview
                       content={selectedOutput}
-                      onRevise={onReviseUserStory ? (instruction) => onReviseUserStory(instruction, selectedOutput) : undefined}
+                      onRevise={undefined}
                     />
                   )}
                   {isAppBuilder && (
                     ideFiles.length > 0
-                      ? <AppBuilderPreview files={ideFiles} projectName={ideProjectName} onRevise={onReviseAppBuilder ? (instruction) => onReviseAppBuilder(instruction, selectedOutput || "") : undefined} />
+                      ? <AppBuilderPreview files={ideFiles} projectName={ideProjectName} onRevise={undefined} />
                       : selectedOutput
                         ? <MarkdownPreview content={selectedOutput} />
                         // ISS-017 (gap-fix): a terminal-failed app_builder reopen
@@ -661,20 +862,27 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     <PPTPreview
                       content={selectedOutput}
                       pipelineType={workflowType}
-                      onRevise={onRevisePpt ? (instruction) => onRevisePpt(instruction, selectedOutput) : undefined}
+                      onRevise={undefined}
                     />
                   )}
                   {isPrototype && selectedOutput && (
                     <PrototypePreview
                       content={selectedOutput}
-                      onRevise={onRevisePrototype ? (instruction) => onRevisePrototype(instruction, selectedOutput) : undefined}
+                      onRevise={undefined}
                     />
                   )}
                 </div>
               )
             ) : detailTab === "thinking" ? (
               /* Thinking tab — populated from persisted agent_outputs (Phase 3) */
-              <AgentThinkingTab agents={thinkingAgents} />
+              <AgentThinkingTab
+                agents={thinkingAgents}
+                runInput={selectedRun.input}
+                clarifications={clarifyRounds}
+                clarificationsLoading={clarifyLoading}
+                originalBriefRootRunId={selectedRun.parentRunId ? selectedRun.rootRunId : undefined}
+                revisionParentVersion={revisionParentVersion}
+              />
             ) : detailTab === "audit" ? (
               /* Audit tab — persisted hook_runs fetched from GET /api/runs/{id}/hook-runs */
               <AuditTab workflowRunId={selectedRun.id} />
@@ -697,7 +905,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                         .map((a) => ({ name: a.name, role: a.role, output: a.output, agentId: a.agent_id }))
                     : undefined
                 }
+                runInput={selectedRun.input}
+                clarifications={clarifyRounds}
               />
+            )}
+                </motion.div>
+              </AnimatePresence>
             )}
           </div>
         </div>
@@ -711,14 +924,20 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   }
 
   // ─── LIST VIEW ─────────────────────────────────────────────────────────────
+  // Revision Families (B2 / D3): group the flat run list by rootRunId. One card
+  // per family root; the type-filter counts each family ONCE under its base type.
+  const families = groupRunsByFamily(runs);
+  const visibleFamilies = families.filter((g) => g.members.some(matchesFilter));
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
-  const typeCounts: Record<string, number> = { all: runs.length };
+  // KAN-110: all counts from current page only.
+  // "All" = total unfiltered runs (server). Type tabs = count from current 50 runs.
+  const typeCounts: Record<string, number> = { all: totalRuns };
+  ["user_stories", "ppt", "prototype", "app_builder", "custom"].forEach((t) => {
+    typeCounts[t] = 0;
+  });
+  // Count each run on the current page under its base type.
   runs.forEach((r) => {
-    // Map od_prototype → prototype, od_ppt → ppt so they count under the right tabs
-    const base = r.type === "od_prototype" ? "prototype"
-      : r.type === "od_ppt" ? "ppt"
-      : r.type === "od_ppt_revision" ? "ppt"
-      : r.type.replace("_revision", "");
+    const base = baseWorkflowType(r.type);
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
 
@@ -735,7 +954,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           </button>
           <div>
             <h1 className="text-[18px] font-normal italic text-gray-900 leading-tight font-serif">Workflow History</h1>
-            <p className="text-[11px] text-gray-400 mt-0.5">{runs.length} runs</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{totalRuns > 0 ? `${totalRuns} runs` : `${runs.length} runs`}</p>
           </div>
         </div>
 
@@ -760,7 +979,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             return (
               <button
                 key={type}
-                onClick={() => setFilterType(type)}
+                onClick={() => { setFilterType(type); }}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                   filterType === type
                     ? "bg-[#1B2A4A] text-white"
@@ -822,103 +1041,49 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               </div>
             ))}
           </div>
-        ) : filteredRuns.length === 0 ? (
+        ) : visibleFamilies.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2">
             <FileText className="h-8 w-8 text-gray-200" />
             <p className="text-[12px] text-gray-400">No workflows found</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {filteredRuns.map((run, idx) => {
-              const meta = TYPE_META[run.type] || TYPE_META.custom;
-              const Icon = meta.icon;
-              return (
-                <motion.div
-                  key={run.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: idx * 0.02 }}
-                  onClick={() => handleSelectRun(run)}
-                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors group"
-                >
-                  {/* Icon */}
-                  <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-gray-200 transition-colors">
-                    <Icon className="h-4 w-4 text-gray-500" />
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold text-gray-900 leading-tight">{run.title}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] text-gray-400">{meta.label}</span>
-                      <span className="text-gray-200">·</span>
-                      <span className="text-[10px] text-gray-400">{formatDate(run.createdAt)}</span>
-                      {run.duration && (
-                        <>
-                          <span className="text-gray-200">·</span>
-                          <span className="text-[10px] text-gray-400">{formatDuration(run.duration)}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Status + actions */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {run.status === "completed" ? (
-                      <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
-                        Done
-                      </span>
-                    ) : run.status === "cancelled" ? (
-                      <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
-                        Cancelled
-                      </span>
-                    ) : run.status === "failed" ? (
-                      <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
-                        Failed
-                      </span>
-                    ) : (
-                      <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
-                        Running
-                      </span>
-                    )}
-
-                    {/* Menu */}
-                    <div className="relative">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === run.id ? null : run.id); }}
-                        className="flex items-center justify-center h-7 w-7 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                      <AnimatePresence>
-                        {openMenuId === run.id && (
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                            transition={{ duration: 0.1 }}
-                            className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[120px]"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              onClick={() => handleDeleteClick(run.id)}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-600 hover:bg-red-50 transition-colors"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" /> Delete
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
-                  </div>
-                </motion.div>
-              );
-            })}
+            {visibleFamilies.map((group, idx) => (
+              <FamilyGroupCard
+                key={group.rootRunId}
+                group={group}
+                index={idx}
+                expanded={expandedFamilies.has(group.rootRunId)}
+                onToggle={() => toggleFamily(group.rootRunId)}
+                onSelectRun={handleSelectRun}
+                openMenuId={openMenuId}
+                onToggleMenu={(id, e) => { e?.stopPropagation(); setOpenMenuId(openMenuId === id ? null : id); }}
+                onDeleteClick={handleDeleteClick}
+              />
+            ))}
           </div>
         )}
       </div>
+
+      {/* ── Load More — shown at bottom of list when more runs exist ── */}
+      {runs.length < totalRuns && !loading && (
+        <div className="flex-shrink-0 flex items-center justify-center gap-3 py-3">
+          <span className="text-[11px] text-gray-400">
+            Showing {runs.length} of {totalRuns} workflows
+          </span>
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="group flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[11px] font-medium bg-[#1B2A4A] text-white hover:bg-[#243558] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            {loadingMore ? (
+              <><Loader2 className="h-3 w-3 animate-spin opacity-70" />Loading…</>
+            ) : (
+              <>Load more <ChevronRight className="h-3 w-3 opacity-60 group-hover:translate-x-0.5 transition-transform" /></>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Delete modal */}
       <AnimatePresence>

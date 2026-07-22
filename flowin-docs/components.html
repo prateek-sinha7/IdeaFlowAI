@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Component Tree — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="components">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Component Tree</b></div>
+      <div class="spacer"></div>
+      <span class="tag">src/components/</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Frontend</div>
+        <h1>Component Tree</h1>
+        <p>Components are grouped by feature area. <code>DashboardLayout</code> is the orchestrator; <code>IdeaInputPage</code> is the compose-and-launch surface; <code>PreviewPanel</code> + the <code>results/</code> tabs render the live run and its deliverable. Expand a group to see its members.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> The React components are organized by the job they do in a run's life: <em>compose</em> it, <em>watch</em> it happen, <em>inspect</em> the details, and <em>view</em> the finished result. Keeping those concerns in separate folders means one part can change without disturbing the others.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The component tree grouped by feature area (layout, workflow, preview, results, chat, catalog, handoff&hellip;).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>Separation of compose / monitor / preview concerns keeps the UI maintainable and testable.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p><code>DashboardLayout</code> orchestrates; <code>IdeaInputPage</code> composes; progress + <code>results/</code> tabs monitor; <code>PreviewPanel</code> renders by mimetype.</p></div>
+        </div>
+      </div>
+
+      <h3>How components connect to the run</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Groups</h3>
+      <details open><summary>&#129517; layout/ — app shell</summary><div class="details-body"><p><b>DashboardLayout.tsx</b> — the top-level orchestrator (routes WS messages to <code>useWorkflow</code>, manages views, reconnect effect, pipeline chaining). <b>AppHeader.tsx</b> — the top bar.</p></div></details>
+      <details open><summary>&#127981; workflow/ — compose &amp; launch</summary><div class="details-body"><p><b>IdeaInputPage.tsx</b> (main input + composer), <b>AgentLibrary</b>, <b>AgentsPopup</b>, <b>AgentModelPicker</b> (per-agent model override), <b>AgentNode</b>, <b>AgentProgressPanel</b>, <b>PipelineGraph</b>, <b>ReviewGatesSection</b> (HITL toggles), <b>SkillManager</b>, <b>TokenUsageSummary</b>, <b>WaveTreePanel</b>, <b>WorkflowControls</b>, <b>WorkflowView</b>, <b>CapabilityPaletteSection</b>.</p><p class="dim">ppt/ &#8594; <b>PPTTemplateGallery</b>. prototype/ &#8594; <b>DiscoveryForm</b>, <b>TemplateGallery/Card/DetailModal</b>, <b>DesignSystemPicker/DetailModal</b>, <b>CustomTemplateModal</b>, <b>CustomDesignSystemModal</b>, <b>DesignSpecView</b>.</p></div></details>
+      <details><summary>&#128444;&#65039; preview/ — deliverable rendering</summary><div class="details-body"><p><b>PreviewPanel.tsx</b> (dispatches on mimetype), <b>PrototypePreview</b>, <b>PPTPreview</b>, <b>AppBuilderPreview</b>, <b>MarkdownPreview</b>, <b>UserStoryPreview</b>, <b>QuestionnairePanel</b> (clarify), <b>ReviewGatePanel</b> (HITL approve/edit), <b>TweaksPanel</b>.</p></div></details>
+      <details><summary>&#128209; results/ — run introspection tabs</summary><div class="details-body"><p><b>AgentThinkingTab</b> (per-agent input/context/tool calls), <b>AuditTab</b> (hook_runs trail), <b>FilesTab</b> (sandbox files), <b>PrototypePipelineView</b>, <b>ValidatorIssuePanel</b> (issues by severity).</p></div></details>
+      <details><summary>&#128172; chat/ — free-chat subsystem</summary><div class="details-body"><p><b>ChatPanel</b>, <b>ChatInput</b>, <b>MessageBubble</b>, <b>ArtifactCard</b>, <b>ProcessSteps</b>, <b>TypingIndicator</b>, <b>ErrorMessage</b>.</p></div></details>
+      <details><summary>&#128451;&#65039; catalog/ &middot; history/ &middot; savedworkflows/ &middot; library/</summary><div class="details-body"><p><b>WorkflowCatalog</b> (data-driven from <code>/api/workflows</code>) + <b>NameWorkflowModal</b>; <b>WorkflowHistory</b> (reopen past runs); <b>SavedWorkflowsPage</b> (user-authored); <b>LibraryPage</b> (agents/skills/hooks browser).</p></div></details>
+      <details><summary>&#129309; handoff/ — Claude-Code bridge</summary><div class="details-body"><p><b>HandoffWorkflow</b>, <b>HandoffAgentPanel</b>, <b>HandoffPreviewPanel</b>, <b>DiffView</b>, <b>ReportViews</b>, <b>IntegrationsCard</b> (GitHub/GitLab/Jira/Slack), + <code>useHandoffPipelineState.ts</code>.</p></div></details>
+      <details><summary>&#129520; sidebar/ &middot; settings/ &middot; analytics/ &middot; home/ &middot; ui/</summary><div class="details-body"><p><b>Sidebar</b> + <b>ChatSessionItem</b>; <b>AccountSettings</b>; <b>AnalyticsPage</b>; <b>CreationHub</b> (home); <b>ErrorBoundary</b>, <b>NotificationPanel</b>, <b>CompletionToast</b>.</p></div></details>
+
+      <div class="callout"><div class="t">&#129514; Testing</div><p>Unit tests are colocated (<code>*.test.tsx</code> via Vitest + Testing Library — e.g. <code>IdeaInputPage.modelOverrides.test.tsx</code>, <code>PreviewPanel.degraded.test.tsx</code>). End-to-end is Playwright with two projects: <code>mocked</code> (default) and <code>live</code>.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Component Tree</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"DashboardLayout mounts", b:"layout/", d:"The orchestrator wires <code>useWebSocket</code> + <code>useWorkflow</code> and owns the reconnect effect + view state."},
+  {t:"IdeaInputPage composes", b:"workflow/", d:"The user picks a workflow, agents, model overrides, skills/hooks, templates, and review gates, then launches."},
+  {t:"AgentProgressPanel animates", b:"workflow/", bc:"b-cyan", d:"As <code>agent_*</code> events arrive, each AgentNode advances; TokenUsageSummary + WaveTreePanel update."},
+  {t:"results/ tabs fill", d:"AgentThinkingTab shows prompts/tool calls, AuditTab shows hook runs, FilesTab shows sandbox files, ValidatorIssuePanel shows issues."},
+  {t:"Gate panels prompt", b:"preview/", bc:"b-amber", d:"QuestionnairePanel (clarify) and ReviewGatePanel (approve/edit) collect the human decision and resume the run."},
+  {t:"PreviewPanel renders", b:"preview/", bc:"b-violet", d:"Dispatches the deliverable by mimetype to Prototype/PPT/AppBuilder/Markdown/UserStory previews."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

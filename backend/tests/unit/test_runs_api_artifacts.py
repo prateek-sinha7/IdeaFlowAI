@@ -209,3 +209,51 @@ class TestCrossOwnerDenied:
         client, _ = api
         resp = client.get("/api/runs/does-not-exist/artifacts")
         assert resp.status_code == 404, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Workstream A (D-8) — ?kind= exact-kind filter applied BEFORE tree-building.
+# ---------------------------------------------------------------------------
+
+
+class TestKindFilter:
+    def _seed_three_kinds(self, db):
+        # A(spec) ← B(design, derived_from=A); C(clarifications) standalone.
+        _seed_run(db)
+        _seed_ref(db, ref_id="A", run_id="run-1", kind="spec",
+                  version=1, content="SPEC")
+        _seed_ref(db, ref_id="B", run_id="run-1", kind="design",
+                  version=1, content="DESIGN", derived_from="A")
+        _seed_ref(db, ref_id="C", run_id="run-1", kind="clarifications",
+                  version=1, content="Q&A ROUNDS")
+
+    def test_kind_filters_and_filtered_child_surfaces_as_root(self, api, db_session):
+        client, _ = api
+        self._seed_three_kinds(db_session)
+
+        tree = client.get("/api/runs/run-1/artifacts?kind=design").json()["artifacts"]
+        # A (the parent) is filtered out, so B surfaces as a root with no
+        # children — the in-set parent restriction guarantees this (PINS it).
+        assert len(tree) == 1
+        assert tree[0]["id"] == "B"
+        assert tree[0]["kind"] == "design"
+        assert tree[0]["children"] == []
+
+    def test_kind_composes_with_include_content(self, api, db_session):
+        client, _ = api
+        self._seed_three_kinds(db_session)
+
+        node = (
+            client.get("/api/runs/run-1/artifacts?kind=clarifications&include=content")
+            .json()["artifacts"][0]
+        )
+        assert node["kind"] == "clarifications"
+        assert node["content"] == "Q&A ROUNDS"
+
+    def test_unknown_kind_returns_empty_list_not_422(self, api, db_session):
+        client, _ = api
+        self._seed_three_kinds(db_session)
+
+        resp = client.get("/api/runs/run-1/artifacts?kind=nonexistent")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["artifacts"] == []

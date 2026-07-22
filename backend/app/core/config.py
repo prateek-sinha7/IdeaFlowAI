@@ -80,9 +80,13 @@ class Settings(BaseSettings):
     #   eu.anthropic.claude-sonnet-4-5-20250929-v1:0
     BEDROCK_CODING_MODEL_ID: str = ""
     AWS_REGION: str = "eu-central-1"
-    # Optional Bedrock API bearer token (env: AWS_BEARER_TOKEN_BEDROCK). When
-    # set, selects the bedrock-bearer-token auth path; leave empty to use the
-    # default IAM (instance-role) credential chain — the production default.
+    # Optional Bedrock API-key / bearer-token auth (env: AWS_BEARER_TOKEN_BEDROCK,
+    # consumed natively by botocore). main.py's lifespan reads this to report the
+    # active provider mode; the field MUST be declared here because Settings is
+    # configured extra="ignore", so an undeclared env var is NOT surfaced as an
+    # attribute → accessing settings.AWS_BEARER_TOKEN_BEDROCK raised AttributeError
+    # on boot whenever ANTHROPIC_API_KEY was empty (i.e. every Bedrock run).
+    # Empty (default) → fall through to the IAM/SSO credential chain (AWS_PROFILE).
     AWS_BEARER_TOKEN_BEDROCK: str = ""
 
     # ---- Output token ceiling (single source of truth) ----
@@ -96,6 +100,46 @@ class Settings(BaseSettings):
     # 32k output). Raise via the MAX_OUTPUT_TOKENS env var only after confirming
     # the active model accepts it, or Bedrock returns a ValidationException.
     MAX_OUTPUT_TOKENS: int = 32768
+
+    # ---- Bedrock prompt caching (default ON) ----
+    # Provider-agnostic Bedrock prompt caching (default ON); langchain_aws
+    # _apply_cache_points reads only `ttl`, `type` is ignored (Converse always
+    # uses "default"). deepagents' built-in AnthropicPromptCachingMiddleware
+    # caches ONLY ChatAnthropic, so on Bedrock (prod) caching is silently OFF
+    # without this — _BedrockCachePointsMiddleware injects the cache_control dict.
+    BEDROCK_PROMPT_CACHE_ENABLED: bool = True
+    BEDROCK_PROMPT_CACHE_TTL: str = "5m"
+
+    # ---- Extended-thinking budget (enable-only, default OFF) ----
+    # extended-thinking budget, enable-only; 0 disables (never fires); clamped to
+    # [1024, MAX_OUTPUT_TOKENS-1] in build_model. Threads a thinking budget into
+    # both provider branches of build_model when > 0.
+    THINKING_BUDGET_TOKENS: int = 0
+
+    # ---- Image-input ingress (default ON) ----
+    # Feature flag for the image-input ingress (IMAGE-INPUT §3 Layer 1/5, Wave 2).
+    # When True, a `run_pipeline` payload may carry a transient `images` list that
+    # `_validate_images` caps + vision-guards before it reaches `engine.execute`.
+    # When False the WS ingress IGNORES any `images` on the payload (clean
+    # off-switch — the run still proceeds as text-only, byte-identical to today).
+    IMAGE_INPUT_ENABLED: bool = True
+
+    # ---- Input-brief character cap (single source of truth) ----
+    # The maximum number of characters of the user brief that reaches the
+    # SmartPlanner analyze prompt + its stored planning_context.user_request,
+    # the ClarifyEngine brief_sample, AND the upload/attach ingest cap
+    # (file_extract._MAX_TEXT_CHARS). This is now the SINGLE source of truth for
+    # all three, so a full uploaded/attached document reaches the planner/clarify
+    # LLM instead of being whittled to a head+tail sample.
+    #
+    # 450,000 chars ≈ ~150k input tokens for dense content (code/HTML ~3 chars/tok),
+    # ~112k tokens for prose (~4 chars/tok), and stays safely under Haiku's 200k
+    # context window even for minified content (worst case ~180k tokens + prompt
+    # scaffolding < 200k). Planner + clarify are each a SINGLE LLM call, so the
+    # cost is a one-time ~150k input tokens — no token-loop concern. Briefs beyond
+    # this ceiling are still head+tail sampled (planner) / head-capped
+    # (clarify + storage) to bound input.
+    BRIEF_MAX_CHARS: int = 450_000
 
     # ---- Per-LLM-call total timeout (seconds) ----
     # Wraps one streaming LLM call inside DeepAgent. With MAX_OUTPUT_TOKENS lifted
@@ -118,6 +162,14 @@ class Settings(BaseSettings):
     AGENT_RECURSION_LIMIT: int = 400
     # Retention for a finished run's sandbox dir before the cleanup sweep removes it.
     RUN_DIR_TTL_HOURS: int = 48
+
+    # ── Render fail-closed default (quick-260701-bob / REQUIRE-RENDER-KNOB) ────
+    # The DEFAULT for the per-step ``require_render`` knob when a manifest step does
+    # not declare one. False (the default) preserves today's behavior — a render-
+    # unavailable html_render is a PASS (skip-is-a-pass, INV-3): the 5 characterization
+    # goldens stay byte/event-identical. Set True (globally, via env) OR per-step in a
+    # manifest to fail CLOSED (render-unavailable → P0 → ValidationGate → GATE_BLOCK).
+    PROTOTYPE_REQUIRE_RENDER: bool = False
 
     # ── Per-workspace fan-out budget ceilings (Phase 11 / OBS-01) ──────────────
     # The OPTIONAL per-workspace aggregate ceilings the run-entry BudgetManager checks

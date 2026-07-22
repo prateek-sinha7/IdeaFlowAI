@@ -207,7 +207,9 @@ async def test_html_static_reaches_static_check_via_handle(db_session, tmp_path)
 
 @pytest.mark.asyncio
 async def test_html_render_degrades_offline(db_session, tmp_path):
-    """html_render with an unavailable browser emits NO issues (a skip, not a fail)."""
+    """html_render with an unavailable browser emits NO blocking issues (skip-is-a-pass,
+    default require_render=False) BUT records a distinct validator_skipped row so the
+    skip is never swallowed (quick-260701-bob / VALIDATOR-SKIPPED)."""
     _seed_run(db_session, run_id="run-2", owner_id="bob", workspace_id="ws-2")
     store = ScopedStore(owner_id="bob", workspace_id="ws-2", session=db_session)
     runner = _FakeRunner(
@@ -220,6 +222,10 @@ async def test_html_render_degrades_offline(db_session, tmp_path):
     hr = CapabilityRegistry().resolve("validator", "html_render")
     issues = await hr.validate(target)
     assert issues == []
+    # The skip is RECORDED (severity=SKIPPED sentinel) — not silently dropped.
+    skips = [r for r in runner.records if r["severity"] == "SKIPPED"]
+    assert len(skips) == 1
+    assert skips[0]["validator"] == "html_render"
 
 
 @pytest.mark.asyncio

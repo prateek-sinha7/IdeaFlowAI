@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Module 04 · Recursion · CS101</title>
+<title>Module 05 · Closures · CS101</title>
 <style>/* html-ppt :: shared webfonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800;900&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@200;300;400;500;600;700;900&display=swap');
@@ -366,15 +366,15 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
 
   <!-- 1. Cover -->
   <section class="slide full" data-title="Cover">
-    <p class="kicker">CS 101 · MODULE 04</p>
-    <h1 class="h1 mt-s">Recursion: solving<br>problems by <em>calling yourself</em>.</h1>
-    <p class="lede mt-l" style="max-width:62ch">In this module you'll learn why a function that calls itself is not a trick, but the most natural way to describe problems that contain smaller copies of themselves.</p>
+    <p class="kicker">CS 101 · MODULE 05</p>
+    <h1 class="h1 mt-s">Closures: functions that <em>remember</em>.</h1>
+    <p class="lede mt-l" style="max-width:62ch">In this module you'll learn why a function defined inside another function can keep hold of a variable long after the outer function has finished running.</p>
     <div class="row mt-l" style="gap:16px">
-      <span class="pill-academic">~ 45 min read</span>
-      <span class="pill-academic">prereq · functions, if/else</span>
+      <span class="pill-academic">~ 40 min read</span>
+      <span class="pill-academic">prereq · functions, scope</span>
       <span class="pill-academic">lang · Python</span>
     </div>
-    <div class="deck-footer"><span>Dr. A. Rivera · Spring 2026</span><span class="slide-number" data-current="1" data-total="7"></span></div>
+    <div class="deck-footer"><span>Dr. L. Osei · Spring 2026</span><span class="slide-number" data-current="1" data-total="7"></span></div>
   </section>
 
   <!-- 2. Objectives -->
@@ -383,11 +383,11 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       <div class="brand">CS 101 · M04</div>
       <h5>Learning objectives</h5>
       <ul class="obj-list">
-        <li class="current">Define recursion</li>
-        <li>Identify a base case</li>
-        <li>Trace a recursive call</li>
-        <li>Convert loop ↔ recursion</li>
-        <li>Recognize when recursion helps</li>
+        <li class="current">Define closure</li>
+        <li>Identify the captured variable</li>
+        <li>Trace the enclosing scope</li>
+        <li>Convert a global to a closure</li>
+        <li>Recognize when closures help</li>
       </ul>
       <h5>Module progress</h5>
       <p class="dim" style="font-size:13px">Page 2 of 7 · ~5 min in</p>
@@ -396,10 +396,10 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       <p class="kicker">OBJECTIVES</p>
       <h2 class="h2 mt-s">By the end, you will be able to…</h2>
       <div class="stack mt-l">
-        <div class="concept-box"><h4>① Explain recursion in one sentence.</h4><p class="dim">"A function that solves a problem by calling itself on a smaller version of that problem."</p></div>
-        <div class="concept-box"><h4>② Write a base case that always terminates.</h4><p class="dim">Every recursive function must have an exit door, or it runs forever.</p></div>
-        <div class="concept-box"><h4>③ Trace a call stack on paper.</h4><p class="dim">Given <code>fact(4)</code>, draw the stack frames top-to-bottom.</p></div>
-        <div class="concept-box"><h4>④ Convert a while-loop to a recursive equivalent.</h4><p class="dim">And explain when one is clearer than the other.</p></div>
+        <div class="concept-box"><h4>① Explain closures in one sentence.</h4><p class="dim">"An inner function that remembers a variable from the scope it was created in, even after that scope has exited."</p></div>
+        <div class="concept-box"><h4>② Name the captured variable in a closure.</h4><p class="dim">Every closure keeps at least one variable alive from its enclosing function.</p></div>
+        <div class="concept-box"><h4>③ Trace the enclosing scope on paper.</h4><p class="dim">Given <code>counter()</code>, draw where each call's state lives.</p></div>
+        <div class="concept-box"><h4>④ Convert a global counter to a closure equivalent.</h4><p class="dim">And explain when one is clearer than the other.</p></div>
       </div>
     </div>
   </section>
@@ -410,25 +410,25 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       <div class="brand">CS 101 · M04</div>
       <h5>Learning objectives</h5>
       <ul class="obj-list">
-        <li class="done">Define recursion</li>
-        <li class="current">Identify a base case</li>
-        <li>Trace a recursive call</li>
-        <li>Convert loop ↔ recursion</li>
-        <li>Recognize when recursion helps</li>
+        <li class="done">Define closure</li>
+        <li class="current">Identify the captured variable</li>
+        <li>Trace the enclosing scope</li>
+        <li>Convert a global to a closure</li>
+        <li>Recognize when closures help</li>
       </ul>
       <h5>Key terms</h5>
-      <p class="dim" style="font-size:13px">base case · recursive case · call stack · tail call</p>
+      <p class="dim" style="font-size:13px">enclosing scope · free variable · nonlocal · lexical scope</p>
     </aside>
     <div class="main">
       <p class="kicker">CORE CONCEPT</p>
       <h2 class="h2 mt-s">Two parts, always.</h2>
-      <p class="lede mt-m">A recursive function has exactly two things inside it: a <b>base case</b> (when to stop) and a <b>recursive case</b> (how to shrink the problem before calling yourself).</p>
+      <p class="lede mt-m">A closure has exactly two things: an <b>outer function</b> (defines a variable) and an <b>inner function</b> (reads or updates that variable and gets returned).</p>
       <div class="callout">
-        <b>Rule of thumb.</b> If you can't name the base case out loud, don't write the recursion yet. Draw it on paper first.
+        <b>Rule of thumb.</b> If you can't name the captured variable out loud, the inner function is not actually a closure yet. Point at it first.
       </div>
       <div class="grid g2 mt-l">
-        <div class="concept-box"><h4>Base case</h4><p class="dim">The smallest possible input — one the function answers directly, without calling itself.</p><p class="pill-academic">e.g. <b>n == 0</b></p></div>
-        <div class="concept-box"><h4>Recursive case</h4><p class="dim">Every other input — delegate to a smaller version of the same problem.</p><p class="pill-academic">e.g. <b>n × fact(n-1)</b></p></div>
+        <div class="concept-box"><h4>Outer function</h4><p class="dim">Runs once, defines a variable, and returns the inner function without calling it.</p><p class="pill-academic">e.g. <b>count = 0</b></p></div>
+        <div class="concept-box"><h4>Inner function</h4><p class="dim">Runs on every call — reads or updates the outer variable it remembers.</p><p class="pill-academic">e.g. <b>nonlocal count</b></p></div>
       </div>
     </div>
   </section>
@@ -439,27 +439,31 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       <div class="brand">CS 101 · M04</div>
       <h5>Learning objectives</h5>
       <ul class="obj-list">
-        <li class="done">Define recursion</li>
-        <li class="done">Identify a base case</li>
-        <li class="current">Trace a recursive call</li>
-        <li>Convert loop ↔ recursion</li>
-        <li>Recognize when recursion helps</li>
+        <li class="done">Define closure</li>
+        <li class="done">Identify the captured variable</li>
+        <li class="current">Trace the enclosing scope</li>
+        <li>Convert a global to a closure</li>
+        <li>Recognize when closures help</li>
       </ul>
       <h5>Try it yourself</h5>
-      <p class="dim" style="font-size:13px">Open repl.it and run the code on the right. Then try <code>fact(10)</code>.</p>
+      <p class="dim" style="font-size:13px">Open repl.it and run the code on the right. Then call <code>c()</code> three times.</p>
     </aside>
     <div class="main">
       <p class="kicker">WORKED EXAMPLE</p>
-      <h2 class="h2 mt-s">Factorial, 7 lines.</h2>
-      <div class="code mt-m"><pre style="margin:0"><span class="cmt"># fact(n) = n × (n-1) × … × 1,  and fact(0) = 1</span>
-<span class="kw">def</span> fact(n):
-    <span class="kw">if</span> n == <span class="str">0</span>:          <span class="cmt"># base case</span>
-        <span class="kw">return</span> <span class="str">1</span>
-    <span class="kw">return</span> n * fact(n - <span class="str">1</span>)   <span class="cmt"># recursive case</span>
+      <h2 class="h2 mt-s">Counter, 7 lines.</h2>
+      <div class="code mt-m"><pre style="margin:0"><span class="cmt"># make_counter() returns a function that remembers `count`</span>
+<span class="kw">def</span> make_counter():
+    count = <span class="str">0</span>                <span class="cmt"># captured variable</span>
+    <span class="kw">def</span> tick():
+        <span class="kw">nonlocal</span> count
+        count += <span class="str">1</span>
+        <span class="kw">return</span> count
+    <span class="kw">return</span> tick
 
-<span class="kw">print</span>(fact(<span class="str">4</span>))   <span class="cmt"># → 24</span></pre></div>
+c = make_counter()
+<span class="kw">print</span>(c(), c(), c())   <span class="cmt"># → 1 2 3</span></pre></div>
       <div class="callout">
-        <b>Trace fact(4).</b> 4 × fact(3) → 4 × (3 × fact(2)) → 4 × 3 × (2 × fact(1)) → 4 × 3 × 2 × 1 × fact(0) → 4 × 3 × 2 × 1 × 1 = <b>24</b>.
+        <b>Trace c().</b> <code>make_counter()</code> runs once and returns <code>tick</code>. Each call to <code>c()</code> reuses the same <code>count</code> — it never resets to 0.
       </div>
     </div>
   </section>
@@ -470,29 +474,29 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       <div class="brand">CS 101 · M04</div>
       <h5>Learning objectives</h5>
       <ul class="obj-list">
-        <li class="done">Define recursion</li>
-        <li class="done">Identify a base case</li>
-        <li class="done">Trace a recursive call</li>
-        <li class="current">Convert loop ↔ recursion</li>
-        <li>Recognize when recursion helps</li>
+        <li class="done">Define closure</li>
+        <li class="done">Identify the captured variable</li>
+        <li class="done">Trace the enclosing scope</li>
+        <li class="current">Convert a global to a closure</li>
+        <li>Recognize when closures help</li>
       </ul>
       <h5>Time</h5>
       <p class="dim" style="font-size:13px">~10 minutes · solo</p>
     </aside>
     <div class="main">
-      <p class="kicker">EXERCISE 4.1</p>
-      <h2 class="h2 mt-s">Write <em>sum_to(n)</em>.</h2>
-      <p class="lede mt-m">Return <code>1 + 2 + … + n</code> using recursion — no loops allowed.</p>
+      <p class="kicker">EXERCISE 5.1</p>
+      <h2 class="h2 mt-s">Write <em>make_multiplier(n)</em>.</h2>
+      <p class="lede mt-m">Return a function that multiplies its argument by <code>n</code> — no global variables allowed.</p>
       <div class="exercise mt-l">
         <p style="margin:0;font-size:18px;color:var(--text-1)"><b>Your task</b></p>
         <ol style="color:var(--text-2);line-height:1.8;margin:10px 0 0">
-          <li>Write the base case. What does <code>sum_to(0)</code> return?</li>
-          <li>Write the recursive case in terms of <code>sum_to(n - 1)</code>.</li>
-          <li>Test it: <code>sum_to(5) == 15</code>, <code>sum_to(10) == 55</code>.</li>
-          <li>Bonus: what happens if you call <code>sum_to(-3)</code>? Fix it.</li>
+          <li>Write the outer function. What variable does it need to remember?</li>
+          <li>Write the inner function in terms of that captured variable.</li>
+          <li>Test it: <code>double = make_multiplier(2)</code>, <code>double(5) == 10</code>.</li>
+          <li>Bonus: what happens if you call <code>make_multiplier(3)(4)</code> directly? Try it.</li>
         </ol>
       </div>
-      <p class="dim mt-m" style="font-size:14px">Stuck? Remember: a base case is the smallest input you already know the answer to.</p>
+      <p class="dim mt-m" style="font-size:14px">Stuck? Remember: the captured variable is the one the inner function needs but doesn't receive as an argument.</p>
     </div>
   </section>
 
@@ -502,38 +506,38 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       <div class="brand">CS 101 · M04</div>
       <h5>Learning objectives</h5>
       <ul class="obj-list">
-        <li class="done">Define recursion</li>
-        <li class="done">Identify a base case</li>
-        <li class="done">Trace a recursive call</li>
-        <li class="done">Convert loop ↔ recursion</li>
-        <li class="current">Recognize when recursion helps</li>
+        <li class="done">Define closure</li>
+        <li class="done">Identify the captured variable</li>
+        <li class="done">Trace the enclosing scope</li>
+        <li class="done">Convert a global to a closure</li>
+        <li class="current">Recognize when closures help</li>
       </ul>
       <h5>Self-assess</h5>
       <p class="dim" style="font-size:13px">You should get 3/3.</p>
     </aside>
     <div class="main">
       <p class="kicker">CHECK YOUR UNDERSTANDING</p>
-      <h2 class="h2 mt-s">Which function will recurse forever?</h2>
+      <h2 class="h2 mt-s">Which function actually forms a closure?</h2>
       <div class="mt-l">
-        <div class="mcq"><div class="letter">A</div><div><b>def f(n): return 1 if n == 0 else n * f(n - 1)</b><p class="dim" style="font-size:13px;margin:4px 0 0">Base case <code>n == 0</code>, shrinks toward it. Terminates.</p></div></div>
-        <div class="mcq correct"><div class="letter">B</div><div><b>def f(n): return n + f(n + 1)</b><p class="dim" style="font-size:13px;margin:4px 0 0"><b style="color:var(--accent)">✓ Correct.</b> No base case, and <code>n</code> grows — infinite recursion.</p></div></div>
-        <div class="mcq"><div class="letter">C</div><div><b>def f(n): return n if n &lt; 2 else f(n - 1) + f(n - 2)</b><p class="dim" style="font-size:13px;margin:4px 0 0">Classic Fibonacci. Base case on <code>n &lt; 2</code>. Terminates.</p></div></div>
+        <div class="mcq"><div class="letter">A</div><div><b>def f(): return 42</b><p class="dim" style="font-size:13px;margin:4px 0 0">No inner function, no captured variable. Not a closure.</p></div></div>
+        <div class="mcq correct"><div class="letter">B</div><div><b>def f(n): return lambda x: x + n</b><p class="dim" style="font-size:13px;margin:4px 0 0"><b style="color:var(--accent)">✓ Correct.</b> The lambda captures <code>n</code> from the enclosing scope — a real closure.</p></div></div>
+        <div class="mcq"><div class="letter">C</div><div><b>def f(x, n): return x + n</b><p class="dim" style="font-size:13px;margin:4px 0 0">Both are ordinary arguments — nothing is captured from an enclosing scope.</p></div></div>
       </div>
     </div>
   </section>
 
   <!-- 7. Summary -->
   <section class="slide full" data-title="Summary">
-    <p class="kicker">SUMMARY · MODULE 04</p>
+    <p class="kicker">SUMMARY · MODULE 05</p>
     <h1 class="h1 mt-s">You can now…</h1>
     <div class="grid g2 mt-l">
-      <div class="concept-box"><h4>✓ Define recursion</h4><p class="dim">A function that calls itself on a smaller input.</p></div>
-      <div class="concept-box"><h4>✓ Write a safe base case</h4><p class="dim">Every recursion needs an exit door.</p></div>
-      <div class="concept-box"><h4>✓ Trace a call stack</h4><p class="dim">You can unwind <code>fact(4)</code> by hand.</p></div>
-      <div class="concept-box"><h4>✓ Judge when to use it</h4><p class="dim">Trees and self-similar problems → recursion. Flat iteration → loop.</p></div>
+      <div class="concept-box"><h4>✓ Define closures</h4><p class="dim">An inner function that remembers a variable from its enclosing scope.</p></div>
+      <div class="concept-box"><h4>✓ Name a captured variable</h4><p class="dim">Every closure keeps at least one such variable alive.</p></div>
+      <div class="concept-box"><h4>✓ Trace an enclosing scope</h4><p class="dim">You can unwind <code>make_counter()</code> by hand.</p></div>
+      <div class="concept-box"><h4>✓ Judge when to use it</h4><p class="dim">Private, per-instance state → closure. Shared, module-wide state → global.</p></div>
     </div>
     <div class="callout mt-l">
-      <b>Up next · Module 05.</b> Divide &amp; conquer: merge sort. We'll use everything you just learned — but on lists, not numbers.
+      <b>Up next · Module 06.</b> Decorators: functions that wrap functions. We'll use everything you just learned — closures are how they work under the hood.
     </div>
   </section>
 

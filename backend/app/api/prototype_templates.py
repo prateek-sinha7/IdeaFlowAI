@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from agents.execution_engine.ndjson_adapter import run_od_prototype_pipeline
+from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.services import od_loader
@@ -45,6 +46,7 @@ class TemplateListItem(BaseModel):
     craft_required: list[str] = []
     example_prompt: str | None = None
     has_preview: bool = False
+    has_thumbnail: bool = False
 
 
 class TemplateDetail(TemplateListItem):
@@ -120,6 +122,33 @@ def get_template_preview(template_id: str) -> FileResponse:
     return FileResponse(
         path=path,
         media_type="text/html; charset=utf-8",
+        # Cache aggressively — content only changes when we redeploy.
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get(
+    "/templates/{template_id}/thumbnail",
+    summary="Serve the template's pre-rendered thumbnail image for the gallery card",
+    response_class=FileResponse,
+)
+def get_template_thumbnail(template_id: str) -> FileResponse:
+    """Return the pre-rendered ``thumbnail.jpg`` (a screenshot of example.html).
+
+    Intentionally unauthenticated and static, same rationale as ``/preview``:
+    the gallery embeds it directly via ``<img src>``. Only ever serves
+    ``skills/opendesign/design-templates/<id>/thumbnail.jpg`` (the path is built
+    by the loader), so there is no path-traversal surface.
+    """
+    path = od_loader.get_template_thumbnail_path(template_id)
+    if path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Thumbnail not available for template '{template_id}'",
+        )
+    return FileResponse(
+        path=path,
+        media_type="image/jpeg",
         # Cache aggressively — content only changes when we redeploy.
         headers={"Cache-Control": "public, max-age=3600"},
     )
@@ -214,7 +243,7 @@ def get_design_system_preview(ds_id: str) -> FileResponse:
 class RunRequest(BaseModel):
     template_id: str = Field(..., min_length=1)
     design_system_id: str = Field(..., min_length=1)
-    brief: str = Field(..., min_length=1, max_length=8000)
+    brief: str = Field(..., min_length=1, max_length=settings.BRIEF_MAX_CHARS)
     # The DiscoveryAnswers shape from the frontend is open-ended (`template`
     # plus a handful of optional fields); accept it as a free dict and let
     # the prompt composer decide what to inject.

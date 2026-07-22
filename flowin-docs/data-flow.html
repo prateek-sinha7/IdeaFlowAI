@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Flow — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="data-flow">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Data Flow</b></div>
+      <div class="spacer"></div>
+      <span class="tag">end-to-end</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Request lifecycle</div>
+        <h1>Data Flow</h1>
+        <p>The life of a single run, from a user clicking "Generate" to a deliverable streaming back. Use the controls to step through — each step highlights and scrolls into view. The path is identical for every pipeline; the differences all live in the compiled plan.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Every run — whether it ends in a slide deck, a prototype, or an app — travels the exact same road from your click to the finished result. The only thing that changes between workflows is the compiled plan the engine reads. So if you understand this one journey, you understand how almost everything in Flowin behaves.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The end-to-end lifecycle of a single run, from the browser request to the streamed-back deliverable.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>A single, uniform path makes the system predictable, testable, and resumable — and keeps the UI decoupled from workflow details.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>WebSocket in &#8594; compile the manifest &#8594; build a per-run context &#8594; plan the steps &#8594; stream each agent &#8594; validate &#8594; resolve the deliverable &#8594; stream out.</p></div>
+        </div>
+      </div>
+
+      <h3>End-to-end, step by step</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Reconnect &amp; resume</h3>
+      <div class="callout"><div class="t">&#128257; Runs can last hours</div><p>If the socket drops, <code>useWebSocket</code> reconnects with exponential backoff (no retry cap) and re-sends <code>reconnect_pipeline</code>; the server replays the durable <code>run_events</code> tail from the client's last sequence. If the <b>backend</b> restarts mid-run, <code>restore_non_terminal_runs()</code> on startup re-registers waiting runs and resumes them — including mid-wave. The <code>ExecutionContext.is_resuming</code> flag drives this behavior.</p></div>
+
+      <h3>Two entry paths</h3>
+      <div class="grid g2">
+        <div class="card"><h4>Pipeline path</h4><p class="lead"><code>run_pipeline</code> &#8594; <code>ExecutionEngine</code>. Deterministic, manifest-driven, multi-agent. This is the primary product surface and the flow shown above.</p></div>
+        <div class="card"><h4>Free-chat path</h4><p class="lead"><code>user_message</code> &#8594; <code>ChatRunner</code> (<code>app/agents/chat_runner.py</code>). A separate conversational subsystem (Discovery &#8594; Requirements &#8594; &hellip;) with its own 7-agent internal "chat" pipeline. Not driven by the kernel.</p></div>
+      </div>
+
+      <h3>What travels on the wire</h3>
+      <table>
+        <thead><tr><th>Direction</th><th>Message</th><th>Carries</th></tr></thead>
+        <tbody>
+          <tr><td>Client &#8594; Server</td><td><code>run_pipeline</code></td><td>pipeline_type, brief, agent_ids?, attached_skills/hooks?, model_overrides?, gate_agent_ids?, template_id?</td></tr>
+          <tr><td>Client &#8594; Server</td><td><code>submit_questionnaire</code></td><td>pipeline_run_id, responses[], skip_clarification?</td></tr>
+          <tr><td>Server &#8594; Client</td><td><code>agent_chunk</code></td><td>streamed output token for an agent</td></tr>
+          <tr><td>Server &#8594; Client</td><td><code>tool_call</code> / <code>tool_result</code></td><td>tool name + args / result</td></tr>
+          <tr><td>Server &#8594; Client</td><td><code>pipeline_complete</code></td><td>totals, status, deliverable_mimetype + filename</td></tr>
+        </tbody>
+      </table>
+      <p class="muted">See the full <a href="websocket-events.html">WebSocket Events</a> reference for all 40 server events.</p>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Data Flow</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Browser sends <code>run_pipeline</code>", b:"WebSocket", d:"<code>useWorkflow.startPipeline()</code> serializes <code>{type:'run_pipeline', pipeline_type, message, agent_ids?, attached_skills?, attached_hooks?, model_overrides?, gate_agent_ids?, template_id?}</code> through the socket opened by <code>useWebSocket</code> (JWT carried in the <code>bearer.&lt;jwt&gt;</code> subprotocol)."},
+  {t:"FastAPI authenticates &amp; validates", b:"app/api/websocket.py", d:"Re-validates the JWT (catches mid-session logout/revocation), rejects overlapping runs, allow-list-validates <code>model_overrides</code> against the ModelCatalog, re-checks persisted per-step selections with <code>trust='user'</code>, creates the WorkflowRun row, and kicks a background task with a per-run event queue."},
+  {t:"Engine compiles the workflow", b:"compile_for_run()", bc:"b-cyan", d:"<code>resolve_alias(pipeline_type)</code> &#8594; <code>load_manifest()</code> reads <code>agents/workflows/&lt;id&gt;/workflow.yaml</code> &#8594; <code>WorkflowCompiler.compile()</code> name-resolves every capability against the registry, topo-validates the Step DAG, returns a typed <code>CompiledWorkflow</code>. Result is <code>lru_cache</code>d."},
+  {t:"Per-run ExecutionContext", b:"context.py", bc:"b-cyan", d:"One instance per run holds <code>run_id</code>, <code>owner_id</code>, the typed <code>ArtifactGraph</code>, <code>workspace_id</code>, the <code>ScopedStore</code>, <code>ModelResolver</code>, <code>BudgetManager</code>, checkpointer, cancel event, and the compiled deliverable spec. Nothing per-run touches the engine singleton (INV-2)."},
+  {t:"DAG validation + Deep-Planner", b:"resolver.py", bc:"b-cyan", d:"<code>WorkflowResolver</code> validates the typed produces/consumes DAG. Then the <code>deep-planner</code> agent runs (120s timeout, defaults to PROCEED) inferring intent and deciding whether clarification is required."},
+  {t:"Optional clarify gate (HITL)", b:"ClarifyEngine", bc:"b-amber", d:"If <code>clarify.mode: auto</code> (the default for most workflows), the engine emits a questionnaire and pauses, awaiting <code>submit_questionnaire</code>. Durable via the checkpointer; survives a reconnect. Capped at ~5 questions/round."},
+  {t:"Topo-loop over Steps", b:"engine.execute()", bc:"b-cyan", d:"For each compiled <code>Step</code> the engine resolves its <b>strategy</b> capability (single_shot / task_loop / fanout_batch / wave_scheduler) and hands control to it. Review gates can pause between steps."},
+  {t:"Agent runner built &amp; streamed", b:"factory.create_runner()", bc:"b-green", d:"Loads the AGENT.md spec, composes the system prompt (injects &#8594; guardrails &#8594; skills &#8594; hooks &#8594; constitution &#8594; body), resolves tools, builds a <code>DeepAgentRunner</code> over a deepagents graph; <code>astream_events()</code> maps LangGraph events &#8594; engine events."},
+  {t:"Model call", b:"build_model()", bc:"b-green", d:"Selects ChatAnthropic (local) or ChatBedrockConverse (prod). User-selectable per agent (Haiku 4.5 default). Native filesystem tools write into the shared per-run RunSandbox on disk."},
+  {t:"Validation &amp; fix-loop", b:"validators + post_step", bc:"b-violet", d:"Steps that declare validators run them (e.g. prototype build runs <code>html_static</code> + <code>html_render</code> in headless Chromium) with a bounded internal fix-loop. Hooks (<code>audit_logger</code>, <code>secret_scan</code>) fire around writes."},
+  {t:"Deliverable resolved", b:"DeliverableResolver", bc:"b-violet", d:"At run end the declared strategy (<code>single_file</code> / <code>serialized_sandbox</code> / <code>streamed_text</code> / <code>ppt</code> / <code>repo_diff</code>) reads the sandbox and produces the final artifact + a declared mimetype. Persisted to Postgres with lineage."},
+  {t:"Events + deliverable stream back", b:"WS &#8594; React", d:"Throughout, the engine emits WS events; <code>handlePipelineMessage</code> reduces them into <code>PipelineRunState</code>. <code>PreviewPanel</code> dispatches on the deliverable mimetype (HTML&#8594;iframe, md&#8594;markdown, zip&#8594;bundle). Events also persist to <code>run_events</code> for durable replay."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

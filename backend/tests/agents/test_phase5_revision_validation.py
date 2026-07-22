@@ -123,6 +123,20 @@ _PREEXISTING_NIT = (
     '(section <section data-page="settings"> has no routes entry)'
 )
 
+# quick-260701-erg / STATIC-ROUTER-DEAD: the ORIGINAL fixture navigates to
+# ``#/settings`` (a real <section data-page="settings">) but the routes map omits it,
+# so the new routes-map RESOLUTION cross-check flags it as ROUTER-DEAD — a SECOND
+# pre-existing nit on the same fixture. Like the routes-map-missing nit it predates the
+# revision edit, so it is baselined (excluded from the fix-loop) alongside it.
+_PREEXISTING_ROUTER_DEAD = (
+    "router-dead nav link: nav route target 'settings' has a "
+    '<section data-page="settings"> but no routes-map entry — '
+    "the hash router will not reach it"
+)
+
+# The full set of pre-existing (baselined) static nits on _ORIGINAL_HTML.
+_PREEXISTING_NITS = {_PREEXISTING_NIT, _PREEXISTING_ROUTER_DEAD}
+
 # The NEW static REGRESSION the revision introduces by adding a `ghost` key to the
 # routes map with no matching <section data-page="ghost"> (pure static; render
 # stays green). The EXACT issue string static_check reports for it.
@@ -549,17 +563,21 @@ class TestFixPolicyEndToEnd:
         # Sanity-pin the fixtures so a future edit can't silently break the policy:
         # the ORIGINAL has EXACTLY the pre-existing nit; the introduced-regression
         # HTML has the nit PLUS the regression.
-        orig_issues = static_check(_ORIGINAL_HTML).issues
-        assert orig_issues == [_PREEXISTING_NIT], (
-            f"fixture drift: ORIGINAL must carry exactly the pre-existing nit; got {orig_issues}"
+        orig_issues = set(static_check(_ORIGINAL_HTML).issues)
+        assert orig_issues == _PREEXISTING_NITS, (
+            f"fixture drift: ORIGINAL must carry exactly the pre-existing nits; got {orig_issues}"
         )
         revised_html = _ORIGINAL_HTML.replace(_ROUTES_ORIGINAL, _ROUTES_WITH_GHOST)
         revised_issues = set(static_check(revised_html).issues)
-        assert revised_issues == {_PREEXISTING_NIT, _REGRESSION_ISSUE}, (
-            f"fixture drift: revised HTML must carry nit + regression; got {revised_issues}"
+        assert revised_issues == _PREEXISTING_NITS | {_REGRESSION_ISSUE}, (
+            f"fixture drift: revised HTML must carry nits + regression; got {revised_issues}"
         )
 
         def turns_for(agent_id, thread_id, is_fix):
+            # KAN-108: prototype-revision-validate is the new second declared step —
+            # it is NOT a fix invocation, just a clean validation pass (text-only).
+            if agent_id == "prototype-revision-validate":
+                return _clean_revision_turns()
             # Visible revision: introduce the regression. Internal fix: remove it.
             return (
                 _fix_remove_regression_turns()
@@ -599,9 +617,12 @@ class TestFixPolicyEndToEnd:
         assert _REGRESSION_ISSUE in fix_message, (
             f"fix message must list the NEW regression; got:\n{fix_message}"
         )
-        # (b) It does NOT contain the pre-existing baselined nit (suppressed).
+        # (b) It does NOT contain the pre-existing baselined nits (suppressed).
         assert _PREEXISTING_NIT not in fix_message, (
             f"fix message must NOT list the pre-existing baselined nit; got:\n{fix_message}"
+        )
+        assert _PREEXISTING_ROUTER_DEAD not in fix_message, (
+            f"fix message must NOT list the pre-existing router-dead nit; got:\n{fix_message}"
         )
         # (c) It re-injects the user's revision instruction (stay focused).
         assert _USER_INSTRUCTION in fix_message, (
@@ -612,9 +633,9 @@ class TestFixPolicyEndToEnd:
         rev_sb = RunSandbox("anon", run_id)
         final_html = rev_sb.read("prototype.html") or ""
         assert _ROUTES_WITH_GHOST not in final_html, "the fix must have removed the ghost route"
-        # Only the pre-existing baselined nit remains (the fix left it alone).
-        assert static_check(final_html).issues == [_PREEXISTING_NIT], (
-            f"final HTML must carry ONLY the untouched pre-existing nit; "
+        # Only the pre-existing baselined nits remain (the fix left them alone).
+        assert set(static_check(final_html).issues) == _PREEXISTING_NITS, (
+            f"final HTML must carry ONLY the untouched pre-existing nits; "
             f"got {static_check(final_html).issues}"
         )
         # The engine's pipeline_complete.final_output IS that clean read-back.
@@ -650,6 +671,9 @@ class TestFixPolicyEndToEnd:
         )
 
         def turns_for(agent_id, thread_id, is_fix):
+            # KAN-108: prototype-revision-validate returns a clean text-only turn.
+            if agent_id == "prototype-revision-validate":
+                return _clean_revision_turns()
             return (
                 _fix_remove_regression_turns()
                 if is_fix
@@ -769,6 +793,9 @@ class TestEventVocabularyUnchanged:
         # Run WITH a regression so the fix-loop actually fires (the strongest test
         # of "the fix-loop introduced no new event types").
         def turns_for(agent_id, thread_id, is_fix):
+            # KAN-108: prototype-revision-validate returns a clean text-only turn.
+            if agent_id == "prototype-revision-validate":
+                return _clean_revision_turns()
             return (
                 _fix_remove_regression_turns()
                 if is_fix
@@ -809,6 +836,10 @@ class TestEventVocabularyUnchanged:
         engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
 
         def turns_for(agent_id, thread_id, is_fix):
+            # KAN-108: prototype-revision-validate is the new second declared step —
+            # it is NOT a fix invocation, returns a clean text-only turn.
+            if agent_id == "prototype-revision-validate":
+                return _clean_revision_turns()
             return (
                 _fix_remove_regression_turns()
                 if is_fix
@@ -827,26 +858,31 @@ class TestEventVocabularyUnchanged:
         fix_threads = [t for (_a, t) in calls if ":fix" in t]
         assert fix_threads, f"the regression must trigger an internal fix; calls={calls}"
 
-        # ── …but the UI saw exactly ONE revision agent: one agent_start /
-        #    one agent_complete, NOT two (the fix must not emit a second pair). ──
+        # ── …the UI now sees TWO declared agents: the revision agent (index 0)
+        #    and the new validation agent (index 1, KAN-108). The INTERNAL fix
+        #    sub-agent (":fix" thread) must still NOT emit a third agent_start. ──
         counts = Counter(e["type"] for e in events)
-        assert counts["agent_start"] == 1, (
-            f"the internal fix must NOT emit a second agent_start; counts={dict(counts)}"
+        assert counts["agent_start"] == 2, (
+            f"must see exactly 2 agent_starts (revision + validation); counts={dict(counts)}"
         )
-        assert counts["agent_complete"] == 1, (
-            f"the internal fix must NOT emit a second agent_complete; counts={dict(counts)}"
+        assert counts["agent_complete"] == 2, (
+            f"must see exactly 2 agent_completes (revision + validation); counts={dict(counts)}"
         )
 
         # ── The fix's edit_file tool call is INTERNAL — not in the visible stream. ──
-        # The visible revision made exactly ONE edit_file (introduce the ghost
-        # route); the fix's edit_file (remove it) must NOT reach the caller.
+        # The visible revision made ONE edit_file (introduce the ghost route); the
+        # fix's edit_file (remove it) must NOT reach the caller. The validation agent
+        # (prototype-revision-validate, KAN-108) is a DECLARED step and its tool_call
+        # events ARE in the visible stream — so we now expect 2 visible edit_file calls
+        # (one per declared agent), NOT the fix's third internal edit_file.
         visible_tool_calls = [e["data"]["tool"] for e in events if e["type"] == "tool_call"]
-        assert visible_tool_calls.count("edit_file") == 1, (
-            f"only the visible revision's edit should appear; the fix's edit must be "
-            f"internal; got tool_calls={visible_tool_calls}"
+        assert visible_tool_calls.count("edit_file") == 2, (
+            f"the two declared agents' edits appear in the stream; the fix's edit must "
+            f"be internal; got tool_calls={visible_tool_calls}"
         )
-        # And there is exactly ONE agent_start for the single revision agent id.
+        # The declared agent_starts are the two pipeline steps (revision + validate).
         starts = [e["data"]["agent_id"] for e in events if e["type"] == "agent_start"]
-        assert starts == ["prototype-revision-agent"], (
-            f"the UI must see ONE revision agent (no phantom fix agent); got {starts}"
+        assert starts == ["prototype-revision-agent", "prototype-revision-validate"], (
+            f"the UI must see the revision agent then the validation agent (KAN-108); "
+            f"got {starts}"
         )

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codebase Map — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="codebase-map">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Codebase Map</b></div>
+      <div class="spacer"></div>
+      <span class="tag">annotated tree</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Platform</div>
+        <h1>Codebase Map</h1>
+        <p>The repository splits into <code>backend/</code> (Python), <code>frontend/</code> (Next.js), <code>infra/</code> (Terraform), <code>skills/</code> + <code>specs/</code> + <code>docs/</code> (content &amp; specs), and <code>.planning/</code> (the 22-phase history). Annotated below.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> A quick tour of where things live so you know which door to open. The backend is two Python packages — <code>app</code> (the web/IO layer) and <code>agents</code> (the runtime + config). The frontend is a Next.js app, and <code>infra</code> is the Terraform. The single most important rule is that <code>agents</code>' inner layers are forbidden from importing <code>app</code> — that one-way arrow is the whole architecture in one line.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>An annotated map of the repository's folders and their responsibilities.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To orient you before diving into a file, and to make the layer boundaries visible.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p><code>backend/</code> = <code>app</code> + <code>agents</code>; <code>frontend/</code> = Next.js; <code>infra/</code> = Terraform; import-linter enforces the inner-layer boundaries.</p></div>
+        </div>
+      </div>
+
+      <h3>Repository root</h3>
+      <pre class="tree"><span class="d">flowin/</span>
+&#9500;&#9472; <span class="d">backend/</span>              <span class="c"># FastAPI + the agent runtime (Python 3.12+)</span>
+&#9500;&#9472; <span class="d">frontend/</span>             <span class="c"># Next.js 16 / React 19 dashboard</span>
+&#9500;&#9472; <span class="d">infra/</span>                <span class="c"># Terraform (AWS single-EC2) + buildspec + on-host scripts</span>
+&#9500;&#9472; <span class="d">skills/</span>               <span class="c"># ecc &middot; gsd &middot; opendesign &middot; superpowers (agent skill libraries)</span>
+&#9500;&#9472; <span class="d">specs/</span>                <span class="c"># 001-ai-workflow-os &middot; 002-deepagents-migration &middot; 003-workflow-engine-decoupling</span>
+&#9500;&#9472; <span class="d">docs/</span>                 <span class="c"># WORKFLOWS &middot; FLOWIN_HANDOFF &middot; deployment &middot; infra-audit</span>
+&#9500;&#9472; <span class="d">.planning/</span>            <span class="c"># GSD phase history + IMPLEMENTATION/ISSUES registers</span>
+&#9500;&#9472; <span class="f">docker-compose.yml</span>    <span class="c"># velocityai stack (backend + frontend)</span>
+&#9492;&#9472; <span class="f">.checkov.yaml &middot; .gitleaks.toml &middot; .trivyignore &middot; .pre-commit-config.yaml</span></pre>
+
+      <h3>backend/</h3>
+      <pre class="tree"><span class="d">backend/</span>
+&#9500;&#9472; <span class="d">agents/</span>                          <span class="c"># the workflow-agnostic runtime + config</span>
+&#9474;   &#9500;&#9472; <span class="d">execution_engine/</span>            <span class="k"># THE KERNEL</span>
+&#9474;   &#9474;   &#9500;&#9472; <span class="f">engine.py</span>                <span class="c"># ExecutionEngine — the sequencer</span>
+&#9474;   &#9474;   &#9500;&#9472; <span class="f">context.py</span>               <span class="c"># per-run ExecutionContext (INV-2)</span>
+&#9474;   &#9474;   &#9492;&#9472; <span class="f">resolver &middot; state_machine &middot; budget &middot; kernel_services &middot; clarify_engine &middot; fanout</span>
+&#9474;   &#9500;&#9472; <span class="d">workflows/</span>                   <span class="k"># DECLARATION LAYER (inner)</span>
+&#9474;   &#9474;   &#9500;&#9472; <span class="f">manifest.py &middot; compiler.py &middot; plan.py</span>
+&#9474;   &#9474;   &#9492;&#9472; <span class="d">user_stories/ ppt/ prototype/ app_builder/ &hellip;</span>  <span class="c"># 14+ workflow.yaml dirs</span>
+&#9474;   &#9500;&#9472; <span class="d">capabilities/</span>                <span class="k"># PORTS + REGISTRY + ~64 plug-ins</span>
+&#9474;   &#9474;   &#9500;&#9472; <span class="f">base.py</span>                  <span class="c"># 14 Protocol ports</span>
+&#9474;   &#9474;   &#9500;&#9472; <span class="f">registry.py</span>              <span class="c"># @register + discover() + CapabilityRegistry</span>
+&#9474;   &#9474;   &#9492;&#9472; <span class="d">strategies/ validators/ deliverables/ gates/ hooks/ tools/ &hellip;</span>
+&#9474;   &#9500;&#9472; <span class="f">factory.py</span>                   <span class="c"># create_runner() — prompt + tool composition</span>
+&#9474;   &#9500;&#9472; <span class="f">registry.py</span>                  <span class="c"># PIPELINE_AGENTS (membership/order)</span>
+&#9474;   &#9500;&#9472; <span class="f">loader.py</span>                    <span class="c"># AGENT.md &#8594; AgentSpec</span>
+&#9474;   &#9500;&#9472; <span class="d">prompts/</span>                     <span class="c"># ~80 agent folders (AGENT.md each)</span>
+&#9474;   &#9492;&#9472; <span class="d">guardrails/</span>                  <span class="c"># 9 injectable rule files</span>
+&#9500;&#9472; <span class="d">app/</span>                             <span class="c"># the web + IO layer</span>
+&#9474;   &#9500;&#9472; <span class="f">main.py</span>                      <span class="c"># FastAPI app + lifespan</span>
+&#9474;   &#9500;&#9472; <span class="d">api/</span>                         <span class="c"># 18 routers + websocket.py</span>
+&#9474;   &#9500;&#9472; <span class="d">core/</span>                        <span class="c"># config &middot; security &middot; crypto &middot; dependencies &middot; entitlements</span>
+&#9474;   &#9500;&#9472; <span class="d">agents/</span>                      <span class="c"># DeepAgentRunner &middot; model_factory &middot; sandbox &middot; checkpointer &middot; chat_runner</span>
+&#9474;   &#9500;&#9472; <span class="d">models/</span>                      <span class="c"># SQLAlchemy models (23 files)</span>
+&#9474;   &#9492;&#9472; <span class="d">services/</span>                    <span class="c"># pptx_export &middot; od_loader &middot; handoff_*</span>
+&#9500;&#9472; <span class="d">alembic/</span>                         <span class="c"># migrations 0014&#8594;0022 (additive)</span>
+&#9500;&#9472; <span class="d">tests/</span>                           <span class="c"># agents/ unit/ integration/ properties/ fixtures/</span>
+&#9492;&#9472; <span class="f">Dockerfile &middot; pyproject.toml &middot; CLAUDE.md</span></pre>
+
+      <h3>frontend/ &amp; infra/</h3>
+      <pre class="tree"><span class="d">frontend/src/</span>
+&#9500;&#9472; <span class="d">app/</span>          <span class="c"># App Router: / login register dashboard workflow handoff admin</span>
+&#9500;&#9472; <span class="d">components/</span>   <span class="c"># layout &middot; workflow &middot; preview &middot; results &middot; chat &middot; catalog &middot; handoff &middot; &hellip;</span>
+&#9500;&#9472; <span class="d">hooks/</span>        <span class="c"># useWebSocket &middot; useWorkflow &middot; &hellip;</span>
+&#9500;&#9472; <span class="d">lib/</span>          <span class="c"># api &middot; env &middot; wsReplayState &middot; workflowChaining &middot; exporters &middot; parsers</span>
+&#9492;&#9472; <span class="d">types/</span>        <span class="c"># index.ts — StreamMessage + shared types</span>
+
+<span class="d">infra/terraform/</span>
+&#9500;&#9472; <span class="d">bootstrap/ shared/ foundation/ app/</span>   <span class="c"># the 4 apply layers</span>
+&#9500;&#9472; <span class="d">modules/</span>                            <span class="c"># account_guard compute dns ecr iam kms monitoring network &hellip;</span>
+&#9492;&#9472; <span class="d">policies/ localstack/</span></pre>
+
+      <div class="callout"><div class="t">&#128193; Two top-level Python packages</div><p>The backend imports two sibling packages: <code>app</code> (web/IO) and <code>agents</code> (runtime + config). The import-linter contracts keep <code>agents</code>' inner layers from importing <code>app</code> — that one-way rule is the whole hexagonal guarantee. See <a href="architecture.html">Architecture</a>.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Codebase Map</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Entry: app/main.py", b:"app", d:"FastAPI registers routers + WS and calls into the kernel — the only downward dependency."},
+  {t:"Kernel: agents/execution_engine", b:"agents", bc:"b-cyan", d:"Sequences the run. Imports the declaration + capability layers, never app.api."},
+  {t:"Declaration: agents/workflows", b:"inner", bc:"b-violet", d:"Manifests + compiler + typed plan. Imports only stdlib + itself + the registry."},
+  {t:"Capabilities: agents/capabilities", b:"inner", bc:"b-violet", d:"Ports + registry + plug-ins. The kernel resolves these by name."},
+  {t:"Runtime: agents/factory + app/agents", b:"composition root", bc:"b-green", d:"Builds the deepagents runner; the only place allowed to import both app and the model libs."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

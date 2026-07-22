@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Check, Upload, X, ExternalLink, Presentation } from "lucide-react";
-import { getPPTTemplatePreviewUrl, type PPTTemplate } from "@/lib/ppt-api";
+import { getPPTTemplatePreviewUrl, getPPTTemplateThumbnailUrl, type PPTTemplate } from "@/lib/ppt-api";
 import {
   CustomTemplateModal,
   loadCustomTemplates,
@@ -246,12 +246,24 @@ function CustomTemplateCard({ ct, selected, onSelect, onDelete }: {
 
 // ── Compact card ──────────────────────────────────────────────────────────
 
+// A thumbnail 429 is transient (per-origin connection burst when the grid
+// paints), so retry once after a short delay before degrading to the heavier
+// live iframe. Mirrors CompactTemplateCard in the prototype gallery.
+const MAX_THUMBNAIL_RETRIES = 1;
+const THUMBNAIL_RETRY_DELAY_MS = 800;
+
 function CompactPPTCard({ template, selected, onOpenDetail }: {
   template: PPTTemplate; selected: boolean; onOpenDetail: () => void;
 }) {
   const cardRef = useRef<HTMLButtonElement>(null);
   const [shouldMount, setShouldMount] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
+  // See TemplateCard: `has_thumbnail` can be stale or the file can 404/429 at
+  // request time. On <img> error, retry once then fall through to the
+  // live-iframe fallback.
+  const [thumbnailError, setThumbnailError] = useState(false);
+  const [thumbnailRetry, setThumbnailRetry] = useState(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const node = cardRef.current;
@@ -264,7 +276,21 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
     return () => observer.disconnect();
   }, []);
 
+  // Cancel any pending thumbnail retry if the card unmounts mid-backoff.
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, []);
+
   const previewUrl = template.has_preview ? getPPTTemplatePreviewUrl(template.id) : null;
+  // Only use the thumbnail while it hasn't errored (404 / 429 / load failure).
+  // After a transient failure we append a `retry` query param to force the
+  // browser to re-request rather than reuse the failed/cached response.
+  const thumbnailUrl =
+    template.has_thumbnail && !thumbnailError
+      ? `${getPPTTemplateThumbnailUrl(template.id)}${thumbnailRetry > 0 ? `?retry=${thumbnailRetry}` : ""}`
+      : null;
 
   return (
     <button ref={cardRef} type="button" onClick={onOpenDetail}
@@ -280,11 +306,49 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
           We render the iframe at 800×450 (16:9) and scale it down to fit
           the 130px-wide card at ~80px height. */}
       <div className="relative overflow-hidden bg-gray-50" style={{ height: "80px" }}>
-        {previewUrl && shouldMount ? (
+        {thumbnailUrl && shouldMount ? (
+          // Pre-rendered screenshot — one cheap <img> load instead of a full
+          // iframe document render. Falls back to the sandboxed (allow-scripts) iframe below.
           <>
             {!previewLoaded && (
               <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
             )}
+            {/* eslint-disable-next-line @next/next/no-img-element -- static same-origin thumbnail; next/image optimization + remotePatterns are unwanted overhead here */}
+            <img
+              src={thumbnailUrl}
+              alt={template.name}
+              loading="lazy"
+              onLoad={() => setPreviewLoaded(true)}
+              onError={() => {
+                if (thumbnailRetry < MAX_THUMBNAIL_RETRIES) {
+                  // Likely a transient 429 from the request burst — retry once
+                  // after a short delay (bumps the `retry` query param to force
+                  // a fresh request) before degrading to the iframe.
+                  if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+                  retryTimerRef.current = setTimeout(() => {
+                    setPreviewLoaded(false);
+                    setThumbnailRetry((n) => n + 1);
+                  }, THUMBNAIL_RETRY_DELAY_MS);
+                } else {
+                  // Still failing after the retry — degrade to the live iframe below.
+                  setThumbnailError(true);
+                  setShouldMount(true);
+                  setPreviewLoaded(false);
+                }
+              }}
+              className="h-full w-full object-cover object-top"
+              style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 200ms ease-out" }}
+            />
+          </>
+        ) : previewUrl && shouldMount ? (
+          <>
+            {!previewLoaded && (
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+            )}
+            {/* Fallback when no pre-rendered thumbnail exists yet: render the
+                template's example.html live (HTML + JS) in a sandboxed iframe,
+                scaled down. Heavier than the <img>, but only hit until the
+                build-time thumbnail is generated. */}
             <iframe
               src={previewUrl}
               title={template.name}
@@ -303,7 +367,7 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
               }}
             />
           </>
-        ) : previewUrl ? (
+        ) : previewUrl || thumbnailUrl ? (
           <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
         ) : (
           <div className="flex h-full items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">

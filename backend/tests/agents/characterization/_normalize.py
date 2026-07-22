@@ -138,6 +138,34 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # event goldens byte-identical (INV-3).
         "deliverable_mimetype",
         "deliverable_filename",
+        # ── Additive-but-parity-neutral review_gate_ready key (REDO-GATE F1b) ────
+        # The engine now stamps a generic ``redoable`` discriminator on every
+        # ``review_gate_ready`` (True from the inline call site, False from the
+        # declared path). It is metadata-only (the FE renders the Redo button iff
+        # set) and NOT in _REQUIRED_DATA_KEYS, so it is STRIPPED here — mirroring the
+        # deliverable_mimetype/deliverable_filename precedent — keeping the 5
+        # characterization event goldens byte-identical (INV-3).
+        "redoable",
+        # ── Additive-but-parity-neutral prompt-cache keys (ISS-032 / FIX-036) ────
+        # The runner now surfaces the Bedrock prompt-cache split
+        # (input_token_details.cache_read/cache_creation) → the engine threads it
+        # onto agent_complete (``cache_read_tokens``/``cache_write_tokens``) and the
+        # run totals onto pipeline_complete (``total_cache_read_tokens``/
+        # ``total_cache_write_tokens``). Under the SCRIPTED characterization model
+        # there is no input_token_details, so every key is 0 — but they are
+        # additive metadata NOT in _REQUIRED_DATA_KEYS, so they are STRIPPED here
+        # (mirroring the deliverable_mimetype/redoable precedent) to keep the 5
+        # characterization event goldens byte-identical (INV-3).
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "total_cache_read_tokens",
+        "total_cache_write_tokens",
+        # ── Additive-but-parity-neutral image_count key (image-input Wave 1 / edw) ──
+        # The engine stamps ``image_count`` on ``agent_input`` ONLY when image blocks
+        # ride the dispatch (>0). No workflow opts in this wave, so it is NEVER emitted
+        # — this strip is belt-and-suspenders (metadata-only, NOT in _REQUIRED_DATA_KEYS)
+        # so the 5 characterization event goldens stay byte-identical (INV-3).
+        "image_count",
     }
 )
 

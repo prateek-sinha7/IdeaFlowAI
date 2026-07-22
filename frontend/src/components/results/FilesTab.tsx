@@ -1,15 +1,17 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   Download, FileText, Presentation, Layout, Code, Package,
   BookOpen, Settings, Shield, Palette, Database, TestTube,
-  GitBranch, Server, FileCode,
+  GitBranch, Server, FileCode, ChevronDown,
 } from "lucide-react";
 import { exportUserStories } from "@/lib/exporters/storyExporter";
 import { ENV } from "@/lib/env";
-import type { WorkflowType, GenericDeliverable } from "@/types/index";
+import { parseRunInput } from "@/lib/runInput";
+import { renderClarificationsMarkdown } from "@/lib/clarifications";
+import type { WorkflowType, GenericDeliverable, ClarifyRound } from "@/types/index";
 
 interface FilesTabProps {
   workflowType: WorkflowType;
@@ -26,6 +28,62 @@ interface FilesTabProps {
   // (using the resolved mimetype + filename), keeping the per-agent .md outputs
   // grouped as "Agent outputs". Dispatch on mimetype, never a workflow name.
   genericDeliverable?: GenericDeliverable;
+  // Revision Families (B3 / POR §5 D6) — the immediately-prior version's run id
+  // (the active member's parent_run_id) and its 1-based version number. When
+  // parentRunId is non-null a collapsed "From v{n-1}" base-version section
+  // renders and lazily fetches the parent's files on first expand. BOTH optional
+  // and default undefined → a non-revision run shows NO such section (zero
+  // regression for existing renders that pass neither).
+  parentRunId?: string | null;
+  parentVersionNumber?: number;
+  // Workstream C2 (POR §5 D7) — "Run input" section. The raw run input (parsed
+  // via C1 parseRunInput → prompt.md) and the answered clarify rounds (rendered
+  // via renderClarificationsMarkdown → clarifications.md). BOTH optional and
+  // default-undefined → a call site that threads neither shows NO "Run input"
+  // section (zero regression). Type-agnostic (SC-001 — no workflowType branch).
+  runInput?: string;
+  clarifications?: ClarifyRound[];
+}
+
+// ─── Workstream C2 (POR §5 D7) — "Run input" file rows (module-level pure) ─────
+// Derives prompt.md (the parsed revision instruction OR the brief — whichever the
+// input parses to; present whenever non-empty) + clarifications.md (rendered Q&A
+// markdown, present ONLY when rounds exist). parseRunInput is called ONCE and the
+// primary row dispatches purely on parsed shape (revisionInstruction wins for
+// revision runs, brief for originals — mirrors StartingPointCard.isRevision), so
+// the filename stays prompt.md for BOTH original and revision runs. Both are plain
+// text/markdown FileItems that fall into the default downloadBlob branch — no new
+// download code, no special-cased id. Type-agnostic: no workflowType branch.
+function runInputFileRows(runInput?: string, clarifications?: ClarifyRound[]): FileItem[] {
+  const rows: FileItem[] = [];
+  const parsed = parseRunInput(runInput ?? "");
+  const primary = parsed.revisionInstruction || parsed.brief;
+  if (primary) {
+    rows.push({
+      id: "run-input-prompt",
+      name: "prompt.md",
+      type: "Run input",
+      icon: FileText,
+      format: "Markdown (.md)",
+      content: primary,
+      mimeType: "text/markdown",
+      size: formatSize(primary.length),
+    });
+  }
+  if (clarifications?.length) {
+    const md = renderClarificationsMarkdown(clarifications);
+    rows.push({
+      id: "run-input-clarifications",
+      name: "clarifications.md",
+      type: "Run input",
+      icon: FileText,
+      format: "Markdown (.md)",
+      content: md,
+      mimeType: "text/markdown",
+      size: formatSize(md.length),
+    });
+  }
+  return rows;
 }
 
 // ─── ISS-021 (18-03) — mimetype → file metadata for the generic deliverable row ──
@@ -159,8 +217,102 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
   );
 }
 
-export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable }: FilesTabProps) {
+// ─── deriveDeliverableFiles — module-level pure helper (B3 / POR §5 D6) ───────
+// The per-type single-deliverable file rows (user_stories, custom, ppt,
+// prototype) extracted VERBATIM from the FilesTab body so the base-version
+// section can reuse the SAME derivation for the parent run (INV-12 net-negative:
+// these branches are DELETED from the body, not copied). The app_builder ZIP
+// special-case + the generic-deliverable row stay in the body (they need
+// agentOutputs/JSZip and are out of scope for the base-version reference).
+// `content` routes into the slot the workflowType self-selects; behaviour is
+// byte-identical to the pre-extraction body for any single run (the branches are
+// mutually exclusive by workflowType).
+function deriveDeliverableFiles(
+  workflowType: string,
+  content: { userStoryContent?: string; pptContent?: string; prototypeContent?: string },
+): FileItem[] {
+  const files: FileItem[] = [];
+  const { userStoryContent, pptContent, prototypeContent } = content;
+
+  // ── User Stories ──────────────────────────────────────────────────────────
+  if ((workflowType === "user_stories" || workflowType === "user_stories_revision") && userStoryContent) {
+    let name = "user-stories";
+    const h = userStoryContent.match(/^#\s+(.+)/m);
+    if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    files.push({ id: "user-stories-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
+  }
+
+  // ── Custom ────────────────────────────────────────────────────────────────
+  if (workflowType === "custom" && userStoryContent) {
+    let name = "custom-output";
+    const h = userStoryContent.match(/^#\s+(.+)/m);
+    if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    files.push({ id: "custom-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
+  }
+
+  // ── PPT ───────────────────────────────────────────────────────────────────
+  if ((workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision") && pptContent) {
+    let name = "presentation";
+    const t = pptContent.match(/<title>([^<]+)<\/title>/i);
+    const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    if (t && t[1] !== "Presentation") name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    else if (h1) name = h1[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    // od_ppt produces HTML decks — offer HTML download; old ppt also offers PPTX
+    if (workflowType === "od_ppt" || workflowType === "od_ppt_revision") {
+      files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
+    } else {
+      files.push({ id: "presentation-pptx", name: `${name}.pptx`, type: "PowerPoint", icon: Presentation, size: "~", format: "PowerPoint (.pptx)", content: pptContent, mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+      files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
+    }
+  }
+
+  // ── Prototype ─────────────────────────────────────────────────────────────
+  if ((workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "od_prototype") && prototypeContent) {
+    let name = "prototype";
+    const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
+    if (t) name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    files.push({ id: "prototype-html", name: `${name}.html`, type: "HTML Prototype", icon: Layout, size: formatSize(prototypeContent.length), format: "HTML (.html)", content: prototypeContent, mimeType: "text/html" });
+  }
+
+  return files;
+}
+
+export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, parentRunId, parentVersionNumber, runInput, clarifications }: FilesTabProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  // ─── B3 (POR §5 D6) — base-version "From v{n-1}" section state ────────────────
+  // Collapsed by default; the parent run's files are fetched LAZILY on first
+  // expand (never while collapsed) and cached. baseFetched guards the fetch to
+  // run at most once.
+  const [baseOpen, setBaseOpen] = useState(false);
+  const [baseLoading, setBaseLoading] = useState(false);
+  const [baseFiles, setBaseFiles] = useState<FileItem[] | null>(null);
+  const baseFetched = useRef(false);
+
+  const handleToggleBase = useCallback(async () => {
+    const next = !baseOpen;
+    setBaseOpen(next);
+    if (next && !baseFetched.current && parentRunId) {
+      baseFetched.current = true;
+      setBaseLoading(true);
+      try {
+        // Reuse the existing dynamic-import idiom (FilesTab.tsx handleDownload).
+        const { getWorkflow, getToken } = await import("@/lib/api");
+        const parentRun = await getWorkflow(getToken() || "", parentRunId);
+        // Route the parent .output into every slot — deriveDeliverableFiles
+        // self-selects by parentRun.type.
+        const rows = deriveDeliverableFiles(parentRun.type, {
+          userStoryContent: parentRun.output,
+          pptContent: parentRun.output,
+          prototypeContent: parentRun.output,
+        });
+        setBaseFiles(rows);
+      } catch {
+        setBaseFiles([]);
+      } finally {
+        setBaseLoading(false);
+      }
+    }
+  }, [baseOpen, parentRunId]);
 
   // ── App Builder: split agent outputs into docs + code files (memoized) ───
   const { appBuilderDocFiles, appBuilderCodeFiles } = useMemo(() => {
@@ -217,15 +369,10 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
 
   const files: FileItem[] = [];
 
-  // ── User Stories ──────────────────────────────────────────────────────────
-  if ((workflowType === "user_stories" || workflowType === "user_stories_revision") && userStoryContent) {
-    let name = "user-stories";
-    const h = userStoryContent.match(/^#\s+(.+)/m);
-    if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    files.push({ id: "user-stories-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
-  }
-
   // ── App Builder final output: ZIP of all code files ───────────────────────
+  // Stays in the body — needs appBuilderCodeFiles + JSZip. Runs FIRST on the
+  // empty files array; mutually exclusive with the helper-derived single
+  // deliverables below (byte-identical to the pre-extraction ordering).
   if ((workflowType === "app_builder" || workflowType === "app_builder_revision") && userStoryContent) {
     // Also parse the final compiled output for any code files not caught by agent outputs
     const finalCodeFiles = parseAppBuilderFiles(userStoryContent);
@@ -259,37 +406,11 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     }
   }
 
-  // ── Custom ────────────────────────────────────────────────────────────────
-  if (workflowType === "custom" && userStoryContent) {
-    let name = "custom-output";
-    const h = userStoryContent.match(/^#\s+(.+)/m);
-    if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    files.push({ id: "custom-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
-  }
-
-  // ── PPT ───────────────────────────────────────────────────────────────────
-  if ((workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision") && pptContent) {
-    let name = "presentation";
-    const t = pptContent.match(/<title>([^<]+)<\/title>/i);
-    const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-    if (t && t[1] !== "Presentation") name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    else if (h1) name = h1[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    // od_ppt produces HTML decks — offer HTML download; old ppt also offers PPTX
-    if (workflowType === "od_ppt" || workflowType === "od_ppt_revision") {
-      files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
-    } else {
-      files.push({ id: "presentation-pptx", name: `${name}.pptx`, type: "PowerPoint", icon: Presentation, size: "~", format: "PowerPoint (.pptx)", content: pptContent, mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
-      files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
-    }
-  }
-
-  // ── Prototype ─────────────────────────────────────────────────────────────
-  if ((workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "od_prototype") && prototypeContent) {
-    let name = "prototype";
-    const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
-    if (t) name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    files.push({ id: "prototype-html", name: `${name}.html`, type: "HTML Prototype", icon: Layout, size: formatSize(prototypeContent.length), format: "HTML (.html)", content: prototypeContent, mimeType: "text/html" });
-  }
+  // ── Single-deliverable current-run rows (user_stories/custom/ppt/prototype) ─
+  // Extracted to the module-level deriveDeliverableFiles helper (INV-12
+  // net-negative). Mutually exclusive with the app_builder branch above, so the
+  // resulting files array is byte-identical to the pre-extraction body.
+  files.push(...deriveDeliverableFiles(workflowType, { userStoryContent, pptContent, prototypeContent }));
 
   // ── ISS-021 (18-03) — generic deliverable row ─────────────────────────────
   // ONE row for any pipeline_type that matched no known branch above. Reuses
@@ -396,7 +517,10 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   }, [userStoryContent, pptContent, appBuilderCodeFiles, appBuilderDocFiles]);
 
   const isAppBuilder = workflowType === "app_builder" || workflowType === "app_builder_revision";
-  const totalCount = files.length + appBuilderDocFiles.length + appBuilderCodeFiles.length + genericAgentFiles.length;
+  // Workstream C2 (POR §5 D7) — the "Run input" rows; counted in totalCount so the
+  // "{N} files available" header stays truthful, and included in "Download All".
+  const runInputRows = runInputFileRows(runInput, clarifications);
+  const totalCount = files.length + appBuilderDocFiles.length + appBuilderCodeFiles.length + genericAgentFiles.length + runInputRows.length;
 
   if (totalCount === 0) {
     return (
@@ -443,6 +567,46 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     );
   };
 
+  // ─── B3 (POR §5 D6) — base-version "From v{n-1}" collapsed section ───────────
+  // Rendered at the END of both layout branches when parentRunId is truthy.
+  // Header clones the plain uppercase SectionHeader label variant (FilesTab.tsx
+  // :506,514 — UI-SPEC Surface 4 accepts it); the collapse affordance is a
+  // controlled button with a controlled chevron rotate (NOT group-open, which
+  // only fires inside a native <details> — the B2 W2 lesson). aria-busy marks
+  // the section while the lazy fetch is in flight.
+  const baseLabel = `From v${parentVersionNumber ?? "previous"}`;
+  const baseAriaLabel = `From version ${parentVersionNumber ?? "previous"}`;
+  const baseVersionSection = parentRunId ? (
+    <div className="mt-5" aria-busy={baseLoading}>
+      <button
+        onClick={handleToggleBase}
+        aria-expanded={baseOpen}
+        aria-label={baseAriaLabel}
+        className="w-full flex items-center justify-between mb-2 hover:bg-gray-50 rounded transition-colors"
+      >
+        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{baseLabel}</span>
+        <ChevronDown aria-hidden className={`h-3.5 w-3.5 text-gray-400 transition-transform ${baseOpen ? "rotate-180" : ""}`} />
+      </button>
+      {baseOpen && (
+        <div className="space-y-2">
+          {baseLoading ? (
+            <div className="flex items-center gap-2 px-1 py-2">
+              <span className="h-3.5 w-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+              <span className="text-[10px] text-gray-400">Loading base version…</span>
+            </div>
+          ) : baseFiles && baseFiles.length > 0 ? (
+            <>
+              {baseFiles.map((f, i) => renderFileRow(f, i))}
+              <p className="text-[10px] text-gray-400">Files from the previous version this revision was based on.</p>
+            </>
+          ) : (
+            <p className="text-[10px] text-gray-400">No files in the base version.</p>
+          )}
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className="px-5 py-4 h-full overflow-y-auto" style={{ background: "#f5f5f0" }}>
       {/* Header row */}
@@ -450,7 +614,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         <span className="text-[11px] text-gray-500 font-medium">{totalCount} file{totalCount !== 1 ? "s" : ""} available</span>
         <button
           onClick={() => {
-            const all = [...files, ...(isAppBuilder ? appBuilderDocFiles : []), ...(isAppBuilder ? appBuilderCodeFiles : genericAgentFiles)];
+            const all = [...runInputRows, ...files, ...(isAppBuilder ? appBuilderDocFiles : []), ...(isAppBuilder ? appBuilderCodeFiles : genericAgentFiles)];
             all.forEach((file, i) => setTimeout(() => handleDownload(file), i * 150));
           }}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 transition-all"
@@ -459,6 +623,17 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
           Download All
         </button>
       </div>
+
+      {/* ── Workstream C2 (POR §5 D7) — "Run input" section ────────────────────
+          FIRST content section (the run's input precedes its outputs), same
+          plain uppercase label idiom as "Agent outputs" (:619,627). Rows go
+          through the SAME renderFileRow; type-agnostic (no workflowType branch). */}
+      {runInputRows.length > 0 && (
+        <div className="mb-5">
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Run input</p>
+          <div className="space-y-2">{runInputRows.map((f, i) => renderFileRow(f, i))}</div>
+        </div>
+      )}
 
       {/* ── App Builder layout ─────────────────────────────────────────────── */}
       {isAppBuilder ? (
@@ -496,6 +671,8 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
               </div>
             </>
           )}
+
+          {baseVersionSection}
         </>
       ) : (
         /* ── Non-app-builder layout ─────────────────────────────────────── */
@@ -522,6 +699,8 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
               </div>
             </>
           )}
+
+          {baseVersionSection}
         </>
       )}
     </div>

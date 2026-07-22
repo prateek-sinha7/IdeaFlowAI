@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Presentations (PPT) — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="pipeline-ppt">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Presentations</b></div>
+      <div class="spacer"></div>
+      <span class="tag">3 agents &middot; ppt</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Product feature &middot; pipeline</div>
+        <h1>Presentations (PPT)</h1>
+        <p>Composes an executive slide deck from a brief, against an <b>OpenDesign</b> template + design system, and exports it. This is the "OpenDesign PPT" (<code>od_ppt</code>) pipeline — the agents are shared by both the <code>ppt</code> and <code>od_ppt</code> ids.</p>
+        <div class="kv"><span><b>Pipeline id:</b> ppt / od_ppt</span><span><b>Agents:</b> 3</span><span><b>Deliverable:</b> ppt</span><span><b>Injects:</b> template, design_system, craft</span></div>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Describe the deck you want and three agents compose it — not as generic slides, but against a real design system so the colors, fonts, and spacing are on-brand. The result can be exported to a genuine PowerPoint file.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A 3-agent presentation pipeline (the OpenDesign "od_ppt" flow) that produces an executive slide deck.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To generate polished, on-brand decks quickly, using a chosen template + design system rather than default styling.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>analyze the brief &#8594; compose against injected template / design-system / craft content &#8594; validate + re-emit the deck &#8594; export to <code>.pptx</code>.</p></div>
+        </div>
+      </div>
+
+      <h3>The 3 agents, in order</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>OpenDesign injection</h3>
+      <p class="muted">The PPT agents declare <code>injects: [template, design_system, craft]</code>. The engine loads that content (via the <code>opendesign</code> context provider + <code>od_loader</code>) and composes it into the system prompt before the agent body, so every color, font, and spacing value comes from the chosen design system's tokens.</p>
+      <div class="grid g3">
+        <div class="card"><h4>Template</h4><p class="lead">A SKILL.md-style workflow describing the deck structure (from <code>skills/opendesign</code>, baked to <code>/app/opendesign</code>).</p></div>
+        <div class="card"><h4>Design system</h4><p class="lead">Color/font/spacing tokens the composer must use verbatim.</p></div>
+        <div class="card"><h4>Craft rules</h4><p class="lead">Template-specific quality rules injected as a block.</p></div>
+      </div>
+
+      <h3>Export to .pptx</h3>
+      <div class="callout"><div class="t">&#128202; Deliverable</div><p>The deck is produced by the <code>ppt</code> deliverable resolver and rendered in <code>PPTPreview</code>. Export to a real <code>.pptx</code> is done via <code>pptxgenjs</code> — client-side in the browser, and server-side through <code>app/services/pptx_export.py</code> (which spawns <code>node</code> + pptxgenjs, baked into the backend image).</p></div>
+
+      <h3>The manifest, verbatim</h3>
+      <p class="muted"><code>ppt/workflow.yaml</code>. Note the source comment: the <code>ppt</code> and <code>od_ppt</code> agents physically declare <code>pipeline_type: od_ppt</code> (they're shared), so this manifest's step list is sourced from <code>PIPELINE_AGENTS["ppt"]</code>, not from scanning agent frontmatter for a matching id — a subtlety worth knowing if you ever go looking for "ppt" in an AGENT.md file and don't find it.</p>
+      <div class="grid g2">
+        <div class="card"><h4>Launch surface: wizard</h4><p class="lead">Unlike most pipelines, <code>ppt</code> declares <code>launch_surface: "wizard"</code> — pure catalog-presentation metadata (Phase 20) telling the frontend to launch this workflow through the guided wizard flow rather than the default composer. Never read by the compiler or kernel.</p></div>
+        <div class="card"><h4>8 clarify defaults</h4><p class="lead">Widened from 4 (KAN-74) to also cover <code>content_depth</code>, <code>data_availability</code>, <code>visual_style</code>, <code>key_sections</code> — the dimensions that most affect whether a generated deck actually matches what the requester had in mind.</p></div>
+      </div>
+
+      <h3>Revision</h3>
+      <p class="muted">Two revision paths exist: <code>ppt_revision</code> (2 agents: ppt-revision-agent + ppt-revision-assembler) and <code>od_ppt_revision</code> (1 agent). See <a href="feature-revisions.html">Revisions</a>.</p>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Presentations (PPT)</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"od-ppt-brief-analyst", b:"1", d:"Reads the brief + clarify answers + the injected template/design-system, and produces the deck outline (slide plan)."},
+  {t:"od-ppt-composer", b:"2", d:"Composes the full deck HTML against the design-system tokens and craft rules, slide by slide."},
+  {t:"od-ppt-validator", b:"3", bc:"b-green", d:"Validates the deck and re-emits the final deck as the deliverable (a Phase-15 output contract ensures it returns the deck, not QA narration)."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

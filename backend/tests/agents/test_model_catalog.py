@@ -39,6 +39,7 @@ _FIELDS = {
     "provider",
     "context_window",
     "user_allowed",
+    "vision",
 }
 
 
@@ -56,6 +57,9 @@ def test_catalog_lists_five_fully_fielded_entries() -> None:
         assert isinstance(entry.label, str) and entry.label
         assert isinstance(entry.description, str) and entry.description
         assert isinstance(entry.context_window, int) and entry.context_window > 0
+        # Every catalog model (Claude 4.5/4.6) is vision-capable (IMAGE-INPUT §3
+        # Layer 5) — vision gates image input at ingress.
+        assert entry.vision is True, f"{entry.id} must be vision-capable"
 
 
 # --- Test 2: ids / get / is_allowed -----------------------------------------

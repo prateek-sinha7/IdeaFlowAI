@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revisions — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-revisions">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Revisions</b></div>
+      <div class="spacer"></div>
+      <span class="tag">REVISION_BASE_MAP</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Product feature</div>
+        <h1>Revisions</h1>
+        <p>"Change this, keep the rest." Every major deliverable can be revised in place: the user's instruction plus the original artifact seed a short revision pipeline that edits the existing output rather than regenerating from scratch.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> "Change this, keep the rest." Instead of regenerating a deliverable from scratch when you want a tweak, a short revision pipeline loads the original and edits it in place, guided by your instruction. That keeps the good parts and makes iterating cheap.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>In-place revision of any major deliverable (stories, deck, prototype, app build).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>Iterating should be fast and shouldn't throw away work you were happy with.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Seed the original via the <code>previous_run</code> provider &#8594; edit per the instruction &#8594; validate against a baseline (only new issues count) &#8594; persist with <code>derived_from</code> lineage.</p></div>
+        </div>
+      </div>
+
+      <h3>How a revision runs</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>The revision pipelines</h3>
+      <table>
+        <thead><tr><th>Revision id</th><th>Base</th><th>Agents</th></tr></thead>
+        <tbody>
+          <tr><td><code>user_stories_revision</code></td><td>user_stories</td><td>1 (user-story-revision-agent)</td></tr>
+          <tr><td><code>ppt_revision</code></td><td>ppt</td><td>2 (ppt-revision-agent, ppt-revision-assembler)</td></tr>
+          <tr><td><code>od_ppt_revision</code></td><td>od_ppt</td><td>1 (od-ppt-revision-agent)</td></tr>
+          <tr><td><code>prototype_revision</code></td><td>prototype</td><td>1 (prototype-revision-agent)</td></tr>
+          <tr><td><code>app_builder_revision</code></td><td>app_builder</td><td>1 (app-builder-revision-agent)</td></tr>
+        </tbody>
+      </table>
+      <p class="muted"><code>REVISION_BASE_MAP</code> (in <code>agents/registry.py</code>) maps each revision id to its base pipeline.</p>
+
+      <div class="grid g2">
+        <div class="card"><h4>Seeded from the parent</h4><p class="lead">The original artifact is seeded into the run via the <code>previous_run</code> context provider. The manifest's <code>deliverable.revises_existing = true</code> flag (not a workflow-name check) gates the in-place edit + parent seed — so the four regenerating workflows that also read <code>previous_run</code> aren't misclassified.</p></div>
+        <div class="card"><h4>Smart-hybrid validation</h4><p class="lead">A prototype revision runs the same Both-validation as a build, but with baselines: only <b>new</b> static/console issues count as regressions, while hard render-breakage is always fixed. This is the <code>_select_issues_to_fix</code> baseline path.</p></div>
+      </div>
+
+      <h3><code>prototype_revision/workflow.yaml</code>, the one revision manifest with the full picture</h3>
+      <p class="muted">Of the 5 revision manifests, <code>prototype_revision</code> is the only one that sets <code>revises_existing: true</code> — the others (ppt/user_stories/app_builder/od_ppt revisions) regenerate their whole artifact rather than editing it in place, so they correctly leave the flag <code>false</code>. Its single step is worth reading closely because it wires together three separate mechanisms into one coherent flow:</p>
+      <div class="grid g3">
+        <div class="card"><h4><code>gates: [validation]</code></h4><p class="lead">A post-edit validation gate on the revision step — the run pauses only if a critical issue survives, per the default block-critical/warn-non-critical policy.</p></div>
+        <div class="card"><h4><code>validators: [html_static, html_render]</code></h4><p class="lead">The same Both-validation the build loop runs, declared explicitly on this step rather than implied by the strategy.</p></div>
+        <div class="card"><h4><code>post_step: revision_validation</code></h4><p class="lead">After the edit, this capability computes the pre-edit baseline, runs the post-edit Both-validation + bounded fix-loop, and folds the result in — the exact machinery documented on the <a href="execution-kernel.html">Execution Kernel</a> page's <code>KernelServices.compute_revision_baseline</code> section.</p></div>
+      </div>
+      <p class="muted">The manifest's own header comment flags a real historical gotcha worth knowing: <code>clarify.defaults</code> for revisions intentionally falls back to the generic <code>"custom"</code> pipeline defaults (<code>target_audience</code>, <code>key_objectives</code>, <code>scope</code>, <code>priority</code>) rather than the richer <code>prototype</code> defaults — documented in the source as "parity trap #2", a subtlety the original engine's hardcoded dict reproduced and the manifest had to match exactly to hold byte-identical parity (INV-3) during the migration.</p>
+
+      <div class="callout"><div class="t">&#8617;&#65039; Lineage</div><p>Phase 14 made <code>run_revision</code> a real revision loop dispatched through <code>execute()</code> (a model actually runs), persisting the revised artifact with <code>derived_from</code> lineage — replacing an earlier echo stub. The revised deliverable renders on the same mimetype-dispatched preview surface.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Revisions</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"User asks for a change", d:"From a completed run, the user submits a revision instruction (e.g. \"make the hero section dark, add a pricing page\")."},
+  {t:"Resolve the revision pipeline", b:"REVISION_BASE_MAP", d:"The run label (e.g. prototype_revision) resolves to its short revision agent set."},
+  {t:"Seed the original", b:"previous_run", bc:"b-violet", d:"The prior artifact is written into the sandbox; baselines (static/console signatures) are computed for a prototype."},
+  {t:"Edit in place", b:"revises_existing", bc:"b-cyan", d:"The revision agent edits the existing artifact per the instruction, rather than regenerating."},
+  {t:"Validate against baseline", d:"Only new issues count as regressions; hard render-breakage is always fixed (smart-hybrid fix-loop)."},
+  {t:"Persist with lineage", b:"derived_from", bc:"b-green", d:"The revised deliverable is persisted with lineage back to the parent run, and rendered on the preview."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File, Settings2, Save } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File, Settings2, Save, Image as ImageIcon } from "lucide-react";
 import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
+import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { listPPTTemplates, type PPTTemplate } from "@/lib/ppt-api";
 import { listDesignSystems, type DesignSystemListItem } from "@/lib/prototype-api";
 import { PPTTemplateGallery } from "@/components/workflow/ppt/PPTTemplateGallery";
@@ -33,6 +34,11 @@ export default function PPTTemplatesPage() {
   const [customTemplateBody, setCustomTemplateBody] = useState<string | null>(null);
   const [brief, setBrief] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
+  // KAN-91: file content stored separately so textarea stays clean.
+  const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
+  // Image-input Wave 2: images ride OUT-OF-BAND via the draft's `images` field
+  // (D3) — SEPARATE from attachedFileContents (which is inlined into the brief).
+  const [attachedImages, setAttachedImages] = useState<{ name: string; mime_type: string; data: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } = useSpeechRecognition();
@@ -275,6 +281,12 @@ export default function PPTTemplatesPage() {
       finalBrief = brief.trim();
     }
 
+    // KAN-91: compose attached file content blocks into the brief at send time
+    const fileBlocks = attachedFileContents
+      .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
+      .join("");
+    if (fileBlocks) finalBrief = `${finalBrief}${fileBlocks}`;
+
     // Per-run gate selection: persist `gateAgentIds` into the draft ONLY when the
     // user touched the Review-gates section. Untouched ⇒ the field is omitted, the
     // dashboard leaves `pendingOdPptParams.gateAgentIds` undefined, and
@@ -292,11 +304,12 @@ export default function PPTTemplatesPage() {
       ...(gatesTouched ? { gateAgentIds } : {}),
       ...(Object.keys(modelOverridesRef.current).length > 0 ? { modelOverrides: modelOverridesRef.current } : {}),
       ...(Object.keys(selectionsRef.current).length > 0 ? { selections: selectionsRef.current } : {}),
+      ...(attachedImages.length > 0 ? { images: attachedImages } : {}),
       agentIds: pipelineAgents.map((a) => a.id),
     }));
     sessionStorage.setItem("od_ppt.pending", "true");
     router.push("/dashboard");
-  }, [canContinue, isChaining, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, router]);
+  }, [canContinue, isChaining, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, router, attachedImages]);
 
   if (!authChecked) {
     return (
@@ -410,7 +423,25 @@ export default function PPTTemplatesPage() {
                   {attachedFiles.map((file, idx) => (
                     <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
                       <File className="h-2.5 w-2.5" /> {file.name}
-                      <button onClick={() => setAttachedFiles((p) => p.filter((_, i) => i !== idx))} className="ml-1 text-gray-400 hover:text-red-500">
+                      <button onClick={() => {
+                        setAttachedFiles((p) => p.filter((_, i) => i !== idx));
+                        const removedName = attachedFiles[idx]?.name;
+                        if (removedName) setAttachedFileContents((p) => p.filter((c) => c.name !== removedName));
+                      }} className="ml-1 text-gray-400 hover:text-red-500">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {attachedImages.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 px-5 pb-2">
+                  {attachedImages.map((img, idx) => (
+                    <span key={`${img.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
+                      <ImageIcon className="h-2.5 w-2.5" /> {img.name}
+                      <button onClick={() => {
+                        setAttachedImages((p) => p.filter((_, i) => i !== idx));
+                      }} className="ml-1 text-gray-400 hover:text-red-500">
                         <X className="h-2.5 w-2.5" />
                       </button>
                     </span>
@@ -422,12 +453,27 @@ export default function PPTTemplatesPage() {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv"
+                  accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv,image/png,image/jpeg,image/webp,image/gif"
                   className="hidden"
                   onChange={(e) => {
                     const files = e.target.files;
                     if (files) {
                       Array.from(files).forEach((f) => {
+                        // Image-input Wave 2: capture images into attachedImages
+                        // (out-of-band), NEVER attachedFileContents (D3).
+                        const isImageFile =
+                          ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(f.type) ||
+                          /\.(png|jpe?g|webp|gif)$/i.test(f.name);
+                        if (isImageFile) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const result = (ev.target?.result as string) ?? "";
+                            const rawBase64 = result.replace(/^data:[^;]+;base64,/, "");
+                            setAttachedImages((p) => [...p, { name: f.name, mime_type: f.type || "image/png", data: rawBase64 }]);
+                          };
+                          reader.readAsDataURL(f);
+                          return;
+                        }
                         const meta = {
                           name: f.name,
                           size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
@@ -439,10 +485,8 @@ export default function PPTTemplatesPage() {
                           const reader = new FileReader();
                           reader.onload = (ev) => {
                             const content = (ev.target?.result as string) ?? "";
-                            setBrief((p) => {
-                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, 64000)}\n=== End: ${f.name} ===`;
-                              return p ? `${p}${block}` : block.trimStart();
-                            });
+                            // KAN-91: store content separately, not in textarea
+                            setAttachedFileContents((p) => [...p, { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) }]);
                           };
                           reader.readAsText(f);
                         } else if (isBinaryFile) {
@@ -450,21 +494,18 @@ export default function PPTTemplatesPage() {
                           if (jwt) {
                             extractFileText(jwt, f)
                               .then((res) => {
-                                setBrief((p) => {
-                                  const truncNote = res.truncated ? "\n[Content truncated to 64,000 chars]" : "";
-                                  const block = `\n\n=== Attached: ${res.filename} ===\n${res.text}${truncNote}\n=== End: ${res.filename} ===`;
-                                  return p ? `${p}${block}` : block.trimStart();
-                                });
+                                // KAN-91: store extracted content separately
+                                const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
+                                setAttachedFileContents((p) => [...p, { name: res.filename, content: `${res.text}${truncNote}` }]);
                               })
                               .catch(() => {
-                                setBrief((p) => p ? `${p}\n\n[Attached: ${f.name} — could not extract text]` : `[Attached: ${f.name} — could not extract text]`);
+                                setAttachedFileContents((p) => [...p, { name: f.name, content: "[could not extract text]" }]);
                               });
                           } else {
-                            setBrief((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
+                            setAttachedFileContents((p) => [...p, { name: f.name, content: "" }]);
                           }
-                        } else {
-                          setBrief((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
                         }
+                        // For other file types: chip shows but no content is sent
                       });
                     }
                     e.target.value = "";

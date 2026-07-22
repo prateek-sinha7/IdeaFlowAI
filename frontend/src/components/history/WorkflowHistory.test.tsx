@@ -10,7 +10,7 @@ import type { WorkflowRun } from "@/types/index";
 
 // Stable mock fns we can drive per-test.
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 
@@ -19,6 +19,12 @@ vi.mock("@/lib/api", () => ({
   getWorkflows: (token: string, opts?: { limit?: number }) => mockGetWorkflows(token, opts),
   getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
   deleteWorkflow: (token: string, id: string) => mockDeleteWorkflow(token, id),
+  // B2: WorkflowHistory now fetches the revision family on detail-open. This
+  // suite doesn't assert the version timeline, so return an empty family
+  // (VersionTimeline renders null for <2 members) — this only prevents the
+  // undefined-mock-export throw that would otherwise crash render.
+  getRunFamily: () => Promise.resolve({ root_id: "", members: [] }),
+  getRunArtifacts: () => Promise.resolve({ workflow_id: "x", artifacts: [] }),
 }));
 
 // Replace heavy preview components with placeholders. The chain panel
@@ -82,6 +88,8 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     completedAt: new Date("2026-05-12T10:05:00Z").toISOString(),
     duration: 300,
     agentCount: 4,
+    parentRunId: null,
+    rootRunId: "run-1",
     ...overrides,
   };
 }
@@ -113,7 +121,7 @@ beforeEach(() => {
 type ChainHandler = (run: WorkflowRun, type: import("@/types/index").WorkflowType) => void;
 
 async function renderAndOpenRun(run: WorkflowRun, onChainPipeline?: ChainHandler) {
-  mockGetWorkflows.mockResolvedValue([run]);
+  mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
   // The detail-load short-circuits when run.output is set, but mock
   // getWorkflow anyway so any code path that does fetch the full run
   // resolves correctly.
