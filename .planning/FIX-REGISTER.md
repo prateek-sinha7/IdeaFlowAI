@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-095 | 2026-07-22 | Fix `.split is not a function` crash + multi-select chip highlighting when "Use recommended" clicked | recommendedAnswer/recommendedDisplay can be non-string (array/number) from the API — all .split() calls lacked String() coercion. Also multi-select chip highlight was broken because useRecommended stored the whole comma-joined string instead of splitting to individual chip values. Fixed via two pure helpers: toRecString() and splitRecToChips(). | `frontend/src/components/chat/InlineClarifyActions.tsx` | Phase 31/42 (CHATUI-01 / InlineClarifyActions) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-094 | 2026-07-22 | KAN-117: Add recommended answers + "Skip all" affordance to clarify questions | ClarifyQuestion type carried recommendedAnswer/recommendedDisplay/impactLevel but InlineClarifyActions never rendered them; skip was impossible without answering all questions (Phase 42-06 intentional omission, now reversed per user request) | `frontend/src/components/chat/InlineClarifyActions.tsx` | Phase 31/42 (CHATUI-01 / InlineClarifyActions) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-093 | 2026-07-22 | Remove duplicate outer timeline dot from StartingPointCard — aligns with ClarificationsCard flat-card style | StartingPointCard used a `relative pl-8` wrapper with an absolute-positioned navy circle+FileText timeline dot, PLUS a second FileText icon inside the card button — rendering two similar icons side-by-side. Fix removes the outer dot entirely. | `frontend/src/components/results/StartingPointCard.tsx` | Phase 25/42 (Workstream C2) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-092 | 2026-07-22 | KAN-116 Bug 3 (definitive): pass _display_title in extraParams from all chain/revision call sites so page.tsx never needs to re-parse complex nested context blocks | parseRunInput failed on complex nested context; fix passes the already-clean chainBrief/instruction as _display_title in extraParams — no re-parsing needed | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 25/36 | INV-1/3/12/SC-001 ✅ | Done |
@@ -2344,3 +2345,46 @@ Two specific gaps:
 - The recommended-answer hint row hides itself once the user selects any option for that question (clean, non-cluttering).
 - The `★` marker on the recommended chip makes the option discoverable even without the hint row.
 - The submit button label adapts: "Submit 2 answers & start the build" vs the generic fallback when 0 are answered.
+
+---
+
+### FIX-095 — Fix .split crash + multi-select chip highlighting for recommended answers
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix .split is not a function crash in InlineClarifyActions + chips not highlighting after Use recommended`
+
+#### Root Cause
+Two compounding bugs introduced by FIX-094:
+
+**Bug 1 — `.split is not a function` (the crash):**
+`recommendedAnswer` and `recommendedDisplay` on `ClarifyQuestion` are typed as `string | undefined` but the backend can send a non-string value (e.g. an array `["option A", "option B"]` or a number). All three `.split()` call sites in FIX-094 operated directly on the raw value without coercing it to a string first. When the API returned an array, `[].split` is undefined → `TypeError: .split is not a function`.
+
+**Bug 2 — chips not highlighting (the visual issue from the screenshot):**
+For multi-select questions the backend's `recommendedAnswer` is often a comma-separated string `"Core definitions..., Agent reasoning..."`. `useRecommended` stored this entire string as `answers[q.id] = [rec]` — a single array element equal to the whole sentence. The chip highlight check `selected.includes(option)` compares against individual chip option strings, none of which equal the whole comma-joined string. So no chip ever turned blue even though "✓ Using recommended answer" appeared (because `recIsSelected` was comparing the raw string too, finding it matched).
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31/42 (CHATUI-01 / InlineClarifyActions)
+- **Deleted code verified (not resurrected):** Yes — no phase-deleted code resurrected.
+- **Locked decisions respected:** SC-001 — generic question ids only; INV-12 — reused existing `onSubmitAnswers` channel, no duplication.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/chat/InlineClarifyActions.tsx` | Added `toRecString(val)` helper — coerces any API value (array, number, string, null) to a plain string; array→`.join(", ")`, others→`String()`. Added `splitRecToChips(rec, options)` helper — splits the coerced string on `/,\s*/`, keeps only tokens that exactly match a chip option, falls back to the whole string if no match. All three former `.split()` call sites now go through these helpers. `useRecommended` now calls `splitRecToChips` for multi-select so individual chip strings get stored, making `selected.includes(option)` work correctly. `recTokens` computed once per question via `splitRecToChips` and reused for `recIsSelected`, `isRec`, and `useRecommended`. | Eliminates the crash and makes multi-select chips highlight correctly after "Use recommended". |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only
+- **INV-3** (golden parity): not affected — FE-only, no characterization goldens
+- **INV-12** (no duplication): verified — same `onSubmitAnswers` callback, no new channel
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- `get_diagnostics` → No diagnostics found (TypeScript valid)
+- `toRecString` handles: `null` → `""`, `["a", "b"]` → `"a, b"`, `42` → `"42"`, `"str"` → `"str"`
+- `splitRecToChips("Core definitions..., Agent reasoning...", options)` returns the two matching chip strings; each lands in `answers[q.id]`; `selected.includes("Core definitions...")` is now true; chip turns blue.
+- The crash path is gone: even if the API sends an array, `toRecString` converts it before any `.split`.
+
+#### Notes
+- Both helpers are pure module-level functions (no side effects) — easy to unit test.
+- `useMemo` import added in FIX-094 was unused; removed in this rewrite.
+- The `unused import` lint warning for `useMemo` is also resolved in this fix.
