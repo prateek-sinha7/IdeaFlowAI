@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-096 | 2026-07-22 | Hide Back/Next nav buttons in PPT wizard when only one step (template) is shown | WizardStepper always rendered the Back/Next row regardless of step count; PPT mode passes steps={["template"]} (1 step only) so both buttons were disabled but still visible. Guard now hides the nav row entirely when steps.length <= 1. | `frontend/src/components/workflow/WizardStepper.tsx` | Phase 37/41 (B3/B7 — WizardStepper FIX-065) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-095 | 2026-07-22 | Fix `.split is not a function` crash + multi-select chip highlighting when "Use recommended" clicked | recommendedAnswer/recommendedDisplay can be non-string (array/number) from the API — all .split() calls lacked String() coercion. Also multi-select chip highlight was broken because useRecommended stored the whole comma-joined string instead of splitting to individual chip values. Fixed via two pure helpers: toRecString() and splitRecToChips(). | `frontend/src/components/chat/InlineClarifyActions.tsx` | Phase 31/42 (CHATUI-01 / InlineClarifyActions) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-094 | 2026-07-22 | KAN-117: Add recommended answers + "Skip all" affordance to clarify questions | ClarifyQuestion type carried recommendedAnswer/recommendedDisplay/impactLevel but InlineClarifyActions never rendered them; skip was impossible without answering all questions (Phase 42-06 intentional omission, now reversed per user request) | `frontend/src/components/chat/InlineClarifyActions.tsx` | Phase 31/42 (CHATUI-01 / InlineClarifyActions) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-093 | 2026-07-22 | Remove duplicate outer timeline dot from StartingPointCard — aligns with ClarificationsCard flat-card style | StartingPointCard used a `relative pl-8` wrapper with an absolute-positioned navy circle+FileText timeline dot, PLUS a second FileText icon inside the card button — rendering two similar icons side-by-side. Fix removes the outer dot entirely. | `frontend/src/components/results/StartingPointCard.tsx` | Phase 25/42 (Workstream C2) | INV-1/3/12/SC-001 ✅ | Done |
@@ -2388,3 +2389,38 @@ For multi-select questions the backend's `recommendedAnswer` is often a comma-se
 - Both helpers are pure module-level functions (no side effects) — easy to unit test.
 - `useMemo` import added in FIX-094 was unused; removed in this rewrite.
 - The `unused import` lint warning for `useMemo` is also resolved in this fix.
+
+---
+
+### FIX-096 — Hide Back/Next nav in PPT wizard when only template step shown
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix remove showing back and next option in ppt, as we just have template selection`
+
+#### Root Cause
+`WizardStepper.tsx` rendered the Back/Next navigation row unconditionally at the bottom of the component, regardless of how many steps were passed. FIX-065 already correctly passed `steps={["template"]}` for PPT mode (a single step), but the nav row still rendered — both buttons were disabled (`activeStep === 0 === lastStep`) but still visible as greyed-out buttons.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 37/41 (B3/B7 — WizardStepper, FIX-065)
+- **Relevant register section:** Phase 37 §3 (LaunchWizard / WizardStepper)
+- **Deleted code verified (not resurrected):** Yes — no phase-deleted code resurrected. This is a cosmetic guard.
+- **Locked decisions respected:** SC-001 — no workflow-name literal; the guard keys on `steps.length`, a generic count.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/WizardStepper.tsx` | Wrapped the Back/Next `<div>` in `{steps.length > 1 && (...)}` | When only one step is shown, navigation between steps is meaningless. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only
+- **INV-3** (golden parity): not affected — FE-only, no characterization goldens
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- `get_diagnostics` → No diagnostics found (TypeScript valid)
+- Trace: PPT wizard renders `<WizardStepper steps={["template"]} .../>` → `steps.length === 1` → nav row not rendered → Back/Next buttons gone.
+- Prototype mode passes `steps={["template", "design-system", "discovery"]}` → `steps.length === 3` → nav row renders as before (no regression).
+
+#### Notes
+- The `steps` prop was added by FIX-065 specifically to let PPT mode skip DS + Discovery; this fix completes that work by also hiding the now-useless nav.
