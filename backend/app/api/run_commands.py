@@ -1447,6 +1447,66 @@ def _resolve_launch_agents(body: "LaunchCommand"):
     return base_pipeline_type, od_context
 
 
+# ---------------------------------------------------------------------------
+# KAN-116 (Bug 3): clean run title helper — strips pipeline context markers
+# before storing the title so history / run header / notifications never show
+# internal === ... === marker text.
+#
+# Revision pipelines (ending in _revision) embed the full prior output in the
+# content with "=== EXISTING ... ===" markers. The brief / instruction is the
+# text AFTER the last "=== REVISION REQUEST ===" marker (or, for the user-stories
+# pattern, after "=== REVISION REQUEST ===").
+# Chained pipelines embed "=== CONTEXT FROM PREVIOUS PIPELINE ===" at the end
+# of enrichedInput; the clean brief is the text BEFORE it.
+#
+# SC-001 / INV-1: generic marker matching, never a hardcoded pipeline name.
+# ---------------------------------------------------------------------------
+import re as _re_title
+
+_REVISION_REQUEST_RE = _re_title.compile(
+    r"===\s*REVISION REQUEST\s*===\s*(.*?)\s*(?:===|$)", _re_title.DOTALL
+)
+_CONTEXT_BLOCK_RE = _re_title.compile(
+    r"\s*===\s*CONTEXT FROM PREVIOUS PIPELINE.*", _re_title.DOTALL
+)
+_EXISTING_BLOCK_RE = _re_title.compile(
+    r"^===.*?===\s*\n.*?===\s*END.*?===\s*\n?", _re_title.DOTALL
+)
+
+
+def _clean_run_title(content: str | None, pipeline_type: str) -> str:
+    """Extract a clean, marker-free title from a run's content string.
+
+    For revision pipelines (type ends in ``_revision``): pull the revision
+    instruction from inside the ``=== REVISION REQUEST ===`` block (the text
+    after the marker block).
+    For all other pipelines: strip any trailing ``=== CONTEXT FROM PREVIOUS
+    PIPELINE ===`` block and use the leading brief.
+    Falls back to a generic label when no clean text is extractable.
+    """
+    raw = (content or "").strip()
+    if not raw:
+        return f"Run {pipeline_type} pipeline"
+
+    title = raw
+    if pipeline_type.endswith("_revision"):
+        # Try to extract the revision instruction from the structured block.
+        m = _REVISION_REQUEST_RE.search(raw)
+        if m:
+            title = m.group(1).strip()
+        else:
+            # Fallback: strip leading === ... === blocks to get at the instruction.
+            stripped = _EXISTING_BLOCK_RE.sub("", raw).strip()
+            title = stripped if stripped else raw
+    else:
+        # For chained / plain pipelines: remove any appended context block.
+        title = _CONTEXT_BLOCK_RE.sub("", raw).strip()
+
+    # Ensure we never return an empty or whitespace-only title.
+    title = title.split("\n")[0].strip() if title else raw.split("\n")[0].strip()
+    return (title[:60].strip() or "Untitled")
+
+
 @router.post("")
 async def launch_run(
     body: LaunchCommand,
@@ -1582,13 +1642,21 @@ async def launch_run(
     workflow_run_id = None
     db = _get_db()
     try:
-        parent_run_id = _resolve_owned_parent_run_id(
-            db, body.source_workflow_run_id, current_user.id
+        # KAN-116 (Bug 2): only set parent_run_id for REVISION pipelines (type ends in
+        # "_revision"). Chained pipelines (different base type) must NOT inherit parent_run_id
+        # — that would place them in the source workflow's revision family (BFS in
+        # _owned_family_members has no type filter). A chain is NOT a revision; chained runs
+        # should appear as SEPARATE entries in history, never as vN of the source family.
+        # SC-001/INV-1: generic endswith check, never a hardcoded pipeline name.
+        parent_run_id = (
+            _resolve_owned_parent_run_id(db, body.source_workflow_run_id, current_user.id)
+            if pipeline_type.endswith("_revision")
+            else None
         )
         workflow_run = WorkflowRun(
             id=pipeline_run_id,
             user_id=current_user.id,
-            title=(content or f"Run {pipeline_type} pipeline")[:60].strip() or "Untitled",
+            title=_clean_run_title(content, pipeline_type),
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",

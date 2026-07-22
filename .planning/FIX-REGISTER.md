@@ -10,6 +10,12 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-092 | 2026-07-22 | KAN-116 Bug 3 (definitive): pass _display_title in extraParams from all chain/revision call sites so page.tsx never needs to re-parse complex nested context blocks | parseRunInput failed on complex nested context; fix passes the already-clean chainBrief/instruction as _display_title in extraParams — no re-parsing needed | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 25/36 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-091 | 2026-07-22 | KAN-116 Bug 3 (BE): chain context_block embedded polluted title/brief from old DB runs causing nested === markers that parseRunInput couldn't strip | _extract_chain_context used raw workflow_run.title and .input which for pre-fix runs contained === marker text; these nested markers broke the FE context strip | `backend/app/api/runs.py` | Phase 29/36 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-090 | 2026-07-22 | KAN-116: Clean === marker titles at all display surfaces — history, sidebar, live header, and new runs | Three-layer fix: (1) FE display-time cleanDisplayTitle helper in RevisionFamilyView+WorkflowHistory+Sidebar strips existing DB titles; (2) FIX-087 backend _clean_run_title prevents new bad titles; (3) FIX-089 cleans submittedBrief for live header | `frontend/src/components/history/RevisionFamilyView.tsx`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/components/sidebar/Sidebar.tsx` | Phase 25/36 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-089 | 2026-07-22 | KAN-116 Bug 3 (FE): raw context markers shown as run title during live runs — submittedBrief stored raw enrichedInput | setSubmittedBrief(message) used raw enrichedInput with === markers; parseRunInput (INV-12 single source) now extracts clean brief before storing | `frontend/src/app/dashboard/page.tsx` | Phase 25/36 (Workstream C1) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-088 | 2026-07-22 | KAN-116 Issue 2: version chip stays at v1 after revision completes — contentSourceRunId not updated for revision completions | isForeignCompletion guard blocked setContentSourceRunId for revision runs (revision_run_id ≠ trackedRunIdRef which holds parent run id), preventing family re-fetch | `frontend/src/app/dashboard/page.tsx` | Phase 25/36 (B2) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-087 | 2026-07-22 | KAN-116: Fix version switch showing wrong content, chained runs in version family, and context markers in titles | Bug 1: handleSelectVersion only updated WorkflowHistory local state, never called page.tsx content-routing; Bug 2: launch_run set parent_run_id for all types including chains; Bug 3: title stored raw content with === markers | `frontend/src/components/history/WorkflowHistory.tsx`, `backend/app/api/run_commands.py` | Phase 25/36 (B2/P25) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-086 | 2026-07-22 | Surface system prompt editor (Edit/Save/Reset) on Config tab of Library agent drawer | AgentPromptSection was mounted with surfaceOnly=true everywhere (ND-7/LOCK-E deferral), hiding write affordances. Config tab now mounts it without surfaceOnly so users can edit, save, and reset agent system prompts | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) + KAN-76 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-085 | 2026-07-22 | Rename "Run again" button to "New Pipeline" on cancelled terminal card | Label was hardcoded as "Run again" in the cancelled branch of RunChatLane renderComposerBody | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx` | Phase 31/32 (CHATUI-01) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-084 | 2026-07-21 | KAN-115: Clear stale questionnaireData on pipeline_cancelled/failed so AwaitingCard disappears | pipeline_cancelled handler cleared reviewGateData but not questionnaireData or activePipelineRunId, leaving laneClarifyOpen=true and runLaneState stuck at "clarify" instead of "terminal" after cancel/fail | `frontend/src/app/dashboard/page.tsx` | Phase 22/42 (page.tsx dispatcher) | INV-1/3/12/SC-001 ✅ | Done |
@@ -105,6 +111,91 @@
 *Entries are appended below after each `/velocity-ai-fix` session.*
 
 ---
+
+---
+
+### FIX-088 — KAN-116 Issue 2: Version chip stays at v1 after revision completes
+
+**Date:** 2026-07-22
+**Triggered by:** `/velocity-ai-fix KAN-116 issue 2 — version chip only shows v1 after ppt_revision`
+
+#### Root Cause
+In `page.tsx`, the `pipeline_complete` handler uses `isForeignCompletion` to prevent concurrent foreign runs from hijacking `contentSourceRunId`. For revision pipelines (`ppt_revision`, `prototype_revision`, etc.), `completingRunId` (the revision run's ID) !== `trackedRunIdRef.current` (the parent run's ID that was being tracked), so `isForeignCompletion = true`. This blocked `setContentSourceRunId(completingRunId)` from firing.
+
+Since `contentSourceRunId` didn't change, `DashboardLayout`'s `useEffect([contentSourceRunId])` that calls `getRunFamily` never re-fired. The family stayed with just 1 member (v1) even after the revision (v2) completed and was stored with `parent_run_id = ppt_run_id`.
+
+The `trackedRunIdRef` correctly held the parent run's ID — but for revision pipelines this is intentional: the user is revising a run they were already viewing, so the revision completion should advance the content source to the new revision.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 (Workstream B1 — revision family linkage), Phase 36 (B2 — version timeline)
+- **Deleted code verified (not resurrected):** No deleted code
+- **Locked decisions respected:** SC-001/INV-1 — uses generic `endsWith("_revision")` check, no hardcoded pipeline name
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `completingPipelineType` from `data.pipeline_type`; added `isRevisionCompletion = completingPipelineType?.endsWith("_revision")`; changed gate to `(!isForeignCompletion || isRevisionCompletion)` so revision completions always update `contentSourceRunId` | Revision runs are intentionally dispatched from the tracked run; their completion must advance the content source to trigger the family re-fetch |
+
+#### Invariants Verified
+- **INV-1**: `endsWith("_revision")` is a generic suffix check — no `pipeline_type ==` literal
+- **INV-3**: FE-only change — no backend/engine/golden impact
+- **INV-12**: No duplication — reuses existing `trackedRunIdRef` and `setContentSourceRunId` pattern
+- **SC-001**: No engine edit
+
+#### Verification
+After the fix:
+1. User views PPT run (v1) → `contentSourceRunId = ppt_run_id` → `getRunFamily(ppt_run_id)` → 1 member
+2. User triggers revision → `ppt_revision` pipeline completes → `completingPipelineType = "ppt_revision"` → `isRevisionCompletion = true` → `setContentSourceRunId(revision_run_id)` fires
+3. `DashboardLayout` effect re-fires → `getRunFamily(revision_run_id)` → backend walks up parent chain → returns 2 members (v1 + v2)
+4. Version chip shows "v2 ▾" with both v1 and v2 selectable
+
+#### Notes
+- This fix applies to ALL `*_revision` pipeline types: `ppt_revision`, `od_ppt_revision`, `prototype_revision`, `user_stories_revision`, `app_builder_revision`
+- The `isRevisionCompletion` flag does NOT affect the `detachRunRef` call — revision completions also correctly detach the stream
+
+---
+
+### FIX-087 — KAN-116: Version switch wrong content, chained runs in family, context markers in titles
+
+**Date:** 2026-07-22
+**Triggered by:** `/velocity-ai-fix KAN-116 — three bugs: version switch, chained family grouping, title markers`
+
+#### Root Cause
+
+**Bug 1 (version switch wrong content):** `WorkflowHistory.tsx handleSelectVersion` only called `setSelectedRun`/`setSelectedOutput` (WorkflowHistory-local state). When `onOpenRun` is available (the shared run screen path), it must route through `onOpenRun(full)` instead — which calls `page.tsx handleSelectWorkflowRun`, the sole function that clears ALL content states (`userStoryContent`, `prototypeContent`, `pptContent`, etc.) and re-populates only the matching type. Without this, switching from prototype (v3) back to user stories (v1/v2) kept showing prototype HTML.
+
+**Bug 2 (chained runs in version family):** `run_commands.py launch_run` set `parent_run_id = _resolve_owned_parent_run_id(...)` for ALL pipeline types, including chained pipelines of a different base type. `_owned_family_members` BFS (`runs.py:960`) has no type filter — it includes ALL children. A chained `prototype` run with `parent_run_id = user_stories_run_id` appeared as v3 of the user story family.
+
+**Bug 3 (context markers in titles):** `run_commands.py:1591` set `title = content[:60]`, where `content` for revision pipelines is the full structured message including `=== EXISTING PRODUCT BACKLOG ===` / `=== EXISTING PROTOTYPE HTML ===` markers; for chained pipelines it is `enrichedInput = brief + "\n\n=== CONTEXT FROM PREVIOUS PIPELINE ==="`. The stored title became the first 60 characters of these marker strings.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 (Workstream A — revision family linkage), Phase 36 (B2 — history/version), Phase 29/44 (run_commands.py launch_run)
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** SC-001/INV-1 — Bug 2 fix uses generic `endswith("_revision")` check, never a hardcoded pipeline name; Bug 3 helper uses generic regex marker matching
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/WorkflowHistory.tsx` | `handleSelectVersion`: when `onOpenRun` is available, call `onOpenRun(full)` instead of local `setSelectedRun`/`setSelectedOutput` | Routes version switch through page.tsx content-routing so all content states are cleared and re-populated by the selected version's type |
+| `backend/app/api/run_commands.py` | Added `_clean_run_title(content, pipeline_type)` helper (strips `=== REVISION REQUEST ===`, `=== CONTEXT FROM PREVIOUS PIPELINE ===`, and `=== EXISTING ... ===` marker blocks); used in `launch_run` WorkflowRun creation | Stores clean user brief / instruction as title, not raw marker text |
+| `backend/app/api/run_commands.py` | `launch_run`: `parent_run_id` is now set only when `pipeline_type.endswith("_revision")`; chained pipelines get `parent_run_id = None` | Chained runs are separate history entries, not grouped as versions of the source family |
+
+#### Invariants Verified
+- **INV-1**: Bug 2 uses `endswith("_revision")` — generic suffix, no `pipeline_type ==` literal
+- **INV-3**: FE-only change for Bug 1; BE title change and parent_run_id fix don't touch engine events or goldens
+- **INV-12**: No duplication — `_clean_run_title` is a new pure helper called from `launch_run`; no existing capability duplicated
+- **SC-001**: No engine edits; purely app-layer (run_commands.py) and frontend (WorkflowHistory.tsx)
+
+#### Verification
+- Backend started cleanly after changes (no import errors)
+- `_clean_run_title` helper correctly extracts revision instruction from `=== REVISION REQUEST ===` block and strips `=== CONTEXT FROM PREVIOUS PIPELINE ===` from chained content
+- `handleSelectVersion` now has `[onOpenRun]` in its dependency array, matching the prop-dependent behaviour
+- All three fixes are generic (no hardcoded workflow names) — apply to user_stories, prototype, ppt, app_builder and their od_ variants
+
+#### Notes
+- Existing runs in the DB that already have marker-polluted titles or wrong parent_run_id are NOT retroactively fixed (this is a forward fix for new runs only)
+- Bug 2: chained runs launched BEFORE this fix will still appear in the version family; new chained runs will be separate
+- The `_re_title` module-level import at the top of the helper block is intentional (module-scope lazy import to keep the helper self-contained)
 
 ---
 

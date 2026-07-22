@@ -514,6 +514,33 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
     brief = workflow_run.input or ""
     title = workflow_run.title or ""
 
+    # KAN-116 (Bug 3): strip === ... === marker text from title and brief before
+    # embedding them in the context_block. If a prior run had polluted title/input
+    # (stored before FIX-087), the nested markers would break parseRunInput on the FE.
+    # Generic regex — no pipeline-name literals (SC-001/INV-1).
+    import re as _re_ctx
+    _marker_re = _re_ctx.compile(r"===.*?===", _re_ctx.DOTALL)
+
+    def _clean_for_context(text: str) -> str:
+        """Strip === ... === blocks and return the first clean line."""
+        if "===" not in text:
+            return text
+        # For title: extract revision instruction or brief via the same logic as _clean_run_title
+        rev_match = _re_ctx.search(r"===\s*REVISION REQUEST\s*===\s*(.*?)\s*(?:===|$)", text, _re_ctx.DOTALL)
+        if rev_match:
+            return rev_match.group(1).split("\n")[0].strip()
+        # Strip all === ... === blocks and return first non-empty line
+        stripped = _marker_re.sub("", text).strip()
+        return stripped.split("\n")[0].strip() if stripped else text.split("\n")[0].strip()
+
+    title = _clean_for_context(title)
+    # For brief, just take the first clean line before any context block
+    brief_first_line = brief.split("\n")[0].strip()
+    if "===" not in brief_first_line:
+        brief = brief_first_line  # use clean first line as the brief preview
+    else:
+        brief = _clean_for_context(brief)
+
     # Parse agent_outputs JSON array
     agent_outputs: list[dict] = []
     if workflow_run.agent_outputs:

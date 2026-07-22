@@ -23,6 +23,19 @@ import { parseRunInput } from "@/lib/runInput";
 // INV-12: the run-stat formatters live once in @/lib/runStats — no local copy.
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
 
+// ─── cleanDisplayTitle — KAN-116 (Bug 3) safety net for titles already stored
+// in the DB with === ... === marker text. Uses the SAME single-source parser
+// (INV-12). Clean titles pass through unchanged; only polluted ones are stripped.
+// SC-001: generic, no workflow-name branches.
+function cleanDisplayTitle(title: string | null | undefined): string {
+  if (!title) return "";
+  // If the title contains === markers it's polluted — parse it out.
+  if (!title.includes("===")) return title;
+  const parsed = parseRunInput(title);
+  const clean = (parsed.revisionInstruction ?? parsed.brief ?? title).split("\n")[0].trim();
+  return clean || title;
+}
+
 // ─── Display helpers (mirrors WorkflowHistory.tsx:87-120 — small presentational
 // utilities copied so the family card renders the SAME row shape without a
 // circular import back into WorkflowHistory). Not an engine abstraction; these
@@ -352,7 +365,7 @@ export function FamilyGroupCard({
         onClick={() => onSelectRun(run)}
         role="button"
         tabIndex={0}
-        aria-label={`Open ${run.title}, ${run.status}`}
+        aria-label={`Open ${cleanDisplayTitle(run.title)}, ${run.status}`}
         onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); onSelectRun(run); } }}
         className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-surface-warm focus-visible:bg-surface-warm outline-none transition-colors group"
       >
@@ -360,7 +373,7 @@ export function FamilyGroupCard({
           <RootIcon className="h-4 w-4 text-ink-500" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{run.title}</p>
+          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(run.title)}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
             {run.duration ? (
@@ -398,7 +411,7 @@ export function FamilyGroupCard({
         onClick={() => onSelectRun(latest)}
         role="button"
         tabIndex={0}
-        aria-label={`Open ${group.root.title} (latest version), ${latest.status}`}
+        aria-label={`Open ${cleanDisplayTitle(group.root.title)} (latest version), ${latest.status}`}
         onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); onSelectRun(latest); } }}
         className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-surface-warm focus-visible:bg-surface-warm outline-none transition-colors group"
       >
@@ -406,7 +419,7 @@ export function FamilyGroupCard({
           <RootIcon className="h-4 w-4 text-ink-500" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{group.root.title}</p>
+          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(group.root.title)}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
             {latest.duration ? (
@@ -465,7 +478,7 @@ export function FamilyGroupCard({
                   v{i + 1}
                 </span>
                 <span className={statusDotClass(member.status)} />
-                <span className="text-[12px] text-ink-700 truncate">{member.title}</span>
+                <span className="text-[12px] text-ink-700 truncate">{cleanDisplayTitle(member.title)}</span>
                 <span className="text-[10px] text-ink-400">{formatDate(member.createdAt)}</span>
                 {member.parentRunId && (
                   <span className="text-[10px] text-ink-400">↳ revises v{revisesN}</span>

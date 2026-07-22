@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow, getRunFamily, getRunArtifacts } from "@/lib/api";
 import { parseClarificationArtifacts } from "@/lib/clarifications";
+// KAN-116 (Bug 3): clean === markers from titles stored in DB (safety net for existing data).
+import { parseRunInput } from "@/lib/runInput";
 import { PPTPreview } from "@/components/preview/PPTPreview";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
@@ -111,6 +113,17 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
 // rows format their own dates via RevisionFamilyView — so no local formatter here
 // (INV-12: no dual implementation).
 
+// KAN-116 (Bug 3): safety net for titles already in the DB with === markers.
+// Uses the single-source parseRunInput (INV-12 — same parser as DashboardLayout
+// and RevisionFamilyView). Clean titles (no ===) pass through unchanged.
+function cleanDisplayTitle(title: string | null | undefined): string {
+  if (!title) return "";
+  if (!title.includes("===")) return title;
+  const parsed = parseRunInput(title);
+  const clean = (parsed.revisionInstruction ?? parsed.brief ?? title).split("\n")[0].trim();
+  return clean || title;
+}
+
 export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline, onOpenRun }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,19 +208,30 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // so BOTH the RunDetailPage summary column AND the deliverable/files/thinking/audit
   // right column re-sync to the picked version. Setting selectedRun re-keys the
   // RunDetailPage mount (runId=selectedRun.id) → it refetches that version's summary.
+  // KAN-116 (Bug 1): when onOpenRun is present (shared run screen path), route the
+  // version switch through it so page.tsx clears ALL content states (userStoryContent,
+  // prototypeContent, etc.) and re-populates by the selected version's type — identical
+  // to what handleSelectRun does. Without this the page.tsx content state retains the
+  // last-rendered type (e.g. prototype HTML) for every version click.
   const handleSelectVersion = useCallback(async (memberId: string) => {
     const token = getToken();
     if (!token) return;
     setLoadingDetail(true);
     try {
       const full = await getWorkflow(token, memberId);
-      setSelectedRun(full);
-      setSelectedOutput(full.output || null);
+      if (onOpenRun) {
+        // Shared run screen path: route through onOpenRun so page.tsx correctly
+        // clears stale content state and re-populates by full.type (Bug 1 fix).
+        onOpenRun(full);
+      } else {
+        setSelectedRun(full);
+        setSelectedOutput(full.output || null);
+      }
     } catch (err) {
       console.warn("[revision-family] version fetch failed", err);
     }
     finally { setLoadingDetail(false); }
-  }, []);
+  }, [onOpenRun]);
 
   // Revision Families (B2 / D4): fetch the open run's family. Keyed on the STABLE
   // rootRunId (same for every member) so switching versions does NOT refetch;
@@ -567,7 +591,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-line-divider bg-surface-white flex-shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               {/* KAN-92: render the real async-generated run title (never a placeholder). */}
-              <h2 className="min-w-0 max-w-[200px] truncate text-[13px] font-semibold text-ink-900">{selectedRun.title}</h2>
+              <h2 className="min-w-0 max-w-[200px] truncate text-[13px] font-semibold text-ink-900">{cleanDisplayTitle(selectedRun.title)}</h2>
               <div className="flex items-center gap-1">
               {(["preview", "files", "thinking", "audit"] as const).map((tab) => (
                 <button

@@ -562,7 +562,7 @@ export function DashboardLayout({
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
       // Revision Families (B1): link the parent so the backend assembles the family.
-      onStartPipeline("user_stories_revision", revisionMessage, undefined, attachedSkills, attachedHooks, contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : undefined);
+      onStartPipeline("user_stories_revision", revisionMessage, undefined, attachedSkills, attachedHooks, { source_workflow_run_id: contentSourceRunId || undefined, _display_title: instruction.slice(0, 60) });
     }
   }, [userStoryContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
@@ -582,7 +582,7 @@ export function DashboardLayout({
       // Phase 5: send source_workflow_run_id so the backend can seed the
       // original run's spec/design into the revision sandbox. B1: sourced from the
       // contentSourceRunId prop (the actual on-screen run) — undefined when none.
-      onStartPipeline("prototype_revision", revisionMessage, undefined, attachedSkills, attachedHooks, contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : undefined);
+      onStartPipeline("prototype_revision", revisionMessage, undefined, attachedSkills, attachedHooks, { ...(contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : {}), _display_title: instruction.slice(0, 60) });
     }
   }, [prototypeContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
@@ -594,7 +594,7 @@ export function DashboardLayout({
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
       // Revision Families (B1): link the parent so the backend assembles the family.
-      onStartPipeline("app_builder_revision", revisionMessage, undefined, attachedSkills, attachedHooks, contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : undefined);
+      onStartPipeline("app_builder_revision", revisionMessage, undefined, attachedSkills, attachedHooks, { source_workflow_run_id: contentSourceRunId || undefined, _display_title: instruction.slice(0, 60) });
     }
   }, [userStoryContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
@@ -1003,9 +1003,9 @@ export function DashboardLayout({
       const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       if (connectionStatus === "connected") {
-        onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
+        onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks, { _display_title: chainBrief });
       } else {
-        pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [] };
+        pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [], extraParams: { _display_title: chainBrief } };
       }
     }
   }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
@@ -1083,9 +1083,9 @@ export function DashboardLayout({
       const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       if (connectionStatus === "connected") {
-        onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
+        onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks, { _display_title: historyBrief });
       } else {
-        pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [] };
+        pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [], extraParams: { _display_title: historyBrief } };
       }
     }
   }, [onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
@@ -1591,7 +1591,7 @@ export function DashboardLayout({
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING PRESENTATION CODE ===\n${content}\n=== END EXISTING CODE ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("ppt_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
+                onStartPipeline("ppt_revision", msg, undefined, attachedSkills, attachedHooks, { ...(sourceRunId ? { source_workflow_run_id: sourceRunId } : {}), _display_title: instruction.slice(0, 60) });
               }
             }}
             onRevisePrototype={(instruction, content, sourceRunId) => {
@@ -1600,7 +1600,7 @@ export function DashboardLayout({
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING PROTOTYPE HTML ===\n${content}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("prototype_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
+                onStartPipeline("prototype_revision", msg, undefined, attachedSkills, attachedHooks, { ...(sourceRunId ? { source_workflow_run_id: sourceRunId } : {}), _display_title: instruction.slice(0, 60) });
               }
             }}
             onReviseAppBuilder={(instruction, content, sourceRunId) => {
@@ -1609,7 +1609,7 @@ export function DashboardLayout({
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING APP BLUEPRINT ===\n${content.slice(0, 40000)}\n=== END EXISTING BLUEPRINT ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("app_builder_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
+                onStartPipeline("app_builder_revision", msg, undefined, attachedSkills, attachedHooks, { ...(sourceRunId ? { source_workflow_run_id: sourceRunId } : {}), _display_title: instruction.slice(0, 60) });
               }
             }}
           />

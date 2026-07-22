@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import type { ChatSession, WorkflowRun, WorkflowStatus, WorkflowType } from "@/types/index";
 import { getToken, getChats } from "@/lib/api";
+// KAN-116 (Bug 3): safety net for titles stored in DB with === markers.
+import { parseRunInput } from "@/lib/runInput";
 
 interface SidebarProps {
   activeChatId?: string;
@@ -191,7 +193,12 @@ export function Sidebar({
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] font-medium text-white/80 group-hover:text-white transition-colors">
-                        {run.title || run.input.slice(0, 40)}
+                        {(() => {
+                          const raw = run.title || run.input.slice(0, 40);
+                          if (!raw.includes("===")) return raw;
+                          const p = parseRunInput(raw);
+                          return (p.revisionInstruction ?? p.brief ?? raw).split("\n")[0].trim() || raw;
+                        })()}
                       </p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <StatusIcon className={`h-2.5 w-2.5 ${statusColor} ${run.status === "running" ? "animate-spin" : ""}`} />

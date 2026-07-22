@@ -25,6 +25,9 @@ import type { ChatMode } from "@/components/chat/ChatInput";
 // history-reopen detail view so the two surfaces parse the persisted run `error`
 // identically. See lib/parseFailedAgents.ts for the marker contract.
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
+// KAN-116 (title markers in submittedBrief): use the SAME single-source parser
+// DashboardLayout already uses for notification titles (INV-12 — no dual impl).
+import { parseRunInput } from "@/lib/runInput";
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -552,11 +555,21 @@ export default function DashboardPage() {
         // set runs byte-identically to before; only a genuine foreign concurrent
         // completion is skipped.
         const completingRunId = data.pipeline_run_id as string | undefined;
+        const completingPipelineType = data.pipeline_type as string | undefined;
         const isForeignCompletion =
           !!completingRunId &&
           !!trackedRunIdRef.current &&
           completingRunId !== trackedRunIdRef.current;
-        if (completingRunId && !isForeignCompletion) {
+        // KAN-116 (Issue 2): a *_revision pipeline is intentionally dispatched
+        // FROM the currently-tracked run. When it completes, contentSourceRunId
+        // must advance to the revision run so DashboardLayout's family useEffect
+        // re-fires and fetches the updated family (showing v1/v2/... chips).
+        // Without this, the revision completes but isForeignCompletion is true
+        // (revision_run_id ≠ trackedRunIdRef which holds the parent run id) and
+        // the family is never re-fetched, leaving the version dropdown at v1.
+        // SC-001/INV-1: keyed on generic endsWith("_revision") suffix, no literal.
+        const isRevisionCompletion = typeof completingPipelineType === "string" && completingPipelineType.endsWith("_revision");
+        if (completingRunId && (!isForeignCompletion || isRevisionCompletion)) {
           setContentSourceRunId(completingRunId);
           // BUG-015 — release the tracked completing run's sticky focus so its
           // terminal SSE stream unmounts (no reconnect, no ~14k re-replay). Reached
@@ -1528,7 +1541,19 @@ export default function DashboardPage() {
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
         // (revision or fresh — it is the run's input either way), reset per run.
-        setSubmittedBrief(message);
+        // KAN-116 (Bug 3): prefer the explicit _display_title from extraParams (set
+        // by DashboardLayout chain/revision handlers with the already-clean brief),
+        // fall back to parseRunInput for other callers. This avoids re-parsing
+        // complex nested context blocks that can defeat the regex.
+        const _displayTitle = extraParams?._display_title as string | undefined;
+        let _cleanBrief: string;
+        if (_displayTitle && _displayTitle.trim()) {
+          _cleanBrief = _displayTitle.trim();
+        } else {
+          const _parsed = parseRunInput(message);
+          _cleanBrief = (_parsed.revisionInstruction ?? _parsed.brief ?? message).trim();
+        }
+        setSubmittedBrief(_cleanBrief || message);
         // ISS-017 (16-04): any new run clears the history-reopen failure signal
         // so a prior failed reopen never bleeds the affordance into a live run.
         setReopenedRunStatus(undefined);
