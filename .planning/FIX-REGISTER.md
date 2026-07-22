@@ -10,6 +10,9 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-100 | 2026-07-22 | Dashboard home instant load — stale-while-revalidate with sessionStorage cache | All prior fixes passed props between components but data still arrives async after auth; first render always had nothing to show. SWR pattern: seed from sessionStorage cache → render instantly → background refetch writes cache for next visit | `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 38/40 (HomeLaunchGrid) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-099 | 2026-07-22 | Stop "Jump back in" recents from appearing late — accept recentRuns prop instead of duplicate internal fetch | HomeLaunchGrid fetched getWorkflows internally even though DashboardLayout already had recentRuns from page.tsx. Added recentRuns prop, seed recents state from it instantly, skip internal fetch when prop supplied | `frontend/src/components/catalog/HomeLaunchGrid.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 38 (SC-2 / recents strip) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-098 | 2026-07-22 | KAN-118: Remove dashboard home flicker — eliminate card stagger, header slide-up animation, and AnimatePresence mode=wait | 4 compounding causes: per-card delay (0.06+idx*0.05s), h1 slide-up (0.4s), AnimatePresence mode=wait adds 200ms blank on nav. All three removed. motion import cleaned up. | `frontend/src/components/catalog/HomeLaunchGrid.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 38/40 (HomeLaunchGrid cards + DashboardLayout view-switch) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-097 | 2026-07-22 | Remove time estimate (~Nm) from Home launch grid cards — show agent count only | estimate string in HomeLaunchGrid included `· ~${minutes}m` from the analytics history; removed the time clause so only `~N agents` shows | `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 38 (SC-2 real estimate) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-096 | 2026-07-22 | Hide Back/Next nav buttons in PPT wizard when only one step (template) is shown | WizardStepper always rendered the Back/Next row regardless of step count; PPT mode passes steps={["template"]} (1 step only) so both buttons were disabled but still visible. Guard now hides the nav row entirely when steps.length <= 1. | `frontend/src/components/workflow/WizardStepper.tsx` | Phase 37/41 (B3/B7 — WizardStepper FIX-065) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-095 | 2026-07-22 | Fix `.split is not a function` crash + multi-select chip highlighting when "Use recommended" clicked | recommendedAnswer/recommendedDisplay can be non-string (array/number) from the API — all .split() calls lacked String() coercion. Also multi-select chip highlight was broken because useRecommended stored the whole comma-joined string instead of splitting to individual chip values. Fixed via two pure helpers: toRecString() and splitRecToChips(). | `frontend/src/components/chat/InlineClarifyActions.tsx` | Phase 31/42 (CHATUI-01 / InlineClarifyActions) | INV-1/3/12/SC-001 ✅ | Done |
@@ -2425,3 +2428,46 @@ For multi-select questions the backend's `recommendedAnswer` is often a comma-se
 
 #### Notes
 - The `steps` prop was added by FIX-065 specifically to let PPT mode skip DS + Discovery; this fix completes that work by also hiding the now-useless nav.
+
+---
+
+### FIX-098 — Remove dashboard home flicker (KAN-118)
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-118`
+
+#### Root Cause
+Four compounding causes made the home dashboard content appear in staggered waves:
+
+1. **Per-card stagger** — `motion.div` on each card with `delay: 0.06 + idx * 0.05` caused 6 cards to paint one-by-one over ~310ms.
+2. **Header slide-up** — `motion.div` on the h1+eyebrow with `initial={{ opacity: 0, y: 16 }} transition={{ duration: 0.4 }}` made the header animate before the cards.
+3. **`AnimatePresence mode="wait"`** — every navigation TO home waited for the prior view's full exit animation (~200ms blank) before home could enter.
+4. (Note: the recents late-pop from the separate `getWorkflows` fetch is not fixed here — that would require prop-threading from page.tsx and is out of scope for this change.)
+
+#### Phase Context
+- **Phase(s) involved:** Phase 38 §3 (analytics fetch / HomeLaunchGrid SC-2), Phase 40 (HomeLaunchGrid motion cards), Phase 35 (DashboardLayout AnimatePresence)
+- **Deleted code verified (not resurrected):** Yes — no phase-deleted code resurrected. These are cosmetic presentation-layer changes.
+- **Locked decisions respected:** SC-001/INV-1 — no workflow-name literal added; the changes are purely animation/transition layer. ND-D (live data) untouched.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Replaced `<motion.div initial={{ opacity: 0, y: 16 }} ...>` header wrapper with plain `<div>` | Removes the 400ms header slide-up that preceded card rendering |
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Replaced per-card `<motion.div initial={{ opacity: 0, y: 8 }} transition={{ delay: 0.06 + idx * 0.05 }}>` with plain `<div>` | Removes the 60–310ms staggered card cascade |
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Removed `import { motion } from "motion/react"` | No longer used after above two changes; avoids lint warning |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Changed `AnimatePresence mode="wait"` → `mode="sync"` | `mode="wait"` held a ~200ms blank while the prior view exited; `sync` allows the new view to enter immediately |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE presentation-layer only
+- **INV-3** (golden parity): not affected — FE-only, no characterization goldens
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- `get_diagnostics` on both files → No diagnostics found
+- Traced: after fix, the home view (mainView==="home") now enters immediately via `mode="sync"` with a plain `opacity 0→1` (duration: 0.2 from the outer `motion.div key="home"`). Inside HomeLaunchGrid all cards render immediately as plain `<div>`s — no per-element delay. The h1 renders instantly as a plain `<div>`.
+- The `mode="sync"` change affects ALL views in DashboardLayout. All other views (library/history/settings/execution etc.) use the same `motion.div` enter/exit pattern — `sync` means their transitions overlap slightly which is the standard expected UX, not worse than before.
+
+#### Notes
+- The **recents late-pop** (4th cause from KAN-118) is NOT fixed here. Fixing it requires either (a) passing `recentRuns` from page.tsx as a prop instead of having HomeLaunchGrid fetch its own copy, or (b) pre-caching. That is a larger structural change tracked in KAN-118 as an open question.
+- The `getAnalyticsSummary` fetch still fires but is now a no-op for display (FIX-097 removed the minutes display). It could be removed entirely but that is separate cleanup.

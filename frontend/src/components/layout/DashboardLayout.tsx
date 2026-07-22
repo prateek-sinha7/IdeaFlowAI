@@ -32,7 +32,7 @@ import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { parseRunInput } from "@/lib/runInput";
 import { getToken, getChainContext, getRunFamily, postCancel, postRevision } from "@/lib/api";
-import type { UserWorkflowSummary } from "@/lib/api";
+import type { UserWorkflowSummary, WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
@@ -68,6 +68,10 @@ export interface DashboardLayoutProps {
   onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedSkills?: import("@/types/index").AttachedSkill[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void;
   onResetPipeline?: () => void;
   recentRuns?: WorkflowRun[];
+  /** Pre-fetched user-launchable workflow definitions from page.tsx. When supplied,
+   *  HomeLaunchGrid uses them as initial state and skips its own getWorkflowDefinitions
+   *  fetch, so the card grid appears instantly alongside the recents strip. */
+  homeWorkflows?: WorkflowSummary[];
   // Revision Families (B1 / D1-D7): the reliable "run id that produced the
   // on-screen content", owned by page.tsx (pipeline_complete + reopen). Every
   // revision launch path sources parent linkage from this — replaces the fragile
@@ -215,6 +219,7 @@ export function DashboardLayout({
   onStartPipeline,
   onResetPipeline,
   recentRuns,
+  homeWorkflows,
   contentSourceRunId,
   contentSourceRunType,
   onSelectWorkflowRun,
@@ -1502,7 +1507,7 @@ export function DashboardLayout({
 
       {/* Main Content */}
       <div className="flex-1 min-h-0">
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="sync">
           {/* HOME — the data-driven HomeLaunchGrid is the DEFAULT landing
               (UXFIX-03 / D-20). The hardcoded `CreationHub.WORKFLOWS` array no
               longer drives the default home — the catalog sources its rows from
@@ -1540,6 +1545,8 @@ export function DashboardLayout({
                   onBriefChange={setHomeBrief}
                   onBuild={() => handleHomeSelectFeature("custom" as WorkflowType)}
                   onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); }}
+                  recentRuns={recentRuns}
+                  homeWorkflows={homeWorkflows}
                 />
               </div>
             </motion.div>

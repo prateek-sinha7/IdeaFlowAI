@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents } from "@/lib/api";
+import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions } from "@/lib/api";
+import type { WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
 import { useWorkflow } from "@/hooks/useWorkflow";
@@ -171,6 +172,10 @@ export default function DashboardPage() {
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
+  // Pre-fetched user-launchable workflow definitions for the home card grid.
+  // Fetched once on auth alongside recentRuns so HomeLaunchGrid never needs to
+  // fire its own getWorkflowDefinitions — the cards appear immediately.
+  const [homeWorkflows, setHomeWorkflows] = useState<WorkflowSummary[]>([]);
   // Revision Families (B1 / D1-D7): the reliable "run id that produced the
   // on-screen content". Set on pipeline_complete (live) + reopen; cleared on a
   // fresh (non-revision) run. Threaded to DashboardLayout so every revision
@@ -325,6 +330,12 @@ export default function DashboardPage() {
         // Silently fail — workflows will load when backend is available
         // This prevents the error from showing on the UI
       });
+
+    // Pre-fetch the user-launchable workflow catalog so HomeLaunchGrid can seed
+    // its card grid instantly from state instead of making its own fetch.
+    getWorkflowDefinitions(currentToken)
+      .then((rows) => setHomeWorkflows(rows.filter((w) => w.user_launchable)))
+      .catch(() => { /* non-fatal — HomeLaunchGrid falls back to its own fetch */ });
   }, [isAuthenticated]);
 
   // Handle incoming WebSocket messages
@@ -1602,6 +1613,7 @@ export default function DashboardPage() {
       }}
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
+      homeWorkflows={homeWorkflows}
       contentSourceRunId={contentSourceRunId}
       contentSourceRunType={contentSourceRunType}
       onSelectWorkflowRun={handleSelectWorkflowRun}
