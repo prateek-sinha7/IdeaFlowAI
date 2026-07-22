@@ -658,6 +658,16 @@ export default function DashboardPage() {
         }
       }
 
+      // KAN-115: clear stale questionnaire state on cancel/fail so laneClarifyOpen
+      // goes false and runLaneState resolves to "terminal" not "clarify".
+      // Must be HERE (inside the pipelineTypes block, before return) — pipeline_cancelled
+      // and pipeline_failed are in pipelineTypes and never reach the switch below.
+      if (msg.type === "pipeline_cancelled" || msg.type === "pipeline_failed") {
+        setReviewGateData(null);
+        setQuestionnaireData(null);
+        setActivePipelineRunId(null);
+      }
+
       return;
     }
 
@@ -917,6 +927,14 @@ export default function DashboardPage() {
         // reviewGateData is not cleared by useWorkflow (which only sets isRunning=false)
         // or by onResetPipeline(), so this is the canonical place to clear it.
         setReviewGateData(null);
+        // KAN-115: also clear stale questionnaire state — if the pipeline was
+        // cancelled/failed while the clarify gate was open, questionnaire_complete
+        // never fires, so questionnaireData stays populated. This keeps
+        // laneClarifyOpen=true in DashboardLayout, which forces runLaneState to
+        // "clarify" instead of "terminal" and leaves the AwaitingCard visible.
+        // Mirrors the identical pipeline_start clear (lines above).
+        setQuestionnaireData(null);
+        setActivePipelineRunId(null);
         break;
       }
 

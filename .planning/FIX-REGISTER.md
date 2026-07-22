@@ -10,6 +10,8 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-085 | 2026-07-22 | Rename "Run again" button to "New Pipeline" on cancelled terminal card | Label was hardcoded as "Run again" in the cancelled branch of RunChatLane renderComposerBody | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx` | Phase 31/32 (CHATUI-01) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-084 | 2026-07-21 | KAN-115: Clear stale questionnaireData on pipeline_cancelled/failed so AwaitingCard disappears | pipeline_cancelled handler cleared reviewGateData but not questionnaireData or activePipelineRunId, leaving laneClarifyOpen=true and runLaneState stuck at "clarify" instead of "terminal" after cancel/fail | `frontend/src/app/dashboard/page.tsx` | Phase 22/42 (page.tsx dispatcher) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-083 | 2026-07-21 | KAN-114: Replace first clarification card (amber styled) with plain text bubble "Before I build, I need to lock a few things down." | Two independent paths fired on questionnaire_ready: (1) chat_narrator.py emitted a styled ResultCard with text "Paused — N questions for you"; (2) RunChatLane.tsx also showed an AwaitingCard. Fix: narrator text changed to fixed message; ResultCard.tsx now renders a plain prose bubble for clarify kind. AwaitingCard untouched. | `backend/app/agents/chat_narrator.py`, `frontend/src/components/chat/ResultCard.tsx`, `backend/tests/unit/test_chat_narrator.py` | Phase 31 (CHATUI-01) + Phase 43 (A6) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-082 | 2026-07-21 | Always show "Write a custom skill" button on Skills tab — remove agent.has_skill gate | The custom skill button was gated on `agent.has_skill` so it never showed for agents without the flag. Every agent should be able to get a custom skill authored. Removed the gate. Also cleaned up the dangling `)}` JSX left from the removed conditional. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-081 | 2026-07-21 | Show empty state messages when no suggested skills or hooks for an agent | Skills/Hooks tabs rendered blank when suggestedSkills/suggestedHooks had 0 items — `{length > 0 && (...)}` with no else branch. Changed to ternary with an empty-state card (icon + message). | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
@@ -100,6 +102,43 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-084 — KAN-115: Clear stale questionnaireData on pipeline_cancelled/failed
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix KAN-115`
+
+#### Root Cause
+`frontend/src/app/dashboard/page.tsx` lines 913–921: the `pipeline_cancelled` / `pipeline_failed` case called `setReviewGateData(null)` but NOT `setQuestionnaireData(null)` or `setActivePipelineRunId(null)`. When a user cancels during the clarify gate, `questionnaire_complete` never fires, so `questionnaireData` remains populated. `DashboardLayout` subscribes to it and sets `questionnaireQuestions`, making `laneClarifyOpen = true`. Since `laneClarifyOpen ? "clarify"` is checked before `(failed || cancelled) ? "terminal"` in the `runLaneState` ternary, the lane stays in `"clarify"` mode, the `AwaitingCard` persists, and the correct terminal affordance is never shown.
+
+**Critical implementation detail found during verification:** `pipeline_cancelled` and `pipeline_failed` are in the `pipelineTypes` array (line ~463), so they are handled in the `pipelineTypes` block which ends with `return;` before the `switch` statement. The initial fix was placed in the `switch` case at line ~913 — which is **dead code** for these event types. The working fix is in the `pipelineTypes` block, just before `return;`, using an `if (msg.type === "pipeline_cancelled" || msg.type === "pipeline_failed")` guard. Additionally, `setReviewGateData(null)` from the KAN-100 fix was also in the dead switch case and has been moved here.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22/42 — frontend pipeline state dispatcher in `page.tsx`
+- **Relevant register section:** Phase 42 §2 (RUNUI-08 — inline clarify/gate affordances)
+- **Deleted code verified (not resurrected):** No deleted code involved — surgical one-case addition
+- **Locked decisions respected:** LIVE-STATE-CONTRACT `runLaneState` priority order (clarify > terminal) is preserved; the fix clears the stale upstream state so the priority resolves correctly
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `setQuestionnaireData(null)` and `setActivePipelineRunId(null)` to the `pipeline_cancelled` / `pipeline_failed` case | Mirrors the identical clear already present in the `pipeline_start` handler (lines ~528–533); ensures `laneClarifyOpen` goes false on cancel/fail so `runLaneState` resolves to `"terminal"` |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — FE-only, no engine change
+- **INV-3** (golden parity): Not affected — FE-only, no backend/golden impact
+- **INV-12** (no duplication): Not applicable — reusing existing state setters
+- **SC-001** (zero engine edits): Not affected — FE-only
+
+#### Verification
+After the fix: when `pipeline_cancelled` fires, `setQuestionnaireData(null)` clears `questionnaireData` → `DashboardLayout` effect fires `setQuestionnaireQuestions([])` → `laneClarifyOpen = false` → `runLaneState` evaluates past `"clarify"` to `"terminal"` → `AwaitingCard` disappears. The `questionnaire_complete` path (normal clarify-then-proceed) is unaffected. The `pipeline_start` clear (stale-state-from-previous-run) is unaffected.
+
+#### Notes
+- `setActivePipelineRunId(null)` is also cleared as a second-layer defense: even if `questionnaireQuestions` somehow stayed non-empty, `laneClarifyOpen` also gates on `(!!activePipelineRunId)`, so clearing it prevents any residual false positive.
+- The chained-run clarify box (screenshot 2 in KAN-115) is also addressed by this fix — any stale `questionnaireData` from a prior run's clarify round is cleared when the terminal event fires.
+- FE-only change; no backend restart needed.
 
 ---
 

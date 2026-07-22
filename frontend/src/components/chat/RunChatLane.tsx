@@ -1257,7 +1257,7 @@ export function RunChatLane({
                   The run was stopped. Nothing further will happen.
                 </p>
               </Card>
-              {relaunch("Run again")}
+              {relaunch("New Pipeline")}
             </div>
           );
         }
