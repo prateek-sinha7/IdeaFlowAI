@@ -630,9 +630,18 @@ export function AgentCapabilitiesModal({
           )}
 
           {/* Config tab — per-agent configuration levers (Model · Validator · Gate ·
-              Retry) shown FLAT — no expand/collapse chrome, no System Prompt here. */}
+              Retry) shown FLAT — no expand/collapse chrome. System Prompt editor
+              at the top (ND-7/LOCK-E superseded for the Library drawer Config tab —
+              full Edit / Save override / Revert-to-default affordances enabled so
+              the user can customise the agent prompt from this screen). */}
           {drawerTab === "config" && (
           <>
+          {/* System Prompt editor — full write affordances (surfaceOnly=false).
+              Overrides are stored at skills/users/{user_id}/{agent_id}/PROMPT_OVERRIDE.md
+              and injected at runtime by factory._compose_system_prompt (KAN-76).
+              A "Revert to default" button resets back to the base AGENT.md. */}
+          <AgentPromptSection agent={agent} />
+
           <p className="text-[12px] text-ink-500 leading-relaxed">
             Overrides for this agent. Defaults inherit from the workflow.
           </p>

@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-086 | 2026-07-22 | Surface system prompt editor (Edit/Save/Reset) on Config tab of Library agent drawer | AgentPromptSection was mounted with surfaceOnly=true everywhere (ND-7/LOCK-E deferral), hiding write affordances. Config tab now mounts it without surfaceOnly so users can edit, save, and reset agent system prompts | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) + KAN-76 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-085 | 2026-07-22 | Rename "Run again" button to "New Pipeline" on cancelled terminal card | Label was hardcoded as "Run again" in the cancelled branch of RunChatLane renderComposerBody | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx` | Phase 31/32 (CHATUI-01) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-084 | 2026-07-21 | KAN-115: Clear stale questionnaireData on pipeline_cancelled/failed so AwaitingCard disappears | pipeline_cancelled handler cleared reviewGateData but not questionnaireData or activePipelineRunId, leaving laneClarifyOpen=true and runLaneState stuck at "clarify" instead of "terminal" after cancel/fail | `frontend/src/app/dashboard/page.tsx` | Phase 22/42 (page.tsx dispatcher) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-083 | 2026-07-21 | KAN-114: Replace first clarification card (amber styled) with plain text bubble "Before I build, I need to lock a few things down." | Two independent paths fired on questionnaire_ready: (1) chat_narrator.py emitted a styled ResultCard with text "Paused — N questions for you"; (2) RunChatLane.tsx also showed an AwaitingCard. Fix: narrator text changed to fixed message; ResultCard.tsx now renders a plain prose bubble for clarify kind. AwaitingCard untouched. | `backend/app/agents/chat_narrator.py`, `frontend/src/components/chat/ResultCard.tsx`, `backend/tests/unit/test_chat_narrator.py` | Phase 31 (CHATUI-01) + Phase 43 (A6) | INV-1/3/12/SC-001 ✅ | Done |
@@ -102,6 +103,38 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+---
+
+### FIX-086 — Surface system prompt editor on Config tab of Library agent drawer
+
+**Date:** 2026-07-22
+**Triggered by:** `/velocity-ai-fix system prompt editing from dev branch — reapply to new UI2`
+
+#### Root Cause
+All call sites of `AgentPromptSection` in `AgentsPopup.tsx` passed `surfaceOnly` (or `surfaceOnly={true}`), which hides the Edit, Save override, and Revert-to-default buttons. This was the ND-7/LOCK-E design decision from Phase 37/41 that explicitly deferred prompt-override persistence in the drawer. The backend storage (`prompt_overrides.py`), REST API (`GET/PUT/DELETE /api/agents/{id}/prompt`), factory injection (`factory.py:_compose_system_prompt`), and FE API client (`api.ts`) are all fully wired — the only missing piece was removing the `surfaceOnly` gate on the Config tab.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 37/41 (B3/B7) + KAN-76 (dev branch)
+- **Relevant register section:** Phase 37 §5 (ND-7/LOCK-E decision)
+- **Deleted code verified (not resurrected):** No deleted code — intentional gate reversal
+- **Locked decisions respected:** ND-7/LOCK-E superseded for the Library drawer Config tab only; Composer surfaces keep `surfaceOnly`
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Added `<AgentPromptSection agent={agent} />` (without `surfaceOnly`) at the top of the Config tab section | Surfaces Edit/Save override/Revert affordances; overview tab unchanged (still surfaceOnly) |
+
+#### Invariants Verified
+- **INV-1**: Not affected — FE-only
+- **INV-3**: Not affected — factory falls back gracefully; goldens unaffected
+- **INV-12**: Reuses existing `AgentPromptSection` — no duplication
+- **SC-001**: Not affected
+
+#### Verification
+Config tab now shows collapsible "System Prompt" section at top with Edit/Save/Revert. Save calls `PUT /api/agents/{id}/prompt`; Revert calls `DELETE`. Factory reads the override at runtime via `read_user_prompt_override`.
 
 ---
 
