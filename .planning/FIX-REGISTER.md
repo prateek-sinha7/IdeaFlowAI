@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-094 | 2026-07-22 | KAN-117: Add recommended answers + "Skip all" affordance to clarify questions | ClarifyQuestion type carried recommendedAnswer/recommendedDisplay/impactLevel but InlineClarifyActions never rendered them; skip was impossible without answering all questions (Phase 42-06 intentional omission, now reversed per user request) | `frontend/src/components/chat/InlineClarifyActions.tsx` | Phase 31/42 (CHATUI-01 / InlineClarifyActions) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-093 | 2026-07-22 | Remove duplicate outer timeline dot from StartingPointCard — aligns with ClarificationsCard flat-card style | StartingPointCard used a `relative pl-8` wrapper with an absolute-positioned navy circle+FileText timeline dot, PLUS a second FileText icon inside the card button — rendering two similar icons side-by-side. Fix removes the outer dot entirely. | `frontend/src/components/results/StartingPointCard.tsx` | Phase 25/42 (Workstream C2) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-092 | 2026-07-22 | KAN-116 Bug 3 (definitive): pass _display_title in extraParams from all chain/revision call sites so page.tsx never needs to re-parse complex nested context blocks | parseRunInput failed on complex nested context; fix passes the already-clean chainBrief/instruction as _display_title in extraParams — no re-parsing needed | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 25/36 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-091 | 2026-07-22 | KAN-116 Bug 3 (BE): chain context_block embedded polluted title/brief from old DB runs causing nested === markers that parseRunInput couldn't strip | _extract_chain_context used raw workflow_run.title and .input which for pre-fix runs contained === marker text; these nested markers broke the FE context strip | `backend/app/api/runs.py` | Phase 29/36 | INV-1/3/12/SC-001 ✅ | Done |
@@ -2302,3 +2303,44 @@ Trace: `StepsOverviewSpine.tsx topSlot → StartingPointCard → return (<div cl
 - The inner card-header icon (`w-7 h-7 rounded-lg bg-[#E8EDF5]`) is KEPT — it's the correct visual that matches the mock design.
 - All card body content (revision variant, chained variant, attachments, ND-10 image placeholder) is completely untouched.
 - The removed `pl-8` + absolute dot was originally cloned from the PlannerCard timeline pattern but is inappropriate here since StartingPointCard renders alongside (not inside) the PlannerCard timeline — the double icon was always wrong in this context.
+
+---
+
+### FIX-094 — Recommended Answers + Skip All in Clarify Questions (KAN-117)
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix clarify questions missing skip option and recommended answers`
+
+#### Root Cause
+`InlineClarifyActions.tsx` had the `ClarifyQuestion` type fields `recommendedAnswer`, `recommendedDisplay`, and `impactLevel` available (defined in `types/index.ts`) but never read or rendered them. This was an intentional Phase 42-06 omission (comment in the file: "the per-question skip toggle, the recommended-answer fill/badge … are intentionally omitted"). The user now wants these features — reversing that decision.
+
+Two specific gaps:
+1. **No skip affordance** — questions with no selection are silently dropped on submit, but there was no visible "Skip & continue" button so users believed all questions were mandatory.
+2. **No recommended answers** — the backend sends `recommendedAnswer`/`recommendedDisplay` per question but the UI never showed them.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31 (CHATUI-01) / Phase 42-06 (intentional omission)
+- **Deleted code verified (not resurrected):** No. This adds back UI features that were intentionally deferred, not deleted engine logic.
+- **Locked decisions respected:** SC-001 — generic question ids only, no workflow/agent-name literals. INV-12 — reused the existing `onSubmitAnswers` channel, no second submit path.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/chat/InlineClarifyActions.tsx` | Added: (1) recommended-answer hint row per question with one-click "Use recommended" button; (2) `★` marker on the recommended chip option; (3) `impactLevel === "high"` → amber "High impact" badge on the question label; (4) "Skip questions & start the build" secondary button (shown only when not all questions answered); (5) dynamic submit label counting answered questions. | Surfaces server-supplied recommendations to users and makes it clear that answering is optional. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only
+- **INV-3** (golden parity): not affected — FE-only, no characterization goldens
+- **INV-12** (no duplication): verified — reused the SAME `onSubmitAnswers` callback for both submit and skip-all; one channel, two buttons
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- `get_diagnostics` → No diagnostics found (TypeScript valid)
+- Traced: both "Submit" and "Skip" call `onSubmitAnswers(buildResponses())` which collects only questions with `answers[q.id]?.length > 0`. Unanswered questions are omitted exactly as before — the backend already handles partial submissions with its defaults.
+- Committed: `[ui-2-bug-fixes 581f0ceb]`
+
+#### Notes
+- The "Skip questions & start the build" button is **only shown** when `answeredCount < questions.length` — if the user answers all questions it disappears (no redundant UI).
+- The recommended-answer hint row hides itself once the user selects any option for that question (clean, non-cluttering).
+- The `★` marker on the recommended chip makes the option discoverable even without the hint row.
+- The submit button label adapts: "Submit 2 answers & start the build" vs the generic fallback when 0 are answered.
