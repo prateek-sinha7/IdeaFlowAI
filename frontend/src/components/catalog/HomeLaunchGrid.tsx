@@ -355,10 +355,8 @@ export function HomeLaunchGrid({
                 row.step_count ??
                 (row as WorkflowSummary & { agent_count?: number }).agent_count;
               const avgSec = avgDurationSec[row.id];
-              const minutes = avgSec != null ? Math.round(avgSec / 60) : null;
-              const estimate = `~${agents} agents${
-                minutes != null ? ` · ~${minutes}m` : ""
-              }`;
+              void avgSec; // FIX-097: time estimate removed from card display
+              const estimate = `~${agents} agents`;
               const allowed = canRunPipeline(userTier, type); // gate 2
               const upgradeTo = getUpgradeTier(userTier, type);
               return (
