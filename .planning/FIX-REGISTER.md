@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-093 | 2026-07-22 | Remove duplicate outer timeline dot from StartingPointCard — aligns with ClarificationsCard flat-card style | StartingPointCard used a `relative pl-8` wrapper with an absolute-positioned navy circle+FileText timeline dot, PLUS a second FileText icon inside the card button — rendering two similar icons side-by-side. Fix removes the outer dot entirely. | `frontend/src/components/results/StartingPointCard.tsx` | Phase 25/42 (Workstream C2) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-092 | 2026-07-22 | KAN-116 Bug 3 (definitive): pass _display_title in extraParams from all chain/revision call sites so page.tsx never needs to re-parse complex nested context blocks | parseRunInput failed on complex nested context; fix passes the already-clean chainBrief/instruction as _display_title in extraParams — no re-parsing needed | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 25/36 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-091 | 2026-07-22 | KAN-116 Bug 3 (BE): chain context_block embedded polluted title/brief from old DB runs causing nested === markers that parseRunInput couldn't strip | _extract_chain_context used raw workflow_run.title and .input which for pre-fix runs contained === marker text; these nested markers broke the FE context strip | `backend/app/api/runs.py` | Phase 29/36 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-090 | 2026-07-22 | KAN-116: Clean === marker titles at all display surfaces — history, sidebar, live header, and new runs | Three-layer fix: (1) FE display-time cleanDisplayTitle helper in RevisionFamilyView+WorkflowHistory+Sidebar strips existing DB titles; (2) FIX-087 backend _clean_run_title prevents new bad titles; (3) FIX-089 cleans submittedBrief for live header | `frontend/src/components/history/RevisionFamilyView.tsx`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/components/sidebar/Sidebar.tsx` | Phase 25/36 | INV-1/3/12/SC-001 ✅ | Done |
@@ -2260,3 +2261,44 @@ Additionally the `TYPE_CONFIG["custom"]` copy and `workflow.yaml` catalog metada
 #### Notes
 - HTML prototype output via custom workflow (a separate future capability) is out of scope for this fix per KAN-112 acceptance criteria; tracked as a follow-up in KAN-112 description
 - AI-driven recommendation endpoint is also a follow-up item — the Smart Planner + Clarification Questions already provide contextual gathering; the active recommendation-before-run feature would be a separate backend endpoint
+
+---
+
+### FIX-093 — Remove Duplicate Outer Timeline Dot from StartingPointCard
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix starting point shows 2 similar icons, remove outer icon, align it to same clarifying question block`
+
+#### Root Cause
+`StartingPointCard.tsx` used a `relative pl-8` outer wrapper with an **absolute-positioned navy filled circle + FileText icon** (the "timeline dot") at `absolute left-0 top-3`. The card's `<button>` header ALSO had its own `w-7 h-7 rounded-lg bg-[#E8EDF5]` icon div with a second FileText icon. This produced two near-identical document icons side-by-side in the UI — one on the left margin (the outer dot) and one inside the card header button.
+
+The `ClarificationsCard` (the correct reference design the user pointed to) renders as a flat `rounded-[12px] border` card with **no outer timeline dot at all** — no `relative pl-8` wrapper, no absolute-positioned element.
+
+Trace: `StepsOverviewSpine.tsx topSlot → StartingPointCard → return (<div className="relative pl-8"> → <div className="absolute left-0 top-3">` [OUTER NAVY CIRCLE + FileText] → `<div className="rounded-xl border"> <button> <div className="w-7 h-7 rounded-lg bg-[#E8EDF5]">` [INNER FileText]) → two icons rendered.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 (Workstream C2 — StartingPointCard) / Phase 42 (run-screen state fidelity)
+- **Relevant register section:** Phase 25 §3 (C2 StartingPointCard)
+- **Deleted code verified (not resurrected):** The outer timeline dot was a pattern cloned from PlannerCard (AgentThinkingTab.tsx). Removing it does not resurrect any Phase-deleted code.
+- **Locked decisions respected:** SC-001 — card variant still chosen by parsed shape (revisionInstruction/chainContext), never a workflow-name string.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/StartingPointCard.tsx` | Removed the outer `<div className="relative pl-8">` wrapper and the absolute-positioned timeline dot `<div className="absolute left-0 top-3 ...">` (navy circle + FileText + connector rail). Card now renders as a flat `<div className="rounded-xl border overflow-hidden border-gray-100">` — matching the ClarificationsCard flat-card style. | Two redundant icons side-by-side; the inner card button already has its own FileText icon in an `E8EDF5` rounded square — that's the correct single icon to keep. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only, no engine changes
+- **INV-3** (golden parity): not affected — FE-only component, no characterization golden touches
+- **INV-12** (no duplication): not applicable — removing redundant code
+- **SC-001** (zero engine edits for new workflows): not affected
+
+#### Verification
+- `get_diagnostics` on the file → **No diagnostics found** (TypeScript valid)
+- Mentally traced: the `return` now opens a single flat `<div className="rounded-xl ...">`, contains the `<button>` header (with the single inline `E8EDF5` icon), the `{expanded && ...}` body, and a single closing `</div>`. JSX nesting is correct with no extra close tags.
+- Committed: `[ui-2-bug-fixes 1a99e264]`
+
+#### Notes
+- The inner card-header icon (`w-7 h-7 rounded-lg bg-[#E8EDF5]`) is KEPT — it's the correct visual that matches the mock design.
+- All card body content (revision variant, chained variant, attachments, ND-10 image placeholder) is completely untouched.
+- The removed `pl-8` + absolute dot was originally cloned from the PlannerCard timeline pattern but is inappropriate here since StartingPointCard renders alongside (not inside) the PlannerCard timeline — the double icon was always wrong in this context.
