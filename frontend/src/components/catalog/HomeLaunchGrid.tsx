@@ -348,7 +348,7 @@ export function HomeLaunchGrid({
                         ? "cursor-pointer border-line-border bg-surface-card hover:border-line-faint"
                         : "cursor-not-allowed border-line-border bg-surface-card opacity-60"
                     }`}>
-                    <div className="mb-3.5 flex items-center justify-between">
+                    <div className="mb-3.5 flex items-center justify-between pr-7">
                       <span className="grid h-[38px] w-[38px] place-items-center rounded-[10px] bg-surface-warm text-ink-900">
                         {allowed ? <Sparkles className="h-[19px] w-[19px]" /> : <Lock className="h-[18px] w-[18px] text-ink-400" />}
                       </span>
