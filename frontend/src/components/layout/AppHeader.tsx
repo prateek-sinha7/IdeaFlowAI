@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Zap,
   Home,
   BookOpen,
   User,
@@ -100,11 +99,13 @@ export function AppHeader({
 
   return (
     <header className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 bg-surface-near-black border-b border-white/10 z-40 relative">
-      {/* Left — Logo */}
+      {/* Left — Hexaware Logo + VelocityAI wordmark */}
       <div className="flex items-center gap-2 sm:gap-2.5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand">
-          <Zap className="h-3.5 w-3.5 text-white" />
-        </div>
+        <img
+          src="/hexaware-logo.png"
+          alt="Hexaware"
+          className="h-8 w-8 rounded-[6px] flex-shrink-0"
+        />
         <span className="text-sm sm:text-base font-semibold text-white tracking-tight font-sans">
           VelocityAI
         </span>
