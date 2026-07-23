@@ -1333,10 +1333,10 @@ export function RunChatLane({
                   </p>
                 </div>
                 <p className="mt-1 text-[11px] text-ink-500">
-                  The run was stopped. Nothing further will happen.
+                  The run was stopped. Click Run Again to resume from where it left off.
                 </p>
               </Card>
-              {relaunch("New Pipeline")}
+              {relaunch("Run Again")}
             </div>
           );
         }

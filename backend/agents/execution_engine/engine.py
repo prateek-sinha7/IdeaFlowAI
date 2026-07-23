@@ -7528,6 +7528,12 @@ class ExecutionEngine:
             # launch path accepts a client-supplied map, whereas resume reads the
             # already-persisted, already-launch-validated map).
             selections = wr.selections_json
+            # KAN-120: restore the launch-time od_context (template + design-system
+            # data) for OpenDesign pipelines (od_ppt, od_prototype). Persisted at
+            # run CREATION by run_commands._drive_launch_to_queue (migration 0027).
+            # NULL for non-OD runs → od_context=None passed to _drive_resumed_stream
+            # → _execute_impl → ectx.od_context = None (same as before — INV-3).
+            od_context = getattr(wr, "od_context_json", None)
         finally:
             db.close()
 
@@ -7654,6 +7660,7 @@ class ExecutionEngine:
             session_id=session_id,
             parent_run_id=parent_run_id,
             selections=selections,
+            od_context=od_context,
             start_seq=start,
             live_queue=live_queue,
             _resume_from=offset,
@@ -7671,6 +7678,7 @@ class ExecutionEngine:
         session_id: str | None,
         parent_run_id: str | None,
         selections: dict | None,
+        od_context: dict | None = None,
         start_seq: int,
         live_queue: "asyncio.Queue | None",
         _resume_from: int = 0,
@@ -7708,6 +7716,10 @@ class ExecutionEngine:
                 # the launch path uses the exact same kwarg (INV-12). None/empty →
                 # _apply_selections returns the plan unchanged → INV-3 parity.
                 selections=selections,
+                # KAN-120: restore the launch-time od_context so OpenDesign agents
+                # (od-ppt-*, prototype-*) receive their template + DS context on
+                # resume. None for non-OD runs → ectx.od_context=None (INV-3).
+                od_context=od_context,
                 _sink=sink,
                 _resume_from=_resume_from,
                 _is_resume=_is_resume,

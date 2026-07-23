@@ -10,6 +10,10 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-108 | 2026-07-23 | KAN-120: duplicate "Run started" card in chat after Run Again | narrator _reply_event_id used source_event_id as idempotency key; resumed run's pipeline_start has new event_id → new card. Fix: pipeline_start cards key on `pipeline_start:{run_id}` so all pipeline_start events for the same run collapse to one card | `backend/app/agents/chat_narrator.py` | Phase 31/43 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-107 | 2026-07-23 | KAN-120: after resume completes, FE still shows "Cancelled by you" + Run Again, history shows Cancelled | 3 bugs: (1) pipeline_start spread kept cancelled:true so pipeline_complete landed back in "terminal"; (2) _reconcile_terminal_status prioritised pipeline_cancelled over subsequent pipeline_complete from resume; (3) FE history refetch raced against reconcile | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/app/dashboard/page.tsx`, `backend/app/api/run_commands.py` | Phase 50/44/31 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-106 | 2026-07-23 | KAN-120: od_ppt/prototype resume produces empty output — od_context lost on resume | resume_run called _drive_resumed_stream/_execute_impl with od_context=None (default); od_context (template+DS data) was only available at launch time and never persisted. Added migration 0027 (od_context_json column), persist at launch, restore at resume | `backend/alembic/versions/0027_workflow_run_od_context.py`, `backend/app/models/workflow.py`, `backend/app/api/run_commands.py`, `backend/agents/execution_engine/engine.py` | Phase 50/37 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-105 | 2026-07-23 | KAN-120: "Run Again" resumes cancelled pipeline from stopped step | 4-part gap: backend eligibility `!= "failed"` blocked cancelled runs; in-memory state machine terminal guard blocked same-session resumes; no postResume in api.ts; onRelaunch wired to handleGoHome; cancelled card showed wrong label/text | `backend/app/api/run_commands.py`, `frontend/src/lib/api.ts`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 50/44/31 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-104 | 2026-07-23 | Chat-initiated workflow chaining — type vague intent to get inline chain picker | classifyFreeText had no CHAIN_INTENT path; vague chain phrases fell through to revision hold. Added CHAIN_INTENT regex, "chain" verb to CHAIN_TRANSFORM, chainPickerOpen state, and renderChainPicker() | `frontend/src/components/chat/RunChatLane.tsx` | Phase 31/c72 (RunChatLane — chain suggestions) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-103 | 2026-07-23 | Auto-select "Design System Inspired by Apple" as default in prototype launch wizard | selectedDsId initialised to null; listDesignSystems() callback only called setSystems() with no default selection. Added functional updater to setSelectedDsId inside the callback: selects "apple" only when prev===null and mode==="prototype" and "apple" exists in the list. | `frontend/src/components/workflow/LaunchWizard.tsx` | Phase 37 (B3/B7 — LaunchWizard) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-102 | 2026-07-23 | Add Hexaware logo to AppHeader (top-left) and Login page dark panel | No Hexaware branding existed; added inline text badge (white bold "HEXAWARE" on brand-blue pill) before the VelocityAI wordmark in both surfaces | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/app/login/page.tsx` | Phase 35 (B1 — shell chrome + login reskin) | INV-1/3/12/SC-001 ✅ | Done |
@@ -2475,3 +2479,47 @@ Four compounding causes made the home dashboard content appear in staggered wave
 #### Notes
 - The **recents late-pop** (4th cause from KAN-118) is NOT fixed here. Fixing it requires either (a) passing `recentRuns` from page.tsx as a prop instead of having HomeLaunchGrid fetch its own copy, or (b) pre-caching. That is a larger structural change tracked in KAN-118 as an open question.
 - The `getAnalyticsSummary` fetch still fires but is now a no-op for display (FIX-097 removed the minutes display). It could be removed entirely but that is separate cleanup.
+
+---
+
+### FIX-105 — KAN-120: "Run Again" resumes cancelled pipeline from stopped step
+
+**Date:** 2026-07-23
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-120`
+
+#### Root Cause
+Four independent gaps across the stack:
+
+1. **`backend/app/api/run_commands.py:~378`** — eligibility check `wr.status != "failed"` rejected cancelled runs with 409. A stopped run has `status="cancelled"`.
+2. **Same file, state machine** — when a run is cancelled then resumed in the **same process session**, the in-memory `StateMachine._states` dict has `"cancelled"` locked as terminal. `_execute_impl` subsequently calls `self._state_machine.transition(run_id, "generating")` which raises `StateMachineError: Cannot transition from terminal state 'cancelled'`. For failed runs resumed after a **restart** this never occurs (new process = empty dict), so it was never caught before.
+3. **`frontend/src/lib/api.ts`** — no `postResume()` function existed; the FE had no way to call the endpoint.
+4. **`frontend/src/components/layout/DashboardLayout.tsx:1796`** — `onRelaunch={handleGoHome}` navigated home; no resume call.
+5. **`frontend/src/components/chat/RunChatLane.tsx:~1335`** — button "New Pipeline", text "Nothing further will happen." — misleading.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 50 (RESUME-18 endpoint), Phase 44 (LOCK-B REST+SSE), Phase 31/32 (RunChatLane terminal cards)
+- **Deleted code verified (not resurrected):** None
+- **Locked decisions respected:** LOCK-B — REST up-channel + `runConnection.attachRun` (same as `postRevision`). INV-12 — `postResume` follows `postCancel` exactly, no duplication. SC-001/INV-1 — `handleResumeRun` keys only on generic run ids, zero workflow-name literal.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/run_commands.py` | Eligibility: `!= "failed"` → `not in {"failed", "cancelled"}`; added step 6b to pop the in-memory state machine entry before resume drive | Accept cancelled runs; prevent same-session terminal-state guard from blocking the transition to "generating" |
+| `frontend/src/lib/api.ts` | Added `postResume(token, runId)` following exact `postCancel` pattern | No client function existed |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `postResume` import; added `handleResumeRun` callback (captures `pipelineState.pipelineRunId` BEFORE state mutation, calls `postResume`, attaches SSE on success, falls back to `handleGoHome` on error — does NOT call `onResetPipeline` before POST); replaced `onRelaunch={handleGoHome}` with `onRelaunch={handleResumeRun}` | Was navigating home; now resumes + attaches SSE stream |
+| `frontend/src/components/chat/RunChatLane.tsx` | Button: `"New Pipeline"` → `"Run Again"`; text: `"Nothing further will happen."` → `"Click Run Again to resume from where it left off."` | User-visible fix matching acceptance criteria |
+
+#### Invariants Verified
+- **INV-1**: no `pipeline_type` branch — `handleResumeRun` keys only on run id props
+- **INV-3**: no engine/golden change; backend edit is app-layer eligibility + in-memory dict pop
+- **INV-12**: `postResume` is a single function; `handleResumeRun` reuses `runConnection.attachRun` seam
+- **SC-001**: zero engine edit; the existing Phase 45–49 resume tier handles everything
+
+#### Verification
+- Backend: `wr.status not in {"failed", "cancelled"}` — cancelled run passes; `_state_machine._states.pop(run_id, None)` clears the terminal guard before drive
+- Frontend: `handleResumeRun` captures `pipelineState?.pipelineRunId` (which survives `pipeline_cancelled` — the hook keeps it via `...prev` spread), calls `postResume`, then `runConnection.attachRun(run_id)` → SSE stream re-attaches → `pipelineState.isRunning` becomes `true` → `runLaneState` flips to `"building"` naturally
+- No TypeScript diagnostics on all three changed FE files
+
+#### Notes
+- `onResetPipeline()` must NOT be called before `postResume()` — it calls `setPipelineState(INITIAL_STATE)` which wipes `pipelineRunId` and flips `runLaneState` back to `"idle"`, making the UI appear to do nothing. The SSE stream drives state machine forward on its own.
+- The state machine pop is safe: DB status is already `"running"` (step 5) when the pop happens; the in-memory entry is an intra-process mirror written by the same process when it cancelled — clearing it is ownership-safe.

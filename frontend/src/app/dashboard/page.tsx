@@ -198,6 +198,10 @@ export default function DashboardPage() {
   // Phase 2 — pipeline_run_id of the run currently paused at the clarify gate,
   // used to address submit_questionnaire back to the correct paused run.
   const [activePipelineRunId, setActivePipelineRunId] = useState<string | null>(null);
+  // KAN-120 — the run id of the most-recently cancelled or stopped run. Unlike
+  // activePipelineRunId (cleared on cancel), this is NEVER cleared so handleResumeRun
+  // in DashboardLayout can still find the run id after pipeline_cancelled fires.
+  const [lastCancelledRunId, setLastCancelledRunId] = useState<string | null>(null);
   // Review gate state — set when review_gate_ready fires
   const [reviewGateData, setReviewGateData] = useState<{
     gateKey: string;
@@ -544,6 +548,9 @@ export default function DashboardPage() {
           // persist into the next run's preview area.
           setQuestionnaireData(null);
           setActivePipelineRunId(null);
+          // KAN-120: clear the lastCancelledRunId so the resumed run's pipeline_start
+          // removes the "Cancelled" state from history and the chat lane.
+          setLastCancelledRunId(null);
         }
       }
 
@@ -651,6 +658,13 @@ export default function DashboardPage() {
           getWorkflows(currentToken, { limit: 50 })
             .then((runs) => setRecentRuns(runs))
             .catch(() => {});
+          // KAN-120: do a second delayed refetch so the history reflects the
+          // reconciled status (completed) after _reconcile_terminal_status
+          // finishes writing it — the first fetch races against it.
+          setTimeout(() => {
+            const t = getToken();
+            if (t) getWorkflows(t, { limit: 50 }).then((runs) => setRecentRuns(runs)).catch(() => {});
+          }, 2000);
         }
       }
 
@@ -958,6 +972,15 @@ export default function DashboardPage() {
         // "clarify" instead of "terminal" and leaves the AwaitingCard visible.
         // Mirrors the identical pipeline_start clear (lines above).
         setQuestionnaireData(null);
+        // KAN-120: preserve the run id so Run Again can resume it even when
+        // activePipelineRunId is about to be cleared.
+        if (msg.type === "pipeline_cancelled") {
+          const cancelledId = (msg.pipeline_run_id as string | undefined)
+            ?? ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
+            ?? activePipelineRunId
+            ?? trackedRunIdRef.current;
+          if (cancelledId) setLastCancelledRunId(cancelledId);
+        }
         setActivePipelineRunId(null);
         break;
       }
@@ -1619,6 +1642,7 @@ export default function DashboardPage() {
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}
+      lastCancelledRunId={lastCancelledRunId}
       onSubmitQuestionnaire={submitQuestionnaire}
       onRetainClarifyRound={retainClarifyRound}
       reviewGateData={reviewGateData}

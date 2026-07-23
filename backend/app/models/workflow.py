@@ -82,6 +82,14 @@ class WorkflowRun(Base):
     # workspace_id scope (above), so no new authz surface (D-12).
     selections_json = Column(JSON, nullable=True)
 
+    # KAN-120 (added additively by migration 0027). The launch-time od_context
+    # dict (template_body, design_system, etc.) for OpenDesign runs (od_ppt,
+    # od_prototype). Persisted at run CREATION so resume_run can reconstruct it
+    # and pass it to _drive_resumed_stream → _execute_impl without losing the
+    # template/DS context. Nullable: every non-OD run stays NULL → od_context=None
+    # passed to _execute_impl, the pre-fix behavior (INV-3 byte/event parity).
+    od_context_json = Column(JSON, nullable=True)
+
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])
     # (The legacy ``artifacts`` -> WorkflowArtifact relationship was removed in 05-07

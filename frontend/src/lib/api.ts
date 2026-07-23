@@ -718,6 +718,26 @@ export async function postCancel(
 }
 
 /**
+ * Resume a terminal-failed or cancelled run over REST (KAN-120 / RESUME-18).
+ * Targets POST /api/runs/{id}/resume — the backend resumes from the durable
+ * checkpoint (Phase 45–49 resume tier), skipping already-completed steps.
+ * Returns the same run_id so the caller can attach the SSE stream via
+ * runConnection.attachRun(run_id). Owner-gated server-side (404 on mismatch).
+ */
+export async function postResume(
+  token: string,
+  runId: string,
+): Promise<{ run_id: string }> {
+  return request<{ run_id: string }>(
+    `/api/runs/${encodeURIComponent(runId)}/resume`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+    },
+  );
+}
+
+/**
  * Submit clarify answers over REST (mirrors WS `submit_questionnaire`). Targets
  * POST /api/runs/{id}/answers (AnswersCommand) — which needs NO `message_id` —
  * closing the R4 422 the /messages (MessageCommand) path raised. Keeps the

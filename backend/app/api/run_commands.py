@@ -331,7 +331,7 @@ async def resume_run_endpoint(
     run_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Resume a terminal-FAILED run over HTTP (RESUME-18).
+    """Resume a terminal-FAILED or CANCELLED run over HTTP (RESUME-18 / KAN-120).
 
     Ordering pin (RESEARCH §Ordering Pin — all on the single event loop; NO ``await``
     between the overlap mutex and the synchronous queue+task registration, which is the
@@ -340,15 +340,21 @@ async def resume_run_endpoint(
          404 (cross-owner AND missing indistinguishable; no existence oracle; keyed on
          ``user_id`` never nullable ``owner_id``). *(Layer 1; ScopedStore default-deny
          inside ``resume_run`` is Layer 2.)*
-      2. Eligibility — only ``status == "failed"`` is resumable; anything else → 409
-         ``run_not_resumable``.
+      2. Eligibility — ``status in {"failed", "cancelled"}`` is resumable; anything else
+         → 409 ``run_not_resumable``.
       3. Overlap mutex — a registry-live run (``_PIPELINE_TASKS`` OR ``_PIPELINE_QUEUES``)
          → 409 ``pipeline_already_running`` (CR-01). NO ``await`` before step 4.
       4. Register the live queue + cancel-event SYNCHRONOUSLY — BEFORE the status flip
          (BUG-015 live-attach: the FE must never observe ``running`` without a live queue).
-      5. Flip ``failed→running`` + commit (existing status vocabulary — no new status).
+      5. Flip ``failed/cancelled→running`` + commit (existing status vocabulary; no new
+         status).
       6. Stamp the additive ``run_resuming`` marker (reuse the engine method — the
          double-drive guard + workspace recovery; NOT a status).
+      6b. Clear the in-memory state machine entry — a ``cancelled`` run resumed within the
+         SAME process session has ``"cancelled"`` locked in the singleton; clearing it lets
+         ``_execute_impl``'s ``transition(…, "generating")`` proceed normally. For a
+         ``failed`` run resumed after a restart the entry is absent (new process) so pop
+         is a no-op. Safe: DB status is already ``running`` at this point.
       7. Spawn ``_drive_user_resume`` + register the task (closes the mutex window).
       8. Return 200 ``{"run_id": run_id}``.
     """
@@ -367,11 +373,11 @@ async def resume_run_endpoint(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run"
             )
 
-        # (2) Eligibility — only failed runs are resumable.
-        if wr.status != "failed":
+        # (2) Eligibility — failed and cancelled runs are resumable; anything else → 409.
+        if wr.status not in {"failed", "cancelled"}:
             raise _reject(
                 "run_not_resumable",
-                f"Run is {wr.status!r}; only failed runs are resumable",
+                f"Run is {wr.status!r}; only failed or cancelled runs are resumable",
                 http_status=status.HTTP_409_CONFLICT,
             )
 
@@ -391,13 +397,21 @@ async def resume_run_endpoint(
         _get_or_create_queue(run_id)
         _CANCEL_EVENTS[run_id] = asyncio.Event()
 
-        # (5) Flip failed→running (existing status vocabulary; INV-12) + commit.
+        # (5) Flip failed/cancelled→running (existing status vocabulary; INV-12) + commit.
         wr.status = "running"
         db.commit()
 
         # (6) Stamp the additive ``run_resuming`` marker (reuse the engine method —
         # do NOT reimplement marker emission or workspace recovery).
         await get_execution_engine()._stamp_resume_marker(wr)
+
+        # (6b) Clear the in-memory state machine entry so _execute_impl's
+        # transition(run_id, "generating") does not hit the terminal-state guard.
+        # A cancelled run resumed in the SAME process session has "cancelled" locked;
+        # a failed run resumed after a restart has no entry (new process) → pop is
+        # a no-op in that case. The DB status is already "running" (step 5) so
+        # clearing the in-memory mirror is safe ownership-wise.
+        get_execution_engine()._state_machine._states.pop(run_id, None)
     finally:
         db.close()
 
@@ -478,7 +492,22 @@ async def _reconcile_terminal_status(run_id: str) -> None:
             and e.payload_json.get("status") == "degraded"
             for e in completes
         )
-        if cancelled:
+        # KAN-120: a resumed run has BOTH pipeline_cancelled (from the original
+        # cancellation) AND pipeline_complete (from the resume) in the durable tail.
+        # The original logic unconditionally prioritised cancelled, leaving a
+        # successfully-resumed run with status="cancelled" in history.
+        # Fix: if a clean pipeline_complete exists with a higher seq than the last
+        # pipeline_cancelled, the resume supersedes the cancellation → completed.
+        cancelled_seqs = [e.seq for e in events if e.type == "pipeline_cancelled"]
+        complete_seqs = [e.seq for e in completes
+                         if not (isinstance(e.payload_json, dict)
+                                 and e.payload_json.get("status") == "degraded")]
+        resume_supersedes = (
+            cancelled
+            and complete_seqs
+            and max(complete_seqs) > max(cancelled_seqs)
+        )
+        if cancelled and not resume_supersedes:
             new_status = "cancelled"
         elif degraded:
             new_status = "degraded"
@@ -1664,6 +1693,12 @@ async def launch_run(
             session_id=current_user.id,
             parent_run_id=parent_run_id,
             selections_json=body.selections,
+            # KAN-120: persist the launch-time od_context so resume_run can
+            # reconstruct it without a template_id round-trip (the template
+            # body is large; re-loading from disk at resume is the alternative
+            # but requires storing template_id separately). od_context is None
+            # for non-OD runs → od_context_json stays NULL (INV-3 parity).
+            od_context_json=od_context,
         )
         db.add(workflow_run)
         db.commit()

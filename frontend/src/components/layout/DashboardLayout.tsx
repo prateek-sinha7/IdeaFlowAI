@@ -31,7 +31,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { parseRunInput } from "@/lib/runInput";
-import { getToken, getChainContext, getRunFamily, postCancel, postRevision } from "@/lib/api";
+import { getToken, getChainContext, getRunFamily, postCancel, postRevision, postResume } from "@/lib/api";
 import type { UserWorkflowSummary, WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -105,6 +105,10 @@ export interface DashboardLayoutProps {
   } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
+  // KAN-120 — the run id of the most-recently cancelled/stopped run. Preserved
+  // across pipeline_cancelled so Run Again can resume a clarify-cancelled run
+  // whose activePipelineRunId was already cleared.
+  lastCancelledRunId?: string | null;
   onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
   // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
   // state before the questionnaire panel clears (consumed by C2's ClarificationsCard).
@@ -225,6 +229,7 @@ export function DashboardLayout({
   onSelectWorkflowRun,
   questionnaireData,
   activePipelineRunId,
+  lastCancelledRunId,
   onSubmitQuestionnaire,
   onRetainClarifyRound,
   reviewGateData,
@@ -1364,6 +1369,36 @@ export function DashboardLayout({
     }
   }, [pipelineState, activePipelineRunId]);
 
+  // Resume a cancelled or failed run from where it stopped (KAN-120 / RESUME-18).
+  // Captures the run id BEFORE any state mutation, POSTs to /api/runs/{id}/resume,
+  // then attaches the SSE stream — the same pattern as handleRevisePpt/postRevision.
+  // The SSE stream drives the state machine forward naturally (no onResetPipeline
+  // needed before the call — calling it would wipe pipelineRunId and make the UI
+  // snap back to idle before the resume fires).
+  // Falls back to handleGoHome when no run id is available (safe no-op).
+  const handleResumeRun = useCallback(() => {
+    // Guard: if a pipeline is already running, don't try to resume (the live run
+    // is in "generating" state → backend returns 409 run_not_resumable).
+    if (pipelineState?.isRunning) return;
+    // Priority: lastCancelledRunId (set on pipeline_cancelled, never cleared) >
+    // pipelineState?.pipelineRunId (set on pipeline_start, survives cancel) >
+    // contentSourceRunId (set on pipeline_complete / reopen) >
+    // activePipelineRunId (clarify gate id, cleared on cancel — lowest priority).
+    const runId = lastCancelledRunId ?? pipelineState?.pipelineRunId ?? contentSourceRunId ?? activePipelineRunId;
+    if (!runId) {
+      handleGoHome();
+      return;
+    }
+    void postResume(getToken() ?? "", runId)
+      .then(({ run_id }) => {
+        if (run_id) runConnection.attachRun(run_id);
+      })
+      .catch((e) => {
+        console.error("postResume failed", e);
+        handleGoHome();
+      });
+  }, [lastCancelledRunId, pipelineState, contentSourceRunId, activePipelineRunId, runConnection, handleGoHome]);
+
   // GENERIC live-run state that drives the D-12 composer mode (SC-001 — never a
   // workflow name). Priority: gate > clarify > building > terminal-failure >
   // complete (has deliverable) > idle.
@@ -1793,7 +1828,7 @@ export function DashboardLayout({
                       // Absorbed AgentProgressPanel controls (Stop / revise / suggestions).
                       onStop={handleStopPipeline}
                       onRevise={activeReviseHandler}
-                      onRelaunch={handleGoHome}
+                      onRelaunch={handleResumeRun}
                       suggestions={laneSuggestions}
                       onSuggestion={handleLaneSuggestion}
                       // 43-02 (A.1 CRUX) — Concierge props wired at the mount.

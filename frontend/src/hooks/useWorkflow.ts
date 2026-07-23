@@ -244,6 +244,14 @@ export function handlePipelineMessage(
         agents: agentStates,
         currentAgentIndex: 0,
         completedCount: 0,
+        // KAN-120: clear terminal markers so a resumed run does not stay in
+        // the "terminal" state (cancelled/failed) after pipeline_start fires.
+        // Without this, pipeline_complete resolves isRunning→false but
+        // cancelled/failed is still true → runLaneState falls back to "terminal"
+        // and shows "Cancelled by you" / "Run Again" instead of the deliverable.
+        cancelled: undefined,
+        failed: undefined,
+        degraded: undefined,
         // Phase 39 (RUNUI-06): surface the run's created_at so the lane header can
         // render a relative age ("23h ago"). ADDITIVE optional — falls back to
         // the receipt time when the event omits it.
