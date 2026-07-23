@@ -247,6 +247,14 @@ const CHANGE_INTENT =
   /\b(make|change|changed|add|added|remove|removed|delete|deleted|drop|update|fix|fixed|rename|reorder|move|resize|replace|swap|set|turn|redesign|restyle|recolor|tweak|adjust|convert|increase|decrease|reduce|expand|shrink|revise|revamp|modify|edit|improve|refactor|rework|redo|shorten|lengthen|simplify|bigger|smaller|larger|wider|narrower|taller|shorter|darker|lighter|bolder)\b/i;
 const ASK_INTENT =
   /(^\s*(what|whats|what's|why|how|is|are|was|were|do|does|did|where|when|who|which|can|could|should|would|will)\b|\bstatus\b|\bexplain\b|\bprogress\b|\?\s*$)/i;
+// FIX-104: vague chain intent — the user wants to start a follow-up workflow but
+// hasn't named a specific target yet. Fires BEFORE change/ask so it isn't
+// swallowed by the revision hold. GENERIC (SC-001/INV-1) — no workflow-name literal.
+// Covers: "chain this", "chaining", "chained to", "chain it", "next workflow",
+// "build on this", "follow-up", "what can I do next", "continue with", etc.
+// Also covers "covert/convert this to X" style phrases that indicate chain intent.
+const CHAIN_INTENT =
+  /\b(chain(ing|ed|s)?(\s+this|\s+it|\s+into|\s+to|\s+from)?|next\s+workflow|follow.?up|build\s+on|what.?s\s+next|what\s+can\s+i|continue\s+with|extend\s+this|what\s+else|next\s+step|next\s+pipeline|pipeline\s+chain|chained?(\s+workflow)?|i\s+want\s+to\s+chain|convert?\s+this|covert\s+this)\b/i;
 
 // Safety-net window for the settled-run Concierge "reply pending" indicator.
 // Comfortably longer than a normal 2–8s reply so it only fires on a genuinely
@@ -297,8 +305,13 @@ function ReadingIndicator() {
   );
 }
 
-function classifyFreeText(text: string): "ask" | "change" {
+function classifyFreeText(text: string): "ask" | "change" | "chain" {
   const t = text.trim();
+  // FIX-104: chain intent is checked first so "chain this to a prototype" never
+  // falls through to the revision hold. Named-target phrases that also contain a
+  // transform verb are caught earlier by matchChainTarget; this handles the vague
+  // "I want to chain this" case where no target was named.
+  if (CHAIN_INTENT.test(t)) return "chain";
   if (CHANGE_INTENT.test(t)) return "change";
   if (ASK_INTENT.test(t)) return "ask";
   return "change";
@@ -901,6 +914,12 @@ export function RunChatLane({
   // GENERIC (SC-001/INV-1) — just the free text, never a workflow-name literal.
   const [heldRefinement, setHeldRefinement] = useState<string | null>(null);
 
+  // FIX-104: chain picker — opened when the user types a vague chain intent
+  // ("chain this", "next step", etc.) without naming a specific target.
+  // Renders the available suggestions as inline chips so the user can pick.
+  // GENERIC (SC-001/INV-1) — keyed only on suggestions[].id, never a literal.
+  const [chainPickerOpen, setChainPickerOpen] = useState(false);
+
   // A settled-run Concierge ASK is answered by a BLOCKING backend round-trip
   // (POST /messages → concierge.converse, non-streaming) that emits ONE late
   // `chat_reply`. `isStreaming` tracks the PIPELINE stream (false on a settled
@@ -1013,10 +1032,22 @@ export function RunChatLane({
           onSuggestion(chainId);
           return;
         }
+        // FIX-104: vague chain intent → open the inline picker so the user can
+        // select which workflow to chain into. Only fires when suggestions are
+        // available and no named target was matched by matchChainTarget above.
+        if (classifyFreeText(text) === "chain") {
+          if (suggestions && suggestions.length > 0 && onSuggestion) {
+            setChainPickerOpen(true);
+          }
+          // If no suggestions available, fall through to ask/Concierge.
+          else {
+            setReplyPending(true);
+            sendMessage(text, attachments, { concierge: true });
+          }
+          return;
+        }
         if (classifyFreeText(text) === "ask") {
-          // Show the thinking affordance while the blocking Concierge reply is
-          // in flight; the transcript-driven effect above clears it when the
-          // `chat_reply` renders (sendMessage is not thenable — see replyPending).
+          // Show the thinking affordance while the blocking Concierge reply is in flight.
           setReplyPending(true);
           // c72 — fold the SAME curated chain suggestions the chips show onto the
           // Concierge ask as GENERIC hints, so an "what can I do next?" turn can
@@ -1051,6 +1082,12 @@ export function RunChatLane({
   }, [heldRefinement, onRevise]);
 
   const dismissRefinement = useCallback(() => setHeldRefinement(null), []);
+
+  // FIX-104: dismiss the chain picker when the run state leaves "complete"
+  // (e.g. the user started a new chain pipeline).
+  useEffect(() => {
+    if (runState !== "complete") setChainPickerOpen(false);
+  }, [runState]);
 
   // Failed-lane composer send — a change instruction that feeds the reopen /
   // edit-brief flow (the mock's "Tell the agents what to change, then reopen…").
@@ -1180,6 +1217,48 @@ export function RunChatLane({
               data-suggestion-id={s.id}
               onClick={() => onSuggestion?.(s.id)}
               className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-2.5 py-1 font-sans text-[11px] font-medium leading-none text-ink-700 transition-colors hover:border-brand hover:text-brand"
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // FIX-104: inline chain picker — surfaces when the user typed a vague chain
+  // intent (CHAIN_INTENT matched, setChainPickerOpen(true)). Renders the same
+  // suggestion chips as the static row but inside a branded card with a dismiss
+  // action, so the user explicitly picks the next workflow. GENERIC (SC-001/INV-1)
+  // — chip ids/labels come from the suggestions prop, never a workflow-name literal.
+  const renderChainPicker = () => {
+    if (!chainPickerOpen || runState !== "complete" || !suggestions || suggestions.length === 0) {
+      return null;
+    }
+    return (
+      <div data-testid="chat-chain-picker" className="rounded-[12px] border border-brand/20 bg-brand/5 px-3.5 py-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-semibold text-brand">
+            Which workflow would you like to chain into?
+          </p>
+          <button
+            type="button"
+            onClick={() => setChainPickerOpen(false)}
+            aria-label="Dismiss chain picker"
+            className="text-ink-400 hover:text-ink-700 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {suggestions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              data-testid="chat-chain-picker-chip"
+              data-suggestion-id={s.id}
+              onClick={() => { setChainPickerOpen(false); onSuggestion?.(s.id); }}
+              className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-brand bg-white px-3 py-1.5 font-sans text-[11.5px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
             >
               {s.label}
             </button>
@@ -1587,6 +1666,8 @@ export function RunChatLane({
         {/* Chain-suggestion chips — on a COMPLETED run, the chainable next-
             workflows rendered just above the input (c72). */}
         {renderChainSuggestions()}
+        {/* FIX-104: inline chain picker — shown when user typed a vague chain intent. */}
+        {renderChainPicker()}
         {renderComposerBody()}
       </div>
     </div>
