@@ -248,7 +248,20 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         if (err.message.startsWith("401")) { router.replace("/login"); }
       });
     listDesignSystems(token)
-      .then((s) => { if (!cancelled) setSystems(s); })
+      .then((s) => {
+        if (!cancelled) {
+          setSystems(s);
+          // FIX-103: Auto-select "Design System Inspired by Apple" on a fresh
+          // prototype launch. Only fires when no DS has been selected yet (null)
+          // so draft-restored selections and user choices are never overwritten.
+          // Gracefully skips if "apple" is not in the loaded list.
+          setSelectedDsId((prev) => {
+            if (prev !== null) return prev; // preserve draft / user selection
+            if (mode !== "prototype") return prev;
+            return s.some((ds) => ds.id === "apple") ? "apple" : prev;
+          });
+        }
+      })
       .catch(() => { /* non-fatal — the picker stays empty */ });
 
     return () => { cancelled = true; };
