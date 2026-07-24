@@ -6474,7 +6474,7 @@ class ExecutionEngine:
                     steps=new_steps,
                     deliverable=patched_deliverable,
                     clarify=patched_clarify,
-                )
+                ), _user_by_agent
             except TypeError:
                 # Unknown DeliverableSpec field — degrade gracefully; the unmodified
                 # deliverable is safer than crashing the run (the WS layer already
@@ -6485,7 +6485,7 @@ class ExecutionEngine:
                     list(_deliverable_override),
                 )
 
-        return dataclasses.replace(compiled, steps=new_steps)
+        return dataclasses.replace(compiled, steps=new_steps), _user_by_agent
 
     async def _dispatch_step_with_retry(self, step, ectx: ExecutionContext, strategy):
         """Drive one step's strategy with retry-on-transient + content-hash reuse.

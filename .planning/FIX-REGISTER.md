@@ -10,6 +10,10 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-114 | 2026-07-24 | engine._apply_selections __deliverable__ branch returned single CompiledWorkflow instead of 2-tuple — TypeError: cannot unpack non-iterable CompiledWorkflow object | Both return paths inside _apply_selections must return (compiled, _user_by_agent) 2-tuple. The __deliverable__ early-return branch (added in 6685906b/FIX-059) returned dataclasses.replace(compiled, ...) bare instead of the 2-tuple the caller at engine.py:1467 unpacks. | `backend/agents/execution_engine/engine.py` | Phase 22 (KAN-112 _apply_selections) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-113 | 2026-07-24 | KAN-121: ComposerPage.handleRunOnce never injects __deliverable__ override — custom prototype/PPT/user-story runs produce wrong output | handleRunOnce sent per-agent selections but never called resolveDispatchType() so __deliverable__ was absent; engine used custom manifest default (streamed_text/output.md). Fix: export resolveDispatchType from IdeaInputPage (INV-12 single source), import + call it in handleRunOnce to merge __deliverable__ and resolve dispatchType — mirrors IdeaInputPage.handleRun exactly. | `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | Phase 22 (KAN-112 custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-112 | 2026-07-24 | KAN-121: Custom composer (ComposerPage) shows no agent recommendations or companion pipeline suggestions | ComposerPage is the custom workflow entry (not IdeaInputPage). Brief-based recommendations and companion suggestions existed only in IdeaInputPage; ComposerPage had no such logic. Fix: export getAgentRecommendations + COMPANION_GROUPS from IdeaInputPage (INV-12 single source), import + render them in ComposerPage keyed on the description field. | `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | Phase 22 (KAN-112 custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-111 | 2026-07-24 | KAN-121 (follow-up): Custom prototype workflow uses single_shot for prototype-build — single_file resolver never finds prototype.html because task_loop never wrote it | __deliverable__ override (FIX-110) correctly patches compiled.deliverable to single_file/prototype.html but does NOT patch the prototype-build step strategy from single_shot→task_loop. task_loop is the ONLY strategy that calls persist_task_html() to write prototype.html to the RunSandbox. Fix: inject prototype-build:{strategy:"task_loop"} per-agent selection alongside __deliverable__ in mergedSelections so _apply_selections' existing sel.get("strategy") path (engine.py:6442) patches the step — no engine edit needed. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (KAN-112 custom composer / task_loop strategy) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-110 | 2026-07-24 | KAN-121: Custom workflow with prototype agents shows validator QA text (output.md) instead of HTML prototype — add missing prototype-analyze and prototype-validate to AGENT_DELIVERABLE_MAP trigger list | AGENT_DELIVERABLE_MAP prototype entry only listed 3 of 5 agents (prototype-build, prototype-specify, prototype-plan). When user selected a composition including prototype-analyze or prototype-validate without the 3 trigger IDs, resolveDispatchType() returned the default fallback {strategy:"streamed_text", name:"output.md"} → StreamedTextResolver used last_streamed (validator QA text) as the deliverable. FIX-059/FIX-060 on another branch had the full 5-agent list; it was not ported to feat/ui-2. Fix: add prototype-analyze and prototype-validate to the prototype entry trigger list. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (KAN-112 custom composer) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-109 | 2026-07-24 | PPT preview shows validator QA text on top of slides — widen body-preamble strip + harden output contract | strip_pre_slide_body_text skipped stripping when preamble had ONLY HTML elements (preamble_text_only was empty after tag removal); validator AGENT.md allowed a sentence before <artifact. Fix: strip any non-whitespace preamble unconditionally; extend anchor detection; harden output contract to forbid ANY text before <artifact | `backend/agents/capabilities/deliverables/_artifact.py`, `backend/agents/prompts/od-ppt-validator/AGENT.md` | Phase 15/19 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-108 | 2026-07-23 | KAN-120: duplicate "Run started" card in chat after Run Again | narrator _reply_event_id used source_event_id as idempotency key; resumed run's pipeline_start has new event_id → new card. Fix: pipeline_start cards key on `pipeline_start:{run_id}` so all pipeline_start events for the same run collapse to one card | `backend/app/agents/chat_narrator.py` | Phase 31/43 | INV-1/3/12/SC-001 ✅ | Done |
@@ -2525,3 +2529,108 @@ Four independent gaps across the stack:
 #### Notes
 - `onResetPipeline()` must NOT be called before `postResume()` — it calls `setPipelineState(INITIAL_STATE)` which wipes `pipelineRunId` and flips `runLaneState` back to `"idle"`, making the UI appear to do nothing. The SSE stream drives state machine forward on its own.
 - The state machine pop is safe: DB status is already `"running"` (step 5) when the pop happens; the in-memory entry is an intra-process mirror written by the same process when it cancelled — clearing it is ownership-safe.
+
+---
+
+### FIX-110 — KAN-121: Custom workflow prototype agents show validator QA text
+
+**Date:** 2026-07-24
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-121`
+
+#### Root Cause
+`frontend/src/components/workflow/IdeaInputPage.tsx` — `AGENT_DELIVERABLE_MAP` prototype entry (line 419) listed only 3 of 5 prototype pipeline agent IDs as triggers:
+
+```
+agents: ["prototype-build", "prototype-specify", "prototype-plan"]
+```
+
+`resolveDispatchType()` iterates the map and fires the first entry whose `agents` list shares any ID with the user's selected agent set (`keys.some(id => ids.has(id))`). When a user selected a composition containing `prototype-analyze` or `prototype-validate` but NOT `prototype-build`/`prototype-specify`/`prototype-plan`, the check failed to match and fell through to the default fallback:
+
+```
+{ strategy: "streamed_text", name: "output.md", mimetype: "text/markdown" }
+```
+
+This default was injected as `__deliverable__` into the run's `selections` map. The engine's `_apply_selections` applied it, setting `compiled.deliverable = streamed_text/output.md`. The `StreamedTextResolver` then resolved `ectx.last_streamed` — the `prototype-validate` agent's QA checklist text (the last agent to run) — as the final deliverable. The FE received `deliverable_filename="output.md"` and rendered the QA text via `MarkdownPreview` in the Preview panel.
+
+This was a **port regression**: the fix was present on another branch (commit `6685906b`, FIX-059/FIX-060) with all 5 agents listed, but when the new UI branch (`feat/ui-2`) was built the prototype entry was recreated with only 3 agents.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 (EMP-01/02 — `__deliverable__` runtime override, KAN-112 Option B)
+- **Relevant register section:** Phase 22 §3 (`__deliverable__` selections key, `AGENT_DELIVERABLE_MAP`)
+- **Deleted code verified (not resurrected):** No deleted code — extending an existing map entry only
+- **Locked decisions respected:** SC-001 — fix uses agent IDs (never workflow/pipeline-type names); INV-12 — extends the existing map, no second mechanism introduced
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/IdeaInputPage.tsx` | Added `"prototype-analyze"` and `"prototype-validate"` to the prototype entry's `agents` trigger list | Ensures the `__deliverable__` override fires for ANY prototype agent combination, matching what FIX-059 had on the other branch |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — FE-only change, no engine code touched
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/engine/golden impact
+- **INV-12** (no duplication): Verified — extended the existing `AGENT_DELIVERABLE_MAP` entry, no second override mechanism added
+- **SC-001** (zero engine edits for new workflows): Not affected — zero engine edits; the `__deliverable__` mechanism already exists
+
+#### Verification
+- `AGENT_DELIVERABLE_MAP` prototype entry now lists all 5 agents: `prototype-build`, `prototype-specify`, `prototype-plan`, `prototype-analyze`, `prototype-validate`
+- `resolveDispatchType()` first-match loop hits the prototype entry for ANY prototype agent → `deliverableOverride = { strategy: "single_file", name: "prototype.html", mimetype: "text/html" }`
+- Engine `_apply_selections` (engine.py:6464) reads `__deliverable__` and calls `DeliverableSpec(strategy="single_file", name="prototype.html", mimetype="text/html")` + forces `clarify.mode="skip"`
+- `SingleFileResolver.resolve()` reads `prototype.html` from the sandbox (written by `prototype-build`)
+- `pipeline_complete` event carries `deliverable_filename="prototype.html"`, `deliverable_mimetype="text/html"`
+- FE `page.tsx` routes to `setGenericDeliverable({mimetype:"text/html", filename:"prototype.html", content:<html>})`
+- `GenericDeliverablePreview` → `text/html` branch → sandboxed iframe renders the prototype ✅
+- Non-prototype custom runs: no prototype agent ID present → check still falls through to `streamed_text` default ✅
+
+#### Notes
+- The `COMPANION_GROUPS` definition already correctly listed all 5 prototype agents — the mismatch was only in `AGENT_DELIVERABLE_MAP`. A future agent adding new prototype steps should update BOTH lists.
+- The `resolveDispatchType` function is first-match: if somehow agents from multiple pipeline families are mixed, only the first matching entry fires. This is intentional existing behaviour, not changed.
+
+---
+
+### FIX-111 — KAN-121 follow-up: custom prototype-build must use task_loop strategy
+
+**Date:** 2026-07-24
+**Triggered by:** `/velocity-ai-fix all workflows should generate correct output using custom workflow`
+
+#### Root Cause
+
+FIX-110 was necessary but not sufficient. It fixed the `AGENT_DELIVERABLE_MAP` trigger list so `__deliverable__ = {strategy:"single_file", name:"prototype.html"}` is correctly injected into selections. But `_apply_selections` (engine.py:6464) only patches `compiled.deliverable` — the top-level resolver config. It does NOT patch the **per-step execution strategy**.
+
+The `custom/workflow.yaml` manifest declares `strategy: single_shot` for ALL steps, including `prototype-build`. The `single_shot` strategy runs the agent once and reads from `ctx.last_streamed` — it **never writes any file to the RunSandbox**. So `SingleFileResolver.resolve()` calls `runner.sandbox.read("prototype.html")` → returns `""` → falls back to `last_streamed` (the last agent's streamed output, which is `prototype-validate`'s QA checklist).
+
+The `task_loop` strategy is the **only** strategy that:
+1. Parses the task plan into individual tasks
+2. Calls `runner.persist_task_html()` after each task, which writes `prototype.html` to the sandbox
+3. Produces a file that `SingleFileResolver` can find
+
+The `_apply_selections` function already has a `sel.get("strategy")` overlay path (engine.py:6442) for fan-out support. This same mechanism can inject `strategy: "task_loop"` on `prototype-build` from the FE selections — no new engine code needed.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 (KAN-112 Option B custom composer), Phase 7 (task_loop strategy)
+- **Relevant register section:** Phase 22 §3 (EMP-01/02), Phase 7 §3 (task_loop strategy)
+- **Deleted code verified (not resurrected):** No deleted code — using existing `sel.get("strategy")` overlay path
+- **Locked decisions respected:** SC-001 — no engine edits; INV-12 — reuses existing `_apply_selections` mechanism; INV-1 — keyed on agent ID not pipeline_type
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/IdeaInputPage.tsx` | When `deliverableOverride.name === "prototype.html"` AND `prototype-build` is in the agent list, inject `"prototype-build": { strategy: "task_loop" }` into `mergedSelections` alongside `__deliverable__` | Ensures `_apply_selections` patches the prototype-build step strategy to `task_loop` so it writes `prototype.html` to the RunSandbox |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — keyed on `deliverableOverride.name === "prototype.html"` (a data value) and agent ID presence, never a `pipeline_type` string
+- **INV-3** (golden parity): Not affected — FE-only change; no backend/engine/golden impact; non-prototype runs take the `prototypeStepOverrides = {}` path (byte-identical)
+- **INV-12** (no duplication): Verified — reuses the existing `sel.get("strategy")` overlay in `_apply_selections`; no second strategy-injection mechanism
+- **SC-001** (zero engine edits for new workflows): Not affected — zero engine edits; the mechanism was already there for fan-out (Phase 51)
+
+#### Verification
+- When prototype agents selected with `prototype-build`: `mergedSelections` contains `{ "prototype-build": { strategy: "task_loop" }, __deliverable__: { strategy: "single_file", name: "prototype.html", mimetype: "text/html" } }`
+- `_apply_selections` processes `"prototype-build"` entry: `sel.get("strategy") → "task_loop"`, `user_step.strategy → "task_loop"` (from synthesized manifest) → `patch["strategy"] = "task_loop"`
+- `prototype-build` step runs with `task_loop` strategy → `persist_task_html()` writes `prototype.html` to sandbox
+- `SingleFileResolver.resolve()` → `sandbox.read("prototype.html")` → returns HTML → correct deliverable ✅
+- PPT runs unaffected: `deliverableOverride.name === "presentation.html"` → condition false → `prototypeStepOverrides = {}` ✅
+- User story runs unaffected: `strategy: "streamed_text"` → `deliverableOverride.name !== "prototype.html"` → `prototypeStepOverrides = {}` ✅
+- Non-prototype custom runs unaffected: no `deliverableOverride` → `mergedSelections = selections` (original, unchanged) ✅
+
+#### Notes
+- If `prototype-build` is NOT in the selected agents (e.g. user only adds specify/plan/analyze/validate), `prototypeStepOverrides` is `{}` and `prototype.html` will still not be written. This is expected — the build step is required to produce the HTML file. The `AGENT_DELIVERABLE_MAP` trigger list (FIX-110) correctly fires for any prototype agent, but the actual HTML production requires `prototype-build` to be present.
+- The `...selections["prototype-build"]` spread ensures any user-composed levers (model/retry/validators) from `AgentsPopup` for the `prototype-build` agent are preserved alongside the injected `strategy` override.
