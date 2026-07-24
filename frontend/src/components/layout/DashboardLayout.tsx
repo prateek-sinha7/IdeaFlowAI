@@ -183,6 +183,18 @@ export interface DashboardLayoutProps {
     attachments?: import("@/types/index").ChatAttachment[],
     options?: SendMessageOptions,
   ) => void;
+  /**
+   * FIX-119: Optimistically add a user bubble to the transcript without posting
+   * to the backend. Passed from page.tsx's `useRunChat.addOptimisticMessage` to
+   * the `RunChatLane` so `handleFreeText` can echo the user's text immediately
+   * before the classify-intent LLM round-trip (for all runState === "complete"
+   * workflows). Without this, only the "ask" path showed a user bubble (via
+   * sendMessage); "revise" and "chain" paths showed nothing.
+   */
+  addOptimisticMessage?: (
+    text: string,
+    attachments?: import("@/types/index").ChatAttachment[],
+  ) => string;
   // The nonce'd deep-link seam (borrow #6): the lane's result cards call
   // onRequestOpenTab; PreviewPanel consumes deepLinkTarget for all tabs.
   onRequestOpenTab?: (tab: string) => void;
@@ -248,6 +260,7 @@ export function DashboardLayout({
   runChatMessages,
   runChatReplyStreaming,
   onRunChatSend,
+  addOptimisticMessage,
   onRequestOpenTab,
   deepLinkTarget,
 }: DashboardLayoutProps) {
@@ -520,7 +533,13 @@ export function DashboardLayout({
     // reached only when contentSourceRunId is falsy and still reads the content.
     if (!contentSourceRunId && !pptxCode && !pptContent) return;
 
-    const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
+    // FIX-117: "ppt" runs produce HTML via the OD template flow (no pptxCode).
+    // If we have pptContent (HTML) but no pptxCode (JavaScript), it's an HTML
+    // deck regardless of the "ppt" vs "od_ppt" pipeline_type label → use
+    // od_ppt_revision (HTML-capable). The legacy ppt_revision path (PptxGenJS)
+    // only applies when pptxCode is present.
+    const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision"
+      || (!!pptContent && !pptxCode);
 
     // W3b (44-05): launch the revision when we have a completed parent run id.
     // POST /{id}/revisions (Strategy A — the byte-twin of engine._handle_revision:
@@ -1810,6 +1829,10 @@ export function DashboardLayout({
                       // settled-run ASK can fold { concierge: true } onto the
                       // payload (Concierge answer vs. onRevise revision).
                       sendMessage={runChatSend}
+                      // FIX-119: optimistic-message echo for all runState=complete
+                      // workflows so the user's text is always visible in the chat
+                      // before the classify-intent LLM round-trip resolves.
+                      addOptimisticMessage={addOptimisticMessage}
                       isStreaming={isStreaming}
                       streamingContent={streamingContent}
                       // quick-260719-rqo (Issue 2 part 2): the streaming-reply hint

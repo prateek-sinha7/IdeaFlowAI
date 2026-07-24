@@ -143,6 +143,19 @@ export interface RunChatLaneProps {
     attachments?: ChatAttachment[],
     options?: SendMessageOptions,
   ) => void;
+  /**
+   * FIX-119: Optimistically add a user bubble to the transcript WITHOUT posting
+   * to the backend. Used in `handleFreeText` on a `complete` run to echo the
+   * user's text immediately before the classify-intent LLM round-trip, so the
+   * user always sees their message — without triggering the mechanical router's
+   * CHANNEL_REVISION side-effect (the double-version bug from FIX-118). Returns
+   * the stable `messageId` the caller can pass to `sendMessage` via
+   * `options.existingMessageId` to reconcile the bubble instead of duplicating.
+   */
+  addOptimisticMessage?: (
+    text: string,
+    attachments?: ChatAttachment[],
+  ) => string;
   isStreaming?: boolean;
   streamingContent?: string;
   /**
@@ -863,6 +876,7 @@ export function RunChatLane({
   messages,
   runState,
   sendMessage,
+  addOptimisticMessage,
   isStreaming = false,
   streamingContent = "",
   replyStreaming,
@@ -1010,68 +1024,94 @@ export function RunChatLane({
     return () => clearTimeout(reset);
   }, [viewedRunId]);
 
-  // Free-text send routes through the transport-agnostic sendMessage. On a
-  // SETTLED run (complete) the turn is CLASSIFIED (43-02, the A.1 CRUX): an ASK
-  // (a status/question turn) is ANSWERED by the Concierge — folded onto the send
-  // payload as `{ concierge: true }`. A CHANGE REQUEST no longer auto-launches a
-  // revision (44-02): it is HELD behind a confirm chip so the *_revision run
-  // fires only on explicit confirm — accidental auto-launches are removed
-  // (T-44-02-01). Classification stays GENERIC (SC-001/INV-1) — keyed only on the
-  // free text + runState, never a workflow-name/agent-id literal. When no revise
-  // channel is supplied a change falls back to a plain message (no chip).
+  // Free-text send on a SETTLED run: silently classify intent via LLM
+  // (FIX-116), then show the appropriate affordance immediately — no chat reply.
+  //   • "revise"  → hold the text as a revision (same confirm-chip as before)
+  //   • "chain"   → open the chain picker or direct-chain if target_id matches
+  //   • "ask"     → fall through to Concierge for a conversational answer
+  // The exact-label matchChainTarget fast-path is kept for named targets (no LLM).
+  // All paths are GENERIC (SC-001/INV-1) — keyed only on intent, never a workflow name.
+  //
+  // UX: the user's text is echoed immediately as a user bubble via sendMessage's
+  // chat_message path, then the TypingIndicator fires (replyPending=true) while
+  // the classify-intent LLM call is in flight (~1–3s). When the result lands the
+  // spinner clears and the revise/chain chip appears. Never a silent 10-second wait.
   const handleFreeText = useCallback(
     (text: string, attachments: ChatAttachment[]) => {
       if (runState === "complete") {
-        // BUG-1 (quick-260720-ec4): a "<transform> into <named available chain
-        // target>" phrase chains into a NEW workflow via the existing onSuggestion
-        // seam — BEFORE the ask/change split — instead of misrouting to a revision
-        // of THIS run. Fires ONLY on a data-driven match against suggestions[].label
-        // AND an onSuggestion handler; any non-match falls through UNCHANGED.
+        // Fast path: exact named-target chain (BUG-1 fix — no LLM round-trip needed).
         const chainId = matchChainTarget(text, suggestions);
         if (chainId && onSuggestion) {
           onSuggestion(chainId);
           return;
         }
-        // FIX-104: vague chain intent → open the inline picker so the user can
-        // select which workflow to chain into. Only fires when suggestions are
-        // available and no named target was matched by matchChainTarget above.
-        if (classifyFreeText(text) === "chain") {
-          if (suggestions && suggestions.length > 0 && onSuggestion) {
-            setChainPickerOpen(true);
-          }
-          // If no suggestions available, fall through to ask/Concierge.
-          else {
-            setReplyPending(true);
-            sendMessage(text, attachments, { concierge: true });
-          }
-          return;
-        }
-        if (classifyFreeText(text) === "ask") {
-          // Show the thinking affordance while the blocking Concierge reply is in flight.
-          setReplyPending(true);
-          // c72 — fold the SAME curated chain suggestions the chips show onto the
-          // Concierge ask as GENERIC hints, so an "what can I do next?" turn can
-          // name the chainable next-workflows. Absent suggestions ⇒ NO chain_hints
-          // key (byte-identical to the pre-c72 send, INV-3). GENERIC (SC-001/INV-1)
-          // — plain display labels mapped off the prop, never a workflow-name literal.
-          const chainHints =
-            suggestions && suggestions.length > 0
-              ? suggestions.map((s) => ({ id: s.id, label: s.label }))
-              : undefined;
-          sendMessage(text, attachments, {
-            concierge: true,
-            ...(chainHints ? { chain_hints: chainHints } : {}),
+
+        // FIX-119: Echo the user's text as an optimistic bubble IMMEDIATELY,
+        // before the classify-intent LLM call. On a complete run, calling
+        // sendMessage() without { concierge: true } would route through
+        // CHANNEL_REVISION (mechanical router) and create a spurious revision run
+        // BEFORE the confirm chip appears — the double-version bug (FIX-118).
+        // addOptimisticMessage() adds a bubble to local state ONLY with no backend
+        // side-effect. The returned messageId is used to reconcile the bubble when
+        // the ask path later calls sendMessage with { existingMessageId }.
+        const echoMessageId = addOptimisticMessage
+          ? addOptimisticMessage(text, attachments)
+          : undefined;
+
+        // Show TypingIndicator while classifying intent via LLM (~1–3s).
+        setReplyPending(true);
+
+        const runId = viewedRunId ?? "";
+        const chainHints = suggestions?.map((s) => ({ id: s.id, label: s.label }));
+
+        if (runId) {
+          import("@/lib/api").then(({ classifyIntent, getToken }) => {
+            const jwt = getToken() ?? "";
+            if (!jwt) {
+              setReplyPending(false);
+              if (onRevise) setHeldRefinement(text);
+              return;
+            }
+            classifyIntent(jwt, runId, text, chainHints).then((result) => {
+              setReplyPending(false);   // ← clears TypingIndicator when result arrives
+              if (result.intent === "chain") {
+                if (result.target_id && onSuggestion) {
+                  onSuggestion(result.target_id);
+                } else if (suggestions && suggestions.length > 0 && onSuggestion) {
+                  setChainPickerOpen(true);
+                } else if (onRevise) {
+                  setHeldRefinement(text);
+                }
+              } else if (result.intent === "ask") {
+                // Conversational question → send to Concierge.
+                // Reuse the existing optimistic bubble via existingMessageId so
+                // sendMessage reconciles it in place instead of adding a duplicate.
+                setReplyPending(true);
+                sendMessage(text, attachments, {
+                  concierge: true,
+                  ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
+                  ...(chainHints ? { chain_hints: chainHints } : {}),
+                });
+              } else {
+                // "revise" → show confirm chip (the optimistic bubble is already visible)
+                if (onRevise) setHeldRefinement(text);
+              }
+            }).catch(() => {
+              setReplyPending(false);
+              if (onRevise) setHeldRefinement(text);
+            });
           });
           return;
         }
-        if (onRevise) {
-          setHeldRefinement(text);
-          return;
-        }
+
+        // No runId — fall back to revision hold
+        setReplyPending(false);
+        if (onRevise) setHeldRefinement(text);
+        return;
       }
       sendMessage(text, attachments);
     },
-    [runState, onRevise, sendMessage, suggestions, onSuggestion],
+    [runState, onRevise, sendMessage, addOptimisticMessage, suggestions, onSuggestion, viewedRunId],
   );
 
   // Confirm the held refinement → launch the revision (the ONLY path that fires
@@ -1105,11 +1145,21 @@ export function RunChatLane({
   // user must CONFIRM before the app executes it (T-33-04-01). GENERIC — no
   // workflow-name literal (INV-1). Proposal text is rendered through React's
   // default JSX escaping (no raw-HTML injection sink) — XSS-safe (T-33-04-02).
+  // FIX-115: "chain" proposals confirm via onSuggestion(target_id) — the EXISTING
+  // suggestion-chip seam — rather than a server round-trip (no new execution path).
   const renderProposals = () => {
     if (!proposals || proposals.length === 0) return null;
     return (
       <div data-testid="chat-proposals" className="space-y-2">
-        {proposals.map((p) => (
+        {proposals.map((p) => {
+          // "chain" proposals execute client-side via the existing suggestion seam.
+          const isChain = p.channel === "chain";
+          const chainTargetId = isChain ? String(p.params?.target_id ?? "") : "";
+          const confirmLabel = isChain ? "Start this workflow" : "Confirm";
+          const handleConfirm = isChain
+            ? () => { if (chainTargetId && onSuggestion) onSuggestion(chainTargetId); }
+            : () => onConfirmProposal?.(p);
+          return (
           <Card
             key={p.id}
             data-proposal-id={p.id}
@@ -1118,7 +1168,7 @@ export function RunChatLane({
             <div className="flex items-center gap-1.5">
               <Sparkles className="h-3 w-3 text-brand" />
               <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
-                Confirm to continue
+                {isChain ? "Start a follow-up workflow?" : "Confirm to continue"}
               </p>
             </div>
             {p.summary && (
@@ -1129,10 +1179,10 @@ export function RunChatLane({
                 type="button"
                 data-testid="chat-proposal-confirm"
                 data-proposal-id={p.id}
-                onClick={() => onConfirmProposal?.(p)}
+                onClick={handleConfirm}
                 className="rounded-[var(--radius-pill)] bg-brand px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed"
               >
-                Confirm
+                {confirmLabel}
               </button>
               <button
                 type="button"
@@ -1145,7 +1195,8 @@ export function RunChatLane({
               </button>
             </div>
           </Card>
-        ))}
+          );
+        })}
       </div>
     );
   };

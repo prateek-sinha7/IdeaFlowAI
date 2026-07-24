@@ -1076,7 +1076,7 @@ export default function DashboardPage() {
     [runConnection],
   );
 
-  const { messages: runChatMessages, sendMessage: sendRunChatMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript } = useRunChat({
+  const { messages: runChatMessages, sendMessage: sendRunChatMessage, addOptimisticMessage: addRunChatOptimisticMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript } = useRunChat({
     // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
     // path hits the in-flight run instead of null-then-fresh-POST; fall back to
     // the clarify-only activePipelineRunId when the build id is not yet set.
@@ -1569,6 +1569,7 @@ export default function DashboardPage() {
       runChatMessages={runChatMessages}
       runChatReplyStreaming={runChatReplyStreaming}
       onRunChatSend={sendRunChatMessage}
+      addOptimisticMessage={addRunChatOptimisticMessage}
       onRequestOpenTab={runTabDeepLink.requestOpenTab}
       deepLinkTarget={runTabDeepLink.pending}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {

@@ -740,7 +740,7 @@ _CONCIERGE_GATE_ACTION_MAP = {"request_changes": "redo"}
 
 # The two CONSEQUENTIAL proposal channels — held behind a confirm chip (T-33-03-01).
 # steering_note is non-consequential (best-effort nudge) and applies immediately.
-_CONSEQUENTIAL_PROPOSAL_CHANNELS = frozenset({"gate_action", "revision"})
+_CONSEQUENTIAL_PROPOSAL_CHANNELS = frozenset({"gate_action", "revision", "chain"})
 
 # Strong references to the fresh-Concierge streaming DRIVE tasks (Option B). The
 # ``_drive`` task performs the turn's DURABLE side-effects (the ``chat_reply`` row + the
@@ -766,11 +766,16 @@ class _ConciergeCtx:
     suggestions ``[{id,label}]`` from the settled-run lane. Absent ⇒ ``[]`` ⇒ the
     ``_compose_system_prompt`` getattr default degrades safely (no chain block). No
     workflow name is ever passed — only display labels the FE already surfaced.
+
+    ``run_summary`` (FIX-116) is a short human-readable summary of WHAT this run produced,
+    injected into the system prompt so the Concierge knows the deliverable without having
+    to read all run events first. Derived from wr.title + wr.output (first 400 chars) —
+    GENERIC, never a workflow-name branch (INV-1). Absent → degrade safely.
     """
 
     def __init__(
         self, *, run_id, scoped_store, owner_id, workspace_id, compiled=None,
-        chain_hints=None,
+        chain_hints=None, run_summary=None,
     ):
         self.run_id = run_id
         self.scoped_store = scoped_store
@@ -779,6 +784,7 @@ class _ConciergeCtx:
         self.model = None
         self.compiled = compiled
         self.chain_hints = chain_hints or []
+        self.run_summary = run_summary or ""
 
 
 def _resolve_concierge():
@@ -945,6 +951,17 @@ async def _dispose_concierge_proposal(
             await art_store.set_review_response(gate_key, approved=True)
         return {"channel": channel, "disposed": "gate", "action": action}
 
+    # ── chain → surface to FE as a chain proposal (FIX-115 / Option A). ───────────
+    # The "chain" channel is CONSEQUENTIAL (held behind a confirm chip, T-33-03-01).
+    # On confirm the FE calls onSuggestion(target_id) through the existing suggestion-
+    # chip seam — no new backend execution path needed. The disposal here is
+    # confirmation-only: return the target_id so the FE caller can fire it. The
+    # target_id MUST be one the FE passed as chain_hints (validated FE-side before
+    # calling onSuggestion). No workflow-name branch (SC-001/INV-1) — generic data.
+    if channel == "chain":
+        target_id = params.get("target_id", "")
+        return {"channel": channel, "disposed": "chain", "target_id": target_id}
+
     # ── revision → _mint_revision_row + _drive_revision_to_queue (family child). ────
     if channel == "revision":
         target = params.get("target") or f"{wr_type}_output"
@@ -1022,6 +1039,19 @@ async def post_message(
         wr_status = wr.status
         wr_workspace = wr.workspace_id
         wr_type = wr.type
+        # FIX-116: capture the run's title + first 400 chars of its deliverable output
+        # so the Concierge knows what THIS run produced without calling read_events first.
+        # Generic — uses wr.title (plain text) and wr.output (deliverable text), never
+        # a pipeline_type / workflow-name branch (INV-1). 400 chars is enough to give
+        # context (a user stories backlog excerpt, a prototype summary, etc.) while
+        # keeping the system prompt token-budget small.
+        _wr_title = (wr.title or "").strip()
+        _wr_output = (wr.output or "").strip()
+        _wr_output_preview = _wr_output[:400] + ("…" if len(_wr_output) > 400 else "")
+        wr_run_summary = (
+            (f"Run title: {_wr_title}\n" if _wr_title else "")
+            + (f"Deliverable preview:\n{_wr_output_preview}" if _wr_output_preview else "")
+        ).strip()
     finally:
         db.close()
 
@@ -1259,6 +1289,9 @@ async def post_message(
             # data (absent ⇒ []). No workflow-name branch (INV-1) — the Concierge
             # reflects the SAME curated labels the lane chips show.
             chain_hints=body.chain_hints,
+            # FIX-116: thread the run's deliverable summary so the Concierge knows
+            # what was produced without read_events round-trip (generic, INV-1).
+            run_summary=wr_run_summary,
         )
         # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
         # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT
@@ -2169,6 +2202,113 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     db.add(wr)
     db.commit()
     return pipeline_run_id, revision_pipeline_type
+
+
+@router.post("/{run_id}/classify-intent")
+async def classify_intent(
+    run_id: str,
+    body: "ClassifyIntentCommand",
+    current_user: User = Depends(get_current_user),
+):
+    """Silently classify a settled-run user message as revise / chain / ask (FIX-116).
+
+    Calls the LLM with ONLY the user text + run deliverable summary + available chain
+    targets. Returns ``{"intent": "revise"|"chain"|"ask", "target_id"?: "..."}`` with
+    NO chat reply — the caller renders the appropriate UI affordance immediately.
+
+    Owner-gated (IDOR → 404). No chat_message row is written; this is a pure
+    read+classify endpoint. Generic (SC-001/INV-1) — no pipeline_type branch.
+    """
+    db = _get_db()
+    try:
+        wr = (
+            db.query(WorkflowRun)
+            .filter(WorkflowRun.id == run_id, WorkflowRun.user_id == current_user.id)
+            .first()
+        )
+        if wr is None:
+            raise HTTPException(status_code=404, detail="Workflow run not found")
+        _wr_title = (wr.title or "").strip()
+        _wr_output = (wr.output or "").strip()
+        _wr_output_preview = _wr_output[:400] + ("…" if len(_wr_output) > 400 else "")
+        run_summary = (
+            (f"Run title: {_wr_title}\n" if _wr_title else "")
+            + (f"Deliverable preview:\n{_wr_output_preview}" if _wr_output_preview else "")
+        ).strip()
+    finally:
+        db.close()
+
+    user_text = (body.text or "").strip()
+    chain_hints = body.chain_hints or []
+
+    # Build a minimal classification prompt — NO conversational preamble, just the
+    # deliverable context + the user message + the available chain targets.
+    chain_targets_str = ""
+    if chain_hints:
+        chain_targets_str = "\nAvailable chain targets (id → label):\n" + "\n".join(
+            f"  {h.get('id','')}: {h.get('label','')}"
+            for h in chain_hints[:8]
+            if isinstance(h, dict) and h.get("id")
+        )
+
+    classify_prompt = (
+        "You are a SILENT INTENT CLASSIFIER. Read the user's message and output ONLY "
+        "a JSON object with no extra text.\n\n"
+        "Rules:\n"
+        "- If the user wants to CHANGE or ADD to THIS run's deliverable "
+        "(revise, update, add Google auth, change a section, etc.) → "
+        "{\"intent\": \"revise\"}\n"
+        "- If the user wants to START A NEW WORKFLOW using this output "
+        "(build a prototype, create a presentation, chain to X) → "
+        "{\"intent\": \"chain\", \"target_id\": \"<id from Available chain targets>\"}\n"
+        "- If the user is just ASKING A QUESTION (what is, how does, explain) → "
+        "{\"intent\": \"ask\"}\n"
+        "- If no chain target matches, use {\"intent\": \"revise\"} for action requests.\n\n"
+        f"What this run produced:\n{run_summary or '(no summary available)'}\n"
+        f"{chain_targets_str}\n\n"
+        f"User message: {user_text}\n\n"
+        "Output ONLY valid JSON, nothing else."
+    )
+
+    # Use the Concierge's DeepAgentRunner but with NO tools — pure text classification.
+    import json as _json
+    from app.agents.deep_agent_runner import DeepAgentRunner
+
+    try:
+        runner = DeepAgentRunner(
+            system_prompt="You are a JSON-only intent classifier. Always output valid JSON.",
+            tools=[],
+            model=None,
+            thread_id=f"{run_id}:classify",
+        )
+        full = ""
+        async for event in runner.astream_events(classify_prompt):
+            if event["type"] == "chunk":
+                full += event["chunk"]
+        # Extract the first JSON object from the response
+        start = full.find("{")
+        end = full.rfind("}") + 1
+        if start >= 0 and end > start:
+            data = _json.loads(full[start:end])
+            intent = str(data.get("intent", "revise")).lower()
+            target_id = str(data.get("target_id", "")) if intent == "chain" else ""
+            # Validate target_id is a known chain hint
+            known_ids = {h.get("id") for h in chain_hints if isinstance(h, dict)}
+            if intent == "chain" and target_id not in known_ids:
+                intent = "revise"
+                target_id = ""
+            return {"intent": intent, "target_id": target_id}
+    except Exception as exc:
+        logger.warning("classify-intent: LLM classification failed (%s) — defaulting to revise", exc)
+
+    return {"intent": "revise", "target_id": ""}
+
+
+class ClassifyIntentCommand(BaseModel):
+    """Body for ``POST /{id}/classify-intent``."""
+
+    text: str
+    chain_hints: list[dict] | None = None
 
 
 @router.post("/{run_id}/revisions")

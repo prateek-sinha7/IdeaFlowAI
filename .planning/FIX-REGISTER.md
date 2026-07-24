@@ -10,6 +10,11 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-119 | 2026-07-24 | User text not showing in chat + no loading indication for some workflows — optimistic user bubble missing for revise/chain intents on complete-state runs | FIX-118 removed the pre-intent sendMessage echo to fix double versioning, but this also removed the user bubble echo for revise and chain intents (only the ask path called sendMessage which creates a bubble). Fix: add addOptimisticMessage to useRunChat (FE-only bubble, no backend call) + addOptimisticMessage prop to RunChatLaneProps + wire through DashboardLayout. In handleFreeText for complete state: call addOptimisticMessage immediately (user sees their text + TypingIndicator), then for ask path pass existingMessageId to sendMessage to reconcile without duplicating. | `frontend/src/hooks/useRunChat.ts`, `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 31/43 (CHATUI-01/A1 CRUX) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-118 | 2026-07-24 | PPT revision creates 2 version entries — sendMessage echo on terminal run triggers automatic CHANNEL_REVISION before confirm chip fires | handleFreeText called sendMessage(text) without options to echo user bubble; on terminal run the mechanical router routes undecorated messages to CHANNEL_REVISION → immediate revision run minted; then confirm chip fired handleRevisePpt → second revision run. Fix: remove the pre-intent-classification sendMessage echo — the TypingIndicator fires instead. | `frontend/src/components/chat/RunChatLane.tsx` | Phase 29 (chat backbone / mechanical router) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-117 | 2026-07-24 | Standard PPT revision routes to PptxGenJS agent instead of HTML deck editor | handleRevisePpt used `workflowType === "od_ppt"` to detect HTML decks but standard PPT runs dispatch as `"ppt"` type so isOdPpt was false → ppt_revision (PptxGenJS) fired instead of od_ppt_revision (HTML). Fix: also set isOdPpt=true when pptContent exists and pptxCode is absent — the definitive signal that the deck is HTML not JS. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 14 (ppt_revision / od_ppt_revision) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-116 | 2026-07-24 | LLM intent classifier: silent classify-intent endpoint so settled-run chat shows revise/chain button immediately with no chat reply | Concierge was called as a chatbot and responded with text; LLM also had no knowledge of what was produced. Fix: POST /classify-intent calls LLM with user text + deliverable summary → returns {intent, target_id} JSON only; FE shows revise chip or chain picker immediately. Also adds run_summary (wr.title + wr.output preview) to _ConciergeCtx so any LLM path knows the deliverable. | `backend/app/api/run_commands.py`, `backend/app/agents/chat/concierge.py`, `frontend/src/lib/api.ts`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 43 (A6-redux Concierge) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-115 | 2026-07-24 | Replace regex-based chat intent classifier with LLM-driven revise/chain intent detection (Option A) | classifyFreeText() used CHAIN_INTENT/CHANGE_INTENT keyword regexes to bypass the Concierge for "chain" and "change" texts; natural-language intent never reached the LLM. Fix: route all settled-run free text to the Concierge; add propose_chain tool so LLM can emit chain intent; handle "chain" disposal in run_commands.py; update renderProposals to fire onSuggestion on chain confirm. | `backend/app/agents/chat/concierge.py`, `backend/app/api/run_commands.py`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 43 (A6-redux Concierge) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-114 | 2026-07-24 | engine._apply_selections __deliverable__ branch returned single CompiledWorkflow instead of 2-tuple — TypeError: cannot unpack non-iterable CompiledWorkflow object | Both return paths inside _apply_selections must return (compiled, _user_by_agent) 2-tuple. The __deliverable__ early-return branch (added in 6685906b/FIX-059) returned dataclasses.replace(compiled, ...) bare instead of the 2-tuple the caller at engine.py:1467 unpacks. | `backend/agents/execution_engine/engine.py` | Phase 22 (KAN-112 _apply_selections) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-113 | 2026-07-24 | KAN-121: ComposerPage.handleRunOnce never injects __deliverable__ override — custom prototype/PPT/user-story runs produce wrong output | handleRunOnce sent per-agent selections but never called resolveDispatchType() so __deliverable__ was absent; engine used custom manifest default (streamed_text/output.md). Fix: export resolveDispatchType from IdeaInputPage (INV-12 single source), import + call it in handleRunOnce to merge __deliverable__ and resolve dispatchType — mirrors IdeaInputPage.handleRun exactly. | `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | Phase 22 (KAN-112 custom composer) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-112 | 2026-07-24 | KAN-121: Custom composer (ComposerPage) shows no agent recommendations or companion pipeline suggestions | ComposerPage is the custom workflow entry (not IdeaInputPage). Brief-based recommendations and companion suggestions existed only in IdeaInputPage; ComposerPage had no such logic. Fix: export getAgentRecommendations + COMPANION_GROUPS from IdeaInputPage (INV-12 single source), import + render them in ComposerPage keyed on the description field. | `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | Phase 22 (KAN-112 custom composer) | INV-1/3/12/SC-001 ✅ | Done |
@@ -133,6 +138,54 @@
 *Entries are appended below after each `/velocity-ai-fix` session.*
 
 ---
+
+---
+
+### FIX-119 — User text not visible in chat + no loading indication for some workflows (complete-state runs)
+
+**Date:** 2026-07-24
+**Triggered by:** `/velocity-ai-fix` — user text not showing and no loading indication for some workflows
+
+#### Root Cause
+FIX-118 removed the pre-intent `sendMessage` echo from `handleFreeText` in `RunChatLane.tsx` to fix the double-version bug. That fix was correct for the `complete` state — an undecorated `sendMessage` on a terminal run triggers `CHANNEL_REVISION` immediately. However, the fix also removed the user bubble echo for ALL intents:
+
+- **"ask" intent** still worked because `sendMessage(text, attachments, { concierge: true })` was called after classification — that `sendMessage` adds the optimistic bubble + routes to Concierge (not `CHANNEL_REVISION`)
+- **"revise" intent** never called `sendMessage` — user text never appeared  
+- **"chain" intent** never called `sendMessage` — user text never appeared
+
+The root tension: `sendMessage` on a terminal run without `{ concierge: true }` triggers `CHANNEL_REVISION`. Adding it to every path would route revise/chain as Concierge turns.
+
+**Fix:** Add `addOptimisticMessage` to `useRunChat` — a FE-only function that adds a user bubble to local state without any backend call. Call it in `handleFreeText` before the classify-intent LLM round-trip. For the "ask" path, pass the returned `messageId` as `options.existingMessageId` to `sendMessage` so it reconciles the existing bubble instead of creating a duplicate.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31 (CHATUI-01 — `useRunChat` transcript), Phase 29 (chat backbone / mechanical router / `CHANNEL_REVISION`), Phase 43 (A.1 CRUX — Concierge seam)
+- **Deleted code verified (not resurrected):** No deleted code resurrected
+- **Locked decisions respected:** INV-12 (addOptimisticMessage is new, not a fork); SC-001 (all paths generic — no workflow-name branch)
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useRunChat.ts` | Added `addOptimisticMessage(text, attachments) → string` to `UseRunChatReturn` interface and implementation; added `existingMessageId?: string` to `SendMessageOptions`; `sendMessage` uses `existingMessageId` when supplied to reconcile instead of minting a new id | Provides a FE-only bubble with no backend side-effect |
+| `frontend/src/components/chat/RunChatLane.tsx` | Added `addOptimisticMessage?` prop to `RunChatLaneProps` and `RunChatLane` function; updated `handleFreeText` to call it immediately before classify-intent, then pass `existingMessageId` to `sendMessage` for the ask path | User text visible immediately for all intents; TypingIndicator fires for all complete-state sends |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `addOptimisticMessage?` prop to `DashboardLayoutProps`; destructured from function params; passed to `<RunChatLane addOptimisticMessage={addOptimisticMessage} />` | Wires the function from page.tsx to the RunChatLane |
+| `frontend/src/app/dashboard/page.tsx` | Destructured `addOptimisticMessage: addRunChatOptimisticMessage` from `useRunChat`; passed to `<DashboardLayout addOptimisticMessage={addRunChatOptimisticMessage} />` | Sources the function from the hook |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — all paths key on generic `runState`/intent
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/engine touch
+- **INV-12** (no duplication): `addOptimisticMessage` is a NEW function with a distinct purpose (FE-only echo); `sendMessage` is unchanged except for the `existingMessageId` reconciliation path (no fork in behavior)
+- **SC-001** (zero engine edits for new workflows): Not affected
+
+#### Verification
+- For `complete` state: user types → text appears immediately as user bubble + TypingIndicator shows while LLM classifies
+- For "ask" intent: existing bubble reconciled when sendMessage called with existingMessageId (no duplicate)
+- For "revise" intent: bubble stays visible, confirm chip appears
+- For "chain" intent: bubble stays visible, chain picker / onSuggestion fires
+- For all non-complete states (building/clarify/gate/terminal): `sendMessage(text, attachments)` still called directly — bubble + behavior unchanged
+
+#### Notes
+- The `existingMessageId` option in `sendMessage` is a new reconciliation mechanism. The guard `prev.some((m) => m.id === messageId)` in `sendMessage` means if the bubble was already added optimistically, it won't be duplicated.
+- For the fast-path `matchChainTarget` (exact named-target, no LLM), we still return early without an echo — this is intentional as the chain fires immediately (no user message needed in chat).
 
 ---
 
