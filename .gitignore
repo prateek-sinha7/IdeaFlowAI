@@ -75,4 +75,9 @@ frontend/package-lock.json
 /tools/api/runs/logs/
 tools/api/runs/.logs
 tools/api/runs/.artifacts
+
+# Generated full transcripts from the LIVE eval tier (backend/run-eval.sh
+# live-s1/live-s2/live-example1/benchmark) — one file per real-model run,
+# local-only, never committed.
+/backend/tests/evals/logs/
 TODO.md

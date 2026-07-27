@@ -1,0 +1,1886 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SAS Viya IAM — System Administration</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #000000;
+      --fg-secondary: #737373;
+      --fg-muted: #a3a3a3;
+      --surface: #fafafa;
+      --surface-interactive: #e5e5e5;
+      --border: #e5e5e5;
+      --border-dark: #d4d4d4;
+      --accent: #3b82f6;
+      --text-button-dark: #404040;
+      --text-near-black: #262626;
+      --font-display: "SF Pro Rounded", system-ui, -apple-system, sans-serif;
+      --font-body: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; }
+    body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; font-weight: 400; line-height: 1.5; display: grid; grid-template-columns: 220px 1fr; grid-template-rows: 64px 1fr; min-height: 100vh; }
+    .sidebar { grid-column: 1; grid-row: 1 / 3; background: var(--bg); border-right: 1px solid var(--border); padding: 20px 16px; position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; }
+    .sidebar-brand { font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--fg); letter-spacing: -0.01em; padding: 8px 0; }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 9999px; color: var(--fg); text-decoration: none; font-size: 16px; font-weight: 400; cursor: pointer; }
+    .nav-item:hover { background: var(--surface); }
+    .nav-item.active { background: var(--surface-interactive); font-weight: 500; }
+    .nav-icon { width: 20px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+    .topbar { grid-column: 2; grid-row: 1; background: var(--bg); border-bottom: 1px solid var(--border); padding: 0 28px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; gap: 20px; }
+    .topbar-title { font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg); letter-spacing: -0.01em; margin: 0; }
+    .topbar-right { display: flex; align-items: center; gap: 16px; }
+    .pill-input { background: var(--bg); border: 1px solid var(--border); border-radius: 9999px; padding: 10px 16px; font-family: var(--font-body); font-size: 16px; color: var(--fg); flex: 0 1 250px; }
+    .pill-input::placeholder { color: var(--fg-muted); }
+    .user-avatar { width: 48px; height: 48px; border-radius: 9999px; background: var(--surface-interactive); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 500; color: var(--fg); }
+    .main-content { grid-column: 2; grid-row: 2; background: var(--bg); overflow-y: auto; padding: 28px; }
+    .section { display: none; }
+    .section.is-active { display: block; }
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .kpi-card { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .kpi-label { font-size: 12px; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500; }
+    .kpi-value { font-size: 32px; font-weight: 500; color: var(--fg); letter-spacing: -0.02em; }
+    .chart-container { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 28px; }
+    .chart-title { font-size: 16px; font-weight: 500; color: var(--fg); margin: 0 0 16px 0; }
+    .chart-svg { width: 100%; height: 240px; }
+    .table-container { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 28px; overflow-x: auto; }
+    .table-title { font-size: 16px; font-weight: 500; color: var(--fg); margin: 0 0 16px 0; }
+    .table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .table thead { background: var(--surface); border-bottom: 1px solid var(--border); }
+    .table th { text-align: left; padding: 12px; font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; border-right: 1px solid var(--border); }
+    .table th:last-child { border-right: none; }
+    .table tbody tr { border-bottom: 1px solid var(--border); }
+    .table tbody tr:hover { background: var(--surface); cursor: pointer; }
+    .table td { padding: 12px; color: var(--fg); border-right: 1px solid var(--border); }
+    .table td:last-child { border-right: none; }
+    .code-block { font-family: var(--font-mono); font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; color: var(--fg); overflow-x: auto; line-height: 1.6; white-space: pre-wrap; }
+    @media (max-width: 768px) { body { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; } .sidebar { grid-column: 1; grid-row: 1; height: auto; flex-direction: row; border-right: none; border-bottom: 1px solid var(--border); } .topbar { grid-column: 1; grid-row: 2; } .main-content { grid-column: 1; grid-row: 3; } }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" data-od-id="sidebar">
+    <div class="sidebar-brand">SAS Viya IAM</div>
+    <nav class="sidebar-nav">
+      <a href="#/" class="nav-item active" data-page-link="dashboard-overview"><span class="nav-icon">📊</span> Dashboard</a>
+      <a href="#/roles" class="nav-item" data-page-link="roles"><span class="nav-icon">👥</span> Roles</a>
+      <a href="#/mfa" class="nav-item" data-page-link="mfa"><span class="nav-icon">🔐</span> MFA</a>
+      <a href="#/ldap" class="nav-item" data-page-link="ldap"><span class="nav-icon">🔗</span> LDAP</a>
+      <a href="#/audit" class="nav-item" data-page-link="audit"><span class="nav-icon">📋</span> Audit</a>
+    </nav>
+  </aside>
+  <header class="topbar" data-od-id="topbar">
+    <h1 class="topbar-title" id="page-title">Dashboard</h1>
+    <div class="topbar-right">
+      <input type="text" class="pill-input" placeholder="Search..." />
+      <div class="user-avatar">MA</div>
+    </div>
+  </header>
+  <main class="main-content" data-od-id="main-content">
+    <section data-page="dashboard-overview" class="section is-active">
+      <h2 style="margin: 0 0 24px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">System Overview</h2>
+      <div class="kpi-row">
+        <div class="kpi-card"><div class="kpi-label">Active Users</div><div class="kpi-value">847</div><div style="font-size: 14px; color: var(--fg-secondary); margin-top: 4px;">↑ 12% vs week</div></div>
+        <div class="kpi-card"><div class="kpi-label">MFA Enrollment</div><div class="kpi-value">623</div><div style="font-size: 14px; color: var(--fg-secondary); margin-top: 4px;">74% adoption</div></div>
+        <div class="kpi-card"><div class="kpi-label">Failed Auth (24h)</div><div class="kpi-value">14</div><div style="font-size: 14px; color: var(--fg-secondary); margin-top: 4px;">↓ 3% trend</div></div>
+        <div class="kpi-card"><div class="kpi-label">Role Conflicts</div><div class="kpi-value">3</div><div style="font-size: 14px; color: var(--fg-secondary); margin-top: 4px;">⚠️ Pending</div></div>
+      </div>
+      <div class="chart-container"><h3 class="chart-title">Auth Volume (7 days)</h3><svg class="chart-svg" viewBox="0 0 800 280"><line x1="60" y1="240" x2="780" y2="240" stroke="var(--border)" stroke-width="1"/><polyline points="100,169 200,48 300,20 400,32 500,94 600,12 700,208" stroke="var(--fg)" stroke-width="2" fill="none"/><circle cx="100" cy="169" r="4" fill="var(--fg)"/><circle cx="200" cy="48" r="4" fill="var(--fg)"/><circle cx="300" cy="20" r="4" fill="var(--fg)"/><circle cx="400" cy="32" r="4" fill="var(--fg)"/><circle cx="500" cy="94" r="4" fill="var(--fg)"/><circle cx="600" cy="12" r="4" fill="var(--fg)"/><circle cx="700" cy="208" r="4" fill="var(--fg)"/></svg></div>
+      <div class="table-container"><h3 class="table-title">Recent Changes</h3><table class="table"><thead><tr><th>Time</th><th>Type</th><th>User</th><th>Action</th><th>Status</th></tr></thead><tbody><tr><td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 14:32</td><td>Role Assignment</td><td>user@company.com</td><td>Assigned "Editor"</td><td>✓</td></tr><tr><td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 13:18</td><td>MFA Enabled</td><td>marcus.admin@company.com</td><td>TOTP completed</td><td>✓</td></tr><tr><td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 12:45</td><td>LDAP Sync</td><td>System</td><td>Synced 47 users</td><td>⚠️ 3 conflicts</td></tr><tr><td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 11:20</td><td>Role Conflict</td><td>sarah.user@company.com</td><td>Editor ≠ Viewer</td><td>⚠️</td></tr><tr><td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 10:05</td><td>Failed Login</td><td>john.dev@company.com</td><td>3 invalid TOTP</td><td>❌</td></tr><tr><td style="font-family: var(--font-mono); font-size: 12px;">2024-01-14 16:50</td><td>LDAP Test</td><td>ldap.acme.com</td><td>Connection passed</td><td>✓</td></tr></tbody></table></div>
+    </section>
+    <section data-page="roles" class="section">
+      <h2 style="margin: 0 0 24px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">Role Configuration</h2>
+      <div style="display: grid; grid-template-columns: 40% 1fr; gap: 24px;"><div><h3 style="margin: 0 0 20px 0; font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--fg);">Multi-Tenant RBAC</h3><div style="margin-bottom: 16px;"><label style="display: block; font-size: 14px; color: var(--fg-secondary); margin-bottom: 8px;">Tenant</label><select class="pill-input" style="width: 100%;"><option>Tenant A</option><option>Tenant B</option></select></div><div style="margin-bottom: 16px;"><label style="display: block; font-size: 14px; color: var(--fg-secondary); margin-bottom: 8px;">User</label><select class="pill-input" style="width: 100%;"><option>user1@company.com</option><option>user2@company.com</option></select></div><div style="margin-bottom: 16px;"><label style="display: block; font-size: 14px; color: var(--fg-secondary); margin-bottom: 8px;">User Role</label><div style="display: flex; flex-direction: column; gap: 8px;"><label><input type="radio" name="role" value="none"/> No role</label><label><input type="radio" name="role" value="editor" checked/> Editor</label><label><input type="radio" name="role" value="viewer"/> Viewer</label><label><input type="radio" name="role" value="admin"/> Admin</label></div></div><div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px;"><p style="margin: 0; font-size: 14px; color: var(--fg);">User-level role <strong>Editor</strong> overrides group role <strong>Viewer</strong>.</p></div><button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer;" onclick="alert('Role assigned')">Apply</button></div><div><h3 style="margin: 0 0 20px 0; font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--fg);">Role Precedence</h3><div class="code-block">Tenant A
+├─ User1: Editor (SAS) ✓
+│  Group: Viewer (LDAP, overridden)
+├─ User2: (none)
+│  Group: Developers → Editor ✓
+
+Conflicts Detected: 1
+Pending: 1
+Clear: 1</div></div></div>
+    </section>
+    <section data-page="mfa" class="section">
+      <h2 style="margin: 0 0 24px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">MFA Setup</h2>
+      <div style="max-width: 600px; margin: 0 auto;"><div id="step-2"><h3 style="margin: 0 0 20px 0; font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--fg);">Authenticator App</h3><div style="background: var(--bg); border: 2px solid var(--fg); border-radius: 8px; width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">QR Code</div><label style="display: block; font-size: 14px; color: var(--fg-secondary); margin-bottom: 8px;">Code:</label><div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-family: var(--font-mono); font-size: 12px; color: var(--fg); margin-bottom: 24px; user-select: all;">JBSWY3DPEBLW64TMMQ5KZCBKFV3XBKQ</div><div style="margin-bottom: 24px;"><label style="display: block; font-size: 14px; color: var(--fg-secondary); margin-bottom: 8px;">Enter 6-digit code:</label><input type="text" id="totp" placeholder="000000" style="padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); font-family: var(--font-mono); font-size: 16px; width: 120px;" maxlength="6"/></div><div style="display: flex; gap: 12px;"><button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer;" onclick="nextMFAStep()">Next</button></div></div><div id="step-3" style="display: none;"><h3 style="margin: 0 0 20px 0; font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--fg);">Recovery Codes</h3><div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px;"><p style="margin: 0; font-size: 16px; font-weight: 500; color: var(--fg);">⚠️ Save these codes securely NOW</p></div><div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px; font-family: var(--font-mono); font-size: 12px; color: var(--fg); user-select: all; line-height: 2;">8K4L-9M2N-3P5Q<br/>7R6S-4T8U-1V9W<br/>2X3Y-5Z7A-9B1C<br/>4D6E-8F2G-3H7I<br/>5J9K-1L3M-4N6O<br/>7P2Q-8R4S-6T9U</div><div style="display: flex; gap: 12px; margin-bottom: 24px;"><button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999py; border: 1px solid var(--border); font-size: 16px; cursor: pointer;" onclick="alert('Printing...')">Print</button><button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999py; border: 1px solid var(--border); font-size: 16px; cursor: pointer;" onclick="alert('Downloading...')">Download</button></div><label style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--fg); margin-bottom: 24px;"><input type="checkbox" id="ack"/> I have saved recovery codes</label><div style="display: flex; gap: 12px;"><button style="background: var(--bg); color: var(--text-button-dark); padding: 10px 24px; border-radius: 9999py; border: 1px solid var(--border-dark); font-size: 16px; cursor: pointer;" onclick="prevMFAStep()">Back</button><button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999py; border: 1px solid var(--border); font-size: 16px; cursor: pointer;" id="complete-btn" onclick="alert('MFA setup complete')" disabled>Complete</button></div></div></div>
+    </section>
+    <section data-page="ldap" class="section">
+      <h2 style="margin: 0 0 24px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">LDAP Integration</h2>
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px;"><h3 style="margin: 0 0 20px 0; font-size: 16px; font-weight: 500; color: var(--fg);">Settings</h3><div style="display: grid; gap: 12px; margin-bottom: 24px;"><div><label style="display: block; font-size: 12px; color: var(--fg-secondary); margin-bottom: 4px;">LDAP Server</label><input type="text" value="ldap.acme.com:389" style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); font-size: 14px;"/></div><div><label style="display: block; font-size: 12px; color: var(--fg-secondary); margin-bottom: 4px;">Bind Account</label><input type="text" value="cn=sas-bind,dc=acme,dc=com" style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); font-size: 14px;"/></div><div><label style="display: block; font-size: 12px; color: var(--fg-secondary); margin-bottom: 4px;">Base DN</label><input type="text" value="ou=users,dc=acme,dc=com" style="width: 100%; padding: 10px 16px; border-radius: 9999py; border: 1px solid var(--border); background: var(--bg); font-size: 14px;"/></div></div><div style="display: flex; gap: 12px;"><button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999py; border: 1px solid var(--border); font-size: 14px; cursor: pointer;" onclick="alert('Testing...\nConnected (234ms)')">Test</button><button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999py; border: 1px solid var(--border); font-size: 14px; cursor: pointer;" onclick="alert('Sync started...\n47 users, 3 conflicts')">Sync</button></div></div>
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px;"><h3 style="margin: 0 0 20px 0; font-size: 16px; font-weight: 500; color: var(--fg);">Status</h3><div style="display: flex; flex-direction: column; gap: 12px;"><div>✓ Connected (tested 2024-01-15 14:22)</div><div>⚠️ 3 role conflicts detected in sync</div><p style="margin: 12px 0 0 0; font-size: 12px; color: var(--fg-secondary);">[2024-01-15 12:15] Sync: 47 users, 8 groups, 3 conflicts</p></div></div>
+    </section>
+    <section data-page="audit" class="section">
+      <h2 style="margin: 0 0 24px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">Audit Log</h2>
+      <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px; display: flex; gap: 12px;"><select style="padding: 8px 12px; border-radius: 9999py; border: 1px solid var(--border); background: var(--bg); font-size: 14px;"><option>All Events</option><option>Auth</option><option>MFA</option></select><button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 8px 16px; border-radius: 9999py; border: 1px solid var(--border); font-size: 12px; cursor: pointer;" onclick="alert('Exporting...')">Export CSV</button></div>
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 24px;"><div style="overflow-x: auto;"><table class="table" style="min-width: 100%;"><thead><tr><th>Time</th><th>Event</th><th>User</th><th>Details</th><th>Result</th></tr></thead><tbody><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-15 14:32</td><td>Role Assign</td><td>James.Arch</td><td>Editor → user@company.com</td><td>✓</td></tr><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-15 14:20</td><td>Auth</td><td>marcus.admin</td><td>Native+MFA verified</td><td>✓</td></tr><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-15 13:18</td><td>MFA</td><td>marcus.admin</td><td>TOTP issued</td><td>✓</td></tr><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-15 12:45</td><td>LDAP Sync</td><td>System</td><td>47 users, 8 groups</td><td>⚠️ 3 conflicts</td></tr><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-15 11:20</td><td>Conflict</td><td>System</td><td>sarah: Editor≠Viewer</td><td>⚠️ Pending</td></tr><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-15 10:05</td><td>Failed</td><td>john.dev</td><td>3 invalid TOTP</td><td>❌</td></tr><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-15 09:33</td><td>Auth</td><td>alice.analyst</td><td>LDAP (Analysts/Viewer)</td><td>✓</td></tr><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-15 08:15</td><td>Provision</td><td>James.Arch</td><td>dev.team@company to TenantB</td><td>✓</td></tr><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-14 16:50</td><td>LDAP Test</td><td>James.Arch</td><td>Connection (234ms)</td><td>✓</td></tr><tr><td style="font-family: var(--font-mono); font-size: 11px;">2024-01-14 15:22</td><td>Warning</td><td>System</td><td>James: User+Security Admin</td><td>⚠️ Flag</td></tr></tbody></table></div></div>
+      <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px;"><p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 500; color: var(--fg);">Compliance (7d)</p><div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; font-size: 13px;"><div><p style="margin: 0 0 4px 0; color: var(--fg-secondary);">Total Events</p><p style="margin: 0; font-size: 18px; font-weight: 500; color: var(--fg);">487</p></div><div><p style="margin: 0 0 4px 0; color: var(--fg-secondary);">Success Rate</p><p style="margin: 0; font-size: 18px; font-weight: 500; color: var(--fg);">86.4%</p></div><div><p style="margin: 0 0 4px 0; color: var(--fg-secondary);">Grade</p><p style="margin: 0; font-size: 18px; font-weight: 500; color: var(--fg);">A</p></div></div></div>
+    </section>
+  </main>
+  <script>
+    const titles = { 'dashboard-overview': 'Dashboard', 'roles': 'Role Configuration', 'mfa': 'MFA Setup', 'ldap': 'LDAP Integration', 'audit': 'Audit Log' };
+    function route() {
+      const hash = (window.location.hash || '#').slice(2) || 'dashboard-overview';
+      let page = 'dashboard-overview';
+      if (hash === 'roles' || hash === 'mfa' || hash === 'ldap' || hash === 'audit') page = hash;
+      document.querySelectorAll('section[data-page]').forEach(s => s.classList.remove('is-active'));
+      document.querySelector('section[data-page="' + page + '"]').classList.add('is-active');
+      document.querySelectorAll('a.nav-item').forEach(a => a.classList.remove('active'));
+      document.querySelector('a[data-page-link="' + page + '"]').classList.add('active');
+      document.getElementById('page-title').textContent = titles[page];
+    }
+    window.addEventListener('hashchange', route);
+    window.addEventListener('load', route);
+    route();
+    function nextMFAStep() {
+      if (document.getElementById('totp').value.length !== 6) { alert('Enter 6 digits'); return; }
+      document.getElementById('step-2').style.display = 'none';
+      document.getElementById('step-3').style.display = 'block';
+    }
+    function prevMFAStep() {
+      document.getElementById('step-3').style.display = 'none';
+      document.getElementById('step-2').style.display = 'block';
+      document.getElementById('ack').checked = false;
+      document.getElementById('complete-btn').disabled = true;
+    }
+    document.getElementById('ack').addEventListener('change', function() { document.getElementById('complete-btn').disabled = !this.checked; });
+  </script>
+</body>
+</html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SAS Viya IAM — System Administration</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #000000;
+      --fg-secondary: #737373;
+      --fg-muted: #a3a3a3;
+      --surface: #fafafa;
+      --surface-interactive: #e5e5e5;
+      --border: #e5e5e5;
+      --border-dark: #d4d4d4;
+      --accent: #3b82f6;
+      --text-button-dark: #404040;
+      --text-near-black: #262626;
+      --font-display: "SF Pro Rounded", system-ui, -apple-system, sans-serif;
+      --font-body: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.5;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      grid-template-rows: 64px 1fr;
+      min-height: 100vh;
+    }
+
+    .dashboard-container {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      grid-template-rows: 64px 1fr;
+      min-height: 100vh;
+      width: 100%;
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      grid-column: 1;
+      grid-row: 1 / 3;
+      background: var(--bg);
+      border-right: 1px solid var(--border);
+      padding: 20px 16px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .sidebar-brand {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--fg);
+      letter-spacing: -0.01em;
+      padding: 8px 0;
+    }
+
+    .sidebar-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 9999px;
+      color: var(--fg);
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 400;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    .nav-item:hover {
+      background: var(--surface);
+    }
+
+    .nav-item.active {
+      background: var(--surface-interactive);
+      font-weight: 500;
+    }
+
+    .nav-icon {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    /* TOPBAR */
+    .topbar {
+      grid-column: 2;
+      grid-row: 1;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      gap: 20px;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .topbar-title {
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 500;
+      color: var(--fg);
+      letter-spacing: -0.01em;
+      margin: 0;
+      white-space: nowrap;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .pill-input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      padding: 10px 16px;
+      font-family: var(--font-body);
+      font-size: 16px;
+      color: var(--fg);
+      flex: 0 1 250px;
+      min-width: 200px;
+    }
+
+    .pill-input::placeholder {
+      color: var(--fg-muted);
+    }
+
+    .user-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 9999px;
+      background: var(--surface-interactive);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-body);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--fg);
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    /* MAIN CONTENT */
+    .main-content {
+      grid-column: 2;
+      grid-row: 2;
+      background: var(--bg);
+      overflow-y: auto;
+      padding: 28px;
+    }
+
+    /* SECTIONS */
+    .section {
+      display: none;
+    }
+
+    .section.is-active {
+      display: block;
+    }
+
+    /* COMMON COMPONENTS */
+    .button {
+      font-family: var(--font-body);
+      font-size: 16px;
+      font-weight: 400;
+      padding: 10px 24px;
+      border-radius: 9999px;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.15s ease, color 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-decoration: none;
+    }
+
+    .button-primary {
+      background: var(--surface-interactive);
+      color: var(--text-near-black);
+      border: 1px solid var(--surface-interactive);
+    }
+
+    .button-primary:hover {
+      background: #d4d4d4;
+    }
+
+    .button-secondary {
+      background: var(--bg);
+      color: var(--text-button-dark);
+      border: 1px solid var(--border-dark);
+    }
+
+    .button-secondary:hover {
+      background: var(--surface);
+    }
+
+    .button-warning {
+      background: var(--surface);
+      color: var(--fg);
+      border: 1px solid var(--border);
+    }
+
+    .button-warning:hover {
+      background: var(--surface-interactive);
+    }
+
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .kpi-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      color: var(--fg-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 500;
+    }
+
+    .kpi-value {
+      font-family: var(--font-body);
+      font-size: 32px;
+      font-weight: 500;
+      color: var(--fg);
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+
+    .kpi-delta {
+      font-size: 14px;
+      color: var(--fg-secondary);
+      margin-top: 4px;
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      background: var(--surface-interactive);
+      color: var(--text-near-black);
+      border: 1px solid var(--border);
+      width: fit-content;
+    }
+
+    .badge-success {
+      background: var(--surface);
+      color: var(--fg);
+      border: 1px solid var(--border);
+    }
+
+    .badge-warning {
+      background: var(--surface);
+      color: var(--fg);
+      border: 1px solid var(--border);
+    }
+
+    .alert {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .alert-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .alert-content {
+      flex: 1;
+    }
+
+    .alert-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--fg);
+      margin: 0 0 4px 0;
+    }
+
+    .alert-text {
+      font-size: 14px;
+      color: var(--fg-secondary);
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    .chart-container {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 28px;
+    }
+
+    .chart-title {
+      font-family: var(--font-body);
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--fg);
+      margin: 0 0 16px 0;
+    }
+
+    .chart-svg {
+      width: 100%;
+      height: 240px;
+      display: block;
+    }
+
+    .table-container {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 28px;
+      overflow-x: auto;
+    }
+
+    .table-title {
+      font-family: var(--font-body);
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--fg);
+      margin: 0 0 16px 0;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .table thead {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table th {
+      text-align: left;
+      padding: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--fg-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-right: 1px solid var(--border);
+    }
+
+    .table th:last-child {
+      border-right: none;
+    }
+
+    .table tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background-color 0.15s ease;
+    }
+
+    .table tbody tr:hover {
+      background: var(--surface);
+      cursor: pointer;
+    }
+
+    .table td {
+      padding: 12px;
+      color: var(--fg);
+      border-right: 1px solid var(--border);
+    }
+
+    .table td:last-child {
+      border-right: none;
+    }
+
+    .code-block {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      color: var(--fg);
+      overflow-x: auto;
+      line-height: 1.6;
+      user-select: all;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 900px) {
+      .kpi-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 768px) {
+      .dashboard-container, body {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        grid-column: 1;
+        grid-row: 1;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        overflow-y: visible;
+        flex-direction: row;
+        padding: 12px;
+        gap: 8px;
+        align-items: center;
+        position: relative;
+        width: 100%;
+      }
+
+      .sidebar-brand {
+        flex-shrink: 0;
+      }
+
+      .sidebar-nav {
+        flex-direction: row;
+        flex: 1;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .nav-item {
+        padding: 8px 12px;
+        font-size: 14px;
+        white-space: nowrap;
+      }
+
+      .topbar {
+        grid-column: 1;
+        grid-row: 2;
+        padding: 0 16px;
+        flex-wrap: wrap;
+      }
+
+      .topbar-title {
+        font-size: 20px;
+        flex-basis: 100%;
+        margin-bottom: 8px;
+      }
+
+      .topbar-right {
+        flex-basis: 100%;
+        gap: 12px;
+      }
+
+      .pill-input {
+        flex: 1;
+        min-width: 120px;
+      }
+
+      .main-content {
+        grid-column: 1;
+        grid-row: 3;
+        padding: 16px;
+      }
+
+      .kpi-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* SCROLLBAR STYLING */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--border-dark);
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" data-od-id="sidebar">
+    <div class="sidebar-brand">SAS Viya IAM</div>
+    <nav class="sidebar-nav">
+      <a href="#/" class="nav-item active" data-page-link="dashboard-overview">
+        <span class="nav-icon">📊</span>
+        <span>Dashboard</span>
+      </a>
+      <a href="#/roles" class="nav-item" data-page-link="roles">
+        <span class="nav-icon">👥</span>
+        <span>Role Config</span>
+      </a>
+      <a href="#/mfa" class="nav-item" data-page-link="mfa">
+        <span class="nav-icon">🔐</span>
+        <span>MFA Setup</span>
+      </a>
+      <a href="#/ldap" class="nav-item" data-page-link="ldap">
+        <span class="nav-icon">🔗</span>
+        <span>LDAP</span>
+      </a>
+      <a href="#/audit" class="nav-item" data-page-link="audit">
+        <span class="nav-icon">📋</span>
+        <span>Audit Log</span>
+      </a>
+    </nav>
+  </aside>
+
+  <header class="topbar" data-od-id="topbar">
+    <div class="topbar-left">
+      <h1 class="topbar-title" id="page-title">Dashboard</h1>
+    </div>
+    <div class="topbar-right">
+      <input type="text" class="pill-input" placeholder="Search users, roles, events..." />
+      <div class="user-avatar" title="Marcus Admin">MA</div>
+    </div>
+  </header>
+
+  <main class="main-content" data-od-id="main-content">
+    <!-- Dashboard Overview Section -->
+    <section data-page="dashboard-overview" class="section is-active">
+      <h2 style="margin: 0 0 24px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">System Overview</h2>
+      
+      <!-- KPI Row -->
+      <div class="kpi-row" data-od-id="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Active Users</div>
+          <div class="kpi-value">847</div>
+          <div class="kpi-delta"><span style="color: var(--fg-secondary);">↑</span> <span style="color: var(--fg-secondary);">12%</span> <span class="badge badge-success" style="background: var(--surface); color: var(--fg); border: 1px solid var(--border); margin-left: 4px;">vs last week</span></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">MFA Enrollment</div>
+          <div class="kpi-value">623 <span style="font-size: 24px; color: var(--fg-secondary);">(74%)</span></div>
+          <div class="kpi-delta"><span style="color: var(--fg-secondary);">↑</span> <span style="color: var(--fg-secondary);">8%</span> <span class="badge badge-success" style="background: var(--surface); color: var(--fg); border: 1px solid var(--border); margin-left: 4px;">adoption rate</span></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Failed Auth (24h)</div>
+          <div class="kpi-value">14</div>
+          <div class="kpi-delta"><span style="color: var(--fg-secondary);">↓</span> <span style="color: var(--fg-secondary);">3%</span> <span class="badge badge-success" style="background: var(--surface); color: var(--fg); border: 1px solid var(--border); margin-left: 4px;">improving</span></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Role Conflicts Pending</div>
+          <div class="kpi-value">3</div>
+          <div class="kpi-delta"><span class="badge badge-warning" style="background: var(--surface); color: var(--fg); border: 1px solid var(--border); margin-top: 4px;">⚠️ Action Needed</span></div>
+        </div>
+      </div>
+
+      <!-- Line Chart -->
+      <div class="chart-container" data-od-id="chart-panel">
+        <h3 class="chart-title">Authentication Volume (Last 7 Days)</h3>
+        <svg class="chart-svg" viewBox="0 0 800 280" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+          <!-- Grid lines -->
+          <line x1="60" y1="240" x2="780" y2="240" stroke="var(--border)" stroke-width="1"/>
+          <line x1="60" y1="180" x2="780" y2="180" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2" opacity="0.5"/>
+          <line x1="60" y1="120" x2="780" y2="120" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2" opacity="0.5"/>
+          <line x1="60" y1="60" x2="780" y2="60" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2" opacity="0.5"/>
+          
+          <!-- Y-axis labels -->
+          <text x="50" y="245" font-size="12" fill="#a3a3a3" text-anchor="end">0</text>
+          <text x="50" y="185" font-size="12" fill="#a3a3a3" text-anchor="end">400</text>
+          <text x="50" y="125" font-size="12" fill="#a3a3a3" text-anchor="end">800</text>
+          <text x="50" y="65" font-size="12" fill="#a3a3a3" text-anchor="end">1200</text>
+          <text x="50" y="25" font-size="12" fill="#a3a3a3" text-anchor="end">1600</text>
+          
+          <!-- Y-axis -->
+          <line x1="60" y1="20" x2="60" y2="250" stroke="#000" stroke-width="1.5"/>
+          <!-- X-axis -->
+          <line x1="60" y1="240" x2="780" y2="240" stroke="#000" stroke-width="1.5"/>
+          
+          <!-- Area fill under curve -->
+          <path d="M 100 169 L 200 48 L 300 -20 L 400 32 L 500 94 L 600 12 L 700 208 L 700 240 L 600 240 L 500 240 L 400 240 L 300 240 L 200 240 L 100 240 Z" fill="#fafafa" opacity="0.6"/>
+          
+          <!-- Line -->
+          <polyline points="100,169 200,48 300,-20 400,32 500,94 600,12 700,208" stroke="#000" stroke-width="2" fill="none"/>
+          
+          <!-- Data points (circles) -->
+          <circle cx="100" cy="169" r="4" fill="#000"/>
+          <circle cx="200" cy="48" r="4" fill="#000"/>
+          <circle cx="300" cy="-20" r="4" fill="#000"/>
+          <circle cx="400" cy="32" r="4" fill="#000"/>
+          <circle cx="500" cy="94" r="4" fill="#000"/>
+          <circle cx="600" cy="12" r="4" fill="#000"/>
+          <circle cx="700" cy="208" r="4" fill="#000"/>
+          
+          <!-- X-axis labels -->
+          <text x="100" y="265" font-size="12" fill="#a3a3a3" text-anchor="middle">Sun</text>
+          <text x="200" y="265" font-size="12" fill="#a3a3a3" text-anchor="middle">Mon</text>
+          <text x="300" y="265" font-size="12" fill="#a3a3a3" text-anchor="middle">Tue</text>
+          <text x="400" y="265" font-size="12" fill="#a3a3a3" text-anchor="middle">Wed</text>
+          <text x="500" y="265" font-size="12" fill="#a3a3a3" text-anchor="middle">Thu</text>
+          <text x="600" y="265" font-size="12" fill="#a3a3a3" text-anchor="middle">Fri</text>
+          <text x="700" y="265" font-size="12" fill="#a3a3a3" text-anchor="middle">Sat</text>
+        </svg>
+      </div>
+
+      <!-- Recent Changes Table -->
+      <div class="table-container" data-od-id="recent-changes">
+        <h3 class="table-title">Recent Configuration Changes</h3>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Change Type</th>
+              <th>Subject</th>
+              <th>Action</th>
+              <th>Status</th>
+              <th>Initiated By</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr onclick="console.log('Row clicked: Role Assignment')">
+              <td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 14:32</td>
+              <td>Role Assignment</td>
+              <td>user@company.com</td>
+              <td>Assigned to "Editor" role</td>
+              <td><span style="color: #000;">✓</span> Success</td>
+              <td>James.Architect</td>
+            </tr>
+            <tr onclick="console.log('Row clicked: MFA Enabled')">
+              <td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 13:18</td>
+              <td>MFA Enabled</td>
+              <td>marcus.admin@company.com</td>
+              <td>TOTP enrollment completed</td>
+              <td><span style="color: #000;">✓</span> Success</td>
+              <td>Marcus Admin</td>
+            </tr>
+            <tr onclick="console.log('Row clicked: LDAP Sync')">
+              <td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 12:45</td>
+              <td>LDAP Sync</td>
+              <td>Dept_Engineering</td>
+              <td>Synced 47 users</td>
+              <td><span style="color: #525252;">⚠️</span> 3 conflicts</td>
+              <td>System (auto)</td>
+            </tr>
+            <tr onclick="console.log('Row clicked: Role Conflict')">
+              <td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 11:20</td>
+              <td>Role Conflict</td>
+              <td>sarah.user@company.com</td>
+              <td>Editor ≠ Viewer conflict</td>
+              <td><span style="color: #525252;">⚠️</span> Pending</td>
+              <td>System (auto)</td>
+            </tr>
+            <tr onclick="console.log('Row clicked: MFA Failed')">
+              <td style="font-family: var(--font-mono); font-size: 12px;">2024-01-15 10:05</td>
+              <td>MFA Failed</td>
+              <td>john.dev@company.com</td>
+              <td>3 invalid TOTP attempts</td>
+              <td><span style="color: #525252;">❌</span> Failed</td>
+              <td>System (auto)</td>
+            </tr>
+            <tr onclick="console.log('Row clicked: LDAP Test')">
+              <td style="font-family: var(--font-mono); font-size: 12px;">2024-01-14 16:50</td>
+              <td>LDAP Test</td>
+              <td>ldap.acme.com</td>
+              <td>Connection test passed</td>
+              <td><span style="color: #000;">✓</span> Success</td>
+              <td>James.Architect</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Role Configuration Section -->
+    <section data-page="roles" class="section">
+      <h2 style="margin: 0 0 24px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">Role Configuration</h2>
+      
+      <!-- Two-column layout: left form (40%), right tree (60%) -->
+      <div style="display: grid; grid-template-columns: 40% 1fr; gap: 24px; grid-auto-rows: auto;">
+        
+        <!-- LEFT PANEL: Role Assignment Form -->
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+          
+          <!-- Form Title -->
+          <h3 style="margin: 0; font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--fg);">Multi-Tenant RBAC Configuration</h3>
+          
+          <!-- Select Tenant -->
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="font-size: 14px; color: var(--fg-secondary);">Select Tenant</label>
+            <select class="pill-input" id="tenant-select" style="padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 16px; cursor: pointer;">
+              <option value="a" selected>Tenant A</option>
+              <option value="b">Tenant B</option>
+              <option value="global">Global</option>
+            </select>
+          </div>
+          
+          <!-- Select User -->
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="font-size: 14px; color: var(--fg-secondary);">Select User</label>
+            <select class="pill-input" id="user-select" style="padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 16px; cursor: pointer;">
+              <option value="user1" selected>user1@company.com</option>
+              <option value="user2">user2@company.com</option>
+              <option value="user3">user3@company.com</option>
+              <option value="sarah">sarah.dev@company.com</option>
+              <option value="john">john.admin@company.com</option>
+              <option value="alice">alice.analyst@company.com</option>
+            </select>
+          </div>
+          
+          <!-- Assign User-Level Role (Radio Group) -->
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <label style="font-size: 14px; color: var(--fg-secondary);">Assign User-Level Role</label>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--fg); cursor: pointer;">
+                <input type="radio" name="role" value="none" style="cursor: pointer;" />
+                <span>No role</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--fg); cursor: pointer;">
+                <input type="radio" name="role" value="editor" checked style="cursor: pointer;" />
+                <span>Editor</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--fg); cursor: pointer;">
+                <input type="radio" name="role" value="viewer" style="cursor: pointer;" />
+                <span>Viewer</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--fg); cursor: pointer;">
+                <input type="radio" name="role" value="admin" style="cursor: pointer;" />
+                <span>Admin</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--fg); cursor: pointer;">
+                <input type="radio" name="role" value="security-admin" style="cursor: pointer;" />
+                <span>Security Admin</span>
+              </label>
+            </div>
+          </div>
+          
+          <!-- Select Group -->
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="font-size: 14px; color: var(--fg-secondary);">Select Group</label>
+            <select class="pill-input" id="group-select" style="padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 16px; cursor: pointer;">
+              <option value="analysts" selected>Analysts</option>
+              <option value="developers">Developers</option>
+              <option value="admins">Admins</option>
+              <option value="engineering">Engineering</option>
+            </select>
+          </div>
+          
+          <!-- Group Role (Read-only) -->
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="font-size: 14px; color: var(--fg-secondary);">Group Role (read-only)</label>
+            <div style="padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg-secondary); font-size: 16px; min-height: 40px; display: flex; align-items: center;">Viewer</div>
+          </div>
+          
+          <!-- Info Box: Precedence -->
+          <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+            <p style="margin: 0; font-size: 14px; color: var(--fg); line-height: 1.5;">
+              User-level role takes precedence over group role. <strong style="color: var(--fg);">User1</strong> will have <strong style="color: var(--fg);">Editor</strong> permissions (overrides Group's Viewer).
+            </p>
+          </div>
+          
+          <!-- Action Buttons -->
+          <div style="display: flex; gap: 12px;">
+            <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; font-weight: 400; cursor: pointer; font-family: var(--font-body);" onclick="alert('Role assignment applied for user1@company.com in Tenant A')">Apply Assignment</button>
+            <button style="background: var(--bg); color: var(--text-button-dark); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 16px; font-weight: 400; cursor: pointer; font-family: var(--font-body);" onclick="document.querySelectorAll('input[name=role]')[1].checked = true;">Cancel</button>
+          </div>
+          
+          <!-- Role Segregation Warning Alert -->
+          <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; gap: 12px;">
+            <span style="font-size: 18px; flex-shrink: 0;">⚠️</span>
+            <div>
+              <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 500; color: var(--fg);">Role Segregation Policy Alert</p>
+              <p style="margin: 0 0 12px 0; font-size: 14px; color: var(--fg-secondary); line-height: 1.5;">Role segregation policy detected: <strong style="color: var(--fg);">James (Platform Architect)</strong> holds both <strong style="color: var(--fg);">'User Admin'</strong> and <strong style="color: var(--fg);">'Security Admin'</strong> roles. Quarterly audit will flag as non-compliant. Proceed with caution.</p>
+              <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 8px 16px; border-radius: 9999px; border: 1px solid var(--border); font-size: 14px; font-weight: 400; cursor: pointer; font-family: var(--font-body);" onclick="alert('Role segregation warning acknowledged')">Acknowledge</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- RIGHT PANEL: Role Hierarchy Tree & Conflict Summary -->
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+          
+          <!-- Tree Title -->
+          <h3 style="margin: 0; font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--fg);">Role Precedence & Conflict View</h3>
+          
+          <!-- Tree Diagram -->
+          <div class="code-block" style="font-family: var(--font-mono); font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; color: var(--fg); overflow-x: auto; max-height: 320px; overflow-y: auto; white-space: pre; word-break: break-word; user-select: all;">Tenant A
+├── User1@company.com
+│   ├─ User-Level Role: <strong>Editor</strong> ✓ (ACTIVE)
+│   └─ Group Membership: Analysts
+│      └─ Group Role: Viewer ✗ (overridden)
+│      └─ Status: ✅ Resolved
+│
+└── User2@company.com
+    ├─ User-Level Role: (none)
+    └─ Group Membership: Developers
+       └─ Group Role: <strong>Editor</strong> ✓ (ACTIVE)
+       └─ Status: ✅ Clear
+
+Tenant B
+├── User3@company.com
+    ├─ User-Level Role: Viewer ✓
+    └─ Group Membership: Admins
+       └─ Group Role: Admin ✗ (overridden)
+       └─ Status: ⚠️ Pending Review</div>
+          
+          <!-- Conflict Summary -->
+          <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+            <p style="margin: 0; font-size: 16px; font-weight: 500; color: var(--fg);">Conflict Summary</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
+              <div style="padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;">
+                <p style="margin: 0 0 4px 0; color: var(--fg-secondary); font-size: 12px;">Active Conflicts</p>
+                <p style="margin: 0; color: var(--fg); font-size: 18px; font-weight: 500;">1</p>
+              </div>
+              <div style="padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;">
+                <p style="margin: 0 0 4px 0; color: var(--fg-secondary); font-size: 12px;">Pending Resolution</p>
+                <p style="margin: 0; color: var(--fg); font-size: 18px; font-weight: 500;">1</p>
+              </div>
+              <div style="padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;">
+                <p style="margin: 0 0 4px 0; color: var(--fg-secondary); font-size: 12px;">Clear (No Conflicts)</p>
+                <p style="margin: 0; color: var(--fg); font-size: 18px; font-weight: 500;">1</p>
+              </div>
+              <div style="padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;">
+                <p style="margin: 0 0 4px 0; color: var(--fg-secondary); font-size: 12px;">Role Segregation Violations</p>
+                <p style="margin: 0; color: var(--fg); font-size: 18px; font-weight: 500;">1</p>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Action Buttons -->
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <button style="background: var(--bg); color: var(--text-button-dark); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 16px; font-weight: 400; cursor: pointer; font-family: var(--font-body); text-align: center;" onclick="alert('Exporting ERD and state machine diagram...')">Export ERD & State Machine</button>
+            <button style="background: var(--bg); color: var(--text-button-dark); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 16px; font-weight: 400; cursor: pointer; font-family: var(--font-body); text-align: center;" onclick="window.location.hash = '#/audit'">View Full Audit Trail</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MFA Setup Section -->
+    <section data-page="mfa" class="section">
+      <div style="max-width: 600px; margin: 0 auto;">
+        <!-- Wizard Header -->
+        <div style="margin-bottom: 40px;">
+          <h2 style="margin: 0 0 8px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">MFA Enrollment Wizard</h2>
+          <p style="margin: 0; font-size: 16px; color: var(--fg-secondary);">Enable time-based one-time password (TOTP) for high-privilege accounts</p>
+        </div>
+        
+        <!-- Progress Bar -->
+        <div style="display: flex; gap: 24px; margin-bottom: 40px; align-items: center;">
+          <!-- Step 1 -->
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--fg); color: var(--bg); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 18px;">✓</div>
+            <span style="font-size: 12px; color: var(--fg-secondary); text-align: center; width: 80px;">TOTP Method</span>
+          </div>
+          <!-- Connector -->
+          <div style="flex: 1; height: 2px; background: var(--surface-interactive);"></div>
+          <!-- Step 2 -->
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--surface-interactive); color: var(--fg); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 18px;">◉</div>
+            <span style="font-size: 12px; color: var(--fg); text-align: center; width: 80px; font-weight: 500;">Enrollment</span>
+          </div>
+          <!-- Connector -->
+          <div style="flex: 1; height: 2px; background: var(--surface);"></div>
+          <!-- Step 3 -->
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--surface); border: 2px solid var(--border); color: var(--fg); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 18px;">3</div>
+            <span style="font-size: 12px; color: var(--fg-secondary); text-align: center; width: 80px;">Recovery Codes</span>
+          </div>
+        </div>
+        
+        <!-- Step 2: TOTP Enrollment (Active) -->
+        <div id="step-2-content" style="display: block;">
+          <h3 style="margin: 0 0 20px 0; font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--fg);">Set Up Authenticator App</h3>
+          
+          <!-- QR Code Placeholder -->
+          <div style="background: var(--bg); border: 2px solid var(--fg); border-radius: 8px; width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px; flex-direction: column; gap: 8px;">
+            <div style="font-size: 12px; color: var(--fg-secondary); text-align: center;">QR Code for TOTP setup</div>
+            <div style="font-size: 48px; opacity: 0.3;">■</div>
+          </div>
+          
+          <!-- Manual Entry Code -->
+          <div style="margin-bottom: 24px;">
+            <label style="display: block; font-size: 14px; color: var(--fg-secondary); margin-bottom: 8px;">Manual Entry Code:</label>
+            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-family: var(--font-mono); font-size: 14px; color: var(--fg); word-break: break-all; user-select: all; display: flex; align-items: center; justify-content: space-between;">
+              <span>JBSWY3DPEBLW64TMMQ5KZCBKFV3XBKQ</span>
+              <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 6px 12px; border-radius: 9999px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; font-family: var(--font-body); margin-left: 8px;" onclick="navigator.clipboard.writeText('JBSWY3DPEBLW64TMMQ5KZCBKFV3XBKQ'); alert('Code copied to clipboard')">Copy</button>
+            </div>
+          </div>
+          
+          <!-- Test TOTP Code -->
+          <div style="margin-bottom: 24px;">
+            <label style="display: block; font-size: 16px; color: var(--fg-secondary); margin-bottom: 12px;">Enter 6-digit code from your authenticator app to verify:</label>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <input type="text" id="totp-code" placeholder="000000" style="font-family: var(--font-mono); font-size: 20px; padding: 12px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); width: 120px; text-align: center;" maxlength="6">
+              <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="verifyTOTP()">Verify</button>
+            </div>
+          </div>
+          
+          <!-- Info Box -->
+          <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 28px; display: flex; gap: 12px;">
+            <span style="font-size: 18px; flex-shrink: 0;">ℹ️</span>
+            <p style="margin: 0; font-size: 14px; color: var(--fg); line-height: 1.5;">Your authenticator app will generate a new code every 30 seconds. If the code expires, wait for the next one.</p>
+          </div>
+          
+          <!-- Navigation Buttons -->
+          <div style="display: flex; gap: 12px; justify-content: center;">
+            <button style="background: var(--bg); color: var(--text-button-dark); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="previousStep()">Back</button>
+            <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="nextStep()">Next</button>
+          </div>
+        </div>
+        
+        <!-- Step 3: Recovery Codes (Hidden by default) -->
+        <div id="step-3-content" style="display: none;">
+          <h3 style="margin: 0 0 20px 0; font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--fg);">Save Recovery Codes</h3>
+          
+          <!-- Critical Alert -->
+          <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px; display: flex; gap: 12px;">
+            <span style="font-size: 20px; flex-shrink: 0;">⚠️</span>
+            <div>
+              <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 500; color: var(--fg);"><strong>Save these recovery codes in a secure location NOW.</strong></p>
+              <p style="margin: 0; font-size: 14px; color: var(--fg-secondary); line-height: 1.6;">Each code can only be used once. If you lose access to your authenticator app, these codes are your only way to regain access. Treat them like passwords.</p>
+            </div>
+          </div>
+          
+          <!-- Recovery Codes Display -->
+          <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px; font-family: var(--font-mono); font-size: 14px; color: var(--fg); line-height: 2; user-select: all;">
+            <div>Code 1: 8K4L-9M2N-3P5Q</div>
+            <div>Code 2: 7R6S-4T8U-1V9W</div>
+            <div>Code 3: 2X3Y-5Z7A-9B1C</div>
+            <div>Code 4: 4D6E-8F2G-3H7I</div>
+            <div>Code 5: 5J9K-1L3M-4N6O</div>
+            <div>Code 6: 7P2Q-8R4S-6T9U</div>
+          </div>
+          
+          <!-- Secure Storage Options -->
+          <div style="display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+            <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="printCodes()">Print Codes</button>
+            <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="downloadPDF()">Download as PDF</button>
+            <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body); opacity: 0.5; cursor: not-allowed;" disabled>Save to Password Vault</button>
+          </div>
+          
+          <!-- Checkbox: Acknowledgment -->
+          <div style="margin-bottom: 24px;">
+            <label style="display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--fg); cursor: pointer;">
+              <input type="checkbox" id="recovery-ack" style="width: 18px; height: 18px; cursor: pointer;">
+              <span>I have securely saved my recovery codes and understand they cannot be regenerated</span>
+            </label>
+          </div>
+          
+          <!-- Info Box: Success -->
+          <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 28px; display: flex; gap: 12px;">
+            <span style="font-size: 18px; flex-shrink: 0;">✓</span>
+            <p style="margin: 0; font-size: 14px; color: var(--fg); line-height: 1.5;">MFA is now enabled on your account. You will be prompted for a TOTP code on your next login.</p>
+          </div>
+          
+          <!-- Navigation Buttons -->
+          <div style="display: flex; gap: 12px; justify-content: center;">
+            <button style="background: var(--bg); color: var(--text-button-dark); padding: 10px 24px; border-radius: 9999py; border: 1px solid var(--border-dark); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="previousStep()">Back</button>
+            <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="completeSetup()" id="complete-btn" disabled>Complete Setup</button>
+          </div>
+        </div>
+        
+        <!-- Success Screen (Hidden by default) -->
+        <div id="success-content" style="display: none;">
+          <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 28px; display: flex; gap: 16px;">
+            <span style="font-size: 28px; flex-shrink: 0;">✓</span>
+            <div>
+              <p style="margin: 0 0 4px 0; font-size: 16px; font-weight: 500; color: var(--fg);">MFA enrollment completed successfully for marcus.admin@company.com</p>
+              <p style="margin: 0; font-size: 14px; color: var(--fg-secondary);">Recovery codes securely stored: 6 codes, 1 printed + 1 downloaded</p>
+            </div>
+          </div>
+          
+          <!-- Action Buttons -->
+          <div style="display: flex; gap: 12px; justify-content: center; margin-bottom: 28px; flex-wrap: wrap;">
+            <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="window.location.hash = '#/'">Return to Dashboard</button>
+            <button style="background: var(--bg); color: var(--text-button-dark); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="toggleMFAPolicy()">View MFA Policy</button>
+          </div>
+          
+          <!-- Collapsible MFA Policy -->
+          <div id="mfa-policy" style="display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; font-size: 14px; color: var(--fg); line-height: 1.6;">
+            <p><strong>MFA Requirements:</strong></p>
+            <ul style="margin: 8px 0 0 20px; padding: 0;">
+              <li>Mandatory for roles: <strong>'Admin'</strong>, <strong>'Security Admin'</strong></li>
+              <li>Optional for roles: <strong>'Editor'</strong>, <strong>'Viewer'</strong></li>
+              <li>MFA enforcement begins: <strong>2024-02-01</strong></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LDAP Integration Section -->
+    <section data-page="ldap" class="section">
+      <h2 style="margin: 0 0 24px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">LDAP/Active Directory Integration</h2>
+
+      <!-- Section 1: LDAP Connection Settings -->
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+        <h3 style="margin: 0 0 20px 0; font-family: var(--font-body); font-size: 16px; font-weight: 500; color: var(--fg);">Connection Settings</h3>
+        
+        <!-- Form Fields -->
+        <div style="display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 24px;">
+          <!-- LDAP Server Address -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">LDAP Server Address</label>
+            <input type="text" value="ldap.acme.com:389" style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body);">
+          </div>
+
+          <!-- Bind Account (DN) -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">Bind Account (DN)</label>
+            <input type="text" value="cn=sas-bind,ou=service-accounts,dc=acme,dc=com" style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body);">
+          </div>
+
+          <!-- Bind Password -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">Bind Password</label>
+            <input type="password" value="••••••••••••" style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body);">
+          </div>
+
+          <!-- Base DN for User Search -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">Base DN for User Search</label>
+            <input type="text" value="ou=users,dc=acme,dc=com" style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body);">
+          </div>
+
+          <!-- User Search Filter -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">User Search Filter</label>
+            <input type="text" value="(uid=*)" style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body);">
+          </div>
+
+          <!-- Base DN for Group Search -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">Base DN for Group Search</label>
+            <input type="text" value="ou=groups,dc=acme,dc=com" style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body);">
+          </div>
+
+          <!-- Group Search Filter -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">Group Search Filter</label>
+            <input type="text" value="(objectClass=groupOfNames)" style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body);">
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="testConnection()">Test Connection</button>
+          <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="syncNow()">Sync Now</button>
+          <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="saveConfiguration()">Save Configuration</button>
+        </div>
+      </div>
+
+      <!-- Section 2: Connection & Sync Status -->
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+        <h3 style="margin: 0 0 20px 0; font-family: var(--font-body); font-size: 16px; font-weight: 500; color: var(--fg);">Connection & Sync Status</h3>
+        
+        <!-- Status Display -->
+        <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px;">
+          <!-- Status Row 1 -->
+          <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <span style="font-size: 18px; color: var(--fg); flex-shrink: 0;">✓</span>
+            <div style="flex: 1;">
+              <p style="margin: 0; font-size: 14px; color: var(--fg); font-weight: 400;">LDAP Connection: Connected</p>
+              <p style="margin: 4px 0 0 0; font-size: 12px; color: var(--fg-muted);">(Last tested: 2024-01-15 14:22 UTC)</p>
+            </div>
+          </div>
+
+          <!-- Status Row 2 -->
+          <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <span style="font-size: 18px; color: var(--fg); flex-shrink: 0;">✓</span>
+            <div style="flex: 1;">
+              <p style="margin: 0; font-size: 14px; color: var(--fg); font-weight: 400;">Group Sync: Synchronized</p>
+              <p style="margin: 4px 0 0 0; font-size: 12px; color: var(--fg-muted);">(Last sync: 2024-01-15 12:15 UTC)</p>
+            </div>
+          </div>
+
+          <!-- Status Row 3 -->
+          <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <span style="font-size: 18px; color: #525252; flex-shrink: 0;">⚠️</span>
+            <div style="flex: 1;">
+              <p style="margin: 0; font-size: 14px; color: #525252; font-weight: 400;">Role Conflict Detection: 3 conflicts found in last sync</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Sync Log -->
+        <div style="margin-top: 24px;">
+          <p style="margin: 0 0 12px 0; font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Recent Sync Log</p>
+          <div style="font-family: var(--font-mono); font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; color: var(--fg); overflow-x: auto; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; line-height: 1.6;">[2024-01-15 12:15:00] LDAP Sync started (initiated by: James.Architect)
+[2024-01-15 12:15:05] Connected to ldap.acme.com:389
+[2024-01-15 12:15:10] Fetched 47 users from ou=users,dc=acme,dc=com
+[2024-01-15 12:15:15] Fetched 8 groups from ou=groups,dc=acme,dc=com
+[2024-01-15 12:15:20] Evaluating role precedence: User-level vs. LDAP-synced group roles
+[2024-01-15 12:15:25] WARNING: User sarah.dev@company.com assigned "Editor" (SAS), group "Developers" has "Viewer" (LDAP)
+[2024-01-15 12:15:30] WARNING: User john.admin@company.com assigned "Viewer" (SAS), group "Admins" has "Admin" (LDAP) — RISKY
+[2024-01-15 12:15:35] WARNING: User alice.analyst@company.com no SAS role, group "Analysts" has "Viewer" (LDAP)
+[2024-01-15 12:15:40] Sync completed. 3 conflicts detected. 0 errors.</div>
+        </div>
+      </div>
+
+      <!-- Section 3: Role Precedence Conflicts -->
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+        <h3 style="margin: 0 0 20px 0; font-family: var(--font-body); font-size: 16px; font-weight: 500; color: var(--fg);">Native vs. LDAP Role Conflicts</h3>
+        
+        <!-- Conflict Alert -->
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 20px; display: flex; gap: 12px;">
+          <span style="font-size: 18px; flex-shrink: 0;">⚠️</span>
+          <p style="margin: 0; font-size: 14px; color: var(--fg); line-height: 1.5;">3 role precedence conflicts detected in the last sync. Review and resolve to ensure compliance.</p>
+        </div>
+
+        <!-- Conflict Table -->
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            <thead style="background: var(--surface); border-bottom: 1px solid var(--border);">
+              <tr>
+                <th style="text-align: left; padding: 12px; font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; border-right: 1px solid var(--border);">User Email</th>
+                <th style="text-align: left; padding: 12px; font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; border-right: 1px solid var(--border);">SAS Native Role</th>
+                <th style="text-align: left; padding: 12px; font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; border-right: 1px solid var(--border);">LDAP Group</th>
+                <th style="text-align: left; padding: 12px; font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; border-right: 1px solid var(--border);">LDAP Group Role</th>
+                <th style="text-align: left; padding: 12px; font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; border-right: 1px solid var(--border);">Precedence (Winner)</th>
+                <th style="text-align: left; padding: 12px; font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; border-right: 1px solid var(--border);">Risk Level</th>
+                <th style="text-align: left; padding: 12px; font-size: 12px; font-weight: 500; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Row 1 -->
+              <tr style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease;" onmouseover="this.style.background = 'var(--surface)'; this.style.cursor = 'pointer';" onmouseout="this.style.background = '';">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">sarah.dev@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Editor</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Developers</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Viewer</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Editor wins</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">✓ Low</td>
+                <td style="padding: 12px; color: var(--fg);"><button style="background: var(--bg); color: var(--text-button-dark); padding: 6px 12px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 12px; cursor: pointer; font-family: var(--font-body);" onclick="reviewConflict('sarah.dev@company.com')">Review</button></td>
+              </tr>
+              <!-- Row 2 -->
+              <tr style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease;" onmouseover="this.style.background = 'var(--surface)'; this.style.cursor = 'pointer';" onmouseout="this.style.background = '';">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">john.admin@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Viewer</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Admins</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Admin</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Viewer wins</td>
+                <td style="padding: 12px; color: #525252; border-right: 1px solid var(--border);">⚠️ HIGH</td>
+                <td style="padding: 12px; color: var(--fg);"><button style="background: var(--bg); color: var(--text-button-dark); padding: 6px 12px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 12px; cursor: pointer; font-family: var(--font-body);" onclick="reviewConflict('john.admin@company.com')">Review</button></td>
+              </tr>
+              <!-- Row 3 -->
+              <tr style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease;" onmouseover="this.style.background = 'var(--surface)'; this.style.cursor = 'pointer';" onmouseout="this.style.background = '';">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">alice.analyst@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">(none)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Analysts</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Viewer</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Viewer (LDAP)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">✓ Low</td>
+                <td style="padding: 12px; color: var(--fg);"><button style="background: var(--bg); color: var(--text-button-dark); padding: 6px 12px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 12px; cursor: pointer; font-family: var(--font-body);" onclick="reviewConflict('alice.analyst@company.com')">Review</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Section 4: LDAP Sync Policy -->
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px;">
+        <h3 style="margin: 0 0 20px 0; font-family: var(--font-body); font-size: 16px; font-weight: 500; color: var(--fg);">Sync Schedule & Policy</h3>
+        
+        <!-- Form Fields -->
+        <div style="display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 24px;">
+          <!-- Sync Frequency -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">Sync Frequency</label>
+            <select style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body); cursor: pointer;">
+              <option>Every 24 hours</option>
+              <option>Every 12 hours</option>
+              <option>Every 6 hours</option>
+              <option>Every 1 hour</option>
+            </select>
+          </div>
+
+          <!-- Next Scheduled Sync -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">Next Scheduled Sync</label>
+            <input type="text" value="2024-01-16 12:15 UTC" readonly style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg-secondary); font-size: 14px; font-family: var(--font-body);">
+          </div>
+
+          <!-- Conflict Resolution Strategy -->
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-size: 14px; color: var(--fg-secondary); font-weight: 400;">Conflict Resolution Strategy</label>
+            <select style="width: 100%; padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body); cursor: pointer;">
+              <option>Native role takes precedence over LDAP role</option>
+              <option>LDAP role takes precedence over native role</option>
+              <option>Manual resolution required for conflicts</option>
+            </select>
+          </div>
+
+          <!-- Auto-resolve Checkbox -->
+          <div>
+            <label style="display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--fg); cursor: pointer;">
+              <input type="checkbox" checked style="width: 18px; height: 18px; cursor: pointer;">
+              <span>Auto-resolve Low-Risk Conflicts</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Save Button -->
+        <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 16px; cursor: pointer; font-family: var(--font-body);" onclick="savePolicy()">Save Policy</button>
+      </div>
+    </section>
+
+    <!-- Audit Log Section -->
+    <section data-page="audit" class="section">
+      <h2 style="margin: 0 0 24px 0; font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--fg);">Compliance Audit Trail</h2>
+      
+      <!-- Filter Bar (sticky) -->
+      <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+          <!-- Event Type Dropdown -->
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 12px; color: var(--fg-secondary); text-transform: uppercase; font-weight: 500;">Event Type</label>
+            <select style="padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body); cursor: pointer; min-width: 180px;">
+              <option>All Event Types</option>
+              <option>Authentication Attempt</option>
+              <option>MFA Challenge</option>
+              <option>Role Assignment</option>
+              <option>Role Conflict</option>
+              <option>LDAP Sync</option>
+              <option>Failed Login</option>
+              <option>User Provisioned</option>
+            </select>
+          </div>
+          
+          <!-- Date Range Dropdown -->
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 12px; color: var(--fg-secondary); text-transform: uppercase; font-weight: 500;">Date Range</label>
+            <select style="padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body); cursor: pointer; min-width: 140px;">
+              <option>Last 7 days</option>
+              <option>Last 30 days</option>
+              <option>Last 90 days</option>
+              <option>All time</option>
+            </select>
+          </div>
+          
+          <!-- Search Input -->
+          <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px;">
+            <label style="font-size: 12px; color: var(--fg-secondary); text-transform: uppercase; font-weight: 500;">Search</label>
+            <input type="text" placeholder="Search by email or user ID..." style="padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body); width: 100%;">
+          </div>
+          
+          <!-- Status Dropdown -->
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 12px; color: var(--fg-secondary); text-transform: uppercase; font-weight: 500;">Status</label>
+            <select style="padding: 10px 16px; border-radius: 9999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font-body); cursor: pointer; min-width: 120px;">
+              <option>All</option>
+              <option>Success</option>
+              <option>Failed</option>
+              <option>Pending</option>
+            </select>
+          </div>
+        </div>
+        
+        <!-- Filter Action Buttons -->
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border); font-size: 14px; cursor: pointer; font-family: var(--font-body); font-weight: 400;" onclick="applyFilters()">Apply Filters</button>
+          <button style="background: var(--bg); color: var(--text-button-dark); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 14px; cursor: pointer; font-family: var(--font-body);" onclick="exportCSV()">Export as CSV</button>
+          <button style="background: var(--bg); color: var(--text-button-dark); padding: 10px 24px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 14px; cursor: pointer; font-family: var(--font-body);" onclick="exportPDF()">Export as PDF Report</button>
+        </div>
+      </div>
+      
+      <!-- Audit Log Table -->
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 24px;">
+        <div style="overflow-x: auto;">
+          <table class="table" style="min-width: 100%; width: 100%;">
+            <thead>
+              <tr>
+                <th style="width: 12%;">Timestamp</th>
+                <th style="width: 14%;">Event Type</th>
+                <th style="width: 16%;">User</th>
+                <th style="width: 28%;">Details</th>
+                <th style="width: 12%;">Result</th>
+                <th style="width: 18%;">Audit ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001847')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-15 14:32:15</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Role Assignment</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">James.Architect</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">Assigned user@company.com to "Editor" role in Tenant A</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Success</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001847</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001846')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-15 14:20:42</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Authentication Attempt</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">marcus.admin@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">Login via native SAS credentials, MFA TOTP verified</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Success</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001846</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001845')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-15 13:18:09</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">MFA Challenge</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">marcus.admin@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">TOTP challenge issued, 6-digit code required</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Valid</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001845</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001844')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-15 12:45:30</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">LDAP Sync</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">System (auto)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">Group sync from ldap.acme.com, 47 users synced</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #525252;">⚠️</span> 3 conflicts</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001844</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001843')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-15 11:20:15</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Role Conflict Detection</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">System (auto)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">sarah.user@company.com: User "Editor" ≠ Group "Viewers"</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #525252;">⚠️</span> Pending</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001843</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001842')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-15 10:05:47</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Failed Login</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">john.dev@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">MFA challenge failed — 3 invalid TOTP attempts, account locked</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #525252;">❌</span> Failed</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001842</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001841')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-15 09:33:22</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Authentication Attempt</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">alice.analyst@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">Login via LDAP credentials (group: Analysts, role: Viewer)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Success</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001841</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001840')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-15 08:15:58</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">User Provisioned</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">James.Architect</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">New user: dev.team@company.com provisioned to Tenant B</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Success</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001840</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001839')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-14 16:50:12</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">LDAP Connection Test</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">James.Architect</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">Tested LDAP bind to ldap.acme.com:389 (234ms latency)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Success</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001839</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001838')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-14 15:22:44</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Role Segregation Warning</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">System (auto)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">James holds "User Admin" + "Security Admin" roles — non-compliant</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #525252;">⚠️</span> Flag</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001838</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001837')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-14 14:10:33</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Authentication Attempt</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">dev.contractor@external.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">Login via OAuth 2.0 (external IdP), tenant verification passed</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Success</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001837</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001836')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-14 13:45:02</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Role Assignment</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Marcus.Admin</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">Assigned security.officer@company.com to "Security Admin" role (Tenant A)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Success</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001836</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001835')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-14 12:30:15</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">MFA Challenge</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">alice.analyst@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">TOTP challenge issued for Tenant B resource access</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Valid</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001835</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001834')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-14 11:15:48</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">LDAP Sync</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">System (auto)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">Scheduled LDAP sync completed, 2 new users added, 1 user deprovisioned</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Success</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001834</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001833')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-14 10:02:21</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Failed Login</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">unknown@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">Invalid credentials provided, account not recognized</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #525252;">❌</span> Failed</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001833</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001832')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-13 16:45:09</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">MFA Setup</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">security.officer@company.com</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">MFA enrollment completed, recovery codes generated and printed</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #000;">✓</span> Success</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001832</td>
+              </tr>
+              <tr onclick="viewAuditDetail('AUDIT-2024-001831')" style="border-bottom: 1px solid var(--border); transition: background-color 0.15s ease; cursor: pointer;">
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">2024-01-13 15:20:33</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">Role Conflict Detection</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);">System (auto)</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border); font-size: 13px;">john.admin@company.com: LDAP role "Admin" > SAS role "Viewer" — risky precedence</td>
+                <td style="padding: 12px; color: var(--fg); border-right: 1px solid var(--border);"><span style="color: #525252;">⚠️</span> High Risk</td>
+                <td style="padding: 12px; color: var(--fg); font-family: var(--font-mono); font-size: 12px;">AUDIT-2024-001831</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <!-- Pagination -->
+      <div style="display: flex; gap: 8px; justify-content: center; margin-bottom: 24px; align-items: center;">
+        <span style="font-size: 14px; color: var(--fg-secondary); margin-right: 16px;">Showing 1–20 of 487 events</span>
+        <button style="background: var(--bg); color: var(--text-button-dark); padding: 8px 16px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 13px; cursor: not-allowed; opacity: 0.6; font-family: var(--font-body);" disabled>← Previous</button>
+        <button style="background: var(--surface-interactive); color: var(--text-near-black); padding: 8px 16px; border-radius: 9999px; border: 1px solid var(--border); font-size: 13px; cursor: pointer; font-family: var(--font-body); font-weight: 500;">1</button>
+        <button style="background: var(--bg); color: var(--text-button-dark); padding: 8px 16px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 13px; cursor: pointer; font-family: var(--font-body);" onclick="goToPage(2)">2</button>
+        <button style="background: var(--bg); color: var(--text-button-dark); padding: 8px 16px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 13px; cursor: pointer; font-family: var(--font-body);" onclick="goToPage(3)">3</button>
+        <span style="color: var(--fg-secondary); font-size: 13px;">...</span>
+        <button style="background: var(--bg); color: var(--text-button-dark); padding: 8px 16px; border-radius: 9999px; border: 1px solid var(--border-dark); font-size: 13px; cursor: pointer; font-family: var(--font-body);" onclick="goToPage(2)">Next →</button>
+      </div>
+      
+      <!-- Compliance Summary Box -->
+      <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px;">
+        <h3 style="margin: 0 0 20px 0; font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--fg);">Compliance Summary (Last 7 Days)</h3>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+          <!-- Column 1 -->
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">Audit Events (Total)</span>
+              <span style="font-size: 16px; font-weight: 500; color: var(--fg);">487</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">Auth Successes</span>
+              <span style="font-size: 16px; font-weight: 500; color: var(--fg);">421 <span style="font-size: 12px; color: var(--fg-secondary);">(86.4%)</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">Auth Failures</span>
+              <span style="font-size: 16px; font-weight: 500; color: var(--fg);">14 <span style="font-size: 12px; color: var(--fg-secondary);">(2.9%)</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">MFA-related Failures</span>
+              <span style="font-size: 16px; font-weight: 500; color: var(--fg);">3</span>
+            </div>
+          </div>
+          
+          <!-- Column 2 -->
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">Role Changes</span>
+              <span style="font-size: 16px; font-weight: 500; color: var(--fg);">34 <span style="font-size: 12px; color: var(--fg-secondary);">(6.9%)</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">LDAP Syncs</span>
+              <span style="font-size: 16px; font-weight: 500; color: var(--fg);">7</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">Conflicts Detected</span>
+              <span style="font-size: 16px; font-weight: 500; color: var(--fg);">5</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">Conflicts Resolved</span>
+              <span style="font-size: 16px; font-weight: 500; color: var(--fg);">4</span>
+            </div>
+          </div>
+          
+          <!-- Column 3 -->
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">Pending Review</span>
+              <span style="font-size: 16px; font-weight: 500; color: var(--fg);">1</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">SOC 2 Status</span>
+              <span style="font-size: 14px; color: #000;"><span style="font-weight: 500;">✓</span> Complete</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">GDPR Retention</span>
+              <span style="font-size: 14px; color: #000;"><span style="font-weight: 500;">✓</span> Archived</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+              <span style="font-size: 13px; color: var(--fg-secondary);">Compliance Grade</span>
+              <span style="font-size: 14px; font-weight: 500; color: var(--fg);">A</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const routes = {
+      'dashboard-overview': '#/',
+      'roles': '#/roles',
+      'mfa': '#/mfa',
+      'ldap': '#/ldap',
+      'audit': '#/audit'
+    };
+
+    const pageTitle = {
+      'dashboard-overview': 'Dashboard',
+      'roles': 'Role Configuration',
+      'mfa': 'MFA Setup & Management',
+      'ldap': 'LDAP Integration',
+      'audit': 'Audit Log & Compliance'
+    };
+
+    function handleRouteChange() {
+      const hash = window.location.hash.replace(/^#\/?/, '') || '';
+      let pageId = 'dashboard-overview';
+
+      if (hash === 'roles') pageId = 'roles';
+      else if (hash === 'mfa') pageId = 'mfa';
+      else if (hash === 'ldap') pageId = 'ldap';
+      else if (hash === 'audit') pageId = 'audit';
+      else pageId = 'dashboard-overview';
+
+      // Update active page section
+      document.querySelectorAll('section[data-page]').forEach(s => s.classList.remove('is-active'));
+      const activePage = document.querySelector('section[data-page="' + pageId + '"]');
+      if (activePage) activePage.classList.add('is-active');
+
+      // Update active nav item
+      document.querySelectorAll('a.nav-item').forEach(a => a.classList.remove('active'));
+      document.querySelectorAll('a[data-page-link="' + pageId + '"]').forEach(a => a.classList.add('active'));
+
+      // Update page title
+      document.getElementById('page-title').textContent = pageTitle[pageId];
+    }
+
+    window.addEventListener('hashchange', handleRouteChange);
+    window.addEventListener('load', handleRouteChange);
+
+    // Initialize on first load
+    handleRouteChange();
+
+    // MFA Wizard Functions
+    let currentMFAStep = 2;
+
+    function nextStep() {
+      if (currentMFAStep === 2) {
+        const totpCode = document.getElementById('totp-code').value;
+        if (totpCode.length !== 6 || isNaN(totpCode)) {
+          alert('Please enter a valid 6-digit code');
+          return;
+        }
+        // Move to Step 3
+        document.getElementById('step-2-content').style.display = 'none';
+        document.getElementById('step-3-content').style.display = 'block';
+        currentMFAStep = 3;
+        document.getElementById('totp-code').value = '';
+      }
+    }
+
+    function previousStep() {
+      if (currentMFAStep === 3) {
+        document.getElementById('step-3-content').style.display = 'none';
+        document.getElementById('step-2-content').style.display = 'block';
+        currentMFAStep = 2;
+        document.getElementById('recovery-ack').checked = false;
+        document.getElementById('complete-btn').disabled = true;
+      }
+    }
+
+    function verifyTOTP() {
+      const totpCode = document.getElementById('totp-code').value;
+      if (totpCode.length !== 6 || isNaN(totpCode)) {
+        alert('Please enter a valid 6-digit code');
+        return;
+      }
+      alert('TOTP code verified successfully! Code: ' + totpCode);
+    }
+
+    function printCodes() {
+      const codes = [
+        'Code 1: 8K4L-9M2N-3P5Q',
+        'Code 2: 7R6S-4T8U-1V9W',
+        'Code 3: 2X3Y-5Z7A-9B1C',
+        'Code 4: 4D6E-8F2G-3H7I',
+        'Code 5: 5J9K-1L3M-4N6O',
+        'Code 6: 7P2Q-8R4S-6T9U'
+      ].join('\n');
+      
+      const printWindow = window.open('', '', 'width=600,height=400');
+      printWindow.document.write('<pre style="font-family: monospace; white-space: pre-wrap;">MFA Recovery Codes\n\n' + codes + '\n\nSave securely</pre>');
+      printWindow.document.close();
+      printWindow.print();
+      alert('Codes marked as printed');
+    }
+
+    function downloadPDF() {
+      alert('PDF download initiated for recovery codes');
+    }
+
+    function completeSetup() {
+      if (!document.getElementById('recovery-ack').checked) {
+        alert('Please acknowledge that you have saved the recovery codes');
+        return;
+      }
+      // Show success screen
+      document.getElementById('step-3-content').style.display = 'none';
+      document.getElementById('success-content').style.display = 'block';
+    }
+
+    function toggleMFAPolicy() {
+      const policyDiv = document.getElementById('mfa-policy');
+      policyDiv.style.display = policyDiv.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // Enable Complete Setup button when checkbox is checked
+    document.addEventListener('DOMContentLoaded', function() {
+      const ackCheckbox = document.getElementById('recovery-ack');
+      if (ackCheckbox) {
+        ackCheckbox.addEventListener('change', function() {
+          document.getElementById('complete-btn').disabled = !this.checked;
+        });
+      }
+    });
+
+    // LDAP Integration Handlers
+    function testConnection() {
+      alert('Testing LDAP connection to ldap.acme.com:389...\nConnection test passed (latency: 234ms)');
+    }
+
+    function syncNow() {
+      alert('Initiating LDAP sync now...\nSync started. 47 users and 8 groups fetched. 3 role conflicts detected.');
+    }
+
+    function saveConfiguration() {
+      alert('LDAP configuration saved successfully.');
+    }
+
+    function reviewConflict(userEmail) {
+      alert('Opening conflict review for: ' + userEmail + '\n\nThis would open a detailed conflict resolution panel.');
+    }
+
+    function savePolicy() {
+      alert('LDAP sync policy saved successfully.');
+    }
+
+    // Audit Log Handlers
+    function applyFilters() {
+      alert('Filters applied. Audit log re-filtered based on selected criteria.');
+    }
+
+    function exportCSV() {
+      alert('Exporting audit log as CSV...\nFile downloaded: audit-log-2024-01-15.csv');
+    }
+
+    function exportPDF() {
+      alert('Exporting audit log as PDF report...\nFile downloaded: audit-log-compliance-report-2024-01-15.pdf');
+    }
+
+    function viewAuditDetail(auditId) {
+      alert('Opening audit detail for: ' + auditId + '\n\nThis would show the full JSON metadata and request/response details for this audit event.');
+    }
+
+    function goToPage(pageNum) {
+      alert('Loading page ' + pageNum + ' of audit events...\n\nShowing events 21-40.');
+    }
+  </script>
+</body>
+</html>
