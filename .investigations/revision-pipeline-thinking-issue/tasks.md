@@ -6,65 +6,65 @@ previous phase's gate task is checked.
 
 ## Phase 0 — Harness scaffold + hello world
 
-- [ ] **T-001** Create `backend/tests/evals/__init__.py` +
+- [x] **T-001** Create `backend/tests/evals/__init__.py` +
       `revision_fulfillment/__init__.py` + `fixtures/` skeleton per the
       D-02 tree. *(R-01, D-01, D-02)*
-- [ ] **T-002** Register the `eval` marker in `backend/pyproject.toml`
+- [x] **T-002** Register the `eval` marker in `backend/pyproject.toml`
       `markers` list. *(R-02, D-04)*
-- [ ] **T-003** Write `tests/evals/conftest.py`: `RUNS_ROOT` tmpdir
+- [x] **T-003** Write `tests/evals/conftest.py`: `RUNS_ROOT` tmpdir
       fixture, scenario-loader fixture stub, `pytestmark` convention.
       *(R-03, D-03)*
-- [ ] **T-004** Write `test_hello_world.py`: import
+- [x] **T-004** Write `test_hello_world.py`: import
       `ScriptedFakeChatModel`, `compile_for_run`, the `revision_validation`
       post-step class; drive one scripted model turn; assert marker
       selection. *(R-05, D-03)*
-- [ ] **T-005 — PHASE GATE** Run `python3.11 -m pytest tests/evals -m eval`
+- [x] **T-005 — PHASE GATE** Run `python3.11 -m pytest tests/evals -m eval`
       (hello world green, nothing else collected) AND
       `python3.11 -m pytest tests/ -m "not eval" --collect-only` (rest of
       suite unaffected). Record output in `STATUS.md`. *(R-01–R-05)*
 
 ## Phase 1 — Layered issue-surface tests
 
-- [ ] **T-006** Author `fixtures/mini_prototype.html` (≤4 KB: 2–3 pages,
+- [x] **T-006** Author `fixtures/mini_prototype.html` (≤4 KB: 2–3 pages,
       routes map, topbar, one dead Save button) + minimal `fixtures/design.md`.
       *(R-06, D-02)*
-- [ ] **T-007** `test_l2_compile.py` — manifest shape assertions (start
+- [x] **T-007** `test_l2_compile.py` — manifest shape assertions (start
       with L2: it's mock-free, fastest signal that refs are right).
       *(R-08, D-06)*
-- [ ] **T-008** `test_l1_api_entry.py` — `revision_instruction` +
+- [x] **T-008** `test_l1_api_entry.py` — `revision_instruction` +
       `parent_run_id` reach `execute()`; follow
       `test_run_revision_fe_contract.py` fixture style. *(R-07, D-06)*
-- [ ] **T-009** `test_l3_context_seed.py` — `revision_original_html` +
+- [x] **T-009** `test_l3_context_seed.py` — `revision_original_html` +
       sandbox seeding via the `previous_run` provider. *(R-09, D-06)*
-- [ ] **T-010** `test_l4_post_step.py` — stub-`ctx` spy on
+- [x] **T-010** `test_l4_post_step.py` — stub-`ctx` spy on
       `RevisionValidationPostStep.run()` threaded args. *(R-10, D-06)*
-- [ ] **T-011** `test_l5_selection_gap.py` — `_select_issues_to_fix`
+- [x] **T-011** `test_l5_selection_gap.py` — `_select_issues_to_fix`
       returns `[]` for a clean no-op edit with populated baselines;
       docstring cites FINDINGS A2. *(R-11, D-06)*
-- [ ] **T-012** `test_l6_llm_boundary.py` — revision fix_message embeds the
+- [x] **T-012** `test_l6_llm_boundary.py` — revision fix_message embeds the
       instruction verbatim; thread id uses the compiled agent id.
       *(R-12, D-06)*
-- [ ] **T-013 — PHASE GATE** All L1–L6 green offline; note in `STATUS.md`
+- [x] **T-013 — PHASE GATE** All L1–L6 green offline; note in `STATUS.md`
       which layer tests confirmed instruction propagation is INTACT
       (expected: all of L1–L4, L6 — the gap is only L5's selection
       semantics). *(R-07–R-12)*
 
 ## Phase 2 — Defect-reproducing evals
 
-- [ ] **T-014** Write `fixtures/scenarios.yaml` with the S1/S2/S3 matrix
+- [x] **T-014** Write `fixtures/scenarios.yaml` with the S1/S2/S3 matrix
       from D-05. *(R-13–R-15, D-05)*
-- [ ] **T-015** Build the scripted-agent script-builders (per-scenario
+- [x] **T-015** Build the scripted-agent script-builders (per-scenario
       tool-call scripts on `ScriptedFakeChatModel`) in `test_scenarios.py`.
       While building S2, verify the D-05 note: script it so today's
       `static_check` does NOT catch it (section+route present, nav link
       absent). *(R-13, R-14, D-05, D-03)*
-- [ ] **T-016** Implement S3 (control) end-to-end and get it green —
+- [x] **T-016** Implement S3 (control) end-to-end and get it green —
       proves the e2e scripted drive works before the xfail pair lands.
       *(R-15)*
-- [ ] **T-017** Implement S1 + S2 asserting DESIRED behavior, marked
+- [x] **T-017** Implement S1 + S2 asserting DESIRED behavior, marked
       `xfail(strict=True, reason=...)` per D-04. Confirm they xfail (not
       xpass, not error) against current code. *(R-13, R-14, R-16, D-04)*
-- [ ] **T-018 — PHASE GATE** Suite state: S3 pass, S1/S2 xfail, L1–L6
+- [x] **T-018 — PHASE GATE** Suite state: S3 pass, S1/S2 xfail, L1–L6
       pass, zero tokens consumed. The defect is now mechanically
       reproducible. Record in `STATUS.md`. *(R-16)*
 
