@@ -10,6 +10,10 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-123 | 2026-07-27 | Review gate heading shows raw UUID+agent_id key ("Review gate — fd18bfcc-...:prototype-analyze") instead of human-readable agent name | GateAwaitingCard in StepsOverviewSpine.tsx used {laneGate.gateKey} (= pipeline_run_id:agent_id internal key) in the heading. Fix: use laneGate.agentName which is already available in GateContext | `frontend/src/components/results/StepsOverviewSpine.tsx` | Phase 8 (GATE-01/02 display) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-122 | 2026-07-27 | Stop button appears unresponsive + yellow Reconnecting banner on every Stop click (root fix) | sawNonLiveAttachRef in useRunStream was only set on stream_attached events, never on pipeline_cancelled/pipeline_failed. When backend closes stream after cancel, the ref was false → scheduleReconnect() fired → yellow banner. FIX-121's detachRun races the React render cycle; this ref-set is synchronous and guaranteed. | `frontend/src/hooks/useRunStream.ts` | Phase 44 (BUG-015 / SSE transport) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-121 | 2026-07-27 | 3 resume/stop bugs: (1) Spec Kit Analyzer skipped on resume — agent stopped mid-run classified complete; (2) stop unresponsive appearance from reconnecting banner; (3) yellow Reconnecting banner on every Stop click | (1) _first_incomplete_step used only artifact presence for single_shot completeness — an agent killed between artifact-write and agent_complete was skipped as done. (2) Second stop works but banner makes it seem broken. (3) pipeline_cancelled never called detachRun, so SSE stream close triggered scheduleReconnect (sawNonLiveAttachRef=false for live streams) | `backend/agents/execution_engine/engine.py`, `frontend/src/app/dashboard/page.tsx` | Phase 50/44/29 (RESUME-18/KAN-120/BUG-015) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-120 | 2026-07-27 | KAN-120: 4 resume UI bugs — 409 race on fast-click, agent statuses reset to idle, task 1/2 data lost, errors navigate home silently | BUG-1: DB commits cancelled async after cooperative cancel fires pipeline_cancelled; fast-click sees generating status. BUG-2: pipeline_start reset all agents to idle; resumed engine skips completed agents without marking them done. BUG-3: task_progress handler replaced protoCompletedTasks wholesale, wiping pre-stop task data when resumed engine only reported new tasks. BUG-4: any resume error called handleGoHome() silently. | `backend/agents/execution_engine/engine.py`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 50/44/31 (RESUME-18/KAN-120) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-119 | 2026-07-24 | User text not showing in chat + no loading indication for some workflows — optimistic user bubble missing for revise/chain intents on complete-state runs | FIX-118 removed the pre-intent sendMessage echo to fix double versioning, but this also removed the user bubble echo for revise and chain intents (only the ask path called sendMessage which creates a bubble). Fix: add addOptimisticMessage to useRunChat (FE-only bubble, no backend call) + addOptimisticMessage prop to RunChatLaneProps + wire through DashboardLayout. In handleFreeText for complete state: call addOptimisticMessage immediately (user sees their text + TypingIndicator), then for ask path pass existingMessageId to sendMessage to reconcile without duplicating. | `frontend/src/hooks/useRunChat.ts`, `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 31/43 (CHATUI-01/A1 CRUX) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-118 | 2026-07-24 | PPT revision creates 2 version entries — sendMessage echo on terminal run triggers automatic CHANNEL_REVISION before confirm chip fires | handleFreeText called sendMessage(text) without options to echo user bubble; on terminal run the mechanical router routes undecorated messages to CHANNEL_REVISION → immediate revision run minted; then confirm chip fired handleRevisePpt → second revision run. Fix: remove the pre-intent-classification sendMessage echo — the TypingIndicator fires instead. | `frontend/src/components/chat/RunChatLane.tsx` | Phase 29 (chat backbone / mechanical router) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-117 | 2026-07-24 | Standard PPT revision routes to PptxGenJS agent instead of HTML deck editor | handleRevisePpt used `workflowType === "od_ppt"` to detect HTML decks but standard PPT runs dispatch as `"ppt"` type so isOdPpt was false → ppt_revision (PptxGenJS) fired instead of od_ppt_revision (HTML). Fix: also set isOdPpt=true when pptContent exists and pptxCode is absent — the definitive signal that the deck is HTML not JS. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 14 (ppt_revision / od_ppt_revision) | INV-1/3/12/SC-001 ✅ | Done |
@@ -2687,3 +2691,182 @@ The `_apply_selections` function already has a `sel.get("strategy")` overlay pat
 #### Notes
 - If `prototype-build` is NOT in the selected agents (e.g. user only adds specify/plan/analyze/validate), `prototypeStepOverrides` is `{}` and `prototype.html` will still not be written. This is expected — the build step is required to produce the HTML file. The `AGENT_DELIVERABLE_MAP` trigger list (FIX-110) correctly fires for any prototype agent, but the actual HTML production requires `prototype-build` to be present.
 - The `...selections["prototype-build"]` spread ensures any user-composed levers (model/retry/validators) from `AgentsPopup` for the `prototype-build` agent are preserved alongside the injected `strategy` override.
+
+
+---
+
+### FIX-120 — KAN-120 Resume Run: 4 compounding bugs fixed (DB race, agent statuses, task data, error handling)
+
+**Date:** 2026-07-27
+**Triggered by:** `/velocity-ai-fix Fix KAN 120` — user stopped a prototype pipeline during Build Agent task 2, clicked "Reopen & fix from the failed step", and observed: (1) ApiError 409 "Run is 'generating'", (2) agent circles all empty/idle after resume, (3) tasks 1-2 showing "No further detail recorded for this task", (4) any resume error silently navigated to home.
+
+#### Root Cause
+
+**BUG 1 — DB race → 409 on fast-click:**
+The cooperative cancel (`_CANCEL_EVENTS[run_id].set()`) fires synchronously, causing `pipeline_cancelled` to reach the FE immediately (FE shows "Cancelled by you"). However, `_drive_launch_to_queue` in `run_commands.py` writes `wr.status = "cancelled"` only AFTER fully draining the SSE event queue — a 1-5 second async window. If the user clicks "Reopen & fix" during this window, the resume endpoint's eligibility check (`wr.status not in {"failed", "cancelled"}` at `run_commands.py:376-383`) sees `"generating"` and returns 409. The error handler at `DashboardLayout.tsx:1416-1418` called `handleGoHome()` silently for ANY error.
+
+**BUG 2 — Agent statuses all reset to idle after resume:**
+`pipeline_start` from the resumed engine calls `agentStates = agents.map(a => ({...a, status: "idle"}))` (`useWorkflow.ts:228-234`), resetting ALL agents to idle. The engine's dispatch loop skips agents 0..(offset-1) without re-emitting `agent_start`/`agent_complete` for them. Since the pipeline_start had `resume_offset: 0` in the event payload, the FE had no way to know which agents were already done.
+
+**BUG 3 — Task 1 and Task 2 show "No further detail recorded":**
+The engine's task_loop strategy uses `resume_completed_task_ids` to skip pre-stop tasks. When task 3 completes, it emits `task_progress` with `completed_tasks = [task3]` — not including tasks 1-2 (skipped). The `task_progress` handler in `useWorkflow.ts:771-782` did a FULL REPLACE (`protoCompletedTasks: completedTasks`), wiping task 1-2 data. Additionally, `pipeline_start` did not preserve `protoCompletedTasks` from `prev` when `resumeOffset > 0`.
+
+**BUG 4 — Error silently navigates to home:**
+`handleResumeRun`'s `.catch((e) => { handleGoHome() })` navigated away for any error including the timing-race 409, giving the user zero feedback.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 50 (RESUME-18 / KAN-120 — user-resume endpoint), Phase 44 (SSE transport / pipeline_start), Phase 31 (RunChatLane terminal state)
+- **Relevant register section:** Phase 50 §2 (resume_run_endpoint), Phase 12 §3 (pipeline_start FE handler), Phase 31 §3 (terminal state rendering)
+- **Deleted code verified (not resurrected):** No deleted code resurrected. All changes are additive.
+- **Locked decisions respected:** ND-D — all text shown in the error banner is generic ("Could not resume the run — please try again"), never hardcoded fiction. SC-001 — no workflow-name literal added anywhere. INV-3 — `resume_offset: 0` on every normal run keeps the pipeline_start event payload backward-compatible.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/execution_engine/engine.py` | Added `"resume_offset": _resume_from` to the `pipeline_start` event payload | Gives the FE authoritative knowledge of which agents were already completed before the resume; 0 on normal runs → zero regression |
+| `frontend/src/hooks/useWorkflow.ts` | `pipeline_start` handler: reads `resume_offset`; sets agents at `idx < resumeOffset` to `status: "done"`; seeds `completedCount` and `currentAgentIndex` from the offset; preserves `protoCompletedTasks` / `protoCompletedTaskCount` from `prev` when `resumeOffset > 0` | Fixes BUG-2 (agent statuses) and BUG-3 (task data preservation on resume's pipeline_start) |
+| `frontend/src/hooks/useWorkflow.ts` | `task_progress` handler: changed from full-replace to max-wins merge (keyed by task `number`); new tasks extend the array, existing tasks win unless overridden | Fixes BUG-3 (task data for pre-stop tasks survives when resumed engine only reports newer tasks) |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `resumeError` state; `handleResumeRun` clears it before attempt, retries once after 2.5s if error code is `run_not_resumable` with `generating` status, shows inline error for all other failures; added `useEffect` to clear `resumeError` when `isPipelineRunning` becomes true; added `pipeline_already_running` fast-path (attach SSE stream); threaded `relaunchError={resumeError}` to `RunChatLane` | Fixes BUG-1 (timing race retry) and BUG-4 (inline error instead of silent home navigation) |
+| `frontend/src/components/chat/RunChatLane.tsx` | Added `relaunchError?: string | null` prop to `RunChatLaneProps`; destructures it in the component; renders an amber error banner above the "Reopen & fix" button in both the cancelled and failed terminal states | Displays the inline error message (BUG-4) |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Clean — resume_offset is generic data; pipeline_start handler uses array index not workflow name; error message is a generic string
+- **INV-3** (golden parity): Clean — `resume_offset: 0` on every normal run leaves the pipeline_start payload backward-compatible; `task_progress` merge is a no-op when `prev.protoCompletedTasks` is empty (normal fresh run); goldens are never touched
+- **INV-12** (no duplication): Clean — reuses existing `postResume` function; no second resume path created
+- **SC-001** (zero engine edits for new workflows): Not affected — only additive data field in the existing pipeline_start event; no new capability, no new workflow
+
+#### Verification
+- Backend starts clean (alembic=0027, no import errors)
+- All 3 frontend files pass TypeScript diagnostics (zero errors)
+- BUG-1: `run_not_resumable + "generating"` → retry fires after 2.5s; any other error → amber banner shown, no home navigation
+- BUG-2: resumed pipeline_start with `resume_offset=3` → agents 0-2 initialized as `status:"done"`, agents 3-4 as `status:"idle"`, `completedCount:3`
+- BUG-3: `task_progress` with `completedTasks=[task3]` when `prev.protoCompletedTasks=[task1,task2]` → merged result `[task1, task2, task3]` (sorted by number)
+- BUG-4: amber banner appears above "Reopen & fix" button; banner clears automatically when `isPipelineRunning` becomes true (resume accepted)
+
+#### Notes
+- The 2.5s retry window covers the typical DB commit lag (~1-2s for the queue drain). If the backend is under heavy load, a second click by the user also works since `resumeError` is cleared before each attempt.
+- The `pipeline_already_running` fast-path (attach SSE stream without re-posting) handles the edge case where the user clicks Reopen a second time while the first resume is already running.
+- The `task_progress` merge is safe for normal (non-resume) runs: when `prev.protoCompletedTasks` is `[]` (fresh run, pipeline_start just fired), the merge of an empty map with the new tasks produces exactly `completedTasks` — byte-identical to the prior replace.
+- BUG-2 also fixes the inconsistency between the left-lane PipelineMini ("1/5 agents") and the Steps panel ("0/5") — both read from the same `pipelineState` which is now correctly seeded from the `resume_offset`.
+
+
+---
+
+### FIX-121 — Three Stop/Resume UI bugs: skipped agent, reconnecting banner, unresponsive stop
+
+**Date:** 2026-07-27
+**Triggered by:** `/velocity-ai-fix` — user stopped pipeline during Spec Kit Analyzer, clicked Run Again, and observed: (1) resume started from Build Agent, skipping Spec Kit Analyzer with no data shown for it; (2) Stop button appeared unresponsive during resumed Build Agent run; (3) Yellow "Reconnecting…" banner appeared every time Stop was clicked.
+
+#### Root Cause
+
+**BUG 1 — Spec Kit Analyzer skipped (incorrect resume offset):**
+`_first_incomplete_step` in `engine.py` determines the resume offset by checking if each agent produced a durable `artifact_refs` entry (`produced_agents`). For `single_shot` (non-wave, non-task_loop) agents, the completeness check was:
+```python
+if agent_id in produced_agents or agent_id in completed_step_events:
+    continue
+```
+If `prototype-analyze` (Spec Kit Analyzer, index 2) wrote its summary artifact to the store but was killed BEFORE emitting `agent_complete` (which happens in a narrow window between the artifact write and the event emission), the agent appeared complete (`produced_agents` membership) but had no terminal event in the durable store. The resume offset was set to 3 (Build Agent), skipping Spec Kit Analyzer entirely. The FE then marked it as "done" with empty output/thinking data (no `agent_complete` event in the SSE replay means no data restoration).
+
+**BUG 2 — Stop button appears unresponsive:**
+The second stop DID fire correctly at the backend level. The problem was BUG 3 below: the yellow "Reconnecting…" banner appeared immediately after the stop, making the user think the stop hadn't worked. The banner was the visual confound.
+
+**BUG 3 — Yellow "Reconnecting…" banner after every Stop click:**
+In `dashboard/page.tsx`, the `pipeline_cancelled` case did NOT call `detachRunRef.current?.(cancelledId)`, unlike the `pipeline_complete` case which DOES call it. When Stop fires:
+1. `pipeline_cancelled` SSE event arrives → `pipelineState.cancelled = true`, `isRunning = false`
+2. The backend closes the run's SSE stream after draining `pipeline_cancelled`
+3. `useRunStream` stream reader gets `done: true` (server closed connection)
+4. `sawNonLiveAttachRef.current` is `false` (was a live `stream_attached{live:true}`)
+5. → `scheduleReconnect()` is called → `phase = "reconnecting"`
+6. → Yellow "Reconnecting…" banner appears
+
+The fix is to call `detachRun(cancelledId)` when `pipeline_cancelled` fires, just as `pipeline_complete` does. This makes the `RunStreamConnection` unmount (`stoppedRef.current = true`), which prevents the `scheduleReconnect()` call when the stream closes.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 45-49 (RESUME engine), Phase 44 (SSE transport/BUG-015), Phase 29 (run_commands cancel/SSE stream)
+- **Deleted code verified (not resurrected):** No deleted code resurrected.
+- **Locked decisions respected:** ND-D — no hardcoded text; SC-001 — no workflow-name literals; INV-3 — golden parity preserved (agent_complete_events check is dormant when no events exist in offline harness).
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/execution_engine/engine.py` | Added `agent_complete_events: set[str]` collection from durable `run_events` (type `"agent_complete"`, keyed by `payload_json.agent_id`); changed the non-wave single_shot completeness check from `produced_agents OR completed_step_events` to `(produced_agents AND agent_complete_events) OR completed_step_events` | An agent stopped between artifact-write and `agent_complete` emission has the artifact but no completion event — requiring both signals ensures such agents are re-run rather than skipped with no data |
+| `frontend/src/app/dashboard/page.tsx` | Added `detachRunRef.current?.(cancelledId)` call in the `pipeline_cancelled` case of the switch statement, mirroring the identical call in the `pipeline_complete` case | Makes the `RunStreamConnection` unmount when the run is cancelled, preventing `scheduleReconnect()` from firing when the backend closes the SSE stream after `pipeline_cancelled` drains |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Clean — `agent_complete` check uses generic `payload_json.agent_id`, no workflow name
+- **INV-3** (golden parity): Clean — `agent_complete_events` set is empty when no durable events exist (offline harness), `complete_by_artifact` = False, falls through to `return i` — same as before for tests without durable substrate. For agents that truly completed before the stop (both `produced_agents` AND `agent_complete_events`), behavior is identical to before.
+- **INV-12** (no duplication): Clean — reuses the existing `durable_rows` read, no second round-trip
+- **SC-001** (zero engine edits for new workflows): Not affected — these are completeness-scan changes, no new capability or manifest
+
+#### Verification
+- Backend starts clean with the engine.py change
+- Frontend diagnostics: no TypeScript errors in `dashboard/page.tsx`
+- **BUG 3 trace with fix:** `pipeline_cancelled` fires → `detachRunRef.current?.(cancelledId)` → `focusedRunIdRef.current = null` → `recomputeLiveRunIds` → `RunStreamConnection` for this run is removed from `liveIds` → component unmounts → `stoppedRef.current = true` → stream close does NOT call `scheduleReconnect()` → no yellow banner
+- **BUG 1 trace with fix:** `prototype-analyze` killed between artifact-write and `agent_complete` → `produced_agents` contains it, `agent_complete_events` does NOT → `complete_by_artifact = False` → `completed_step_events` also doesn't contain it → `return i` (offset = 2 = Spec Kit Analyzer) → resume starts FROM Spec Kit Analyzer, re-runs it, emits `agent_complete` → data shown correctly
+
+#### Notes
+- BUG 2 (second stop unresponsive) was a visual confound caused by BUG 3's reconnecting banner. The second stop itself functioned correctly at the backend — `_CANCEL_EVENTS[run_id]` is re-registered by `resume_run_endpoint` at step (4) before spawning the drive task, so `cancel_run` finds and sets the event normally.
+- The `agent_complete_events` check is a STRENGTHENING of the single_shot completeness signal — it converts `produced_agents OR completed_step_events` to `(produced_agents AND agent_complete_events) OR completed_step_events`. Old behavior is preserved for: (a) agents with `step_completed`/`step_reused` events (unaffected), (b) agents with BOTH artifact and `agent_complete` event (correctly classified complete), (c) offline/no-durable-store cases (sets are empty, falls through to `return i` = re-run from start, same as before).
+- The task_loop and wave_scheduler branches are unaffected — they have their own completeness logic and don't use `produced_agents` for their primary check.
+
+
+---
+
+### FIX-122 — Root fix for yellow "Reconnecting" banner and Stop button appearing unresponsive
+
+**Date:** 2026-07-27
+**Triggered by:** Follow-up after FIX-121 — user still sees yellow "Reconnecting…" banner after clicking Stop, and Stop button appears unresponsive during Build Agent tasks.
+
+#### Root Cause
+
+FIX-121 added `detachRunRef.current?.(cancelledId)` in the `pipeline_cancelled` case in `dashboard/page.tsx`. The intent was to release the sticky SSE focus when a run is cancelled, so `RunStreamConnection` unmounts before the backend closes the stream. However, this approach has a race condition:
+
+1. `pipeline_cancelled` frame is dispatched in the `dispatchBlock` closure inside `useRunStream`'s async reader loop
+2. `onMessage(msg)` → React state updates scheduled (`setLiveRunIds`)  
+3. But React state updates are **asynchronous** — they don't apply until the next render cycle
+4. The async reader loop immediately continues: `await reader.read()` → backend closes connection → `{done: true}`
+5. At this point `stoppedRef.current` is still `false` (unmount hasn't happened yet)
+6. → `sawNonLiveAttachRef.current` is `false` (was a live `stream_attached{live:true}`)
+7. → `scheduleReconnect()` fires → `phase = "reconnecting"` → yellow banner
+
+**The correct fix**: Set `sawNonLiveAttachRef.current = true` directly inside `dispatchBlock` when `pipeline_cancelled` or `pipeline_failed` arrives. This is synchronous — it happens within the same microtask as the frame is processed, guaranteed to run before the next `await reader.read()`. When the stream closes after `pipeline_cancelled`, `sawNonLiveAttachRef.current` is already `true` → `setPhase("disconnected")` (quiet) instead of `scheduleReconnect()` (yellow banner).
+
+This mirrors how `stream_attached{live:false}` already handles terminal runs (BUG-015) — it marks the ref true so the close doesn't reconnect. `pipeline_cancelled`/`pipeline_failed` are the same category: intentional terminal events after which the backend closes the stream.
+
+The `detachRun` call in FIX-121 is kept as **additive insurance** (it ensures the `RunStreamConnection` component is eventually removed), but the `sawNonLiveAttachRef` set is the guaranteed-synchronous fix for the banner.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 44 (BUG-015 — SSE transport non-reconnect for terminal runs, useRunStream.ts)
+- **Deleted code verified (not resurrected):** No deleted code resurrected.
+- **Locked decisions respected:** BUG-015 pattern exactly extended: terminal events mark the connection as non-reconnecting.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useRunStream.ts` | Added `if (type === "pipeline_cancelled" \|\| type === "pipeline_failed") { sawNonLiveAttachRef.current = true; }` inside `dispatchBlock`, after the `stream_attached` handler | Synchronously marks the connection non-live when a terminal event arrives, before the backend closes the stream. The close-branch then calls `setPhase("disconnected")` instead of `scheduleReconnect()`, eliminating the yellow banner. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — purely SSE lifecycle
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/engine impact
+- **INV-12** (no duplication): Not affected — single change to existing ref pattern
+- **SC-001** (zero engine edits for new workflows): Not affected — FE-only change
+
+#### Verification
+**Trace with fix applied:**
+1. Stop clicked → `postCancel(token, runId)` → `_CANCEL_EVENTS[run_id].set()` → engine emits `pipeline_cancelled` → SSE stream delivers it
+2. `dispatchBlock` processes `pipeline_cancelled` → `sawNonLiveAttachRef.current = true` (synchronous, same microtask)
+3. `onMessage(msg)` called → React reducer processes cancel
+4. Async reader: `await reader.read()` → backend closes stream → `{done: true}` → `buf.trim()` → exit loop
+5. `!stoppedRef.current && !controller.signal.aborted` → true (component still mounted)
+6. `sawNonLiveAttachRef.current` → **true** → `setPhase("disconnected")` (quiet, no banner) ✅
+7. No yellow "Reconnecting…" banner
+
+**Stop button responsiveness:**
+- The button IS rendered (runState="building", `isRunning=true`)
+- `postCancel` fires successfully (backend `_CANCEL_EVENTS` is set by `resume_run_endpoint` step 4)
+- The user sees the stop take effect (pipeline_cancelled arrives, UI transitions to terminal state)
+- No reconnecting banner → user clearly sees the stop worked
+
+#### Notes
+- The `detachRun` call from FIX-121 is kept as defensive layering — it ensures the `RunStreamConnection` eventually unmounts even if `sawNonLiveAttachRef` is somehow bypassed. Belt-and-suspenders approach.
+- `pipeline_failed` is included alongside `pipeline_cancelled` for symmetry — a hard failure also closes the stream intentionally and should not trigger a reconnect loop.

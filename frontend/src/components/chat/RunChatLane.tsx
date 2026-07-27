@@ -197,6 +197,13 @@ export interface RunChatLaneProps {
   onRevise?: (instruction: string) => void;
   /** Relaunch after a terminal run. */
   onRelaunch?: () => void;
+  /**
+   * KAN-120 BUG-4: inline error message shown when a resume attempt fails
+   * (instead of silently navigating away). Cleared by the caller when the
+   * run successfully starts (pipeline_start received). Optional/undefined →
+   * no error message (normal path, zero regression).
+   */
+  relaunchError?: string | null;
   /** Suggested next steps rendered as quick-reply chips. */
   suggestions?: LaneSuggestion[];
   onSuggestion?: (id: string) => void;
@@ -891,6 +898,7 @@ export function RunChatLane({
   onStop,
   onRevise,
   onRelaunch,
+  relaunchError,
   suggestions,
   onSuggestion,
   proposals,
@@ -1387,6 +1395,15 @@ export function RunChatLane({
                   The run was stopped. Click Run Again to resume from where it left off.
                 </p>
               </Card>
+              {/* KAN-120 BUG-4: inline error if the resume attempt failed. */}
+              {relaunchError && (
+                <div className="flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-[10px] py-[8px]">
+                  <AlertTriangle className="h-[13px] w-[13px] flex-none text-status-amber" strokeWidth={1.8} />
+                  <span className="font-serif text-[11.5px] leading-[1.4] text-status-amber-strong">
+                    {relaunchError}
+                  </span>
+                </div>
+              )}
               {relaunch("Run Again")}
             </div>
           );
@@ -1435,6 +1452,18 @@ export function RunChatLane({
                 <p className="mb-[9px] font-sans text-[11.5px] font-semibold text-ink-900">
                   Resume options
                 </p>
+                {/* KAN-120 BUG-4: inline error if the resume attempt failed
+                    (e.g. timing race — DB not yet committed; or any other error).
+                    Shown above the buttons so the user sees it without scrolling.
+                    Absent on the normal path (relaunchError is null/undefined). */}
+                {relaunchError && (
+                  <div className="mb-[9px] flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-[10px] py-[8px]">
+                    <AlertTriangle className="h-[13px] w-[13px] flex-none text-status-amber" strokeWidth={1.8} />
+                    <span className="font-serif text-[11.5px] leading-[1.4] text-status-amber-strong">
+                      {relaunchError}
+                    </span>
+                  </div>
+                )}
                 <button
                   type="button"
                   data-testid="chat-relaunch"

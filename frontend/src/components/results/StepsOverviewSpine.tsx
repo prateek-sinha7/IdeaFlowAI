@@ -81,7 +81,7 @@ function GateAwaitingCard({
         <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-brand grid place-items-center">
           <ListChecks className="h-3.5 w-3.5 text-white" />
         </div>
-        <p className="flex-1 m-0 text-[12.5px] font-semibold text-ink-900 font-[Manrope]">Review gate — {laneGate.gateKey}</p>
+        <p className="flex-1 m-0 text-[12.5px] font-semibold text-ink-900 font-[Manrope]">Review gate — {laneGate.agentName}</p>
         <span className="text-[8.5px] font-semibold uppercase tracking-wider text-brand bg-brand-fill border border-brand-border px-1.5 py-1 rounded">Awaiting you</span>
       </div>
       <div className="px-3.5 py-3">

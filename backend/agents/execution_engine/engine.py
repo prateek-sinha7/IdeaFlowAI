@@ -1980,6 +1980,11 @@ class ExecutionEngine:
                      "order": getattr(s, "order", 0)}
                     for s in ordered_agents
                 ],
+                # KAN-120 BUG-2: surface the resume offset so the FE can mark
+                # already-completed agents as "done" immediately on resume, rather
+                # than waiting for the durable SSE replay to restore their statuses.
+                # 0 on every normal (non-resumed) run → byte/event-identical (INV-3).
+                "resume_offset": _resume_from,
             },
         }
 
@@ -7131,6 +7136,15 @@ class ExecutionEngine:
 
         # Durable run_events (for terminal step events) + the produced-artifact set.
         completed_step_events: set[str] = set()
+        # KAN-120-ISSUE1: also track agent_complete events so we can distinguish an
+        # agent that COMPLETED (wrote artifact + emitted agent_complete) from one that
+        # was stopped BETWEEN artifact-write and agent_complete.  Without this, a
+        # single_shot agent that persisted its typed artifact but never fired
+        # agent_complete is wrongly classified as complete, and the resume skips it
+        # → no data shown for that agent.  agent_complete is persisted in run_events by
+        # _RunEventSink.emit() like every other event, so it IS in the durable store
+        # for completed agents and ABSENT for agents killed before they emitted it.
+        agent_complete_events: set[str] = set()
         terminal_wave_indices_by_step: dict[str, set[int]] = {}
         running_wave_steps: set[str] = set()
         # RESUME-17: the run's durable run_events, captured ONCE so the open-gate
@@ -7144,10 +7158,20 @@ class ExecutionEngine:
                     payload = getattr(row, "payload_json", None) or {}
                     if not isinstance(payload, dict):
                         continue
-                    if getattr(row, "type", None) in ("step_completed", "step_reused"):
+                    row_type = getattr(row, "type", None)
+                    if row_type in ("step_completed", "step_reused"):
                         sid = payload.get("step")
                         if sid:
                             completed_step_events.add(sid)
+                    # KAN-120-ISSUE1: collect agent_complete events by agent_id so the
+                    # single_shot completeness check below can require both artifact
+                    # presence AND a terminal agent event (fails closed — never skips an
+                    # agent that was stopped mid-execution between artifact-write and the
+                    # completion event, which would show "no data" for that step).
+                    elif row_type == "agent_complete":
+                        aid = payload.get("agent_id")
+                        if aid:
+                            agent_complete_events.add(aid)
             except Exception:  # noqa: BLE001 — offline / schema-less harness → no evidence
                 pass
             try:
@@ -7278,7 +7302,19 @@ class ExecutionEngine:
 
             # Non-wave step: complete iff it produced its typed artifact OR a terminal
             # step event is recorded. Neither ⇒ this is the first incomplete step.
-            if agent_id in produced_agents or agent_id in completed_step_events:
+            # KAN-120-ISSUE1: require BOTH produced_agents AND agent_complete_events for
+            # the produced-artifact branch — an agent stopped between its artifact-write
+            # and its agent_complete emission has the artifact but no completion event;
+            # the fail-safe direction is to re-run it (correct-but-wasteful: the
+            # content-hash key reuses the prior artifact, so no model credit is wasted)
+            # rather than to skip it and show "no data" for that step.
+            # completed_step_events (step_completed/step_reused) remain a standalone
+            # sufficient signal — retry/reuse events are only emitted after the agent
+            # genuinely finished, so they need no agent_complete corroboration.
+            complete_by_artifact = (
+                agent_id in produced_agents and agent_id in agent_complete_events
+            )
+            if complete_by_artifact or agent_id in completed_step_events:
                 continue
             return i
 

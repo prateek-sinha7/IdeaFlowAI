@@ -223,12 +223,21 @@ export function handlePipelineMessage(
       const pipelineRunIdFromStart = (msg.pipeline_run_id as string | undefined)
         || ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined);
 
+      // KAN-120 BUG-2: resume_offset > 0 means this is a mid-build resume —
+      // agents at indices < resume_offset already completed before the stop.
+      // Mark them "done" immediately so the Steps panel shows the correct
+      // status instead of resetting them all to "idle" and waiting for the
+      // durable SSE replay to restore each one. 0 on normal (non-resume) runs
+      // → byte-identical to the pre-fix behaviour (INV-3).
+      const resumeOffset = (msg.resume_offset as number | undefined) ?? 0;
+
       const agentStates: AgentRunState[] = agents.map((a, idx) => ({
         id: a.id,
         name: a.name,
         role: a.role,
         icon: a.icon || "🤖",
-        status: "idle",
+        // KAN-120 BUG-2: agents before the resume offset are already done.
+        status: idx < resumeOffset ? "done" : "idle",
         output: "",
         thinking: "",
         duration: null,
@@ -242,8 +251,17 @@ export function handlePipelineMessage(
         pipeline_type: (msg.pipeline_type as string) || prev.pipeline_type,
         pipelineRunId: pipelineRunIdFromStart ?? prev.pipelineRunId,
         agents: agentStates,
-        currentAgentIndex: 0,
-        completedCount: 0,
+        currentAgentIndex: resumeOffset > 0 ? resumeOffset : 0,
+        // KAN-120 BUG-2: on resume, seed completedCount from the offset so
+        // the progress bar shows correct proportion immediately.
+        completedCount: resumeOffset > 0 ? resumeOffset : 0,
+        // KAN-120 BUG-3: on resume, carry over protoCompletedTasks from prev
+        // so task data already recorded before the stop is not wiped. The
+        // task_progress max-wins handler below will extend it as new tasks
+        // complete. On a fresh run (resumeOffset==0) prev.protoCompletedTasks
+        // is undefined/empty → same as before (byte-identical, INV-3).
+        protoCompletedTasks: resumeOffset > 0 ? (prev.protoCompletedTasks ?? []) : [],
+        protoCompletedTaskCount: resumeOffset > 0 ? (prev.protoCompletedTaskCount ?? 0) : 0,
         // KAN-120: clear terminal markers so a resumed run does not stay in
         // the "terminal" state (cancelled/failed) after pipeline_start fires.
         // Without this, pipeline_complete resolves isRunning→false but
@@ -773,11 +791,30 @@ export function handlePipelineMessage(
       // Prototype build agent reported a task completion via report_task_complete tool
       const completedTasks = (msg.completed_tasks as Array<{ number: number; title: string; summary: string }>) || [];
       const completedCount = (msg.completed_count as number) || completedTasks.length;
-      setPipelineState((prev) => ({
-        ...prev,
-        protoCompletedTasks: completedTasks,
-        protoCompletedTaskCount: completedCount,
-      }));
+      setPipelineState((prev) => {
+        // KAN-120 BUG-3: on a mid-build resume the engine's task_loop strategy
+        // only reports tasks completed IN THIS RESUME SESSION (tasks after the
+        // skip cursor). A plain replace would wipe task 1 and task 2's data when
+        // task 3 first completes. Merge instead: keep every existing task entry
+        // that is NOT overridden by the new array, so pre-stop task data is
+        // preserved throughout the resumed run. Tasks are keyed by .number (1-based).
+        const existingByNumber = new Map((prev.protoCompletedTasks ?? []).map(t => [t.number, t]));
+        for (const t of completedTasks) {
+          // New data wins for any task the resumed run reports; existing data
+          // is preserved for tasks the new array does not include.
+          existingByNumber.set(t.number, t);
+        }
+        // Sort by task number so the Steps panel renders in order.
+        const mergedTasks = [...existingByNumber.values()].sort((a, b) => a.number - b.number);
+        // completedCount is authoritative from the backend; use the merged array
+        // length as a lower bound so it never decreases past what we've seen.
+        const newCount = Math.max(completedCount, mergedTasks.length, prev.protoCompletedTaskCount ?? 0);
+        return {
+          ...prev,
+          protoCompletedTasks: mergedTasks,
+          protoCompletedTaskCount: newCount,
+        };
+      });
       return true;
     }
 

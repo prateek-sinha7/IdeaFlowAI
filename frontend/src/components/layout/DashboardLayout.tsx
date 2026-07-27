@@ -293,6 +293,10 @@ export function DashboardLayout({
   // state is retained for the completion bookkeeping its setters perform.
   const [completedPipelineTypes, setCompletedPipelineTypes] = useState<WorkflowType[]>([]);
   const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
+  // KAN-120 BUG-4: inline error message shown in the terminal lane when a
+  // resume attempt fails (instead of silently navigating home). Cleared on the
+  // next pipeline_start (the run actually resumes) or when a new run is started.
+  const [resumeError, setResumeError] = useState<string | null>(null);
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
     id: string; question: string; options: string[]; answerType?: string;
     recommendedAnswer?: string; recommendedReasoning?: string;
@@ -509,6 +513,16 @@ export function DashboardLayout({
 
   // Check if pipeline is running (blocks navigation)
   const isPipelineRunning = pipelineState?.isRunning || false;
+
+  // KAN-120 BUG-4: clear the inline resume-error banner once the pipeline
+  // actually starts (confirms the resume was accepted by the backend).
+  // Keyed on isPipelineRunning transitioning to true — the pipeline_start
+  // event fires successfully. Direction is one-way (handleResumeRun sets it;
+  // only this effect clears it). The empty deps-array on the outer useCallback
+  // is safe because this effect runs on each isPipelineRunning change.
+  useEffect(() => {
+    if (isPipelineRunning) setResumeError(null);
+  }, [isPipelineRunning]);
 
   // Extract Agent 3's (ppt-code-generator) output for early PPTX download
   const pptxCode = pipelineState?.agents.find(a => a.id === "ppt-code-generator" && a.status === "done")?.output || undefined;
@@ -1408,14 +1422,48 @@ export function DashboardLayout({
       handleGoHome();
       return;
     }
-    void postResume(getToken() ?? "", runId)
-      .then(({ run_id }) => {
+    // Clear any prior inline resume error before attempting.
+    setResumeError(null);
+
+    const doResume = (token: string, id: string): Promise<void> =>
+      postResume(token, id).then(({ run_id }) => {
         if (run_id) runConnection.attachRun(run_id);
-      })
-      .catch((e) => {
-        console.error("postResume failed", e);
-        handleGoHome();
       });
+
+    const token = getToken() ?? "";
+    void doResume(token, runId).catch((e) => {
+      // KAN-120 BUG-1/BUG-4: the backend DB commit of wr.status="cancelled" is
+      // async — it happens after _drive_launch_to_queue fully drains its queue
+      // (~1-5s AFTER pipeline_cancelled fires on the FE). A fast click in that
+      // window sees the DB with "generating" status → 409 run_not_resumable.
+      // Retry once after 2.5 s so the DB commit has time to land. This covers
+      // the common case (user stops build, immediately clicks Reopen) without
+      // adding UI complexity. Any error other than "generating" (e.g. pipeline_already_running)
+      // surfaces as an inline message — never silent home navigation.
+      const detail = e?.detail ?? {};
+      const code =
+        (typeof detail === "object" && detail !== null && "code" in detail)
+          ? (detail as Record<string, unknown>).code
+          : undefined;
+      if (code === "run_not_resumable" && typeof e?.message === "string" && e.message.includes("generating")) {
+        // Timing race — the DB hasn't committed "cancelled" yet. Retry once after 2.5s.
+        setTimeout(() => {
+          void doResume(token, runId).catch((retryErr) => {
+            console.error("postResume retry failed", retryErr);
+            setResumeError("Could not resume the run — please try again.");
+          });
+        }, 2500);
+        return;
+      }
+      // Any other error: show inline message instead of silently navigating home.
+      console.error("postResume failed", e);
+      if (code === "pipeline_already_running") {
+        // The run is live in another tab or session — just attach this SSE stream.
+        runConnection.attachRun(runId);
+        return;
+      }
+      setResumeError("Could not resume the run — please try again.");
+    });
   }, [lastCancelledRunId, pipelineState, contentSourceRunId, activePipelineRunId, runConnection, handleGoHome]);
 
   // GENERIC live-run state that drives the D-12 composer mode (SC-001 — never a
@@ -1852,6 +1900,7 @@ export function DashboardLayout({
                       onStop={handleStopPipeline}
                       onRevise={activeReviseHandler}
                       onRelaunch={handleResumeRun}
+                      relaunchError={resumeError}
                       suggestions={laneSuggestions}
                       onSuggestion={handleLaneSuggestion}
                       // 43-02 (A.1 CRUX) — Concierge props wired at the mount.

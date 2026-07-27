@@ -980,6 +980,16 @@ export default function DashboardPage() {
             ?? activePipelineRunId
             ?? trackedRunIdRef.current;
           if (cancelledId) setLastCancelledRunId(cancelledId);
+          // BUG-015 mirror for cancellation: release the sticky SSE focus so the
+          // RunStreamConnection unmounts when the server closes the stream after
+          // pipeline_cancelled. Without this, the stream close triggers
+          // scheduleReconnect() (sawNonLiveAttachRef = false for a live run),
+          // showing a yellow "Reconnecting…" banner after every Stop click.
+          // Mirrors the identical call in the pipeline_complete case above
+          // (~line 597). Safe: the durable run_events are already persisted and
+          // the chat transcript is already in state — unmounting the connection
+          // does not remove any rendered content.
+          if (cancelledId) detachRunRef.current?.(cancelledId);
         }
         setActivePipelineRunId(null);
         break;
