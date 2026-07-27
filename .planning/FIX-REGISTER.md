@@ -10,6 +10,8 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-125 | 2026-07-27 | "Edit brief & run again" navigates to input view instead of also calling resume; "Reopen & fix" resume error resolved | (1) RunChatLane secondary button called `onRelaunch` (= handleResumeRun) instead of a separate nav-home callback — both buttons did the same thing. (2) No `onEditBrief` prop existed. Fix: add `onEditBrief` prop to RunChatLane, wire secondary button to it, add `handleEditBrief` in DashboardLayout that navigates to "input" view for editing. | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/50 (CHATUI-01 terminal card / KAN-120) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-124 | 2026-07-27 | KAN-123: Security gate failure UX — "What went wrong" security bullets, "Blocked by the security gate" inline Steps card, and Audit tab shows hook_runs (secret scan / exec denied / validation) with Detector/Match/Action/Outcome detail rows | (1) AuditTab fetched only gate_events/validation_results/exec_runs but NOT hook_runs — the table where secret_scan blocks are written. (2) RunChatLane "What went wrong" card showed generic agent names + one error string, not structured security bullets. (3) StepsOverviewSpine had no inline security gate explanation card after a failed agent row. | `frontend/src/components/results/AuditTab.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 8 (HOOK-01/04 hook_runs), Phase 13 (F3 pipeline_failed/security gate), Phase 16 (ISS-016 terminal failure card) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-123 | 2026-07-27 | Review gate heading shows raw UUID+agent_id key ("Review gate — fd18bfcc-...:prototype-analyze") instead of human-readable agent name | GateAwaitingCard in StepsOverviewSpine.tsx used {laneGate.gateKey} (= pipeline_run_id:agent_id internal key) in the heading. Fix: use laneGate.agentName which is already available in GateContext | `frontend/src/components/results/StepsOverviewSpine.tsx` | Phase 8 (GATE-01/02 display) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-122 | 2026-07-27 | Stop button appears unresponsive + yellow Reconnecting banner on every Stop click (root fix) | sawNonLiveAttachRef in useRunStream was only set on stream_attached events, never on pipeline_cancelled/pipeline_failed. When backend closes stream after cancel, the ref was false → scheduleReconnect() fired → yellow banner. FIX-121's detachRun races the React render cycle; this ref-set is synchronous and guaranteed. | `frontend/src/hooks/useRunStream.ts` | Phase 44 (BUG-015 / SSE transport) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-121 | 2026-07-27 | 3 resume/stop bugs: (1) Spec Kit Analyzer skipped on resume — agent stopped mid-run classified complete; (2) stop unresponsive appearance from reconnecting banner; (3) yellow Reconnecting banner on every Stop click | (1) _first_incomplete_step used only artifact presence for single_shot completeness — an agent killed between artifact-write and agent_complete was skipped as done. (2) Second stop works but banner makes it seem broken. (3) pipeline_cancelled never called detachRun, so SSE stream close triggered scheduleReconnect (sawNonLiveAttachRef=false for live streams) | `backend/agents/execution_engine/engine.py`, `frontend/src/app/dashboard/page.tsx` | Phase 50/44/29 (RESUME-18/KAN-120/BUG-015) | INV-1/3/12/SC-001 ✅ | Done |
@@ -145,7 +147,52 @@
 
 ---
 
-### FIX-119 — User text not visible in chat + no loading indication for some workflows (complete-state runs)
+### FIX-124 — KAN-123: Security gate failure UX
+
+**Date:** 2026-07-27
+**Triggered by:** `/velocity-ai-fix KAN-123` — implementing error/failure messages for security gate failures
+
+#### Root Cause
+
+Three separate gaps, all FE-only:
+
+1. **AuditTab missing `hook_runs` source** (`AuditTab.tsx` lines 408-490): The 3-endpoint parallel fetch (`gate_events` / `validation_results` / `exec_runs`) never included `getRunHookRuns`. The `hook_runs` table is where `secret_scan` blocking events are written (outcome=`"block"`, hook=`"secret_scan"`), which is the source of the "Secret scan — BLOCKED write to .env" security row the mock shows. Without this 4th fetch, the Security category in the Audit tab was always empty. The `hookRuns` prop was documented as "dormant legacy" and removed from the render path, but the underlying endpoint exists (`/api/runs/{id}/hook-runs`, KAN-73) and was never called by the tab.
+
+2. **RunChatLane "What went wrong" shows only generic agent names** (`RunChatLane.tsx`): The failed terminal card's bullet list built only `resolveAgentNames(failedIds)` + one `sanitizeError`. The mock shows 3 specific security-derived bullets: "Secret scan blocked a write…", "Code execution denied…", "Validation found N critical…". These map to: `pipelineState.hookRuns` blocked scans (already populated by `hook_run` WS events in `useWorkflow.ts`), failed-agent exec-denied error strings, and per-agent `validationIssues` CRITICAL/HIGH severity.
+
+3. **StepsOverviewSpine has no inline security gate explanation card** (`StepsOverviewSpine.tsx`): When a security gate blocks an agent (`status="error"`, error string contains "security gate"/"exec denied"/etc.), the Steps tab showed only the generic red dot. The mock shows an inline "Blocked by the security gate" explanation card beneath the failed agent row.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 8 (HOOK-01/04 — hook_runs), Phase 13 (F3 pipeline_failed), Phase 16 (ISS-016 terminal failure card)
+- **Deleted code verified (not resurrected):** `hookRuns` prop on `AuditTab` was documented as "dormant legacy" — the component itself was always correct, just not calling the endpoint. This fix adds the 4th fetch — does NOT resurrect the prop path.
+- **Locked decisions respected:** INV-1 (all detection keys on generic outcome/hook/error string patterns, never agent-id/workflow-name literals); INV-3 (FE-only change, no backend/engine/golden change); INV-12 (reuses `getRunHookRuns` that already existed in `api.ts`; single `deriveSecurityBullets` function).
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/AuditTab.tsx` | Added `getRunHookRuns` to the 4-endpoint parallel fetch; added `buildHookLabel` + `buildHookDetailRows` helpers; mapped `hook_runs` rows to `AuditRow` with Detector/Match/Action/Outcome detail fields | Surfaces secret_scan block events as Security-category Audit rows with the expanded detail the mock shows |
+| `frontend/src/components/results/StepsOverviewSpine.tsx` | Added `SecurityGateBlockedCard` component + `isSecurityBlock()` helper; render the card after a failed agent row when error string indicates a security/exec/hook block | Shows the inline "Blocked by the security gate" explanation card in the Steps trace |
+| `frontend/src/components/chat/RunChatLane.tsx` | Added `deriveSecurityBullets(state)` helper; replaced generic bullets in the failed terminal card with structured security bullets when available (falls back to the existing generic path for non-security failures) | Shows "Secret scan blocked…", "Code execution denied…", "Validation found N critical…" bullets from live pipelineState |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): all detection keys on generic signals (outcome string, hook name patterns, agent error strings, severity field values) — no workflow-name/agent-id literal
+- **INV-3** (golden parity): FE-only change — zero backend/engine/manifest/golden files touched; verified via diagnostics
+- **INV-12** (no duplication): reused existing `getRunHookRuns` from `api.ts`; single `deriveSecurityBullets` function; `SecurityGateBlockedCard` is the one card component for this
+- **SC-001** (zero engine edits): pure FE presentation layer change
+
+#### Verification
+TypeScript diagnostics: 0 errors on all 3 modified files. Logic verified:
+- `AuditTab`: `getRunHookRuns` is called in the `Promise.all` with a `.catch(() => ({ hook_runs: [] }))` fallback so AuditTab still renders on 404/error; `buildHookLabel` produces human-readable labels matching the mock (e.g. "Secret scan — BLOCKED before write to .env"); `buildHookDetailRows` builds Detector/Match/Action/Outcome rows from the real `detail` JSON.
+- `StepsOverviewSpine`: `isSecurityBlock` checks for `/security.*gate|blocked.*security|exec.*denied|exec.*off|secret.*scan|secret.*blocked|credential.*blocked|hook.*block/i` patterns.
+- `RunChatLane`: `deriveSecurityBullets` uses `pipelineState.hookRuns` (populated by `hook_run` WS events already in `useWorkflow.ts`) for scan bullets, agent `.error` strings for exec-denied bullet, and `.validationIssues` for validation bullet.
+
+#### Notes
+- The `hook_runs` WS event (`case "hook_run"`) is already handled in `useWorkflow.ts:720-734` and populates `pipelineState.hookRuns`. No backend change needed.
+- The `getRunHookRuns` endpoint was already implemented (KAN-73, backend `runs.py:1214`) and the `HookRunsResponse` interface already existed in `api.ts:1281` — this fix was purely about calling it.
+- `buildHookDetailRows` produces a "high-entropy × known key formats" Detector fallback for secret_scan hooks when the `detail.detector` field is absent (matches the mock's display exactly).
+
+---
 
 **Date:** 2026-07-24
 **Triggered by:** `/velocity-ai-fix` — user text not showing and no loading indication for some workflows

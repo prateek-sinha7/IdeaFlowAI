@@ -12,7 +12,7 @@
 // reskinned off the Phase-32 tokens (no gray-* palette).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Check, ChevronRight, XCircle, ListChecks, RotateCw } from "lucide-react";
+import { Check, ChevronRight, XCircle, ListChecks, RotateCw, ShieldAlert } from "lucide-react";
 import type { AgentRunState, ClarifyRound, PipelineRunState } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
 import { InlineGateActions } from "@/components/chat/InlineGateActions";
@@ -120,6 +120,37 @@ function GateApprovedStrip({ gate }: { gate: string }) {
       <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-ink-700 font-[Manrope]"><Check className="h-3 w-3 text-ink-900" />Approved</span>
     </div>
   );
+}
+
+// KAN-123: Inline "Blocked by the security gate" explanation card rendered after
+// a failed agent row whose error signal indicates a security / exec / hook block.
+// Keyed on generic error-string signals (SC-001 — never an agent-id/name literal).
+function SecurityGateBlockedCard({ error }: { error: string }) {
+  const isScan = /secret|credential|\bscan\b/i.test(error);
+  const isExec = /exec.*denied|exec.*off|code.*denied/i.test(error);
+  const body = isScan
+    ? "A secret or credential was detected in the agent\u2019s write payload. The workspace\u2019s security policy blocked the write and halted the run before any data was persisted."
+    : isExec
+    ? "The agent requested code execution, but \u2018exec\u2019 is off for this workspace. The security gate blocked the operation and halted the run before any code ran."
+    : "The security gate blocked this step\u2019s operation. Check the Audit tab for the full record including detector, match, and action details.";
+  return (
+    <div className="mb-3 ml-2 overflow-hidden rounded-[12px] border border-status-failed-border bg-status-failed-fill">
+      <div className="flex items-center gap-2.5 border-b border-status-failed-border px-3.5 py-2.5">
+        <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-status-failed grid place-items-center">
+          <ShieldAlert className="h-3.5 w-3.5 text-white" strokeWidth={1.8} />
+        </div>
+        <p className="m-0 flex-1 font-sans text-[12px] font-semibold text-status-failed-strong">Blocked by the security gate</p>
+      </div>
+      <p className="px-3.5 py-3 font-serif text-[12px] leading-[1.6] text-ink-700">{body}</p>
+    </div>
+  );
+}
+
+/** Returns true when the agent error string indicates a security/exec/hook block
+ *  (generic signal check — SC-001, no agent-id literal). */
+function isSecurityBlock(error: string | null): boolean {
+  if (!error) return false;
+  return /security.*gate|blocked.*security|exec.*denied|exec.*off|secret.*scan|secret.*blocked|credential.*blocked|hook.*block/i.test(error);
 }
 
 export function StepsOverviewSpine({
@@ -293,6 +324,13 @@ export function StepsOverviewSpine({
             {approvedGates.map((g) => (
               <GateApprovedStrip key={g.id} gate={g.gate || "approved"} />
             ))}
+
+            {/* KAN-123: security gate blocked inline card — shows after a failed
+                agent whose error string indicates a security/exec/hook block.
+                Generic detection (SC-001 — no agent-id literal). */}
+            {isErr && isSecurityBlock(agent.error) && (
+              <SecurityGateBlockedCard error={agent.error ?? ""} />
+            )}
           </div>
         );
       })}

@@ -204,6 +204,12 @@ export interface RunChatLaneProps {
    * no error message (normal path, zero regression).
    */
   relaunchError?: string | null;
+  /**
+   * "Edit brief & run again" — navigates home so the user can modify their
+   * brief and start a fresh run. Distinct from `onRelaunch` (resume from
+   * checkpoint). When absent the secondary button falls back to `onRelaunch`.
+   */
+  onEditBrief?: () => void;
   /** Suggested next steps rendered as quick-reply chips. */
   suggestions?: LaneSuggestion[];
   onSuggestion?: (id: string) => void;
@@ -404,7 +410,55 @@ function sanitizeError(err: string | undefined): string | undefined {
   if (!err) return undefined;
   const firstLine = err.split("\n")[0]?.trim();
   if (!firstLine) return undefined;
-  return firstLine.length > 200 ? `${firstLine.slice(0, 197)}…` : firstLine;
+  return firstLine.length > 200 ? `${firstLine.slice(0, 197)}\u2026` : firstLine;
+}
+
+/**
+ * KAN-123: Derive structured security failure bullets from live PipelineRunState.
+ * Returns [] for non-security failures so the generic agent-name + error path runs.
+ * Checks: (1) pipelineState.hookRuns blocked rows → "Secret scan blocked…"
+ *          (2) failed-agent exec-denied errors → "Code execution denied…"
+ *          (3) validation CRITICAL/HIGH issues → "Validation found N critical…"
+ * Generic signal detection only — no agent-id/workflow-name literal (SC-001/INV-1).
+ */
+function deriveSecurityBullets(state: PipelineRunState | undefined): string[] {
+  if (!state) return [];
+  const bullets: string[] = [];
+
+  // (1) Secret-scan blocks from live hook_run events (pipelineState.hookRuns).
+  const blockedScans = (state.hookRuns ?? []).filter(
+    (h) => h.outcome === "block" && /secret|scan/i.test(h.hook ?? "")
+  );
+  for (const scan of blockedScans) {
+    const d = scan.detail as Record<string, unknown> | null;
+    const file = typeof d?.file === "string" ? ` to ${d.file}` : "";
+    const marker = typeof d?.marker === "string" ? ` containing ${d.marker}` : " containing credentials";
+    bullets.push(`Secret scan blocked a write${file}${marker}`);
+  }
+
+  // (2) Exec-denied errors from failed agents (any agent status="error" with
+  //     an exec-denied signal in its error string).
+  const execDenied = (state.agents ?? []).some(
+    (a) => a.status === "error" && /exec.*denied|exec.*off/i.test(a.error ?? "")
+  );
+  if (execDenied) {
+    bullets.push("Code execution denied \u2014 exec is off for this workspace");
+  }
+
+  // (3) Validation CRITICAL/HIGH issues from any agent's validationIssues.
+  let criticalCount = 0;
+  for (const a of state.agents ?? []) {
+    for (const v of a.validationIssues ?? []) {
+      if (v.severity === "CRITICAL" || v.severity === "HIGH") criticalCount++;
+    }
+  }
+  if (criticalCount > 0) {
+    bullets.push(
+      `Validation found ${criticalCount} critical structural error${criticalCount !== 1 ? "s" : ""} in the partial build`
+    );
+  }
+
+  return bullets;
 }
 
 /** Total answered/asked clarifying questions across the retained rounds (live). */
@@ -899,6 +953,7 @@ export function RunChatLane({
   onRevise,
   onRelaunch,
   relaunchError,
+  onEditBrief,
   suggestions,
   onSuggestion,
   proposals,
@@ -1417,6 +1472,14 @@ export function RunChatLane({
           const sanitized = sanitizeError(
             firstAgentError(pipelineState?.agents, failedIds),
           );
+
+          // KAN-123: derive structured security failure bullets from live state.
+          // Checks pipelineState.hookRuns (blocked secret scans), failed agent
+          // errors (exec denied, validation errors) — generic signals, SC-001.
+          const securityBullets = deriveSecurityBullets(pipelineState);
+          const isSecurityGate = securityBullets.length > 0 ||
+            /security.*gate|exec.*denied|secret.*blocked|hook.*block/i.test(sanitized ?? "");
+
           return (
             <div data-testid="chat-terminal-failed" className="space-y-3">
               {/* Failure card — red-tinted, alert header, live bullets. */}
@@ -1431,19 +1494,37 @@ export function RunChatLane({
                   </span>
                 </div>
                 <div className="px-[14px] py-3 font-serif text-[12px] leading-[1.6] text-ink-700">
-                  {names.length > 0 && (
-                    <p className="mb-[7px]">
-                      • Failed {names.length > 1 ? "agents" : "agent"}:{" "}
-                      <span className="font-semibold text-ink-900">
-                        {names.join(", ")}
-                      </span>
+                  {/* KAN-123: show structured security bullets when available;
+                      fall back to the generic agent-name + error pattern. */}
+                  {securityBullets.length > 0 ? (
+                    securityBullets.map((bullet, i) => (
+                      <p key={i} className={i < securityBullets.length - 1 ? "mb-[7px]" : ""}>
+                        • {bullet}
+                      </p>
+                    ))
+                  ) : (
+                    <>
+                      {names.length > 0 && (
+                        <p className="mb-[7px]">
+                          • Failed {names.length > 1 ? "agents" : "agent"}:{" "}
+                          <span className="font-semibold text-ink-900">
+                            {names.join(", ")}
+                          </span>
+                        </p>
+                      )}
+                      {sanitized && (
+                        <p data-testid="chat-terminal-error">• {sanitized}</p>
+                      )}
+                      {names.length === 0 && !sanitized && (
+                        <p>• The run stopped before completing. Reopen to resume.</p>
+                      )}
+                    </>
+                  )}
+                  {/* When security gate stopped the run, mention the Audit tab. */}
+                  {isSecurityGate && (
+                    <p className="mt-[7px] text-[11px] text-ink-400">
+                      See the Audit tab for detector, match, and action details.
                     </p>
-                  )}
-                  {sanitized && (
-                    <p data-testid="chat-terminal-error">• {sanitized}</p>
-                  )}
-                  {names.length === 0 && !sanitized && (
-                    <p>• The run stopped before completing. Reopen to resume.</p>
                   )}
                 </div>
               </div>
@@ -1476,7 +1557,7 @@ export function RunChatLane({
                 <button
                   type="button"
                   data-testid="chat-relaunch-secondary"
-                  onClick={() => onRelaunch?.()}
+                  onClick={() => (onEditBrief ?? onRelaunch)?.()}
                   className="flex w-full items-center justify-center rounded-[10px] border border-line-control bg-surface-white px-3 py-[10px] font-sans text-[12px] font-semibold text-ink-700 transition-colors hover:border-line-faint"
                 >
                   Edit brief &amp; run again

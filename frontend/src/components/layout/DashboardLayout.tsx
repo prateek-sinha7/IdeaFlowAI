@@ -962,6 +962,18 @@ export function DashboardLayout({
     if (!isPipelineRunning && onResetPipeline) onResetPipeline();
   }, [onResetPipeline, isPipelineRunning]);
 
+  // "Edit brief & run again" — navigate to the input view so the user can
+  // modify their brief and start a fresh run (does NOT resume from checkpoint).
+  // Pre-fills the brief from submittedBrief when available so the user can edit
+  // rather than retype from scratch. Resets pipeline state so the input page
+  // starts clean (no stale failed-run overlay).
+  const handleEditBrief = useCallback(() => {
+    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
+    setResumeError(null);
+    setQuestionnaireQuestions([]);
+    setMainView("input");
+  }, [isPipelineRunning, onResetPipeline]);
+
   // Chain to another pipeline using previous output as context
   const handleChainPipeline = useCallback(async (nextType: WorkflowType) => {
     // Check if this chain target requires a wizard (prototype, ppt)
@@ -1900,6 +1912,7 @@ export function DashboardLayout({
                       onStop={handleStopPipeline}
                       onRevise={activeReviseHandler}
                       onRelaunch={handleResumeRun}
+                      onEditBrief={handleEditBrief}
                       relaunchError={resumeError}
                       suggestions={laneSuggestions}
                       onSuggestion={handleLaneSuggestion}

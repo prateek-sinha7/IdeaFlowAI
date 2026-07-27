@@ -29,6 +29,7 @@ import {
   getRunGateEvents,
   getRunValidationResults,
   getRunExecRuns,
+  getRunHookRuns,
 } from "@/lib/api";
 import { exportAuditCSV, exportAuditJSON } from "@/lib/exporters/auditExporter";
 
@@ -127,7 +128,58 @@ function normalizeSeverity(sev: string | null | undefined): Severity | null {
   return (SEVERITIES as readonly string[]).includes(s) ? (s as Severity) : null;
 }
 
-// ─── Governance status palette (the SOLE one-chroma exception) ───────────────
+// ─── KAN-123: hook_run label + detail-row builders ────────────────────────────
+//
+// Build a human-readable label and Detector/Match/Action/Outcome rows from the
+// real hook_run.detail payload (SC-001 / ND-D — only live data, never fabricated).
+
+function buildHookLabel(
+  hook: string,
+  event: string,
+  outcome: string,
+  detail: Record<string, unknown> | null,
+): string {
+  const evtFriendly = event.replace(/_/g, " ");
+  if (/secret|scan/.test(hook)) {
+    const file = typeof detail?.file === "string" ? ` to ${detail.file}` : "";
+    const action = outcome === "block" ? "BLOCKED" : outcome === "warn" ? "WARNING" : "scanned";
+    return `Secret scan \u2014 ${action} ${evtFriendly}${file}`.trim();
+  }
+  return `${hook.replace(/_/g, " ")} \u2014 ${evtFriendly}`;
+}
+
+function buildHookDetailRows(
+  hook: string,
+  outcome: string,
+  detail: Record<string, unknown> | null,
+  step: string,
+  eventLabel: string,
+): [string, string][] {
+  const rows: [string, string][] = [];
+  if (!detail) {
+    if (step) rows.push(["Step", step]);
+    rows.push(["Outcome", outcome]);
+    return rows;
+  }
+  const detector = typeof detail.detector === "string"
+    ? detail.detector
+    : /secret|scan/.test(hook) ? "high-entropy \u00d7 known key formats" : null;
+  if (detector) rows.push(["Detector", detector]);
+  const marker = typeof detail.marker === "string" ? detail.marker : null;
+  const matched = Array.isArray(detail.matched_keys)
+    ? (detail.matched_keys as string[]).join(", ")
+    : typeof detail.match === "string" ? detail.match : marker;
+  if (matched) rows.push(["Match", matched]);
+  const fallbackAction = outcome === "block"
+    ? `${eventLabel.includes("write") ? "write blocked" : "action blocked"} \u00b7 nothing persisted`
+    : outcome === "warn" ? "warning recorded \u00b7 run continued" : "allowed";
+  rows.push(["Action", typeof detail.action === "string" ? detail.action : fallbackAction]);
+  rows.push(["Outcome", outcome]);
+  if (typeof detail.reason === "string" && detail.reason) {
+    rows.push(["Reason", detail.reason]);
+  }
+  return rows;
+}
 
 type VerdictKind = "done" | "failed" | "amber" | "queued";
 
@@ -406,8 +458,14 @@ export function AuditTab({ workflowRunId, runMeta, isRunning }: AuditTabProps) {
       getRunGateEvents(token, workflowRunId),
       getRunValidationResults(token, workflowRunId),
       getRunExecRuns(token, workflowRunId),
+      // KAN-123: hook_runs carries secret_scan blocks (outcome="block") with
+      // Detector/Match/Action/Outcome detail — the "Secret scan — BLOCKED"
+      // security category rows the Audit tab mock shows. Fetch alongside the
+      // three existing sources (INV-12 — reuses the existing endpoint). A 404
+      // (no rows yet, non-admin run) resolves to an empty envelope.
+      getRunHookRuns(token, workflowRunId).catch(() => ({ hook_runs: [] })),
     ])
-      .then(([gates, validations, execs]) => {
+      .then(([gates, validations, execs, hooksEnv]) => {
         if (cancelled) return;
         const merged: AuditRow[] = [];
         for (const g of gates.gate_events) {
@@ -492,6 +550,40 @@ export function AuditTab({ workflowRunId, runMeta, isRunning }: AuditTabProps) {
             detailRows,
           });
         }
+
+        // KAN-123: hook_runs — secret_scan blocks + behavioral hooks (KAN-73).
+        // Each row maps to a "security" or "behavioral" fine-category AuditRow.
+        // The secret_scan detail carries Detector / Match / Action / Outcome
+        // fields that the mock's "BLOCKED write to .env" expanded card shows.
+        for (const h of (hooksEnv.hook_runs ?? [])) {
+          const hookName = (h.hook ?? "hook");
+          const step = (h.detail as Record<string, unknown> | null)?.["step"] as string ?? "";
+          const outcome = h.outcome ?? "continue";
+          // Derive a human-readable label from hook + event
+          const eventLabel = h.event ? `${hookName} — ${h.event.replace(/_/g, " ")}` : hookName;
+          const label = buildHookLabel(hookName, h.event ?? "", outcome, h.detail as Record<string, unknown> | null);
+          // Build the mock's Detector / Match / Action / Outcome detail rows
+          // from the real detail payload (SC-001 / ND-D: no fabrication).
+          const detailRows = buildHookDetailRows(hookName, outcome, h.detail as Record<string, unknown> | null, step, eventLabel);
+          const fineCategory = deriveFineCategory("gate", hookName, step);
+          const outcome3 = outcome === "block" ? "block" as Outcome3 : outcome === "warn" ? "warn" as Outcome3 : "pass" as Outcome3;
+          // hook blocks that touched a credential are CRITICAL; warns are MEDIUM.
+          const severity: Severity | null = outcome === "block" && /secret|credential|scan/.test(hookName) ? "CRITICAL" : null;
+          merged.push({
+            id: `hook:${h.id ?? `${hookName}-${h.created_at ?? Math.random()}`}`,
+            category: "gate",
+            step,
+            label,
+            outcome,
+            severity,
+            detail: detailNote(h.detail as Record<string, unknown> | null),
+            created_at: h.created_at ?? null,
+            fineCategory,
+            outcome3,
+            detailRows,
+          });
+        }
+
         merged.sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
         setRows(merged);
       })
