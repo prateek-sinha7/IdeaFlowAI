@@ -1,0 +1,39 @@
+id: prototype_multi_issue_repair
+name: Multi-issue repair (10 bugs in one punch list)
+description: >
+  10 independent bugs in one ~8KB fixture (duplicated document, dead Save
+  button, missing Reports page, and 7 more) — a single live run checks
+  whether one revision turn fixes a realistic punch list, not just one
+  isolated defect. See checkers.prototype_multi_issue_repair for exactly
+  what's checked and which of the 10 failed.
+
+agent_id: prototype-revision-agent
+
+instruction: >
+  This admin console has a bunch of problems that need fixing: (1) the
+  pages look duplicated and broken — some show no data at all, (2) the
+  Save button on Settings doesn't do anything, (3) we need a Reports page
+  reachable from the sidebar, (4) clicking "Audit Log" in the sidebar does
+  nothing, (5) the Roles page never loads when you click it in the
+  sidebar, (6) the Export CSV button on the Roles page throws an error,
+  (7) the MFA page just shows lorem ipsum placeholder text instead of real
+  setup instructions, (8) the organization name field on Settings behaves
+  strangely, (9) the "View all activity" link on the Audit page goes
+  nowhere, (10) the page title in the top bar never updates when you
+  navigate between pages. Please fix all of these.
+
+input:
+  html: fixtures/prototype_multi_issue_repair.html
+  design_md: null
+
+output:
+  filename: prototype.html
+
+logs:
+  dir: logs
+
+checker: prototype_multi_issue_repair
+
+benchmark:
+  expensive: false
+  default_n: 5

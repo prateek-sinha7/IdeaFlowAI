@@ -30,7 +30,7 @@ OUT_DIR = (
     / "revision-pipeline-thinking-issue"
     / "prompt-dumps"
 )
-FIXTURES = _BACKEND / "tests" / "evals" / "revision_fulfillment" / "fixtures"
+FIXTURES = _BACKEND / "tests" / "evals" / "workflow" / "prototype" / "revision" / "fixtures"
 
 
 def main() -> None:
@@ -63,7 +63,9 @@ def main() -> None:
         print(f"  wrote {out}  ({len(prompt)} chars)")
 
     # ── The dispatch message (user turn) ─────────────────────────────────────
-    mini_html = (FIXTURES / "mini_prototype.html").read_text(encoding="utf-8").strip()
+    mini_html = (
+        (FIXTURES / "prototype_multi_issue_repair.html").read_text(encoding="utf-8").strip()
+    )
     framed = (
         "=== REVISION REQUEST ===\n"
         f"{INSTRUCTION}\n"

@@ -14,25 +14,22 @@ selects ``[]`` ⇒ ``failing=False`` ⇒ the loop exits reporting success.
 These tests PASS against current code: they pin the gap precisely, so the
 Phase-2 scenario evals (which xfail) can point here as the mechanism.
 
-Pure-function tests, no mocks beyond dataclass construction.
+Stub factories + the wrapped selection call live in
+tests/evals/common/validation_helpers.py (the underlying function is
+confirmed shared with the build residual path — see PLAN.md's Amendment 2).
 """
 
 from __future__ import annotations
 
 import pytest
 
-from app.agents.render_check import RenderResult
-from app.agents.static_check import StaticCheckResult
+from tests.evals.common.validation_helpers import (
+    make_render_result,
+    make_static_result,
+    select_issues_to_fix,
+)
 
 pytestmark = pytest.mark.eval
-
-
-def _select(sres, rres, base_static=None, base_console=None):
-    from agents.execution_engine.engine import _select_issues_to_fix
-
-    return _select_issues_to_fix(
-        sres, rres, base_static, base_console, require_render=True
-    )
 
 
 def test_clean_noop_edit_selects_nothing__the_root_cause() -> None:
@@ -43,10 +40,10 @@ def test_clean_noop_edit_selects_nothing__the_root_cause() -> None:
     input to this function, so the selection is empty and the fix-loop's
     ``failing`` is False. This is WHY a no-op revision reports success.
     """
-    sres = StaticCheckResult(ok=True, issues=[])
-    rres = RenderResult(ok=True, available=True)
+    sres = make_static_result(ok=True)
+    rres = make_render_result(ok=True)
 
-    selected = _select(sres, rres, {"static-preexisting"}, {"console-preexisting"})
+    selected = select_issues_to_fix(sres, rres, {"static-preexisting"}, {"console-preexisting"})
 
     assert selected == []          # nothing to fix, per the loop's only signal
     assert not bool(selected)      # == failing=False: loop exits, "success"
@@ -56,10 +53,10 @@ def test_preexisting_issues_are_baselined_out_by_design() -> None:
     """The baseline filter itself is intentional (don't chase pre-existing
     nits) — the gap is that instruction-fulfillment has no lane, not that
     the baseline filter exists."""
-    sres = StaticCheckResult(ok=False, issues=["static-preexisting"])
-    rres = RenderResult(ok=True, available=True, console_errors=["console-preexisting"])
+    sres = make_static_result(ok=False, issues=["static-preexisting"])
+    rres = make_render_result(ok=True, console_errors=["console-preexisting"])
 
-    selected = _select(sres, rres, {"static-preexisting"}, {"console-preexisting"})
+    selected = select_issues_to_fix(sres, rres, {"static-preexisting"}, {"console-preexisting"})
 
     assert selected == []
 
@@ -68,15 +65,14 @@ def test_new_regressions_are_selected() -> None:
     """Control: the loop DOES catch what it was built for — NEW static issues
     and always-included hard breakage. The machinery works; its question is
     just narrower than the user's."""
-    sres = StaticCheckResult(ok=False, issues=["static-preexisting", "static-NEW"])
-    rres = RenderResult(
+    sres = make_static_result(ok=False, issues=["static-preexisting", "static-NEW"])
+    rres = make_render_result(
         ok=False,
-        available=True,
         console_errors=["console-NEW"],
         page_errors=["boom"],
     )
 
-    selected = _select(sres, rres, {"static-preexisting"}, {"console-preexisting"})
+    selected = select_issues_to_fix(sres, rres, {"static-preexisting"}, {"console-preexisting"})
 
     assert "static-NEW" in selected
     assert "console error: console-NEW" in selected

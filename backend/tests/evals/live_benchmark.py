@@ -1,28 +1,40 @@
 """LIVE multi-sample benchmark — what's the real pass rate, not just one roll?
 
-Run via ``./run-eval.sh benchmark [s1|s2|example1|both|all] [N]`` (default:
-both, N=10), or directly:
-``python3.11 -m tests.evals.live_benchmark --scenario s1 --n 10`` from
-``backend/``. ``both`` = s1+s2 (cheap, ~3KB fixture each); ``all`` also
-includes ``example1`` (real ~124KB fixture — materially more tokens per run,
-never included by default).
+Run via ``./run-eval.sh benchmark [<scenario-id>|cheap|all] [N]`` (default:
+cheap, N=10), or directly:
+``python3.11 -m tests.evals.live_benchmark --scenario prototype_multi_issue_repair --n 5``
+from ``backend/``. ``cheap`` = every discovered scenario NOT marked
+``expensive: true`` in its YAML; ``all`` also includes scenarios marked
+``expensive`` (materially more tokens per run, never included by default).
 
-A single live test (``test_live_s1.py``/``test_live_s2.py``) tells you
-pass-or-fail on ONE roll of the dice — Haiku is probabilistic, so one pass
-proves little about reliability. This script runs the SAME driver
-(``revision_fulfillment/live_driver.py`` — same production prompt surface,
-same real model) N times per scenario, sequentially, and reports a pass rate:
-how often the current prompt gets Haiku to actually satisfy the instruction,
-vs. how often nothing catches a miss (which is exactly what the pipeline-level
-S1/S2 evals prove the pipeline itself doesn't do).
+A single live test (``test_live.py``) tells you pass-or-fail on ONE roll of
+the dice — Haiku is probabilistic, so one pass proves little about
+reliability. This script runs the SAME driver
+(``common/live_scenario.py`` — same production prompt surface, same real
+model) N times per scenario, sequentially, and reports a pass rate: how
+often the current prompt gets the model to actually satisfy the
+instruction, vs. how often nothing catches a miss.
 
-Consumes real tokens: N runs x ~2-5k tokens each for s1/s2. ``example1`` is
-NOT comparable — its ~124KB real-world fixture has driven a single run to
-8.1M input tokens (see ``tests/evals/logs/260727144722-live-example1-5bb95f21``).
-``--scenario all`` therefore caps example1 at ``--n-example1`` (default: 3,
-see ``_EXPENSIVE_DEFAULT_N``) regardless of ``--n``, and ``--skip-expensive``
-drops it from ``all`` entirely — request ``--scenario example1`` by name (or
-pass ``--n-example1`` explicitly) to run its full requested count on purpose.
+Scenarios are discovered across EVERY pipeline's eval coverage (any
+``workflow/<domain>/<variant>/scenarios/*.yaml``), not just one — see
+``common/scenario_discovery.py``. Scenario ids are globally unique across
+every pipeline (enforced by ``discover_all_scenarios``), so a scenario is
+always referred to the SAME way everywhere: by its yaml file's ``id``
+(equivalently, its filename stem) — no per-pipeline prefix or lookup table
+needed as more pipelines/scenarios are added.
+
+Consumes real tokens: N runs x tokens per scenario (varies with fixture size
+and how many issues a single turn has to find and fix — see each scenario's
+own YAML for its ``benchmark.default_n``). Scenarios can mark themselves
+``expensive`` in their YAML for fixtures materially more costly than normal.
+``--scenario all`` caps any expensive scenario at its YAML-declared
+``default_n`` regardless of ``--n``, and ``--skip-expensive`` drops all such
+scenarios from ``all`` entirely — request the scenario by name (or pass
+``--n-override <id>=<n>``) to run its full requested count on purpose.
+
+Adding a new scenario (a new ``workflow/<domain>/<variant>/scenarios/<id>.yaml``,
+with a sibling ``checkers.py`` in its phase folder) makes it show up here
+automatically — no code change needed in this file.
 
 Never wired into any default/CI mode — always an explicit, opt-in invocation.
 """
@@ -39,6 +51,10 @@ _BACKEND = Path(__file__).resolve().parents[2]
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
+from tests.evals.common.scenario_discovery import discover_all_scenarios  # noqa: E402
+
+ALL_SCENARIOS = discover_all_scenarios()
+
 
 def _has_llm_credentials() -> bool:
     from app.core.config import settings
@@ -53,20 +69,25 @@ def _has_llm_credentials() -> bool:
     )
 
 
-_EXPENSIVE_SCENARIOS = {"example1"}
-# example1's fixture (~124KB) drove a single run to 8.1M input tokens
-# (tests/evals/logs/260727144722-live-example1-5bb95f21) — an order of
-# magnitude past s1/s2. `benchmark all` defaults to a much smaller N for any
-# expensive scenario so a stray invocation can't silently repeat that run
-# several times; `--skip-expensive` drops them entirely; an explicit
-# `--n-example1` (or requesting the scenario directly, e.g. `--scenario
-# example1 --n 10`) overrides the cap for a deliberate, informed run.
-_EXPENSIVE_DEFAULT_N = 3
+def _parse_n_overrides(raw: list[str]) -> dict[str, int]:
+    overrides: dict[str, int] = {}
+    for item in raw:
+        if "=" not in item:
+            raise SystemExit(f"--n-override expects <scenario-id>=<n>, got: {item!r}")
+        scenario_id, _, n_str = item.partition("=")
+        if scenario_id not in ALL_SCENARIOS:
+            raise SystemExit(
+                f"--n-override: unknown scenario '{scenario_id}' "
+                f"(known: {sorted(ALL_SCENARIOS)})"
+            )
+        overrides[scenario_id] = int(n_str)
+    return overrides
 
 
 async def _run_benchmark(scenario_id: str, n: int) -> None:
-    from tests.evals.revision_fulfillment.live_driver import run_live_scenario_once
+    from tests.evals.common.live_scenario import run_live_scenario_once
 
+    scenario = ALL_SCENARIOS[scenario_id]
     print(f"\n=== LIVE BENCHMARK: {scenario_id.upper()} — {n} run(s) ===")
     passed = 0
     errored = 0
@@ -84,7 +105,7 @@ async def _run_benchmark(scenario_id: str, n: int) -> None:
             # calls stay full-length — they're already short + the useful part).
             print(f"  [{_i}/{n}] {line[:200]}")
 
-        result = await run_live_scenario_once(scenario_id, on_event=_progress)
+        result = await run_live_scenario_once(scenario, on_event=_progress)
         dt = time.monotonic() - t0
         total_in += result.tokens_in
         total_out += result.tokens_out
@@ -133,10 +154,14 @@ async def _main_async(scenarios: list[str], n_by_scenario: dict[str, int]) -> No
 
 
 def main() -> None:
+    scenario_ids = sorted(ALL_SCENARIOS)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--scenario", choices=["s1", "s2", "example1", "both", "all"], default="both",
-        help="which scenario to benchmark (default: both = s1+s2)",
+        "--scenario", choices=[*scenario_ids, "cheap", "all"], default="cheap",
+        help=(
+            "which scenario to benchmark (default: cheap = every discovered "
+            "scenario not marked 'expensive: true')"
+        ),
     )
     parser.add_argument(
         "--n", type=int, default=10,
@@ -144,18 +169,22 @@ def main() -> None:
     )
     parser.add_argument(
         "--skip-expensive", action="store_true",
-        help="drop expensive scenarios (currently: example1) from --scenario all",
+        help=(
+            "drop scenarios marked 'expensive: true' in their YAML "
+            f"(currently: {sorted(s for s in scenario_ids if ALL_SCENARIOS[s].expensive)}) "
+            "from --scenario all"
+        ),
     )
     parser.add_argument(
-        "--n-example1", type=int, default=None,
+        "--n-override", action="append", default=[], metavar="ID=N",
         help=(
-            f"override example1's sample count explicitly (default when reached "
-            f"via 'all': capped at {_EXPENSIVE_DEFAULT_N} regardless of --n, since "
-            f"one example1 run can cost millions of tokens — see "
-            f"_EXPENSIVE_DEFAULT_N). Has no effect with --skip-expensive."
+            "override a specific scenario's sample count, e.g. "
+            "--n-override example1=10 (repeatable). Overrides the YAML "
+            "default_n cap applied when that scenario is reached via 'all'."
         ),
     )
     args = parser.parse_args()
+    n_overrides = _parse_n_overrides(args.n_override)
 
     if not _has_llm_credentials():
         print("No LLM credentials configured — set ANTHROPIC_API_KEY or AWS creds.")
@@ -171,30 +200,33 @@ def main() -> None:
     tmp_runs_root = tempfile.mkdtemp(prefix="live-benchmark-runs-")
     settings.RUNS_ROOT = tmp_runs_root
 
-    if args.scenario == "both":
-        scenarios = ["s1", "s2"]
+    if args.scenario == "cheap":
+        scenarios = [s for s in scenario_ids if not ALL_SCENARIOS[s].expensive]
     elif args.scenario == "all":
-        scenarios = ["s1", "s2"] if args.skip_expensive else ["s1", "s2", "example1"]
+        scenarios = [
+            s for s in scenario_ids
+            if not (args.skip_expensive and ALL_SCENARIOS[s].expensive)
+        ]
     else:
         scenarios = [args.scenario]
 
     n_by_scenario: dict[str, int] = {}
     for scenario_id in scenarios:
-        if scenario_id in _EXPENSIVE_SCENARIOS and args.scenario == "all":
+        spec = ALL_SCENARIOS[scenario_id]
+        if scenario_id in n_overrides:
+            n_by_scenario[scenario_id] = n_overrides[scenario_id]
+        elif spec.expensive and args.scenario == "all":
             # Reached via the broad "all" alias, not requested by name — cap
-            # unless the caller explicitly overrode it via --n-example1.
-            n_by_scenario[scenario_id] = (
-                args.n_example1 if args.n_example1 is not None else min(args.n, _EXPENSIVE_DEFAULT_N)
-            )
-        elif scenario_id == "example1" and args.n_example1 is not None:
-            n_by_scenario[scenario_id] = args.n_example1
+            # at the YAML-declared default rather than the (possibly much
+            # larger) --n, unless explicitly overridden above.
+            n_by_scenario[scenario_id] = min(args.n, spec.default_n)
         else:
             n_by_scenario[scenario_id] = args.n
 
     capped = [
         s for s in scenarios
-        if s in _EXPENSIVE_SCENARIOS and args.scenario == "all" and args.n_example1 is None
-        and args.n > _EXPENSIVE_DEFAULT_N
+        if ALL_SCENARIOS[s].expensive and args.scenario == "all"
+        and s not in n_overrides and args.n > ALL_SCENARIOS[s].default_n
     ]
     print(
         f">>> LIVE benchmark: {[(s, n_by_scenario[s]) for s in scenarios]} — "
@@ -202,9 +234,9 @@ def main() -> None:
     )
     if capped:
         print(
-            f">>> {capped} capped at N={_EXPENSIVE_DEFAULT_N} (requested {args.n}) — "
-            f"expensive scenario reached via 'all'. Use --scenario example1 --n {args.n} "
-            f"or --n-example1 {args.n} to run the full count deliberately."
+            f">>> {capped} capped at their YAML default_n (requested {args.n}) — "
+            f"expensive scenario reached via 'all'. Use --scenario <id> --n {args.n} "
+            f"or --n-override <id>={args.n} to run the full count deliberately."
         )
     asyncio.run(_main_async(scenarios, n_by_scenario))
 

@@ -1,4 +1,5 @@
-"""L4 — post-step dispatch (R-10 / D-06).
+"""RevisionValidationPostStep dispatch to the fix-loop (formerly "L4";
+R-10 / D-06).
 
 ``RevisionValidationPostStep.run()`` is where the stashed instruction is
 handed to the fix-loop. These tests spy the ``ctx.runner`` handle (the

@@ -24,13 +24,18 @@ from pathlib import Path
 
 import pytest
 
-from tests.evals.conftest import FIXTURES_DIR
-
 pytestmark = pytest.mark.eval
 
 INSTRUCTION = "Make the Save button on Settings actually save"
 
-_BACKEND_ROOT = Path(__file__).resolve().parents[3]
+# Inline rather than a fixtures/*.html file — this test only needs SOME
+# prototype HTML to exercise the slimming path, not real page content.
+_MINI_HTML = (
+    '<!doctype html><html><body><section id="dashboard">'
+    "<h2>Dashboard</h2></section></body></html>"
+)
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[5]
 GUARDRAIL_PATH = _BACKEND_ROOT / "agents" / "guardrails" / "html-prototype.md"
 
 AGENTS = ("prototype-revision-agent", "prototype-revision-validate")
@@ -168,13 +173,12 @@ def test_dispatch_message_is_instruction_plus_file_pointer() -> None:
         _slim_revision_message,
     )
 
-    mini_html = (FIXTURES_DIR / "mini_prototype.html").read_text(encoding="utf-8").strip()
     framed = (
         "=== REVISION REQUEST ===\n"
         f"{INSTRUCTION}\n"
         "=== END REQUEST ===\n\n"
         "=== EXISTING PROTOTYPE HTML ===\n"
-        f"{mini_html}\n"
+        f"{_MINI_HTML}\n"
         "=== END EXISTING HTML ==="
     )
     slimmed = _slim_revision_message(framed, "prototype.html")

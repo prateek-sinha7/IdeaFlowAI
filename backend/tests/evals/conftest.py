@@ -1,23 +1,20 @@
-"""Shared fixtures for the eval suite (tests/evals).
+"""Shared fixtures for the eval suite (tests/evals) — suite-wide only.
 
 Conventions (design.md D-02/D-03/D-04):
   - every module in this package sets ``pytestmark = pytest.mark.eval``;
   - default tier is fully offline (scripted models, no network, 0 tokens) —
     the ``runs_root`` fixture gives each test a writable sandbox root so the
     real ``RunSandbox`` works locally (the shipped default ``/app/runs`` is
-    not writable on dev machines);
-  - scenario declarations live in ``revision_fulfillment/fixtures/scenarios.yaml``
-    and are loaded via the ``scenarios`` fixture (intent as data, scripted
-    tool-call mechanics as code — D-05).
+    not writable on dev machines).
+
+Phase-specific fixtures (``FIXTURES_DIR``, the offline ``scenarios``
+matrix) live in each ``workflow/<domain>/<variant>/conftest.py`` instead —
+see that file's docstring for why they're phase-local, not suite-wide.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-
-FIXTURES_DIR = Path(__file__).parent / "revision_fulfillment" / "fixtures"
 
 
 @pytest.fixture
@@ -52,7 +49,7 @@ def _hermetic_db():
 
     Without this, every persistence call in the pipeline (run_events,
     artifact_refs, hooks, WorkflowMemory — a SEPARATE subsystem from the
-    LangGraph checkpointer patched per-test in test_scenarios.py) tries the
+    LangGraph checkpointer, patched per-test where it's exercised) tries the
     real Postgres URL from the dev env, fails with a connection-refused
     warning per call (or worse, hangs retrying if Postgres is reachable but
     slow), and clutters output — all while degrading gracefully by design
@@ -75,19 +72,3 @@ def _hermetic_db():
     db.SessionLocal = sessionmaker(
         autocommit=False, autoflush=False, expire_on_commit=False, bind=test_engine
     )
-
-
-@pytest.fixture(scope="session")
-def scenarios() -> dict:
-    """Load the S1/S2/S3 scenario matrix (scenarios.yaml) keyed by id.
-
-    Returns an empty dict until the file exists (T-014) so Phase-0/1 tests
-    can depend on the loader without ordering coupling.
-    """
-    path = FIXTURES_DIR / "scenarios.yaml"
-    if not path.is_file():
-        return {}
-    import yaml
-
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return {s["id"]: s for s in data.get("scenarios", [])}

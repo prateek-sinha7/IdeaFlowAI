@@ -1,4 +1,4 @@
-"""L6 — the LLM boundary (R-12 / D-06).
+"""Fix-loop prompt assembly at the LLM boundary (formerly "L6"; R-12 / D-06).
 
 ``_run_validation_fix_loop``'s revision branch is the LAST deterministic
 point before a model call: it assembles the fix prompt and mints the fix
@@ -14,6 +14,10 @@ Asserts, with ``create_runner`` captured and the validators scripted:
   * the revision residual path logs the SELECTED issues (not the build
     residual assembly).
 
+Capture harness lives in tests/evals/common/fix_loop_capture.py — generic
+to any pipeline's fix-loop, build or revision, since both go through
+``_run_validation_fix_loop`` (see PLAN.md's Amendment 2).
+
 Offline: static/render checks monkeypatched at their source modules (the
 loop imports them at call time); the captured runner drains instantly.
 """
@@ -24,55 +28,19 @@ import asyncio
 
 import pytest
 
-from app.agents.render_check import RenderResult
-from app.agents.static_check import StaticCheckResult
+from tests.evals.common.fix_loop_capture import patch_fix_loop_seams
 
 pytestmark = pytest.mark.eval
 
 INSTRUCTION = "Make the Save button on Settings actually save"
 
 
-class _CapturedFix:
-    """Records what create_runner + the fix agent's dispatch received."""
-
-    def __init__(self) -> None:
-        self.agent_ids: list[str] = []
-        self.thread_ids: list[str] = []
-        self.messages: list[str] = []
-
-    def runner_factory(self, agent_id, ctx, *, thread_id=None, checkpointer=None):
-        self.agent_ids.append(agent_id)
-        self.thread_ids.append(thread_id)
-        capture = self
-
-        class _FixRunner:
-            async def astream_events(self, message):
-                capture.messages.append(message)
-                if False:  # pragma: no cover — async-gen shape, no events
-                    yield {}
-
-        return _FixRunner()
-
-
 @pytest.fixture
 def captured(monkeypatch, runs_root):
     """Wire the loop's seams: failing static check, clean render, captured runner."""
-    import agents.execution_engine.engine as engine_mod
-    import app.agents.render_check as render_mod
-    import app.agents.static_check as static_mod
-
-    cap = _CapturedFix()
-    monkeypatch.setattr(engine_mod, "create_runner", cap.runner_factory)
-    monkeypatch.setattr(
-        static_mod, "static_check",
-        lambda path: StaticCheckResult(ok=False, issues=["static-NEW-from-edit"]),
+    return patch_fix_loop_seams(
+        monkeypatch, static_issues=["static-NEW-from-edit"], static_ok=False
     )
-
-    async def _fake_render(path):
-        return RenderResult(ok=True, available=True)
-
-    monkeypatch.setattr(render_mod, "render_check", _fake_render)
-    return cap
 
 
 def _run_loop(captured, runs_root) -> None:

@@ -1,15 +1,21 @@
-"""L1 — API entry seam (R-07 / design.md D-06).
+"""API entry seam (R-07 / design.md D-06) — pipeline-agnostic (formerly "L1").
 
-The revision launch path (REST/SSE driver ``_drive_launch_to_queue`` in
-``app/api/run_commands.py`` — the sanctioned twin of the WS closure) must
-hand ``ExecutionEngine.execute()``:
+The REST/SSE launch driver (``_drive_launch_to_queue`` in
+``app/api/run_commands.py`` — the sanctioned twin of the WS closure) is
+generic across every pipeline_type; it just passes the value through
+unchanged. This test exercises it via ``prototype_revision`` as a concrete
+example, but the mechanism under test doesn't branch on which pipeline it
+is — that's WHY it belongs here, not nested under one pipeline's workflow/
+folder (see PLAN.md's "Amendment 1" for the grep-verified evidence).
+
+Must hand ``ExecutionEngine.execute()``:
 
   * ``user_message`` — the frontend-framed revision request, UNCHANGED
     (``=== REVISION REQUEST ===`` + ``=== EXISTING PROTOTYPE HTML ===``
     blocks intact — the ``previous_run`` provider downstream parses these
     exact markers, so any mutation here silently severs the instruction);
   * ``parent_run_id`` — threaded through verbatim;
-  * ``pipeline_type`` — ``prototype_revision``.
+  * ``pipeline_type`` — passed through as given.
 
 Offline: the engine is replaced by a kwargs-recorder; ``workflow_run_id=None``
 skips the driver's DB tail entirely (no DB, no network, 0 tokens).
