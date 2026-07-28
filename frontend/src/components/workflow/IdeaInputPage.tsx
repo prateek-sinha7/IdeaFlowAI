@@ -415,8 +415,12 @@ function getAgentRecommendations(brief: string, currentAgentIds: Set<string>): A
 // logs, history, and the UI regardless of which agents were selected.
 const AGENT_DELIVERABLE_MAP: { agents: string[]; deliverable: Record<string, string> }[] = [
   {
-    // Prototype agents → single_file HTML output
-    agents: ["prototype-build", "prototype-specify", "prototype-plan"],
+    // Prototype agents → single_file HTML output.
+    // KAN-121 / FIX-110: all 5 prototype pipeline agents are listed as triggers so
+    // the deliverable override fires for ANY prototype agent combination — including
+    // compositions that omit prototype-build/specify/plan but include prototype-analyze
+    // or prototype-validate (e.g. a user following the COMPANION_GROUPS recommendation).
+    agents: ["prototype-build", "prototype-specify", "prototype-plan", "prototype-analyze", "prototype-validate"],
     deliverable: { strategy: "single_file", name: "prototype.html", mimetype: "text/html" },
   },
   {
@@ -454,6 +458,9 @@ function resolveDispatchType(
   }
   return { type: "custom", deliverableOverride: { strategy: "streamed_text", name: "output.md", mimetype: "text/markdown" } };
 }
+
+/** Export for ComposerPage (INV-12 — single source, no duplication). */
+export { getAgentRecommendations, COMPANION_GROUPS, resolveDispatchType, AGENT_DELIVERABLE_MAP };
 
 interface IdeaInputPageProps {
   workflowType: WorkflowType;

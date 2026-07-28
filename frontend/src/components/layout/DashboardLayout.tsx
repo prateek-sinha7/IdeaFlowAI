@@ -31,7 +31,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { parseRunInput } from "@/lib/runInput";
-import { getToken, getChainContext, getRunFamily, postCancel, postRevision } from "@/lib/api";
+import { getToken, getChainContext, getRunFamily, postCancel, postRevision, postResume } from "@/lib/api";
 import type { UserWorkflowSummary, WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -105,6 +105,10 @@ export interface DashboardLayoutProps {
   } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
+  // KAN-120 — the run id of the most-recently cancelled/stopped run. Preserved
+  // across pipeline_cancelled so Run Again can resume a clarify-cancelled run
+  // whose activePipelineRunId was already cleared.
+  lastCancelledRunId?: string | null;
   onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
   // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
   // state before the questionnaire panel clears (consumed by C2's ClarificationsCard).
@@ -179,6 +183,18 @@ export interface DashboardLayoutProps {
     attachments?: import("@/types/index").ChatAttachment[],
     options?: SendMessageOptions,
   ) => void;
+  /**
+   * FIX-119: Optimistically add a user bubble to the transcript without posting
+   * to the backend. Passed from page.tsx's `useRunChat.addOptimisticMessage` to
+   * the `RunChatLane` so `handleFreeText` can echo the user's text immediately
+   * before the classify-intent LLM round-trip (for all runState === "complete"
+   * workflows). Without this, only the "ask" path showed a user bubble (via
+   * sendMessage); "revise" and "chain" paths showed nothing.
+   */
+  addOptimisticMessage?: (
+    text: string,
+    attachments?: import("@/types/index").ChatAttachment[],
+  ) => string;
   // The nonce'd deep-link seam (borrow #6): the lane's result cards call
   // onRequestOpenTab; PreviewPanel consumes deepLinkTarget for all tabs.
   onRequestOpenTab?: (tab: string) => void;
@@ -225,6 +241,7 @@ export function DashboardLayout({
   onSelectWorkflowRun,
   questionnaireData,
   activePipelineRunId,
+  lastCancelledRunId,
   onSubmitQuestionnaire,
   onRetainClarifyRound,
   reviewGateData,
@@ -243,6 +260,7 @@ export function DashboardLayout({
   runChatMessages,
   runChatReplyStreaming,
   onRunChatSend,
+  addOptimisticMessage,
   onRequestOpenTab,
   deepLinkTarget,
 }: DashboardLayoutProps) {
@@ -275,6 +293,10 @@ export function DashboardLayout({
   // state is retained for the completion bookkeeping its setters perform.
   const [completedPipelineTypes, setCompletedPipelineTypes] = useState<WorkflowType[]>([]);
   const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
+  // KAN-120 BUG-4: inline error message shown in the terminal lane when a
+  // resume attempt fails (instead of silently navigating home). Cleared on the
+  // next pipeline_start (the run actually resumes) or when a new run is started.
+  const [resumeError, setResumeError] = useState<string | null>(null);
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
     id: string; question: string; options: string[]; answerType?: string;
     recommendedAnswer?: string; recommendedReasoning?: string;
@@ -492,6 +514,16 @@ export function DashboardLayout({
   // Check if pipeline is running (blocks navigation)
   const isPipelineRunning = pipelineState?.isRunning || false;
 
+  // KAN-120 BUG-4: clear the inline resume-error banner once the pipeline
+  // actually starts (confirms the resume was accepted by the backend).
+  // Keyed on isPipelineRunning transitioning to true — the pipeline_start
+  // event fires successfully. Direction is one-way (handleResumeRun sets it;
+  // only this effect clears it). The empty deps-array on the outer useCallback
+  // is safe because this effect runs on each isPipelineRunning change.
+  useEffect(() => {
+    if (isPipelineRunning) setResumeError(null);
+  }, [isPipelineRunning]);
+
   // Extract Agent 3's (ppt-code-generator) output for early PPTX download
   const pptxCode = pipelineState?.agents.find(a => a.id === "ppt-code-generator" && a.status === "done")?.output || undefined;
 
@@ -515,7 +547,13 @@ export function DashboardLayout({
     // reached only when contentSourceRunId is falsy and still reads the content.
     if (!contentSourceRunId && !pptxCode && !pptContent) return;
 
-    const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
+    // FIX-117: "ppt" runs produce HTML via the OD template flow (no pptxCode).
+    // If we have pptContent (HTML) but no pptxCode (JavaScript), it's an HTML
+    // deck regardless of the "ppt" vs "od_ppt" pipeline_type label → use
+    // od_ppt_revision (HTML-capable). The legacy ppt_revision path (PptxGenJS)
+    // only applies when pptxCode is present.
+    const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision"
+      || (!!pptContent && !pptxCode);
 
     // W3b (44-05): launch the revision when we have a completed parent run id.
     // POST /{id}/revisions (Strategy A — the byte-twin of engine._handle_revision:
@@ -923,6 +961,18 @@ export function DashboardLayout({
     setPendingPipelineRun(null);
     if (!isPipelineRunning && onResetPipeline) onResetPipeline();
   }, [onResetPipeline, isPipelineRunning]);
+
+  // "Edit brief & run again" — navigate to the input view so the user can
+  // modify their brief and start a fresh run (does NOT resume from checkpoint).
+  // Pre-fills the brief from submittedBrief when available so the user can edit
+  // rather than retype from scratch. Resets pipeline state so the input page
+  // starts clean (no stale failed-run overlay).
+  const handleEditBrief = useCallback(() => {
+    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
+    setResumeError(null);
+    setQuestionnaireQuestions([]);
+    setMainView("input");
+  }, [isPipelineRunning, onResetPipeline]);
 
   // Chain to another pipeline using previous output as context
   const handleChainPipeline = useCallback(async (nextType: WorkflowType) => {
@@ -1364,6 +1414,70 @@ export function DashboardLayout({
     }
   }, [pipelineState, activePipelineRunId]);
 
+  // Resume a cancelled or failed run from where it stopped (KAN-120 / RESUME-18).
+  // Captures the run id BEFORE any state mutation, POSTs to /api/runs/{id}/resume,
+  // then attaches the SSE stream — the same pattern as handleRevisePpt/postRevision.
+  // The SSE stream drives the state machine forward naturally (no onResetPipeline
+  // needed before the call — calling it would wipe pipelineRunId and make the UI
+  // snap back to idle before the resume fires).
+  // Falls back to handleGoHome when no run id is available (safe no-op).
+  const handleResumeRun = useCallback(() => {
+    // Guard: if a pipeline is already running, don't try to resume (the live run
+    // is in "generating" state → backend returns 409 run_not_resumable).
+    if (pipelineState?.isRunning) return;
+    // Priority: lastCancelledRunId (set on pipeline_cancelled, never cleared) >
+    // pipelineState?.pipelineRunId (set on pipeline_start, survives cancel) >
+    // contentSourceRunId (set on pipeline_complete / reopen) >
+    // activePipelineRunId (clarify gate id, cleared on cancel — lowest priority).
+    const runId = lastCancelledRunId ?? pipelineState?.pipelineRunId ?? contentSourceRunId ?? activePipelineRunId;
+    if (!runId) {
+      handleGoHome();
+      return;
+    }
+    // Clear any prior inline resume error before attempting.
+    setResumeError(null);
+
+    const doResume = (token: string, id: string): Promise<void> =>
+      postResume(token, id).then(({ run_id }) => {
+        if (run_id) runConnection.attachRun(run_id);
+      });
+
+    const token = getToken() ?? "";
+    void doResume(token, runId).catch((e) => {
+      // KAN-120 BUG-1/BUG-4: the backend DB commit of wr.status="cancelled" is
+      // async — it happens after _drive_launch_to_queue fully drains its queue
+      // (~1-5s AFTER pipeline_cancelled fires on the FE). A fast click in that
+      // window sees the DB with "generating" status → 409 run_not_resumable.
+      // Retry once after 2.5 s so the DB commit has time to land. This covers
+      // the common case (user stops build, immediately clicks Reopen) without
+      // adding UI complexity. Any error other than "generating" (e.g. pipeline_already_running)
+      // surfaces as an inline message — never silent home navigation.
+      const detail = e?.detail ?? {};
+      const code =
+        (typeof detail === "object" && detail !== null && "code" in detail)
+          ? (detail as Record<string, unknown>).code
+          : undefined;
+      if (code === "run_not_resumable" && typeof e?.message === "string" && e.message.includes("generating")) {
+        // Timing race — the DB hasn't committed "cancelled" yet. Retry once after 2.5s.
+        setTimeout(() => {
+          void doResume(token, runId).catch((retryErr) => {
+            console.error("postResume retry failed", retryErr);
+            setResumeError("Could not resume the run — please try again.");
+          });
+        }, 2500);
+        return;
+      }
+      // Any other error: show inline message instead of silently navigating home.
+      console.error("postResume failed", e);
+      if (code === "pipeline_already_running") {
+        // The run is live in another tab or session — just attach this SSE stream.
+        runConnection.attachRun(runId);
+        return;
+      }
+      setResumeError("Could not resume the run — please try again.");
+    });
+  }, [lastCancelledRunId, pipelineState, contentSourceRunId, activePipelineRunId, runConnection, handleGoHome]);
+
   // GENERIC live-run state that drives the D-12 composer mode (SC-001 — never a
   // workflow name). Priority: gate > clarify > building > terminal-failure >
   // complete (has deliverable) > idle.
@@ -1775,6 +1889,10 @@ export function DashboardLayout({
                       // settled-run ASK can fold { concierge: true } onto the
                       // payload (Concierge answer vs. onRevise revision).
                       sendMessage={runChatSend}
+                      // FIX-119: optimistic-message echo for all runState=complete
+                      // workflows so the user's text is always visible in the chat
+                      // before the classify-intent LLM round-trip resolves.
+                      addOptimisticMessage={addOptimisticMessage}
                       isStreaming={isStreaming}
                       streamingContent={streamingContent}
                       // quick-260719-rqo (Issue 2 part 2): the streaming-reply hint
@@ -1793,7 +1911,9 @@ export function DashboardLayout({
                       // Absorbed AgentProgressPanel controls (Stop / revise / suggestions).
                       onStop={handleStopPipeline}
                       onRevise={activeReviseHandler}
-                      onRelaunch={handleGoHome}
+                      onRelaunch={handleResumeRun}
+                      onEditBrief={handleEditBrief}
+                      relaunchError={resumeError}
                       suggestions={laneSuggestions}
                       onSuggestion={handleLaneSuggestion}
                       // 43-02 (A.1 CRUX) — Concierge props wired at the mount.

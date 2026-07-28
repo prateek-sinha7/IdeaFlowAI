@@ -231,8 +231,22 @@ def _reply_event_id(source_event_id: str | None, card: dict) -> str:
     Idempotency lives at the stamping boundary: a card projected from the SAME source
     milestone yields the SAME ``event_id`` (namespaced ``chat_reply:{source}``), so a
     replayed milestone resolves to the already-present row (a no-op — no second card).
-    When the source carries no ``event_id`` (rare), fall back to the card's own nonce.
+
+    For run-level pipeline_start cards, idempotency must be per-RUN rather than
+    per-source-event-id: a resumed run emits a NEW pipeline_start with a NEW event_id,
+    which would otherwise produce a second "Run started" card.  We key on
+    ``pipeline_start:{run_id}`` so all pipeline_start events for the same run collapse to
+    one card.  Other CARD_PIPELINE events (complete/failed/cancelled) keep the
+    source-event-id key because each occurrence is genuinely distinct (one per run).
+    KAN-120: fixes the duplicate "Run started" card on resume.
     """
+    # pipeline_start cards are keyed by run_id, not by the source event_id, so that a
+    # resumed run's new pipeline_start event resolves to the existing card (idempotent).
+    card_text = card.get("text", "")
+    card_kind = card.get("card_kind", "")
+    deep_link_target = (card.get("deep_link") or {}).get("target", "")
+    if card_kind == CARD_PIPELINE and card_text == "Run started" and deep_link_target:
+        return f"{CHAT_REPLY_TYPE}:pipeline_start:{deep_link_target}"
     if source_event_id:
         return f"{CHAT_REPLY_TYPE}:{source_event_id}"
     return f"{CHAT_REPLY_TYPE}:{card['deep_link']['nonce']}"

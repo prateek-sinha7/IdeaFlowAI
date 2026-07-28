@@ -93,9 +93,14 @@ def strip_pre_slide_body_text(html: str) -> str:
     # strip the deck container itself (Broadside / templates using <div id="deck">).
     deck_id_m = re.search(r'<div[^>]*\bid=["\']deck["\']', after_body, re.IGNORECASE)
     deck_cls_m = re.search(r'<div[^>]*class=["\'][^"\']*\b(?:deck|slides|presentation)\b', after_body, re.IGNORECASE)
+    # Additional anchors for templates using <main>, <article>, or custom wrappers
+    # like <div id="presentation">, <div class="slides-container">, etc.
+    main_m = re.search(r'<(?:main|article)[^>]*>', after_body, re.IGNORECASE)
+    presentation_id_m = re.search(r'<div[^>]*\bid=["\'](?:presentation|slides|deck-container)["\']', after_body, re.IGNORECASE)
+    slides_container_m = re.search(r'<div[^>]*class=["\'][^"\']*\b(?:slides-container|deck-container|slide-wrapper)\b', after_body, re.IGNORECASE)
 
     # Take whichever valid slide/deck anchor comes first.
-    candidates = [m.start() for m in (stage_m, slide_m, deck_id_m, deck_cls_m) if m is not None]
+    candidates = [m.start() for m in (stage_m, slide_m, deck_id_m, deck_cls_m, main_m, presentation_id_m, slides_container_m) if m is not None]
     if not candidates:
         return html
     first_slide_offset = min(candidates)
@@ -103,22 +108,27 @@ def strip_pre_slide_body_text(html: str) -> str:
     # The preamble is the text between <body> and the first slide/deck anchor.
     preamble = after_body[:first_slide_offset]
 
-    # Only act when the preamble contains non-whitespace TEXT content (not just
-    # HTML tags). QA checklist text is plain text or <p>/<span> with text nodes;
-    # legitimate decks start immediately with a structural element. If the preamble
-    # contains only whitespace + HTML tags (e.g. a <script> or <style> block that
-    # legitimately precedes the deck), skip the strip to avoid breaking the deck.
+    # Strip the preamble whenever it contains any non-whitespace content.
+    # Legitimate decks NEVER have ANY content (HTML elements or plain text)
+    # between <body> and the first slide anchor — the slide container must
+    # be the first thing after <body>. So any non-whitespace preamble,
+    # whether it is plain QA text, <p>✓ Slide structure OK</p> elements,
+    # or any other HTML injection, is unwanted validator output.
+    #
+    # Previously this check was:
+    #   preamble_text_only = re.sub(r"<[^>]+>", "", preamble_stripped).strip()
+    #   if not preamble_text_only: return html
+    # That skipped the strip when the preamble contained ONLY HTML elements
+    # (e.g. <p>✓ OK</p>) with no bare text outside tags, allowing those elements
+    # to render visibly in the iframe over the first slide.
+    # The new rule: if the preamble has any non-whitespace content at all → strip it.
     preamble_stripped = preamble.strip()
     if not preamble_stripped:
         return html
 
-    # Check if the preamble looks like QA text: contains alphanumeric content
-    # that is NOT inside an HTML tag (i.e. actual visible text nodes).
-    # A preamble that is only tags/whitespace is legitimate; one with text is QA leakage.
+    # Log what we're stripping so it is observable in server logs.
     preamble_text_only = re.sub(r"<[^>]+>", "", preamble_stripped).strip()
-    if not preamble_text_only:
-        # Preamble is only HTML elements (scripts, styles, etc.) — do NOT strip.
-        return html
+    preamble_summary = preamble_text_only or preamble_stripped
 
     original = html
     # Remove the preamble by splicing it out.
@@ -126,9 +136,9 @@ def strip_pre_slide_body_text(html: str) -> str:
     html = html[:body_end] + "\n" + html[slide_start_in_html:]
 
     logger.info(
-        "Stripped pre-slide body text from PPT deck (%d chars removed, text=%r…)",
+        "Stripped pre-slide body content from PPT deck (%d chars removed, content=%r…)",
         len(preamble),
-        preamble_text_only[:80],
+        preamble_summary[:80],
     )
     return html
 

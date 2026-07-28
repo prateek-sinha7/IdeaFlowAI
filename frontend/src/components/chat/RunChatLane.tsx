@@ -143,6 +143,19 @@ export interface RunChatLaneProps {
     attachments?: ChatAttachment[],
     options?: SendMessageOptions,
   ) => void;
+  /**
+   * FIX-119: Optimistically add a user bubble to the transcript WITHOUT posting
+   * to the backend. Used in `handleFreeText` on a `complete` run to echo the
+   * user's text immediately before the classify-intent LLM round-trip, so the
+   * user always sees their message — without triggering the mechanical router's
+   * CHANNEL_REVISION side-effect (the double-version bug from FIX-118). Returns
+   * the stable `messageId` the caller can pass to `sendMessage` via
+   * `options.existingMessageId` to reconcile the bubble instead of duplicating.
+   */
+  addOptimisticMessage?: (
+    text: string,
+    attachments?: ChatAttachment[],
+  ) => string;
   isStreaming?: boolean;
   streamingContent?: string;
   /**
@@ -184,6 +197,19 @@ export interface RunChatLaneProps {
   onRevise?: (instruction: string) => void;
   /** Relaunch after a terminal run. */
   onRelaunch?: () => void;
+  /**
+   * KAN-120 BUG-4: inline error message shown when a resume attempt fails
+   * (instead of silently navigating away). Cleared by the caller when the
+   * run successfully starts (pipeline_start received). Optional/undefined →
+   * no error message (normal path, zero regression).
+   */
+  relaunchError?: string | null;
+  /**
+   * "Edit brief & run again" — navigates home so the user can modify their
+   * brief and start a fresh run. Distinct from `onRelaunch` (resume from
+   * checkpoint). When absent the secondary button falls back to `onRelaunch`.
+   */
+  onEditBrief?: () => void;
   /** Suggested next steps rendered as quick-reply chips. */
   suggestions?: LaneSuggestion[];
   onSuggestion?: (id: string) => void;
@@ -384,7 +410,55 @@ function sanitizeError(err: string | undefined): string | undefined {
   if (!err) return undefined;
   const firstLine = err.split("\n")[0]?.trim();
   if (!firstLine) return undefined;
-  return firstLine.length > 200 ? `${firstLine.slice(0, 197)}…` : firstLine;
+  return firstLine.length > 200 ? `${firstLine.slice(0, 197)}\u2026` : firstLine;
+}
+
+/**
+ * KAN-123: Derive structured security failure bullets from live PipelineRunState.
+ * Returns [] for non-security failures so the generic agent-name + error path runs.
+ * Checks: (1) pipelineState.hookRuns blocked rows → "Secret scan blocked…"
+ *          (2) failed-agent exec-denied errors → "Code execution denied…"
+ *          (3) validation CRITICAL/HIGH issues → "Validation found N critical…"
+ * Generic signal detection only — no agent-id/workflow-name literal (SC-001/INV-1).
+ */
+function deriveSecurityBullets(state: PipelineRunState | undefined): string[] {
+  if (!state) return [];
+  const bullets: string[] = [];
+
+  // (1) Secret-scan blocks from live hook_run events (pipelineState.hookRuns).
+  const blockedScans = (state.hookRuns ?? []).filter(
+    (h) => h.outcome === "block" && /secret|scan/i.test(h.hook ?? "")
+  );
+  for (const scan of blockedScans) {
+    const d = scan.detail as Record<string, unknown> | null;
+    const file = typeof d?.file === "string" ? ` to ${d.file}` : "";
+    const marker = typeof d?.marker === "string" ? ` containing ${d.marker}` : " containing credentials";
+    bullets.push(`Secret scan blocked a write${file}${marker}`);
+  }
+
+  // (2) Exec-denied errors from failed agents (any agent status="error" with
+  //     an exec-denied signal in its error string).
+  const execDenied = (state.agents ?? []).some(
+    (a) => a.status === "error" && /exec.*denied|exec.*off/i.test(a.error ?? "")
+  );
+  if (execDenied) {
+    bullets.push("Code execution denied \u2014 exec is off for this workspace");
+  }
+
+  // (3) Validation CRITICAL/HIGH issues from any agent's validationIssues.
+  let criticalCount = 0;
+  for (const a of state.agents ?? []) {
+    for (const v of a.validationIssues ?? []) {
+      if (v.severity === "CRITICAL" || v.severity === "HIGH") criticalCount++;
+    }
+  }
+  if (criticalCount > 0) {
+    bullets.push(
+      `Validation found ${criticalCount} critical structural error${criticalCount !== 1 ? "s" : ""} in the partial build`
+    );
+  }
+
+  return bullets;
 }
 
 /** Total answered/asked clarifying questions across the retained rounds (live). */
@@ -863,6 +937,7 @@ export function RunChatLane({
   messages,
   runState,
   sendMessage,
+  addOptimisticMessage,
   isStreaming = false,
   streamingContent = "",
   replyStreaming,
@@ -877,6 +952,8 @@ export function RunChatLane({
   onStop,
   onRevise,
   onRelaunch,
+  relaunchError,
+  onEditBrief,
   suggestions,
   onSuggestion,
   proposals,
@@ -1010,68 +1087,94 @@ export function RunChatLane({
     return () => clearTimeout(reset);
   }, [viewedRunId]);
 
-  // Free-text send routes through the transport-agnostic sendMessage. On a
-  // SETTLED run (complete) the turn is CLASSIFIED (43-02, the A.1 CRUX): an ASK
-  // (a status/question turn) is ANSWERED by the Concierge — folded onto the send
-  // payload as `{ concierge: true }`. A CHANGE REQUEST no longer auto-launches a
-  // revision (44-02): it is HELD behind a confirm chip so the *_revision run
-  // fires only on explicit confirm — accidental auto-launches are removed
-  // (T-44-02-01). Classification stays GENERIC (SC-001/INV-1) — keyed only on the
-  // free text + runState, never a workflow-name/agent-id literal. When no revise
-  // channel is supplied a change falls back to a plain message (no chip).
+  // Free-text send on a SETTLED run: silently classify intent via LLM
+  // (FIX-116), then show the appropriate affordance immediately — no chat reply.
+  //   • "revise"  → hold the text as a revision (same confirm-chip as before)
+  //   • "chain"   → open the chain picker or direct-chain if target_id matches
+  //   • "ask"     → fall through to Concierge for a conversational answer
+  // The exact-label matchChainTarget fast-path is kept for named targets (no LLM).
+  // All paths are GENERIC (SC-001/INV-1) — keyed only on intent, never a workflow name.
+  //
+  // UX: the user's text is echoed immediately as a user bubble via sendMessage's
+  // chat_message path, then the TypingIndicator fires (replyPending=true) while
+  // the classify-intent LLM call is in flight (~1–3s). When the result lands the
+  // spinner clears and the revise/chain chip appears. Never a silent 10-second wait.
   const handleFreeText = useCallback(
     (text: string, attachments: ChatAttachment[]) => {
       if (runState === "complete") {
-        // BUG-1 (quick-260720-ec4): a "<transform> into <named available chain
-        // target>" phrase chains into a NEW workflow via the existing onSuggestion
-        // seam — BEFORE the ask/change split — instead of misrouting to a revision
-        // of THIS run. Fires ONLY on a data-driven match against suggestions[].label
-        // AND an onSuggestion handler; any non-match falls through UNCHANGED.
+        // Fast path: exact named-target chain (BUG-1 fix — no LLM round-trip needed).
         const chainId = matchChainTarget(text, suggestions);
         if (chainId && onSuggestion) {
           onSuggestion(chainId);
           return;
         }
-        // FIX-104: vague chain intent → open the inline picker so the user can
-        // select which workflow to chain into. Only fires when suggestions are
-        // available and no named target was matched by matchChainTarget above.
-        if (classifyFreeText(text) === "chain") {
-          if (suggestions && suggestions.length > 0 && onSuggestion) {
-            setChainPickerOpen(true);
-          }
-          // If no suggestions available, fall through to ask/Concierge.
-          else {
-            setReplyPending(true);
-            sendMessage(text, attachments, { concierge: true });
-          }
-          return;
-        }
-        if (classifyFreeText(text) === "ask") {
-          // Show the thinking affordance while the blocking Concierge reply is in flight.
-          setReplyPending(true);
-          // c72 — fold the SAME curated chain suggestions the chips show onto the
-          // Concierge ask as GENERIC hints, so an "what can I do next?" turn can
-          // name the chainable next-workflows. Absent suggestions ⇒ NO chain_hints
-          // key (byte-identical to the pre-c72 send, INV-3). GENERIC (SC-001/INV-1)
-          // — plain display labels mapped off the prop, never a workflow-name literal.
-          const chainHints =
-            suggestions && suggestions.length > 0
-              ? suggestions.map((s) => ({ id: s.id, label: s.label }))
-              : undefined;
-          sendMessage(text, attachments, {
-            concierge: true,
-            ...(chainHints ? { chain_hints: chainHints } : {}),
+
+        // FIX-119: Echo the user's text as an optimistic bubble IMMEDIATELY,
+        // before the classify-intent LLM call. On a complete run, calling
+        // sendMessage() without { concierge: true } would route through
+        // CHANNEL_REVISION (mechanical router) and create a spurious revision run
+        // BEFORE the confirm chip appears — the double-version bug (FIX-118).
+        // addOptimisticMessage() adds a bubble to local state ONLY with no backend
+        // side-effect. The returned messageId is used to reconcile the bubble when
+        // the ask path later calls sendMessage with { existingMessageId }.
+        const echoMessageId = addOptimisticMessage
+          ? addOptimisticMessage(text, attachments)
+          : undefined;
+
+        // Show TypingIndicator while classifying intent via LLM (~1–3s).
+        setReplyPending(true);
+
+        const runId = viewedRunId ?? "";
+        const chainHints = suggestions?.map((s) => ({ id: s.id, label: s.label }));
+
+        if (runId) {
+          import("@/lib/api").then(({ classifyIntent, getToken }) => {
+            const jwt = getToken() ?? "";
+            if (!jwt) {
+              setReplyPending(false);
+              if (onRevise) setHeldRefinement(text);
+              return;
+            }
+            classifyIntent(jwt, runId, text, chainHints).then((result) => {
+              setReplyPending(false);   // ← clears TypingIndicator when result arrives
+              if (result.intent === "chain") {
+                if (result.target_id && onSuggestion) {
+                  onSuggestion(result.target_id);
+                } else if (suggestions && suggestions.length > 0 && onSuggestion) {
+                  setChainPickerOpen(true);
+                } else if (onRevise) {
+                  setHeldRefinement(text);
+                }
+              } else if (result.intent === "ask") {
+                // Conversational question → send to Concierge.
+                // Reuse the existing optimistic bubble via existingMessageId so
+                // sendMessage reconciles it in place instead of adding a duplicate.
+                setReplyPending(true);
+                sendMessage(text, attachments, {
+                  concierge: true,
+                  ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
+                  ...(chainHints ? { chain_hints: chainHints } : {}),
+                });
+              } else {
+                // "revise" → show confirm chip (the optimistic bubble is already visible)
+                if (onRevise) setHeldRefinement(text);
+              }
+            }).catch(() => {
+              setReplyPending(false);
+              if (onRevise) setHeldRefinement(text);
+            });
           });
           return;
         }
-        if (onRevise) {
-          setHeldRefinement(text);
-          return;
-        }
+
+        // No runId — fall back to revision hold
+        setReplyPending(false);
+        if (onRevise) setHeldRefinement(text);
+        return;
       }
       sendMessage(text, attachments);
     },
-    [runState, onRevise, sendMessage, suggestions, onSuggestion],
+    [runState, onRevise, sendMessage, addOptimisticMessage, suggestions, onSuggestion, viewedRunId],
   );
 
   // Confirm the held refinement → launch the revision (the ONLY path that fires
@@ -1105,11 +1208,21 @@ export function RunChatLane({
   // user must CONFIRM before the app executes it (T-33-04-01). GENERIC — no
   // workflow-name literal (INV-1). Proposal text is rendered through React's
   // default JSX escaping (no raw-HTML injection sink) — XSS-safe (T-33-04-02).
+  // FIX-115: "chain" proposals confirm via onSuggestion(target_id) — the EXISTING
+  // suggestion-chip seam — rather than a server round-trip (no new execution path).
   const renderProposals = () => {
     if (!proposals || proposals.length === 0) return null;
     return (
       <div data-testid="chat-proposals" className="space-y-2">
-        {proposals.map((p) => (
+        {proposals.map((p) => {
+          // "chain" proposals execute client-side via the existing suggestion seam.
+          const isChain = p.channel === "chain";
+          const chainTargetId = isChain ? String(p.params?.target_id ?? "") : "";
+          const confirmLabel = isChain ? "Start this workflow" : "Confirm";
+          const handleConfirm = isChain
+            ? () => { if (chainTargetId && onSuggestion) onSuggestion(chainTargetId); }
+            : () => onConfirmProposal?.(p);
+          return (
           <Card
             key={p.id}
             data-proposal-id={p.id}
@@ -1118,7 +1231,7 @@ export function RunChatLane({
             <div className="flex items-center gap-1.5">
               <Sparkles className="h-3 w-3 text-brand" />
               <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
-                Confirm to continue
+                {isChain ? "Start a follow-up workflow?" : "Confirm to continue"}
               </p>
             </div>
             {p.summary && (
@@ -1129,10 +1242,10 @@ export function RunChatLane({
                 type="button"
                 data-testid="chat-proposal-confirm"
                 data-proposal-id={p.id}
-                onClick={() => onConfirmProposal?.(p)}
+                onClick={handleConfirm}
                 className="rounded-[var(--radius-pill)] bg-brand px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed"
               >
-                Confirm
+                {confirmLabel}
               </button>
               <button
                 type="button"
@@ -1145,7 +1258,8 @@ export function RunChatLane({
               </button>
             </div>
           </Card>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -1333,10 +1447,19 @@ export function RunChatLane({
                   </p>
                 </div>
                 <p className="mt-1 text-[11px] text-ink-500">
-                  The run was stopped. Nothing further will happen.
+                  The run was stopped. Click Run Again to resume from where it left off.
                 </p>
               </Card>
-              {relaunch("New Pipeline")}
+              {/* KAN-120 BUG-4: inline error if the resume attempt failed. */}
+              {relaunchError && (
+                <div className="flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-[10px] py-[8px]">
+                  <AlertTriangle className="h-[13px] w-[13px] flex-none text-status-amber" strokeWidth={1.8} />
+                  <span className="font-serif text-[11.5px] leading-[1.4] text-status-amber-strong">
+                    {relaunchError}
+                  </span>
+                </div>
+              )}
+              {relaunch("Run Again")}
             </div>
           );
         }
@@ -1349,6 +1472,14 @@ export function RunChatLane({
           const sanitized = sanitizeError(
             firstAgentError(pipelineState?.agents, failedIds),
           );
+
+          // KAN-123: derive structured security failure bullets from live state.
+          // Checks pipelineState.hookRuns (blocked secret scans), failed agent
+          // errors (exec denied, validation errors) — generic signals, SC-001.
+          const securityBullets = deriveSecurityBullets(pipelineState);
+          const isSecurityGate = securityBullets.length > 0 ||
+            /security.*gate|exec.*denied|secret.*blocked|hook.*block/i.test(sanitized ?? "");
+
           return (
             <div data-testid="chat-terminal-failed" className="space-y-3">
               {/* Failure card — red-tinted, alert header, live bullets. */}
@@ -1363,19 +1494,37 @@ export function RunChatLane({
                   </span>
                 </div>
                 <div className="px-[14px] py-3 font-serif text-[12px] leading-[1.6] text-ink-700">
-                  {names.length > 0 && (
-                    <p className="mb-[7px]">
-                      • Failed {names.length > 1 ? "agents" : "agent"}:{" "}
-                      <span className="font-semibold text-ink-900">
-                        {names.join(", ")}
-                      </span>
+                  {/* KAN-123: show structured security bullets when available;
+                      fall back to the generic agent-name + error pattern. */}
+                  {securityBullets.length > 0 ? (
+                    securityBullets.map((bullet, i) => (
+                      <p key={i} className={i < securityBullets.length - 1 ? "mb-[7px]" : ""}>
+                        • {bullet}
+                      </p>
+                    ))
+                  ) : (
+                    <>
+                      {names.length > 0 && (
+                        <p className="mb-[7px]">
+                          • Failed {names.length > 1 ? "agents" : "agent"}:{" "}
+                          <span className="font-semibold text-ink-900">
+                            {names.join(", ")}
+                          </span>
+                        </p>
+                      )}
+                      {sanitized && (
+                        <p data-testid="chat-terminal-error">• {sanitized}</p>
+                      )}
+                      {names.length === 0 && !sanitized && (
+                        <p>• The run stopped before completing. Reopen to resume.</p>
+                      )}
+                    </>
+                  )}
+                  {/* When security gate stopped the run, mention the Audit tab. */}
+                  {isSecurityGate && (
+                    <p className="mt-[7px] text-[11px] text-ink-400">
+                      See the Audit tab for detector, match, and action details.
                     </p>
-                  )}
-                  {sanitized && (
-                    <p data-testid="chat-terminal-error">• {sanitized}</p>
-                  )}
-                  {names.length === 0 && !sanitized && (
-                    <p>• The run stopped before completing. Reopen to resume.</p>
                   )}
                 </div>
               </div>
@@ -1384,6 +1533,18 @@ export function RunChatLane({
                 <p className="mb-[9px] font-sans text-[11.5px] font-semibold text-ink-900">
                   Resume options
                 </p>
+                {/* KAN-120 BUG-4: inline error if the resume attempt failed
+                    (e.g. timing race — DB not yet committed; or any other error).
+                    Shown above the buttons so the user sees it without scrolling.
+                    Absent on the normal path (relaunchError is null/undefined). */}
+                {relaunchError && (
+                  <div className="mb-[9px] flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-[10px] py-[8px]">
+                    <AlertTriangle className="h-[13px] w-[13px] flex-none text-status-amber" strokeWidth={1.8} />
+                    <span className="font-serif text-[11.5px] leading-[1.4] text-status-amber-strong">
+                      {relaunchError}
+                    </span>
+                  </div>
+                )}
                 <button
                   type="button"
                   data-testid="chat-relaunch"
@@ -1396,7 +1557,7 @@ export function RunChatLane({
                 <button
                   type="button"
                   data-testid="chat-relaunch-secondary"
-                  onClick={() => onRelaunch?.()}
+                  onClick={() => (onEditBrief ?? onRelaunch)?.()}
                   className="flex w-full items-center justify-center rounded-[10px] border border-line-control bg-surface-white px-3 py-[10px] font-sans text-[12px] font-semibold text-ink-700 transition-colors hover:border-line-faint"
                 >
                   Edit brief &amp; run again

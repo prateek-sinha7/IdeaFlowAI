@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowLeft, Save, Plus, Shield, GitBranch, LayoutList } from "lucide-react";
+import { ArrowLeft, Save, Plus, Shield, GitBranch, LayoutList, Sparkles } from "lucide-react";
 import { IdentityCard } from "./IdentityCard";
 import { AgentRow } from "./AgentRow";
 import { SummaryRail } from "./SummaryRail";
@@ -18,6 +18,7 @@ import {
 import { AgentLibrary } from "../AgentLibrary";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { LIBRARY_AGENTS, ALL_LIBRARY_AGENTS } from "../AgentLibraryData";
+import { getAgentRecommendations, COMPANION_GROUPS, resolveDispatchType } from "../IdeaInputPage";
 import { createUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
 import type { AgentDef, WorkflowType } from "@/types/index";
 
@@ -219,6 +220,28 @@ export function ComposerPage({
     [],
   );
 
+  // ── Brief-based agent recommendations + companion suggestions (KAN-121/FIX-112) ──
+  // Mirrors IdeaInputPage recommendations but keyed on `description` (the
+  // IdentityCard brief field). Uses shared functions (INV-12 — single source).
+  const [dismissedRecs, setDismissedRecs] = useState<Set<string>>(new Set());
+  const currentAgentIds = new Set(pipelineAgents.map((a) => a.id));
+  const recommendations = workflowType === "custom"
+    ? getAgentRecommendations(description, currentAgentIds)
+        .filter((a) => !dismissedRecs.has(a.id))
+        .slice(0, 6)
+    : [];
+  const companionSuggestion = workflowType === "custom" ? (() => {
+    for (const group of COMPANION_GROUPS) {
+      const hasAny = group.ids.some((id) => currentAgentIds.has(id));
+      const hasAll = group.ids.every((id) => currentAgentIds.has(id));
+      if (hasAny && !hasAll) {
+        const missing = group.ids.filter((id) => !currentAgentIds.has(id));
+        return { group, missing };
+      }
+    }
+    return null;
+  })() : null;
+
   // ── Derived summary values (live, never fabricated — ND-AG) ───────────────────
   const gateCount = pipelineAgents.filter(
     (a) => (selections[a.id]?.gates?.length ?? 0) > 0 || !!a.gate,
@@ -289,18 +312,34 @@ export function ComposerPage({
   // base. The composed agent order → agent ids; the identity brief → the run message;
   // the per-step SelectionsMap + review-gate agents → extraParams (the SAME shared
   // data-model fields the existing launch already accepts — no fabricated cost).
+  // KAN-121 / FIX-113: also inject __deliverable__ (mirrors IdeaInputPage.handleRun)
+  // so the engine's _apply_selections swaps the compiled plan's deliverable spec
+  // (e.g. single_file/prototype.html for prototype agents). Without this the engine
+  // receives no override and uses the custom manifest default (streamed_text/output.md).
   const handleRunOnce = useCallback(() => {
     if (!onRun) return;
     const brief = description.trim() || name.trim() || "Custom workflow run";
     const gateAgentIds = pipelineAgents
       .filter((a) => (selections[a.id]?.gates?.length ?? 0) > 0 || !!a.gate)
       .map((a) => a.id);
+
+    // Resolve the dispatch type and deliverable override from the chosen agent set.
+    // This is the exact same call IdeaInputPage.handleRun makes — single source
+    // via the exported resolveDispatchType (INV-12, no duplication).
+    const { type: dispatchType, deliverableOverride } = resolveDispatchType(pipelineAgents, workflowType);
+
+    // Merge __deliverable__ into the per-agent selections map so the backend's
+    // _apply_selections can swap the compiled deliverable spec at run entry.
+    const mergedSelections = deliverableOverride
+      ? { ...selections, __deliverable__: deliverableOverride }
+      : selections;
+
     const extraParams: Record<string, unknown> = {
-      ...(Object.keys(selections).length > 0 ? { selections } : {}),
+      ...(Object.keys(mergedSelections).length > 0 ? { selections: mergedSelections } : {}),
       ...(gateAgentIds.length > 0 ? { gate_agent_ids: gateAgentIds } : {}),
     };
     onRun(
-      workflowType,
+      dispatchType,
       brief,
       pipelineAgents.map((a) => a.id),
       Object.keys(extraParams).length > 0 ? extraParams : undefined,
@@ -402,6 +441,71 @@ export function ComposerPage({
                 onNameChange={setName}
                 onDescriptionChange={setDescription}
               />
+
+              {/* KAN-121 / FIX-112: Brief-based agent recommendations.
+                  Fires when description has ≥10 chars. Same logic as IdeaInputPage. */}
+              {recommendations.length > 0 && (
+                <div className="mb-4 rounded-[13px] border border-brand/15 bg-brand/[0.04] px-4 py-3">
+                  <div className="mb-2 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-brand" />
+                    <p className="font-sans text-[10px] font-semibold uppercase tracking-wide text-brand">
+                      Suggested agents for your brief
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {recommendations.map((agent) => (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={() => addAgent(agent)}
+                        title={agent.description}
+                        className="flex items-center gap-1.5 rounded-full border border-brand/20 bg-surface-white px-2.5 py-1 font-sans text-[11px] font-medium text-ink-700 transition-colors hover:border-brand hover:bg-brand hover:text-surface-white"
+                      >
+                        {agent.name.replace(/ Agent$/, "")}
+                        <Plus className="h-3 w-3 opacity-50" />
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setDismissedRecs(new Set(recommendations.map((a) => a.id)))}
+                      className="self-center px-1 font-sans text-[10px] text-ink-300 hover:text-ink-600"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* KAN-121 / FIX-112: Companion suggestion — incomplete pipeline banner. */}
+              {companionSuggestion && (
+                <div className="mb-4 rounded-[13px] border border-amber-200 bg-amber-50 px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-sans text-[11px] font-semibold text-amber-800">
+                        {companionSuggestion.group.label}
+                      </p>
+                      <p className="mt-0.5 font-serif text-[10px] leading-relaxed text-amber-700">
+                        {companionSuggestion.group.description}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const groupIds = new Set(companionSuggestion.group.ids);
+                        const nonGroupAgents = pipelineAgents.filter((a) => !groupIds.has(a.id));
+                        const fullGroupAgents = companionSuggestion.group.ids
+                          .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+                          .filter(Boolean) as AgentDef[];
+                        setPipelineAgents([...fullGroupAgents, ...nonGroupAgents]);
+                      }}
+                      className="flex flex-shrink-0 items-center gap-1 rounded-lg bg-amber-100 px-2.5 py-1 font-sans text-[11px] font-semibold text-amber-800 transition-colors hover:bg-amber-200 hover:text-amber-900"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add {companionSuggestion.missing.length} missing
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Agent pipeline header */}
               <div className="mx-0.5 mb-3 flex items-center justify-between">

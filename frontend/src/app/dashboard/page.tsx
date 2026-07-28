@@ -198,6 +198,10 @@ export default function DashboardPage() {
   // Phase 2 — pipeline_run_id of the run currently paused at the clarify gate,
   // used to address submit_questionnaire back to the correct paused run.
   const [activePipelineRunId, setActivePipelineRunId] = useState<string | null>(null);
+  // KAN-120 — the run id of the most-recently cancelled or stopped run. Unlike
+  // activePipelineRunId (cleared on cancel), this is NEVER cleared so handleResumeRun
+  // in DashboardLayout can still find the run id after pipeline_cancelled fires.
+  const [lastCancelledRunId, setLastCancelledRunId] = useState<string | null>(null);
   // Review gate state — set when review_gate_ready fires
   const [reviewGateData, setReviewGateData] = useState<{
     gateKey: string;
@@ -544,6 +548,9 @@ export default function DashboardPage() {
           // persist into the next run's preview area.
           setQuestionnaireData(null);
           setActivePipelineRunId(null);
+          // KAN-120: clear the lastCancelledRunId so the resumed run's pipeline_start
+          // removes the "Cancelled" state from history and the chat lane.
+          setLastCancelledRunId(null);
         }
       }
 
@@ -651,6 +658,13 @@ export default function DashboardPage() {
           getWorkflows(currentToken, { limit: 50 })
             .then((runs) => setRecentRuns(runs))
             .catch(() => {});
+          // KAN-120: do a second delayed refetch so the history reflects the
+          // reconciled status (completed) after _reconcile_terminal_status
+          // finishes writing it — the first fetch races against it.
+          setTimeout(() => {
+            const t = getToken();
+            if (t) getWorkflows(t, { limit: 50 }).then((runs) => setRecentRuns(runs)).catch(() => {});
+          }, 2000);
         }
       }
 
@@ -958,6 +972,25 @@ export default function DashboardPage() {
         // "clarify" instead of "terminal" and leaves the AwaitingCard visible.
         // Mirrors the identical pipeline_start clear (lines above).
         setQuestionnaireData(null);
+        // KAN-120: preserve the run id so Run Again can resume it even when
+        // activePipelineRunId is about to be cleared.
+        if (msg.type === "pipeline_cancelled") {
+          const cancelledId = (msg.pipeline_run_id as string | undefined)
+            ?? ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
+            ?? activePipelineRunId
+            ?? trackedRunIdRef.current;
+          if (cancelledId) setLastCancelledRunId(cancelledId);
+          // BUG-015 mirror for cancellation: release the sticky SSE focus so the
+          // RunStreamConnection unmounts when the server closes the stream after
+          // pipeline_cancelled. Without this, the stream close triggers
+          // scheduleReconnect() (sawNonLiveAttachRef = false for a live run),
+          // showing a yellow "Reconnecting…" banner after every Stop click.
+          // Mirrors the identical call in the pipeline_complete case above
+          // (~line 597). Safe: the durable run_events are already persisted and
+          // the chat transcript is already in state — unmounting the connection
+          // does not remove any rendered content.
+          if (cancelledId) detachRunRef.current?.(cancelledId);
+        }
         setActivePipelineRunId(null);
         break;
       }
@@ -1053,7 +1086,7 @@ export default function DashboardPage() {
     [runConnection],
   );
 
-  const { messages: runChatMessages, sendMessage: sendRunChatMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript } = useRunChat({
+  const { messages: runChatMessages, sendMessage: sendRunChatMessage, addOptimisticMessage: addRunChatOptimisticMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript } = useRunChat({
     // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
     // path hits the in-flight run instead of null-then-fresh-POST; fall back to
     // the clarify-only activePipelineRunId when the build id is not yet set.
@@ -1546,6 +1579,7 @@ export default function DashboardPage() {
       runChatMessages={runChatMessages}
       runChatReplyStreaming={runChatReplyStreaming}
       onRunChatSend={sendRunChatMessage}
+      addOptimisticMessage={addRunChatOptimisticMessage}
       onRequestOpenTab={runTabDeepLink.requestOpenTab}
       deepLinkTarget={runTabDeepLink.pending}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
@@ -1619,6 +1653,7 @@ export default function DashboardPage() {
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}
+      lastCancelledRunId={lastCancelledRunId}
       onSubmitQuestionnaire={submitQuestionnaire}
       onRetainClarifyRound={retainClarifyRound}
       reviewGateData={reviewGateData}

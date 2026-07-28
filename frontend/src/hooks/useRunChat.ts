@@ -118,6 +118,13 @@ export interface SendMessageOptions {
    * workflow-name literal. Absent/empty ⇒ NO `chain_hints` key (dormant, INV-3).
    */
   chain_hints?: { id: string; label: string }[];
+  /**
+   * FIX-119: When set, `sendMessage` will reconcile an ALREADY-ADDED optimistic
+   * bubble with this id (from `addOptimisticMessage`) rather than minting a new
+   * id. This prevents a duplicate bubble when the user message was shown
+   * immediately via `addOptimisticMessage` before the backend call.
+   */
+  existingMessageId?: string;
 }
 
 export interface UseRunChatReturn {
@@ -133,6 +140,18 @@ export interface UseRunChatReturn {
     text: string,
     attachments?: ChatAttachment[],
     options?: SendMessageOptions,
+  ) => string;
+  /**
+   * FIX-119: Add a user bubble to local state ONLY — no backend call, no
+   * mechanical-router side-effect. Used when the caller needs to echo the user's
+   * text IMMEDIATELY (e.g. before a classify-intent LLM round-trip) without
+   * triggering a revision or any other backend routing. The returned `messageId`
+   * can later be passed to `sendMessage` via the `messageId` option to reconcile
+   * the existing bubble in place instead of creating a duplicate.
+   */
+  addOptimisticMessage: (
+    text: string,
+    attachments?: ChatAttachment[],
   ) => string;
   /** The latest `stream_attached` handshake state (null until first attach). */
   streamAttached: StreamAttachedState | null;
@@ -427,7 +446,10 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
       attachments?: ChatAttachment[],
       options?: SendMessageOptions,
     ): string => {
-      const messageId = mintMessageId();
+      // FIX-119: use the caller-supplied existingMessageId (from addOptimisticMessage)
+      // to reconcile an already-added bubble, rather than minting a new id and
+      // creating a duplicate user bubble.
+      const messageId = options?.existingMessageId ?? mintMessageId();
       const optimistic: ChatMessage = {
         id: messageId,
         chatSessionId: runId ?? "",
@@ -508,5 +530,35 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
     [handleFrame],
   );
 
-  return { messages, sendMessage, streamAttached, replyStreaming, seedTranscript };
+  /**
+   * FIX-119 — add a user bubble to LOCAL STATE ONLY, with NO backend call.
+   * Used when the caller needs to show the user's text IMMEDIATELY (e.g. before
+   * a classify-intent LLM round-trip in handleFreeText) without triggering any
+   * mechanical-router side-effect (which would create a spurious revision run on
+   * a terminal/complete run — the double-version bug from FIX-118). The returned
+   * `messageId` is stable and can be passed back to `sendMessage` via
+   * `options.existingMessageId` to reconcile the existing bubble in place instead
+   * of creating a duplicate.
+   */
+  const addOptimisticMessage = useCallback(
+    (text: string, attachments?: ChatAttachment[]): string => {
+      const messageId = mintMessageId();
+      const optimistic: ChatMessage = {
+        id: messageId,
+        chatSessionId: runId ?? "",
+        role: "user",
+        content: text,
+        createdAt: new Date().toISOString(),
+        attachments,
+        runId: runId ?? undefined,
+      };
+      setMessages((prev) =>
+        prev.some((m) => m.id === messageId) ? prev : [...prev, optimistic],
+      );
+      return messageId;
+    },
+    [runId],
+  );
+
+  return { messages, sendMessage, addOptimisticMessage, streamAttached, replyStreaming, seedTranscript };
 }
