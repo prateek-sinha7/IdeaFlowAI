@@ -103,17 +103,8 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
   };
 
   return (
-    <div className="relative pl-8">
-      {/* Timeline dot — FIRST dot: solid navy fill + FileText glyph + connector rail */}
-      <div className="absolute left-0 top-3 flex flex-col items-center">
-        <div className="w-6 h-6 rounded-full flex items-center justify-center border-2 z-10 border-[#1B2A4A] bg-[#1B2A4A]">
-          <FileText aria-hidden className="h-3 w-3 text-white" />
-        </div>
-        <div className="w-px flex-1 bg-gray-200 mt-1" style={{ minHeight: 20 }} />
-      </div>
-
-      <div className="rounded-xl border overflow-hidden border-gray-100">
-        <button
+    <div className="rounded-xl border overflow-hidden border-gray-100">
+      <button
           onClick={() => setExpanded(v => !v)}
           aria-expanded={expanded}
           aria-label={expanded ? `Collapse ${title.toLowerCase()}` : `Expand ${title.toLowerCase()}`}
@@ -263,7 +254,6 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
             )}
           </div>
         )}
-      </div>
     </div>
   );
 }

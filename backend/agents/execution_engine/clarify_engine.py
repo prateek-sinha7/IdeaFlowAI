@@ -896,9 +896,31 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
         questions: list[dict],
         responses: list[dict],
     ) -> dict[str, Any]:
-        """Merge answers into planning_context, track clarified topics for deduplication."""
+        """Merge answers into planning_context, track clarified topics for deduplication.
+
+        KAN-124: user-submitted answers always take priority. For questions the user
+        did NOT answer (skip or partial-answer path), we silently auto-fill the
+        ``recommended_answer`` the LLM generated so agents never run with an empty
+        ``explicit_constraints`` list. This is backend-only and invisible to the user.
+        """
         merged = dict(planning_context)
+        # User-submitted answers (may be empty on skip, partial on partial-answer).
         answer_map = {r.get("question_id"): r.get("answer") for r in responses}
+
+        # KAN-124: build a recommended-answer fallback for every question that was
+        # generated. User answers always win; recommended_answer fills the gap.
+        # ``recommended_answer`` is always set by _generate_questions (LLM path at
+        # line 571: `recommended = item.get("recommended_answer", options[-1]...)`
+        # and static library also sets it). Silently skip if the field is absent or
+        # empty (graceful — never break on missing data).
+        for q in questions:
+            qid = q.get("question_id")
+            if not qid:
+                continue
+            if qid not in answer_map or not answer_map[qid]:
+                rec = q.get("recommended_answer") or ""
+                if rec:
+                    answer_map[qid] = rec
 
         explicit = list(merged.get("explicit_constraints", []))
         clarified_topics = list(merged.get("clarified_topics") or [])

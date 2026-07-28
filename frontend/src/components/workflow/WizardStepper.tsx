@@ -189,7 +189,8 @@ export function WizardStepper({
         {activeStepId === "discovery" && (discoverySlot ?? <StepPlaceholder label="Discovery step" />)}
       </div>
 
-      {/* ── Back / Next navigation ──────────────────────────────────────────── */}
+      {/* ── Back / Next navigation — only shown when there are multiple steps ── */}
+      {steps.length > 1 && (
       <div className="flex items-center justify-between">
         <button
           type="button"
@@ -210,6 +211,7 @@ export function WizardStepper({
           <ArrowRight className="h-4 w-4" />
         </button>
       </div>
+      )}
     </div>
   );
 }

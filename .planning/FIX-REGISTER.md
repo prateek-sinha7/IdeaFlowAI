@@ -10,6 +10,51 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-127 | 2026-07-27 | Add NEVER-ask-questions contract to remaining 5 agents: ppt-revision-agent (HIGH risk), ppt-revision-assembler, prototype-build, prototype-validate, prototype-revision-validate | These agents had no no-questions contract. ppt-revision-agent is HIGH risk (same pattern as confirmed-broken user-story-revision-agent). Others had implicit protection from tool-call-only workflow but no explicit rule. | `backend/agents/prompts/ppt-revision-agent/AGENT.md`, `backend/agents/prompts/ppt-revision-assembler/AGENT.md`, `backend/agents/prompts/prototype-build/AGENT.md`, `backend/agents/prompts/prototype-validate/AGENT.md`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` | Phase 15 (prompt contracts) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-126 | 2026-07-27 | KAN-124: (1) Auto-fill recommended answers on skip/partial-answer so agents always get context; (2) Add no-questions contract to 9 missing agent prompts across user_stories, user_stories_revision, od_ppt_revision, prototype_revision | (1) clarify_engine._merge_answers() never read recommended_answer — empty on skip. (2) 9 AGENT.md files missing the NEVER ask clarifying questions output contract confirmed by full pipeline audit. | `backend/agents/execution_engine/clarify_engine.py`, `backend/agents/prompts/user-story-revision-agent/AGENT.md`, `backend/agents/prompts/domain-analyst/AGENT.md`, `backend/agents/prompts/epic-architect/AGENT.md`, `backend/agents/prompts/story-estimator/AGENT.md`, `backend/agents/prompts/nfr-specialist/AGENT.md`, `backend/agents/prompts/backlog-reviewer/AGENT.md`, `backend/agents/prompts/backlog-compiler/AGENT.md`, `backend/agents/prompts/od-ppt-revision-agent/AGENT.md`, `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Phase 3 (ClarifyEngine) + Phase 15 (prompt contracts) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-125 | 2026-07-27 | "Edit brief & run again" navigates to input view instead of also calling resume; "Reopen & fix" resume error resolved | (1) RunChatLane secondary button called `onRelaunch` (= handleResumeRun) instead of a separate nav-home callback — both buttons did the same thing. (2) No `onEditBrief` prop existed. Fix: add `onEditBrief` prop to RunChatLane, wire secondary button to it, add `handleEditBrief` in DashboardLayout that navigates to "input" view for editing. | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/50 (CHATUI-01 terminal card / KAN-120) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-124 | 2026-07-27 | KAN-123: Security gate failure UX — "What went wrong" security bullets, "Blocked by the security gate" inline Steps card, and Audit tab shows hook_runs (secret scan / exec denied / validation) with Detector/Match/Action/Outcome detail rows | (1) AuditTab fetched only gate_events/validation_results/exec_runs but NOT hook_runs — the table where secret_scan blocks are written. (2) RunChatLane "What went wrong" card showed generic agent names + one error string, not structured security bullets. (3) StepsOverviewSpine had no inline security gate explanation card after a failed agent row. | `frontend/src/components/results/AuditTab.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 8 (HOOK-01/04 hook_runs), Phase 13 (F3 pipeline_failed/security gate), Phase 16 (ISS-016 terminal failure card) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-123 | 2026-07-27 | Review gate heading shows raw UUID+agent_id key ("Review gate — fd18bfcc-...:prototype-analyze") instead of human-readable agent name | GateAwaitingCard in StepsOverviewSpine.tsx used {laneGate.gateKey} (= pipeline_run_id:agent_id internal key) in the heading. Fix: use laneGate.agentName which is already available in GateContext | `frontend/src/components/results/StepsOverviewSpine.tsx` | Phase 8 (GATE-01/02 display) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-122 | 2026-07-27 | Stop button appears unresponsive + yellow Reconnecting banner on every Stop click (root fix) | sawNonLiveAttachRef in useRunStream was only set on stream_attached events, never on pipeline_cancelled/pipeline_failed. When backend closes stream after cancel, the ref was false → scheduleReconnect() fired → yellow banner. FIX-121's detachRun races the React render cycle; this ref-set is synchronous and guaranteed. | `frontend/src/hooks/useRunStream.ts` | Phase 44 (BUG-015 / SSE transport) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-121 | 2026-07-27 | 3 resume/stop bugs: (1) Spec Kit Analyzer skipped on resume — agent stopped mid-run classified complete; (2) stop unresponsive appearance from reconnecting banner; (3) yellow Reconnecting banner on every Stop click | (1) _first_incomplete_step used only artifact presence for single_shot completeness — an agent killed between artifact-write and agent_complete was skipped as done. (2) Second stop works but banner makes it seem broken. (3) pipeline_cancelled never called detachRun, so SSE stream close triggered scheduleReconnect (sawNonLiveAttachRef=false for live streams) | `backend/agents/execution_engine/engine.py`, `frontend/src/app/dashboard/page.tsx` | Phase 50/44/29 (RESUME-18/KAN-120/BUG-015) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-120 | 2026-07-27 | KAN-120: 4 resume UI bugs — 409 race on fast-click, agent statuses reset to idle, task 1/2 data lost, errors navigate home silently | BUG-1: DB commits cancelled async after cooperative cancel fires pipeline_cancelled; fast-click sees generating status. BUG-2: pipeline_start reset all agents to idle; resumed engine skips completed agents without marking them done. BUG-3: task_progress handler replaced protoCompletedTasks wholesale, wiping pre-stop task data when resumed engine only reported new tasks. BUG-4: any resume error called handleGoHome() silently. | `backend/agents/execution_engine/engine.py`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 50/44/31 (RESUME-18/KAN-120) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-119 | 2026-07-24 | User text not showing in chat + no loading indication for some workflows — optimistic user bubble missing for revise/chain intents on complete-state runs | FIX-118 removed the pre-intent sendMessage echo to fix double versioning, but this also removed the user bubble echo for revise and chain intents (only the ask path called sendMessage which creates a bubble). Fix: add addOptimisticMessage to useRunChat (FE-only bubble, no backend call) + addOptimisticMessage prop to RunChatLaneProps + wire through DashboardLayout. In handleFreeText for complete state: call addOptimisticMessage immediately (user sees their text + TypingIndicator), then for ask path pass existingMessageId to sendMessage to reconcile without duplicating. | `frontend/src/hooks/useRunChat.ts`, `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 31/43 (CHATUI-01/A1 CRUX) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-118 | 2026-07-24 | PPT revision creates 2 version entries — sendMessage echo on terminal run triggers automatic CHANNEL_REVISION before confirm chip fires | handleFreeText called sendMessage(text) without options to echo user bubble; on terminal run the mechanical router routes undecorated messages to CHANNEL_REVISION → immediate revision run minted; then confirm chip fired handleRevisePpt → second revision run. Fix: remove the pre-intent-classification sendMessage echo — the TypingIndicator fires instead. | `frontend/src/components/chat/RunChatLane.tsx` | Phase 29 (chat backbone / mechanical router) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-117 | 2026-07-24 | Standard PPT revision routes to PptxGenJS agent instead of HTML deck editor | handleRevisePpt used `workflowType === "od_ppt"` to detect HTML decks but standard PPT runs dispatch as `"ppt"` type so isOdPpt was false → ppt_revision (PptxGenJS) fired instead of od_ppt_revision (HTML). Fix: also set isOdPpt=true when pptContent exists and pptxCode is absent — the definitive signal that the deck is HTML not JS. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 14 (ppt_revision / od_ppt_revision) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-116 | 2026-07-24 | LLM intent classifier: silent classify-intent endpoint so settled-run chat shows revise/chain button immediately with no chat reply | Concierge was called as a chatbot and responded with text; LLM also had no knowledge of what was produced. Fix: POST /classify-intent calls LLM with user text + deliverable summary → returns {intent, target_id} JSON only; FE shows revise chip or chain picker immediately. Also adds run_summary (wr.title + wr.output preview) to _ConciergeCtx so any LLM path knows the deliverable. | `backend/app/api/run_commands.py`, `backend/app/agents/chat/concierge.py`, `frontend/src/lib/api.ts`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 43 (A6-redux Concierge) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-115 | 2026-07-24 | Replace regex-based chat intent classifier with LLM-driven revise/chain intent detection (Option A) | classifyFreeText() used CHAIN_INTENT/CHANGE_INTENT keyword regexes to bypass the Concierge for "chain" and "change" texts; natural-language intent never reached the LLM. Fix: route all settled-run free text to the Concierge; add propose_chain tool so LLM can emit chain intent; handle "chain" disposal in run_commands.py; update renderProposals to fire onSuggestion on chain confirm. | `backend/app/agents/chat/concierge.py`, `backend/app/api/run_commands.py`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 43 (A6-redux Concierge) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-114 | 2026-07-24 | engine._apply_selections __deliverable__ branch returned single CompiledWorkflow instead of 2-tuple — TypeError: cannot unpack non-iterable CompiledWorkflow object | Both return paths inside _apply_selections must return (compiled, _user_by_agent) 2-tuple. The __deliverable__ early-return branch (added in 6685906b/FIX-059) returned dataclasses.replace(compiled, ...) bare instead of the 2-tuple the caller at engine.py:1467 unpacks. | `backend/agents/execution_engine/engine.py` | Phase 22 (KAN-112 _apply_selections) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-113 | 2026-07-24 | KAN-121: ComposerPage.handleRunOnce never injects __deliverable__ override — custom prototype/PPT/user-story runs produce wrong output | handleRunOnce sent per-agent selections but never called resolveDispatchType() so __deliverable__ was absent; engine used custom manifest default (streamed_text/output.md). Fix: export resolveDispatchType from IdeaInputPage (INV-12 single source), import + call it in handleRunOnce to merge __deliverable__ and resolve dispatchType — mirrors IdeaInputPage.handleRun exactly. | `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | Phase 22 (KAN-112 custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-112 | 2026-07-24 | KAN-121: Custom composer (ComposerPage) shows no agent recommendations or companion pipeline suggestions | ComposerPage is the custom workflow entry (not IdeaInputPage). Brief-based recommendations and companion suggestions existed only in IdeaInputPage; ComposerPage had no such logic. Fix: export getAgentRecommendations + COMPANION_GROUPS from IdeaInputPage (INV-12 single source), import + render them in ComposerPage keyed on the description field. | `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | Phase 22 (KAN-112 custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-111 | 2026-07-24 | KAN-121 (follow-up): Custom prototype workflow uses single_shot for prototype-build — single_file resolver never finds prototype.html because task_loop never wrote it | __deliverable__ override (FIX-110) correctly patches compiled.deliverable to single_file/prototype.html but does NOT patch the prototype-build step strategy from single_shot→task_loop. task_loop is the ONLY strategy that calls persist_task_html() to write prototype.html to the RunSandbox. Fix: inject prototype-build:{strategy:"task_loop"} per-agent selection alongside __deliverable__ in mergedSelections so _apply_selections' existing sel.get("strategy") path (engine.py:6442) patches the step — no engine edit needed. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (KAN-112 custom composer / task_loop strategy) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-110 | 2026-07-24 | KAN-121: Custom workflow with prototype agents shows validator QA text (output.md) instead of HTML prototype — add missing prototype-analyze and prototype-validate to AGENT_DELIVERABLE_MAP trigger list | AGENT_DELIVERABLE_MAP prototype entry only listed 3 of 5 agents (prototype-build, prototype-specify, prototype-plan). When user selected a composition including prototype-analyze or prototype-validate without the 3 trigger IDs, resolveDispatchType() returned the default fallback {strategy:"streamed_text", name:"output.md"} → StreamedTextResolver used last_streamed (validator QA text) as the deliverable. FIX-059/FIX-060 on another branch had the full 5-agent list; it was not ported to feat/ui-2. Fix: add prototype-analyze and prototype-validate to the prototype entry trigger list. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 22 (KAN-112 custom composer) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-109 | 2026-07-24 | PPT preview shows validator QA text on top of slides — widen body-preamble strip + harden output contract | strip_pre_slide_body_text skipped stripping when preamble had ONLY HTML elements (preamble_text_only was empty after tag removal); validator AGENT.md allowed a sentence before <artifact. Fix: strip any non-whitespace preamble unconditionally; extend anchor detection; harden output contract to forbid ANY text before <artifact | `backend/agents/capabilities/deliverables/_artifact.py`, `backend/agents/prompts/od-ppt-validator/AGENT.md` | Phase 15/19 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-108 | 2026-07-23 | KAN-120: duplicate "Run started" card in chat after Run Again | narrator _reply_event_id used source_event_id as idempotency key; resumed run's pipeline_start has new event_id → new card. Fix: pipeline_start cards key on `pipeline_start:{run_id}` so all pipeline_start events for the same run collapse to one card | `backend/app/agents/chat_narrator.py` | Phase 31/43 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-107 | 2026-07-23 | KAN-120: after resume completes, FE still shows "Cancelled by you" + Run Again, history shows Cancelled | 3 bugs: (1) pipeline_start spread kept cancelled:true so pipeline_complete landed back in "terminal"; (2) _reconcile_terminal_status prioritised pipeline_cancelled over subsequent pipeline_complete from resume; (3) FE history refetch raced against reconcile | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/app/dashboard/page.tsx`, `backend/app/api/run_commands.py` | Phase 50/44/31 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-106 | 2026-07-23 | KAN-120: od_ppt/prototype resume produces empty output — od_context lost on resume | resume_run called _drive_resumed_stream/_execute_impl with od_context=None (default); od_context (template+DS data) was only available at launch time and never persisted. Added migration 0027 (od_context_json column), persist at launch, restore at resume | `backend/alembic/versions/0027_workflow_run_od_context.py`, `backend/app/models/workflow.py`, `backend/app/api/run_commands.py`, `backend/agents/execution_engine/engine.py` | Phase 50/37 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-105 | 2026-07-23 | KAN-120: "Run Again" resumes cancelled pipeline from stopped step | 4-part gap: backend eligibility `!= "failed"` blocked cancelled runs; in-memory state machine terminal guard blocked same-session resumes; no postResume in api.ts; onRelaunch wired to handleGoHome; cancelled card showed wrong label/text | `backend/app/api/run_commands.py`, `frontend/src/lib/api.ts`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/chat/RunChatLane.tsx` | Phase 50/44/31 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-104 | 2026-07-23 | Chat-initiated workflow chaining — type vague intent to get inline chain picker | classifyFreeText had no CHAIN_INTENT path; vague chain phrases fell through to revision hold. Added CHAIN_INTENT regex, "chain" verb to CHAIN_TRANSFORM, chainPickerOpen state, and renderChainPicker() | `frontend/src/components/chat/RunChatLane.tsx` | Phase 31/c72 (RunChatLane — chain suggestions) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-103 | 2026-07-23 | Auto-select "Design System Inspired by Apple" as default in prototype launch wizard | selectedDsId initialised to null; listDesignSystems() callback only called setSystems() with no default selection. Added functional updater to setSelectedDsId inside the callback: selects "apple" only when prev===null and mode==="prototype" and "apple" exists in the list. | `frontend/src/components/workflow/LaunchWizard.tsx` | Phase 37 (B3/B7 — LaunchWizard) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-102 | 2026-07-23 | Add Hexaware logo to AppHeader (top-left) and Login page dark panel | No Hexaware branding existed; added inline text badge (white bold "HEXAWARE" on brand-blue pill) before the VelocityAI wordmark in both surfaces | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/app/login/page.tsx` | Phase 35 (B1 — shell chrome + login reskin) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-101 | 2026-07-22 | Move System Prompt editor from Config tab to Overview tab; make Edit button prominent with white hover | AgentPromptSection was mounted with surfaceOnly in Overview (read-only) and without it in Config (editable); users had to switch tabs to edit what they were reading. Edit button was tiny (10px gray). | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7 — AgentCapabilitiesModal) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-100 | 2026-07-22 | Dashboard home instant load — stale-while-revalidate with sessionStorage cache | All prior fixes passed props between components but data still arrives async after auth; first render always had nothing to show. SWR pattern: seed from sessionStorage cache → render instantly → background refetch writes cache for next visit | `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 38/40 (HomeLaunchGrid) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-099 | 2026-07-22 | Stop "Jump back in" recents from appearing late — accept recentRuns prop instead of duplicate internal fetch | HomeLaunchGrid fetched getWorkflows internally even though DashboardLayout already had recentRuns from page.tsx. Added recentRuns prop, seed recents state from it instantly, skip internal fetch when prop supplied | `frontend/src/components/catalog/HomeLaunchGrid.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 38 (SC-2 / recents strip) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-098 | 2026-07-22 | KAN-118: Remove dashboard home flicker — eliminate card stagger, header slide-up animation, and AnimatePresence mode=wait | 4 compounding causes: per-card delay (0.06+idx*0.05s), h1 slide-up (0.4s), AnimatePresence mode=wait adds 200ms blank on nav. All three removed. motion import cleaned up. | `frontend/src/components/catalog/HomeLaunchGrid.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 38/40 (HomeLaunchGrid cards + DashboardLayout view-switch) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-097 | 2026-07-22 | Remove time estimate (~Nm) from Home launch grid cards — show agent count only | estimate string in HomeLaunchGrid included `· ~${minutes}m` from the analytics history; removed the time clause so only `~N agents` shows | `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 38 (SC-2 real estimate) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-096 | 2026-07-22 | Hide Back/Next nav buttons in PPT wizard when only one step (template) is shown | WizardStepper always rendered the Back/Next row regardless of step count; PPT mode passes steps={["template"]} (1 step only) so both buttons were disabled but still visible. Guard now hides the nav row entirely when steps.length <= 1. | `frontend/src/components/workflow/WizardStepper.tsx` | Phase 37/41 (B3/B7 — WizardStepper FIX-065) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-095 | 2026-07-22 | Fix `.split is not a function` crash + multi-select chip highlighting when "Use recommended" clicked | recommendedAnswer/recommendedDisplay can be non-string (array/number) from the API — all .split() calls lacked String() coercion. Also multi-select chip highlight was broken because useRecommended stored the whole comma-joined string instead of splitting to individual chip values. Fixed via two pure helpers: toRecString() and splitRecToChips(). | `frontend/src/components/chat/InlineClarifyActions.tsx` | Phase 31/42 (CHATUI-01 / InlineClarifyActions) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-094 | 2026-07-22 | KAN-117: Add recommended answers + "Skip all" affordance to clarify questions | ClarifyQuestion type carried recommendedAnswer/recommendedDisplay/impactLevel but InlineClarifyActions never rendered them; skip was impossible without answering all questions (Phase 42-06 intentional omission, now reversed per user request) | `frontend/src/components/chat/InlineClarifyActions.tsx` | Phase 31/42 (CHATUI-01 / InlineClarifyActions) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-093 | 2026-07-22 | Remove duplicate outer timeline dot from StartingPointCard — aligns with ClarificationsCard flat-card style | StartingPointCard used a `relative pl-8` wrapper with an absolute-positioned navy circle+FileText timeline dot, PLUS a second FileText icon inside the card button — rendering two similar icons side-by-side. Fix removes the outer dot entirely. | `frontend/src/components/results/StartingPointCard.tsx` | Phase 25/42 (Workstream C2) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-092 | 2026-07-22 | KAN-116 Bug 3 (definitive): pass _display_title in extraParams from all chain/revision call sites so page.tsx never needs to re-parse complex nested context blocks | parseRunInput failed on complex nested context; fix passes the already-clean chainBrief/instruction as _display_title in extraParams — no re-parsing needed | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 25/36 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-091 | 2026-07-22 | KAN-116 Bug 3 (BE): chain context_block embedded polluted title/brief from old DB runs causing nested === markers that parseRunInput couldn't strip | _extract_chain_context used raw workflow_run.title and .input which for pre-fix runs contained === marker text; these nested markers broke the FE context strip | `backend/app/api/runs.py` | Phase 29/36 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-090 | 2026-07-22 | KAN-116: Clean === marker titles at all display surfaces — history, sidebar, live header, and new runs | Three-layer fix: (1) FE display-time cleanDisplayTitle helper in RevisionFamilyView+WorkflowHistory+Sidebar strips existing DB titles; (2) FIX-087 backend _clean_run_title prevents new bad titles; (3) FIX-089 cleans submittedBrief for live header | `frontend/src/components/history/RevisionFamilyView.tsx`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/components/sidebar/Sidebar.tsx` | Phase 25/36 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-089 | 2026-07-22 | KAN-116 Bug 3 (FE): raw context markers shown as run title during live runs — submittedBrief stored raw enrichedInput | setSubmittedBrief(message) used raw enrichedInput with === markers; parseRunInput (INV-12 single source) now extracts clean brief before storing | `frontend/src/app/dashboard/page.tsx` | Phase 25/36 (Workstream C1) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-088 | 2026-07-22 | KAN-116 Issue 2: version chip stays at v1 after revision completes — contentSourceRunId not updated for revision completions | isForeignCompletion guard blocked setContentSourceRunId for revision runs (revision_run_id ≠ trackedRunIdRef which holds parent run id), preventing family re-fetch | `frontend/src/app/dashboard/page.tsx` | Phase 25/36 (B2) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-087 | 2026-07-22 | KAN-116: Fix version switch showing wrong content, chained runs in version family, and context markers in titles | Bug 1: handleSelectVersion only updated WorkflowHistory local state, never called page.tsx content-routing; Bug 2: launch_run set parent_run_id for all types including chains; Bug 3: title stored raw content with === markers | `frontend/src/components/history/WorkflowHistory.tsx`, `backend/app/api/run_commands.py` | Phase 25/36 (B2/P25) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-086 | 2026-07-22 | Surface system prompt editor (Edit/Save/Reset) on Config tab of Library agent drawer | AgentPromptSection was mounted with surfaceOnly=true everywhere (ND-7/LOCK-E deferral), hiding write affordances. Config tab now mounts it without surfaceOnly so users can edit, save, and reset agent system prompts | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) + KAN-76 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-085 | 2026-07-22 | Rename "Run again" button to "New Pipeline" on cancelled terminal card | Label was hardcoded as "Run again" in the cancelled branch of RunChatLane renderComposerBody | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx` | Phase 31/32 (CHATUI-01) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-084 | 2026-07-21 | KAN-115: Clear stale questionnaireData on pipeline_cancelled/failed so AwaitingCard disappears | pipeline_cancelled handler cleared reviewGateData but not questionnaireData or activePipelineRunId, leaving laneClarifyOpen=true and runLaneState stuck at "clarify" instead of "terminal" after cancel/fail | `frontend/src/app/dashboard/page.tsx` | Phase 22/42 (page.tsx dispatcher) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-083 | 2026-07-21 | KAN-114: Replace first clarification card (amber styled) with plain text bubble "Before I build, I need to lock a few things down." | Two independent paths fired on questionnaire_ready: (1) chat_narrator.py emitted a styled ResultCard with text "Paused — N questions for you"; (2) RunChatLane.tsx also showed an AwaitingCard. Fix: narrator text changed to fixed message; ResultCard.tsx now renders a plain prose bubble for clarify kind. AwaitingCard untouched. | `backend/app/agents/chat_narrator.py`, `frontend/src/components/chat/ResultCard.tsx`, `backend/tests/unit/test_chat_narrator.py` | Phase 31 (CHATUI-01) + Phase 43 (A6) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-082 | 2026-07-21 | Always show "Write a custom skill" button on Skills tab — remove agent.has_skill gate | The custom skill button was gated on `agent.has_skill` so it never showed for agents without the flag. Every agent should be able to get a custom skill authored. Removed the gate. Also cleaned up the dangling `)}` JSX left from the removed conditional. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-081 | 2026-07-21 | Show empty state messages when no suggested skills or hooks for an agent | Skills/Hooks tabs rendered blank when suggestedSkills/suggestedHooks had 0 items — `{length > 0 && (...)}` with no else branch. Changed to ternary with an empty-state card (icon + message). | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-080 | 2026-07-21 | Fix Save button flash + double appearance on Reset — remove loading early-return from ConfigLeversFlat | Reset increments resetKey which remounts ConfigLeversFlat. On remount, useAgentCapabilities starts loading=true and the early-return `<p>Loading…</p>` caused a height change (tiny→4 big rows) that shifted the button row, creating the double-button flash. Removed the loading early-return (renders rows with empty options = same height always). Also added setSaved(false) to Reset and removed transition-all from Save button. | `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 37/41 (B3/B7) | INV-1/3/12/SC-001 ✅ | Done |
@@ -99,6 +144,357 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+---
+
+### FIX-126 — KAN-124: Auto-fill recommended answers on skip + no-questions contracts for 9 agents
+
+**Date:** 2026-07-27
+**Triggered by:** `/velocity-ai-fix KAN-124 — do add the changes and fixes based on above analysis`
+
+#### Root Cause
+
+Two independent root causes, both confirmed by code inspection and production evidence.
+
+**Root Cause 1 (backend):** `clarify_engine.py:_merge_answers()` built `answer_map` exclusively from the user-submitted `responses` list. On skip (`force_proceed=True`), that list is `[]`, so `answer_map = {}` and zero entries were added to `planning_context["explicit_constraints"]`. Every downstream agent therefore ran with no context at all, producing generic or question-asking output. The `recommended_answer` field — generated by the LLM for every question at line 571 — was stored on each question dict but **never read back** by `_merge_answers()`.
+
+**Root Cause 2 (prompts):** A full audit of all four affected pipeline families found 9 AGENT.md files with no "NEVER ask clarifying questions" output contract. The `user-story-revision-agent` was confirmed broken in production screenshots: given "add payment integration through paypal", it output "What is the intended pricing model?" as prose instead of the revised backlog.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 3 (ClarifyEngine / ISS-027), Phase 15 (prompt output contracts pattern)
+- **Deleted code verified (not resurrected):** No deleted code involved — this is a missing feature (auto-fill) and missing prompt rules
+- **Locked decisions respected:** INV-1 (auto-fill keys only on generic `recommended_answer` field, never pipeline_type); INV-3 (characterization goldens not affected — scripted harness submits skip with `responses=[]` and no questions, so `_merge_answers` is called with `questions=[]` → the new auto-fill loop iterates zero times, zero change); SC-001 (prompt body edits only, zero engine edits)
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/execution_engine/clarify_engine.py` | `_merge_answers()`: before the main loop, build a recommended-answer fallback map from `q["recommended_answer"]` for every question not in `answer_map`. User answers always take strict priority. | Ensures agents always receive `explicit_constraints` populated from recommended answers when user skips or partially answers |
+| `backend/agents/prompts/user-story-revision-agent/AGENT.md` | Added `## OUTPUT CONTRACT` section at the top of the body with explicit NEVER-ask rule | CONFIRMED BROKEN in production — was outputting inline questions as deliverable |
+| `backend/agents/prompts/domain-analyst/AGENT.md` | Added `NEVER ask clarifying questions` contract after role line | user_stories P3 — medium risk |
+| `backend/agents/prompts/epic-architect/AGENT.md` | Added `NEVER ask clarifying questions` contract after role line | user_stories P3 — medium risk |
+| `backend/agents/prompts/story-estimator/AGENT.md` | Added `NEVER ask clarifying questions` contract after role line | user_stories P3 — low risk |
+| `backend/agents/prompts/nfr-specialist/AGENT.md` | Added `NEVER ask clarifying questions` contract after role line | user_stories P3 — low risk |
+| `backend/agents/prompts/backlog-reviewer/AGENT.md` | Added `NEVER ask clarifying questions` contract after role line | user_stories P3 — medium risk |
+| `backend/agents/prompts/backlog-compiler/AGENT.md` | Added `NEVER ask clarifying questions` contract after role line | user_stories P3 — low risk |
+| `backend/agents/prompts/od-ppt-revision-agent/AGENT.md` | Added explicit NEVER-ask rule at top of body | P4 — had implicit artifact contract but no explicit rule |
+| `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Added explicit NEVER-ask rule at top of body | P4 — had implicit tool-call workflow but no explicit rule |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): auto-fill keys on generic `recommended_answer` field, all prompt changes are body-only with no pipeline_type literal
+- **INV-3** (golden parity): characterization goldens call `_merge_answers(questions=[], responses=[])` via the scripted harness — the new fallback loop iterates over an empty list and does nothing, byte-identical
+- **INV-12** (no duplication): `_merge_answers` is the single merge function, no duplicate added
+- **SC-001** (zero engine edits): all 9 prompt changes are AGENT.md body-only; the backend change is a single method in `clarify_engine.py`, not the engine kernel
+
+#### Verification
+- Python diagnostics: 0 errors on `clarify_engine.py`
+- `_merge_answers` read back and confirmed correct: fallback loop runs before the main annotation loop, user answers win, empty `questions` list is safe
+- All 9 AGENT.md files read back and confirmed: each has the explicit no-questions contract in the right position (top of body, after role introduction)
+- Pipelines already covered (od_ppt, prototype/od_prototype) are untouched — verified by not editing their AGENT.md files
+
+#### Notes
+- The `recommended_answer` for static-library questions defaults to `options[-1]` ("No preference") — this is a weak fallback. Future improvement: improve static-library defaults to context-aware values.
+- The INV-3 guarantee rests on the scripted harness passing `questions=[]` to `_merge_answers`. If a future test passes non-empty questions + skip, the auto-fill WILL add `explicit_constraints` entries — this is correct behavior, not a regression. The golden test suite tests the full pipeline, not `_merge_answers` in isolation.
+- Pipelines still fully covered without changes: `od_ppt` (all 3 agents), `prototype`/`od_prototype` (all 5 agents), `prototype_revision` (prototype-revision-validate).
+
+---
+
+### FIX-124 — KAN-123: Security gate failure UX
+
+**Date:** 2026-07-27
+**Triggered by:** `/velocity-ai-fix KAN-123` — implementing error/failure messages for security gate failures
+
+#### Root Cause
+
+Three separate gaps, all FE-only:
+
+1. **AuditTab missing `hook_runs` source** (`AuditTab.tsx` lines 408-490): The 3-endpoint parallel fetch (`gate_events` / `validation_results` / `exec_runs`) never included `getRunHookRuns`. The `hook_runs` table is where `secret_scan` blocking events are written (outcome=`"block"`, hook=`"secret_scan"`), which is the source of the "Secret scan — BLOCKED write to .env" security row the mock shows. Without this 4th fetch, the Security category in the Audit tab was always empty. The `hookRuns` prop was documented as "dormant legacy" and removed from the render path, but the underlying endpoint exists (`/api/runs/{id}/hook-runs`, KAN-73) and was never called by the tab.
+
+2. **RunChatLane "What went wrong" shows only generic agent names** (`RunChatLane.tsx`): The failed terminal card's bullet list built only `resolveAgentNames(failedIds)` + one `sanitizeError`. The mock shows 3 specific security-derived bullets: "Secret scan blocked a write…", "Code execution denied…", "Validation found N critical…". These map to: `pipelineState.hookRuns` blocked scans (already populated by `hook_run` WS events in `useWorkflow.ts`), failed-agent exec-denied error strings, and per-agent `validationIssues` CRITICAL/HIGH severity.
+
+3. **StepsOverviewSpine has no inline security gate explanation card** (`StepsOverviewSpine.tsx`): When a security gate blocks an agent (`status="error"`, error string contains "security gate"/"exec denied"/etc.), the Steps tab showed only the generic red dot. The mock shows an inline "Blocked by the security gate" explanation card beneath the failed agent row.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 8 (HOOK-01/04 — hook_runs), Phase 13 (F3 pipeline_failed), Phase 16 (ISS-016 terminal failure card)
+- **Deleted code verified (not resurrected):** `hookRuns` prop on `AuditTab` was documented as "dormant legacy" — the component itself was always correct, just not calling the endpoint. This fix adds the 4th fetch — does NOT resurrect the prop path.
+- **Locked decisions respected:** INV-1 (all detection keys on generic outcome/hook/error string patterns, never agent-id/workflow-name literals); INV-3 (FE-only change, no backend/engine/golden change); INV-12 (reuses `getRunHookRuns` that already existed in `api.ts`; single `deriveSecurityBullets` function).
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/AuditTab.tsx` | Added `getRunHookRuns` to the 4-endpoint parallel fetch; added `buildHookLabel` + `buildHookDetailRows` helpers; mapped `hook_runs` rows to `AuditRow` with Detector/Match/Action/Outcome detail fields | Surfaces secret_scan block events as Security-category Audit rows with the expanded detail the mock shows |
+| `frontend/src/components/results/StepsOverviewSpine.tsx` | Added `SecurityGateBlockedCard` component + `isSecurityBlock()` helper; render the card after a failed agent row when error string indicates a security/exec/hook block | Shows the inline "Blocked by the security gate" explanation card in the Steps trace |
+| `frontend/src/components/chat/RunChatLane.tsx` | Added `deriveSecurityBullets(state)` helper; replaced generic bullets in the failed terminal card with structured security bullets when available (falls back to the existing generic path for non-security failures) | Shows "Secret scan blocked…", "Code execution denied…", "Validation found N critical…" bullets from live pipelineState |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): all detection keys on generic signals (outcome string, hook name patterns, agent error strings, severity field values) — no workflow-name/agent-id literal
+- **INV-3** (golden parity): FE-only change — zero backend/engine/manifest/golden files touched; verified via diagnostics
+- **INV-12** (no duplication): reused existing `getRunHookRuns` from `api.ts`; single `deriveSecurityBullets` function; `SecurityGateBlockedCard` is the one card component for this
+- **SC-001** (zero engine edits): pure FE presentation layer change
+
+#### Verification
+TypeScript diagnostics: 0 errors on all 3 modified files. Logic verified:
+- `AuditTab`: `getRunHookRuns` is called in the `Promise.all` with a `.catch(() => ({ hook_runs: [] }))` fallback so AuditTab still renders on 404/error; `buildHookLabel` produces human-readable labels matching the mock (e.g. "Secret scan — BLOCKED before write to .env"); `buildHookDetailRows` builds Detector/Match/Action/Outcome rows from the real `detail` JSON.
+- `StepsOverviewSpine`: `isSecurityBlock` checks for `/security.*gate|blocked.*security|exec.*denied|exec.*off|secret.*scan|secret.*blocked|credential.*blocked|hook.*block/i` patterns.
+- `RunChatLane`: `deriveSecurityBullets` uses `pipelineState.hookRuns` (populated by `hook_run` WS events already in `useWorkflow.ts`) for scan bullets, agent `.error` strings for exec-denied bullet, and `.validationIssues` for validation bullet.
+
+#### Notes
+- The `hook_runs` WS event (`case "hook_run"`) is already handled in `useWorkflow.ts:720-734` and populates `pipelineState.hookRuns`. No backend change needed.
+- The `getRunHookRuns` endpoint was already implemented (KAN-73, backend `runs.py:1214`) and the `HookRunsResponse` interface already existed in `api.ts:1281` — this fix was purely about calling it.
+- `buildHookDetailRows` produces a "high-entropy × known key formats" Detector fallback for secret_scan hooks when the `detail.detector` field is absent (matches the mock's display exactly).
+
+---
+
+**Date:** 2026-07-24
+**Triggered by:** `/velocity-ai-fix` — user text not showing and no loading indication for some workflows
+
+#### Root Cause
+FIX-118 removed the pre-intent `sendMessage` echo from `handleFreeText` in `RunChatLane.tsx` to fix the double-version bug. That fix was correct for the `complete` state — an undecorated `sendMessage` on a terminal run triggers `CHANNEL_REVISION` immediately. However, the fix also removed the user bubble echo for ALL intents:
+
+- **"ask" intent** still worked because `sendMessage(text, attachments, { concierge: true })` was called after classification — that `sendMessage` adds the optimistic bubble + routes to Concierge (not `CHANNEL_REVISION`)
+- **"revise" intent** never called `sendMessage` — user text never appeared  
+- **"chain" intent** never called `sendMessage` — user text never appeared
+
+The root tension: `sendMessage` on a terminal run without `{ concierge: true }` triggers `CHANNEL_REVISION`. Adding it to every path would route revise/chain as Concierge turns.
+
+**Fix:** Add `addOptimisticMessage` to `useRunChat` — a FE-only function that adds a user bubble to local state without any backend call. Call it in `handleFreeText` before the classify-intent LLM round-trip. For the "ask" path, pass the returned `messageId` as `options.existingMessageId` to `sendMessage` so it reconciles the existing bubble instead of creating a duplicate.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31 (CHATUI-01 — `useRunChat` transcript), Phase 29 (chat backbone / mechanical router / `CHANNEL_REVISION`), Phase 43 (A.1 CRUX — Concierge seam)
+- **Deleted code verified (not resurrected):** No deleted code resurrected
+- **Locked decisions respected:** INV-12 (addOptimisticMessage is new, not a fork); SC-001 (all paths generic — no workflow-name branch)
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useRunChat.ts` | Added `addOptimisticMessage(text, attachments) → string` to `UseRunChatReturn` interface and implementation; added `existingMessageId?: string` to `SendMessageOptions`; `sendMessage` uses `existingMessageId` when supplied to reconcile instead of minting a new id | Provides a FE-only bubble with no backend side-effect |
+| `frontend/src/components/chat/RunChatLane.tsx` | Added `addOptimisticMessage?` prop to `RunChatLaneProps` and `RunChatLane` function; updated `handleFreeText` to call it immediately before classify-intent, then pass `existingMessageId` to `sendMessage` for the ask path | User text visible immediately for all intents; TypingIndicator fires for all complete-state sends |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `addOptimisticMessage?` prop to `DashboardLayoutProps`; destructured from function params; passed to `<RunChatLane addOptimisticMessage={addOptimisticMessage} />` | Wires the function from page.tsx to the RunChatLane |
+| `frontend/src/app/dashboard/page.tsx` | Destructured `addOptimisticMessage: addRunChatOptimisticMessage` from `useRunChat`; passed to `<DashboardLayout addOptimisticMessage={addRunChatOptimisticMessage} />` | Sources the function from the hook |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — all paths key on generic `runState`/intent
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/engine touch
+- **INV-12** (no duplication): `addOptimisticMessage` is a NEW function with a distinct purpose (FE-only echo); `sendMessage` is unchanged except for the `existingMessageId` reconciliation path (no fork in behavior)
+- **SC-001** (zero engine edits for new workflows): Not affected
+
+#### Verification
+- For `complete` state: user types → text appears immediately as user bubble + TypingIndicator shows while LLM classifies
+- For "ask" intent: existing bubble reconciled when sendMessage called with existingMessageId (no duplicate)
+- For "revise" intent: bubble stays visible, confirm chip appears
+- For "chain" intent: bubble stays visible, chain picker / onSuggestion fires
+- For all non-complete states (building/clarify/gate/terminal): `sendMessage(text, attachments)` still called directly — bubble + behavior unchanged
+
+#### Notes
+- The `existingMessageId` option in `sendMessage` is a new reconciliation mechanism. The guard `prev.some((m) => m.id === messageId)` in `sendMessage` means if the bubble was already added optimistically, it won't be duplicated.
+- For the fast-path `matchChainTarget` (exact named-target, no LLM), we still return early without an echo — this is intentional as the chain fires immediately (no user message needed in chat).
+
+---
+
+### FIX-088 — KAN-116 Issue 2: Version chip stays at v1 after revision completes
+
+**Date:** 2026-07-22
+**Triggered by:** `/velocity-ai-fix KAN-116 issue 2 — version chip only shows v1 after ppt_revision`
+
+#### Root Cause
+In `page.tsx`, the `pipeline_complete` handler uses `isForeignCompletion` to prevent concurrent foreign runs from hijacking `contentSourceRunId`. For revision pipelines (`ppt_revision`, `prototype_revision`, etc.), `completingRunId` (the revision run's ID) !== `trackedRunIdRef.current` (the parent run's ID that was being tracked), so `isForeignCompletion = true`. This blocked `setContentSourceRunId(completingRunId)` from firing.
+
+Since `contentSourceRunId` didn't change, `DashboardLayout`'s `useEffect([contentSourceRunId])` that calls `getRunFamily` never re-fired. The family stayed with just 1 member (v1) even after the revision (v2) completed and was stored with `parent_run_id = ppt_run_id`.
+
+The `trackedRunIdRef` correctly held the parent run's ID — but for revision pipelines this is intentional: the user is revising a run they were already viewing, so the revision completion should advance the content source to the new revision.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 (Workstream B1 — revision family linkage), Phase 36 (B2 — version timeline)
+- **Deleted code verified (not resurrected):** No deleted code
+- **Locked decisions respected:** SC-001/INV-1 — uses generic `endsWith("_revision")` check, no hardcoded pipeline name
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `completingPipelineType` from `data.pipeline_type`; added `isRevisionCompletion = completingPipelineType?.endsWith("_revision")`; changed gate to `(!isForeignCompletion || isRevisionCompletion)` so revision completions always update `contentSourceRunId` | Revision runs are intentionally dispatched from the tracked run; their completion must advance the content source to trigger the family re-fetch |
+
+#### Invariants Verified
+- **INV-1**: `endsWith("_revision")` is a generic suffix check — no `pipeline_type ==` literal
+- **INV-3**: FE-only change — no backend/engine/golden impact
+- **INV-12**: No duplication — reuses existing `trackedRunIdRef` and `setContentSourceRunId` pattern
+- **SC-001**: No engine edit
+
+#### Verification
+After the fix:
+1. User views PPT run (v1) → `contentSourceRunId = ppt_run_id` → `getRunFamily(ppt_run_id)` → 1 member
+2. User triggers revision → `ppt_revision` pipeline completes → `completingPipelineType = "ppt_revision"` → `isRevisionCompletion = true` → `setContentSourceRunId(revision_run_id)` fires
+3. `DashboardLayout` effect re-fires → `getRunFamily(revision_run_id)` → backend walks up parent chain → returns 2 members (v1 + v2)
+4. Version chip shows "v2 ▾" with both v1 and v2 selectable
+
+#### Notes
+- This fix applies to ALL `*_revision` pipeline types: `ppt_revision`, `od_ppt_revision`, `prototype_revision`, `user_stories_revision`, `app_builder_revision`
+- The `isRevisionCompletion` flag does NOT affect the `detachRunRef` call — revision completions also correctly detach the stream
+
+---
+
+### FIX-087 — KAN-116: Version switch wrong content, chained runs in family, context markers in titles
+
+**Date:** 2026-07-22
+**Triggered by:** `/velocity-ai-fix KAN-116 — three bugs: version switch, chained family grouping, title markers`
+
+#### Root Cause
+
+**Bug 1 (version switch wrong content):** `WorkflowHistory.tsx handleSelectVersion` only called `setSelectedRun`/`setSelectedOutput` (WorkflowHistory-local state). When `onOpenRun` is available (the shared run screen path), it must route through `onOpenRun(full)` instead — which calls `page.tsx handleSelectWorkflowRun`, the sole function that clears ALL content states (`userStoryContent`, `prototypeContent`, `pptContent`, etc.) and re-populates only the matching type. Without this, switching from prototype (v3) back to user stories (v1/v2) kept showing prototype HTML.
+
+**Bug 2 (chained runs in version family):** `run_commands.py launch_run` set `parent_run_id = _resolve_owned_parent_run_id(...)` for ALL pipeline types, including chained pipelines of a different base type. `_owned_family_members` BFS (`runs.py:960`) has no type filter — it includes ALL children. A chained `prototype` run with `parent_run_id = user_stories_run_id` appeared as v3 of the user story family.
+
+**Bug 3 (context markers in titles):** `run_commands.py:1591` set `title = content[:60]`, where `content` for revision pipelines is the full structured message including `=== EXISTING PRODUCT BACKLOG ===` / `=== EXISTING PROTOTYPE HTML ===` markers; for chained pipelines it is `enrichedInput = brief + "\n\n=== CONTEXT FROM PREVIOUS PIPELINE ==="`. The stored title became the first 60 characters of these marker strings.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 (Workstream A — revision family linkage), Phase 36 (B2 — history/version), Phase 29/44 (run_commands.py launch_run)
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** SC-001/INV-1 — Bug 2 fix uses generic `endswith("_revision")` check, never a hardcoded pipeline name; Bug 3 helper uses generic regex marker matching
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/WorkflowHistory.tsx` | `handleSelectVersion`: when `onOpenRun` is available, call `onOpenRun(full)` instead of local `setSelectedRun`/`setSelectedOutput` | Routes version switch through page.tsx content-routing so all content states are cleared and re-populated by the selected version's type |
+| `backend/app/api/run_commands.py` | Added `_clean_run_title(content, pipeline_type)` helper (strips `=== REVISION REQUEST ===`, `=== CONTEXT FROM PREVIOUS PIPELINE ===`, and `=== EXISTING ... ===` marker blocks); used in `launch_run` WorkflowRun creation | Stores clean user brief / instruction as title, not raw marker text |
+| `backend/app/api/run_commands.py` | `launch_run`: `parent_run_id` is now set only when `pipeline_type.endswith("_revision")`; chained pipelines get `parent_run_id = None` | Chained runs are separate history entries, not grouped as versions of the source family |
+
+#### Invariants Verified
+- **INV-1**: Bug 2 uses `endswith("_revision")` — generic suffix, no `pipeline_type ==` literal
+- **INV-3**: FE-only change for Bug 1; BE title change and parent_run_id fix don't touch engine events or goldens
+- **INV-12**: No duplication — `_clean_run_title` is a new pure helper called from `launch_run`; no existing capability duplicated
+- **SC-001**: No engine edits; purely app-layer (run_commands.py) and frontend (WorkflowHistory.tsx)
+
+#### Verification
+- Backend started cleanly after changes (no import errors)
+- `_clean_run_title` helper correctly extracts revision instruction from `=== REVISION REQUEST ===` block and strips `=== CONTEXT FROM PREVIOUS PIPELINE ===` from chained content
+- `handleSelectVersion` now has `[onOpenRun]` in its dependency array, matching the prop-dependent behaviour
+- All three fixes are generic (no hardcoded workflow names) — apply to user_stories, prototype, ppt, app_builder and their od_ variants
+
+#### Notes
+- Existing runs in the DB that already have marker-polluted titles or wrong parent_run_id are NOT retroactively fixed (this is a forward fix for new runs only)
+- Bug 2: chained runs launched BEFORE this fix will still appear in the version family; new chained runs will be separate
+- The `_re_title` module-level import at the top of the helper block is intentional (module-scope lazy import to keep the helper self-contained)
+
+---
+
+### FIX-086 — Surface system prompt editor on Config tab of Library agent drawer
+
+**Date:** 2026-07-22
+**Triggered by:** `/velocity-ai-fix system prompt editing from dev branch — reapply to new UI2`
+
+#### Root Cause
+All call sites of `AgentPromptSection` in `AgentsPopup.tsx` passed `surfaceOnly` (or `surfaceOnly={true}`), which hides the Edit, Save override, and Revert-to-default buttons. This was the ND-7/LOCK-E design decision from Phase 37/41 that explicitly deferred prompt-override persistence in the drawer. The backend storage (`prompt_overrides.py`), REST API (`GET/PUT/DELETE /api/agents/{id}/prompt`), factory injection (`factory.py:_compose_system_prompt`), and FE API client (`api.ts`) are all fully wired — the only missing piece was removing the `surfaceOnly` gate on the Config tab.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 37/41 (B3/B7) + KAN-76 (dev branch)
+- **Relevant register section:** Phase 37 §5 (ND-7/LOCK-E decision)
+- **Deleted code verified (not resurrected):** No deleted code — intentional gate reversal
+- **Locked decisions respected:** ND-7/LOCK-E superseded for the Library drawer Config tab only; Composer surfaces keep `surfaceOnly`
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/AgentsPopup.tsx` | Added `<AgentPromptSection agent={agent} />` (without `surfaceOnly`) at the top of the Config tab section | Surfaces Edit/Save override/Revert affordances; overview tab unchanged (still surfaceOnly) |
+
+#### Invariants Verified
+- **INV-1**: Not affected — FE-only
+- **INV-3**: Not affected — factory falls back gracefully; goldens unaffected
+- **INV-12**: Reuses existing `AgentPromptSection` — no duplication
+- **SC-001**: Not affected
+
+#### Verification
+Config tab now shows collapsible "System Prompt" section at top with Edit/Save/Revert. Save calls `PUT /api/agents/{id}/prompt`; Revert calls `DELETE`. Factory reads the override at runtime via `read_user_prompt_override`.
+
+---
+
+### FIX-084 — KAN-115: Clear stale questionnaireData on pipeline_cancelled/failed
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix KAN-115`
+
+#### Root Cause
+`frontend/src/app/dashboard/page.tsx` lines 913–921: the `pipeline_cancelled` / `pipeline_failed` case called `setReviewGateData(null)` but NOT `setQuestionnaireData(null)` or `setActivePipelineRunId(null)`. When a user cancels during the clarify gate, `questionnaire_complete` never fires, so `questionnaireData` remains populated. `DashboardLayout` subscribes to it and sets `questionnaireQuestions`, making `laneClarifyOpen = true`. Since `laneClarifyOpen ? "clarify"` is checked before `(failed || cancelled) ? "terminal"` in the `runLaneState` ternary, the lane stays in `"clarify"` mode, the `AwaitingCard` persists, and the correct terminal affordance is never shown.
+
+**Critical implementation detail found during verification:** `pipeline_cancelled` and `pipeline_failed` are in the `pipelineTypes` array (line ~463), so they are handled in the `pipelineTypes` block which ends with `return;` before the `switch` statement. The initial fix was placed in the `switch` case at line ~913 — which is **dead code** for these event types. The working fix is in the `pipelineTypes` block, just before `return;`, using an `if (msg.type === "pipeline_cancelled" || msg.type === "pipeline_failed")` guard. Additionally, `setReviewGateData(null)` from the KAN-100 fix was also in the dead switch case and has been moved here.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22/42 — frontend pipeline state dispatcher in `page.tsx`
+- **Relevant register section:** Phase 42 §2 (RUNUI-08 — inline clarify/gate affordances)
+- **Deleted code verified (not resurrected):** No deleted code involved — surgical one-case addition
+- **Locked decisions respected:** LIVE-STATE-CONTRACT `runLaneState` priority order (clarify > terminal) is preserved; the fix clears the stale upstream state so the priority resolves correctly
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `setQuestionnaireData(null)` and `setActivePipelineRunId(null)` to the `pipeline_cancelled` / `pipeline_failed` case | Mirrors the identical clear already present in the `pipeline_start` handler (lines ~528–533); ensures `laneClarifyOpen` goes false on cancel/fail so `runLaneState` resolves to `"terminal"` |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — FE-only, no engine change
+- **INV-3** (golden parity): Not affected — FE-only, no backend/golden impact
+- **INV-12** (no duplication): Not applicable — reusing existing state setters
+- **SC-001** (zero engine edits): Not affected — FE-only
+
+#### Verification
+After the fix: when `pipeline_cancelled` fires, `setQuestionnaireData(null)` clears `questionnaireData` → `DashboardLayout` effect fires `setQuestionnaireQuestions([])` → `laneClarifyOpen = false` → `runLaneState` evaluates past `"clarify"` to `"terminal"` → `AwaitingCard` disappears. The `questionnaire_complete` path (normal clarify-then-proceed) is unaffected. The `pipeline_start` clear (stale-state-from-previous-run) is unaffected.
+
+#### Notes
+- `setActivePipelineRunId(null)` is also cleared as a second-layer defense: even if `questionnaireQuestions` somehow stayed non-empty, `laneClarifyOpen` also gates on `(!!activePipelineRunId)`, so clearing it prevents any residual false positive.
+- The chained-run clarify box (screenshot 2 in KAN-115) is also addressed by this fix — any stale `questionnaireData` from a prior run's clarify round is cleared when the terminal event fires.
+- FE-only change; no backend restart needed.
+
+---
+
+### FIX-083 — KAN-114: Replace styled clarify ResultCard with plain text bubble
+
+**Date:** 2026-07-21
+**Triggered by:** `/velocity-ai-fix KAN-114`
+
+#### Root Cause
+
+When `questionnaire_ready` fired, two independent code paths both rendered clarification-related boxes in the left chat lane simultaneously:
+
+1. **`backend/app/agents/chat_narrator.py` `_classify()`** — emitted a `chat_reply` with `card_kind="clarify"` and text `"Paused — N questions for you"`. The FE rendered this via `MessageBubble → ResultCard` as a styled amber card with the "Clarification needed" header (from `CARD_SPECS["clarify"]` in `ResultCard.tsx`).
+
+2. **`frontend/src/components/chat/RunChatLane.tsx` `renderTranscriptFooter()`** — independently rendered an `AwaitingCard` whenever `runState === "clarify"`, showing "Paused — N questions for you" with an "Answer in Steps" CTA.
+
+The user wants to KEEP the `AwaitingCard` (box 2) and replace box 1 with a plain conversational text bubble reading `"Before I build, I need to lock a few things down."`.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 31 (CHATUI-01 — ResultCard narrator architecture), Phase 43 (A6 — `chat_narrator.py` narrator projection)
+- **Relevant register section:** Phase 31 §3 (ResultCard), Phase 43 §3 (chat_narrator.py)
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** SC-001 — all changes keyed on generic `cardKind: "clarify"`, no workflow-name branch
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/agents/chat_narrator.py` | Changed `questionnaire_ready` narrator text from `f"Paused — {n} questions for you"` to the fixed string `"Before I build, I need to lock a few things down."` | Box 1 needs to be a conversational message, not a status repeat of box 2 |
+| `frontend/src/components/chat/ResultCard.tsx` | Added a `clarify`-specific render branch that returns a plain `<p>` text bubble + small "Answer in Steps" link; no styled card chrome, no amber icon/header | Box 1 should look like a conversational assistant message, not a status card |
+| `backend/tests/unit/test_chat_narrator.py` | Updated `test_clarify_card_from_questionnaire_ready` assertion from `assert "3" in card["text"]` to `assert card["text"] == "Before I build, I need to lock a few things down."` | Test was asserting the old dynamic count-bearing text which no longer applies |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — all changes keyed on generic `cardKind` / event type, no workflow name
+- **INV-3** (golden parity): Not affected — `chat_narrator` is dormant on scripted golden runs; the 5 characterization goldens are byte-identical
+- **INV-12** (no duplication): Not affected — single narrator path used; AwaitingCard unchanged
+- **SC-001** (zero engine edits for new workflows): Not affected — no engine edit; FE/app-layer only
+
+#### Verification
+
+- `ResultCard.tsx` `clarify` branch renders `data-testid="chat-result-card"` and `data-card-kind="clarify"` — existing test assertions still pass
+- Existing `test_clarify_card_from_questionnaire_ready` updated to assert the new fixed text
+- `renderTranscriptFooter()` for `runState === "clarify"` (the AwaitingCard) untouched — confirmed in `RunChatLane.tsx:1419–1431`
+- Backend restart required (chat_narrator.py changed)
+
+#### Notes
+
+- The `questionnaire_complete` text (`"N clarifications answered"`) is untouched — only the `questionnaire_ready` text changed
+- Same fix naturally applies to revision and chaining flows since they share the same `questionnaire_ready` event path through `chat_narrator.py`
+- The `CARD_SPECS["clarify"]` entry in `ResultCard.tsx` is kept (it defines `linkLabel: "Answer in Steps"` and `defaultTab: "steps"`) because the new clarify branch still reads `spec?.linkLabel` and `tab` from it
 
 ---
 
@@ -2044,3 +2440,534 @@ Additionally the `TYPE_CONFIG["custom"]` copy and `workflow.yaml` catalog metada
 #### Notes
 - HTML prototype output via custom workflow (a separate future capability) is out of scope for this fix per KAN-112 acceptance criteria; tracked as a follow-up in KAN-112 description
 - AI-driven recommendation endpoint is also a follow-up item — the Smart Planner + Clarification Questions already provide contextual gathering; the active recommendation-before-run feature would be a separate backend endpoint
+
+---
+
+### FIX-093 — Remove Duplicate Outer Timeline Dot from StartingPointCard
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix starting point shows 2 similar icons, remove outer icon, align it to same clarifying question block`
+
+#### Root Cause
+`StartingPointCard.tsx` used a `relative pl-8` outer wrapper with an **absolute-positioned navy filled circle + FileText icon** (the "timeline dot") at `absolute left-0 top-3`. The card's `<button>` header ALSO had its own `w-7 h-7 rounded-lg bg-[#E8EDF5]` icon div with a second FileText icon. This produced two near-identical document icons side-by-side in the UI — one on the left margin (the outer dot) and one inside the card header button.
+
+The `ClarificationsCard` (the correct reference design the user pointed to) renders as a flat `rounded-[12px] border` card with **no outer timeline dot at all** — no `relative pl-8` wrapper, no absolute-positioned element.
+
+Trace: `StepsOverviewSpine.tsx topSlot → StartingPointCard → return (<div className="relative pl-8"> → <div className="absolute left-0 top-3">` [OUTER NAVY CIRCLE + FileText] → `<div className="rounded-xl border"> <button> <div className="w-7 h-7 rounded-lg bg-[#E8EDF5]">` [INNER FileText]) → two icons rendered.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 (Workstream C2 — StartingPointCard) / Phase 42 (run-screen state fidelity)
+- **Relevant register section:** Phase 25 §3 (C2 StartingPointCard)
+- **Deleted code verified (not resurrected):** The outer timeline dot was a pattern cloned from PlannerCard (AgentThinkingTab.tsx). Removing it does not resurrect any Phase-deleted code.
+- **Locked decisions respected:** SC-001 — card variant still chosen by parsed shape (revisionInstruction/chainContext), never a workflow-name string.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/StartingPointCard.tsx` | Removed the outer `<div className="relative pl-8">` wrapper and the absolute-positioned timeline dot `<div className="absolute left-0 top-3 ...">` (navy circle + FileText + connector rail). Card now renders as a flat `<div className="rounded-xl border overflow-hidden border-gray-100">` — matching the ClarificationsCard flat-card style. | Two redundant icons side-by-side; the inner card button already has its own FileText icon in an `E8EDF5` rounded square — that's the correct single icon to keep. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only, no engine changes
+- **INV-3** (golden parity): not affected — FE-only component, no characterization golden touches
+- **INV-12** (no duplication): not applicable — removing redundant code
+- **SC-001** (zero engine edits for new workflows): not affected
+
+#### Verification
+- `get_diagnostics` on the file → **No diagnostics found** (TypeScript valid)
+- Mentally traced: the `return` now opens a single flat `<div className="rounded-xl ...">`, contains the `<button>` header (with the single inline `E8EDF5` icon), the `{expanded && ...}` body, and a single closing `</div>`. JSX nesting is correct with no extra close tags.
+- Committed: `[ui-2-bug-fixes 1a99e264]`
+
+#### Notes
+- The inner card-header icon (`w-7 h-7 rounded-lg bg-[#E8EDF5]`) is KEPT — it's the correct visual that matches the mock design.
+- All card body content (revision variant, chained variant, attachments, ND-10 image placeholder) is completely untouched.
+- The removed `pl-8` + absolute dot was originally cloned from the PlannerCard timeline pattern but is inappropriate here since StartingPointCard renders alongside (not inside) the PlannerCard timeline — the double icon was always wrong in this context.
+
+---
+
+### FIX-094 — Recommended Answers + Skip All in Clarify Questions (KAN-117)
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix clarify questions missing skip option and recommended answers`
+
+#### Root Cause
+`InlineClarifyActions.tsx` had the `ClarifyQuestion` type fields `recommendedAnswer`, `recommendedDisplay`, and `impactLevel` available (defined in `types/index.ts`) but never read or rendered them. This was an intentional Phase 42-06 omission (comment in the file: "the per-question skip toggle, the recommended-answer fill/badge … are intentionally omitted"). The user now wants these features — reversing that decision.
+
+Two specific gaps:
+1. **No skip affordance** — questions with no selection are silently dropped on submit, but there was no visible "Skip & continue" button so users believed all questions were mandatory.
+2. **No recommended answers** — the backend sends `recommendedAnswer`/`recommendedDisplay` per question but the UI never showed them.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31 (CHATUI-01) / Phase 42-06 (intentional omission)
+- **Deleted code verified (not resurrected):** No. This adds back UI features that were intentionally deferred, not deleted engine logic.
+- **Locked decisions respected:** SC-001 — generic question ids only, no workflow/agent-name literals. INV-12 — reused the existing `onSubmitAnswers` channel, no second submit path.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/chat/InlineClarifyActions.tsx` | Added: (1) recommended-answer hint row per question with one-click "Use recommended" button; (2) `★` marker on the recommended chip option; (3) `impactLevel === "high"` → amber "High impact" badge on the question label; (4) "Skip questions & start the build" secondary button (shown only when not all questions answered); (5) dynamic submit label counting answered questions. | Surfaces server-supplied recommendations to users and makes it clear that answering is optional. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only
+- **INV-3** (golden parity): not affected — FE-only, no characterization goldens
+- **INV-12** (no duplication): verified — reused the SAME `onSubmitAnswers` callback for both submit and skip-all; one channel, two buttons
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- `get_diagnostics` → No diagnostics found (TypeScript valid)
+- Traced: both "Submit" and "Skip" call `onSubmitAnswers(buildResponses())` which collects only questions with `answers[q.id]?.length > 0`. Unanswered questions are omitted exactly as before — the backend already handles partial submissions with its defaults.
+- Committed: `[ui-2-bug-fixes 581f0ceb]`
+
+#### Notes
+- The "Skip questions & start the build" button is **only shown** when `answeredCount < questions.length` — if the user answers all questions it disappears (no redundant UI).
+- The recommended-answer hint row hides itself once the user selects any option for that question (clean, non-cluttering).
+- The `★` marker on the recommended chip makes the option discoverable even without the hint row.
+- The submit button label adapts: "Submit 2 answers & start the build" vs the generic fallback when 0 are answered.
+
+---
+
+### FIX-095 — Fix .split crash + multi-select chip highlighting for recommended answers
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix .split is not a function crash in InlineClarifyActions + chips not highlighting after Use recommended`
+
+#### Root Cause
+Two compounding bugs introduced by FIX-094:
+
+**Bug 1 — `.split is not a function` (the crash):**
+`recommendedAnswer` and `recommendedDisplay` on `ClarifyQuestion` are typed as `string | undefined` but the backend can send a non-string value (e.g. an array `["option A", "option B"]` or a number). All three `.split()` call sites in FIX-094 operated directly on the raw value without coercing it to a string first. When the API returned an array, `[].split` is undefined → `TypeError: .split is not a function`.
+
+**Bug 2 — chips not highlighting (the visual issue from the screenshot):**
+For multi-select questions the backend's `recommendedAnswer` is often a comma-separated string `"Core definitions..., Agent reasoning..."`. `useRecommended` stored this entire string as `answers[q.id] = [rec]` — a single array element equal to the whole sentence. The chip highlight check `selected.includes(option)` compares against individual chip option strings, none of which equal the whole comma-joined string. So no chip ever turned blue even though "✓ Using recommended answer" appeared (because `recIsSelected` was comparing the raw string too, finding it matched).
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31/42 (CHATUI-01 / InlineClarifyActions)
+- **Deleted code verified (not resurrected):** Yes — no phase-deleted code resurrected.
+- **Locked decisions respected:** SC-001 — generic question ids only; INV-12 — reused existing `onSubmitAnswers` channel, no duplication.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/chat/InlineClarifyActions.tsx` | Added `toRecString(val)` helper — coerces any API value (array, number, string, null) to a plain string; array→`.join(", ")`, others→`String()`. Added `splitRecToChips(rec, options)` helper — splits the coerced string on `/,\s*/`, keeps only tokens that exactly match a chip option, falls back to the whole string if no match. All three former `.split()` call sites now go through these helpers. `useRecommended` now calls `splitRecToChips` for multi-select so individual chip strings get stored, making `selected.includes(option)` work correctly. `recTokens` computed once per question via `splitRecToChips` and reused for `recIsSelected`, `isRec`, and `useRecommended`. | Eliminates the crash and makes multi-select chips highlight correctly after "Use recommended". |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only
+- **INV-3** (golden parity): not affected — FE-only, no characterization goldens
+- **INV-12** (no duplication): verified — same `onSubmitAnswers` callback, no new channel
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- `get_diagnostics` → No diagnostics found (TypeScript valid)
+- `toRecString` handles: `null` → `""`, `["a", "b"]` → `"a, b"`, `42` → `"42"`, `"str"` → `"str"`
+- `splitRecToChips("Core definitions..., Agent reasoning...", options)` returns the two matching chip strings; each lands in `answers[q.id]`; `selected.includes("Core definitions...")` is now true; chip turns blue.
+- The crash path is gone: even if the API sends an array, `toRecString` converts it before any `.split`.
+
+#### Notes
+- Both helpers are pure module-level functions (no side effects) — easy to unit test.
+- `useMemo` import added in FIX-094 was unused; removed in this rewrite.
+- The `unused import` lint warning for `useMemo` is also resolved in this fix.
+
+---
+
+### FIX-096 — Hide Back/Next nav in PPT wizard when only template step shown
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix remove showing back and next option in ppt, as we just have template selection`
+
+#### Root Cause
+`WizardStepper.tsx` rendered the Back/Next navigation row unconditionally at the bottom of the component, regardless of how many steps were passed. FIX-065 already correctly passed `steps={["template"]}` for PPT mode (a single step), but the nav row still rendered — both buttons were disabled (`activeStep === 0 === lastStep`) but still visible as greyed-out buttons.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 37/41 (B3/B7 — WizardStepper, FIX-065)
+- **Relevant register section:** Phase 37 §3 (LaunchWizard / WizardStepper)
+- **Deleted code verified (not resurrected):** Yes — no phase-deleted code resurrected. This is a cosmetic guard.
+- **Locked decisions respected:** SC-001 — no workflow-name literal; the guard keys on `steps.length`, a generic count.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/WizardStepper.tsx` | Wrapped the Back/Next `<div>` in `{steps.length > 1 && (...)}` | When only one step is shown, navigation between steps is meaningless. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only
+- **INV-3** (golden parity): not affected — FE-only, no characterization goldens
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- `get_diagnostics` → No diagnostics found (TypeScript valid)
+- Trace: PPT wizard renders `<WizardStepper steps={["template"]} .../>` → `steps.length === 1` → nav row not rendered → Back/Next buttons gone.
+- Prototype mode passes `steps={["template", "design-system", "discovery"]}` → `steps.length === 3` → nav row renders as before (no regression).
+
+#### Notes
+- The `steps` prop was added by FIX-065 specifically to let PPT mode skip DS + Discovery; this fix completes that work by also hiding the now-useless nav.
+
+---
+
+### FIX-098 — Remove dashboard home flicker (KAN-118)
+
+**Date:** 2026-07-22
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-118`
+
+#### Root Cause
+Four compounding causes made the home dashboard content appear in staggered waves:
+
+1. **Per-card stagger** — `motion.div` on each card with `delay: 0.06 + idx * 0.05` caused 6 cards to paint one-by-one over ~310ms.
+2. **Header slide-up** — `motion.div` on the h1+eyebrow with `initial={{ opacity: 0, y: 16 }} transition={{ duration: 0.4 }}` made the header animate before the cards.
+3. **`AnimatePresence mode="wait"`** — every navigation TO home waited for the prior view's full exit animation (~200ms blank) before home could enter.
+4. (Note: the recents late-pop from the separate `getWorkflows` fetch is not fixed here — that would require prop-threading from page.tsx and is out of scope for this change.)
+
+#### Phase Context
+- **Phase(s) involved:** Phase 38 §3 (analytics fetch / HomeLaunchGrid SC-2), Phase 40 (HomeLaunchGrid motion cards), Phase 35 (DashboardLayout AnimatePresence)
+- **Deleted code verified (not resurrected):** Yes — no phase-deleted code resurrected. These are cosmetic presentation-layer changes.
+- **Locked decisions respected:** SC-001/INV-1 — no workflow-name literal added; the changes are purely animation/transition layer. ND-D (live data) untouched.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Replaced `<motion.div initial={{ opacity: 0, y: 16 }} ...>` header wrapper with plain `<div>` | Removes the 400ms header slide-up that preceded card rendering |
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Replaced per-card `<motion.div initial={{ opacity: 0, y: 8 }} transition={{ delay: 0.06 + idx * 0.05 }}>` with plain `<div>` | Removes the 60–310ms staggered card cascade |
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Removed `import { motion } from "motion/react"` | No longer used after above two changes; avoids lint warning |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Changed `AnimatePresence mode="wait"` → `mode="sync"` | `mode="wait"` held a ~200ms blank while the prior view exited; `sync` allows the new view to enter immediately |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE presentation-layer only
+- **INV-3** (golden parity): not affected — FE-only, no characterization goldens
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected
+
+#### Verification
+- `get_diagnostics` on both files → No diagnostics found
+- Traced: after fix, the home view (mainView==="home") now enters immediately via `mode="sync"` with a plain `opacity 0→1` (duration: 0.2 from the outer `motion.div key="home"`). Inside HomeLaunchGrid all cards render immediately as plain `<div>`s — no per-element delay. The h1 renders instantly as a plain `<div>`.
+- The `mode="sync"` change affects ALL views in DashboardLayout. All other views (library/history/settings/execution etc.) use the same `motion.div` enter/exit pattern — `sync` means their transitions overlap slightly which is the standard expected UX, not worse than before.
+
+#### Notes
+- The **recents late-pop** (4th cause from KAN-118) is NOT fixed here. Fixing it requires either (a) passing `recentRuns` from page.tsx as a prop instead of having HomeLaunchGrid fetch its own copy, or (b) pre-caching. That is a larger structural change tracked in KAN-118 as an open question.
+- The `getAnalyticsSummary` fetch still fires but is now a no-op for display (FIX-097 removed the minutes display). It could be removed entirely but that is separate cleanup.
+
+---
+
+### FIX-105 — KAN-120: "Run Again" resumes cancelled pipeline from stopped step
+
+**Date:** 2026-07-23
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-120`
+
+#### Root Cause
+Four independent gaps across the stack:
+
+1. **`backend/app/api/run_commands.py:~378`** — eligibility check `wr.status != "failed"` rejected cancelled runs with 409. A stopped run has `status="cancelled"`.
+2. **Same file, state machine** — when a run is cancelled then resumed in the **same process session**, the in-memory `StateMachine._states` dict has `"cancelled"` locked as terminal. `_execute_impl` subsequently calls `self._state_machine.transition(run_id, "generating")` which raises `StateMachineError: Cannot transition from terminal state 'cancelled'`. For failed runs resumed after a **restart** this never occurs (new process = empty dict), so it was never caught before.
+3. **`frontend/src/lib/api.ts`** — no `postResume()` function existed; the FE had no way to call the endpoint.
+4. **`frontend/src/components/layout/DashboardLayout.tsx:1796`** — `onRelaunch={handleGoHome}` navigated home; no resume call.
+5. **`frontend/src/components/chat/RunChatLane.tsx:~1335`** — button "New Pipeline", text "Nothing further will happen." — misleading.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 50 (RESUME-18 endpoint), Phase 44 (LOCK-B REST+SSE), Phase 31/32 (RunChatLane terminal cards)
+- **Deleted code verified (not resurrected):** None
+- **Locked decisions respected:** LOCK-B — REST up-channel + `runConnection.attachRun` (same as `postRevision`). INV-12 — `postResume` follows `postCancel` exactly, no duplication. SC-001/INV-1 — `handleResumeRun` keys only on generic run ids, zero workflow-name literal.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/run_commands.py` | Eligibility: `!= "failed"` → `not in {"failed", "cancelled"}`; added step 6b to pop the in-memory state machine entry before resume drive | Accept cancelled runs; prevent same-session terminal-state guard from blocking the transition to "generating" |
+| `frontend/src/lib/api.ts` | Added `postResume(token, runId)` following exact `postCancel` pattern | No client function existed |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `postResume` import; added `handleResumeRun` callback (captures `pipelineState.pipelineRunId` BEFORE state mutation, calls `postResume`, attaches SSE on success, falls back to `handleGoHome` on error — does NOT call `onResetPipeline` before POST); replaced `onRelaunch={handleGoHome}` with `onRelaunch={handleResumeRun}` | Was navigating home; now resumes + attaches SSE stream |
+| `frontend/src/components/chat/RunChatLane.tsx` | Button: `"New Pipeline"` → `"Run Again"`; text: `"Nothing further will happen."` → `"Click Run Again to resume from where it left off."` | User-visible fix matching acceptance criteria |
+
+#### Invariants Verified
+- **INV-1**: no `pipeline_type` branch — `handleResumeRun` keys only on run id props
+- **INV-3**: no engine/golden change; backend edit is app-layer eligibility + in-memory dict pop
+- **INV-12**: `postResume` is a single function; `handleResumeRun` reuses `runConnection.attachRun` seam
+- **SC-001**: zero engine edit; the existing Phase 45–49 resume tier handles everything
+
+#### Verification
+- Backend: `wr.status not in {"failed", "cancelled"}` — cancelled run passes; `_state_machine._states.pop(run_id, None)` clears the terminal guard before drive
+- Frontend: `handleResumeRun` captures `pipelineState?.pipelineRunId` (which survives `pipeline_cancelled` — the hook keeps it via `...prev` spread), calls `postResume`, then `runConnection.attachRun(run_id)` → SSE stream re-attaches → `pipelineState.isRunning` becomes `true` → `runLaneState` flips to `"building"` naturally
+- No TypeScript diagnostics on all three changed FE files
+
+#### Notes
+- `onResetPipeline()` must NOT be called before `postResume()` — it calls `setPipelineState(INITIAL_STATE)` which wipes `pipelineRunId` and flips `runLaneState` back to `"idle"`, making the UI appear to do nothing. The SSE stream drives state machine forward on its own.
+- The state machine pop is safe: DB status is already `"running"` (step 5) when the pop happens; the in-memory entry is an intra-process mirror written by the same process when it cancelled — clearing it is ownership-safe.
+
+---
+
+### FIX-110 — KAN-121: Custom workflow prototype agents show validator QA text
+
+**Date:** 2026-07-24
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-121`
+
+#### Root Cause
+`frontend/src/components/workflow/IdeaInputPage.tsx` — `AGENT_DELIVERABLE_MAP` prototype entry (line 419) listed only 3 of 5 prototype pipeline agent IDs as triggers:
+
+```
+agents: ["prototype-build", "prototype-specify", "prototype-plan"]
+```
+
+`resolveDispatchType()` iterates the map and fires the first entry whose `agents` list shares any ID with the user's selected agent set (`keys.some(id => ids.has(id))`). When a user selected a composition containing `prototype-analyze` or `prototype-validate` but NOT `prototype-build`/`prototype-specify`/`prototype-plan`, the check failed to match and fell through to the default fallback:
+
+```
+{ strategy: "streamed_text", name: "output.md", mimetype: "text/markdown" }
+```
+
+This default was injected as `__deliverable__` into the run's `selections` map. The engine's `_apply_selections` applied it, setting `compiled.deliverable = streamed_text/output.md`. The `StreamedTextResolver` then resolved `ectx.last_streamed` — the `prototype-validate` agent's QA checklist text (the last agent to run) — as the final deliverable. The FE received `deliverable_filename="output.md"` and rendered the QA text via `MarkdownPreview` in the Preview panel.
+
+This was a **port regression**: the fix was present on another branch (commit `6685906b`, FIX-059/FIX-060) with all 5 agents listed, but when the new UI branch (`feat/ui-2`) was built the prototype entry was recreated with only 3 agents.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 (EMP-01/02 — `__deliverable__` runtime override, KAN-112 Option B)
+- **Relevant register section:** Phase 22 §3 (`__deliverable__` selections key, `AGENT_DELIVERABLE_MAP`)
+- **Deleted code verified (not resurrected):** No deleted code — extending an existing map entry only
+- **Locked decisions respected:** SC-001 — fix uses agent IDs (never workflow/pipeline-type names); INV-12 — extends the existing map, no second mechanism introduced
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/IdeaInputPage.tsx` | Added `"prototype-analyze"` and `"prototype-validate"` to the prototype entry's `agents` trigger list | Ensures the `__deliverable__` override fires for ANY prototype agent combination, matching what FIX-059 had on the other branch |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — FE-only change, no engine code touched
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/engine/golden impact
+- **INV-12** (no duplication): Verified — extended the existing `AGENT_DELIVERABLE_MAP` entry, no second override mechanism added
+- **SC-001** (zero engine edits for new workflows): Not affected — zero engine edits; the `__deliverable__` mechanism already exists
+
+#### Verification
+- `AGENT_DELIVERABLE_MAP` prototype entry now lists all 5 agents: `prototype-build`, `prototype-specify`, `prototype-plan`, `prototype-analyze`, `prototype-validate`
+- `resolveDispatchType()` first-match loop hits the prototype entry for ANY prototype agent → `deliverableOverride = { strategy: "single_file", name: "prototype.html", mimetype: "text/html" }`
+- Engine `_apply_selections` (engine.py:6464) reads `__deliverable__` and calls `DeliverableSpec(strategy="single_file", name="prototype.html", mimetype="text/html")` + forces `clarify.mode="skip"`
+- `SingleFileResolver.resolve()` reads `prototype.html` from the sandbox (written by `prototype-build`)
+- `pipeline_complete` event carries `deliverable_filename="prototype.html"`, `deliverable_mimetype="text/html"`
+- FE `page.tsx` routes to `setGenericDeliverable({mimetype:"text/html", filename:"prototype.html", content:<html>})`
+- `GenericDeliverablePreview` → `text/html` branch → sandboxed iframe renders the prototype ✅
+- Non-prototype custom runs: no prototype agent ID present → check still falls through to `streamed_text` default ✅
+
+#### Notes
+- The `COMPANION_GROUPS` definition already correctly listed all 5 prototype agents — the mismatch was only in `AGENT_DELIVERABLE_MAP`. A future agent adding new prototype steps should update BOTH lists.
+- The `resolveDispatchType` function is first-match: if somehow agents from multiple pipeline families are mixed, only the first matching entry fires. This is intentional existing behaviour, not changed.
+
+---
+
+### FIX-111 — KAN-121 follow-up: custom prototype-build must use task_loop strategy
+
+**Date:** 2026-07-24
+**Triggered by:** `/velocity-ai-fix all workflows should generate correct output using custom workflow`
+
+#### Root Cause
+
+FIX-110 was necessary but not sufficient. It fixed the `AGENT_DELIVERABLE_MAP` trigger list so `__deliverable__ = {strategy:"single_file", name:"prototype.html"}` is correctly injected into selections. But `_apply_selections` (engine.py:6464) only patches `compiled.deliverable` — the top-level resolver config. It does NOT patch the **per-step execution strategy**.
+
+The `custom/workflow.yaml` manifest declares `strategy: single_shot` for ALL steps, including `prototype-build`. The `single_shot` strategy runs the agent once and reads from `ctx.last_streamed` — it **never writes any file to the RunSandbox**. So `SingleFileResolver.resolve()` calls `runner.sandbox.read("prototype.html")` → returns `""` → falls back to `last_streamed` (the last agent's streamed output, which is `prototype-validate`'s QA checklist).
+
+The `task_loop` strategy is the **only** strategy that:
+1. Parses the task plan into individual tasks
+2. Calls `runner.persist_task_html()` after each task, which writes `prototype.html` to the sandbox
+3. Produces a file that `SingleFileResolver` can find
+
+The `_apply_selections` function already has a `sel.get("strategy")` overlay path (engine.py:6442) for fan-out support. This same mechanism can inject `strategy: "task_loop"` on `prototype-build` from the FE selections — no new engine code needed.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 (KAN-112 Option B custom composer), Phase 7 (task_loop strategy)
+- **Relevant register section:** Phase 22 §3 (EMP-01/02), Phase 7 §3 (task_loop strategy)
+- **Deleted code verified (not resurrected):** No deleted code — using existing `sel.get("strategy")` overlay path
+- **Locked decisions respected:** SC-001 — no engine edits; INV-12 — reuses existing `_apply_selections` mechanism; INV-1 — keyed on agent ID not pipeline_type
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/IdeaInputPage.tsx` | When `deliverableOverride.name === "prototype.html"` AND `prototype-build` is in the agent list, inject `"prototype-build": { strategy: "task_loop" }` into `mergedSelections` alongside `__deliverable__` | Ensures `_apply_selections` patches the prototype-build step strategy to `task_loop` so it writes `prototype.html` to the RunSandbox |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — keyed on `deliverableOverride.name === "prototype.html"` (a data value) and agent ID presence, never a `pipeline_type` string
+- **INV-3** (golden parity): Not affected — FE-only change; no backend/engine/golden impact; non-prototype runs take the `prototypeStepOverrides = {}` path (byte-identical)
+- **INV-12** (no duplication): Verified — reuses the existing `sel.get("strategy")` overlay in `_apply_selections`; no second strategy-injection mechanism
+- **SC-001** (zero engine edits for new workflows): Not affected — zero engine edits; the mechanism was already there for fan-out (Phase 51)
+
+#### Verification
+- When prototype agents selected with `prototype-build`: `mergedSelections` contains `{ "prototype-build": { strategy: "task_loop" }, __deliverable__: { strategy: "single_file", name: "prototype.html", mimetype: "text/html" } }`
+- `_apply_selections` processes `"prototype-build"` entry: `sel.get("strategy") → "task_loop"`, `user_step.strategy → "task_loop"` (from synthesized manifest) → `patch["strategy"] = "task_loop"`
+- `prototype-build` step runs with `task_loop` strategy → `persist_task_html()` writes `prototype.html` to sandbox
+- `SingleFileResolver.resolve()` → `sandbox.read("prototype.html")` → returns HTML → correct deliverable ✅
+- PPT runs unaffected: `deliverableOverride.name === "presentation.html"` → condition false → `prototypeStepOverrides = {}` ✅
+- User story runs unaffected: `strategy: "streamed_text"` → `deliverableOverride.name !== "prototype.html"` → `prototypeStepOverrides = {}` ✅
+- Non-prototype custom runs unaffected: no `deliverableOverride` → `mergedSelections = selections` (original, unchanged) ✅
+
+#### Notes
+- If `prototype-build` is NOT in the selected agents (e.g. user only adds specify/plan/analyze/validate), `prototypeStepOverrides` is `{}` and `prototype.html` will still not be written. This is expected — the build step is required to produce the HTML file. The `AGENT_DELIVERABLE_MAP` trigger list (FIX-110) correctly fires for any prototype agent, but the actual HTML production requires `prototype-build` to be present.
+- The `...selections["prototype-build"]` spread ensures any user-composed levers (model/retry/validators) from `AgentsPopup` for the `prototype-build` agent are preserved alongside the injected `strategy` override.
+
+
+---
+
+### FIX-120 — KAN-120 Resume Run: 4 compounding bugs fixed (DB race, agent statuses, task data, error handling)
+
+**Date:** 2026-07-27
+**Triggered by:** `/velocity-ai-fix Fix KAN 120` — user stopped a prototype pipeline during Build Agent task 2, clicked "Reopen & fix from the failed step", and observed: (1) ApiError 409 "Run is 'generating'", (2) agent circles all empty/idle after resume, (3) tasks 1-2 showing "No further detail recorded for this task", (4) any resume error silently navigated to home.
+
+#### Root Cause
+
+**BUG 1 — DB race → 409 on fast-click:**
+The cooperative cancel (`_CANCEL_EVENTS[run_id].set()`) fires synchronously, causing `pipeline_cancelled` to reach the FE immediately (FE shows "Cancelled by you"). However, `_drive_launch_to_queue` in `run_commands.py` writes `wr.status = "cancelled"` only AFTER fully draining the SSE event queue — a 1-5 second async window. If the user clicks "Reopen & fix" during this window, the resume endpoint's eligibility check (`wr.status not in {"failed", "cancelled"}` at `run_commands.py:376-383`) sees `"generating"` and returns 409. The error handler at `DashboardLayout.tsx:1416-1418` called `handleGoHome()` silently for ANY error.
+
+**BUG 2 — Agent statuses all reset to idle after resume:**
+`pipeline_start` from the resumed engine calls `agentStates = agents.map(a => ({...a, status: "idle"}))` (`useWorkflow.ts:228-234`), resetting ALL agents to idle. The engine's dispatch loop skips agents 0..(offset-1) without re-emitting `agent_start`/`agent_complete` for them. Since the pipeline_start had `resume_offset: 0` in the event payload, the FE had no way to know which agents were already done.
+
+**BUG 3 — Task 1 and Task 2 show "No further detail recorded":**
+The engine's task_loop strategy uses `resume_completed_task_ids` to skip pre-stop tasks. When task 3 completes, it emits `task_progress` with `completed_tasks = [task3]` — not including tasks 1-2 (skipped). The `task_progress` handler in `useWorkflow.ts:771-782` did a FULL REPLACE (`protoCompletedTasks: completedTasks`), wiping task 1-2 data. Additionally, `pipeline_start` did not preserve `protoCompletedTasks` from `prev` when `resumeOffset > 0`.
+
+**BUG 4 — Error silently navigates to home:**
+`handleResumeRun`'s `.catch((e) => { handleGoHome() })` navigated away for any error including the timing-race 409, giving the user zero feedback.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 50 (RESUME-18 / KAN-120 — user-resume endpoint), Phase 44 (SSE transport / pipeline_start), Phase 31 (RunChatLane terminal state)
+- **Relevant register section:** Phase 50 §2 (resume_run_endpoint), Phase 12 §3 (pipeline_start FE handler), Phase 31 §3 (terminal state rendering)
+- **Deleted code verified (not resurrected):** No deleted code resurrected. All changes are additive.
+- **Locked decisions respected:** ND-D — all text shown in the error banner is generic ("Could not resume the run — please try again"), never hardcoded fiction. SC-001 — no workflow-name literal added anywhere. INV-3 — `resume_offset: 0` on every normal run keeps the pipeline_start event payload backward-compatible.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/execution_engine/engine.py` | Added `"resume_offset": _resume_from` to the `pipeline_start` event payload | Gives the FE authoritative knowledge of which agents were already completed before the resume; 0 on normal runs → zero regression |
+| `frontend/src/hooks/useWorkflow.ts` | `pipeline_start` handler: reads `resume_offset`; sets agents at `idx < resumeOffset` to `status: "done"`; seeds `completedCount` and `currentAgentIndex` from the offset; preserves `protoCompletedTasks` / `protoCompletedTaskCount` from `prev` when `resumeOffset > 0` | Fixes BUG-2 (agent statuses) and BUG-3 (task data preservation on resume's pipeline_start) |
+| `frontend/src/hooks/useWorkflow.ts` | `task_progress` handler: changed from full-replace to max-wins merge (keyed by task `number`); new tasks extend the array, existing tasks win unless overridden | Fixes BUG-3 (task data for pre-stop tasks survives when resumed engine only reports newer tasks) |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `resumeError` state; `handleResumeRun` clears it before attempt, retries once after 2.5s if error code is `run_not_resumable` with `generating` status, shows inline error for all other failures; added `useEffect` to clear `resumeError` when `isPipelineRunning` becomes true; added `pipeline_already_running` fast-path (attach SSE stream); threaded `relaunchError={resumeError}` to `RunChatLane` | Fixes BUG-1 (timing race retry) and BUG-4 (inline error instead of silent home navigation) |
+| `frontend/src/components/chat/RunChatLane.tsx` | Added `relaunchError?: string | null` prop to `RunChatLaneProps`; destructures it in the component; renders an amber error banner above the "Reopen & fix" button in both the cancelled and failed terminal states | Displays the inline error message (BUG-4) |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Clean — resume_offset is generic data; pipeline_start handler uses array index not workflow name; error message is a generic string
+- **INV-3** (golden parity): Clean — `resume_offset: 0` on every normal run leaves the pipeline_start payload backward-compatible; `task_progress` merge is a no-op when `prev.protoCompletedTasks` is empty (normal fresh run); goldens are never touched
+- **INV-12** (no duplication): Clean — reuses existing `postResume` function; no second resume path created
+- **SC-001** (zero engine edits for new workflows): Not affected — only additive data field in the existing pipeline_start event; no new capability, no new workflow
+
+#### Verification
+- Backend starts clean (alembic=0027, no import errors)
+- All 3 frontend files pass TypeScript diagnostics (zero errors)
+- BUG-1: `run_not_resumable + "generating"` → retry fires after 2.5s; any other error → amber banner shown, no home navigation
+- BUG-2: resumed pipeline_start with `resume_offset=3` → agents 0-2 initialized as `status:"done"`, agents 3-4 as `status:"idle"`, `completedCount:3`
+- BUG-3: `task_progress` with `completedTasks=[task3]` when `prev.protoCompletedTasks=[task1,task2]` → merged result `[task1, task2, task3]` (sorted by number)
+- BUG-4: amber banner appears above "Reopen & fix" button; banner clears automatically when `isPipelineRunning` becomes true (resume accepted)
+
+#### Notes
+- The 2.5s retry window covers the typical DB commit lag (~1-2s for the queue drain). If the backend is under heavy load, a second click by the user also works since `resumeError` is cleared before each attempt.
+- The `pipeline_already_running` fast-path (attach SSE stream without re-posting) handles the edge case where the user clicks Reopen a second time while the first resume is already running.
+- The `task_progress` merge is safe for normal (non-resume) runs: when `prev.protoCompletedTasks` is `[]` (fresh run, pipeline_start just fired), the merge of an empty map with the new tasks produces exactly `completedTasks` — byte-identical to the prior replace.
+- BUG-2 also fixes the inconsistency between the left-lane PipelineMini ("1/5 agents") and the Steps panel ("0/5") — both read from the same `pipelineState` which is now correctly seeded from the `resume_offset`.
+
+
+---
+
+### FIX-121 — Three Stop/Resume UI bugs: skipped agent, reconnecting banner, unresponsive stop
+
+**Date:** 2026-07-27
+**Triggered by:** `/velocity-ai-fix` — user stopped pipeline during Spec Kit Analyzer, clicked Run Again, and observed: (1) resume started from Build Agent, skipping Spec Kit Analyzer with no data shown for it; (2) Stop button appeared unresponsive during resumed Build Agent run; (3) Yellow "Reconnecting…" banner appeared every time Stop was clicked.
+
+#### Root Cause
+
+**BUG 1 — Spec Kit Analyzer skipped (incorrect resume offset):**
+`_first_incomplete_step` in `engine.py` determines the resume offset by checking if each agent produced a durable `artifact_refs` entry (`produced_agents`). For `single_shot` (non-wave, non-task_loop) agents, the completeness check was:
+```python
+if agent_id in produced_agents or agent_id in completed_step_events:
+    continue
+```
+If `prototype-analyze` (Spec Kit Analyzer, index 2) wrote its summary artifact to the store but was killed BEFORE emitting `agent_complete` (which happens in a narrow window between the artifact write and the event emission), the agent appeared complete (`produced_agents` membership) but had no terminal event in the durable store. The resume offset was set to 3 (Build Agent), skipping Spec Kit Analyzer entirely. The FE then marked it as "done" with empty output/thinking data (no `agent_complete` event in the SSE replay means no data restoration).
+
+**BUG 2 — Stop button appears unresponsive:**
+The second stop DID fire correctly at the backend level. The problem was BUG 3 below: the yellow "Reconnecting…" banner appeared immediately after the stop, making the user think the stop hadn't worked. The banner was the visual confound.
+
+**BUG 3 — Yellow "Reconnecting…" banner after every Stop click:**
+In `dashboard/page.tsx`, the `pipeline_cancelled` case did NOT call `detachRunRef.current?.(cancelledId)`, unlike the `pipeline_complete` case which DOES call it. When Stop fires:
+1. `pipeline_cancelled` SSE event arrives → `pipelineState.cancelled = true`, `isRunning = false`
+2. The backend closes the run's SSE stream after draining `pipeline_cancelled`
+3. `useRunStream` stream reader gets `done: true` (server closed connection)
+4. `sawNonLiveAttachRef.current` is `false` (was a live `stream_attached{live:true}`)
+5. → `scheduleReconnect()` is called → `phase = "reconnecting"`
+6. → Yellow "Reconnecting…" banner appears
+
+The fix is to call `detachRun(cancelledId)` when `pipeline_cancelled` fires, just as `pipeline_complete` does. This makes the `RunStreamConnection` unmount (`stoppedRef.current = true`), which prevents the `scheduleReconnect()` call when the stream closes.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 45-49 (RESUME engine), Phase 44 (SSE transport/BUG-015), Phase 29 (run_commands cancel/SSE stream)
+- **Deleted code verified (not resurrected):** No deleted code resurrected.
+- **Locked decisions respected:** ND-D — no hardcoded text; SC-001 — no workflow-name literals; INV-3 — golden parity preserved (agent_complete_events check is dormant when no events exist in offline harness).
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/execution_engine/engine.py` | Added `agent_complete_events: set[str]` collection from durable `run_events` (type `"agent_complete"`, keyed by `payload_json.agent_id`); changed the non-wave single_shot completeness check from `produced_agents OR completed_step_events` to `(produced_agents AND agent_complete_events) OR completed_step_events` | An agent stopped between artifact-write and `agent_complete` emission has the artifact but no completion event — requiring both signals ensures such agents are re-run rather than skipped with no data |
+| `frontend/src/app/dashboard/page.tsx` | Added `detachRunRef.current?.(cancelledId)` call in the `pipeline_cancelled` case of the switch statement, mirroring the identical call in the `pipeline_complete` case | Makes the `RunStreamConnection` unmount when the run is cancelled, preventing `scheduleReconnect()` from firing when the backend closes the SSE stream after `pipeline_cancelled` drains |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Clean — `agent_complete` check uses generic `payload_json.agent_id`, no workflow name
+- **INV-3** (golden parity): Clean — `agent_complete_events` set is empty when no durable events exist (offline harness), `complete_by_artifact` = False, falls through to `return i` — same as before for tests without durable substrate. For agents that truly completed before the stop (both `produced_agents` AND `agent_complete_events`), behavior is identical to before.
+- **INV-12** (no duplication): Clean — reuses the existing `durable_rows` read, no second round-trip
+- **SC-001** (zero engine edits for new workflows): Not affected — these are completeness-scan changes, no new capability or manifest
+
+#### Verification
+- Backend starts clean with the engine.py change
+- Frontend diagnostics: no TypeScript errors in `dashboard/page.tsx`
+- **BUG 3 trace with fix:** `pipeline_cancelled` fires → `detachRunRef.current?.(cancelledId)` → `focusedRunIdRef.current = null` → `recomputeLiveRunIds` → `RunStreamConnection` for this run is removed from `liveIds` → component unmounts → `stoppedRef.current = true` → stream close does NOT call `scheduleReconnect()` → no yellow banner
+- **BUG 1 trace with fix:** `prototype-analyze` killed between artifact-write and `agent_complete` → `produced_agents` contains it, `agent_complete_events` does NOT → `complete_by_artifact = False` → `completed_step_events` also doesn't contain it → `return i` (offset = 2 = Spec Kit Analyzer) → resume starts FROM Spec Kit Analyzer, re-runs it, emits `agent_complete` → data shown correctly
+
+#### Notes
+- BUG 2 (second stop unresponsive) was a visual confound caused by BUG 3's reconnecting banner. The second stop itself functioned correctly at the backend — `_CANCEL_EVENTS[run_id]` is re-registered by `resume_run_endpoint` at step (4) before spawning the drive task, so `cancel_run` finds and sets the event normally.
+- The `agent_complete_events` check is a STRENGTHENING of the single_shot completeness signal — it converts `produced_agents OR completed_step_events` to `(produced_agents AND agent_complete_events) OR completed_step_events`. Old behavior is preserved for: (a) agents with `step_completed`/`step_reused` events (unaffected), (b) agents with BOTH artifact and `agent_complete` event (correctly classified complete), (c) offline/no-durable-store cases (sets are empty, falls through to `return i` = re-run from start, same as before).
+- The task_loop and wave_scheduler branches are unaffected — they have their own completeness logic and don't use `produced_agents` for their primary check.
+
+
+---
+
+### FIX-122 — Root fix for yellow "Reconnecting" banner and Stop button appearing unresponsive
+
+**Date:** 2026-07-27
+**Triggered by:** Follow-up after FIX-121 — user still sees yellow "Reconnecting…" banner after clicking Stop, and Stop button appears unresponsive during Build Agent tasks.
+
+#### Root Cause
+
+FIX-121 added `detachRunRef.current?.(cancelledId)` in the `pipeline_cancelled` case in `dashboard/page.tsx`. The intent was to release the sticky SSE focus when a run is cancelled, so `RunStreamConnection` unmounts before the backend closes the stream. However, this approach has a race condition:
+
+1. `pipeline_cancelled` frame is dispatched in the `dispatchBlock` closure inside `useRunStream`'s async reader loop
+2. `onMessage(msg)` → React state updates scheduled (`setLiveRunIds`)  
+3. But React state updates are **asynchronous** — they don't apply until the next render cycle
+4. The async reader loop immediately continues: `await reader.read()` → backend closes connection → `{done: true}`
+5. At this point `stoppedRef.current` is still `false` (unmount hasn't happened yet)
+6. → `sawNonLiveAttachRef.current` is `false` (was a live `stream_attached{live:true}`)
+7. → `scheduleReconnect()` fires → `phase = "reconnecting"` → yellow banner
+
+**The correct fix**: Set `sawNonLiveAttachRef.current = true` directly inside `dispatchBlock` when `pipeline_cancelled` or `pipeline_failed` arrives. This is synchronous — it happens within the same microtask as the frame is processed, guaranteed to run before the next `await reader.read()`. When the stream closes after `pipeline_cancelled`, `sawNonLiveAttachRef.current` is already `true` → `setPhase("disconnected")` (quiet) instead of `scheduleReconnect()` (yellow banner).
+
+This mirrors how `stream_attached{live:false}` already handles terminal runs (BUG-015) — it marks the ref true so the close doesn't reconnect. `pipeline_cancelled`/`pipeline_failed` are the same category: intentional terminal events after which the backend closes the stream.
+
+The `detachRun` call in FIX-121 is kept as **additive insurance** (it ensures the `RunStreamConnection` component is eventually removed), but the `sawNonLiveAttachRef` set is the guaranteed-synchronous fix for the banner.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 44 (BUG-015 — SSE transport non-reconnect for terminal runs, useRunStream.ts)
+- **Deleted code verified (not resurrected):** No deleted code resurrected.
+- **Locked decisions respected:** BUG-015 pattern exactly extended: terminal events mark the connection as non-reconnecting.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useRunStream.ts` | Added `if (type === "pipeline_cancelled" \|\| type === "pipeline_failed") { sawNonLiveAttachRef.current = true; }` inside `dispatchBlock`, after the `stream_attached` handler | Synchronously marks the connection non-live when a terminal event arrives, before the backend closes the stream. The close-branch then calls `setPhase("disconnected")` instead of `scheduleReconnect()`, eliminating the yellow banner. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): Not affected — purely SSE lifecycle
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/engine impact
+- **INV-12** (no duplication): Not affected — single change to existing ref pattern
+- **SC-001** (zero engine edits for new workflows): Not affected — FE-only change
+
+#### Verification
+**Trace with fix applied:**
+1. Stop clicked → `postCancel(token, runId)` → `_CANCEL_EVENTS[run_id].set()` → engine emits `pipeline_cancelled` → SSE stream delivers it
+2. `dispatchBlock` processes `pipeline_cancelled` → `sawNonLiveAttachRef.current = true` (synchronous, same microtask)
+3. `onMessage(msg)` called → React reducer processes cancel
+4. Async reader: `await reader.read()` → backend closes stream → `{done: true}` → `buf.trim()` → exit loop
+5. `!stoppedRef.current && !controller.signal.aborted` → true (component still mounted)
+6. `sawNonLiveAttachRef.current` → **true** → `setPhase("disconnected")` (quiet, no banner) ✅
+7. No yellow "Reconnecting…" banner
+
+**Stop button responsiveness:**
+- The button IS rendered (runState="building", `isRunning=true`)
+- `postCancel` fires successfully (backend `_CANCEL_EVENTS` is set by `resume_run_endpoint` step 4)
+- The user sees the stop take effect (pipeline_cancelled arrives, UI transitions to terminal state)
+- No reconnecting banner → user clearly sees the stop worked
+
+#### Notes
+- The `detachRun` call from FIX-121 is kept as defensive layering — it ensures the `RunStreamConnection` eventually unmounts even if `sawNonLiveAttachRef` is somehow bypassed. Belt-and-suspenders approach.
+- `pipeline_failed` is included alongside `pipeline_cancelled` for symmetry — a hard failure also closes the stream intentionally and should not trigger a reconnect loop.

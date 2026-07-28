@@ -268,6 +268,18 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
         if (data.live === true) setPhase("live");
       }
 
+      // BUG-015 (stop-button reconnecting banner): pipeline_cancelled / pipeline_failed
+      // are TERMINAL events — the backend intentionally closes the stream right after
+      // draining them. Mark the connection as "non-live" so the close-branch below
+      // calls setPhase("disconnected") instead of scheduleReconnect(). Without this,
+      // sawNonLiveAttachRef stays false (was a live stream_attached{live:true}) and
+      // the stream close triggers a yellow "Reconnecting…" banner on every Stop click.
+      // The detachRun call in dashboard/page.tsx is additive insurance; this ref-set
+      // is guaranteed synchronous within the same microtask as the frame dispatch.
+      if (type === "pipeline_cancelled" || type === "pipeline_failed") {
+        sawNonLiveAttachRef.current = true;
+      }
+
       const msg: RunStreamMessage = { type, data };
       setLastMessage(msg);
       onMessageRef.current?.(msg);

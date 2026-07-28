@@ -41,7 +41,10 @@ class TestProjection:
         card = project_milestone_card(self._event("questionnaire_ready", question_count=3))
         assert card is not None
         assert card["card_kind"] == CARD_CLARIFY
-        assert "3" in card["text"]
+        # KAN-114: questionnaire_ready narrator text is now the fixed conversational
+        # message — the question count is surfaced by the AwaitingCard in the lane,
+        # not duplicated in the chat bubble text.
+        assert card["text"] == "Before I build, I need to lock a few things down."
         assert card["pipeline_run_id"] == "run-1"
 
     def test_clarify_card_from_questionnaire_complete(self):

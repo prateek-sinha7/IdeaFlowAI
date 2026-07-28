@@ -75,7 +75,7 @@ describe("RunChatLane — terminal states", () => {
     expect(screen.getByTestId("chat-terminal-cancelled")).toBeInTheDocument();
     expect(screen.getByText(/Cancelled by you/i)).toBeInTheDocument();
     const relaunch = screen.getByTestId("chat-relaunch");
-    expect(relaunch).toHaveTextContent(/Run again/i);
+    expect(relaunch).toHaveTextContent(/New Pipeline/i);
     fireEvent.click(relaunch);
     expect(onRelaunch).toHaveBeenCalledTimes(1);
   });

@@ -357,9 +357,9 @@ export function AgentPromptSection({
                       {!editMode && (
                         <button
                           onClick={handleEditStart}
-                          className="flex items-center gap-1 text-[10px] font-semibold text-gray-500 hover:text-gray-900 transition-colors px-2 py-0.5 rounded-md hover:bg-gray-100"
+                          className="flex items-center gap-1.5 text-[12px] font-semibold text-white/80 hover:text-surface-near-black transition-colors px-3 py-1 rounded-md border border-white/20 hover:bg-white"
                         >
-                          <Edit3 className="h-3 w-3" /> Edit
+                          <Edit3 className="h-3.5 w-3.5" /> Edit
                         </button>
                       )}
                     </div>
@@ -621,16 +621,16 @@ export function AgentCapabilitiesModal({
             </div>
           </div>
 
-          {/* 3. System prompt (READ-ONLY) — mirror the mock's Overview "SYSTEM
-              PROMPT" block by reusing the SAME shared AgentPromptSection the Config
-              tab shows, with `surfaceOnly` (ND-7/LOCK-E: no textarea / Save /
-              Revert — the durable PUT/DELETE path stays unreachable). */}
-          <AgentPromptSection agent={agent} surfaceOnly />
+          {/* 3. System prompt — full edit affordances (Edit / Save / Revert) moved
+              here from Config so users can read AND edit the prompt in one place
+              (KAN-119 UX improvement). */}
+          <AgentPromptSection agent={agent} />
           </>
           )}
 
           {/* Config tab — per-agent configuration levers (Model · Validator · Gate ·
-              Retry) shown FLAT — no expand/collapse chrome, no System Prompt here. */}
+              Retry) shown FLAT — no expand/collapse chrome. System Prompt editor
+              is in the Overview tab. */}
           {drawerTab === "config" && (
           <>
           <p className="text-[12px] text-ink-500 leading-relaxed">

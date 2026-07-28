@@ -42,11 +42,13 @@ export default function LoginPage() {
         data-testid="login-brand-panel"
         className="hidden lg:flex lg:w-[46%] flex-col justify-between bg-surface-near-black px-12 py-14 border-r border-white/10"
       >
-        {/* Wordmark — brand dot + Manrope wordmark */}
+        {/* Hexaware logo + VelocityAI wordmark */}
         <div className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-button)] bg-brand">
-            <span className="h-2 w-2 rounded-full bg-white" />
-          </span>
+          <img
+            src="/hexaware-logo.png"
+            alt="Hexaware"
+            className="h-10 w-10 rounded-[8px] flex-shrink-0"
+          />
           <span className="text-base font-semibold tracking-tight text-white font-sans">
             VelocityAI
           </span>

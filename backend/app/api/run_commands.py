@@ -331,7 +331,7 @@ async def resume_run_endpoint(
     run_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Resume a terminal-FAILED run over HTTP (RESUME-18).
+    """Resume a terminal-FAILED or CANCELLED run over HTTP (RESUME-18 / KAN-120).
 
     Ordering pin (RESEARCH §Ordering Pin — all on the single event loop; NO ``await``
     between the overlap mutex and the synchronous queue+task registration, which is the
@@ -340,15 +340,21 @@ async def resume_run_endpoint(
          404 (cross-owner AND missing indistinguishable; no existence oracle; keyed on
          ``user_id`` never nullable ``owner_id``). *(Layer 1; ScopedStore default-deny
          inside ``resume_run`` is Layer 2.)*
-      2. Eligibility — only ``status == "failed"`` is resumable; anything else → 409
-         ``run_not_resumable``.
+      2. Eligibility — ``status in {"failed", "cancelled"}`` is resumable; anything else
+         → 409 ``run_not_resumable``.
       3. Overlap mutex — a registry-live run (``_PIPELINE_TASKS`` OR ``_PIPELINE_QUEUES``)
          → 409 ``pipeline_already_running`` (CR-01). NO ``await`` before step 4.
       4. Register the live queue + cancel-event SYNCHRONOUSLY — BEFORE the status flip
          (BUG-015 live-attach: the FE must never observe ``running`` without a live queue).
-      5. Flip ``failed→running`` + commit (existing status vocabulary — no new status).
+      5. Flip ``failed/cancelled→running`` + commit (existing status vocabulary; no new
+         status).
       6. Stamp the additive ``run_resuming`` marker (reuse the engine method — the
          double-drive guard + workspace recovery; NOT a status).
+      6b. Clear the in-memory state machine entry — a ``cancelled`` run resumed within the
+         SAME process session has ``"cancelled"`` locked in the singleton; clearing it lets
+         ``_execute_impl``'s ``transition(…, "generating")`` proceed normally. For a
+         ``failed`` run resumed after a restart the entry is absent (new process) so pop
+         is a no-op. Safe: DB status is already ``running`` at this point.
       7. Spawn ``_drive_user_resume`` + register the task (closes the mutex window).
       8. Return 200 ``{"run_id": run_id}``.
     """
@@ -367,11 +373,11 @@ async def resume_run_endpoint(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run"
             )
 
-        # (2) Eligibility — only failed runs are resumable.
-        if wr.status != "failed":
+        # (2) Eligibility — failed and cancelled runs are resumable; anything else → 409.
+        if wr.status not in {"failed", "cancelled"}:
             raise _reject(
                 "run_not_resumable",
-                f"Run is {wr.status!r}; only failed runs are resumable",
+                f"Run is {wr.status!r}; only failed or cancelled runs are resumable",
                 http_status=status.HTTP_409_CONFLICT,
             )
 
@@ -391,13 +397,21 @@ async def resume_run_endpoint(
         _get_or_create_queue(run_id)
         _CANCEL_EVENTS[run_id] = asyncio.Event()
 
-        # (5) Flip failed→running (existing status vocabulary; INV-12) + commit.
+        # (5) Flip failed/cancelled→running (existing status vocabulary; INV-12) + commit.
         wr.status = "running"
         db.commit()
 
         # (6) Stamp the additive ``run_resuming`` marker (reuse the engine method —
         # do NOT reimplement marker emission or workspace recovery).
         await get_execution_engine()._stamp_resume_marker(wr)
+
+        # (6b) Clear the in-memory state machine entry so _execute_impl's
+        # transition(run_id, "generating") does not hit the terminal-state guard.
+        # A cancelled run resumed in the SAME process session has "cancelled" locked;
+        # a failed run resumed after a restart has no entry (new process) → pop is
+        # a no-op in that case. The DB status is already "running" (step 5) so
+        # clearing the in-memory mirror is safe ownership-wise.
+        get_execution_engine()._state_machine._states.pop(run_id, None)
     finally:
         db.close()
 
@@ -478,7 +492,22 @@ async def _reconcile_terminal_status(run_id: str) -> None:
             and e.payload_json.get("status") == "degraded"
             for e in completes
         )
-        if cancelled:
+        # KAN-120: a resumed run has BOTH pipeline_cancelled (from the original
+        # cancellation) AND pipeline_complete (from the resume) in the durable tail.
+        # The original logic unconditionally prioritised cancelled, leaving a
+        # successfully-resumed run with status="cancelled" in history.
+        # Fix: if a clean pipeline_complete exists with a higher seq than the last
+        # pipeline_cancelled, the resume supersedes the cancellation → completed.
+        cancelled_seqs = [e.seq for e in events if e.type == "pipeline_cancelled"]
+        complete_seqs = [e.seq for e in completes
+                         if not (isinstance(e.payload_json, dict)
+                                 and e.payload_json.get("status") == "degraded")]
+        resume_supersedes = (
+            cancelled
+            and complete_seqs
+            and max(complete_seqs) > max(cancelled_seqs)
+        )
+        if cancelled and not resume_supersedes:
             new_status = "cancelled"
         elif degraded:
             new_status = "degraded"
@@ -711,7 +740,7 @@ _CONCIERGE_GATE_ACTION_MAP = {"request_changes": "redo"}
 
 # The two CONSEQUENTIAL proposal channels — held behind a confirm chip (T-33-03-01).
 # steering_note is non-consequential (best-effort nudge) and applies immediately.
-_CONSEQUENTIAL_PROPOSAL_CHANNELS = frozenset({"gate_action", "revision"})
+_CONSEQUENTIAL_PROPOSAL_CHANNELS = frozenset({"gate_action", "revision", "chain"})
 
 # Strong references to the fresh-Concierge streaming DRIVE tasks (Option B). The
 # ``_drive`` task performs the turn's DURABLE side-effects (the ``chat_reply`` row + the
@@ -737,11 +766,16 @@ class _ConciergeCtx:
     suggestions ``[{id,label}]`` from the settled-run lane. Absent ⇒ ``[]`` ⇒ the
     ``_compose_system_prompt`` getattr default degrades safely (no chain block). No
     workflow name is ever passed — only display labels the FE already surfaced.
+
+    ``run_summary`` (FIX-116) is a short human-readable summary of WHAT this run produced,
+    injected into the system prompt so the Concierge knows the deliverable without having
+    to read all run events first. Derived from wr.title + wr.output (first 400 chars) —
+    GENERIC, never a workflow-name branch (INV-1). Absent → degrade safely.
     """
 
     def __init__(
         self, *, run_id, scoped_store, owner_id, workspace_id, compiled=None,
-        chain_hints=None,
+        chain_hints=None, run_summary=None,
     ):
         self.run_id = run_id
         self.scoped_store = scoped_store
@@ -750,6 +784,7 @@ class _ConciergeCtx:
         self.model = None
         self.compiled = compiled
         self.chain_hints = chain_hints or []
+        self.run_summary = run_summary or ""
 
 
 def _resolve_concierge():
@@ -916,6 +951,17 @@ async def _dispose_concierge_proposal(
             await art_store.set_review_response(gate_key, approved=True)
         return {"channel": channel, "disposed": "gate", "action": action}
 
+    # ── chain → surface to FE as a chain proposal (FIX-115 / Option A). ───────────
+    # The "chain" channel is CONSEQUENTIAL (held behind a confirm chip, T-33-03-01).
+    # On confirm the FE calls onSuggestion(target_id) through the existing suggestion-
+    # chip seam — no new backend execution path needed. The disposal here is
+    # confirmation-only: return the target_id so the FE caller can fire it. The
+    # target_id MUST be one the FE passed as chain_hints (validated FE-side before
+    # calling onSuggestion). No workflow-name branch (SC-001/INV-1) — generic data.
+    if channel == "chain":
+        target_id = params.get("target_id", "")
+        return {"channel": channel, "disposed": "chain", "target_id": target_id}
+
     # ── revision → _mint_revision_row + _drive_revision_to_queue (family child). ────
     if channel == "revision":
         target = params.get("target") or f"{wr_type}_output"
@@ -993,6 +1039,19 @@ async def post_message(
         wr_status = wr.status
         wr_workspace = wr.workspace_id
         wr_type = wr.type
+        # FIX-116: capture the run's title + first 400 chars of its deliverable output
+        # so the Concierge knows what THIS run produced without calling read_events first.
+        # Generic — uses wr.title (plain text) and wr.output (deliverable text), never
+        # a pipeline_type / workflow-name branch (INV-1). 400 chars is enough to give
+        # context (a user stories backlog excerpt, a prototype summary, etc.) while
+        # keeping the system prompt token-budget small.
+        _wr_title = (wr.title or "").strip()
+        _wr_output = (wr.output or "").strip()
+        _wr_output_preview = _wr_output[:400] + ("…" if len(_wr_output) > 400 else "")
+        wr_run_summary = (
+            (f"Run title: {_wr_title}\n" if _wr_title else "")
+            + (f"Deliverable preview:\n{_wr_output_preview}" if _wr_output_preview else "")
+        ).strip()
     finally:
         db.close()
 
@@ -1230,6 +1289,9 @@ async def post_message(
             # data (absent ⇒ []). No workflow-name branch (INV-1) — the Concierge
             # reflects the SAME curated labels the lane chips show.
             chain_hints=body.chain_hints,
+            # FIX-116: thread the run's deliverable summary so the Concierge knows
+            # what was produced without read_events round-trip (generic, INV-1).
+            run_summary=wr_run_summary,
         )
         # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
         # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT
@@ -1447,6 +1509,66 @@ def _resolve_launch_agents(body: "LaunchCommand"):
     return base_pipeline_type, od_context
 
 
+# ---------------------------------------------------------------------------
+# KAN-116 (Bug 3): clean run title helper — strips pipeline context markers
+# before storing the title so history / run header / notifications never show
+# internal === ... === marker text.
+#
+# Revision pipelines (ending in _revision) embed the full prior output in the
+# content with "=== EXISTING ... ===" markers. The brief / instruction is the
+# text AFTER the last "=== REVISION REQUEST ===" marker (or, for the user-stories
+# pattern, after "=== REVISION REQUEST ===").
+# Chained pipelines embed "=== CONTEXT FROM PREVIOUS PIPELINE ===" at the end
+# of enrichedInput; the clean brief is the text BEFORE it.
+#
+# SC-001 / INV-1: generic marker matching, never a hardcoded pipeline name.
+# ---------------------------------------------------------------------------
+import re as _re_title
+
+_REVISION_REQUEST_RE = _re_title.compile(
+    r"===\s*REVISION REQUEST\s*===\s*(.*?)\s*(?:===|$)", _re_title.DOTALL
+)
+_CONTEXT_BLOCK_RE = _re_title.compile(
+    r"\s*===\s*CONTEXT FROM PREVIOUS PIPELINE.*", _re_title.DOTALL
+)
+_EXISTING_BLOCK_RE = _re_title.compile(
+    r"^===.*?===\s*\n.*?===\s*END.*?===\s*\n?", _re_title.DOTALL
+)
+
+
+def _clean_run_title(content: str | None, pipeline_type: str) -> str:
+    """Extract a clean, marker-free title from a run's content string.
+
+    For revision pipelines (type ends in ``_revision``): pull the revision
+    instruction from inside the ``=== REVISION REQUEST ===`` block (the text
+    after the marker block).
+    For all other pipelines: strip any trailing ``=== CONTEXT FROM PREVIOUS
+    PIPELINE ===`` block and use the leading brief.
+    Falls back to a generic label when no clean text is extractable.
+    """
+    raw = (content or "").strip()
+    if not raw:
+        return f"Run {pipeline_type} pipeline"
+
+    title = raw
+    if pipeline_type.endswith("_revision"):
+        # Try to extract the revision instruction from the structured block.
+        m = _REVISION_REQUEST_RE.search(raw)
+        if m:
+            title = m.group(1).strip()
+        else:
+            # Fallback: strip leading === ... === blocks to get at the instruction.
+            stripped = _EXISTING_BLOCK_RE.sub("", raw).strip()
+            title = stripped if stripped else raw
+    else:
+        # For chained / plain pipelines: remove any appended context block.
+        title = _CONTEXT_BLOCK_RE.sub("", raw).strip()
+
+    # Ensure we never return an empty or whitespace-only title.
+    title = title.split("\n")[0].strip() if title else raw.split("\n")[0].strip()
+    return (title[:60].strip() or "Untitled")
+
+
 @router.post("")
 async def launch_run(
     body: LaunchCommand,
@@ -1582,13 +1704,21 @@ async def launch_run(
     workflow_run_id = None
     db = _get_db()
     try:
-        parent_run_id = _resolve_owned_parent_run_id(
-            db, body.source_workflow_run_id, current_user.id
+        # KAN-116 (Bug 2): only set parent_run_id for REVISION pipelines (type ends in
+        # "_revision"). Chained pipelines (different base type) must NOT inherit parent_run_id
+        # — that would place them in the source workflow's revision family (BFS in
+        # _owned_family_members has no type filter). A chain is NOT a revision; chained runs
+        # should appear as SEPARATE entries in history, never as vN of the source family.
+        # SC-001/INV-1: generic endswith check, never a hardcoded pipeline name.
+        parent_run_id = (
+            _resolve_owned_parent_run_id(db, body.source_workflow_run_id, current_user.id)
+            if pipeline_type.endswith("_revision")
+            else None
         )
         workflow_run = WorkflowRun(
             id=pipeline_run_id,
             user_id=current_user.id,
-            title=(content or f"Run {pipeline_type} pipeline")[:60].strip() or "Untitled",
+            title=_clean_run_title(content, pipeline_type),
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
@@ -1596,6 +1726,12 @@ async def launch_run(
             session_id=current_user.id,
             parent_run_id=parent_run_id,
             selections_json=body.selections,
+            # KAN-120: persist the launch-time od_context so resume_run can
+            # reconstruct it without a template_id round-trip (the template
+            # body is large; re-loading from disk at resume is the alternative
+            # but requires storing template_id separately). od_context is None
+            # for non-OD runs → od_context_json stays NULL (INV-3 parity).
+            od_context_json=od_context,
         )
         db.add(workflow_run)
         db.commit()
@@ -2066,6 +2202,113 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     db.add(wr)
     db.commit()
     return pipeline_run_id, revision_pipeline_type
+
+
+@router.post("/{run_id}/classify-intent")
+async def classify_intent(
+    run_id: str,
+    body: "ClassifyIntentCommand",
+    current_user: User = Depends(get_current_user),
+):
+    """Silently classify a settled-run user message as revise / chain / ask (FIX-116).
+
+    Calls the LLM with ONLY the user text + run deliverable summary + available chain
+    targets. Returns ``{"intent": "revise"|"chain"|"ask", "target_id"?: "..."}`` with
+    NO chat reply — the caller renders the appropriate UI affordance immediately.
+
+    Owner-gated (IDOR → 404). No chat_message row is written; this is a pure
+    read+classify endpoint. Generic (SC-001/INV-1) — no pipeline_type branch.
+    """
+    db = _get_db()
+    try:
+        wr = (
+            db.query(WorkflowRun)
+            .filter(WorkflowRun.id == run_id, WorkflowRun.user_id == current_user.id)
+            .first()
+        )
+        if wr is None:
+            raise HTTPException(status_code=404, detail="Workflow run not found")
+        _wr_title = (wr.title or "").strip()
+        _wr_output = (wr.output or "").strip()
+        _wr_output_preview = _wr_output[:400] + ("…" if len(_wr_output) > 400 else "")
+        run_summary = (
+            (f"Run title: {_wr_title}\n" if _wr_title else "")
+            + (f"Deliverable preview:\n{_wr_output_preview}" if _wr_output_preview else "")
+        ).strip()
+    finally:
+        db.close()
+
+    user_text = (body.text or "").strip()
+    chain_hints = body.chain_hints or []
+
+    # Build a minimal classification prompt — NO conversational preamble, just the
+    # deliverable context + the user message + the available chain targets.
+    chain_targets_str = ""
+    if chain_hints:
+        chain_targets_str = "\nAvailable chain targets (id → label):\n" + "\n".join(
+            f"  {h.get('id','')}: {h.get('label','')}"
+            for h in chain_hints[:8]
+            if isinstance(h, dict) and h.get("id")
+        )
+
+    classify_prompt = (
+        "You are a SILENT INTENT CLASSIFIER. Read the user's message and output ONLY "
+        "a JSON object with no extra text.\n\n"
+        "Rules:\n"
+        "- If the user wants to CHANGE or ADD to THIS run's deliverable "
+        "(revise, update, add Google auth, change a section, etc.) → "
+        "{\"intent\": \"revise\"}\n"
+        "- If the user wants to START A NEW WORKFLOW using this output "
+        "(build a prototype, create a presentation, chain to X) → "
+        "{\"intent\": \"chain\", \"target_id\": \"<id from Available chain targets>\"}\n"
+        "- If the user is just ASKING A QUESTION (what is, how does, explain) → "
+        "{\"intent\": \"ask\"}\n"
+        "- If no chain target matches, use {\"intent\": \"revise\"} for action requests.\n\n"
+        f"What this run produced:\n{run_summary or '(no summary available)'}\n"
+        f"{chain_targets_str}\n\n"
+        f"User message: {user_text}\n\n"
+        "Output ONLY valid JSON, nothing else."
+    )
+
+    # Use the Concierge's DeepAgentRunner but with NO tools — pure text classification.
+    import json as _json
+    from app.agents.deep_agent_runner import DeepAgentRunner
+
+    try:
+        runner = DeepAgentRunner(
+            system_prompt="You are a JSON-only intent classifier. Always output valid JSON.",
+            tools=[],
+            model=None,
+            thread_id=f"{run_id}:classify",
+        )
+        full = ""
+        async for event in runner.astream_events(classify_prompt):
+            if event["type"] == "chunk":
+                full += event["chunk"]
+        # Extract the first JSON object from the response
+        start = full.find("{")
+        end = full.rfind("}") + 1
+        if start >= 0 and end > start:
+            data = _json.loads(full[start:end])
+            intent = str(data.get("intent", "revise")).lower()
+            target_id = str(data.get("target_id", "")) if intent == "chain" else ""
+            # Validate target_id is a known chain hint
+            known_ids = {h.get("id") for h in chain_hints if isinstance(h, dict)}
+            if intent == "chain" and target_id not in known_ids:
+                intent = "revise"
+                target_id = ""
+            return {"intent": intent, "target_id": target_id}
+    except Exception as exc:
+        logger.warning("classify-intent: LLM classification failed (%s) — defaulting to revise", exc)
+
+    return {"intent": "revise", "target_id": ""}
+
+
+class ClassifyIntentCommand(BaseModel):
+    """Body for ``POST /{id}/classify-intent``."""
+
+    text: str
+    chain_hints: list[dict] | None = None
 
 
 @router.post("/{run_id}/revisions")

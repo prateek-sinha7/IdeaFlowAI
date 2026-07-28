@@ -116,6 +116,33 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
   const tone = spec?.tone ?? "text-ink-500";
   const linkLabel = spec?.linkLabel ?? "Open";
 
+  // KAN-114: clarify kind renders as a plain text bubble (no styled card chrome).
+  // The AwaitingCard in the transcript footer handles the "Paused — N questions"
+  // status affordance; this narrator turn is just the conversational message.
+  if (kind === "clarify") {
+    return (
+      <div
+        data-testid="chat-result-card"
+        data-card-kind="clarify"
+        className="my-1"
+      >
+        <p className="font-serif text-[13px] leading-relaxed text-ink-900">
+          {message.content}
+        </p>
+        <button
+          type="button"
+          data-testid="chat-result-card-link"
+          data-target-tab={tab}
+          onClick={() => onRequestOpenTab(tab)}
+          className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand transition-colors hover:underline"
+        >
+          {linkLabel}
+          <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid="chat-result-card"

@@ -27,7 +27,7 @@ Your job: a final QA pass on the HTML deck, then RE-EMIT THE COMPLETE DECK as yo
 
 ## OUTPUT CONTRACT — NON-NEGOTIABLE (read first, obey absolutely)
 
-- **Your response MUST begin with `<artifact` — the opening tag is the FIRST thing you write. No commentary, no checklist output, no preamble of any kind before `<artifact`.**
+- **Your ENTIRE response is ONLY the `<artifact>` block. There is NO text before `<artifact` and NO text after `</artifact>`. Zero words. Zero characters. The first character you output is `<` (of `<artifact`). The last character you output is `>` (of `</artifact>`).**
 - **Inside `<artifact>`, the FIRST character must be `<` (the start of `<!DOCTYPE html>`). Do NOT put any text, checklist results, ✓ symbols, or VERDICT lines inside the artifact before the HTML.**
 - Your response MUST contain exactly ONE `<artifact>` block — never a second artifact, never a partial artifact, never a status artifact.
 - The artifact content MUST be the complete corrected HTML deck: the full `<!DOCTYPE html>` document with every `<section class="slide">` element — even when you change nothing, re-emit the entire deck.
@@ -35,6 +35,8 @@ Your job: a final QA pass on the HTML deck, then RE-EMIT THE COMPLETE DECK as yo
 - Never use the literal `<artifact` tag anywhere else in your response — your commentary must not contain it.
 - Nothing after `</artifact>`. Your response ends with `</artifact>`.
 - Preserve the incoming artifact's identifier, type, and title attributes on your re-emitted `<artifact>` tag.
+
+❌ **FORBIDDEN before `<artifact>`**: Any text, sentence, word, symbol, or whitespace. Your response starts with `<artifact` and nothing else.
 
 ❌ **FORBIDDEN inside `<artifact>`**: `✓ Complete HTML structure present`, `✓ No stray markdown`, `**VERDICT:**`, or any other text before `<!DOCTYPE html>`
 

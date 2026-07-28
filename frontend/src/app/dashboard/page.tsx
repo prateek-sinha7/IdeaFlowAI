@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents } from "@/lib/api";
+import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions } from "@/lib/api";
+import type { WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
 import { useWorkflow } from "@/hooks/useWorkflow";
@@ -25,6 +26,9 @@ import type { ChatMode } from "@/components/chat/ChatInput";
 // history-reopen detail view so the two surfaces parse the persisted run `error`
 // identically. See lib/parseFailedAgents.ts for the marker contract.
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
+// KAN-116 (title markers in submittedBrief): use the SAME single-source parser
+// DashboardLayout already uses for notification titles (INV-12 — no dual impl).
+import { parseRunInput } from "@/lib/runInput";
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -168,6 +172,10 @@ export default function DashboardPage() {
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
+  // Pre-fetched user-launchable workflow definitions for the home card grid.
+  // Fetched once on auth alongside recentRuns so HomeLaunchGrid never needs to
+  // fire its own getWorkflowDefinitions — the cards appear immediately.
+  const [homeWorkflows, setHomeWorkflows] = useState<WorkflowSummary[]>([]);
   // Revision Families (B1 / D1-D7): the reliable "run id that produced the
   // on-screen content". Set on pipeline_complete (live) + reopen; cleared on a
   // fresh (non-revision) run. Threaded to DashboardLayout so every revision
@@ -190,6 +198,10 @@ export default function DashboardPage() {
   // Phase 2 — pipeline_run_id of the run currently paused at the clarify gate,
   // used to address submit_questionnaire back to the correct paused run.
   const [activePipelineRunId, setActivePipelineRunId] = useState<string | null>(null);
+  // KAN-120 — the run id of the most-recently cancelled or stopped run. Unlike
+  // activePipelineRunId (cleared on cancel), this is NEVER cleared so handleResumeRun
+  // in DashboardLayout can still find the run id after pipeline_cancelled fires.
+  const [lastCancelledRunId, setLastCancelledRunId] = useState<string | null>(null);
   // Review gate state — set when review_gate_ready fires
   const [reviewGateData, setReviewGateData] = useState<{
     gateKey: string;
@@ -322,6 +334,12 @@ export default function DashboardPage() {
         // Silently fail — workflows will load when backend is available
         // This prevents the error from showing on the UI
       });
+
+    // Pre-fetch the user-launchable workflow catalog so HomeLaunchGrid can seed
+    // its card grid instantly from state instead of making its own fetch.
+    getWorkflowDefinitions(currentToken)
+      .then((rows) => setHomeWorkflows(rows.filter((w) => w.user_launchable)))
+      .catch(() => { /* non-fatal — HomeLaunchGrid falls back to its own fetch */ });
   }, [isAuthenticated]);
 
   // Handle incoming WebSocket messages
@@ -530,6 +548,9 @@ export default function DashboardPage() {
           // persist into the next run's preview area.
           setQuestionnaireData(null);
           setActivePipelineRunId(null);
+          // KAN-120: clear the lastCancelledRunId so the resumed run's pipeline_start
+          // removes the "Cancelled" state from history and the chat lane.
+          setLastCancelledRunId(null);
         }
       }
 
@@ -552,11 +573,21 @@ export default function DashboardPage() {
         // set runs byte-identically to before; only a genuine foreign concurrent
         // completion is skipped.
         const completingRunId = data.pipeline_run_id as string | undefined;
+        const completingPipelineType = data.pipeline_type as string | undefined;
         const isForeignCompletion =
           !!completingRunId &&
           !!trackedRunIdRef.current &&
           completingRunId !== trackedRunIdRef.current;
-        if (completingRunId && !isForeignCompletion) {
+        // KAN-116 (Issue 2): a *_revision pipeline is intentionally dispatched
+        // FROM the currently-tracked run. When it completes, contentSourceRunId
+        // must advance to the revision run so DashboardLayout's family useEffect
+        // re-fires and fetches the updated family (showing v1/v2/... chips).
+        // Without this, the revision completes but isForeignCompletion is true
+        // (revision_run_id ≠ trackedRunIdRef which holds the parent run id) and
+        // the family is never re-fetched, leaving the version dropdown at v1.
+        // SC-001/INV-1: keyed on generic endsWith("_revision") suffix, no literal.
+        const isRevisionCompletion = typeof completingPipelineType === "string" && completingPipelineType.endsWith("_revision");
+        if (completingRunId && (!isForeignCompletion || isRevisionCompletion)) {
           setContentSourceRunId(completingRunId);
           // BUG-015 — release the tracked completing run's sticky focus so its
           // terminal SSE stream unmounts (no reconnect, no ~14k re-replay). Reached
@@ -627,6 +658,13 @@ export default function DashboardPage() {
           getWorkflows(currentToken, { limit: 50 })
             .then((runs) => setRecentRuns(runs))
             .catch(() => {});
+          // KAN-120: do a second delayed refetch so the history reflects the
+          // reconciled status (completed) after _reconcile_terminal_status
+          // finishes writing it — the first fetch races against it.
+          setTimeout(() => {
+            const t = getToken();
+            if (t) getWorkflows(t, { limit: 50 }).then((runs) => setRecentRuns(runs)).catch(() => {});
+          }, 2000);
         }
       }
 
@@ -656,6 +694,16 @@ export default function DashboardPage() {
             .then((runs) => setRecentRuns(runs))
             .catch(() => {});
         }
+      }
+
+      // KAN-115: clear stale questionnaire state on cancel/fail so laneClarifyOpen
+      // goes false and runLaneState resolves to "terminal" not "clarify".
+      // Must be HERE (inside the pipelineTypes block, before return) — pipeline_cancelled
+      // and pipeline_failed are in pipelineTypes and never reach the switch below.
+      if (msg.type === "pipeline_cancelled" || msg.type === "pipeline_failed") {
+        setReviewGateData(null);
+        setQuestionnaireData(null);
+        setActivePipelineRunId(null);
       }
 
       return;
@@ -917,6 +965,33 @@ export default function DashboardPage() {
         // reviewGateData is not cleared by useWorkflow (which only sets isRunning=false)
         // or by onResetPipeline(), so this is the canonical place to clear it.
         setReviewGateData(null);
+        // KAN-115: also clear stale questionnaire state — if the pipeline was
+        // cancelled/failed while the clarify gate was open, questionnaire_complete
+        // never fires, so questionnaireData stays populated. This keeps
+        // laneClarifyOpen=true in DashboardLayout, which forces runLaneState to
+        // "clarify" instead of "terminal" and leaves the AwaitingCard visible.
+        // Mirrors the identical pipeline_start clear (lines above).
+        setQuestionnaireData(null);
+        // KAN-120: preserve the run id so Run Again can resume it even when
+        // activePipelineRunId is about to be cleared.
+        if (msg.type === "pipeline_cancelled") {
+          const cancelledId = (msg.pipeline_run_id as string | undefined)
+            ?? ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
+            ?? activePipelineRunId
+            ?? trackedRunIdRef.current;
+          if (cancelledId) setLastCancelledRunId(cancelledId);
+          // BUG-015 mirror for cancellation: release the sticky SSE focus so the
+          // RunStreamConnection unmounts when the server closes the stream after
+          // pipeline_cancelled. Without this, the stream close triggers
+          // scheduleReconnect() (sawNonLiveAttachRef = false for a live run),
+          // showing a yellow "Reconnecting…" banner after every Stop click.
+          // Mirrors the identical call in the pipeline_complete case above
+          // (~line 597). Safe: the durable run_events are already persisted and
+          // the chat transcript is already in state — unmounting the connection
+          // does not remove any rendered content.
+          if (cancelledId) detachRunRef.current?.(cancelledId);
+        }
+        setActivePipelineRunId(null);
         break;
       }
 
@@ -1011,7 +1086,7 @@ export default function DashboardPage() {
     [runConnection],
   );
 
-  const { messages: runChatMessages, sendMessage: sendRunChatMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript } = useRunChat({
+  const { messages: runChatMessages, sendMessage: sendRunChatMessage, addOptimisticMessage: addRunChatOptimisticMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript } = useRunChat({
     // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
     // path hits the in-flight run instead of null-then-fresh-POST; fall back to
     // the clarify-only activePipelineRunId when the build id is not yet set.
@@ -1504,13 +1579,26 @@ export default function DashboardPage() {
       runChatMessages={runChatMessages}
       runChatReplyStreaming={runChatReplyStreaming}
       onRunChatSend={sendRunChatMessage}
+      addOptimisticMessage={addRunChatOptimisticMessage}
       onRequestOpenTab={runTabDeepLink.requestOpenTab}
       deepLinkTarget={runTabDeepLink.pending}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
         // (revision or fresh — it is the run's input either way), reset per run.
-        setSubmittedBrief(message);
+        // KAN-116 (Bug 3): prefer the explicit _display_title from extraParams (set
+        // by DashboardLayout chain/revision handlers with the already-clean brief),
+        // fall back to parseRunInput for other callers. This avoids re-parsing
+        // complex nested context blocks that can defeat the regex.
+        const _displayTitle = extraParams?._display_title as string | undefined;
+        let _cleanBrief: string;
+        if (_displayTitle && _displayTitle.trim()) {
+          _cleanBrief = _displayTitle.trim();
+        } else {
+          const _parsed = parseRunInput(message);
+          _cleanBrief = (_parsed.revisionInstruction ?? _parsed.brief ?? message).trim();
+        }
+        setSubmittedBrief(_cleanBrief || message);
         // ISS-017 (16-04): any new run clears the history-reopen failure signal
         // so a prior failed reopen never bleeds the affordance into a live run.
         setReopenedRunStatus(undefined);
@@ -1559,11 +1647,13 @@ export default function DashboardPage() {
       }}
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
+      homeWorkflows={homeWorkflows}
       contentSourceRunId={contentSourceRunId}
       contentSourceRunType={contentSourceRunType}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}
+      lastCancelledRunId={lastCancelledRunId}
       onSubmitQuestionnaire={submitQuestionnaire}
       onRetainClarifyRound={retainClarifyRound}
       reviewGateData={reviewGateData}
