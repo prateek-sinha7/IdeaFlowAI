@@ -507,7 +507,17 @@ export function DashboardLayout({
   useEffect(() => {
     const latestRun = recentRuns?.[0];
     if (latestRun?.title && latestRun.title !== "Untitled" && currentPipelineNotifId.current) {
-      updateAgentsTotal(currentPipelineNotifId.current, pipelineState?.agents?.length ?? 0, latestRun.title);
+      const rawDbTitle = latestRun.title;
+      // FIX-130: never use a title that starts with "===" (polluted marker text).
+      // Fall back to existing notification title by not calling updateAgentsTotal.
+      if (rawDbTitle.trimStart().startsWith("===")) return;
+      let cleanDbTitle = rawDbTitle;
+      if (rawDbTitle.includes("===")) {
+        const parsed = parseRunInput(rawDbTitle);
+        cleanDbTitle = (parsed.revisionInstruction ?? parsed.brief ?? "").split("\n")[0].trim() || "";
+        if (!cleanDbTitle) return; // still polluted — skip update
+      }
+      updateAgentsTotal(currentPipelineNotifId.current, pipelineState?.agents?.length ?? 0, cleanDbTitle);
     }
   }, [recentRuns?.[0]?.title]);
 
@@ -943,12 +953,24 @@ export function DashboardLayout({
       // Strip injected context/revision markers before using as notification title
       // so the panel never shows raw "=== EXISTING PROTOTYPE HTML ===" text.
       const parsedMsg = parseRunInput(message);
-      const notifTitle = (parsedMsg.revisionInstruction ?? parsedMsg.brief ?? message).slice(0, 60);
-      addRunningNotification(notifId, resolvedType, notifTitle, 0);
+      let notifTitle = (parsedMsg.revisionInstruction ?? parsedMsg.brief ?? "").trim();
+      // FIX-130: if message is dominated by a context block, pull Original Brief from it
+      if (!notifTitle && parsedMsg.chainContext) {
+        const origBriefMatch = parsedMsg.chainContext.match(/Original Brief:\s*(.+)/);
+        notifTitle = origBriefMatch ? origBriefMatch[1].split("\n")[0].trim() : "";
+      }
+      const cleanNotifTitle = (notifTitle || message).slice(0, 60);
+      addRunningNotification(notifId, resolvedType, cleanNotifTitle, 0);
+      // FIX-130: inject _display_title so page.tsx onStartPipeline can set a
+      // clean submittedBrief even when extraParams has no _display_title yet
+      // (IdeaInputPage/LaunchWizard path never sets it directly).
+      const enrichedExtraParams = notifTitle
+        ? { ...(extraParams || {}), _display_title: notifTitle.slice(0, 60) }
+        : extraParams;
       if (connectionStatus === "connected") {
-        onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, extraParams);
+        onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, enrichedExtraParams);
       } else {
-        pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams };
+        pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams: enrichedExtraParams };
       }
     }
   }, [onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
@@ -1507,8 +1529,27 @@ export function DashboardLayout({
       ? recentRuns?.find((r) => r.id === contentSourceRunId)
       : undefined;
   const latestRunTitle = viewedRun?.title;
-  const runHeaderTitle =
-    latestRunTitle && latestRunTitle !== "Untitled" ? latestRunTitle : submittedBrief;
+  // FIX-130: strip any === marker text from the DB title before displaying.
+  // DB titles may be polluted (truncated at 60 chars so closing markers are missing,
+  // defeating parseRunInput's regex). Use a simple line-scan: if the first non-empty
+  // line starts with "===", the title is polluted — fall through to submittedBrief.
+  const cleanLatestTitle = (() => {
+    if (!latestRunTitle || latestRunTitle === "Untitled") return undefined;
+    // If the title starts with "===" it's a raw marker line — discard entirely.
+    if (latestRunTitle.trimStart().startsWith("===")) return undefined;
+    // Strip "Title: " prefix from cascading context pollution
+    const stripped = latestRunTitle.startsWith("Title: ")
+      ? latestRunTitle.slice("Title: ".length).trim()
+      : latestRunTitle;
+    // If it contains "===" anywhere, run it through parseRunInput as a safety net.
+    if (stripped.includes("===")) {
+      const _p = parseRunInput(stripped);
+      const _clean = (_p.revisionInstruction ?? _p.brief ?? "").split("\n")[0].trim();
+      return _clean || undefined;
+    }
+    return stripped || undefined;
+  })();
+  const runHeaderTitle = cleanLatestTitle ?? submittedBrief;
 
   // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props). The
   // KAN-101 spec-loop affordance + approve relabel are mapped off the declared
@@ -1546,9 +1587,12 @@ export function DashboardLayout({
   );
 
   // Suggested next steps (absorbed) — the chainable workflows as generic chips.
-  const laneSuggestions: LaneSuggestion[] = canChainFrom(workflowType)
+  // Use effectiveReviseType (the type of the run currently on screen) so the filter
+  // correctly excludes the VIEWED pipeline type, not the last-launched type.
+  const chainFromType = (effectiveReviseType ?? workflowType) as WorkflowType;
+  const laneSuggestions: LaneSuggestion[] = canChainFrom(chainFromType)
     ? CHAIN_OPTIONS
-        .filter((o) => baseWorkflowType(o.type) !== baseWorkflowType(workflowType))
+        .filter((o) => baseWorkflowType(o.type) !== baseWorkflowType(chainFromType))
         .map((o) => ({ id: o.type, label: o.label }))
     : [];
   const handleLaneSuggestion = useCallback(

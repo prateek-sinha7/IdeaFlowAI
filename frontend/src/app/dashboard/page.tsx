@@ -1375,7 +1375,11 @@ export default function DashboardPage() {
           // Wire the VIEWED run's brief into the Steps surface (runInput=submittedBrief
           // via DashboardLayout) so AgentThinkingTab's hasAnyData gate + header reflect
           // the opened run, not a stale launched brief.
-          setSubmittedBrief(fullRun.input ?? "");
+          // FIX-130: parse the raw input to extract the clean brief — never store
+          // the full marker-laden input as the displayed title.
+          const _reopenParsed = parseRunInput(fullRun.input ?? "");
+          const _reopenBrief = (_reopenParsed.revisionInstruction ?? _reopenParsed.brief ?? "").split("\n")[0].trim();
+          setSubmittedBrief(_reopenBrief || fullRun.title || "");
           try {
             // Reset the per-run FE replay state (seen-set / seq cursor / wave groups)
             // and the reducer's agents[] so the prior run's state does not poison the
@@ -1596,9 +1600,23 @@ export default function DashboardPage() {
           _cleanBrief = _displayTitle.trim();
         } else {
           const _parsed = parseRunInput(message);
-          _cleanBrief = (_parsed.revisionInstruction ?? _parsed.brief ?? message).trim();
+          // FIX-130: if the message is dominated by context/marker blocks (brief=""),
+          // pull "Original Brief:" from inside the context block rather than
+          // falling back to the raw message (which would show the full blob).
+          const _rawBrief = (_parsed.revisionInstruction ?? _parsed.brief ?? "").trim();
+          if (_rawBrief) {
+            _cleanBrief = _rawBrief;
+          } else if (_parsed.chainContext) {
+            // The whole message was a context block — extract the Original Brief line
+            const _origBriefMatch = _parsed.chainContext.match(/Original Brief:\s*(.+)/);
+            _cleanBrief = _origBriefMatch ? _origBriefMatch[1].split("\n")[0].trim() : "";
+          } else {
+            _cleanBrief = "";
+          }
         }
-        setSubmittedBrief(_cleanBrief || message);
+        // Never store the raw message as the displayed title — it may be a full
+        // context blob. Fall back to "Untitled" rather than polluting the title.
+        setSubmittedBrief(_cleanBrief || "");
         // ISS-017 (16-04): any new run clears the history-reopen failure signal
         // so a prior failed reopen never bleeds the affordance into a live run.
         setReopenedRunStatus(undefined);

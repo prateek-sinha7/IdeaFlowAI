@@ -23,17 +23,29 @@ import { parseRunInput } from "@/lib/runInput";
 // INV-12: the run-stat formatters live once in @/lib/runStats — no local copy.
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
 
-// ─── cleanDisplayTitle — KAN-116 (Bug 3) safety net for titles already stored
-// in the DB with === ... === marker text. Uses the SAME single-source parser
-// (INV-12). Clean titles pass through unchanged; only polluted ones are stripped.
+// ─── cleanDisplayTitle — KAN-116 (Bug 3) + FIX-130 + FIX-131 safety net.
+// Strips === markers AND "Title: " prefix from polluted DB titles.
 // SC-001: generic, no workflow-name branches.
-function cleanDisplayTitle(title: string | null | undefined): string {
-  if (!title) return "";
-  // If the title contains === markers it's polluted — parse it out.
-  if (!title.includes("===")) return title;
-  const parsed = parseRunInput(title);
-  const clean = (parsed.revisionInstruction ?? parsed.brief ?? title).split("\n")[0].trim();
-  return clean || title;
+function cleanDisplayTitle(
+  title: string | null | undefined,
+  fallback = "",
+  runInput?: string | null,
+): string {
+  const stripTitlePrefix = (s: string) =>
+    s.startsWith("Title: ") ? s.slice("Title: ".length).trim() : s;
+  const extractFromInput = (input: string): string => {
+    const parsed = parseRunInput(input);
+    const raw = (parsed.revisionInstruction ?? parsed.brief ?? "").split("\n")[0].trim();
+    return stripTitlePrefix(raw);
+  };
+  if (!title) return runInput ? (extractFromInput(runInput) || fallback) : fallback;
+  if (!title.includes("===")) return stripTitlePrefix(title);
+  if (title.trimStart().startsWith("===")) {
+    return runInput ? (extractFromInput(runInput) || fallback) : fallback;
+  }
+  const fromTitle = extractFromInput(title);
+  if (fromTitle) return fromTitle;
+  return runInput ? (extractFromInput(runInput) || fallback) : fallback;
 }
 
 // ─── Display helpers (mirrors WorkflowHistory.tsx:87-120 — small presentational
@@ -373,7 +385,7 @@ export function FamilyGroupCard({
           <RootIcon className="h-4 w-4 text-ink-500" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(run.title)}</p>
+          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(run.title, rootMeta.label, run.input)}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
             {run.duration ? (
@@ -419,7 +431,7 @@ export function FamilyGroupCard({
           <RootIcon className="h-4 w-4 text-ink-500" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(group.root.title)}</p>
+          <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(group.root.title, rootMeta.label, group.root.input)}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
             {latest.duration ? (
@@ -478,7 +490,7 @@ export function FamilyGroupCard({
                   v{i + 1}
                 </span>
                 <span className={statusDotClass(member.status)} />
-                <span className="text-[12px] text-ink-700 truncate">{cleanDisplayTitle(member.title)}</span>
+                <span className="text-[12px] text-ink-700 truncate">{cleanDisplayTitle(member.title, rootMeta.label, member.input)}</span>
                 <span className="text-[10px] text-ink-400">{formatDate(member.createdAt)}</span>
                 {member.parentRunId && (
                   <span className="text-[10px] text-ink-400">↳ revises v{revisesN}</span>
