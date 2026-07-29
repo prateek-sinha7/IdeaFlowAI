@@ -1001,16 +1001,19 @@ export function DashboardLayout({
     // Check if this chain target requires a wizard (prototype, ppt)
     const option = CHAIN_OPTIONS.find((o) => o.type === nextType);
 
-    // Find the source run ID for context fetching
-    // Match on the BASE pipeline type so a completed `od_ppt`/`od_prototype`
-    // run is found when chaining from the normalized `ppt`/`prototype` state
-    // (baseWorkflowType maps od_ppt→ppt, od_prototype→prototype, and strips
-    // the _revision suffix). Without this, the source run is never found and
-    // getChainContext is skipped, so the next pipeline starts with no context.
-    const sourceRun = recentRuns?.find(
-      r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(workflowType) && r.status === "completed"
-    );
-    const sourceRunId = sourceRun?.id;
+    // Find the source run ID for context fetching.
+    // FIX-139: always prefer contentSourceRunId (the explicit "run currently on
+    // screen") over a recentRuns type-scan. The type-scan is unreliable when
+    // multiple completed runs of the same type exist — it returns whichever
+    // matches first (which can be an older run). contentSourceRunId is set by
+    // page.tsx on pipeline_complete and on history-reopen, so it always points
+    // at the run the user is CURRENTLY viewing. Fall back to the type-scan only
+    // when contentSourceRunId is absent (e.g. initial state).
+    const sourceRunId: string | undefined =
+      contentSourceRunId ??
+      recentRuns?.find(
+        r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(workflowType) && r.status === "completed"
+      )?.id;
 
     if (option?.requiresWizard && option.wizardPath) {
       // Store the current brief so the wizard can pre-fill it
@@ -1085,7 +1088,7 @@ export function DashboardLayout({
         pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [], extraParams: { _display_title: chainBrief } };
       }
     }
-  }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, contentSourceRunId, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Chain to another pipeline starting from a historical run. The user is
   // viewing a past WorkflowRun in the history view; they pick a next

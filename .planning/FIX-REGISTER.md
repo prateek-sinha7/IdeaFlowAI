@@ -10,6 +10,13 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-139 | 2026-07-29 | Chained pipeline uses wrong source run context — recentRuns type-scan returns older completed run instead of the one on screen | handleChainPipeline resolved sourceRunId via recentRuns.find(type+completed) which returns the first type-match. When multiple completed user_stories runs exist, it returns an older one instead of the currently-viewed run. contentSourceRunId (already set by page.tsx on pipeline_complete) was ignored. Fix: use contentSourceRunId as primary source, recentRuns scan as fallback. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25/38 (workflow chaining / KAN-116) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-138 | 2026-07-29 | Concurrent same-type runs show mixed agent progress — HTTP response order race overwrites activelyBuildingRunIdRef with wrong run ID | When two runs are launched in quick succession, HTTP POSTs can resolve out of click order. The first-clicked run's .then() can fire AFTER the second-clicked run's .then(), overwriting activelyBuildingRunIdRef/trackedRunIdRef with the earlier-clicked run's ID, allowing that earlier run's events to reach the reducer and showing mixed agent progress. Fix: launchCounterRef increments on each click; .then() only updates trackedRunIdRef/activelyBuildingRunIdRef when thisLaunchSeq === current counter (i.e. no newer launch has registered). | `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-137 | 2026-07-29 | Multi-tab isolation + same-tab isForeignFrame empty-set gap — new tabs show running workflows, concurrent same-tab runs not fully isolated | (1) refreshLiveRuns auto-attached ALL running workflows to new tabs; launchedRunIdsRef empty → isForeignFrame always false → background runs polluted dashboard. (2) Same fix needed for isForeignRun/isForeignFrame — empty Set means no blocking. Fix: persist launchedRunIdsRef to sessionStorage (survives reload, isolated per tab); isForeignFrame blocks when Set empty; refreshLiveRuns only attaches tab-owned runs. | `frontend/src/app/dashboard/page.tsx`, `frontend/src/providers/RunConnectionProvider.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-136 | 2026-07-29 | Concurrent run shows "Done" in history while still running — preserve "running" status in recentRuns on foreign-run pipeline_complete refetch | When a concurrent run fires pipeline_complete, the FE calls getWorkflows. The DB may already show the user_stories run as "completed" (backend writes status before SSE delivers the frame). Fix: preserve "running" status in setRecentRuns for any tab-local run in launchedRunIdsRef except the one that just completed. | `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-135 | 2026-07-28 | KAN-125: Concurrent prototype agent progress still mismatched — agent_start/agent_chunk/agent_complete lack pipeline_run_id so isForActiveRun was bypassed | Events like agent_start/agent_chunk/agent_complete/tool_call/task_progress don't carry pipeline_run_id in their data. frameRunId resolved to undefined → the !frameRunId pass-through in isForActiveRun always let them through, so all concurrent runs' agent events still corrupted the shared reducer. Fix: inject _sourceRunId (the SSE stream's run_id) per RunStreamConnection in RunConnectionProvider; use it as primary frameRunId in page.tsx. | `frontend/src/hooks/useRunStream.ts`, `frontend/src/providers/RunConnectionProvider.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-134 | 2026-07-28 | KAN-125: Concurrent pipeline "nothing in Steps" — second run's pipeline_start reset the shared reducer, wiping first run's agent list | When PPT was launched while User Stories was running, both runs' pipeline_run_ids were in launchedRunIdsRef (Set), so isForeignFrame=false for BOTH. PPT's pipeline_start went to handlePipelineMsgRef which resetted agents[] to PPT agents, wiping User Stories' progress. Fix: introduce activelyBuildingRunIdRef (only updated on launch/reopen, never by content completions) + isForActiveRun Layer-2 gate — only the most-recently-launched run's frames update pipelineState; other tab-local runs save content at pipeline_complete. Also gate wave events for the active run only. | `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-133 | 2026-07-28 | KAN-125: History-reopened runs blocked by isForeignFrame — add run.id to launchedRunIdsRef before replaying durable events | When a completed run is opened from history, its durable events carry pipeline_run_id not in launchedRunIdsRef (empty Set in a new session, or only containing current-session run ids). isForeignFrame was true for all events → pipeline_start/agent events blocked → Steps showed empty "Run complete". Fix: add fullRun.id to launchedRunIdsRef and set trackedRunIdRef before replaying durable frames in handleSelectWorkflowRun. | `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125 launchedRunIdsRef) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-130 | 2026-07-28 | Run titles show full context blob instead of clean brief on left panel, notifications, and run header — fix in backend _clean_run_title + FE submittedBrief fallback + notification sanitization + handleRunPipeline _display_title injection | (1) _clean_run_title regex `\s*===\s*CONTEXT...` never matched when context block starts at position 0 (no leading brief). (2) page.tsx fell back to raw message when parseRunInput returned empty brief — entire context blob set as submittedBrief. (3) DashboardLayout notification-update effect wrote unsanitized DB title to notifications. (4) handleRunPipeline (IdeaInputPage path) never injected _display_title into extraParams. | `backend/app/api/run_commands.py`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25/36/38 (run titles / KAN-116 / notifications) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-127 | 2026-07-27 | Add NEVER-ask-questions contract to remaining 5 agents: ppt-revision-agent (HIGH risk), ppt-revision-assembler, prototype-build, prototype-validate, prototype-revision-validate | These agents had no no-questions contract. ppt-revision-agent is HIGH risk (same pattern as confirmed-broken user-story-revision-agent). Others had implicit protection from tool-call-only workflow but no explicit rule. | `backend/agents/prompts/ppt-revision-agent/AGENT.md`, `backend/agents/prompts/ppt-revision-assembler/AGENT.md`, `backend/agents/prompts/prototype-build/AGENT.md`, `backend/agents/prompts/prototype-validate/AGENT.md`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` | Phase 15 (prompt contracts) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-126 | 2026-07-27 | KAN-124: (1) Auto-fill recommended answers on skip/partial-answer so agents always get context; (2) Add no-questions contract to 9 missing agent prompts across user_stories, user_stories_revision, od_ppt_revision, prototype_revision | (1) clarify_engine._merge_answers() never read recommended_answer — empty on skip. (2) 9 AGENT.md files missing the NEVER ask clarifying questions output contract confirmed by full pipeline audit. | `backend/agents/execution_engine/clarify_engine.py`, `backend/agents/prompts/user-story-revision-agent/AGENT.md`, `backend/agents/prompts/domain-analyst/AGENT.md`, `backend/agents/prompts/epic-architect/AGENT.md`, `backend/agents/prompts/story-estimator/AGENT.md`, `backend/agents/prompts/nfr-specialist/AGENT.md`, `backend/agents/prompts/backlog-reviewer/AGENT.md`, `backend/agents/prompts/backlog-compiler/AGENT.md`, `backend/agents/prompts/od-ppt-revision-agent/AGENT.md`, `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Phase 3 (ClarifyEngine) + Phase 15 (prompt contracts) | INV-1/3/12/SC-001 ✅ | Done |
@@ -147,6 +154,299 @@
 *Entries are appended below after each `/velocity-ai-fix` session.*
 
 ---
+
+---
+
+### FIX-139 — Chained pipeline uses wrong source run context
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix` — "chained pipeline not getting actual prompt; presentation is taking the context of a base presentation pipeline from earlier instead of the user story I chained from"
+
+#### Root Cause
+
+`handleChainPipeline` in `DashboardLayout.tsx` (~line 1001) resolved the `sourceRunId` for chain context fetching using:
+```typescript
+const sourceRun = recentRuns?.find(
+  r => baseWorkflowType(r.type) === baseWorkflowType(workflowType) && r.status === "completed"
+);
+const sourceRunId = sourceRun?.id;
+```
+
+This type-scan on `recentRuns` is unreliable when multiple completed runs of the same type exist in history. `Array.find` returns the **first** match (ordered by `created_at DESC` from the backend), but if multiple completed user_stories runs exist, it may return an older one instead of the one currently on screen — producing the "add gitlab authentication" context instead of "google authentication" context.
+
+The correct source is already available as `contentSourceRunId` — the prop explicitly managed by `page.tsx` that always points to the run currently displayed (set on `pipeline_complete` and `handleSelectWorkflowRun`). This prop was completely ignored by `handleChainPipeline`.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | Replace `recentRuns.find(...)` with `contentSourceRunId ?? recentRuns.find(...)` | `contentSourceRunId` is the authoritative "run on screen"; fall back to type-scan only when absent |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Add `contentSourceRunId` to the `useCallback` dependency array | The callback now closes over `contentSourceRunId` |
+
+#### Invariants Verified
+- **INV-1**: Not affected.
+- **INV-3**: Not affected — FE-only.
+- **INV-12**: No duplication — reuses `contentSourceRunId` already in scope.
+- **SC-001**: FE-only.
+
+#### Verification
+
+- `contentSourceRunId` is set by `page.tsx` when `pipeline_complete` fires (to `data.pipeline_run_id`) and on `handleSelectWorkflowRun` (to `fullRun.id`)
+- When the user clicks "Presentation" chain chip after completing a "google auth" user_stories run: `contentSourceRunId = "google-auth-run-id"` → `getChainContext("google-auth-run-id")` → correct context fetched ✓
+- Fallback: if `contentSourceRunId` is null (edge case), the type-scan still works as before ✓
+
+#### Notes
+- This bug was likely latent before the concurrent-run fixes (FIX-134..138) but became more visible because those fixes preserved multiple completed runs' history more faithfully
+- The `handleChainFromHistory` function (for chaining from the history view) correctly uses the explicit `run.id` from the history row — it was NOT affected by this bug
+
+---
+
+### FIX-138 — Concurrent same-type runs: HTTP response order race for activelyBuildingRunIdRef
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix` — "I ran 2 user story simultaneously showing incorrect agent progress"
+
+#### Root Cause
+
+When two runs are launched in quick succession (e.g., two user_stories), the `onStartPipeline` callback calls `startPipeline(...)` which does a `POST /api/runs`. These two HTTP POSTs may resolve in a different order than they were clicked. If the **first-clicked run** responds AFTER the **second-clicked run**, the first-clicked run's `.then()` fires last and **overwrites** `activelyBuildingRunIdRef` and `trackedRunIdRef` with the earlier-clicked run's ID.
+
+After this, the second-clicked run's events are blocked (`isForActiveRun = false` because `_sourceRunId ≠ activelyBuildingRunIdRef`), while the first-clicked run's events pass through. This causes the pipelineState (which was reset by the second run's `pipeline_start`) to receive agent events from the wrong run — producing the "two agents spinning simultaneously, 0 completed" display.
+
+Specifically:
+- Run A (first click, `f5a4`) POST responds AFTER Run B (second click, `86ff`)
+- After Run B's `.then()`: `activelyBuildingRunIdRef = "86ff"` (correct)
+- After Run A's `.then()` (fires later): `activelyBuildingRunIdRef = "f5a4"` (WRONG — overwrites)
+- Run B's `pipeline_start` reset fires, sets up 6 idle agents
+- Run B's `agent_start domain-analyst` → blocked! (`f5a4 ≠ 86ff`) 
+- Run A's `agent_start story-estimator` (further along) → passes! (`f5a4 === f5a4`)
+- Result: domain-analyst (from reset) shows idle, story-estimator shows running, 0 completed
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `launchCounterRef = useRef<number>(0)` | Monotonically-increasing counter that tracks the ORDER of clicks (not HTTP responses) |
+| `frontend/src/app/dashboard/page.tsx` | Captures `thisLaunchSeq = ++launchCounterRef` BEFORE the async POST | Captures click order before the async boundary |
+| `frontend/src/app/dashboard/page.tsx` | Guards `trackedRunIdRef` and `activelyBuildingRunIdRef` updates with `if (thisLaunchSeq === launchCounterRef.current)` | Only the LAST-CLICKED launch updates the routing refs — an out-of-order early HTTP response is safely ignored |
+
+#### Invariants Verified
+- **INV-1**: Not affected.
+- **INV-3**: Not affected — FE-only.
+- **INV-12**: `launchCounterRef` is a new local ref, not duplicating any existing capability.
+- **SC-001**: FE-only.
+
+#### Behavior After Fix
+
+Click Run A, then Run B quickly:
+1. `launchCounterRef` increments to 1 (`thisLaunchSeq_A = 1`), then to 2 (`thisLaunchSeq_B = 2`)
+2. Regardless of HTTP response order: the `.then()` with `thisLaunchSeq = 2` (Run B, last clicked) sets `activelyBuildingRunIdRef = "run_B"` ✓
+3. The `.then()` with `thisLaunchSeq = 1` (Run A, first clicked) does NOT overwrite (1 ≠ 2) ✓
+4. Run A and Run B are both added to `launchedRunIdsRef` (unconditional) for Layer-1 allow-list ✓
+5. Only Run B's frames reach the pipelineState reducer ✓
+
+#### Notes
+- `launchedRunIdsRef.current.add(launchedRunId)` and `persistLaunchedIds()` remain unconditional — all launched runs must be in the Layer-1 allow-list regardless of click order
+- `runConnection.attachRun(launchedRunId)` also remains unconditional — all runs need SSE streams
+- The counter only gates the "which run is actively shown" decision
+
+---
+
+### FIX-137 — Multi-tab isolation + same-tab empty-set isForeignFrame gap
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix` — "multiple workflows not running in isolation; opening another tab shows already open workflow"
+
+#### Root Cause
+
+Two related bugs sharing the same root: `launchedRunIdsRef` (the Set of run IDs launched in this tab) being empty causes ALL frames to pass through the guards.
+
+**Bug 1 — New tab shows running workflow:**
+- `RunConnectionProvider.refreshLiveRuns()` runs on every component mount
+- It finds ALL running workflows (AUTO_STREAM_STATUSES) and creates SSE connections for them
+- New tab subscribes to `handleWebSocketMessage`; `launchedRunIdsRef` is empty
+- `isForeignFrame` check: `launchedRunIdsRef.size > 0` was the first condition — when size === 0 this was `false`, meaning `isForeignFrame = false` for EVERYTHING
+- Background run's `pipeline_start` fires → resets the new tab's state → shows running pipeline
+
+**Bug 2 — isForeignRun empty-set gap:**
+- Same issue for `pipeline_start` reset guard (`isForeignRun`): when `trackedRunIdRef = null` (no run tracked), a background run's `pipeline_start` was NOT treated as foreign → reset fired
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | `launchedRunIdsRef` initialized from sessionStorage via IIFE in `useRef(...)` | Same-tab page reload restores known run IDs; new tabs start empty (fresh sessionStorage) |
+| `frontend/src/app/dashboard/page.tsx` | `persistLaunchedIds()` helper added, called on every `launchedRunIdsRef.current.add()` | Persists the set to sessionStorage after every mutation |
+| `frontend/src/app/dashboard/page.tsx` | `isForeignFrame` now: `!!frameRunId && (size===0 \|\| !has(frameRunId))` | When set is empty (new tab), ALL frames with a run id are foreign → blocked from reducer |
+| `frontend/src/app/dashboard/page.tsx` | `isForeignRun` now: `!!runId && (size===0 \|\| (!!trackedRef && runId !== trackedRef))` | When set is empty, ALL `pipeline_start` from background runs are foreign → no reset |
+| `frontend/src/providers/RunConnectionProvider.tsx` | `refreshLiveRuns` only auto-attaches runs in `tab_launched_run_ids` sessionStorage | New tabs don't create unnecessary SSE connections for other users' running workflows |
+
+#### Invariants Verified
+- **INV-1**: Not affected — no pipeline_type branches.
+- **INV-3**: Not affected — FE-only, goldens untouched.
+- **INV-12**: No duplication.
+- **SC-001**: FE-only.
+
+#### Behavior After Fix
+
+- **New tab**: Empty `launchedRunIdsRef` → ALL background run frames are foreign → dashboard shows clean home state
+- **Same-tab reload mid-run**: sessionStorage restores the launched run ID → run continues streaming correctly
+- **Same-tab concurrent runs**: `launchedRunIdsRef` has both IDs → Layer-1 allows both; Layer-2 (`activelyBuildingRunIdRef`) restricts reducer to the most-recently-launched run
+- **History reopen**: `handleSelectWorkflowRun` adds the opened run to `launchedRunIdsRef` and persists → that run's durable frames flow through correctly
+
+#### Notes
+- `TAB_LAUNCHED_KEY = "tab_launched_run_ids"` is used in both `page.tsx` and `RunConnectionProvider.tsx` to share the same sessionStorage key (tabs are isolated per browser tab)
+- The IIFE in `useRef(...)` runs on every render but React only uses the initialValue on the first render — functionally correct and safe
+- `refreshLiveRuns` still creates SSE connections for tab-owned running runs (correct for resume mid-run)
+- Runs not in the tab's set but discovered by `refreshLiveRuns` are not attached (saves network connections)
+
+---
+
+### FIX-136 — Concurrent run shows "Done" in history while still running
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix` — "user story is still running but showing done in run history"
+
+#### Root Cause
+
+When any `pipeline_complete` SSE event arrives (from ANY concurrent run — not just the user_stories run), `page.tsx` calls `getWorkflows` to refresh the history list. The DB write in `_drive_launch_to_queue` sets `status = "completed"` synchronously BEFORE the SSE frame is delivered to the FE. So when a concurrent prototype/PPT run completes:
+
+1. Backend writes user_stories run `status = "completed"` to DB (engine finished, async for loop done)
+2. SSE hasn't yet delivered `pipeline_complete` to the user_stories FE handler
+3. A concurrent run's `pipeline_complete` fires → FE calls `getWorkflows`
+4. `getWorkflows` returns user_stories with `status: "completed"` (from DB)
+5. `setRecentRuns(runs)` updates history — shows "Done"
+6. But `pipelineState.isRunning` is still `true` (user_stories `pipeline_complete` SSE not processed yet)
+7. User sees: history = "Done", live view = "Running" — contradiction
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Changed `setRecentRuns(runs)` in `pipeline_complete` refetch to a functional updater that preserves `"running"` status for tab-local runs not yet processed | Race condition: DB is written before SSE is consumed; protect tab-local runs in `launchedRunIdsRef` except the run that just triggered the refetch |
+| `frontend/src/app/dashboard/page.tsx` | Same protection applied to `pipeline_failed` refetch | Same race applies |
+
+**Key logic**: For each run in the refreshed list:
+- If the run is in `launchedRunIdsRef` (we launched it this tab) AND
+- It's NOT the run that just triggered this refetch (`completedRunIdForThisEvent`) AND  
+- The DB says `"completed"` AND
+- `prev` (prior state) has it as `"running"`
+→ Keep `"running"` to prevent the flash
+
+The protection expires naturally: when user_stories' OWN `pipeline_complete` fires, `completedRunIdForThisEvent === user_stories.id`, so the `r.id !== completedRunIdForThisEvent` condition is false → the real `"completed"` status is applied.
+
+#### Invariants Verified
+- **INV-1**: Not affected — FE-only, no pipeline_type branches.
+- **INV-3**: Not affected — FE-only, goldens untouched.
+- **INV-12**: No duplication — reuses existing `launchedRunIdsRef`.
+- **SC-001**: FE-only.
+
+#### Notes
+- `launchedRunIdsRef.current` is always fresh (it's a React ref, not state).
+- `completedRunIdForThisEvent` captures the specific completing run via closure — correct.
+- The `"generating"` status check was intentionally omitted since it's not in `WorkflowStatus`.
+- Single-run scenarios: `launchedRunIdsRef` has only one entry which IS the completing run → `r.id !== completedRunIdForThisEvent` is false → no protection → byte-identical to pre-fix behavior.
+
+---
+
+### FIX-135 — KAN-125: _sourceRunId injection — agent_start/chunk/complete bypass fixed
+
+**Date:** 2026-07-28
+**Triggered by:** `/velocity-ai-fix` — 2 prototypes running simultaneously, agent progress still mismatched
+
+#### Root Cause
+
+FIX-134 introduced an `isForActiveRun` Layer-2 check using `frameRunId` (extracted from `msg.data.pipeline_run_id`). The issue: most per-agent events do NOT carry `pipeline_run_id` in their `data`:
+
+- `agent_start`: `data = {agent_id, name, role, icon, index, total}` — NO `pipeline_run_id`
+- `agent_chunk`: `data = {agent_id, chunk}` — NO `pipeline_run_id`
+- `agent_complete`: `data = {agent_id, name, duration, ...}` — NO `pipeline_run_id`
+- `agent_input`, `tool_call`, `tool_result`, `agent_thinking`: same — NO `pipeline_run_id`
+
+Result: `frameRunId = undefined` → `isForActiveRun = (!frameRunId)` = `true` → ALL concurrent runs' agent events bypassed the guard and still corrupted the shared `pipelineState` reducer. So both prototype runs' `agent_start`/`agent_chunk`/`agent_complete` events all went to the reducer, causing the mismatched Steps progress shown in the screenshot.
+
+**Root cause file:line**: `page.tsx` frameRunId extraction + `isForActiveRun` pass-through condition; `engine.py` agent_start/agent_complete event structures (no pipeline_run_id in data).
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useRunStream.ts` | Added `_sourceRunId?: string` field to `RunStreamMessage` interface | Typed slot for per-stream run identity injection |
+| `frontend/src/providers/RunConnectionProvider.tsx` | Changed `onMessage={fanout}` to `onMessage={(msg) => fanout({ ...msg, _sourceRunId: runId })}` per `RunStreamConnection` | Injects the SSE stream's `runId` into every frame, covering ALL event types regardless of whether they carry pipeline_run_id |
+| `frontend/src/app/dashboard/page.tsx` | Changed `frameRunId` extraction to prefer `msg._sourceRunId` over `msg.data.pipeline_run_id`; same for wave event guard and pipeline_start foreign-run check | `_sourceRunId` is always present (injected at source), covers agent_start/chunk/complete etc. that don't carry pipeline_run_id |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — guard uses run id, never workflow type.
+- **INV-3** (golden parity): Not affected — FE-only change; backend/engine untouched; goldens unaffected.
+- **INV-12** (no duplication): The `_sourceRunId` field is additive to `RunStreamMessage`; no logic duplication.
+- **SC-001** (zero engine edits): FE-only; engine.py untouched.
+
+#### Verification
+
+With this fix:
+1. Run A (prototype) starts → `RunStreamConnection(run_A)` injects `_sourceRunId: "run_A"` into every frame
+2. Run B (prototype) starts → `RunStreamConnection(run_B)` injects `_sourceRunId: "run_B"` into every frame
+3. `activelyBuildingRunIdRef = "run_B"` (most recently launched)
+4. `agent_start` from Run A: `frameRunId = "run_A"` (from `_sourceRunId`) → `isForActiveRun = false` → BLOCKED ✓
+5. `agent_start` from Run B: `frameRunId = "run_B"` → `isForActiveRun = true` → goes to reducer ✓
+6. Steps/progress shows ONLY Run B's data, cleanly ✓
+
+#### Notes
+
+- The `_sourceRunId` injection is an internal FE field — it does NOT flow to the backend.
+- Concierge `/messages` streaming frames don't come from `RunStreamConnection` (they come from `sendCommand`'s body drain via the `fanout` callback directly) — they have no `_sourceRunId`. The `!frameRunId` pass-through correctly handles them (they're chat frames, filtered early anyway).
+- The `RunConnectionProvider.tsx` change creates a new inline function per render, but since it's inside a `liveRunIds.map()` with stable `key=runId`, React only re-mounts when `liveRunIds` changes — no performance issue.
+
+---
+
+### FIX-134 — KAN-125: Concurrent pipeline "nothing in Steps" — activelyBuildingRunIdRef Layer-2 reducer gate
+
+**Date:** 2026-07-28
+**Triggered by:** `/velocity-ai-fix` — "runned user story first, started ppt in parallel, user story stopped working showing nothing in steps"
+
+#### Root Cause
+
+`handleWebSocketMessage` uses `launchedRunIdsRef` (a Set of ALL tab-launched run IDs) to gate the `handlePipelineMsgRef` call. When User Stories (`run_A`) was running and PPT (`run_B`) was launched:
+
+1. `launchedRunIdsRef = {run_A, run_B}` — both IDs are in the Set
+2. PPT's `pipeline_start` arrives: `isForeignFrame = false` (run_B IS in the Set) → goes to the reducer
+3. The reducer (`useWorkflow`) treats `pipeline_start` as a NEW run → **resets `agents[]` to empty** (WR-03 reset in `useWorkflow.ts`)
+4. User Stories' subsequent `agent_*` frames ALSO go to the reducer (run_A also in Set) → both runs' frames compete for the same `agents` array
+5. Result: the two runs' events corrupt each other → "nothing in Steps" or garbled progress
+
+**Root cause (file:line):** The single `isForeignFrame` check (using `launchedRunIdsRef.current.has(frameRunId)`) allowed BOTH concurrent runs' frames through to the shared `useWorkflow` reducer. The second run's `pipeline_start` reset the reducer, wiping the first run's Steps data.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `activelyBuildingRunIdRef` — a new `useRef<string \| null>(null)` that is ONLY updated when a new run is launched (in `startPipeline().then()`) and when a run is opened from history (`handleSelectWorkflowRun`). It is NEVER overwritten by `contentSourceRunId` completions. | `trackedRunIdRef` is overwritten by the `useEffect` on `activePipelineRunId ?? contentSourceRunId`, meaning a completing concurrent run would re-point it and break the still-building run's progress. A separate ref solving only "which run is actively being built/viewed" avoids this. |
+| `frontend/src/app/dashboard/page.tsx` | Added `isForActiveRun` Layer-2 check alongside `isForeignFrame`. The reducer call is now `if (!isForeignFrame && isForActiveRun)`. `isForActiveRun = !frameRunId \|\| !activelyBuildingRunIdRef.current \|\| frameRunId === activelyBuildingRunIdRef.current`. | Only the actively-building run's frames update `pipelineState`. Other tab-local runs' content is still saved at `pipeline_complete` (unguarded). |
+| `frontend/src/app/dashboard/page.tsx` | Added run-id guard to wave events section: if `waveRunId && activelyBuildingRunIdRef.current && waveRunId !== activelyBuildingRunIdRef.current` → `return`. | Wave events from a background concurrent run must not corrupt the viewed run's wave tree (same principle). |
+| `frontend/src/app/dashboard/page.tsx` | Added `activelyBuildingRunIdRef.current = launchedRunId` in `startPipeline().then()` alongside the existing `trackedRunIdRef.current = launchedRunId`. | Update the new ref whenever a run is launched. |
+| `frontend/src/app/dashboard/page.tsx` | Added `activelyBuildingRunIdRef.current = fullRun.id` in `handleSelectWorkflowRun` alongside `trackedRunIdRef.current = fullRun.id`. | Durable event replay for a history-opened run must also go through the reducer. |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — guard uses generic `pipeline_run_id` field, no workflow names.
+- **INV-3** (golden parity): Not affected — `pipeline_complete` content routing is UNGUARDED (all tab-local completions save their content), goldens unaffected.
+- **INV-12** (no duplication): The `activelyBuildingRunIdRef` is a new purpose-specific ref alongside the existing `trackedRunIdRef` (used for BUG-005 pipeline_start reset scoping); the two refs serve different purposes.
+- **SC-001** (zero engine edits): FE-only change; backend untouched.
+
+#### Verification
+
+The fix ensures:
+1. User Stories running → `activelyBuildingRunIdRef = "run_A"` → User Stories frames → reducer → Steps shows User Stories progress ✓
+2. PPT launched → `activelyBuildingRunIdRef = "run_B"` → Steps switches to PPT progress ✓  
+3. User Stories frames after PPT launch: `frameRunId = run_A ≠ activelyBuildingRunIdRef (run_B)` → blocked from reducer (no corruption) ✓
+4. User Stories `pipeline_complete`: content routing saves `userStoryContent` (unguarded by isForeignCompletion for content) ✓
+5. Both runs' content accessible in Preview via respective state variables ✓
+
+#### Notes
+
+- The Steps/Audit/progress tabs now show the MOST-RECENTLY-LAUNCHED run's progress. When a background run completes, its content is saved and accessible via the recents list.
+- `pipeline_complete` content routing (`setUserStoryContent`/`setPptContent`/`setPrototypeContent`/`setGenericDeliverable`) remains intentionally UNGUARDED — all completed runs' content is saved to their respective state variables and is accessible.
+- `isForeignFrame` (Layer 1, using `launchedRunIdsRef`) still blocks truly external runs (from a different browser tab). `isForActiveRun` (Layer 2, using `activelyBuildingRunIdRef`) ensures only one tab-local run at a time feeds the shared reducer.
 
 ---
 

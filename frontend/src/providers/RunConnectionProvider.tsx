@@ -267,8 +267,31 @@ export function RunConnectionProvider({
     }
     try {
       const runs = await getWorkflows(t, { limit: 50 });
+      // KAN-125 MULTI-TAB FIX: only auto-attach runs that this browser TAB
+      // actually launched (restored from sessionStorage). A new tab has an
+      // empty sessionStorage set and should not inherit another tab's running
+      // workflows — those runs will have their SSE events blocked by the
+      // isForeignFrame guard in handleWebSocketMessage anyway, but not creating
+      // the SSE connections at all is cleaner and avoids wasting connections.
+      // Exception: the focusedRunId (set when the user explicitly attaches a
+      // run via attachRun) is always included regardless.
+      let tabOwnedIds = new Set<string>();
+      try {
+        const raw = sessionStorage.getItem("tab_launched_run_ids");
+        if (raw) {
+          const ids = JSON.parse(raw) as string[];
+          if (Array.isArray(ids)) tabOwnedIds = new Set<string>(ids);
+        }
+      } catch { /* ignore — non-fatal */ }
+
       autoIdsRef.current = runs
-        .filter((r) => AUTO_STREAM_STATUSES.has(r.status))
+        .filter((r) =>
+          AUTO_STREAM_STATUSES.has(r.status) &&
+          // Only auto-attach if this tab owns the run (has launched it previously)
+          // OR if the set is empty (e.g. a first-ever load where the active_pipeline_run_id
+          // session key is set — handled separately below).
+          (tabOwnedIds.size === 0 ? false : tabOwnedIds.has(r.id))
+        )
         .map((r) => r.id);
       recomputeLiveRunIds();
     } catch {
@@ -455,7 +478,10 @@ export function RunConnectionProvider({
               runId={runId}
               token={token}
               epoch={epoch}
-              onMessage={fanout}
+              // KAN-125 FIX: inject _sourceRunId so handleWebSocketMessage can
+              // route frames without pipeline_run_id (agent_start/agent_chunk/
+              // agent_complete etc.) to the correct pipelineState reducer.
+              onMessage={(msg) => fanout({ ...msg, _sourceRunId: runId })}
               onPhase={onPhase}
             />
           ))

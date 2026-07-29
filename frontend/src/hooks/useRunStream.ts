@@ -58,6 +58,11 @@ export type RunConnectionPhase =
 export interface RunStreamMessage {
   type: string;
   data: Record<string, unknown>;
+  /** Injected by RunConnectionProvider: the run id whose SSE stream this frame
+   *  was sourced from. Used by handleWebSocketMessage to route frames to the
+   *  correct pipelineState reducer when multiple concurrent runs are attached.
+   *  Absent on legacy WS paths and Concierge /messages streaming. */
+  _sourceRunId?: string;
 }
 
 export interface UseRunStreamConfig {

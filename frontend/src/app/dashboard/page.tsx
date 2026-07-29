@@ -164,6 +164,53 @@ export default function DashboardPage() {
   // building). Synced below from activePipelineRunId ?? contentSourceRunId (NOT
   // pipelineState.pipelineRunId — useWorkflow adopts the foreign id into it).
   const trackedRunIdRef = useRef<string | null>(null);
+  // KAN-125 — track ALL run ids launched from this tab so the isForeignFrame guard
+  // (below) allows completions from ANY locally-launched run, not just the most
+  // recently launched one. Without this, launching run B while run A is still
+  // building would block run A's pipeline_complete (A's id ≠ trackedRunIdRef
+  // which now holds B's id) → "Invalid presentation output".
+  // KAN-125 MULTI-TAB FIX — session-scoped launched run ID set. Seeded from
+  // sessionStorage on first render (survives same-tab reload; fresh per new tab).
+  // Using a constant initializer function to avoid re-running the seed logic on
+  // every render (useRef calls the function only once on mount).
+  const TAB_LAUNCHED_KEY = "tab_launched_run_ids";
+  const launchedRunIdsRef = useRef<Set<string>>((() => {
+    // This IIFE executes only when useRef is first called (mount). React ignores
+    // the argument on subsequent renders. Seeding from sessionStorage here means
+    // same-tab page reloads see the previously-launched run IDs (so in-progress runs
+    // remain locally-known), while new tabs start with an empty Set (fresh sessionStorage).
+    try {
+      const raw = sessionStorage.getItem("tab_launched_run_ids");
+      if (raw) {
+        const ids = JSON.parse(raw) as string[];
+        if (Array.isArray(ids)) return new Set<string>(ids);
+      }
+    } catch { /* ignore storage errors — non-fatal */ }
+    return new Set<string>();
+  })());
+
+  /** Persist the launched run IDs to sessionStorage after every mutation so
+   *  a same-tab page reload restores the full allow-list. New tabs start with
+   *  a fresh sessionStorage and see an empty set (correct isolation). */
+  const persistLaunchedIds = () => {
+    try {
+      sessionStorage.setItem(TAB_LAUNCHED_KEY, JSON.stringify([...launchedRunIdsRef.current]));
+    } catch { /* non-fatal */ }
+  };
+
+  // KAN-125 FIX — track the MOST-RECENTLY-LAUNCHED run id to gate the pipelineState
+  // reducer. Unlike trackedRunIdRef (which gets overwritten by contentSourceRunId
+  // from completed runs), this ref is ONLY updated when a new run is launched
+  // (in the startPipeline .then() callback). This prevents a completing concurrent
+  // run from re-pointing the reducer gate and blocking the currently-building run's
+  // live agent progress from reaching the Steps / Audit tabs.
+  const activelyBuildingRunIdRef = useRef<string | null>(null);
+  // KAN-125 LAUNCH-ORDER FIX — a monotonically-increasing counter that bumps on
+  // every launch CLICK (not on POST resolution). The .then() callback only updates
+  // activelyBuildingRunIdRef when its launch counter matches the current value,
+  // preventing a slow-responding first-launched run's .then() from overwriting
+  // the second-launched run's ID (HTTP responses can arrive out of click order).
+  const launchCounterRef = useRef<number>(0);
   // BUG-015 — the provider's detachRun, reached through a ref so the empty-deps
   // handleWebSocketMessage (a useCallback([])) can release a completed run's focus
   // WITHOUT closing over `runConnection` (declared later, which would break the
@@ -401,6 +448,20 @@ export default function DashboardPage() {
     if (WAVE_EVENT_TYPES.includes(msg.type)) {
       const data = evData ?? {};
 
+      // KAN-125 FIX: only process wave events for the actively-building run.
+      // Use _sourceRunId (injected per SSE stream) as the primary signal — this
+      // covers events that might not carry pipeline_run_id in their data.
+      const waveSourceRunId =
+        (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
+        ?? (typeof data.pipeline_run_id === "string" ? data.pipeline_run_id : undefined);
+      if (
+        waveSourceRunId &&
+        activelyBuildingRunIdRef.current &&
+        waveSourceRunId !== activelyBuildingRunIdRef.current
+      ) {
+        return; // foreign concurrent run's wave event — skip
+      }
+
       // 12-06 emit contract (flat on `data`): `wave_index` (number),
       // `step` (string), `worker` (number). Consume these EXACT keys — a rename
       // or nesting mismatch silently drops every subagent event again.
@@ -518,12 +579,20 @@ export default function DashboardPage() {
       // direct state read would treat every pipeline_start as foreign and break the
       // launch reset (the DEF-44-12-4 stale-closure class).
       if (msg.type === "pipeline_start") {
-        const incomingRunId = (msg.data as Record<string, unknown> | undefined)
-          ?.pipeline_run_id as string | undefined;
+        const incomingRunId =
+          // _sourceRunId is injected per SSE stream — more reliable than data parsing
+          (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
+          ?? (msg.data as Record<string, unknown> | undefined)?.pipeline_run_id as string | undefined;
         const isForeignRun =
-          !!incomingRunId &&
-          !!trackedRunIdRef.current &&
-          incomingRunId !== trackedRunIdRef.current;
+          !!incomingRunId && (
+            // KAN-125 MULTI-TAB: if this tab has never launched anything (empty set),
+            // any incoming run is foreign — prevents new-tab from having its state reset
+            // by a background run auto-attached by refreshLiveRuns.
+            launchedRunIdsRef.current.size === 0 ||
+            // Same-tab concurrent: if we're tracking a specific run, a different run's
+            // pipeline_start must not reset the tracked run's clarify/seen-set.
+            (!!trackedRunIdRef.current && incomingRunId !== trackedRunIdRef.current)
+          );
         if (isForeignRun) {
           // Foreign concurrent run — forward the frame to the reducer (below) but
           // do NOT reset THIS tab's clarify / seen-set / review-gate.
@@ -554,10 +623,86 @@ export default function DashboardPage() {
         }
       }
 
-      handlePipelineMsgRef.current?.({
-        type: msg.type,
-        ...(msg.data as Record<string, unknown> || {}),
-      });
+      // KAN-125 — RUN-SCOPE the pipelineState reducer: the SSE provider's
+      // non-run-scoped fan-out forwards frames from EVERY concurrent run to
+      // this single subscriber. For events other than pipeline_start (whose
+      // reset side-effect is already guarded by BUG-005 above), we must also
+      // prevent foreign-run agent_start / agent_chunk / agent_complete /
+      // pipeline_complete etc. from overwriting the VIEWED run's shared
+      // pipelineState. Both concurrent user_stories runs use identical
+      // agent_ids (domain-analyst, epic-architect, …) — without this guard
+      // whichever run's frame arrives last overwrites the same state slot.
+      //
+      // KAN-125 FIX: The reducer guard uses TWO layers:
+      //
+      //   Layer 1 (launchedRunIdsRef) — "is this from a run this tab owns?"
+      //     A frame is "foreign" ONLY when it carries a pipeline_run_id that is
+      //     NOT in the set of runs launched by this tab. This blocks truly
+      //     external runs (e.g. a concurrent run in another browser tab).
+      //
+      //   Layer 2 (activelyBuildingRunIdRef) — "is this from the run the user
+      //     is currently BUILDING/VIEWING?" Even for tab-local runs, only the
+      //     most-recently-launched (actively building) run's frames should go to
+      //     the shared pipelineState reducer. A second tab-local run's
+      //     pipeline_start would otherwise RESET the reducer (wipe agent list),
+      //     showing "nothing in Steps" for the first run. The second run's final
+      //     output is still captured in the pipeline_complete handler below (which
+      //     intentionally saves content for ALL tab-local completions) and is
+      //     accessible via the recents list.
+      //
+      // CRITICAL: both checks must use refs (not state) because this is a
+      // useCallback([]) — all state reads see stale initial values.
+      //
+      // KAN-125 FIX (FIX-135): use `_sourceRunId` (injected by RunConnectionProvider
+      // per attached run, keyed on the SSE stream id) as the primary run-identity
+      // signal. This covers ALL event types — including agent_start / agent_chunk /
+      // agent_complete / agent_input / tool_call / task_progress etc. — which do NOT
+      // carry pipeline_run_id in their `data`. Previously these events bypassed the
+      // `isForActiveRun` guard (via the `!frameRunId` pass-through), allowing them
+      // from ALL concurrent runs to reach the shared pipelineState reducer.
+      const frameRunId =
+        // Prefer _sourceRunId (injected per SSE stream — covers all event types)
+        (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
+        // Fallback to pipeline_run_id in data (only events that explicitly carry it)
+        ?? (msg.data as Record<string, unknown> | undefined)?.pipeline_run_id as string | undefined;
+
+      // Layer 1: is this from a run this tab ever launched?
+      // KAN-125 MULTI-TAB FIX: when launchedRunIdsRef is empty (brand-new tab that
+      // has never launched anything AND has no sessionStorage-restored launches),
+      // treat ALL frames as foreign so server-discovered background runs never
+      // pollute this tab's pipelineState. The isForActiveRun guard (Layer 2) already
+      // blocks frames when activelyBuildingRunIdRef is null, but an explicit Layer-1
+      // block here also prevents any frames from reaching the pipeline reducer for
+      // runs this tab did not start.
+      // Exception: frameRunId absent (infra events, Concierge) → always pass through.
+      const isForeignFrame =
+        !!frameRunId &&
+        (
+          // Tab never launched anything → every frame with a run id is foreign
+          launchedRunIdsRef.current.size === 0 ||
+          // Tab launched some runs but this frame is from a run we don't own
+          !launchedRunIdsRef.current.has(frameRunId)
+        );
+
+      // Layer 2: is this from the run the user is currently VIEWING/BUILDING?
+      // Only the actively-building run's frames update pipelineState (the Steps /
+      // Audit / progress tabs). Other tab-local runs' content is captured at
+      // pipeline_complete below but does not interfere with live agent progress.
+      // CRITICAL: use activelyBuildingRunIdRef (only set on launch), NOT
+      // trackedRunIdRef (which gets re-pointed by contentSourceRunId of completed
+      // runs). Using trackedRunIdRef here would cause a completing concurrent run
+      // to re-point the gate and block the still-building run's live progress.
+      const isForActiveRun =
+        !frameRunId || // no run id on frame → infra event (Concierge /messages), always pass through
+        !activelyBuildingRunIdRef.current || // no run launched yet → first launch, pass through
+        frameRunId === activelyBuildingRunIdRef.current; // frame is for the actively-building run
+
+      if (!isForeignFrame && isForActiveRun) {
+        handlePipelineMsgRef.current?.({
+          type: msg.type,
+          ...(msg.data as Record<string, unknown> || {}),
+        });
+      }
 
       // When pipeline completes, route final output to preview panel
       if (msg.type === "pipeline_complete" && msg.data) {
@@ -655,15 +800,62 @@ export default function DashboardPage() {
         // Refresh workflow runs from backend after pipeline completes
         const currentToken = getToken();
         if (currentToken) {
+          // KAN-125 / FIX-136: when a CONCURRENT run's pipeline_complete triggers this
+          // refetch, the DB may already show the user_stories (or other still-building)
+          // run as "completed" because the backend writes the status synchronously before
+          // the SSE delivers the frame to the FE. Naively replacing recentRuns would show
+          // "Done" in history for a run the FE still knows is building (launchedRunIdsRef).
+          // Fix: preserve "running" for any run the FE knows is still being driven by this
+          // tab. A run leaves launchedRunIdsRef implicitly when pipeline_complete/cancelled
+          // for that specific run arrives and `detachRunRef.current(completingRunId)` fires.
+          // CRITICAL: read launchedRunIdsRef.current inside the .then() callback (asynchronous
+          // — the Set is always current because it's a ref). completingRunId captures the
+          // run that just completed via closure, so we exclude ONLY that run from protection.
+          const completedRunIdForThisEvent = completingRunId;
           getWorkflows(currentToken, { limit: 50 })
-            .then((runs) => setRecentRuns(runs))
+            .then((runs) => setRecentRuns((prev) => {
+              return runs.map((r) => {
+                // Preserve "running" for any locally-launched run that hasn't completed yet
+                // (its pipeline_complete hasn't been processed by this tab's handler yet).
+                // Exception: the run that just triggered this refetch — its status IS correct.
+                if (
+                  r.id !== completedRunIdForThisEvent &&
+                  launchedRunIdsRef.current.has(r.id) &&
+                  r.status === "completed"
+                ) {
+                  // This run is tracked by this tab and the DB says completed, but the FE
+                  // hasn't received its pipeline_complete yet — keep previous status to avoid
+                  // the "running but shows Done" flash.
+                  const prevRun = prev.find((p) => p.id === r.id);
+                  if (prevRun && prevRun.status === "running") {
+                    return { ...r, status: prevRun.status };
+                  }
+                }
+                return r;
+              });
+            }))
             .catch(() => {});
           // KAN-120: do a second delayed refetch so the history reflects the
           // reconciled status (completed) after _reconcile_terminal_status
           // finishes writing it — the first fetch races against it.
+          // KAN-125: the same protection applies to the delayed refetch.
           setTimeout(() => {
             const t = getToken();
-            if (t) getWorkflows(t, { limit: 50 }).then((runs) => setRecentRuns(runs)).catch(() => {});
+            if (t) getWorkflows(t, { limit: 50 }).then((runs) => setRecentRuns((prev) => {
+              return runs.map((r) => {
+                if (
+                  r.id !== completedRunIdForThisEvent &&
+                  launchedRunIdsRef.current.has(r.id) &&
+                  r.status === "completed"
+                ) {
+                  const prevRun = prev.find((p) => p.id === r.id);
+                  if (prevRun && prevRun.status === "running") {
+                    return { ...r, status: prevRun.status };
+                  }
+                }
+                return r;
+              });
+            })).catch(() => {});
           }, 2000);
         }
       }
@@ -672,7 +864,9 @@ export default function DashboardPage() {
       // extraction (there is none); surface the failure through the same chat
       // error surface "error" events use, and refresh the runs list so the run
       // shows its failed status.
-      if (msg.type === "pipeline_failed" && msg.data) {
+      // KAN-125: only show the error message for the tracked run — foreign run
+      // failures should not inject error bubbles into this tab's chat.
+      if (msg.type === "pipeline_failed" && msg.data && !isForeignFrame) {
         const data = msg.data as Record<string, unknown>;
         const failedAgents = (data.agents_failed as string[]) || [];
         const errorText = (data.error as string) || "Pipeline failed";
@@ -690,8 +884,26 @@ export default function DashboardPage() {
 
         const currentToken = getToken();
         if (currentToken) {
+          // KAN-125 / FIX-136: same protection as pipeline_complete handler —
+          // a failed run's refetch must not show other still-running tab-launched
+          // runs as completed in history.
+          const failedRunId = (msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined;
           getWorkflows(currentToken, { limit: 50 })
-            .then((runs) => setRecentRuns(runs))
+            .then((runs) => setRecentRuns((prev) => {
+              return runs.map((r) => {
+                if (
+                  r.id !== failedRunId &&
+                  launchedRunIdsRef.current.has(r.id) &&
+                  r.status === "completed"
+                ) {
+                  const prevRun = prev.find((p) => p.id === r.id);
+                  if (prevRun && prevRun.status === "running") {
+                    return { ...r, status: prevRun.status };
+                  }
+                }
+                return r;
+              });
+            }))
             .catch(() => {});
         }
       }
@@ -700,10 +912,14 @@ export default function DashboardPage() {
       // goes false and runLaneState resolves to "terminal" not "clarify".
       // Must be HERE (inside the pipelineTypes block, before return) — pipeline_cancelled
       // and pipeline_failed are in pipelineTypes and never reach the switch below.
+      // KAN-125: run-scope this — a FOREIGN concurrent run cancelling/failing must
+      // not clear THIS tab's questionnaire/reviewGate/activePipelineRunId.
       if (msg.type === "pipeline_cancelled" || msg.type === "pipeline_failed") {
-        setReviewGateData(null);
-        setQuestionnaireData(null);
-        setActivePipelineRunId(null);
+        if (!isForeignFrame) {
+          setReviewGateData(null);
+          setQuestionnaireData(null);
+          setActivePipelineRunId(null);
+        }
       }
 
       return;
@@ -899,6 +1115,16 @@ export default function DashboardPage() {
               impact_level?: string;
             }>;
           };
+          // KAN-125: only accept this gate for the tracked run. A foreign
+          // concurrent run's questionnaire_ready must not capture activePipelineRunId
+          // and orphan this tab's clarify gate.
+          const qRunId = data.pipeline_run_id;
+          const isForeignQuestionnaire =
+            !!qRunId &&
+            launchedRunIdsRef.current.size > 0 &&
+            !launchedRunIdsRef.current.has(qRunId);
+          if (isForeignQuestionnaire) break;
+
           const mapped = (data.questions || []).map((q) => ({
             id: q.question_id,
             question: q.question_text,
@@ -928,6 +1154,14 @@ export default function DashboardPage() {
         // Agent completed and declared Human_Gate — pause for user review.
         if (msg.data) {
           const data = msg.data as unknown as ReviewGateReadyData;
+          // KAN-125: only accept this gate for the tracked run. A foreign
+          // concurrent run's review gate must not overwrite this tab's gate.
+          const isForeignGate =
+            !!data.pipeline_run_id &&
+            launchedRunIdsRef.current.size > 0 &&
+            !launchedRunIdsRef.current.has(data.pipeline_run_id);
+          if (isForeignGate) break;
+
           setReviewGateData({
             gateKey: data.gate_key,
             agentId: data.agent_id,
@@ -1392,6 +1626,22 @@ export default function DashboardPage() {
               setWaveGroups,
             });
             resetPipeline();
+            // KAN-125: register this reopened run as locally-known so the
+            // isForeignFrame guard (in handleWebSocketMessage) lets its durable
+            // events pass through to pipelineState. Without this, a run opened
+            // from history that was NOT launched in this session would be blocked
+            // because launchedRunIdsRef doesn't contain its id.
+            launchedRunIdsRef.current.add(fullRun.id);
+            // KAN-125 MULTI-TAB FIX — persist to sessionStorage so the set
+            // survives a same-tab page refresh.
+            persistLaunchedIds();
+            // Also set trackedRunIdRef so the questionnaire/review gate guards
+            // correctly scope to the viewed run.
+            trackedRunIdRef.current = fullRun.id;
+            // KAN-125 FIX — also update activelyBuildingRunIdRef so the reducer
+            // gate in handleWebSocketMessage routes the durable frames (and any
+            // subsequent live frames for a non-terminal run) to pipelineState.
+            activelyBuildingRunIdRef.current = fullRun.id;
             // Fetch the durable events and replay each through the PAGE ROUTER
             // (handleWebSocketMessage), NOT the bare reducer — so each event_id lands
             // in seenEventIdsRef and the subsequently-attached live SSE tail is deduped
@@ -1650,16 +1900,39 @@ export default function DashboardPage() {
         // launched after boot streams live without waiting for the next
         // refreshLiveRuns poll. The WS path returns null synchronously (attachRun
         // no-op) — Promise.resolve normalizes both shapes.
+        //
+        // KAN-125 LAUNCH-ORDER FIX — capture the launch counter BEFORE the async
+        // POST fires so that if two runs are launched in quick succession, the
+        // .then() that resolves LATER (out of click order) does NOT overwrite
+        // activelyBuildingRunIdRef with the earlier-clicked run's ID.
+        launchCounterRef.current += 1;
+        const thisLaunchSeq = launchCounterRef.current;
         void Promise.resolve(
           startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams),
         ).then((launchedRunId) => {
           if (launchedRunId) {
             runConnection.attachRun(launchedRunId);
-            // BUG-005 — recognize the just-launched run as self so its OWN
-            // pipeline_start still fires the WR-03 reset even when
-            // activePipelineRunId/contentSourceRunId are stale/null (a same-tab NEW
-            // run launched after a prior run completed). Set alongside attachRun.
-            trackedRunIdRef.current = launchedRunId;
+            // KAN-125 — register this run as locally-launched so isForeignFrame
+            // allows events from ALL runs started in this tab, not just the most
+            // recent one. Prevents blocking pipeline_start / agent_complete events
+            // from a run launched while another run was still setting up.
+            launchedRunIdsRef.current.add(launchedRunId);
+            // KAN-125 MULTI-TAB FIX — persist to sessionStorage so the set survives
+            // a same-tab page refresh. New browser tabs start with an empty set
+            // (fresh sessionStorage) so they don't treat background runs as local.
+            persistLaunchedIds();
+            // KAN-125 LAUNCH-ORDER FIX — only update the critical routing refs if
+            // this is STILL the most recently clicked launch (launchCounterRef
+            // advances on each new click, so an out-of-order .then() that fires
+            // after a newer launch was already registered is safely ignored).
+            // BUG-005: trackedRunIdRef must point to the LATEST launched run so
+            // pipeline_start from that run doesn't get treated as foreign.
+            // KAN-125: activelyBuildingRunIdRef gates the pipelineState reducer to
+            // only the latest run's frames.
+            if (thisLaunchSeq === launchCounterRef.current) {
+              trackedRunIdRef.current = launchedRunId;
+              activelyBuildingRunIdRef.current = launchedRunId;
+            }
           }
         });
       }}
