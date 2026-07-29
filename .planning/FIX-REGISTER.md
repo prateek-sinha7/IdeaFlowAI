@@ -3638,3 +3638,68 @@ The `detachRun` call in FIX-121 is kept as **additive insurance** (it ensures th
 #### Notes
 - The `detachRun` call from FIX-121 is kept as defensive layering — it ensures the `RunStreamConnection` eventually unmounts even if `sawNonLiveAttachRef` is somehow bypassed. Belt-and-suspenders approach.
 - `pipeline_failed` is included alongside `pipeline_cancelled` for symmetry — a hard failure also closes the stream intentionally and should not trigger a reconnect loop.
+
+---
+
+## Detailed Fixes
+
+(Recent entries detailed below; see git log for older entries.)
+
+### FIX-BUG-029 · 2026-07-29 · Seq-allocation race in run_events — duplicate (run_id, owner_id, workspace_id, seq) tuples
+
+**Root Cause (CR-03, Phase 29 code review)**
+
+Phase 29 introduced a SECOND, concurrently-scheduled ``run_events`` writer per ``run_id`` — the chat-lane ``POST /api/runs/{id}/messages`` endpoint and the milestone narrator's ``persist_milestone_card`` — alongside the engine's own sequential event sink. Both allocate ``seq`` as read-``max(seq)+1``-then-write with no DB lock or unique constraint. Two concurrent writers computing ``next_seq`` from a stale read can both succeed with the **same seq** for **different** rows.
+
+Migration 0024 added ``UniqueConstraint("run_id", "owner_id", "workspace_id", "seq")`` to backstop this, but 0024/0025 never applied (schema drift — migration marked as applied but DDL was skipped). Migration 0028 detected this and skipped adding the constraint because the live database already held 3 duplicate groups. This fix reconciles those duplicates and applies the constraint.
+
+**Duplicates Found**
+
+One run (fd11d076-a007-4b90-a511-9514d8ca2034) held 3 duplicate seq groups:
+- seq=6: chat_reply (2026-07-27 17:09:43) vs questionnaire_complete (2026-07-27 17:10:43)
+- seq=7: chat_reply (2026-07-27 17:10:43) vs clarification_limit_reached (2026-07-27 17:10:43)
+- seq=9: chat_reply (2026-07-27 17:10:43) vs agent_start (2026-07-27 17:10:43)
+
+Pattern: chat_reply rows (secondary writer) collision with engine events (authoritative source).
+
+**Reconciliation Strategy**
+
+- **Keep:** engine events (questionnaire_complete, clarification_limit_reached, agent_start)
+- **Delete:** chat_reply rows (the racing secondary writer)
+
+**Rationale:** The engine is the authoritative sequential event sink. chat_reply rows from the milestone narrator are the SECOND writer that raced. On collision, the engine event is canonical for that seq, so we delete the duplicate chat_reply. Narrator cards are ephemeral (ND-10/LOCK-E) — they will be re-generated on next resume/reopen.
+
+**Files Changed**
+
+1. `backend/find_seq_duplicates.py` — diagnostic script to identify all duplicate (run_id, owner_id, workspace_id, seq) tuples
+2. `backend/reconcile_seq_duplicates.py` — reconciliation script that deletes chat_reply rows for each duplicate group
+3. `backend/alembic/versions/0029_enforce_seq_uniqueness_after_repair.py` — migration to add the ``uq_run_events_scope_seq`` constraint now that duplicates are gone
+
+**Phases Involved**
+
+Phase 5 (run_events model) · Phase 29 (CR-03 seq allocator race) · Phase 43 (WR-02 nonce hardening, cleanup)
+
+**Invariants Verified**
+
+- **INV-1 (no workflow-by-name):** ✅ No kernel changes, no workflow routing logic touched.
+- **INV-3 (byte-identical deliverables):** ✅ Only deleted duplicate rows; no row mutations or re-generation. Characterization goldens stay intact.
+- **INV-12 (single source):** ✅ No dual implementations; seq allocator remains the sole ``append_event_next_seq`` entry point.
+- **SC-001 (custom workflow manifest):** ✅ No manifest or engine wiring changed; chat_reply deletion is orthogonal to workflow execution.
+
+**Data Integrity**
+
+- ✅ Zero data loss of authoritative data (engine events preserved)
+- ✅ Only secondary duplicate writer rows deleted
+- ✅ Seq sequence remains valid and monotonic once duplicates are gone
+- ✅ Last-Event-ID replay contract restored (no duplicate seq to drop on reconnect)
+
+**Testing & Verification**
+
+- ✅ Identified 3 duplicate groups via SQL GROUP BY having COUNT(*) > 1
+- ✅ Reconciled all duplicates (deleted 3 chat_reply rows, kept 3 engine events)
+- ✅ Verified zero duplicates remain post-reconciliation
+- ✅ Migration 0029 ran cleanly: ``[0029] Successfully added uq_run_events_scope_seq constraint after duplicate reconciliation (FIX-BUG-029).``
+- ✅ No migration rollback; downgrade path tested (reversible via batch_alter_table)
+
+**Status:** ✅ Done
+
