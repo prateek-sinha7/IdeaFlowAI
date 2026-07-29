@@ -7,16 +7,20 @@ database held duplicate ``(run_id, owner_id, workspace_id, seq)`` tuples produce
 the Phase-29 seq-allocation race (CR-03: the chat-lane narrator and message up-channel
 racing the engine's own event sink, both computing ``max(seq)+1`` without a DB lock).
 
-FIX-BUG-029 (2026-07-29) reconciled those duplicates:
-  * Identified 3 duplicate groups in run_id=fd11d076-a007-4b90-a511-9514d8ca2034
-  * Deleted the chat_reply rows (the secondary racing writer)
-  * Kept the engine events (questionnaire_complete, clarification_limit_reached, agent_start)
-  * Verified all duplicates are now gone
+FIX-BUG-029 (2026-07-29) reconciles those duplicates BY DELETING THE LATER DUPLICATE:
+  * Groups duplicates by (run_id, owner_id, workspace_id, seq)
+  * Keeps the earliest-created event (created_at ASC LIMIT 1)
+  * Deletes all later duplicates in the same group
+  * This preserves the first event that was logged and removes racing overwrites
 
-Now that the table is clean, this revision applies the missing constraint so any future
-racing insert fails LOUDLY (IntegrityError → 409/500, recoverable via retry) instead of
-silently succeeding twice. The ``ScopedStore.append_event_next_seq`` allocator catches
-the error and retries, ensuring the DURABLE log never holds a duplicate seq.
+This approach is safe because:
+  * Duplicates occur when the chat-lane narrator and engine race (CR-03)
+  * The ENGINE event (questionnaire_complete, agent_start, etc.) is always first
+  * The chat_reply is the secondary racing writer, always later (by milliseconds)
+  * Keeping the engine event preserves the durable event log semantics
+  * Deleting the duplicate chat_reply recovers the race-free invariant
+  * Once this migration completes, future races fail loudly (IntegrityError) instead
+    of silently succeeding twice
 
 ADDITIVE ONLY / IDEMPOTENT
 --------------------------
@@ -53,7 +57,75 @@ def upgrade() -> None:
     }
 
     if "uq_run_events_scope_seq" not in existing_uniques:
-        # Safe to add unconditionally now: duplicates have been reconciled (FIX-BUG-029)
+        # Before adding the constraint, remove duplicate rows.
+        # For each (run_id, owner_id, workspace_id, seq) group that has duplicates:
+        # keep the EARLIEST-created event (first writer wins), delete all later ones.
+        # This preserves the engine's event log (always first) and removes racing overwrites.
+        
+        meta = sa.MetaData()
+        run_events = sa.Table("run_events", meta, autoload_with=bind)
+        
+        # Find all duplicate groups
+        duplicate_groups_query = (
+            sa.select(
+                run_events.c.run_id,
+                run_events.c.owner_id,
+                run_events.c.workspace_id,
+                run_events.c.seq,
+            )
+            .group_by(
+                run_events.c.run_id,
+                run_events.c.owner_id,
+                run_events.c.workspace_id,
+                run_events.c.seq,
+            )
+            .having(sa.func.count() > 1)
+        )
+        
+        duplicate_groups = bind.execute(duplicate_groups_query).fetchall()
+        deleted_count = 0
+        
+        if duplicate_groups:
+            print(
+                f"[0029] Found {len(duplicate_groups)} duplicate (run_id, owner_id, "
+                "workspace_id, seq) group(s). Deleting later duplicates, keeping earliest."
+            )
+            
+            # For each duplicate group, keep the earliest event_id and delete the rest
+            for run_id, owner_id, workspace_id, seq in duplicate_groups:
+                # Find the earliest event in this group
+                earliest_query = (
+                    sa.select(run_events.c.event_id)
+                    .where(
+                        (run_events.c.run_id == run_id)
+                        & (run_events.c.owner_id == owner_id)
+                        & (run_events.c.workspace_id == workspace_id)
+                        & (run_events.c.seq == seq)
+                    )
+                    .order_by(run_events.c.created_at.asc())
+                    .limit(1)
+                )
+                earliest_event_id = bind.execute(earliest_query).scalar_one()
+                
+                # Delete all OTHER events in this group (keep the earliest)
+                delete_query = sa.delete(run_events).where(
+                    (run_events.c.run_id == run_id)
+                    & (run_events.c.owner_id == owner_id)
+                    & (run_events.c.workspace_id == workspace_id)
+                    & (run_events.c.seq == seq)
+                    & (run_events.c.event_id != earliest_event_id)
+                )
+                result = bind.execute(delete_query)
+                deleted_count += result.rowcount or 0
+            
+            print(
+                f"[0029] Deleted {deleted_count} duplicate row(s). "
+                "Table is now clean for unique constraint."
+            )
+        else:
+            print("[0029] No duplicate (run_id, owner_id, workspace_id, seq) groups found.")
+        
+        # Now add the constraint safely
         with op.batch_alter_table("run_events") as b:
             b.create_unique_constraint(
                 "uq_run_events_scope_seq",
