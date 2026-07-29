@@ -80,7 +80,7 @@ describe("useRunChat — family-anchored transcript reducer", () => {
         message_id: "r1",
         text: "Paused — needs approval",
         card_kind: "gate",
-        deep_link: { target: "steps", nonce: 7 },
+        deep_link: { target: "gate:run-1", nonce: 7 },
         run_id: "run-1",
       }),
     );
@@ -89,7 +89,10 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     const m = result.current.messages[0];
     expect(m.role).toBe("assistant");
     expect(m.cardKind).toBe("gate");
-    expect(m.deepLink).toEqual({ tab: "steps", nonce: 7 });
+    // FIX-128: `target` is the milestone ANCHOR, kept as `anchor` — it is NOT
+    // aliased onto `tab` (a panel tab id), which PreviewPanel would then drop.
+    expect(m.deepLink).toEqual({ anchor: "gate:run-1", nonce: 7 });
+    expect(m.deepLink?.tab).toBeUndefined();
   });
 
   it("Test 3: the transcript ACCUMULATES — later frames append, pipeline_complete does not wipe", () => {

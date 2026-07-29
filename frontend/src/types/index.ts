@@ -45,7 +45,19 @@ export interface ChatAttachment {
 // navigation seam: this is the stored descriptor on the message, the seam mints
 // the navigation nonce when the card is actually clicked.
 export interface DeepLinkTarget {
-  tab: string;
+  /**
+   * Generic panel tab id — present ONLY when the frame explicitly names one.
+   * Absent for engine-emitted cards (they carry `anchor` instead), so the card
+   * kind's own generic default tab decides where the deep-link lands.
+   */
+  tab?: string;
+  /**
+   * The narrator's milestone/artifact ANCHOR as emitted by the backend
+   * (`run:<id>` / `clarify:<id>` / `deliverable:<file>` / `spec_revision:<id>:<n>`
+   * / a `gate_key`). A semantic reference to WHAT the card reports — never a tab
+   * id, and never a workflow/agent name (SC-001).
+   */
+  anchor?: string;
   nonce: number;
 }
 

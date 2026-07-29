@@ -409,6 +409,13 @@ export function DashboardLayout({
   // Capture output when pipeline completes (for chaining)
   useEffect(() => {
     if (pipelineState && !pipelineState.isRunning && pipelineState.agents.length > 0) {
+      // The completion notification/toast fires only once EVERY agent reached a
+      // terminal status (done/error) — an agent left `running`/`thinking`/`idle`
+      // (e.g. the build + validate pair still cycling) keeps the announcement
+      // pending. The effect re-runs on every pipelineState change and fires once
+      // they settle, because `currentPipelineNotifId` is consumed only when it
+      // actually fires. Keyed on agent status only, never on an agent or workflow
+      // name (SC-001/INV-1).
       const allDone = pipelineState.agents.every((a) => a.status === "done" || a.status === "error");
       if (allDone && pipelineState.agents.some((a) => a.status === "done")) {
         setCompletedPipelineTypes((prev) => {

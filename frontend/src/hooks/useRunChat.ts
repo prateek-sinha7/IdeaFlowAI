@@ -204,12 +204,25 @@ function parseAttachments(raw: unknown): ChatAttachment[] | undefined {
 function parseDeepLink(raw: unknown): DeepLinkTarget | undefined {
   if (raw == null || typeof raw !== "object") return undefined;
   const r = raw as Record<string, unknown>;
-  // The frame's deep_link is `{ target, nonce }` (mock driver contract); map
-  // `target` → the generic `tab` id. `nonce` coerces to a number (0 if absent).
-  const tab = typeof r.target === "string" ? r.target : typeof r.tab === "string" ? r.tab : "";
-  if (!tab) return undefined;
+  // The frame's deep_link is `{ target, nonce }`. `target` is the narrator's
+  // milestone/artifact ANCHOR (`run:<id>` / `clarify:<id>` / `deliverable:<file>`
+  // / `spec_revision:<id>:<n>` / a `gate_key`) — it is NOT a panel tab id, so it
+  // is kept as `anchor`. Aliasing it onto `tab` (pre-FIX-128) made the result
+  // card hand PreviewPanel an unknown tab, which that panel's PANEL_TAB_IDS
+  // guard silently dropped — so "Open in Steps"/"Open in Preview" never switched
+  // the tab. `tab` is now populated ONLY by an explicit `tab` field; otherwise the
+  // card kind's generic defaultTab wins. `nonce` coerces to a number (0 if absent
+  // or non-numeric — the engine's hex nonce is a card identifier, while the
+  // NAVIGATION nonce is minted fresh by useTabDeepLink on click).
+  const anchor = typeof r.target === "string" && r.target ? r.target : undefined;
+  const tab = typeof r.tab === "string" && r.tab ? r.tab : undefined;
+  if (!anchor && !tab) return undefined;
   const nonceNum = Number(r.nonce);
-  return { tab, nonce: Number.isFinite(nonceNum) ? nonceNum : 0 };
+  return {
+    ...(tab ? { tab } : {}),
+    ...(anchor ? { anchor } : {}),
+    nonce: Number.isFinite(nonceNum) ? nonceNum : 0,
+  };
 }
 
 const CARD_KINDS = new Set([

@@ -682,6 +682,140 @@ The fix ensures:
 
 ---
 
+### FIX-129 — Workflow says "done" while the validation + build agents keep running in a loop
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocityai-analysis` — "workflow say it's done but still validation agent and build agent is running (it's in loop) … better notify only once both agent done with it's work".
+
+**Symptom:** the run reports completion (terminal chrome, deliverable rendered, "completed" notification + toast), yet the Build and Validate agent cards go back to `RUNNING` and keep cycling. No further notification ever arrives, because the completion notification already consumed the run's notification id.
+
+#### What was NOT the cause (checked and ruled out)
+
+- **The engine's terminal sequencing.** `engine.py` drives `for i, spec in enumerate(ordered_agents)` strictly sequentially and yields `pipeline_complete` only after the loop (`engine.py:2811`). There is no `create_task`/`gather` that could let a step outlive the terminal.
+- **The validation fix-loop.** `_run_validation_fix_loop` (`engine.py:4367`) re-invokes the fix sub-agent on a `…:fix{n}` thread but consumes its `astream_events` **internally and re-emits nothing** (bounded by `policy.max_attempts`, default 2). It cannot surface an agent as `running`, and it cannot spin unbounded.
+- **The notification gate itself.** `DashboardLayout`'s completion effect already required `agents.every(status === "done" || "error")`. It was firing on correct state — the state was corrupted *afterwards*.
+
+#### Root cause — foreign-run frame bleed (the reducer is not run-scoped)
+
+`RunConnectionProvider` deliberately attaches **one SSE stream per non-terminal run** (`AUTO_STREAM_STATUSES` ∪ the sticky focused run) and fans **every** frame from **every** attached run into the single `handleWebSocketMessage` subscriber. Two facts turn that into cross-run corruption:
+
+1. `useRunStream` dispatched `{ type, data }` with **no tag identifying which run the frame came from**, and the agent-scoped payloads carry no `pipeline_run_id` of their own (`agent_start` is `{agent_id, name, role, icon, index, total}`).
+2. Agent ids are **not unique across runs** — two prototype runs both stream `prototype-build` and `prototype-validate`.
+
+So `handlePipelineMessage`'s `agents.findIndex((a) => a.id === agentId)` matched, and a *different* run's frames rewrote the viewed run's agents. Sequence: viewed run completes → sweep marks all agents `done`, `isRunning=false`, notification fires and `currentPipelineNotifId.current = null` → the other run's `agent_start`/`agent_chunk` for the same ids flip Build/Validate back to `running` (also resetting their accumulators) → its `task_loop_progress` keeps them cycling → nothing can ever announce completion again.
+
+Only two ad-hoc guards existed (`isForeignRun` for `pipeline_start`, `isForeignCompletion` for `pipeline_complete`), and both only suppressed *side effects* — they still forwarded the frame to the reducer. Every agent-state frame had no guard at all. A foreign run's `seq` was also advancing this tab's reconnect cursor.
+
+#### The fix
+
+1. **Tag frames at the transport boundary** — `RunStreamMessage` gains an optional `runId`, stamped in `useRunStream.dispatchBlock` (the hook is instantiated per run, so it is authoritative) and on the provider's `sendCommand` SSE-drain fan-out. One stamping site per path; no second source of truth.
+2. **One shared, conservative predicate** — `isForeignRunFrame(frameRunId, trackedRunId)` in `lib/wsReplayState.ts` (the existing home for pure WS routing helpers). Returns `false` unless **both** ids are known and differ, so an untagged frame or a tab that has not claimed a run yet is never dropped (launch → first-frame window unchanged).
+3. **Scope only the state-mutating class** — `AGENT_SCOPED_FRAME_TYPES` / `isAgentScopedFrame` enumerate the 13 frame types that write per-agent state. `handleWebSocketMessage` drops those when foreign, at the **top** of the handler (before the dedup/`seq` bookkeeping, so a foreign run can no longer advance this tab's cursor either). Run-**lifecycle** frames (`pipeline_*`, `planner_*`, clarify, `wave_*`, `chat_*`) are deliberately excluded — they carry their own run id and drive cross-run behaviour that must keep working (a revision run legitimately completes under a NEW run id; chaining; history reopen).
+4. **Claim the reopened run synchronously** — `handleSelectWorkflowRun` now sets `trackedRunIdRef.current = fullRun.id` next to `setContentSourceRunId`, and the durable replay passes `fullRun.id` explicitly. The `trackedRunIdRef` sync effect keys on the *state*, which has not committed inside that callback — without this the reopened run's own replayed agent frames would have been dropped as foreign.
+
+**Rejected alternatives:** (a) dropping *all* foreign frames — breaks revision completions (dispatched from the tracked run under a new id, and `page.tsx` relies on `isRevisionCompletion` to re-anchor `contentSourceRunId`), chaining and reopen; (b) narrowing `AUTO_STREAM_STATUSES` so only the viewed run streams — kills live multi-run progress and the notification feed, which are the point of the fan-out; (c) filtering inside `handlePipelineMessage` — the reducer is transport-agnostic and shared with the WS-parity tests, and it has no access to which run a frame arrived on.
+
+**Also fixed (pre-existing, one line, in the same handler):** `msg.pipeline_run_id` on the `pipeline_cancelled` branch did not typecheck (`Property 'pipeline_run_id' does not exist on type 'StreamMessage'`) and was failing `next build` outright — the field rides flat on some transports and nested under `data` on others, so it now reads through an index cast. This is the error FIX-128 recorded as known-pre-existing.
+
+**Files changed:**
+- `frontend/src/hooks/useRunStream.ts` — `RunStreamMessage.runId` + the stamp
+- `frontend/src/providers/RunConnectionProvider.tsx` — stamp the `sendCommand` drain fan-out
+- `frontend/src/lib/wsReplayState.ts` — `isForeignRunFrame`, `AGENT_SCOPED_FRAME_TYPES`, `isAgentScopedFrame`
+- `frontend/src/app/dashboard/page.tsx` — the guard, the two forwarding call sites, the synchronous reopen claim, the `pipeline_run_id` typecheck fix
+- `frontend/src/components/layout/DashboardLayout.tsx` — comment only, documenting that the completion announcement is gated on every agent being terminal
+- `frontend/src/lib/__tests__/wsRunScope.test.ts` (new tests), `frontend/src/hooks/useRunStream.test.ts` (envelope assertions)
+
+**Phase(s):** Phase 29/44 (SSE transport + app-level provider fan-out), Phase 12 (RESUME-03 dedup + `seq` cursor), Phase 38 (notification feed).
+
+**Invariants verified:**
+- **INV-1 / SC-001** ✅ — frontend-only; the guard keys solely on run id. No workflow name, `pipeline_type` or agent literal added (`prototype-build` appears only in test fixtures).
+- **INV-3** ✅ — no backend, engine, capability or prompt change; no event shape or deliverable change. Goldens untouched and not regenerated. The `runId` stamp is additive on the FE envelope only.
+- **INV-12** ✅ — the foreign-run decision now lives in ONE shared predicate instead of being open-coded per event; the source-run stamp has one site per transport path. No parallel implementation left behind.
+- **INV-13**, persistence/migrations, ports & adapters, security defaults: not touched.
+
+**Verification:**
+- `npx vitest run src/lib/__tests__/wsRunScope.test.ts` → **11/11 pass**. Covers: the predicate's conservative cases (untagged frame, unclaimed tab, matching run); the agent-scoped membership contract *and* the explicit exclusion of the 9 lifecycle types; and end-to-end through the **real** `handlePipelineMessage` — a foreign `agent_start` is dropped and a completed run's agents stay `done`/`isRunning:false`, a whole foreign build→chunk→task_loop→validate cycle is dropped with no output bleed, while the same frame from the tracked run (and an untagged frame) still applies.
+- `npx vitest run src/lib src/hooks src/providers` → 146/146 pass (24 files).
+- `npm run test` (full FE) → **14 files / 39 tests fail, identical to the `git stash` baseline** (baseline measured 15 files / 50 tests only because the stash also removed the helpers this new suite imports; 50 − 11 new = 39). Zero regressions; the pre-existing cluster is the `TemplateGallery`/`TemplateCard`/`WizardStepper` + `RunChatLane` typing-indicator group.
+- `npx tsc --noEmit` → **7 errors, all pre-existing and none in any touched file** (`TemplateCard` / `TemplateGallery` missing `Pill`/`Button` imports, `has_thumbnail` fixture drift). Down from 8 — the `StreamMessage.pipeline_run_id` error is now gone.
+- `npm run build` → compiles; still blocked at TypeScript by the pre-existing `TemplateCard.tsx` missing-`Pill` error, which is unrelated and present on the baseline. **Not fixed here** (out of scope, separate defect).
+- **Live confirmation DEFERRED** — reproducing needs two overlapping runs of the same workflow type on a real backend (start run A, launch run B while A still builds, watch A's completion). Not exercised in this session.
+
+**Status:** Done
+
+---
+
+### FIX-128 — Chat-lane "Open in Steps" / "Open in Preview" never switched the right-hand tab
+
+**Date:** 2026-07-28
+**Triggered by:** `/velocityai-analysis` — "while workflow is running and completed workflow page there is a button called 'open in step'/'open in preview' … after clicking this button the section is not opening". User supplied the rendered DOM:
+`<button data-testid="chat-result-card-link" data-target-tab="run:93f7ca84-9f63-4d8a-90cf-8fbe8163d4b2">Open in Steps</button>`,
+plus a React DevTools tree (`ChatPanel` → 4× `MessageBubble key="chat_reply:…"`) confirming the failing buttons are `ResultCard`-rendered narrator cards, not the `SettledSummaryStrip` cards.
+
+**Symptom:** clicking either deep-link affordance in the left chat lane did nothing — the right-hand `PreviewPanel` stayed on whatever tab it was showing. No console error (the drop is silent).
+
+#### The seam (all of it already existed and was correctly wired)
+
+`ResultCard` → `onRequestOpenTab(tab)` → `useTabDeepLink.requestOpenTab` (mints `{tab, nonce:++n}`) → `page.tsx:1583-1584` (`onRequestOpenTab` / `deepLinkTarget`) → `DashboardLayout.tsx:1917` (lane) + `:1997` (panel) → `PreviewPanel.tsx:489-495` effect keyed on `deepLinkTarget?.nonce`:
+
+```ts
+const tab = deepLinkTarget?.tab;
+if (tab && (PANEL_TAB_IDS as readonly string[]).includes(tab)) setActiveTab(tab as PanelTab);
+```
+
+That guard is the failure point: an unrecognised tab id is **silently ignored**. The wiring was never broken — it was being fed tab ids that do not exist.
+
+#### Root cause 1 — `"steps"` is not a panel tab id
+
+`PreviewPanel` declares `type PanelTab = "preview" | "files" | "thinking" | "audit"` and `PANEL_TAB_IDS = ["preview","files","thinking","audit"]`. The Phase-32 plan-07 reskin **relabelled** the "Thinking" tab to "Steps" in the UI but deliberately kept the internal id `"thinking"` stable for deep-links/testids. `ResultCard.CARD_SPECS` had been written against the *label*, using `defaultTab: "steps"` for `clarify`, `gate`, `pipeline` and `spec_revision` (and `"steps"` as the final fallback). Every Steps deep-link therefore failed the guard. Only `deliverable` → `"preview"` was correct.
+
+#### Root cause 2 — the backend's `deep_link.target` is an anchor, not a tab id
+
+`ResultCard` resolves its target as `message.deepLink?.tab ?? spec?.defaultTab ?? "thinking"`, so the **stored** descriptor wins over the kind default. `useRunChat.parseDeepLink` populated that field by aliasing the frame's `target` straight onto `tab`:
+
+```ts
+const tab = typeof r.target === "string" ? r.target : …;   // pre-fix
+```
+
+But `chat_narrator._classify()` emits `target` as a milestone/artifact **reference**, never a tab id — `f"run:{anchor}"`, `f"clarify:{anchor}"`, `f"deliverable:{filename}"`, `f"spec_revision:{anchor}:{attempt}"`, or a raw `gate_key`. That is exactly the `run:93f7ca84-…` the user saw in `data-target-tab`. So on any real run the anchor overrode the (already-fixed) `defaultTab` and the guard dropped it again — this defect alone defeats **both** buttons, and it is why fixing root cause 1 by itself was not enough.
+
+#### The fix
+
+1. `ResultCard.tsx` — `defaultTab: "steps"` → `"thinking"` for the four Steps-targeting kinds, and for the unknown-kind fallback. Comment records that the id is intentionally `"thinking"` and must not be written as `"steps"`.
+2. `useRunChat.ts` — `parseDeepLink` stops aliasing `target` → `tab`. The anchor is kept as its own `anchor` field; `tab` is populated **only** by an explicit `tab` field on the frame. With no explicit tab, the card kind's generic `defaultTab` correctly wins.
+3. `types/index.ts` — `DeepLinkTarget.tab` becomes optional and `anchor?: string` is added, documenting the two as distinct concepts (panel tab id vs. milestone reference).
+
+Rejected alternative: adding `"steps"` to `PANEL_TAB_IDS`. That would fork the tab-id vocabulary and undo the deliberate Phase-32 decision to keep the internal id stable across the relabel. Also rejected: whitelisting known tab ids inside `ResultCard` — it would duplicate `PANEL_TAB_IDS` (a second copy of the vocabulary, INV-12) while leaving the wrong data still flowing through the transcript.
+
+Not touched: `RunChatLane.tsx:1626-1627` `goSteps`/`goPreview` already used `"thinking"`/`"preview"` correctly — the `SettledSummaryStrip` cards were never affected.
+
+**Note (latent, not on the click path):** the engine's `deep_link.nonce` is a `uuid4().hex` string, so `Number(...)` yields `NaN` and every card stores `nonce: 0`. Harmless here because the **navigation** nonce is minted fresh by `useTabDeepLink` on click; the stored value is only a card identifier. Left as-is.
+
+**Files changed:**
+- `frontend/src/components/chat/ResultCard.tsx`
+- `frontend/src/hooks/useRunChat.ts`
+- `frontend/src/types/index.ts`
+- `frontend/src/components/chat/ResultCard.test.tsx` (tests)
+- `frontend/src/hooks/useRunChat.test.ts` (tests)
+
+**Phase(s):** Phase 31 (CHATUI-01 narrator result cards + the plan-03 `useTabDeepLink` seam), Phase 32 (plan-07 "Thinking" → "Steps" relabel that kept the internal id).
+
+**Invariants verified:**
+- **INV-1 / SC-001** ✅ — frontend-only; the card still selects its tab from a switch on the generic `cardKind`. No workflow/agent/`pipeline_type` literal added; the anchor is carried as an opaque generic string.
+- **INV-3** ✅ — no backend or engine change, no deliverable/event change; goldens untouched and not regenerated.
+- **INV-12** ✅ — the anchor→tab mapping is corrected at its single site (`parseDeepLink`); no second tab-id vocabulary introduced and no parallel implementation left behind.
+- Security defaults, persistence, ports & adapters: not touched.
+
+**Verification:**
+- `npx vitest run src/components/chat/ResultCard.test.tsx src/hooks/useRunChat.test.ts src/hooks/useTabDeepLink.test.ts` → 35/35 pass, including the new regression test `ignores the milestone anchor and opens the kind's default tab (FIX-128)` (asserts `data-target-tab="thinking"` for a `pipeline` card carrying `anchor: "run:93f7ca84-…"`, and `"preview"` for a `deliverable` card carrying `anchor: "deliverable:index.html"`).
+- `npx vitest run src/components/chat src/hooks` → 216 passed / 11 failed; the same 11 fail on a `git stash` of this change (215 passed / 11 failed — delta is the one added test), so they are pre-existing and out of scope (`RunChatLane.test.tsx` typing-indicator cluster, `InlineClarifyActions`, `RunChatLane.terminal`).
+- `npx tsc --noEmit` → no new errors; remaining output is the pre-existing set (stale `.next/types` route stubs, `TemplateCard`/`TemplateGallery` missing imports, `has_thumbnail`, `StreamMessage.pipeline_run_id`).
+- Live check requires a Next.js dev-server restart + hard refresh to pick up the changed modules.
+
+**Status:** Done
+
+---
+
 ### FIX-126 — KAN-124: Auto-fill recommended answers on skip + no-questions contracts for 9 agents
 
 **Date:** 2026-07-27
