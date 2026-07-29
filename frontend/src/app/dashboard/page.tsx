@@ -1236,13 +1236,7 @@ export default function DashboardPage() {
         // KAN-120: preserve the run id so Run Again can resume it even when
         // activePipelineRunId is about to be cleared.
         if (msg.type === "pipeline_cancelled") {
-          // `pipeline_run_id` is not on the StreamMessage union — it rides flat on
-          // some transports and nested under `data` on others, so read both
-          // defensively through an index cast (this line failed the typecheck
-          // outright before, blocking every `next build`).
-          const cancelledId = ((msg as unknown as Record<string, unknown>)
-            .pipeline_run_id as string | undefined)
-            ?? ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
+          const cancelledId = ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
             ?? activePipelineRunId
             ?? trackedRunIdRef.current;
           if (cancelledId) setLastCancelledRunId(cancelledId);
