@@ -1209,8 +1209,7 @@ export default function DashboardPage() {
         // KAN-120: preserve the run id so Run Again can resume it even when
         // activePipelineRunId is about to be cleared.
         if (msg.type === "pipeline_cancelled") {
-          const cancelledId = (msg.pipeline_run_id as string | undefined)
-            ?? ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
+          const cancelledId = ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
             ?? activePipelineRunId
             ?? trackedRunIdRef.current;
           if (cancelledId) setLastCancelledRunId(cancelledId);
