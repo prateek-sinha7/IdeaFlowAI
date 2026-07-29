@@ -373,11 +373,13 @@ async def resume_run_endpoint(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run"
             )
 
-        # (2) Eligibility — failed and cancelled runs are resumable; anything else → 409.
-        if wr.status not in {"failed", "cancelled"}:
+        # (2) Eligibility — failed, degraded, and cancelled runs are resumable; anything else → 409.
+        # A "degraded" run completed partially (some agents failed, some succeeded) —
+        # the user should be able to resume it to retry the failed portion.
+        if wr.status not in {"failed", "cancelled", "degraded"}:
             raise _reject(
                 "run_not_resumable",
-                f"Run is {wr.status!r}; only failed or cancelled runs are resumable",
+                f"Run is {wr.status!r}; only failed, degraded, or cancelled runs are resumable",
                 http_status=status.HTTP_409_CONFLICT,
             )
 
@@ -397,13 +399,9 @@ async def resume_run_endpoint(
         _get_or_create_queue(run_id)
         _CANCEL_EVENTS[run_id] = asyncio.Event()
 
-        # (5) Flip failed/cancelled→running (existing status vocabulary; INV-12) + commit.
+        # (5) Flip failed/cancelled/degraded→running (existing status vocabulary; INV-12) + commit.
         wr.status = "running"
         db.commit()
-
-        # (6) Stamp the additive ``run_resuming`` marker (reuse the engine method —
-        # do NOT reimplement marker emission or workspace recovery).
-        await get_execution_engine()._stamp_resume_marker(wr)
 
         # (6b) Clear the in-memory state machine entry so _execute_impl's
         # transition(run_id, "generating") does not hit the terminal-state guard.
@@ -417,6 +415,8 @@ async def resume_run_endpoint(
 
     # (7) Spawn the thin drive wrapper + register the task (closes the mutex window
     # opened at step 3). The armed-singleton hooks fire automatically inside resume_run.
+    # NOTE: _stamp_resume_marker is called INSIDE _drive_user_resume (step 6 moved
+    # to background) so this endpoint returns immediately without blocking on DB reads.
     task = asyncio.create_task(_drive_user_resume(run_id, user=current_user))
     _PIPELINE_TASKS[run_id] = task
 
@@ -442,6 +442,18 @@ async def _drive_user_resume(run_id: str, *, user: User) -> None:
 
     engine = get_execution_engine()
     try:
+        # Stamp the run_resuming marker (best-effort audit, moved from the
+        # endpoint handler so the HTTP response returns immediately).
+        db = _get_db()
+        try:
+            wr_snap = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+            if wr_snap is not None:
+                await engine._stamp_resume_marker(wr_snap)
+        except Exception as _stamp_exc:  # noqa: BLE001
+            logger.warning("_drive_user_resume: stamp failed run=%s: %s", run_id, _stamp_exc)
+        finally:
+            db.close()
+
         await engine.resume_run(run_id)  # SOLE drive path — armed-singleton hooks fire.
         await _reconcile_terminal_status(run_id)
     except Exception as exc:  # noqa: BLE001 — any drive failure → honest state
@@ -1562,10 +1574,29 @@ def _clean_run_title(content: str | None, pipeline_type: str) -> str:
             title = stripped if stripped else raw
     else:
         # For chained / plain pipelines: remove any appended context block.
-        title = _CONTEXT_BLOCK_RE.sub("", raw).strip()
+        # Use a more targeted pattern that handles the case where the context
+        # block is at the very start (no leading brief) — split on the marker.
+        context_marker = "=== CONTEXT FROM PREVIOUS PIPELINE"
+        if context_marker in raw:
+            # Everything before the first context marker is the clean brief.
+            title = raw.split(context_marker)[0].strip()
+        else:
+            title = raw
 
     # Ensure we never return an empty or whitespace-only title.
+    if not title:
+        # If the whole content was a context block, extract the Original Brief
+        # from inside it (it's always present in the context block header).
+        brief_match = _re_title.search(r"Original Brief:\s*(.+)", raw)
+        if brief_match:
+            title = brief_match.group(1).strip()
+        else:
+            title = raw
     title = title.split("\n")[0].strip() if title else raw.split("\n")[0].strip()
+    # Strip "Title: " prefix if present — can appear when a prior polluted run's
+    # title (which itself contained "Title: ...") cascaded into enrichedInput.
+    if title.startswith("Title: "):
+        title = title[len("Title: "):].strip()
     return (title[:60].strip() or "Untitled")
 
 

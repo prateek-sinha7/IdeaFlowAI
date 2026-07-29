@@ -7,7 +7,7 @@ import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { FilesTab, downloadBlob } from "@/components/results/FilesTab";
+import { FilesTab, downloadBlob, deriveDeliverableFilename } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
@@ -748,22 +748,41 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
 
   // Primary deliverable download — reuses FilesTab.downloadBlob (INV-12). Default
   // downloads the on-screen deliverable content under its live filename.
+  // KAN-128 (FIX-140): use deriveDeliverableFilename so the downloaded name
+  // always matches what the Files tab shows (content-derived, word-boundary-safe).
   const canHeaderDownload = headerRunState === "complete" && !!activeContent;
   const handleHeaderDownload = useCallback(() => {
     if (onDownload) return onDownload();
     if (!activeContent) return;
-    const name = pipelineState?.deliverableFilename || `deliverable-${headerVersionLabel}.md`;
-    downloadBlob(activeContent, name, "text/markdown");
-  }, [onDownload, activeContent, pipelineState?.deliverableFilename, headerVersionLabel]);
+    const name = deriveDeliverableFilename(
+      rawPipelineType || workflowType || "user_stories",
+      activeContent,
+      pipelineState?.deliverableFilename || `deliverable-${headerVersionLabel}.md`,
+    );
+    // Derive the correct mimetype from the extension.
+    const ext = name.split(".").pop()?.toLowerCase() || "md";
+    const mimeMap: Record<string, string> = {
+      html: "text/html",
+      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      md: "text/markdown",
+      zip: "application/zip",
+    };
+    downloadBlob(activeContent, name, mimeMap[ext] || "text/markdown");
+  }, [onDownload, activeContent, rawPipelineType, workflowType, pipelineState?.deliverableFilename, headerVersionLabel]);
 
   // ─── Phase 39 (RUNUI-06/07) — PreviewChrome URL bar + open affordance ────────
   // The REAL deliverable filename for the browser-chrome URL bar (ND-D live — the
   // live deliverable name, the generic deliverable's filename, else a derived name;
   // NEVER the mock's fixed "index.html").
-  const previewFilename =
+  // KAN-128 (FIX-140): use deriveDeliverableFilename so the URL bar always agrees
+  // with the Files tab (content-derived, word-boundary-safe truncation).
+  const previewFilename = deriveDeliverableFilename(
+    rawPipelineType || workflowType || "user_stories",
+    activeContent,
     pipelineState?.deliverableFilename ||
-    genericDeliverable?.filename ||
-    `deliverable-${headerVersionLabel}`;
+      genericDeliverable?.filename ||
+      `deliverable-${headerVersionLabel}`,
+  );
   // The chrome's open-in-new affordance — opens the on-screen deliverable in a new
   // tab via a client-only blob URL (the same pattern PPTTabActions.handleFullScreen
   // uses; NO network, no new surface). The chrome itself stays a passive frame.

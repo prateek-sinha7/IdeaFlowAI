@@ -1639,7 +1639,11 @@ export function RunChatLane({
       // pipeline_complete event carries the filename/version). The prop remains a
       // 39-05 override. This is the SINGLE deliverable card (INV-12) — the mock's
       // composition; no interim narrator ResultCard stand-in.
-      const dFilename = pipelineState?.deliverableFilename ?? deliverableFilename;
+      // KAN-128 (FIX-141): prefer the explicit deliverableFilename prop (content-derived,
+      // passed by DashboardLayout using deriveDeliverableFilename) over
+      // pipelineState?.deliverableFilename (the static manifest name). The ?? order
+      // was reversed before this fix — the static state silently won over the prop.
+      const dFilename = deliverableFilename ?? pipelineState?.deliverableFilename;
       const dVersion = pipelineState?.deliverableVersion ?? deliverableVersion;
       if (clarifyCount === 0 && agents.length === 0 && !dFilename) {
         return null;

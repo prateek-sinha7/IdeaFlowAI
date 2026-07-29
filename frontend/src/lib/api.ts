@@ -750,13 +750,31 @@ export async function postResume(
   token: string,
   runId: string,
 ): Promise<{ run_id: string }> {
-  return request<{ run_id: string }>(
-    `/api/runs/${encodeURIComponent(runId)}/resume`,
-    {
+  // Use a longer AbortController timeout for resume — the backend stamps a marker
+  // and reads durable events before returning, which can take several seconds on
+  // SQLite / under load. 60s is generous vs the default 30s used by other calls.
+  const url = `${BASE_URL}/api/runs/${encodeURIComponent(runId)}/resume`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const response = await fetch(url, {
       method: "POST",
       headers: authHeaders(token),
-    },
-  );
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new ApiError(response.status, (body as Record<string, unknown>).detail ?? body);
+    }
+    return response.json() as Promise<{ run_id: string }>;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, "Resume request timed out after 60s");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

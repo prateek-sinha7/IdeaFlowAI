@@ -58,23 +58,11 @@ export type RunConnectionPhase =
 export interface RunStreamMessage {
   type: string;
   data: Record<string, unknown>;
-  /**
-   * The run this frame arrived ON — stamped at the transport boundary (the ONE
-   * place that knows it, since `useRunStream` is instantiated per run).
-   *
-   * Why it exists: the provider fans EVERY attached run's frames out to the
-   * single dashboard subscriber, but the agent-scoped payloads
-   * (`agent_start`/`agent_chunk`/`agent_complete`/`tool_*`/`task_*`) carry NO
-   * `pipeline_run_id` of their own. Without this envelope tag a concurrently
-   * running run's frames are indistinguishable from the viewed run's and mutate
-   * the viewed run's per-agent state (agent ids collide across runs of the same
-   * workflow — e.g. two prototype runs both stream `prototype-build`). That is
-   * what made a finished run keep showing build/validate "running" in a loop.
-   *
-   * Optional so a frame synthesized outside a per-run stream stays valid; the
-   * consumer treats an absent tag as "not attributable" and never drops on it.
-   */
-  runId?: string;
+  /** Injected by RunConnectionProvider: the run id whose SSE stream this frame
+   *  was sourced from. Used by handleWebSocketMessage to route frames to the
+   *  correct pipelineState reducer when multiple concurrent runs are attached.
+   *  Absent on legacy WS paths and Concierge /messages streaming. */
+  _sourceRunId?: string;
 }
 
 export interface UseRunStreamConfig {

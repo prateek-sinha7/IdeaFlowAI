@@ -253,6 +253,107 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
   );
 }
 
+// ─── slugify — shared name normaliser ────────────────────────────────────────
+// Converts a raw title / heading string into a URL-safe, word-boundary-safe
+// filename stem:
+//   1. Strip non-alphanumeric characters except spaces.
+//   2. Trim.
+//   3. Collapse whitespace runs to a single hyphen.
+//   4. Lower-case.
+//   5. Truncate to `maxWords` WHOLE WORDS (default 8) so the filename never
+//      ends mid-syllable (the old `.slice(0, 40)` bug).
+//
+// The result is suitable for use as a filename stem — callers append the
+// appropriate extension.
+function slugify(raw: string, maxWords = 8): string {
+  const clean = raw.replace(/[^a-zA-Z0-9\s]/g, "").trim();
+  const words = clean.split(/\s+/).filter(Boolean).slice(0, maxWords);
+  return words.join("-").toLowerCase();
+}
+
+// ─── deriveDeliverableFilename — exported pure helper (KAN-128 / FIX-140) ────
+// Returns the content-derived filename (with extension) for the primary
+// deliverable of a workflow run. Uses the SAME extraction logic as
+// deriveDeliverableFiles so the Files tab and the Preview tab (URL bar +
+// header download) always agree.
+//
+// Parameters
+//   workflowType  — the normalised pipeline type (may include _revision suffix)
+//   content       — the relevant deliverable content string (or undefined while
+//                   still streaming)
+//   fallback      — optional static fallback (e.g. pipelineState.deliverableFilename)
+//                   used before content is available or for unknown types
+//
+// SC-001: dispatches on the STRUCTURAL workflowType string exactly as
+// deriveDeliverableFiles does — no new pipeline_type branch added to any engine
+// surface.
+export function deriveDeliverableFilename(
+  workflowType: string,
+  content: string | undefined,
+  fallback?: string,
+): string {
+  // ── User Stories ──────────────────────────────────────────────────────────
+  if (workflowType === "user_stories" || workflowType === "user_stories_revision") {
+    if (content) {
+      const h = content.match(/^#\s+(.+)/m);
+      const stem = h ? slugify(h[1]) : "user-stories";
+      return `${stem || "user-stories"}.md`;
+    }
+    return fallback || "user-stories.md";
+  }
+
+  // ── Custom ────────────────────────────────────────────────────────────────
+  if (workflowType === "custom") {
+    if (content) {
+      const h = content.match(/^#\s+(.+)/m);
+      const stem = h ? slugify(h[1]) : "custom-output";
+      return `${stem || "custom-output"}.md`;
+    }
+    return fallback || "custom-output.md";
+  }
+
+  // ── PPT / od_ppt ──────────────────────────────────────────────────────────
+  // All PPT runs in this codebase use the od_ppt/HTML-deck path (od_ppt,
+  // od_ppt_revision). The normalised "ppt"/"ppt_revision" types are aliases
+  // set by DashboardLayout when pipeline_type is "od_ppt". All produce HTML.
+  if (
+    workflowType === "ppt" || workflowType === "ppt_revision" ||
+    workflowType === "od_ppt" || workflowType === "od_ppt_revision"
+  ) {
+    const ext = "html"; // always HTML — PptxGenJS (.pptx) path is not used
+    if (content) {
+      const t = content.match(/<title>([^<]+)<\/title>/i);
+      const h1 = content.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+      let stem = "presentation";
+      if (t && t[1] !== "Presentation") stem = slugify(t[1]) || "presentation";
+      else if (h1) stem = slugify(h1[1]) || "presentation";
+      return `${stem}.${ext}`;
+    }
+    return fallback || `presentation.${ext}`;
+  }
+
+  // ── Prototype ─────────────────────────────────────────────────────────────
+  if (
+    workflowType === "prototype" || workflowType === "prototype_revision" ||
+    workflowType === "od_prototype"
+  ) {
+    if (content) {
+      const t = content.match(/<title>(.+?)<\/title>/i);
+      const stem = t ? slugify(t[1]) : "prototype";
+      return `${stem || "prototype"}.html`;
+    }
+    return fallback || "prototype.html";
+  }
+
+  // ── App Builder ───────────────────────────────────────────────────────────
+  if (workflowType === "app_builder" || workflowType === "app_builder_revision") {
+    return "project.zip";
+  }
+
+  // ── Generic fallback ──────────────────────────────────────────────────────
+  return fallback || "deliverable";
+}
+
 // ─── deriveDeliverableFiles — module-level pure helper (B3 / POR §5 D6) ───────
 // The per-type single-deliverable file rows (user_stories, custom, ppt,
 // prototype) extracted VERBATIM from the FilesTab body so the base-version
@@ -287,19 +388,16 @@ function deriveDeliverableFiles(
   }
 
   // ── PPT ───────────────────────────────────────────────────────────────────
+  // All PPT runs produce HTML decks (od_ppt / od_ppt_revision). The normalised
+  // "ppt"/"ppt_revision" aliases also produce HTML — never a .pptx binary.
   if ((workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision") && pptContent) {
     let name = "presentation";
     const t = pptContent.match(/<title>([^<]+)<\/title>/i);
     const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
     if (t && t[1] !== "Presentation") name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
     else if (h1) name = h1[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    // od_ppt produces HTML decks — offer HTML download; old ppt also offers PPTX
-    if (workflowType === "od_ppt" || workflowType === "od_ppt_revision") {
-      files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
-    } else {
-      files.push({ id: "presentation-pptx", name: `${name}.pptx`, type: "PowerPoint", icon: Presentation, size: "~", format: "PowerPoint (.pptx)", content: pptContent, mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
-      files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
-    }
+    // All variants produce an HTML deck — one HTML download only.
+    files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
   }
 
   // ── Prototype ─────────────────────────────────────────────────────────────

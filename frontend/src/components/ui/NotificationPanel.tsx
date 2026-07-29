@@ -7,6 +7,7 @@ import type { PipelineNotification } from "@/hooks/useNotifications";
 import { getWorkflowLabel } from "@/hooks/useNotifications";
 import { Badge } from "@/components/ui/Badge";
 import { Pill } from "@/components/ui/Pill";
+import { parseRunInput } from "@/lib/runInput";
 
 interface NotificationPanelProps {
   notifications: PipelineNotification[];
@@ -167,7 +168,16 @@ export function NotificationPanel({
                               {formatRelativeTime(n.createdAt)}
                             </span>
                           </div>
-                          <p className="text-[11px] text-ink-500 truncate mt-0.5">{n.title}</p>
+                          <p className="text-[11px] text-ink-500 truncate mt-0.5">{(() => {
+                              const t = n.title;
+                              if (!t) return t;
+                              // Strip "Title: " prefix from cascading context pollution
+                              const stripped = t.startsWith("Title: ") ? t.slice("Title: ".length).trim() : t;
+                              if (!stripped.includes("===")) return stripped;
+                              if (stripped.trimStart().startsWith("===")) return getWorkflowLabel(n.workflowType);
+                              const p = parseRunInput(stripped);
+                              return (p.revisionInstruction ?? p.brief ?? stripped).split("\n")[0].trim() || getWorkflowLabel(n.workflowType);
+                            })()}</p>
 
                           {/* Progress bar for running */}
                           {n.status === "running" && (n.agentsTotal ?? 0) > 0 && (

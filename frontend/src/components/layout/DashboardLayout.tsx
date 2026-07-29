@@ -37,6 +37,8 @@ import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
+// KAN-128 (FIX-141): content-derived filename for the left chat panel deliverable card
+import { deriveDeliverableFilename } from "@/components/results/FilesTab";
 
 export interface DashboardLayoutProps {
   activeChatId: string | null;
@@ -514,7 +516,17 @@ export function DashboardLayout({
   useEffect(() => {
     const latestRun = recentRuns?.[0];
     if (latestRun?.title && latestRun.title !== "Untitled" && currentPipelineNotifId.current) {
-      updateAgentsTotal(currentPipelineNotifId.current, pipelineState?.agents?.length ?? 0, latestRun.title);
+      const rawDbTitle = latestRun.title;
+      // FIX-130: never use a title that starts with "===" (polluted marker text).
+      // Fall back to existing notification title by not calling updateAgentsTotal.
+      if (rawDbTitle.trimStart().startsWith("===")) return;
+      let cleanDbTitle = rawDbTitle;
+      if (rawDbTitle.includes("===")) {
+        const parsed = parseRunInput(rawDbTitle);
+        cleanDbTitle = (parsed.revisionInstruction ?? parsed.brief ?? "").split("\n")[0].trim() || "";
+        if (!cleanDbTitle) return; // still polluted — skip update
+      }
+      updateAgentsTotal(currentPipelineNotifId.current, pipelineState?.agents?.length ?? 0, cleanDbTitle);
     }
   }, [recentRuns?.[0]?.title]);
 
@@ -950,12 +962,24 @@ export function DashboardLayout({
       // Strip injected context/revision markers before using as notification title
       // so the panel never shows raw "=== EXISTING PROTOTYPE HTML ===" text.
       const parsedMsg = parseRunInput(message);
-      const notifTitle = (parsedMsg.revisionInstruction ?? parsedMsg.brief ?? message).slice(0, 60);
-      addRunningNotification(notifId, resolvedType, notifTitle, 0);
+      let notifTitle = (parsedMsg.revisionInstruction ?? parsedMsg.brief ?? "").trim();
+      // FIX-130: if message is dominated by a context block, pull Original Brief from it
+      if (!notifTitle && parsedMsg.chainContext) {
+        const origBriefMatch = parsedMsg.chainContext.match(/Original Brief:\s*(.+)/);
+        notifTitle = origBriefMatch ? origBriefMatch[1].split("\n")[0].trim() : "";
+      }
+      const cleanNotifTitle = (notifTitle || message).slice(0, 60);
+      addRunningNotification(notifId, resolvedType, cleanNotifTitle, 0);
+      // FIX-130: inject _display_title so page.tsx onStartPipeline can set a
+      // clean submittedBrief even when extraParams has no _display_title yet
+      // (IdeaInputPage/LaunchWizard path never sets it directly).
+      const enrichedExtraParams = notifTitle
+        ? { ...(extraParams || {}), _display_title: notifTitle.slice(0, 60) }
+        : extraParams;
       if (connectionStatus === "connected") {
-        onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, extraParams);
+        onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, enrichedExtraParams);
       } else {
-        pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams };
+        pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams: enrichedExtraParams };
       }
     }
   }, [onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
@@ -986,16 +1010,19 @@ export function DashboardLayout({
     // Check if this chain target requires a wizard (prototype, ppt)
     const option = CHAIN_OPTIONS.find((o) => o.type === nextType);
 
-    // Find the source run ID for context fetching
-    // Match on the BASE pipeline type so a completed `od_ppt`/`od_prototype`
-    // run is found when chaining from the normalized `ppt`/`prototype` state
-    // (baseWorkflowType maps od_ppt→ppt, od_prototype→prototype, and strips
-    // the _revision suffix). Without this, the source run is never found and
-    // getChainContext is skipped, so the next pipeline starts with no context.
-    const sourceRun = recentRuns?.find(
-      r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(workflowType) && r.status === "completed"
-    );
-    const sourceRunId = sourceRun?.id;
+    // Find the source run ID for context fetching.
+    // FIX-139: always prefer contentSourceRunId (the explicit "run currently on
+    // screen") over a recentRuns type-scan. The type-scan is unreliable when
+    // multiple completed runs of the same type exist — it returns whichever
+    // matches first (which can be an older run). contentSourceRunId is set by
+    // page.tsx on pipeline_complete and on history-reopen, so it always points
+    // at the run the user is CURRENTLY viewing. Fall back to the type-scan only
+    // when contentSourceRunId is absent (e.g. initial state).
+    const sourceRunId: string | undefined =
+      contentSourceRunId ??
+      recentRuns?.find(
+        r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(workflowType) && r.status === "completed"
+      )?.id;
 
     if (option?.requiresWizard && option.wizardPath) {
       // Store the current brief so the wizard can pre-fill it
@@ -1070,7 +1097,7 @@ export function DashboardLayout({
         pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [], extraParams: { _display_title: chainBrief } };
       }
     }
-  }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, contentSourceRunId, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Chain to another pipeline starting from a historical run. The user is
   // viewing a past WorkflowRun in the history view; they pick a next
@@ -1500,6 +1527,28 @@ export function DashboardLayout({
     laneHasDeliverable ? "complete" :
     "idle";
 
+  // KAN-128 (FIX-143): content-derived deliverable filename for the left chat
+  // panel "Run summary" DeliverableCard. Uses deriveDeliverableFilename (FIX-140,
+  // FilesTab.tsx) so the chat card always agrees with the Files tab and Preview
+  // URL bar. The active content slot is selected by effectiveReviseType (the same
+  // value PreviewPanel uses for workflowType) — NOT the local workflowType state,
+  // which is stale on history-reopened runs (it stays "user_stories" by default
+  // until a wizard runs, while effectiveReviseType correctly reflects
+  // contentSourceRunType e.g. "od_ppt" or "od_prototype").
+  const laneActiveContent =
+    effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision" ||
+    effectiveReviseType === "od_ppt" || effectiveReviseType === "od_ppt_revision"
+      ? pptContent
+      : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" ||
+        effectiveReviseType === "od_prototype"
+        ? prototypeContent
+        : userStoryContent; // user_stories, custom, app_builder, and revision variants
+  const laneDerivedFilename = deriveDeliverableFilename(
+    effectiveReviseType || workflowType || "user_stories",
+    laneActiveContent || undefined,
+    pipelineState?.deliverableFilename,
+  );
+
   // Phase 39 (RUNUI-06) — the live run title for the lane header. BUG-001: bind
   // it to the VIEWED run (contentSourceRunId), not recentRuns[0] (the most-recent
   // run). On a fresh launch contentSourceRunId is null → recentRuns[0] = the
@@ -1514,8 +1563,27 @@ export function DashboardLayout({
       ? recentRuns?.find((r) => r.id === contentSourceRunId)
       : undefined;
   const latestRunTitle = viewedRun?.title;
-  const runHeaderTitle =
-    latestRunTitle && latestRunTitle !== "Untitled" ? latestRunTitle : submittedBrief;
+  // FIX-130: strip any === marker text from the DB title before displaying.
+  // DB titles may be polluted (truncated at 60 chars so closing markers are missing,
+  // defeating parseRunInput's regex). Use a simple line-scan: if the first non-empty
+  // line starts with "===", the title is polluted — fall through to submittedBrief.
+  const cleanLatestTitle = (() => {
+    if (!latestRunTitle || latestRunTitle === "Untitled") return undefined;
+    // If the title starts with "===" it's a raw marker line — discard entirely.
+    if (latestRunTitle.trimStart().startsWith("===")) return undefined;
+    // Strip "Title: " prefix from cascading context pollution
+    const stripped = latestRunTitle.startsWith("Title: ")
+      ? latestRunTitle.slice("Title: ".length).trim()
+      : latestRunTitle;
+    // If it contains "===" anywhere, run it through parseRunInput as a safety net.
+    if (stripped.includes("===")) {
+      const _p = parseRunInput(stripped);
+      const _clean = (_p.revisionInstruction ?? _p.brief ?? "").split("\n")[0].trim();
+      return _clean || undefined;
+    }
+    return stripped || undefined;
+  })();
+  const runHeaderTitle = cleanLatestTitle ?? submittedBrief;
 
   // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props). The
   // KAN-101 spec-loop affordance + approve relabel are mapped off the declared
@@ -1553,9 +1621,12 @@ export function DashboardLayout({
   );
 
   // Suggested next steps (absorbed) — the chainable workflows as generic chips.
-  const laneSuggestions: LaneSuggestion[] = canChainFrom(workflowType)
+  // Use effectiveReviseType (the type of the run currently on screen) so the filter
+  // correctly excludes the VIEWED pipeline type, not the last-launched type.
+  const chainFromType = (effectiveReviseType ?? workflowType) as WorkflowType;
+  const laneSuggestions: LaneSuggestion[] = canChainFrom(chainFromType)
     ? CHAIN_OPTIONS
-        .filter((o) => baseWorkflowType(o.type) !== baseWorkflowType(workflowType))
+        .filter((o) => baseWorkflowType(o.type) !== baseWorkflowType(chainFromType))
         .map((o) => ({ id: o.type, label: o.label }))
     : [];
   const handleLaneSuggestion = useCallback(
@@ -1915,6 +1986,11 @@ export function DashboardLayout({
                       onBackToHistory={() => setMainView("history")}
                       runTitle={runHeaderTitle}
                       runType={effectiveReviseType || pipelineState?.pipeline_type}
+                      // KAN-128 (FIX-141): pass the content-derived filename so the
+                      // left chat panel "Run summary" DeliverableCard shows the same
+                      // name as the Files tab and Preview URL bar (not the static
+                      // manifest name from pipelineState.deliverableFilename).
+                      deliverableFilename={laneDerivedFilename || undefined}
                       // Absorbed AgentProgressPanel controls (Stop / revise / suggestions).
                       onStop={handleStopPipeline}
                       onRevise={activeReviseHandler}

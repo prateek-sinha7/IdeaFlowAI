@@ -113,15 +113,33 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
 // rows format their own dates via RevisionFamilyView — so no local formatter here
 // (INV-12: no dual implementation).
 
-// KAN-116 (Bug 3): safety net for titles already in the DB with === markers.
-// Uses the single-source parseRunInput (INV-12 — same parser as DashboardLayout
-// and RevisionFamilyView). Clean titles (no ===) pass through unchanged.
-function cleanDisplayTitle(title: string | null | undefined): string {
-  if (!title) return "";
-  if (!title.includes("===")) return title;
-  const parsed = parseRunInput(title);
-  const clean = (parsed.revisionInstruction ?? parsed.brief ?? title).split("\n")[0].trim();
-  return clean || title;
+// KAN-116 (Bug 3) + FIX-130 + FIX-131: safety net for titles stored in the DB with === markers
+// or with a "Title: " prefix from cascading context-block pollution.
+// SC-001: generic, no workflow-name branches.
+function cleanDisplayTitle(
+  title: string | null | undefined,
+  fallback = "",
+  runInput?: string | null,
+): string {
+  // Strip "Title: " prefix — can appear when a polluted prior title cascades into
+  // the next run's enrichedInput brief (the context block header line "Title: ..." 
+  // leaks into the plain-brief portion of the next launch).
+  const stripTitlePrefix = (s: string) =>
+    s.startsWith("Title: ") ? s.slice("Title: ".length).trim() : s;
+
+  const extractFromInput = (input: string): string => {
+    const parsed = parseRunInput(input);
+    const raw = (parsed.revisionInstruction ?? parsed.brief ?? "").split("\n")[0].trim();
+    return stripTitlePrefix(raw);
+  };
+  if (!title) return runInput ? (extractFromInput(runInput) || fallback) : fallback;
+  if (!title.includes("===")) return stripTitlePrefix(title);
+  if (title.trimStart().startsWith("===")) {
+    return runInput ? (extractFromInput(runInput) || fallback) : fallback;
+  }
+  const fromTitle = extractFromInput(title);
+  if (fromTitle) return fromTitle;
+  return runInput ? (extractFromInput(runInput) || fallback) : fallback;
 }
 
 export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline, onOpenRun }: WorkflowHistoryProps) {
@@ -591,7 +609,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-line-divider bg-surface-white flex-shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               {/* KAN-92: render the real async-generated run title (never a placeholder). */}
-              <h2 className="min-w-0 max-w-[200px] truncate text-[13px] font-semibold text-ink-900">{cleanDisplayTitle(selectedRun.title)}</h2>
+              <h2 className="min-w-0 max-w-[200px] truncate text-[13px] font-semibold text-ink-900">{cleanDisplayTitle(selectedRun.title, selectedRun.type, selectedRun.input)}</h2>
               <div className="flex items-center gap-1">
               {(["preview", "files", "thinking", "audit"] as const).map((tab) => (
                 <button
