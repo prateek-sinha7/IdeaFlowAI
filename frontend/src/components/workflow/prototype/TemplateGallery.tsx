@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Check, FileText, TrendingUp, Upload, X } from "lucide-react";
 import { getTemplatePreviewUrl, getTemplateThumbnailUrl, type PrototypeTemplate } from "@/lib/prototype-api";
+import { Button } from "@/components/ui/Button";
 import { TemplateDetailModal } from "./TemplateDetailModal";
 import {
   CustomTemplateModal,
