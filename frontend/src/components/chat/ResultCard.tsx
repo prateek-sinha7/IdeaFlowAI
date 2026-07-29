@@ -53,21 +53,21 @@ const CARD_SPECS: Record<CardKind, CardSpec> = {
   clarify: {
     title: "Clarification needed",
     linkLabel: "Answer in Steps",
-    defaultTab: "steps",
+    defaultTab: "thinking",
     Icon: HelpCircle,
     tone: "text-status-amber",
   },
   gate: {
     title: "Review required",
     linkLabel: "Open in Steps",
-    defaultTab: "steps",
+    defaultTab: "thinking",
     Icon: CheckCircle2,
     tone: "text-brand",
   },
   pipeline: {
     title: "Pipeline update",
     linkLabel: "Open in Steps",
-    defaultTab: "steps",
+    defaultTab: "thinking",
     Icon: ListChecks,
     tone: "text-status-running",
   },
@@ -82,7 +82,7 @@ const CARD_SPECS: Record<CardKind, CardSpec> = {
   spec_revision: {
     title: "Revising spec",
     linkLabel: "Open in Steps",
-    defaultTab: "steps",
+    defaultTab: "thinking",
     Icon: RefreshCw,
     tone: "text-brand",
   },
@@ -106,8 +106,14 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
   // T-31-04-T2). A crafted narrator with an unrecognised kind cannot select a
   // privileged renderer — it degrades to the plain card below.
   const spec = kind ? CARD_SPECS[kind] : undefined;
-  // The stored descriptor's tab wins; else the kind's generic default; else Steps.
-  const tab = message.deepLink?.tab ?? spec?.defaultTab ?? "steps";
+  // An EXPLICIT tab on the stored descriptor wins; else the kind's generic
+  // default; else Steps. The descriptor's `anchor` (the backend's
+  // `deep_link.target`, e.g. "run:<id>") is a milestone REFERENCE, not a tab id,
+  // so it deliberately does NOT feed this — see useRunChat.parseDeepLink.
+  // NOTE: the PreviewPanel's internal id for the "Steps" tab is "thinking" (see
+  // PreviewPanel.tsx PanelTab/PANEL_TAB_IDS) — the label was renamed but the id
+  // was deliberately kept stable for deep-links/testids. Do NOT use "steps" here.
+  const tab = message.deepLink?.tab ?? spec?.defaultTab ?? "thinking";
   const title =
     kind === "spec_revision"
       ? `Revising spec — cycle ${cycle ?? 1}`

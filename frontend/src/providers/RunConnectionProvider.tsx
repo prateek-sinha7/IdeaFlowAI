@@ -400,7 +400,10 @@ export function RunConnectionProvider({
             if (frame.type === "pipeline_heartbeat" || frame.type === "pong") {
               return; // keepalive — never reaches the reducer (WS parity)
             }
-            fanout(frame);
+            // Stamp the source run so these frames are run-scopable downstream,
+            // exactly like the per-run SSE stream frames (useRunStream stamps its
+            // own). `runId` is non-null in this branch.
+            fanout({ ...frame, runId });
           };
           const reader = res.body.getReader();
           const decoder = new TextDecoder();

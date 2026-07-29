@@ -58,6 +58,23 @@ export type RunConnectionPhase =
 export interface RunStreamMessage {
   type: string;
   data: Record<string, unknown>;
+  /**
+   * The run this frame arrived ON — stamped at the transport boundary (the ONE
+   * place that knows it, since `useRunStream` is instantiated per run).
+   *
+   * Why it exists: the provider fans EVERY attached run's frames out to the
+   * single dashboard subscriber, but the agent-scoped payloads
+   * (`agent_start`/`agent_chunk`/`agent_complete`/`tool_*`/`task_*`) carry NO
+   * `pipeline_run_id` of their own. Without this envelope tag a concurrently
+   * running run's frames are indistinguishable from the viewed run's and mutate
+   * the viewed run's per-agent state (agent ids collide across runs of the same
+   * workflow — e.g. two prototype runs both stream `prototype-build`). That is
+   * what made a finished run keep showing build/validate "running" in a loop.
+   *
+   * Optional so a frame synthesized outside a per-run stream stays valid; the
+   * consumer treats an absent tag as "not attributable" and never drops on it.
+   */
+  runId?: string;
 }
 
 export interface UseRunStreamConfig {
@@ -280,7 +297,10 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
         sawNonLiveAttachRef.current = true;
       }
 
-      const msg: RunStreamMessage = { type, data };
+      // Stamp the source run onto the envelope (the SINGLE stamping site for
+      // stream frames — this hook is instantiated once per run, so `runId` here is
+      // authoritative). Downstream run-scoping depends on it; see RunStreamMessage.
+      const msg: RunStreamMessage = { type, data, runId };
       setLastMessage(msg);
       onMessageRef.current?.(msg);
     };

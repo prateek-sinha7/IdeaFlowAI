@@ -68,12 +68,16 @@ describe("useRunStream — SSE frame parser (BUG-014-B)", () => {
     );
 
     await waitFor(() =>
+      // `runId` is the transport's source-run stamp — the hook is instantiated
+      // per run, so every dispatched envelope carries it. Downstream run-scoping
+      // (the foreign-run bleed guard in dashboard/page.tsx) depends on it.
       expect(onMessage).toHaveBeenCalledWith({
         type: "questionnaire_ready",
         data: {
           pipeline_run_id: "r",
           questions: [{ question_id: "q1", question_text: "Q?" }],
         },
+        runId: "r",
       }),
     );
   });
@@ -113,6 +117,8 @@ describe("useRunStream — SSE frame parser (BUG-014-B)", () => {
       expect(onMessage).toHaveBeenCalledWith({
         type: "agent_start",
         data: { agent_id: "a1", seq: 1, event_id: "e1" },
+        // Source-run stamp (see the note above) — additive on every envelope.
+        runId: "r",
       }),
     );
   });

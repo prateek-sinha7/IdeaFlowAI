@@ -16,7 +16,7 @@ import { useWorkflow } from "@/hooks/useWorkflow";
 import { useRunChat, type RunChatFrame } from "@/hooks/useRunChat";
 import { useTabDeepLink } from "@/hooks/useTabDeepLink";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
-import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
+import { shouldApplyEvent, resetReplayState, isForeignRunFrame, isAgentScopedFrame } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, WorkflowType, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
 import { deriveDeliverableMimetype, resolveReopenMimetype } from "@/types/index";
@@ -342,8 +342,35 @@ export default function DashboardPage() {
       .catch(() => { /* non-fatal — HomeLaunchGrid falls back to its own fetch */ });
   }, [isAuthenticated]);
 
-  // Handle incoming WebSocket messages
-  const handleWebSocketMessage = useCallback((msg: StreamMessage) => {
+  // Handle incoming WebSocket messages.
+  // `frameRunId` is the run the frame arrived ON (stamped by the SSE transport,
+  // or passed explicitly by the durable-replay caller) — used to run-scope the
+  // agent-state frames below.
+  const handleWebSocketMessage = useCallback((msg: StreamMessage, frameRunId?: string) => {
+    // ── Run-scope the per-agent frames (foreign-run bleed) ────────────────────
+    // The SSE provider attaches ONE stream per live run and fans EVERY frame out
+    // to this single subscriber. The agent-scoped payloads carry no
+    // `pipeline_run_id`, and agent ids are NOT unique across runs (two prototype
+    // runs both stream `prototype-build` / `prototype-validate`), so a
+    // concurrently running run's frames were applied to the VIEWED run's agents:
+    // after the viewed run finished (`pipeline_complete` → all agents "done",
+    // completion notification fired) the other run's build/validate frames flipped
+    // those same agents back to "running" and kept them cycling through its task
+    // loop — the "workflow says done but build + validate are still looping"
+    // symptom, with no second notification possible (the notif id was consumed).
+    //
+    // Dropped BEFORE the dedup/cursor bookkeeping so a foreign run's `seq` can no
+    // longer advance this tab's reconnect cursor either. Generic — keyed only on
+    // the run id (SC-001/INV-1, no workflow or agent name). Lifecycle frames
+    // (pipeline_*/planner_*/clarify/wave_*/chat_*) are untouched: they carry their
+    // own run id and drive cross-run behaviour (revision, chaining, reopen).
+    if (
+      isAgentScopedFrame(msg.type as string) &&
+      isForeignRunFrame(frameRunId, trackedRunIdRef.current)
+    ) {
+      return;
+    }
+
     // Phase 12 (RESUME-03 FE half) — track the last-received seq per run so the
     // reconnect can send it as after_seq (durable replay, 12-03). Every backend
     // event has carried seq/event_id since Phase 5. The max-seen seq is the
@@ -975,7 +1002,12 @@ export default function DashboardPage() {
         // KAN-120: preserve the run id so Run Again can resume it even when
         // activePipelineRunId is about to be cleared.
         if (msg.type === "pipeline_cancelled") {
-          const cancelledId = (msg.pipeline_run_id as string | undefined)
+          // `pipeline_run_id` is not on the StreamMessage union — it rides flat on
+          // some transports and nested under `data` on others, so read both
+          // defensively through an index cast (this line failed the typecheck
+          // outright before, blocking every `next build`).
+          const cancelledId = ((msg as unknown as Record<string, unknown>)
+            .pipeline_run_id as string | undefined)
             ?? ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
             ?? activePipelineRunId
             ?? trackedRunIdRef.current;
@@ -1071,7 +1103,12 @@ export default function DashboardPage() {
   const runSubscribe = runConnection.subscribe;
   useEffect(() => {
     const unsubscribe = runSubscribe((m) =>
-      handleWebSocketMessage({ type: m.type, data: m.data } as unknown as StreamMessage),
+      // Forward the transport's source-run stamp so the router can run-scope the
+      // per-agent frames (foreign-run bleed guard at the top of the handler).
+      handleWebSocketMessage(
+        { type: m.type, data: m.data } as unknown as StreamMessage,
+        m.runId,
+      ),
     );
     return unsubscribe;
   }, [runSubscribe, handleWebSocketMessage]);
@@ -1352,6 +1389,13 @@ export default function DashboardPage() {
         // now the on-screen content, so an inline revise from here links it as
         // parent.
         setContentSourceRunId(fullRun.id);
+        // Claim the reopened run as the run THIS tab tracks, synchronously. The
+        // `trackedRunIdRef` sync effect keys on the contentSourceRunId STATE, which
+        // has not committed yet inside this callback — so without this the durable
+        // replay below (and the reopened run's live tail) would still be measured
+        // against the PREVIOUS run's id and its per-agent frames dropped as foreign.
+        // Mirrors the launch path, which sets the ref synchronously too.
+        trackedRunIdRef.current = fullRun.id;
         // BUG-013: make the VIEWED run the single sticky SSE focus so a parked /
         // building run streams live (multi-round clarify + resume→build) without
         // waiting on the next refreshLiveRuns poll. GATED on non-terminal — a
@@ -1396,10 +1440,17 @@ export default function DashboardPage() {
             // live tail continues) and a terminal-opened run (seed is the whole trace).
             const durableFrames = await getRunEvents(currentToken, fullRun.id);
             for (const frame of durableFrames) {
-              handleWebSocketMessage({
-                type: frame.type,
-                data: frame.data,
-              } as unknown as StreamMessage);
+              // These frames all belong to the run being REOPENED — pass its id so
+              // the foreign-run guard adopts them (trackedRunIdRef was already
+              // pointed at fullRun.id synchronously above; the contentSourceRunId
+              // state sync only lands after this callback returns).
+              handleWebSocketMessage(
+                {
+                  type: frame.type,
+                  data: frame.data,
+                } as unknown as StreamMessage,
+                fullRun.id,
+              );
             }
             // DEF-44-12-4 (Piece 3) — seed the prior chat turns from the SAME
             // once-fetched frames (do not fetch twice). The page router early-
