@@ -426,7 +426,7 @@ export function RunConnectionProvider({
             // Stamp the source run so these frames are run-scopable downstream,
             // exactly like the per-run SSE stream frames (useRunStream stamps its
             // own). `runId` is non-null in this branch.
-            fanout({ ...frame, runId });
+            fanout({ ...frame, _sourceRunId: runId });
           };
           const reader = res.body.getReader();
           const decoder = new TextDecoder();

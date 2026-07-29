@@ -1335,7 +1335,7 @@ export default function DashboardPage() {
       // per-agent frames (foreign-run bleed guard at the top of the handler).
       handleWebSocketMessage(
         { type: m.type, data: m.data } as unknown as StreamMessage,
-        m.runId,
+        m._sourceRunId,
       ),
     );
     return unsubscribe;

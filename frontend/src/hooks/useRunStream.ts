@@ -288,7 +288,7 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
       // Stamp the source run onto the envelope (the SINGLE stamping site for
       // stream frames — this hook is instantiated once per run, so `runId` here is
       // authoritative). Downstream run-scoping depends on it; see RunStreamMessage.
-      const msg: RunStreamMessage = { type, data, runId };
+      const msg: RunStreamMessage = { type, data, _sourceRunId: runId };
       setLastMessage(msg);
       onMessageRef.current?.(msg);
     };
