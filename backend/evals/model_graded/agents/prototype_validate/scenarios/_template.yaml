@@ -1,0 +1,62 @@
+# Generic scenario TEMPLATE for prototype-validate — precheck/rubric config
+# shared across every prompt in dataset.json. Same tool-using-agent pattern
+# as agents/prototype_build/scenarios/_template.yaml: each dataset.json
+# entry seeds its OWN "seed_files" (a deliberately BROKEN prototype.html —
+# seed-default :root tokens + one empty page, prototype-validate's own
+# AGENT.md-documented #1 and #2 failure modes) and "deliverable_file" is
+# read back after dispatch (the FIXED prototype.html) instead of the
+# streamed text (which is just a one-sentence confirmation).
+agent_id: prototype-validate
+
+deliverable_file: "prototype.html"
+
+# Reinterpreted per dataset entry via each entry's own "min_pages" override
+# (the actual page count in that entry's seeded prototype.html).
+min_pages: 2
+
+precheck:
+  wrapper: "<!doctype html>"
+  close_wrapper: "</html>"
+  section_pattern: 'data-page="'
+  forbidden:
+    - "Lorem ipsum"
+    - "TBD"
+    - "Coming soon"
+    - "future expansion"
+
+precheck_module: "evals.model_graded.agents.prototype_validate.qa_fixes_check:check"
+
+rubric: |
+  You are grading a FIXED prototype.html produced by a validation agent
+  whose job is to read a broken prototype, apply the ACTIVE DESIGN SYSTEM's
+  exact token values, fill any empty page with real content, and fix
+  navigation/router issues — never rewriting working content wholesale. The
+  prompt states the exact ACTIVE DESIGN SYSTEM token values for this
+  prototype; read them there. The input's industry/domain varies — this
+  rubric applies the same three dimensions regardless of which one.
+
+  The deterministic pre-check has ALREADY verified: the response is a
+  complete HTML document, none of the SEED-DEFAULT placeholder :root token
+  values survive, and no `<section data-page="...">` is still
+  empty/near-empty. DO NOT re-score any of that — focus only on what a
+  script cannot verify:
+
+  1. DESIGN TOKEN ACCURACY (0-40 points): Do the `:root` token VALUES match
+     the EXACT hex values stated in the prompt's ACTIVE DESIGN SYSTEM line
+     — not just "different from the seed defaults", but the actual correct
+     values?
+
+  2. FILLED-PAGE QUALITY (0-40 points): Is the previously-empty page now
+     filled with content genuinely appropriate to its page ID/domain (a
+     real table/chart/form with plausible data), reusing the SAME CSS
+     classes already defined in the document's `<style>` block — not a
+     generic, mismatched, or minimal filler?
+
+  3. PRESERVATION DISCIPLINE (0-20 points): Did the agent preserve the
+     ALREADY-WORKING page's content/structure rather than needlessly
+     rewriting it? (Compare the working page's content before/after — it
+     should be materially unchanged aside from the token fix.)
+
+  Sum the three sub-scores for the final 0-100 score. Write a rationale
+  that names specific tokens/pages from THIS response, not generic praise
+  or criticism.

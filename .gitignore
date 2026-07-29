@@ -76,8 +76,22 @@ frontend/package-lock.json
 tools/api/runs/.logs
 tools/api/runs/.artifacts
 
-# Generated full transcripts from the LIVE eval tier (backend/run-eval.sh
-# live-s1/live-s2/live-example1/benchmark) — one file per real-model run,
-# local-only, never committed.
-/backend/tests/evals/logs/
+# Eval run output — full real-model transcripts, prompts and replies. Large,
+# regenerated on every run, and local-only: never committed.
+#
+# One rule, matched at any depth, so every eval package uses the same
+# convention: backend/evals/hybrid/.runs/, backend/evals/grading/.runs/, and
+# anything added later. (grading/ also carries its own nested .gitignore so the
+# rule survives that folder being moved or vendored on its own.)
+.runs/
+
+# The frozen model_graded package records its runs under logs/ instead — it
+# predates the .runs/ convention and is not being changed, but its transcripts
+# are just as local-only.
+/backend/evals/model_graded/logs/
 TODO.md
+.understand-anything
+.apex
+**/apex**
+.claude/settings.json
+backend/tests/.vscode/PythonImportHelper-v2-Completion.json

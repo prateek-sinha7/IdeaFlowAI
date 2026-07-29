@@ -1,0 +1,67 @@
+# Generic scenario TEMPLATE for prototype-plan — precheck/rubric config
+# shared across every prompt in dataset.json. Same pattern as
+# agents/prototype_specify/scenarios/_template.yaml: leading underscore
+# skips the generic *.yaml glob; loaded explicitly and combined with each
+# dataset.json entry to produce one GradedScenario per entry.
+#
+# prototype-plan is the SECOND agent in the prototype pipeline — it
+# consumes the FIRST agent's (prototype-specify's) <spec>...</spec> output,
+# not a raw user brief. Each dataset.json entry's "prompt" is therefore a
+# complete, realistic <spec>...</spec> document (the shape prototype-specify
+# itself produces), not a one-line brief.
+agent_id: prototype-plan
+
+min_pages: 5
+
+precheck:
+  wrapper: "<tasks>"
+  section_pattern: '^## Task \d+:'
+  forbidden:
+    - "Lorem ipsum"
+    - "TBD"
+    - "Coming soon"
+    - "future expansion"
+    - "placeholder"
+    - "stub"
+
+precheck_module: "evals.model_graded.agents.prototype_plan.task_structure_check:check"
+
+rubric: |
+  You are grading a generated BUILD TASK PLAN (not code, not a spec),
+  written by an agent whose job is to decompose an upstream specification
+  into atomic tasks a downstream build agent will execute one at a time,
+  blind to every other task. The input spec describes a real-world product
+  in some specific industry/domain — read the spec itself to know which
+  one; this rubric applies the same three dimensions regardless of what
+  that domain is.
+
+  The deterministic pre-check has ALREADY verified: the response is wrapped
+  in <tasks>...</tasks> with no preamble, the task count meets the required
+  minimum, none of the forbidden placeholder strings appear, and the task
+  numbering is sequential starting at 1 with the HTML shell first and
+  validation last. DO NOT re-score any of that — focus only on what a
+  script cannot verify:
+
+  1. DECOMPOSITION CORRECTNESS (0-40 points): Is it EXACTLY one page per
+     task (never two pages combined into one task, never one page split
+     across two tasks), covering every page listed in the spec's "Pages &
+     Navigation" table — no page omitted, no page invented that isn't in
+     the spec?
+
+  2. SPEC FIDELITY (0-40 points): Does each task actually carry forward the
+     SPECIFIC content from that page's spec section — its exact layout
+     pattern, CSS classes, table columns, chart data, form fields — rather
+     than a vague restatement like "build the dashboard page"? A build
+     agent executing this task in isolation, with NO access to the
+     original spec, must be able to reproduce that page's intended content
+     from the task text alone.
+
+  3. ACTIONABILITY (0-20 points): Is each task genuinely self-contained and
+     unambiguous — could a build agent execute it without needing to see
+     any other task or ask a clarifying question? Vague instructions
+     ("add appropriate components", "include relevant data") should be
+     scored down even if the task technically exists.
+
+  Sum the three sub-scores for the final 0-100 score. Write a rationale
+  that names specific tasks/pages from THIS response, not generic praise
+  or criticism.

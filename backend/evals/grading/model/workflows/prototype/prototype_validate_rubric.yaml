@@ -1,0 +1,218 @@
+# Grading config for prototype-validate — the prototype workflow's FINAL stage
+# and its last quality gate. It is seeded with prototype-build's prototype.html,
+# fixes every defect it finds in place, and the FIXED FILE is what is graded
+# (dispatch reads the deliverable back and it REPLACES the streamed one-liner).
+#
+# Deliberately industry-agnostic: the prototypes vary by vertical, and nothing
+# here may reference a specific one.
+
+agent_id: prototype-validate
+
+
+# ── CAN THE HARNESS GRADE AN IMPROVEMENT? ─────────────────────────────────
+# This stage is the only one graded on a DELTA rather than an artifact. A rubric
+# that only asks "is this HTML good?" cannot separate an agent that repaired ten
+# real defects from one that changed nothing and was handed a clean input.
+#
+# YES — but only in the judge, and only because of an accident of this stage's
+# shape that is worth stating explicitly so nobody "simplifies" it away:
+#
+#   stage_input.py composes this stage's prompt as `source: upstream` from a
+#   SINGLE `from:` with no template and no adapter, so the prompt is
+#   prototype-build's response VERBATIM — the PRE-FIX prototype.html.
+#   dispatch.py then replaces `response` with the deliverable read back from the
+#   sandbox — the POST-FIX prototype.html.
+#   judge.build_judge_prompt receives BOTH: the pre-fix file inside
+#   `=== USER PROMPT / BRIEF SENT TO THE AGENT ===` and the post-fix file inside
+#   `=== AGENT RESPONSE ===`.
+#
+# So the judge sees before and after in one prompt, and `defect_repair_delta`
+# below asks it to diff them. If a future edit gives this stage a `template:` or
+# an `adapter:`, that dimension silently stops measuring a delta — the before
+# side would no longer be the raw upstream file.
+#
+# The PRECHECK cannot do this. `validate:` hooks have the signature
+# `check(response) -> (passed, reason)` — one string, the post-fix file only.
+# The pre-fix HTML is reachable on disk (the upstream stage's
+# `artifacts/prototype_build_output.json`), but the hook is given neither the
+# run folder nor the row id, so it cannot find its own row. The hook therefore
+# grades absolute state (no empty sections, no dead nav) and the delta is left
+# entirely to the judge. Widening the hook signature is the fix, not a
+# workaround inside this file.
+
+
+# ── PRECHECK ──────────────────────────────────────────────────────────────
+precheck:
+  wrapper: "<!doctype html>"
+  close_wrapper: "</html>"   # not derivable by inserting a slash — see precheck.closing_tag
+
+  section_pattern: '<section data-page='
+  min_sections: 4          # a prototype spec is >= 4 pages; a validator that
+                           # dropped one below that deleted a page
+
+  # NARROW, with evidence. The founding bug of this harness was bare substrings:
+  # forbidding `placeholder` and `stub` failed 7 of 11 CORRECT rows in run
+  # 260729-083126-ten-industries. That trap is sharper here than anywhere else in
+  # the workflow, because the artifact is HTML and `placeholder` is a real input
+  # attribute:
+  #
+  #     <input class="input" placeholder="Search invoices...">
+  #
+  # Every pattern below is a regex chosen so it cannot match correct output.
+  # Judgement calls — "is this data realistic?", "is this page substantial?" —
+  # are NOT here; they are the judge's dimensions, where context is available.
+  #
+  # DELIBERATELY ABSENT: the seed DS tokens (`--bg: #fafaf7`, `--accent: #c96442`).
+  # workflow.yaml's known_gaps/od_context_not_populated records that no ACTIVE
+  # DESIGN SYSTEM is injected during grading, so the agent is never told what to
+  # replace them WITH. Failing a run for keeping the only tokens it was given
+  # would grade a capability it was not granted.
+  forbidden:
+    - pattern: '(?i)lorem ipsum'
+      reason: "filler text instead of real content — the final gate must have replaced it"
+    - pattern: '(?i)\bTBD\b'
+      reason: "unresolved content shipped past the last quality gate"
+    - pattern: '(?i)coming soon'
+      reason: "deferred content in a prototype that is being delivered as complete"
+    - pattern: '(?i)placeholder (text|content|data)'
+      reason: "explicit filler — narrower than bare 'placeholder', which is a legitimate HTML input attribute"
+    - pattern: '(?i)\b(?:User|Customer|Client|Metric) [A-C]\b'
+      reason: "generic invented data ('Customer A') where the domain's own data belongs"
+    - pattern: '(?i)<!--[^>]*\bTODO\b'
+      reason: "a TODO comment left in the deliverable by the agent whose job was to remove it"
+    - pattern: '(?m)^\s*```'
+      reason: "markdown code fence in a raw HTML deliverable — the file would not render"
+
+  validate: ./prototype_validate_validate.py:check
+
+
+# ── JUDGE ─────────────────────────────────────────────────────────────────
+# Identical pinning to prototype-specify, for the same reasons: run
+# 260729-083126-ten-industries used mistral-small and returned EXACTLY 95 for
+# all 11 rows — zero variance, including for rows the precheck had rejected.
+judge:
+  provider: mistral
+  model: mistral-large-latest      # a small judge cannot diff two large HTML files
+  threshold: 70
+  skip_on_precheck_failure: true
+
+
+# ── RUBRIC ────────────────────────────────────────────────────────────────
+# Scored 0-100 per dimension; `weight` is applied afterwards in Python.
+# The three dimensions are the three things a FINAL GATE is for, weighted by how
+# often AGENT.md says each one fails.
+dimensions:
+  - id: page_completeness
+    weight: 45
+    description: >
+      Is every `<section data-page>` a real, usable page — a header, substantive
+      components, and tables carrying enough rows of domain-plausible data to
+      demonstrate the page's purpose? The precheck proved only that no section is
+      empty or comment-only; a section holding nothing but a heading passes that
+      and is still the failure AGENT.md calls the #1 structural defect. Score
+      down per thin page, and score down hardest for a page whose content does
+      not match its own page id.
+
+  - id: defect_repair_delta
+    weight: 35
+    description: >
+      Compare the PRE-FIX prototype in the USER PROMPT block against the POST-FIX
+      prototype in the AGENT RESPONSE block — they are the same file before and
+      after this agent edited it. Did it actually repair the defects that were
+      there (empty or thin sections filled, dead nav links wired, sections
+      reachable by the router, missing handlers defined), and did it PRESERVE
+      everything that already worked? An agent that returned the input essentially
+      unchanged while real defects remained scores very low even if the file is
+      passable in isolation. An agent that rewrote or deleted working content it
+      was told not to touch also scores low — regressions are defects too. If the
+      input was genuinely already clean, say so explicitly and score on the
+      preservation half alone.
+
+  - id: token_and_chrome_consistency
+    weight: 20
+    description: >
+      Is the prototype internally consistent as one designed artifact — colours
+      applied through `var(--…)` rather than raw hex scattered through the body,
+      one CSS class system used by every page, and shared chrome (sidebar/topbar)
+      identical across pages apart from the active nav state? Judge INTERNAL
+      consistency only. Do NOT score whether the `:root` tokens match a specific
+      design system: workflow.yaml's known_gaps records that od_context is never
+      populated in grading, so no ACTIVE DESIGN SYSTEM was injected and the agent
+      had nothing to match against. Keeping the seed token values is correct
+      behaviour here and must not be penalised.
+
+anchors:
+  90: >
+    Every page is a page a user could actually use — real components, tables with
+    enough realistic rows to read as an export. The diff against the pre-fix file
+    shows named defects repaired and working content untouched. One coherent
+    token and class system across the whole file.
+  70: >
+    Pages are complete but one or two are thin. Most defects were repaired but at
+    least one visible one survived, or a working detail was needlessly rewritten.
+    Consistency holds with a few raw colours or a divergent class.
+  50: >
+    Several pages are a heading plus a stub component. The diff shows only
+    cosmetic edits while structural defects remain. Chrome drifts between pages
+    or colours are hardcoded throughout.
+  30: >
+    The file is materially unchanged from its input while real defects remain, or
+    the agent rewrote it and lost working content. The prototype would embarrass
+    whoever showed it.
+
+rubric: |
+  You are grading the FINAL QUALITY GATE of a prototype pipeline. The agent was
+  given a built single-file HTML prototype on disk, told to fix every problem it
+  found in place, and the FIXED FILE is what you are looking at — not its
+  one-sentence summary, which is not part of the deliverable.
+
+  The USER PROMPT block contains the prototype AS IT WAS BEFORE this agent
+  touched it. The AGENT RESPONSE block contains the SAME FILE AFTER. They are a
+  before/after pair — read them as one, because this stage's job is an
+  improvement, not an artifact.
+
+  The deterministic pre-check has ALREADY verified: the file opens with
+  `<!doctype html>` and closes with `</html>` with no preamble; it has at least
+  four `<section data-page>` elements; NONE of them is empty or comment-only;
+  every nav route resolves to a real section; and no forbidden filler string
+  appears. DO NOT re-score any of that as a strength or a weakness.
+
+  State this stage's job plainly to yourself before scoring: it is to have LEFT
+  NO P0 DEFECTS BEHIND. A P0 is anything that makes the prototype unusable in
+  front of a user — a page with nothing on it, navigation that dead-ends, a
+  control with no handler, content that contradicts its own page id. Any P0
+  surviving into the AGENT RESPONSE is this agent's failure regardless of who
+  introduced it, and no amount of polish elsewhere compensates.
+
+  Score each dimension SEPARATELY from 0 to 100 against the anchors, and return
+  each sub-score as its own field. Do not return a single overall number.
+
+  For every dimension quote specific page ids, elements or data points from THIS
+  response as evidence, and for `defect_repair_delta` name at least one concrete
+  difference (or state concretely that there is none). A rationale that would
+  read the same for a different prototype is not a rationale and will be treated
+  as a non-answer.
+
+
+# ── BASELINE ──────────────────────────────────────────────────────────────
+# Excluded from the rubric hash.
+#
+# NOT YET CALIBRATED, and doubly so here: this stage has never been run at all,
+# and its input quality depends entirely on prototype-build, which is itself not
+# yet onboarded. Until both have run clean once, these numbers are intent only.
+baseline:
+  min_precheck_pass_rate: 0.90
+  min_average_score: 80
+
+  # No negative row reaches this stage — stage_input.py never propagates an
+  # `expect: fail` row past the root — so this asserts nothing here until a
+  # deliberately-defective seeded prototype exists as a negative fixture.
+  min_negative_correct: 1.0
+
+  # TWO-SIDED SIGNAL GUARD, as on prototype-specify: a judge returning the same
+  # number every row is dead, and a suspiciously tight spread is dying. Both hide
+  # regressions inside an average that looks fine.
+  min_distinct_scores: 3
+  max_expected_stddev: null       # set from the calibration run's observed spread
+
+  set_from: "NOT CALIBRATED — pending one clean run once prototype-build is onboarded"

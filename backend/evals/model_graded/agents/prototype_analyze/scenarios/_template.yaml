@@ -1,0 +1,70 @@
+# Generic scenario TEMPLATE for prototype-analyze — precheck/rubric config
+# shared across every prompt in dataset.json. Same pattern as
+# agents/prototype_plan/scenarios/_template.yaml.
+#
+# prototype-analyze is the THIRD agent in the prototype pipeline — it
+# consumes BOTH upstream agents' outputs (prototype-specify's <spec> AND
+# prototype-plan's <tasks>), not a single artifact. Each dataset.json
+# entry's "prompt" is therefore a <spec>...</spec> document immediately
+# followed by a <tasks>...</tasks> document — the same two blocks the real
+# engine concatenates into this agent's context message.
+agent_id: prototype-analyze
+
+# "## Spec Kit Analysis Report" is the top-level heading (not itself a
+# "### " section) — min_pages here means "min ### subsections", and the
+# output contract always has exactly 6: Summary, Findings, Issues requiring
+# attention, Risk register, Suggested next actions, Readiness verdict.
+min_pages: 6
+
+precheck:
+  wrapper: "<analysis>"
+  section_pattern: '^### '
+  forbidden:
+    - "Lorem ipsum"
+    - "TBD"
+    - "Coming soon"
+    - "placeholder"
+
+precheck_module: "evals.model_graded.agents.prototype_analyze.analysis_structure_check:check"
+
+rubric: |
+  You are grading a generated CROSS-ARTIFACT ANALYSIS REPORT (not code, not
+  a spec, not a task plan), written by a READ-ONLY quality-gate agent whose
+  job is to compare an upstream spec against an upstream task list and
+  report consistency, coverage gaps, ambiguities, duplications, and risk —
+  never to modify either artifact. The input's industry/domain varies; read
+  the spec/tasks themselves to know which one — this rubric applies the
+  same three dimensions regardless of what that domain is.
+
+  The deterministic pre-check has ALREADY verified: the response is wrapped
+  in <analysis>...</analysis> with no preamble, all 6 required subsections
+  are present verbatim (Summary/Findings/Issues requiring attention/Risk
+  register/Suggested next actions/Readiness verdict), the Readiness verdict
+  names one of READY TO BUILD/READY WITH CAUTION/NEEDS REVISION, and the
+  Findings section contains a markdown table. DO NOT re-score any of that —
+  focus only on what a script cannot verify:
+
+  1. FINDINGS ACCURACY (0-40 points): Read the ACTUAL spec and tasks given
+     as input. Does each Findings row accurately reflect what is really
+     there — correctly marking a category ✅ Clear when the spec and tasks
+     genuinely agree, and correctly flagging ⚠️/❌ when they genuinely
+     don't (e.g. a spec page with no corresponding task, a task that
+     invents content not in the spec)? An analysis that rubber-stamps
+     everything ✅ when a real gap exists, or invents an issue that isn't
+     actually there, should be scored low here regardless of how
+     well-formatted the report looks.
+
+  2. SPECIFICITY (0-40 points): Do findings and risk-register entries cite
+     ACTUAL page names, task numbers, or spec sections from THIS input —
+     not generic boilerplate that could apply to any prototype? "Task 3 —
+     Subscriptions Page: no error-state handling specified" is specific;
+     "some tasks may have edge cases" is not.
+
+  3. VERDICT COHERENCE (0-20 points): Does the Readiness verdict and the
+     Suggested next actions list actually match the severity of what the
+     Findings table reports — never READY TO BUILD when a ❌ Issue is
+     listed, never NEEDS REVISION when everything is ✅ Clear?
+
+  Sum the three sub-scores for the final 0-100 score. Write a rationale
+  that names specific findings/tasks/pages from THIS response, not generic
+  praise or criticism.

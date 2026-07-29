@@ -1,0 +1,41 @@
+# SMOKE — the cheapest real run. All 3 small rows, no judge, 3 model calls.
+#
+# Use it to prove the dispatch path works end to end before spending a full
+# run. It grades nothing: the deterministic precheck still runs, but no judge
+# is called, so this costs three agent dispatches and nothing else.
+#
+#   ./evals/grading/grade.sh plan smoke     # free — dispatches nothing
+#   ./evals/grading/grade.sh smoke          # 3 calls
+
+run_id: smoke
+
+track: model
+workflow: prototype
+
+dataset: datasets/small.json
+agents: all
+from_run: null
+
+# Every row of the small dataset: two narrow briefs plus the negative-test row,
+# so a smoke run exercises both the pass and the deliberate-fail path.
+rows: [tiny_inventory]
+limit: null
+
+# PINNED, not left to the implicit chain. `provider: null` means "walk
+# ANTHROPIC_API_KEY -> Bedrock -> Mistral and stop at the first that looks
+# configured" — and Bedrock looks configured even with an expired token, so an
+# unpinned run never reaches Mistral. Pinning is the only way to be certain
+# which model actually ran.
+agent_under_test:
+  provider: mistral
+  model: mistral-small-latest
+
+judge:
+  provider: mistral
+  model: mistral-large-latest
+  threshold: null
+
+options:
+  concurrency: 3
+  no_judge: true              # the whole point of a smoke run — zero judge tokens
+  repeats: 1

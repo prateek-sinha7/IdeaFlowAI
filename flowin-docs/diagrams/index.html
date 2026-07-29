@@ -72,11 +72,10 @@ footer { margin-top:56px; font-size:11.5px; color:var(--ink-3); border-top:1px s
       <a class="card live" href="./velocity-eval-framework.html">
         <div class="kicker">Eval framework</div>
         <h3>Eval Framework</h3>
-        <p>How backend/tests/evals/ is structured (common/ · engine/ · workflow/&lt;domain&gt;/&lt;variant&gt;/), how a run actually moves offline vs. live, and a full real-evidence case study: a CSS-grid-overlap rendering bug, a 10-issue fixture, two real live-model runs (1 PASS, 1 MISS), and the prompt fixes that failure points to.</p>
+        <p>Plain-English tour of how VELOCITY checks its own agents. Two systems, two questions: <strong>hybrid</strong> (backend/evals/hybrid/) asks “did it run correctly?” and answers with code — free, offline by default; <strong>grading</strong> (backend/evals/grading/) asks “is the output any good?” and answers with a judge model’s score — live, costs tokens. Walks each one step by step, then tells you which to run.</p>
         <div class="tags">
-          <span class="tag">Framework Architecture</span><span class="tag">run-eval.sh Routing</span>
-          <span class="tag">Offline Test Execution</span><span class="tag">Live Scenario Execution</span>
-          <span class="tag">Benchmark / Pass-Rate</span><span class="tag">Case Study</span>
+          <span class="tag">Start Here</span><span class="tag">Hybrid, Step by Step</span>
+          <span class="tag">Grading, Step by Step</span><span class="tag">Which One Do I Run?</span>
         </div>
       </a>
 

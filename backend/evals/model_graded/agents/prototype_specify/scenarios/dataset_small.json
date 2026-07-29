@@ -1,0 +1,12 @@
+[
+  {
+    "id": "billing_console",
+    "industry": "SaaS Billing",
+    "prompt": "Build an internal admin console for a B2B SaaS billing platform. Our ops team needs to review customer subscriptions, inspect invoice history, manage plan changes, and handle failed-payment recovery. Target audience: internal finance/support staff, not end customers. No template or design system has been selected yet — use your own judgment for the visual design (a dense, functional, data-heavy admin tool, not a marketing site)."
+  },
+  {
+    "id": "healthcare_scheduling",
+    "industry": "Healthcare",
+    "prompt": "Build an internal scheduling and patient-intake admin console for a multi-location outpatient clinic. Front-desk staff need to view the daily appointment calendar across providers, check in patients, manage waitlists, and flag insurance-verification issues before a visit. Target audience: front-desk and clinic-ops staff, not clinicians or patients. No template selected — invent a clean, calm, low-clutter visual style appropriate for a busy front desk."
+  }
+]

@@ -511,45 +511,6 @@ Tests live under `backend/tests/`, split into:
   unit-level suites.
 - `tests/integration/`, `tests/properties/`, `tests/fixtures/` — integration, Hypothesis
   property tests, and shared fixtures.
-- `tests/evals/` — the eval **framework**: pipeline-scoped offline + live (real-model)
-  coverage, organized by pipeline rather than flat. See below.
-
-### `tests/evals/` — the eval framework
-
-Organized as `workflow/<domain>/<variant>/` (mirroring `agents/workflows/<pipeline_type>/`
-— `<domain>` is the pipeline_type with any trailing `_revision` stripped, `<variant>` is
-`build` or `revision`), plus two shared top-level folders:
-
-- `tests/evals/common/` — reusable framework code: the live-scenario driver
-  (`live_scenario.py`: `LiveScenario`, `run_live_scenario_once`), cross-pipeline scenario
-  discovery (`scenario_discovery.py`), and reusable offline-test infrastructure
-  (`compile_helpers.py`, `validation_helpers.py`, `fix_loop_capture.py`) extracted from the
-  original `prototype/revision` layer tests so a second pipeline's equivalent tests are thin
-  compositions, not copy-paste.
-- `tests/evals/engine/` — tests of mechanisms used by **multiple** pipelines (verified via
-  `grep -rl <thing> agents/workflows/*/workflow.yaml` before anything lands here, not
-  assumed) — e.g. the generic REST/SSE launch driver, the `previous_run` context provider
-  (wired into 5 revision pipelines' manifests). Contrast with `workflow/<domain>/<variant>/`,
-  which holds tests whose value is specific to one pipeline.
-- `tests/evals/workflow/prototype/revision/` — the only populated pipeline today. Offline
-  layer tests (compiled manifest shape, post-step dispatch, fix-loop selection semantics,
-  the LLM boundary), prompt-composition tests, and a `scenarios/` folder of live
-  (real-model) scenario YAML files plus one generic parametrized live test
-  (`test_live.py`) that auto-discovers every scenario in that folder. As of 2026-07-27
-  the only live scenario is `prototype_multi_issue_repair` (10 independent bugs — the
-  document-duplication defect, the former S1/S2 save-button/reports-page issues, and 7
-  more — combined into one fixture so a single run validates whether one revision turn
-  fixes a realistic punch list, not just one isolated defect); the earlier one-bug-per-
-  scenario set and the offline S1/S2/S3 scripted-scenario matrix were retired in favor
-  of it.
-
-Full rationale, exact conventions, and a step-by-step "add a new pipeline's eval coverage"
-recipe live in `tests/evals/PLAN.md` (kept as a living reference, not a one-time plan doc).
-
-Run via `./run-eval.sh` (offline default) — see its own header comment for the full command
-list (`layers`, `scenarios`, `phase <path>`, `benchmark`, `live-*`, the bare `<scenario-id>`
-shortcut, etc.). Every live/real-model command requires an explicit opt-in (`--live`, a
-`live-*` command name, or `benchmark`) — a bare scenario name never spends tokens.
 
 ### Running the Test Suite
 

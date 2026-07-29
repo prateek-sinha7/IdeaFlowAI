@@ -13,7 +13,7 @@ addopts = "-v --tb=short"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "requires_api_key: test requires a live LLM provider (Bedrock/Anthropic) — skipped in CI without credentials",
-    "eval: issue-scoped eval suite (tests/evals) — offline scripted-model tests; select with -m eval",
+    "eval: issue-scoped eval suite (evals/hybrid) — offline scripted-model tests; select with -m eval",
 ]
 
 [tool.hypothesis]

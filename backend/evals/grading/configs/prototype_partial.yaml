@@ -1,0 +1,69 @@
+# PARTIAL — the one you edit. Pick specific agents and/or rows.
+#
+# `smoke` and `full` are fixed points; this is the scratchpad for "run just
+# these stages" or "run just these rows". Everything below is a starting point
+# meant to be changed.
+#
+#   ./evals/grading/grade.sh plan partial   # ALWAYS check the plan first
+#   ./evals/grading/grade.sh partial
+
+run_id: partial
+
+track: model
+workflow: prototype
+
+dataset: datasets/ten-industries.json
+
+
+# ── WHICH AGENTS ──────────────────────────────────────────────────────────
+# `all`, or an explicit list. A list always runs in WORKFLOW order, whatever
+# order you write it in.
+#
+#   agents: all
+#   agents: [prototype-specify]
+#   agents: [prototype-specify, prototype-plan]
+#
+# Every listed agent's upstream must be satisfiable — either an earlier agent
+# in this same run, or already present in the `from_run` folder below. It never
+# silently falls back to reading the dataset; it fails naming what is missing.
+agents: [prototype-specify]
+
+# Resolve upstream inputs from an existing run AND write into it. REQUIRED
+# whenever the first agent you list is not the workflow's root stage, because
+# otherwise there is no upstream to read. Find ids with `grade.sh runs`.
+#
+#   from_run: 260729-163337-ten-industries
+from_run: null
+
+
+# ── WHICH ROWS ────────────────────────────────────────────────────────────
+# Named rows, or the first N. `rows` wins if you set both. Both exist to keep
+# an exploratory run cheap — a full pass is 23 model calls.
+#
+#   rows: [billing_console, hr_ats]
+#   limit: 3
+rows: null
+limit: 2
+
+
+# ── MODELS ────────────────────────────────────────────────────────────────
+# Pinned to Mistral, matching smoke and full. Only `provider: mistral` is
+# honoured by build_model; anything else falls through the implicit chain and
+# you get whichever provider happens to be configured — which is how you end up
+# comparing two runs that used different models without noticing.
+agent_under_test:
+  provider: mistral
+  model: mistral-small-latest
+
+judge:
+  provider: mistral
+  model: mistral-large-latest
+  threshold: null
+
+
+options:
+  concurrency: 2
+  # Flip to true for a free structural check — runs the agents and the
+  # precheck, calls no judge.
+  no_judge: false
+  repeats: 1

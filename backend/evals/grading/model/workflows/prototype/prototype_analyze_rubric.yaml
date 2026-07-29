@@ -1,0 +1,169 @@
+# Grading config for prototype-analyze — the prototype workflow's FAN-IN stage,
+# a read-only Spec Kit-style quality gate that reads the spec AND the task list
+# and reports on how well they agree with each other.
+#
+# It modifies nothing, so the only thing there is to grade is the REPORT: did it
+# actually cross-reference the two artifacts, and did it catch what is wrong with
+# them. Deliberately industry-agnostic — the briefs vary by vertical and live in
+# the dataset file. Nothing here may reference a specific one.
+
+agent_id: prototype-analyze
+
+
+# ── PRECHECK ──────────────────────────────────────────────────────────────
+precheck:
+  # The agent's OWN wrapper. Its two inputs arrive wrapped in <spec> and
+  # <tasks>; those are inputs, not output, and must not be asserted here.
+  wrapper: "<analysis>"
+
+  section_pattern: '^### '
+  # AGENT.md mandates 6 `### ` sections (Summary, Findings, Issues requiring
+  # attention, Risk register, Suggested next actions, Readiness verdict). The
+  # threshold is 5, not 6: the failure this gate exists to catch is a report
+  # truncated mid-way, which loses several sections at once, while a valid
+  # report that renames or merges one heading is a judge-level style question,
+  # not a malformed response. The one section that genuinely cannot be missing —
+  # the verdict — is checked exactly, by the validate hook below.
+  min_sections: 5
+
+  # NARROW BY CONSTRUCTION. The founding bug of this harness was bare
+  # substrings ("placeholder", "stub") failing 7 of 11 correct prototype-specify
+  # rows, because those words are legitimate vocabulary in the document being
+  # graded. That risk is HIGHER here than anywhere else in the workflow: this
+  # agent's entire job is to write about defects, so "issue", "gap", "risk",
+  # "ambiguity", "missing", "unclear", "duplicate", "TBD" (quoted back out of the
+  # spec it is criticising) are all NORMAL, CORRECT output and are deliberately
+  # absent from this list.
+  #
+  # Everything below is a string that cannot appear in a correct report at all,
+  # in any context — not a word that usually indicates a problem.
+  forbidden:
+    - pattern: '(?i)lorem ipsum'
+      reason: "filler text in place of a real finding"
+    - pattern: '<(brief finding|Action name|title|risk reason|One sentence justification)>'
+      reason: "the AGENT.md output-format template was copied out literally instead of being filled in"
+    - pattern: '(?i)\bI need (more information|clarification|the (spec|tasks))\b'
+      reason: "stalling for input — AGENT.md forbids clarifying questions and requires the analysis immediately"
+    - pattern: '</(spec|tasks)>'
+      reason: "an input artifact was echoed back verbatim; this stage reports on its inputs, it does not reproduce them"
+
+  validate: ./prototype_analyze_validate.py:check
+
+
+# ── JUDGE ─────────────────────────────────────────────────────────────────
+# Pinned IDENTICALLY to prototype-specify so the two stages' scores are
+# comparable — a stage-to-stage difference must mean a difference in the agents,
+# not in the judges that graded them.
+judge:
+  provider: mistral
+  model: mistral-large-latest      # a small judge cannot tell a real finding from a generic one
+  threshold: 70
+  skip_on_precheck_failure: true
+
+
+# ── RUBRIC ────────────────────────────────────────────────────────────────
+# Each dimension is scored 0-100 by the judge; `weight` is applied afterwards in
+# Python (total = sum(score_i * weight_i) / 100). The anchors are a 0-100 scale,
+# so asking the judge to score "out of 40" would be incoherent.
+dimensions:
+  - id: cross_artifact_grounding
+    weight: 40
+    description: >
+      Are the findings tied to the SPECIFIC spec sections and task numbers in
+      THIS row — naming pages, entities, flows and "Task N" — such that the
+      report could not be lifted onto a different spec/task pair unchanged? This
+      is the stage's whole reason to exist: a report that never names anything
+      from either artifact did not read them, whatever its status column says.
+
+  - id: defect_detection
+    weight: 35
+    description: >
+      Did it actually FIND the real disagreements between the two artifacts that
+      are present in this row — a spec page with no corresponding task, a task
+      traceable to no requirement, a data entity or error/empty state the tasks
+      never handle? Judge against the artifacts themselves: "✅ Clear" across the
+      board for a pair that genuinely disagrees is the worst possible outcome
+      here, because it launders a broken plan as reviewed.
+
+  - id: verdict_coherence
+    weight: 25
+    description: >
+      Do the Issues, Risk register, Suggested next actions and Readiness verdict
+      follow from the Findings table? Recorded ❌ items under a READY TO BUILD
+      verdict, a clean table under NEEDS REVISION, or next actions that do not
+      address the issues listed, all make the report unusable as the gate it is
+      supposed to be.
+
+anchors:
+  90: >
+    Every finding cites a named page, entity or task number and states the
+    concrete disagreement. The real gaps between the two artifacts are all
+    identified and correctly rated. Verdict, issues and next actions follow
+    exactly from the findings.
+  70: >
+    Most findings are grounded but some are generic category restatements. The
+    obvious gaps are caught, a subtler one is missed or under-rated. Verdict is
+    defensible but the next actions are partly boilerplate.
+  50: >
+    Findings are mostly category names with generic detail; few cite anything
+    from either artifact. Real gaps are missed or waved through as "Partial".
+    Verdict is only loosely connected to what was found.
+  30: >
+    The report would read identically for a different spec and task list. It
+    demonstrates no evidence that the two artifacts were compared to each other,
+    and the verdict is unsupported.
+
+rubric: |
+  You are grading a read-only CROSS-ARTIFACT ANALYSIS REPORT. The agent was
+  given two upstream artifacts for the same row — a prototype specification and
+  a task list built from it — and its job is to compare them to each other and
+  report where they disagree. It modifies nothing, so the report IS the work.
+
+  The deterministic pre-check has ALREADY verified: the response is wrapped in
+  <analysis>...</analysis> with no preamble or postamble, the required `### `
+  sections are present, no forbidden strings appear, the Findings table has real
+  data rows, and the Readiness verdict is exactly one of the three permitted
+  values. DO NOT re-score any of that. Correct structure is the floor, not a
+  score — a perfectly formatted report that found nothing is a failure.
+
+  Grade this stage on whether it CAUGHT REAL PROBLEMS in its two inputs. Read
+  the spec and the task list yourself before scoring, and look for what the
+  agent should have found: a page in the spec that no task builds, a task that
+  implements something the spec never asked for, a data entity or an
+  error/empty state that the tasks silently drop. An analysis that reports "all
+  clear" about a genuinely flawed pair is a FAILURE, not a pass — it is worse
+  than no analysis, because a human gate will trust it. Conversely, do not
+  reward invented problems: a finding that misreads the artifacts is also wrong.
+
+  Score each dimension SEPARATELY from 0 to 100 against the anchors, and return
+  each sub-score as its own field. Do not return a single overall number — the
+  weighted total is computed from your sub-scores.
+
+  For every dimension, quote specific finding rows, task numbers or spec pages
+  from THIS response as evidence. A rationale that would read the same for a
+  different response is not a rationale, and will be treated as a non-answer.
+
+
+# ── BASELINE ──────────────────────────────────────────────────────────────
+# Excluded from the rubric hash.
+#
+# NOT YET CALIBRATED. This stage has never been run: the workflow marks it
+# `status: not_yet_onboarded`, and no prototype-specify/prototype-plan pair has
+# been graded through it. The numbers below are the INTENT, copied from
+# prototype-specify so the two stages start on the same bar; the run that sets
+# them for real must be recorded in `set_from`.
+baseline:
+  min_precheck_pass_rate: 0.90
+  min_average_score: 80
+
+  # The negative-test row must actually be rejected. Scored inverted and
+  # excluded from min_precheck_pass_rate above.
+  min_negative_correct: 1.0
+
+  # TWO-SIDED SIGNAL GUARD. A judge that returns the same number every time is
+  # dead; a judge whose spread is implausibly tight is dying. Both hide real
+  # regressions inside an average that looks fine.
+  min_distinct_scores: 3
+  max_expected_stddev: null       # set from the calibration run's observed spread
+
+  set_from: "NOT CALIBRATED — pending the first run of this stage on a real specify+plan pair"

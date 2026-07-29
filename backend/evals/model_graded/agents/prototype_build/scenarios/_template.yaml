@@ -1,0 +1,76 @@
+# Generic scenario TEMPLATE for prototype-build — precheck/rubric config
+# shared across every prompt in dataset.json. Same pattern as the other
+# prototype agents' _template.yaml, PLUS the two fields specific to a
+# tool-using / file-editing agent:
+#
+#   - each dataset.json entry carries its OWN "seed_files" (spec.md,
+#     design.md) — written to the per-run sandbox BEFORE dispatch, exactly
+#     like the real pipeline seeds them, so the agent's own read_file calls
+#     find real content.
+#   - "deliverable_file" (below) is read back AFTER dispatch and graded
+#     INSTEAD OF the streamed text — this agent mostly just calls
+#     write_file/edit_file and speaks very little.
+#
+# Each dataset entry's "prompt" is the exact "=== CURRENT TASK ===" block
+# shape the real engine injects (Task 1 — the HTML shell — specifically,
+# since it's the one task that never needs an existing prototype.html
+# seeded first).
+agent_id: prototype-build
+
+deliverable_file: "prototype.html"
+
+# Reinterpreted per dataset entry via each entry's own "min_pages" override
+# (the actual page count in that entry's spec.md) — this default only
+# applies if an entry omits it.
+min_pages: 3
+
+precheck:
+  wrapper: "<!doctype html>"
+  close_wrapper: "</html>"
+  section_pattern: 'data-page="'
+  forbidden:
+    - "Lorem ipsum"
+    - "TBD"
+    - "Coming soon"
+    - "future expansion"
+    - "placeholder text"
+
+precheck_module: "evals.model_graded.agents.prototype_build.shell_structure_check:check"
+
+rubric: |
+  You are grading a generated HTML SHELL (Task 1 of a per-task prototype
+  build — not the full prototype, just the structural skeleton: doctype,
+  head, :root tokens, shared chrome, hash router, and one EMPTY
+  ``<section data-page>`` per page), written by an agent whose job is to
+  execute EXACTLY this one task from a task list, using ``spec.md`` (the
+  full specification) and ``design.md`` (the design tokens) it read from
+  disk. The input's industry/domain varies; read spec.md itself to know
+  which one — this rubric applies the same three dimensions regardless of
+  what that domain is.
+
+  The deterministic pre-check has ALREADY verified: the response is a
+  complete HTML document (<!doctype html>...</html>), the :root block
+  defines all six required tokens (--bg/--fg/--accent/--surface/--border/
+  --muted), at least the required number of `<section data-page="...">`
+  elements exist, a hash-router signal is present, and none of the
+  forbidden placeholder strings appear. DO NOT re-score any of that — focus
+  only on what a script cannot verify:
+
+  1. SPEC COVERAGE (0-40 points): Does EVERY page listed in spec.md's
+     "Pages & Navigation" table have a corresponding empty
+     `<section data-page="...">` — no page omitted, no invented page not in
+     the spec? Does the shared chrome (sidebar/topbar nav) list every page
+     as a nav link?
+
+  2. DESIGN TOKEN FIDELITY (0-30 points): Do the `:root` variable VALUES
+     (not just their presence) actually match design.md's ACTIVE DESIGN
+     SYSTEM tokens — not generic/default placeholder colors?
+
+  3. CSS CLASS SYSTEM (0-30 points): Does the shell define/reference the
+     CSS class system spec.md's "Template & Design System" section
+     specifies (e.g. `.topbar`, `.sidebar`, `.card`, `.grid-3`) — a
+     coherent, spec-derived class system, not a generic unrelated one?
+
+  Sum the three sub-scores for the final 0-100 score. Write a rationale
+  that names specific pages/classes/tokens from THIS response, not generic
+  praise or criticism.

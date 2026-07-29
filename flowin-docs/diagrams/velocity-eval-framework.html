@@ -3,17 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VELOCITY-AI — Eval Framework</title>
+<title>Eval Framework — how VELOCITY checks its own agents</title>
 <style>
+/* ════════════════════════════ page shell (delete/replace if embedding in a larger docs site) ════════════════════════════ */
 html,body { margin:0; padding:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 body { background:#f3f5fa; color:#1b2440; }
 @media (prefers-color-scheme: dark) { body { background:#12141c; color:#e7eaf3; } }
 :root[data-theme="dark"] body { background:#12141c; color:#e7eaf3; }
 :root[data-theme="light"] body { background:#f3f5fa; color:#1b2440; }
-.page-wrap { max-width: 1500px; margin: 0 auto; padding: 28px 24px 60px; }
+.page-wrap { max-width: 1400px; margin: 0 auto; padding: 28px 24px 60px; }
 .page-wrap h1 { font-size: 22px; margin: 0 0 6px; }
-.page-wrap .lede { font-size: 13.5px; opacity: .65; margin: 0 0 20px; max-width: 900px; line-height:1.6; }
+.page-wrap .lede { font-size: 13.5px; opacity: .65; margin: 0 0 20px; max-width: 760px; line-height:1.6; }
 
+/* ════════════════════════════ .iarch — scope every diagram-engine style under this class ════════════════════════════
+   so it can be dropped into any host page (a docs site, an artifact, a wiki export) without colliding
+   with that page's own CSS. Only edit the --c-* palette below to reskin; don't rename the 7 semantic
+   role tokens (source/install/runtime/plat/hook/out/neutral) — the JS looks them up by these names in
+   three places (search for "{src:'source'" to find all three). */
 .iarch {
   --bg: #eef2f9;         --bg-stage: #f7faff;   --dot: #dbe3f3;
   --panel: #ffffff;      --ink: #1b2440;        --ink-2: #3f4a6e;   --ink-3: #8592b3;
@@ -21,18 +27,18 @@ body { background:#f3f5fa; color:#1b2440; }
   --radius: 14px;
   --shadow: 0 8px 26px rgba(30,50,90,.10);
 
-  --c-source: #3b6df6;  --c-source-bg: #e8effe;  --c-source-ln: #c5d8fb;
-  --c-install: #0e9aae; --c-install-bg: #e3f6f8; --c-install-ln: #b7e4ea;
-  --c-runtime: #b9820b; --c-runtime-bg: #fdf3dc; --c-runtime-ln: #f0dcac;
-  --c-plat: #7c5cff;    --c-plat-bg: #f0ebfe;    --c-plat-ln: #d5cbfb;
-  --c-hook: #d6469f;    --c-hook-bg: #fdeaf6;    --c-hook-ln: #f2c3e2;
-  --c-out: #12a06a;     --c-out-bg: #e5f6ee;     --c-out-ln: #bbe6d3;
-  --c-neutral: #54608a; --c-neutral-bg: #eef2fb; --c-neutral-ln: #d4ddec;
-  --c-danger: #e0405a;  --c-danger-bg: #fdeaea;  --c-danger-ln: #f5c2ca;
-  --c-success: #12a06a;
+  /* the 7 semantic roles — rename the hex values freely, keep the 3 vars per role */
+  --c-source: #3b6df6;  --c-source-bg: #e8effe;  --c-source-ln: #c5d8fb;   /* src  = frontend / input / entry point */
+  --c-install: #0e9aae; --c-install-bg: #e3f6f8; --c-install-ln: #b7e4ea; /* ins  = API / backend layer */
+  --c-runtime: #b9820b; --c-runtime-bg: #fdf3dc; --c-runtime-ln: #f0dcac; /* run  = execution / runtime core */
+  --c-plat: #7c5cff;    --c-plat-bg: #f0ebfe;    --c-plat-ln: #d5cbfb;    /* plat = data / storage / platform */
+  --c-hook: #d6469f;    --c-hook-bg: #fdeaf6;    --c-hook-ln: #f2c3e2;    /* hook = failure / side-effect / auth */
+  --c-out: #12a06a;     --c-out-bg: #e5f6ee;     --c-out-ln: #bbe6d3;     /* out  = external / terminal / success */
+  --c-neutral: #54608a; --c-neutral-bg: #eef2fb; --c-neutral-ln: #d4ddec;/* neu  = uncategorized */
+  --c-danger: #e0405a;  --c-success: #12a06a;
 
   position: relative; display: flex; flex-direction: column;
-  height: 84vh; min-height: 640px;
+  height: 82vh; min-height: 600px;
   border: 1px solid var(--line); border-radius: var(--radius);
   overflow: hidden; background: var(--panel); box-shadow: var(--shadow);
   color: var(--ink);
@@ -48,10 +54,10 @@ body { background:#f3f5fa; color:#1b2440; }
     --c-hook-bg:#33172a; --c-hook-ln:#492239;
     --c-out-bg:#132a20; --c-out-ln:#1c3d2e;
     --c-neutral-bg:#1e2233; --c-neutral-ln:#2c3149;
-    --c-danger-bg:#32161a; --c-danger-ln:#4a2129;
   }
 }
 
+/* ── tabs ── */
 .tabs { display:flex; gap:2px; padding:8px 12px 0; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--line); }
 .tabs::-webkit-scrollbar { display:none; }
 .tab { font:inherit; font-size:12px; font-weight:550; color:var(--ink-3); background:none; border:none; cursor:pointer;
@@ -61,6 +67,7 @@ body { background:#f3f5fa; color:#1b2440; }
 .tab kbd { font-family:inherit; font-size:9.5px; color:var(--ink-3); border:1px solid var(--line); border-radius:4px; padding:0 3px; margin-right:5px; background:var(--panel); }
 .tab.active kbd { color: var(--c-source); border-color: var(--c-source-ln); }
 
+/* ── stage ── */
 .iarch-main { flex:1; display:flex; min-height:0; }
 .stage-wrap { flex:1; position:relative; min-width:0; }
 .stage { position:absolute; inset:0; background-color:var(--bg-stage);
@@ -87,7 +94,8 @@ body { background:#f3f5fa; color:#1b2440; }
 .lg { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:550; color:var(--ink-2); }
 .lg i { width:10px; height:10px; border-radius:3px; display:inline-block; }
 
-.panel { width:400px; border-left:1px solid var(--line); background:var(--panel); padding:20px;
+/* ── detail panel (click-to-pin) ── */
+.panel { width:380px; border-left:1px solid var(--line); background:var(--panel); padding:20px;
   overflow-y:auto; display:none; flex-shrink:0; }
 .panel.open { display:block; }
 .panel .p-kicker { font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
@@ -110,7 +118,8 @@ body { background:#f3f5fa; color:#1b2440; }
 .p-item-name { font-size:12px; font-weight:650; color:var(--ink); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
 .p-item-desc { font-size:11.5px; color:var(--ink-3); line-height:1.4; margin-top:1px; }
 
-.tip { position:fixed; z-index:50; pointer-events:none; display:none; max-width:340px; background:var(--panel);
+/* ── tooltip (hover) ── */
+.tip { position:fixed; z-index:50; pointer-events:none; display:none; max-width:320px; background:var(--panel);
   color:var(--ink); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); padding:10px 12px;
   font-size:12px; line-height:1.55; }
 .tip .t-name { font-weight:700; font-size:12.5px; margin-bottom:2px; }
@@ -118,9 +127,9 @@ body { background:#f3f5fa; color:#1b2440; }
 .tip .t-desc { color: var(--ink-2); }
 .tip .t-more { color: var(--ink-3); font-size:10.5px; margin-top:6px; }
 
+/* ── svg pieces ── */
 .grp-rect { fill: var(--panel); stroke: var(--line); stroke-width:1; rx:14; opacity:.55; }
 .grp-label { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
-.grp-sub { font-size:10.5px; font-weight:550; fill: var(--ink-3); }
 
 .node { cursor:pointer; }
 .node rect { stroke-width:1.25; filter: drop-shadow(0 1px 1.5px rgba(20,24,32,.13)); transition: filter .15s; }
@@ -137,7 +146,6 @@ body { background:#f3f5fa; color:#1b2440; }
 .hook rect { fill: var(--c-hook-bg);    stroke: var(--c-hook-ln); }
 .out rect  { fill: var(--c-out-bg);     stroke: var(--c-out-ln); }
 .neu rect  { fill: var(--c-neutral-bg); stroke: var(--c-neutral-ln); }
-.danger rect { fill: var(--c-danger-bg); stroke: var(--c-danger-ln); }
 
 .edge { fill:none; stroke: var(--edge); stroke-width:1.6; }
 .edge.flow { stroke-dasharray:7 5; animation: dash 1.1s linear infinite; }
@@ -152,18 +160,12 @@ body { background:#f3f5fa; color:#1b2440; }
 .e-label.success { fill: var(--c-success); }
 
 @media (max-width: 900px) { .panel { display:none !important; } .iarch-legend { display:none; } }
-
-.back-btn { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--ink-2, #3f4a6e);
-  text-decoration:none; background:var(--panel, #fff); border:1px solid var(--line, #e4e9f3); border-radius:20px;
-  padding:6px 13px 6px 11px; margin-bottom:14px; transition:background .12s, color .12s; }
-.back-btn:hover { color:#3b6df6; border-color:#c5d8fb; }
 </style>
 </head>
 <body>
 <div class="page-wrap">
-    <a class="back-btn" href="./index.html">&larr; Diagram Library</a>
-  <h1>VELOCITY-AI — Eval Framework</h1>
-  <p class="lede">How <code>backend/tests/evals/</code> is structured, how a run actually moves through it (offline and live), and the full trace of one real defect investigation — from a duplicated-document rendering bug, through a 10-issue fixture and its checker, to two real live-model runs (1 PASS, 1 MISS) and the prompt fixes their failure modes point to. Scroll to zoom, drag to pan, click a box for sourced detail. Press 1–6 to switch views.</p>
+  <h1>Eval Framework — how VELOCITY checks its own agents</h1>
+  <p class="lede">Two systems ask two different questions about the agents: <strong>hybrid</strong> asks “did it run correctly?” and answers with code, for free. <strong>Grading</strong> asks “is the output any good?” and answers with a model’s opinion, for tokens. Start on tab 1. <br><span style="opacity:.75">Scroll to zoom · drag to pan · click any box for detail · keys 1–4 switch views.</span></p>
 
   <div class="iarch">
     <div class="tabs" id="tabs"></div>
@@ -191,7 +193,7 @@ body { background:#f3f5fa; color:#1b2440; }
             <button class="zbtn" id="z-in" title="Zoom in (+)">+</button>
             <button class="zbtn" id="z-fit" title="Fit to screen (0)" style="font-size:12px">⤢</button>
           </div>
-          <div class="hint" id="hint">scroll to zoom · drag to pan · click a box to pin details · keys 1–6 switch views</div>
+          <div class="hint" id="hint">scroll to zoom · drag to pan · click a box to pin details · keys 1–9 switch views</div>
           <div class="iarch-legend" id="legend"></div>
         </div>
       </div>
@@ -207,487 +209,235 @@ body { background:#f3f5fa; color:#1b2440; }
 <script>
 'use strict';
 
+/* ═══════════════════════ EDIT BELOW: your diagram data ═══════════════════════
+   node:  [id, colorClass, x, y, w, h, title, subLines[], info{k,p,d,list?}]
+   edge:  [fromId, fromSide, toId, toSide, edgeClasses, label]
+   group: [id, x, y, w, h, label, colorClass]
+   colorClass ∈ src|ins|run|plat|hook|out|neu — the 7 semantic roles defined in the CSS above.
+   fromSide/toSide ∈ l|r|t|b, optionally 'side:0.0-1.0' to offset along that edge.
+   edgeClasses: space-separated subset of flow|dashed|thick|danger|success (or '' for a plain solid line).
+   This ONE example diagram below is a placeholder — replace nodes/edges/groups with the real domain,
+   and add more entries to DIAGRAMS for additional tabbed views. Everything after this data block is
+   generic rendering/interaction engine — leave it alone unless changing interaction behavior itself. */
 const DIAGRAMS = [
-  /* ══════════════════════════ 1. FRAMEWORK ARCHITECTURE ══════════════════════════ */
+  /* ─────────────────────────── 1 · Start here ─────────────────────────── */
   {
-    id: 'architecture', tab: 'Framework Architecture', title: 'backend/tests/evals/ — folder layout and who imports whom',
-    w: 1560, h: 800,
-    legend: [
-      ['hook','Entry points & harness gate'], ['src','common/ — shared framework code'],
-      ['ins','engine/ — pipeline-agnostic tests'], ['run','workflow/prototype/revision/ — pipeline-specific'],
-    ],
+    id: 'overview', tab: 'Start here', title: 'Two systems, two different questions',
+    w: 1240, h: 620,
+    legend: [['src','You'], ['ins','Hybrid — code decides'], ['plat','Grading — a model decides'],
+             ['hook','Costs tokens / is an opinion'], ['out','Free / definite answer']],
     groups: [
-      ['g1', 20,  40, 330, 740, 'Entry points — backend/', 'hook'],
-      ['g2', 370, 40, 330, 740, 'tests/evals/common/', 'src'],
-      ['g3', 720, 40, 330, 740, 'tests/evals/engine/', 'ins'],
-      ['g4', 1070,40, 470, 740, 'tests/evals/workflow/prototype/revision/', 'run'],
+      ['gA',  40, 165, 560, 400, 'Hybrid  ·  "did it run correctly?"', 'ins'],
+      ['gB', 660, 165, 540, 400, 'Grading  ·  "is the output any good?"', 'plat'],
     ],
     nodes: [
-      // Column A — entry points
-      ['a1','hook', 40, 86, 290, 68, 'run-eval.sh', ['single CLI surface', 'offline by default'],
-        { k:'Entry point', p:'backend/run-eval.sh',
-          d:'The only way this eval suite is meant to be run. A bash case statement routing to pytest or one of 3 Python utility scripts — every live/real-model path requires an explicit --live flag or the benchmark command name; nothing spends tokens by accident.' }],
-      ['a2','hook', 40, 174, 290, 74, 'conftest.py (root)', ['runs_root fixture', '_hermetic_db (autouse, session)'],
-        { k:'Suite-wide fixtures', p:'backend/tests/evals/conftest.py',
-          d:'runs_root points settings.RUNS_ROOT at a temp dir (the shipped default /app/runs isn\'t writable locally). _hermetic_db swaps app.models.database\'s engine/SessionLocal for an in-memory SQLite StaticPool once per session, so every persistence call in the pipeline degrades gracefully instead of hitting a real Postgres URL — this is what makes the WHOLE suite offline by default.' }],
-      ['a3','hook', 40, 262, 290, 68, 'test_hello_world.py', ['Phase-0 harness gate', '4 tests, 0 tokens'],
-        { k:'Harness gate', p:'backend/tests/evals/test_hello_world.py',
-          d:'Proves the plumbing works before any real test is built on it: package imports resolve, compile_for_run("prototype_revision") compiles, one scripted-model turn streams text+usage end to end, and runs_root lets a real RunSandbox write/read a file locally.' }],
-      ['a4','hook', 40, 350, 290, 68, 'validate_scenario.py', ['0-token scenario sanity check'],
-        { k:'CLI utility', p:'backend/tests/evals/validate_scenario.py',
-          d:'./run-eval.sh <id> without --live runs this. Loads the scenario, then asserts its checker correctly reports the RAW fixture as UNMET — a scenario whose checker already passes on the untouched fixture can never demonstrate a real fix, so this catches a broken fixture/checker before any token is spent.' }],
-      ['a5','hook', 40, 438, 290, 68, 'live_benchmark.py', ['N-sample live runner', 'reports a pass RATE'],
-        { k:'CLI utility', p:'backend/tests/evals/live_benchmark.py',
-          d:'./run-eval.sh <id> --live (N=1) and ./run-eval.sh benchmark ... (N=configurable) both route here. Runs the SAME production driver N times sequentially and aggregates pass/miss/error into a rate, since one Haiku roll proves little about reliability on its own.' }],
-      ['a6','hook', 40, 526, 290, 68, 'dump_prompts.py', ['prompt-dump utility', '0 tokens'],
-        { k:'CLI utility', p:'backend/tests/evals/dump_prompts.py',
-          d:'./run-eval.sh prompts writes the fully composed system prompts (both revision agents) plus the runtime dispatch message to .investigations/.../prompt-dumps/ — "what does Haiku actually see," readable before spending a live token.' }],
+      ['you','src', 460, 50, 320, 66, 'You changed something', ['a prompt, or the code'],
+        { k:'Where it starts', p:'',
+          d:'Both systems exist to answer a question about a change you just made. They are not two versions of the same tool — they answer different questions, and a healthy workflow uses both.' }],
 
-      // Column B — common/
-      ['b1','src', 400, 86, 290, 76, 'live_scenario.py', ['LiveScenario dataclass', 'load_scenario_yaml() · run_live_scenario_once()'],
-        { k:'common/ — framework', p:'backend/tests/evals/common/live_scenario.py',
-          d:'The single-turn live driver: loads one scenario YAML into a LiveScenario, then drives ONE agent turn directly via create_runner — not a full pipeline. Deliberate scope choice: isolates "does the current prompt get the model to do the right thing," independent of any downstream fix-loop.' }],
-      ['b2','src', 400, 202, 290, 76, 'scenario_discovery.py', ['discover_all_scenarios()', 'discover_scenarios_in()'],
-        { k:'common/ — framework', p:'backend/tests/evals/common/scenario_discovery.py',
-          d:'Globs every workflow/<domain>/<variant>/scenarios/*.yaml, dynamically imports each phase folder\'s checkers.py (must expose CHECKERS: dict), and merges into one flat, globally-unique-id-checked registry. A second pipeline plugs in automatically — nothing here needs editing.' }],
-      ['b3','src', 400, 318, 290, 68, 'compile_helpers.py', ['compile_pipeline()', 'assert_step_capabilities() (_UNSET sentinel)'],
-        { k:'common/ — framework', p:'backend/tests/evals/common/compile_helpers.py',
-          d:'Reusable "pin compile_for_run(<id>)\'s shape" assertion helpers. assert_step_capabilities uses an _UNSET sentinel (not None) to distinguish "skip this check" from "assert the field IS None" — a real bug found and fixed while building this.' }],
-      ['b4','src', 400, 406, 290, 68, 'validation_helpers.py', ['make_static_result() / make_render_result()', 'select_issues_to_fix()'],
-        { k:'common/ — framework', p:'backend/tests/evals/common/validation_helpers.py',
-          d:'Stub-result factories plus a thin wrapper around the ENGINE\'s real _select_issues_to_fix — confirmed shared with the build residual path, so this is genuinely cross-pipeline, not just DRY.' }],
-      ['b5','src', 400, 494, 290, 68, 'fix_loop_capture.py', ['CapturedRunnerFactory', 'patch_fix_loop_seams()'],
-        { k:'common/ — framework', p:'backend/tests/evals/common/fix_loop_capture.py',
-          d:'Records create_runner calls (agent_id, thread_id, dispatched message) instead of calling a real model, patching create_runner + static_check + render_check in one call. Generic to any pipeline\'s fix-loop LLM boundary, build or revision.' }],
-      ['b6','src', 400, 582, 290, 62, '__init__.py — conventions', ['workflow/<domain>/<variant> nesting rule', 'extract only after 2 real examples'],
-        { k:'common/ — framework', p:'backend/tests/evals/common/__init__.py',
-          d:'Documents the folder-nesting convention scenario_discovery\'s glob depends on, and the YAGNI rule this framework was built under: don\'t extract a common/ helper until a SECOND real consumer needs the same shape.' }],
+      ['h1','ins',  80, 220, 240, 66, 'Run the checks', ['./evals/hybrid/eval.sh'],
+        { k:'Hybrid', p:'backend/evals/hybrid/eval.sh',
+          d:'One command. Offline by default — it uses a scripted stand-in model, so it talks to no one and costs nothing. You have to add --live before it will ever reach a real model.' }],
+      ['h2','ins', 360, 220, 210, 66, 'Rules written in code', ['same answer every time'],
+        { k:'How it judges', p:'backend/evals/hybrid/workflow/prototype/revision/checkers.py',
+          d:'The verdict comes from ordinary Python. "Does the Save button have a working handler?" is a fact you can check by reading the HTML — no model needed, no calibration, no drift. Ten such checks make up the multi-issue scenario.' }],
+      ['h3','out',  80, 325, 240, 66, 'PASS or FAIL', ['and which bug failed'],
+        { k:'What you get', p:'',
+          d:'A binary answer, plus the name of the specific thing that broke — e.g. "Save button has no working handler". Precise enough to act on immediately.' }],
+      ['h4','out', 360, 325, 210, 66, 'Free and fast', ['~2 seconds'],
+        { k:'Cost', p:'',
+          d:'39 offline tests run in about two seconds and spend nothing, which is what makes it safe to run on every change.' }],
+      ['h5','neu',  80, 435, 490, 60, 'Run it: every time you change anything', [],
+        { k:'When to use it', p:'',
+          d:'This is the regression gate. If it goes red, something that used to work is now broken.' }],
 
-      // Column C — engine/
-      ['c1','ins', 750, 86, 290, 74, 'test_api_entry_seam.py', ['3 tests', '_drive_launch_to_queue'],
-        { k:'engine/ — pipeline-agnostic', p:'backend/tests/evals/engine/test_api_entry_seam.py',
-          d:'Drives app/api/run_commands.py::_drive_launch_to_queue directly (a kwargs-recorder stub, no common/ helper needed) — the generic REST/SSE launch driver every pipeline_type passes through unchanged. Grep-verified pipeline-agnostic, not assumed.' }],
-      ['c2','ins', 750, 202, 290, 74, 'test_previous_run_context_seed.py', ['4 tests', 'PreviousRunProvider'],
-        { k:'engine/ — pipeline-agnostic', p:'backend/tests/evals/engine/test_previous_run_context_seed.py',
-          d:'Drives agents/capabilities/context_providers/previous_run.py directly — "Workflow-agnostic" per its own module docstring, wired into 5 pipelines\' manifests (app_builder_revision, od_ppt_revision, prototype_revision, ppt_revision, user_stories_revision).' }],
-      ['c3','ins', 750, 318, 290, 62, '__init__.py — why here, not nested', ['grep -rl <thing> workflow.yaml', 'never assumed'],
-        { k:'engine/ — pipeline-agnostic', p:'backend/tests/evals/engine/__init__.py',
-          d:'A test only lands in engine/ once grep against agents/workflows/*/workflow.yaml confirms multiple pipelines actually reference the mechanism — the rule that kept L2/L4/L5/L6-style tests (genuinely prototype_revision-specific) OUT of this folder.' }],
-
-      // Column D — workflow/prototype/revision/
-      ['d1','run', 1090, 86, 410, 68, 'checkers.py', ['pass/fail LOGIC for live scenarios', 'CHECKERS: dict registry'],
-        { k:'workflow/prototype/revision/', p:'backend/tests/evals/workflow/prototype/revision/checkers.py',
-          d:'Regex-based checks over the delivered final HTML — the ONLY code in this phase folder that has to be code; everything else about a scenario is data in its YAML. Currently one entry: prototype_multi_issue_repair, an aggregator of 10 sub-checks (see tab 6).' }],
-      ['d2','run', 1090, 174, 410, 60, 'conftest.py (phase-local)', ['FIXTURES_DIR = ./fixtures'],
-        { k:'workflow/prototype/revision/', p:'backend/tests/evals/workflow/prototype/revision/conftest.py',
-          d:'Phase-local, not suite-wide — a future workflow/<domain>/<variant>/ phase defines its own FIXTURES_DIR here instead of sharing one.' }],
-      ['d3','run', 1090, 254, 410, 60, 'scenarios/*.yaml', ['prototype_multi_issue_repair.yaml', '_TEMPLATE.yaml (skipped by loader)'],
-        { k:'workflow/prototype/revision/', p:'backend/tests/evals/workflow/prototype/revision/scenarios/',
-          d:'A scenario is pure DATA wherever possible: id, agent_id, instruction, input.html/design_md paths, output filename, checker name, benchmark.expensive/default_n. Files starting with _ are skipped by the loader.' }],
-      ['d4','run', 1090, 334, 410, 60, 'fixtures/*.html', ['prototype_multi_issue_repair.html (~205 lines)'],
-        { k:'workflow/prototype/revision/', p:'backend/tests/evals/workflow/prototype/revision/fixtures/',
-          d:'The raw, deliberately-broken prototype HTML a scenario feeds the agent — zero explanatory comments (an earlier version leaked a "BUG N:" comment answer key into the file the model reads; stripped once caught).' }],
-      ['d5','run', 1090, 414, 410, 68, 'test_live.py', ['1 generic parametrized test', 'requires_api_key marker'],
-        { k:'workflow/prototype/revision/', p:'backend/tests/evals/workflow/prototype/revision/test_live.py',
-          d:'One test per scenario YAML discovered in this folder\'s scenarios/ — adding a new scenario gets test coverage automatically, no new Python file. Copy this file verbatim for a new pipeline\'s phase; only the checkers import line changes.' }],
-      ['d6','run', 1090, 502, 410, 90, 'Offline "layer" tests (4 files, 13 tests)', ['manifest shape · post-step · selection · LLM boundary'],
-        { k:'workflow/prototype/revision/', p:'backend/tests/evals/workflow/prototype/revision/test_*.py',
-          d:'Pin the prototype_revision pipeline\'s exact compiled shape and its fix-loop mechanics — see tab 3 for the full breakdown against common/\'s helpers.',
-          list: [
-            {n:'test_prototype_revision_manifest_shape.py',d:'5 tests · compile_for_run() shape, via compile_helpers.py'},
-            {n:'test_revision_validation_post_step_dispatches_fix_loop.py',d:'3 tests · ctx.runner spy, stubs kept local'},
-            {n:'test_issue_selection_ignores_instruction.py',d:'3 tests · root-cause statement, via validation_helpers.py'},
-            {n:'test_fix_loop_prompt_assembly_before_model_call.py',d:'2 tests · LLM boundary, via fix_loop_capture.py'},
-          ] }],
-      ['d7','run', 1090, 622, 410, 68, 'test_prompt_composition.py', ['11 tests', 'real prompt-composition path, 0 tokens'],
-        { k:'workflow/prototype/revision/', p:'backend/tests/evals/workflow/prototype/revision/test_prompt_composition.py',
-          d:'Asserts against the REAL agents.factory._compose_system_prompt what the model would actually receive — right agents/tools, guardrail injected verbatim, AGENT.md body verbatim, dispatch message slimmed to instruction + file pointer.' }],
+      ['g1','plat', 700, 220, 240, 66, 'Run the grading', ['./evals/grading/grade.sh'],
+        { k:'Grading', p:'backend/evals/grading/grade.sh',
+          d:'Also one command — but everything that dispatches here is LIVE, because running real agents is the whole point. It prints what it is about to spend before it spends it, and --dry-run stops right there.' }],
+      ['g2','hook', 980, 220, 200, 66, 'A model judges it', ['an opinion, not a fact'],
+        { k:'How it judges', p:'backend/evals/grading/judge.py',
+          d:'A second AI model reads the output and scores it. This is an opinion: it can drift, it needs a baseline to interpret, and two runs of the same input will differ. That is a real cost — and the only way to answer "is this writing any good?", which no fixed rule can.' }],
+      ['g3','plat', 700, 325, 240, 66, 'A score out of 100', ['broken down by quality'],
+        { k:'What you get', p:'backend/evals/grading/scoring.py',
+          d:'Not one number but several — each quality dimension scored separately, so the result points at which paragraph to rewrite rather than just saying "78".' }],
+      ['g4','hook', 980, 325, 200, 66, 'Costs tokens', ['minutes per run'],
+        { k:'Cost', p:'',
+          d:'A full judged run is 23 model calls and takes minutes. This is why it is a deliberate, scheduled activity rather than something that runs on every save.' }],
+      ['g5','neu', 700, 435, 480, 60, 'Run it: when you are improving a prompt', [],
+        { k:'When to use it', p:'',
+          d:'This is the improvement loop: score, edit the prompt, score again, and see whether the number really moved.' }],
     ],
     edges: [
-      ['a1','r','a3','l','flow', 'hello'],
-      ['a1','r','a4','l','flow', 'default'],
-      ['a1','r','a5','l','flow', '--live / benchmark'],
-      ['a1','r','a6','l','flow', 'prompts'],
-      ['a1','b:0.9','d6','l:0.15','flow thick', ''],
-      ['a4','r','b2','l','flow', 'discover_all_scenarios()'],
-      ['a5','r','b2','l:0.7','flow', 'discover_all_scenarios()'],
-      ['b2','b','b1','t', 'dashed', 'load_scenario_yaml()'],
-      ['b2','r','d1','l:0.15','dashed', 'dynamic import CHECKERS'],
-      ['b1','r','d3','l:0.5','dashed', 'reads scenario YAML'],
-      ['b1','r','d1','l:0.85','flow', 'scenario.checker(final_html)'],
-      ['d5','l:0.3','b2','r:0.85','dashed', 'discover_scenarios_in()'],
-      ['d5','l:0.7','b1','r','flow', 'run_live_scenario_once()'],
-      ['d6','l','b3','r','dashed', ''],
-      ['d6','l:0.5','b4','r','dashed', ''],
-      ['d6','l:0.8','b5','r','dashed', ''],
-      ['a1','r:0.85','c1','l','flow', ''],
+      ['you','b:0.25','h1','t','flow thick','is it still working?'],
+      ['you','b:0.75','g1','t','flow thick','is it any good?'],
+      ['h1','r','h2','l','flow','judged by'],
+      ['h1','b','h3','t','flow','result'],
+      ['h2','b','h4','t','',''],
+      ['g1','r','g2','l','flow','judged by'],
+      ['g1','b','g3','t','flow','result'],
+      ['g2','b','g4','t','',''],
     ],
   },
 
-  /* ══════════════════════════ 2. RUN-EVAL.SH COMMAND ROUTING ══════════════════════════ */
+  /* ─────────────────────── 2 · Hybrid step by step ─────────────────────── */
   {
-    id: 'routing', tab: 'run-eval.sh Command Routing', title: 'Every subcommand and exactly what it execs',
-    w: 1560, h: 780,
-    legend: [['hook','run-eval.sh branch'], ['run','What it execs'], ['out','Live/real-model (token-spending)']],
+    id: 'hybrid', tab: 'Hybrid, step by step', title: 'How a hybrid check actually runs',
+    w: 1260, h: 660,
+    legend: [['src','The command'], ['out','Free path (default)'], ['hook','Live path (--live)'],
+             ['ins','Code checks'], ['plat','Repeat sampling']],
     groups: [
-      ['g1', 20, 40, 420, 700, 'run-eval.sh — case "${1:-all}" in', 'hook'],
-      ['g2', 480, 40, 1060, 700, 'Target', 'run'],
+      ['gf',  40, 160, 560, 250, 'Default  ·  free, no model, no network', 'out'],
+      ['gl', 650, 160, 560, 420, 'Only with --live  ·  spends tokens', 'hook'],
     ],
     nodes: [
-      ['r1','hook', 40, 86, 360, 62, 'all  (default, no args)', [],
-        { k:'Branch', p:'backend/run-eval.sh', d:'./run-eval.sh with no args or "all". Strips --live from the args first via _strip_live().' }],
-      ['r2','hook', 40, 168, 360, 62, '--live  (bare)', [],
-        { k:'Branch', p:'backend/run-eval.sh', d:'./run-eval.sh --live alone — same as "all --live", handled here since the case would otherwise fall to the default scenario-shortcut branch.' }],
-      ['r3','hook', 40, 250, 360, 52, 'hello', [],
-        { k:'Branch', p:'backend/run-eval.sh', d:'Phase-0 harness gate only.' }],
-      ['r4','hook', 40, 322, 360, 52, 'layers', [],
-        { k:'Branch', p:'backend/run-eval.sh', d:'engine/ + workflow/prototype/revision/ layer tests, explicitly listed by path (6 files).' }],
-      ['r5','hook', 40, 394, 360, 52, 'prompts', [],
-        { k:'Branch', p:'backend/run-eval.sh', d:'Dump composed prompts + dispatch message. 0 tokens.' }],
-      ['r6','hook', 40, 466, 360, 62, 'phase <path> [--live]', [],
-        { k:'Branch', p:'backend/run-eval.sh', d:'One phase folder, e.g. "phase prototype/revision". --live includes its requires_api_key tests too.' }],
-      ['r7','hook', 40, 548, 360, 62, 'benchmark [id|cheap|all] [N]', [],
-        { k:'Branch', p:'backend/run-eval.sh', d:'Repeated live sampling. No --live needed — benchmark is inherently live. Default: cheap (every non-expensive scenario), N=10.' }],
-      ['r8','hook', 40, 630, 360, 76, '<scenario-id>[.yaml] [--live]  (default case)', ['0-token by default, --live required to spend tokens'],
-        { k:'Branch', p:'backend/run-eval.sh', d:'Globs workflow/*/*/scenarios/*.yaml for a match. Without --live: validate_scenario.py. With --live: live_benchmark.py --n 1. Anything else falls through to a plain pytest passthrough.' }],
+      ['cli','src', 460, 50, 320, 66, './evals/hybrid/eval.sh', ['offline unless you type --live'],
+        { k:'Entry point', p:'backend/evals/hybrid/eval.sh',
+          d:'The suite’s own CLI. --live is a universal flag, never a command name and never implicit, so a bare command can never reach a real model by accident.' }],
 
-      ['t1','run', 540, 86, 400, 62, 'pytest tests/evals -m "eval and not requires_api_key"', [],
-        { k:'Target', p:'backend/tests/evals/', d:'Full offline suite — 35 tests as of this build (see tab 3 for the breakdown).' }],
-      ['t2','out', 980, 86, 500, 62, 'pytest tests/evals -m eval  (includes requires_api_key)', [],
-        { k:'Target — LIVE', p:'backend/tests/evals/', d:'Same suite, but the requires_api_key-marked parametrized test_live_scenario cases run too — one per discovered scenario.' }],
-      ['t3','run', 540, 168, 400, 52, 'pytest test_hello_world.py -m eval', [],
-        { k:'Target', p:'backend/tests/evals/test_hello_world.py', d:'4 tests.' }],
-      ['t4','run', 540, 250, 400, 62, '6 layer-test files -m eval', [],
-        { k:'Target', p:'backend/tests/evals/engine/ + workflow/prototype/revision/', d:'engine/test_api_entry_seam.py, engine/test_previous_run_context_seed.py, and the 4 workflow/prototype/revision/ layer tests.' }],
-      ['t5','run', 540, 322, 400, 52, 'python -m tests.evals.dump_prompts', [],
-        { k:'Target', p:'backend/tests/evals/dump_prompts.py', d:'Writes to .investigations/revision-pipeline-thinking-issue/prompt-dumps/.' }],
-      ['t6','run', 540, 394, 400, 62, 'pytest "tests/evals/workflow/<path>"', [],
-        { k:'Target', p:'backend/tests/evals/workflow/', d:'-m eval (with --live) or -m "eval and not requires_api_key" (without).' }],
-      ['t7','out', 980, 394, 500, 62, 'python -m tests.evals.live_benchmark --scenario X --n N', [],
-        { k:'Target — LIVE', p:'backend/tests/evals/live_benchmark.py', d:'N sequential real-model runs; prints a pass rate and per-run miss/error detail.' }],
-      ['t8','run', 540, 476, 400, 52, 'python -m tests.evals.validate_scenario <id>', [],
-        { k:'Target', p:'backend/tests/evals/validate_scenario.py', d:'0 tokens, never calls a model.' }],
-      ['t9','out', 980, 476, 500, 52, 'python -m tests.evals.live_benchmark --scenario <id> --n 1', [],
-        { k:'Target — LIVE', p:'backend/tests/evals/live_benchmark.py', d:'A single real-model run of exactly one scenario.' }],
+      ['t1','ins',  70, 215, 240, 62, 'Machinery tests', ['39 of them'],
+        { k:'Free', p:'backend/evals/hybrid/workflow/ · engine/',
+          d:'Checks that the pipeline is wired the way it claims: the manifest matches the real agent list, the prompt carries its contract, the engine hands off correctly. A scripted stand-in model replaces the real one, so these are deterministic.' }],
+      ['t2','ins', 340, 215, 230, 62, 'Scenario sanity check', ['is the checker honest?'],
+        { k:'Free', p:'backend/evals/hybrid/validate_scenario.py',
+          d:'A neat trick: it runs the checker against the BROKEN starting file and insists the checker reports failure. A check that passes on unfixed input can never prove a fix — this catches that before you spend a penny.' }],
+      ['t3','out',  70, 315, 500, 62, 'Answer in about 2 seconds', ['costs nothing'],
+        { k:'Result', p:'',
+          d:'Green means nothing regressed. This is the gate you run constantly.' }],
+
+      ['l1','hook', 680, 215, 240, 62, 'A real model does the work', ['the actual agent'],
+        { k:'Live', p:'backend/evals/hybrid/common/live_scenario.py:275',
+          d:'Calls create_runner — the very same entry point production uses — so what is measured is the real prompt and the real agent, not a copy that might have drifted.' }],
+      ['l2','hook', 950, 215, 230, 62, 'It edits the page', ['prototype.html'],
+        { k:'Live', p:'',
+          d:'The agent is handed a deliberately broken prototype with 10 known bugs and one instruction listing all of them, then told to fix it.' }],
+      ['l3','ins', 680, 320, 500, 62, 'Code inspects what came back', ['10 named checks, no model'],
+        { k:'The verdict', p:'backend/evals/hybrid/workflow/prototype/revision/checkers.py',
+          d:'Each bug has its own check: is there a Reports page in the nav AND a matching section AND a route? Because these are facts, the verdict is free, instant, and identical every time.' }],
+      ['l4','out', 680, 425, 240, 62, 'PASS or MISS', ['names the bug that failed'],
+        { k:'Result', p:'',
+          d:'Not a score — a list. "Bug 7 is still broken" is something you can act on directly.' }],
+      ['l5','plat', 950, 425, 230, 62, 'Or repeat it N times', ['a pass RATE'],
+        { k:'Benchmark', p:'backend/evals/hybrid/live_benchmark.py',
+          d:'One run of a probabilistic model proves very little. Running the same scenario N times turns "it passed" into "it passes 7 times out of 10", which is the number that actually tells you whether a prompt is reliable.' }],
+      ['note','neu', 680, 510, 500, 52, 'Infrastructure errors are excluded from the rate', [],
+        { k:'Honest measurement', p:'backend/evals/hybrid/live_benchmark.py',
+          d:'An expired token is not the prompt’s fault. Those runs are reported separately instead of quietly dragging the pass rate down.' }],
     ],
     edges: [
-      ['r1','r','t1','l','flow', 'no --live'],
-      ['r1','r','t2','l','flow thick', '--live'],
-      ['r2','r','t2','l:0.7','flow thick', ''],
-      ['r3','r','t3','l','flow', ''],
-      ['r4','r','t4','l','flow', ''],
-      ['r5','r','t5','l','flow', ''],
-      ['r6','r','t6','l','flow', ''],
-      ['r7','r','t7','l','flow thick', ''],
-      ['r8','r','t8','l','flow', 'no --live'],
-      ['r8','r','t9','l','flow thick', '--live'],
+      ['cli','b:0.25','t1','t','flow thick','default'],
+      ['cli','b:0.75','l1','t','flow thick','--live'],
+      ['t1','b','t3','t','flow',''],
+      ['t2','b','t3','t','flow',''],
+      ['l1','r','l2','l','flow',''],
+      ['l2','b','l3','t:0.75','flow','the result'],
+      ['l3','b','l4','t','flow','verdict'],
+      ['l4','r','l5','l','dashed','or'],
     ],
   },
 
-  /* ══════════════════════════ 3. OFFLINE TEST EXECUTION ══════════════════════════ */
+  /* ────────────────────── 3 · Grading step by step ────────────────────── */
   {
-    id: 'offline', tab: 'Offline Test Execution', title: '35 tests, 0 tokens, no network — what each one actually drives',
-    w: 1560, h: 700,
-    legend: [['hook','Trigger & fixtures'], ['ins','engine/ — hits production directly'], ['src','common/ helper used'], ['run','workflow/prototype/revision/ test file'], ['out','Terminal — deterministic pass/fail']],
+    id: 'grading', tab: 'Grading, step by step', title: 'How one row becomes a score',
+    w: 1340, h: 640,
+    legend: [['src','The command'], ['ins','Free steps'], ['run','Per row'],
+             ['hook','Costs tokens'], ['out','What you read afterwards']],
     groups: [
-      ['g1', 20,   40, 280, 620, 'Trigger', 'hook'],
-      ['g2', 330,  40, 340, 620, 'engine/ (7 tests)', 'ins'],
-      ['g3', 700,  40, 400, 620, 'workflow/prototype/revision/ layer tests (13 tests)', 'run'],
-      ['g4', 1130, 40, 410, 620, 'harness + prompt surface (15 tests)', 'run'],
+      ['gr', 380, 40, 560, 560, 'Repeated for every row in the dataset', 'run'],
     ],
     nodes: [
-      ['o1','hook', 40, 90, 240, 90, 'pytest -m "eval and\nnot requires_api_key"', ['triggered by run-eval.sh', 'or a direct pytest invocation'],
-        { k:'Trigger', p:'backend/tests/evals/', d:'The marker expression every offline path uses. requires_api_key-marked tests (the one live parametrized test) are excluded automatically.' }],
-      ['o2','hook', 40, 220, 240, 90, 'conftest.py fixtures', ['_hermetic_db (autouse)', 'runs_root'],
-        { k:'Trigger', p:'backend/tests/evals/conftest.py', d:'Runs once per session before any test: in-memory SQLite swap-in + a writable RunSandbox root. This is what makes every downstream test hermetic.' }],
+      ['gcli','src',  40,  60, 280, 66, './evals/grading/grade.sh', ['plan first, then run'],
+        { k:'Entry point', p:'backend/evals/grading/grade.sh',
+          d:'Always live. Three things protect you: it prints its blast radius before spending, `plan` stops right there having dispatched nothing, and the judge is checked before the first real call.' }],
+      ['cfg','ins',   40, 190, 280, 66, 'A config file', ['which rows, agents, models'],
+        { k:'Reproducible input', p:'backend/evals/grading/configs/',
+          d:'Everything that changes the outcome lives in a file rather than a flag you have to remember — so a run can be repeated later, and two runs can be compared with only the prompt different.' }],
+      ['ds','plat',   40, 320, 280, 66, 'A dataset of briefs', ['12 realistic app ideas'],
+        { k:'Input data', p:'backend/evals/grading/model/workflows/prototype/datasets/',
+          d:'11 real briefs across different industries plus 1 deliberately bad one, so the eval can prove it still catches something genuinely poor.' }],
 
-      ['e1','ins', 360, 90, 280, 76, 'test_api_entry_seam.py', ['3 tests'],
-        { k:'engine/', p:'backend/tests/evals/engine/test_api_entry_seam.py',
-          d:'Drives app/api/run_commands.py::_drive_launch_to_queue with a kwargs-recorder in place of the real engine. Asserts the framed revision request, parent_run_id, and pipeline_type all thread through UNCHANGED.' }],
-      ['e2','ins', 360, 200, 280, 76, 'test_previous_run_context_seed.py', ['4 async tests'],
-        { k:'engine/', p:'backend/tests/evals/engine/test_previous_run_context_seed.py',
-          d:'Drives PreviousRunProvider with a stub runner/sandbox (no kernel). Asserts revision_original_html, artifact seeding, revision_instruction extraction, message slimming, and parent-file seeding — no common/ helper needed, self-contained.' }],
-      ['e3','out', 360, 480, 280, 60, 'Terminal: production module\nbehavior pinned', [],
-        { k:'Terminal', p:'', d:'These two files exercise real production modules directly — no scripted model, no HTTP, pure Python assertions.' }],
+      ['s1','run',   410, 100, 250, 62, '1. Build the prompt', [],
+        { k:'Step 1', p:'backend/evals/grading/stage_input.py',
+          d:'Assembles the exact input this agent will see for this row. Pure logic — no network, no model — which makes it fast to test and hard to break silently.' }],
+      ['s2','hook',  410, 195, 250, 62, '2. Run the real agent', ['costs tokens'],
+        { k:'Step 2', p:'backend/evals/grading/dispatch.py:121',
+          d:'Dispatches through create_runner, the same entry point production uses, and returns the prompt it ACTUALLY sent. The old branch re-guessed the prompt afterwards and ended up grading text the agent never saw.' }],
+      ['s3','ins',   410, 290, 250, 62, '3. Quick free check', ['obvious problems only'],
+        { k:'Step 3', p:'backend/evals/grading/precheck.py',
+          d:'A cheap gate before paying for a judge: is the output wrapped correctly, is it missing required sections. It deliberately checks only what is unambiguous — an earlier version rejected 7 perfectly good specs because it matched the word "placeholder" inside ordinary form text.' }],
+      ['s4','hook',  410, 385, 250, 62, '4. A model grades it', ['0–100 per dimension'],
+        { k:'Step 4', p:'backend/evals/grading/judge.py',
+          d:'The judge scores each quality dimension separately and quotes evidence for each. Separate scores are what make the result actionable — one blended number cannot tell you which part was weak.' }],
+      ['s5','run',   410, 480, 250, 62, '5. Turn it into a score', [],
+        { k:'Step 5', p:'backend/evals/grading/scoring.py',
+          d:'Applies the weights in Python (never inside the judge’s schema, or editing a weight would silently zero the run) and checks the run against its baseline. If every row scored the same, it fails the run rather than hiding a dead judge inside an average.' }],
 
-      ['l1','run', 730, 90, 340, 66, 'test_prototype_revision_manifest_shape.py', ['5 tests'],
-        { k:'Layer test', p:'backend/tests/evals/workflow/prototype/revision/test_prototype_revision_manifest_shape.py',
-          d:'Pins compile_for_run("prototype_revision")\'s exact shape: step order/agent-ids, gates/validators/post_step per step, deliverable spec, previous_run context wiring, clarify.mode=="skip".' }],
-      ['l2','run', 730, 168, 340, 66, 'test_revision_validation_post_step...py', ['3 async tests'],
-        { k:'Layer test', p:'backend/tests/evals/workflow/prototype/revision/test_revision_validation_post_step_dispatches_fix_loop.py',
-          d:'Spies ctx.runner (the capability\'s ONLY reach into the kernel) — asserts the pre-edit baseline and the fix-loop call\'s threaded arguments, including the COMPILED step\'s agent id, never a hardcoded literal.' }],
-      ['l3','run', 730, 246, 340, 66, 'test_issue_selection_ignores_instruction.py', ['3 tests'],
-        { k:'Layer test', p:'backend/tests/evals/workflow/prototype/revision/test_issue_selection_ignores_instruction.py',
-          d:'The unit-level ROOT CAUSE statement: _select_issues_to_fix never looks at the user\'s instruction, only static/render diffs against a pre-edit baseline — so a structurally clean no-op edit can select nothing and the fix-loop reports success.' }],
-      ['l4','run', 730, 324, 340, 66, 'test_fix_loop_prompt_assembly...py', ['2 tests'],
-        { k:'Layer test', p:'backend/tests/evals/workflow/prototype/revision/test_fix_loop_prompt_assembly_before_model_call.py',
-          d:'The LAST deterministic point before a real model call: asserts the fix_message embeds the user\'s instruction verbatim and the fix thread id is correctly derived from the compiled step\'s agent id.' }],
-      ['l5','src', 730, 470, 155, 60, 'compile_helpers.py', [],
-        { k:'common/ helper used', p:'backend/tests/evals/common/compile_helpers.py', d:'Used by test_prototype_revision_manifest_shape.py.' }],
-      ['l6','src', 915, 470, 155, 60, 'validation_helpers.py', [],
-        { k:'common/ helper used', p:'backend/tests/evals/common/validation_helpers.py', d:'Used by test_issue_selection_ignores_instruction.py.' }],
-      ['l7','src', 730, 550, 155, 60, 'fix_loop_capture.py', [],
-        { k:'common/ helper used', p:'backend/tests/evals/common/fix_loop_capture.py', d:'Used by test_fix_loop_prompt_assembly_before_model_call.py.' }],
-      ['l8','run', 915, 550, 155, 60, 'post-step test:\nstubs stay LOCAL', [],
-        { k:'Deliberate non-extraction', p:'backend/tests/evals/workflow/prototype/revision/test_revision_validation_post_step_dispatches_fix_loop.py',
-          d:'This file\'s _SpyRunner/_Ctx stub shape was NOT extracted to common/ — its attributes (revision_original_html, revision_instruction) are revision-vocabulary-specific with zero second example to generalize from yet.' }],
-
-      ['p1','run', 1160, 90, 350, 66, 'test_prompt_composition.py', ['11 tests'],
-        { k:'Prompt surface', p:'backend/tests/evals/workflow/prototype/revision/test_prompt_composition.py',
-          d:'Against the REAL agents.factory._compose_system_prompt: right agents/tools/guardrails, html-prototype guardrail injected verbatim, AGENT.md body verbatim, both agents\' prompts distinct, dispatch message slimmed to instruction + file pointer.' }],
-      ['p2','hook', 1160, 168, 350, 66, 'test_hello_world.py', ['4 tests'],
-        { k:'Harness gate', p:'backend/tests/evals/test_hello_world.py',
-          d:'Package imports, compile_for_run() resolves, one scripted-model turn streams end to end, RunSandbox roundtrip — proves the plumbing before anything else is built on it.' }],
-      ['p3','out', 1160, 480, 350, 90, 'Terminal:\n35 passed, 1 deselected\n0 tokens · 0 network calls', [],
-        { k:'Terminal', p:'', d:'Verified directly: python3.11 -m pytest tests/evals -m "eval and not requires_api_key" → 35 passed, 1 deselected (the one requires_api_key-marked live test).' }],
+      ['a1','plat', 1000, 150, 300, 66, 'Everything is saved', ['.runs/… prompt + reply'],
+        { k:'Output', p:'backend/evals/grading/artifacts.py',
+          d:'Every prompt, reply and score is written to a run folder. Folders are append-only: re-running a stage errors rather than overwriting, because captured model output cannot be recovered once lost.' }],
+      ['a2','out',  1000, 290, 300, 66, 'A report you can read', ['worst rows, weak spots'],
+        { k:'Output', p:'grade.sh report <run-id>',
+          d:'Per-dimension scores and the weaknesses that keep recurring — the shortlist of what to fix.' }],
+      ['a3','out',  1000, 430, 300, 66, 'Compare two runs', ['did my edit actually help?'],
+        { k:'Output', p:'backend/evals/grading/compare.py',
+          d:'Refuses to call a difference an improvement if it sits inside normal run-to-run noise. Reading noise as progress is the easiest way to fool yourself, because it looks like the loop is working.' }],
     ],
     edges: [
-      ['o1','b','o2','t','flow', ''],
-      ['o2','r','e1','l','flow', ''],
-      ['o2','r','l1','l','flow', ''],
-      ['o2','r','p1','l','flow', ''],
-      ['o2','r','p2','l:0.3','flow', ''],
-      ['e1','b','e3','t','dashed', ''],
-      ['e2','b','e3','t','dashed', ''],
-      ['l1','b','l5','t','dashed', ''],
-      ['l3','b','l6','t','dashed', ''],
-      ['l4','b','l7','t','dashed', ''],
-      ['l2','b','l8','t','dashed', ''],
-      ['p1','b','p3','t','dashed', ''],
-      ['p2','b','p3','t','dashed', ''],
-      ['l5','r:0.9','p3','l:0.3','dashed', ''],
+      ['gcli','b','cfg','t','flow',''],
+      ['cfg','b','ds','t','flow',''],
+      ['ds','r','s1','l','flow thick','each row'],
+      ['s1','b','s2','t','flow',''],
+      ['s2','b','s3','t','flow',''],
+      ['s3','b','s4','t','flow','if it passes'],
+      ['s4','b','s5','t','flow',''],
+      ['s5','r','a1','l','flow thick','saved'],
+      ['a1','b','a2','t','flow',''],
+      ['a2','b','a3','t','dashed',''],
     ],
   },
 
-  /* ══════════════════════════ 4. LIVE SCENARIO EXECUTION ══════════════════════════ */
+  /* ─────────────────────── 4 · Which one do I run? ─────────────────────── */
   {
-    id: 'live-run', tab: 'Live Scenario Execution', title: 'One real-model run, trigger to logged verdict',
-    w: 1560, h: 760,
-    legend: [['hook','CLI trigger'], ['src','common/ framework'], ['out','PRODUCTION boundary (real model)'], ['run','Scenario-owned code'], ['plat','Terminal / logged result']],
-    groups: [
-      ['g1', 20,   40, 300, 680, '0-token path (default)', 'hook'],
-      ['g2', 350,  40, 330, 680, 'common/ — discovery & driver', 'src'],
-      ['g3', 710,  40, 340, 680, 'PRODUCTION boundary', 'out'],
-      ['g4', 1080, 40, 460, 680, 'Result & logging', 'plat'],
-    ],
+    id: 'which', tab: 'Which one do I run?', title: 'Three scripts — and one you should not use',
+    w: 1240, h: 540,
+    legend: [['src','Your question'], ['ins','Free'], ['plat','Costs tokens'],
+             ['neu','Frozen'], ['out','What it gives you']],
+    groups: [],
     nodes: [
-      ['s1','hook', 40, 90, 240, 68, './run-eval.sh <id>\n(no --live)', [],
-        { k:'CLI trigger', p:'backend/run-eval.sh', d:'Default, safe path — never reaches a model.' }],
-      ['s2','hook', 40, 178, 240, 90, 'validate_scenario.py', ['checker(RAW html)\nmust be False'],
-        { k:'CLI trigger', p:'backend/tests/evals/validate_scenario.py',
-          d:'Loads the scenario and asserts its checker reports the untouched fixture as unmet — sanity-checks the scenario/checker pairing with 0 tokens.' }],
-      ['s3','hook', 40, 330, 240, 68, './run-eval.sh <id> --live', [],
-        { k:'CLI trigger', p:'backend/run-eval.sh', d:'The live path — routes to live_benchmark.py --n 1.' }],
+      ['q','src', 460, 40, 320, 62, 'What do you want to know?', [],
+        { k:'Pick by question', p:'',
+          d:'The two live systems never overlap: one asks whether the machine still works, the other asks whether the writing is good. If you are unsure which you need, ask which of those two you actually care about right now.' }],
 
-      ['c1','src', 370, 90, 290, 76, 'discover_all_scenarios()', [],
-        { k:'common/', p:'backend/tests/evals/common/scenario_discovery.py',
-          d:'Globs workflow/*/*/scenarios/*.yaml, imports the owning phase\'s checkers.py, returns {id: LiveScenario}.' }],
-      ['c2','src', 370, 200, 290, 90, 'load_scenario_yaml()', ['reads scenarios/<id>.yaml', '+ fixtures/<id>.html'],
-        { k:'common/', p:'backend/tests/evals/common/live_scenario.py',
-          d:'Parses id, agent_id, instruction (or instruction_file), input.html/design_md, checker name, logs.dir, benchmark.expensive/default_n into one LiveScenario.' }],
-      ['c3','src', 370, 322, 290, 130, 'run_live_scenario_once()', ['RunSandbox seeds prototype.html', '_framed() + _slim_revision_message()'],
-        { k:'common/', p:'backend/tests/evals/common/live_scenario.py',
-          d:'Seeds a fresh RunSandbox with the fixture HTML (+ design.md if present), wraps instruction+html in REVISION REQUEST/EXISTING HTML markers, then slims that framed message to an instruction + file-pointer dispatch via the REAL previous_run provider\'s _slim_revision_message.' }],
-      ['c4','src', 370, 490, 290, 76, 'sandbox.write() / read_text()', [],
-        { k:'common/', p:'backend/tests/evals/common/live_scenario.py',
-          d:'Writes the fixture files to disk before the model runs; after the model finishes, reads scenario.output_filename back off the SAME sandbox as the delivered artifact.' }],
+      ['c1','ins',  50, 170, 330, 108, '"Did I break anything?"',
+        ['./evals/hybrid/eval.sh', 'free · seconds · run it always'],
+        { k:'Hybrid', p:'backend/evals/hybrid/eval.sh',
+          d:'Offline by default. Answers with code, so the answer is the same every time. Add --live only when you want one real model run against a real scenario.' }],
+      ['c2','plat', 450, 170, 330, 108, '"Is the output any good?"',
+        ['./evals/grading/grade.sh', 'tokens · minutes · when tuning prompts'],
+        { k:'Grading', p:'backend/evals/grading/grade.sh',
+          d:'Always live. Answers with a model’s opinion, scored per quality dimension, so you can tell which prompt to edit and whether the edit helped.' }],
+      ['c3','neu',  850, 170, 330, 108, 'Do not use this one',
+        ['./evals/model_graded/model-graded.sh', 'frozen — reads old runs only'],
+        { k:'Frozen', p:'backend/evals/model_graded/model-graded.sh',
+          d:'The previous generation of grading. Kept only so old recorded runs can still be read back. Its one committed run scored exactly 95 on all 11 rows while rejecting 7 of them at the gate — a score with no variance cannot detect anything.' }],
 
-      ['x1','out', 730, 90, 300, 90, 'create_runner(agent_id, ctx)', ['agents/factory.py', 'PRODUCTION code, real model'],
-        { k:'Production boundary', p:'backend/agents/factory.py',
-          d:'The exact function the live pipeline uses — composes the system prompt, builds the DeepAgentRunner. This is where the eval framework stops being a harness and starts being a real model call.' }],
-      ['x2','out', 730, 200, 300, 90, 'runner.astream_events(dispatch)', ['read_file / edit_file / write_todos', 'against the RunSandbox disk'],
-        { k:'Production boundary', p:'backend/app/agents/deep_agent_runner.py',
-          d:'The real deepagents event stream — narration collapsed into readable lines via _NarrationBuffer for --live console output; tool calls/results captured for tokens_in/out and the transcript.' }],
-      ['x3','out', 730, 322, 300, 66, 'model edits prototype.html\nin the sandbox', [],
-        { k:'Production boundary', p:'', d:'Nothing in the eval framework tells the model HOW to fix anything — it only sees the instruction and the fixture, exactly like a real user revision request.' }],
+      ['w1','out',  50, 330, 330, 74, 'Stops a broken change reaching main', [],
+        { k:'Result', p:'', d:'A definite pass/fail, naming the specific thing that broke.' }],
+      ['w2','out', 450, 330, 330, 74, 'Tells you which prompt to fix', [],
+        { k:'Result', p:'', d:'Per-dimension scores, recurring weaknesses, and a noise-guarded comparison between runs.' }],
+      ['w3','hook',850, 330, 330, 74, 'Its numbers are not trustworthy', [],
+        { k:'Warning', p:'', d:'Do not calibrate anything against this package’s scores.' }],
 
-      ['r1','run', 1100, 90, 400, 76, 'scenario.checker(final_html)', [],
-        { k:'Scenario-owned', p:'backend/tests/evals/workflow/prototype/revision/checkers.py',
-          d:'Regex-based pass/fail logic over the delivered HTML — the one piece of a scenario that has to be code, resolved by name from the phase\'s CHECKERS dict.' }],
-      ['r2','plat', 1100, 200, 400, 90, 'LiveRunResult', ['passed, reason, errored', 'tokens_in, tokens_out, run_dir'],
-        { k:'Terminal', p:'backend/tests/evals/common/live_scenario.py',
-          d:'The structured verdict returned to both live_benchmark.py and test_live.py — printed as PASS / MISS / ERROR by the caller.' }],
-      ['r3','plat', 1100, 322, 400, 130, 'logs/<run_id>/', ['input/ · output/ · log.txt'],
-        { k:'Terminal — always written', p:'backend/tests/evals/logs/<run_id>/',
-          d:'Independent of on_event, EVERY run writes a self-contained folder: input/prototype.html + instruction.md (+ design.md), output/prototype.html (the delivered file), log.txt (full transcript + tool calls + verdict) — so a run can be investigated after the fact without re-running it.' }],
+      ['gap','neu', 260, 440, 720, 62, 'Worth knowing: grading has not been calibrated yet', ['no live run has happened, so its baseline is not set'],
+        { k:'[OPEN]', p:'specs/005-prompt-eval-scoring/outstanding.md',
+          d:'The grading package is fully built and tested offline, but no real judged run has been made — so its baseline reads NOT CALIBRATED and seven product decisions are still open. Treat early scores as provisional until that first live run happens.' }],
     ],
     edges: [
-      ['s1','r','s2','l:0.25','flow', ''],
-      ['s2','r','c1','l','flow', ''],
-      ['s1','r','c1','l:0.7','dashed', ''],
-      ['s3','r','c1','l:0.85','flow thick', ''],
-      ['c1','b','c2','t','flow', ''],
-      ['c2','b','c3','t','flow', ''],
-      ['c3','r','x1','l','flow thick', 'create_runner(scenario.agent_id, ctx)'],
-      ['x1','b','x2','t','flow', ''],
-      ['x2','b','x3','t','flow', ''],
-      ['x3','r','c4','l:0.8','dashed', 'read back after model turn'],
-      ['c4','r','r1','l','flow thick', ''],
-      ['r1','b','r2','t','flow', ''],
-      ['r2','b','r3','t','flow', ''],
-      ['s2','r:0.9','r1','l:0.1','dashed', 'checker(RAW html) — must be False'],
-    ],
-  },
-
-  /* ══════════════════════════ 5. BENCHMARK / PASS-RATE SAMPLING ══════════════════════════ */
-  {
-    id: 'benchmark', tab: 'Benchmark / Pass-Rate Sampling', title: 'Repeated live sampling — one roll proves little, N rolls give a rate',
-    w: 1560, h: 640,
-    legend: [['hook','CLI'], ['src','Scenario resolution'], ['out','N live runs'], ['plat','Aggregate + report']],
-    groups: [
-      ['g1', 20,   40, 340, 560, 'Trigger', 'hook'],
-      ['g2', 380,  40, 380, 560, 'Resolve scenario set', 'src'],
-      ['g3', 780,  40, 340, 560, 'Sample', 'out'],
-      ['g4', 1140, 40, 400, 560, 'Aggregate & report', 'plat'],
-    ],
-    nodes: [
-      ['m1','hook', 40, 90, 280, 90, './run-eval.sh benchmark\n[id|cheap|all] [N]', [],
-        { k:'CLI', p:'backend/run-eval.sh',
-          d:'No --live needed — benchmark is inherently live. Default: cheap, N=10. Accepts a bare id or its <id>.yaml filename interchangeably.' }],
-      ['m2','hook', 40, 220, 280, 76, '_has_llm_credentials()', [],
-        { k:'CLI', p:'backend/tests/evals/live_benchmark.py',
-          d:'Checks ANTHROPIC_API_KEY / AWS_BEARER_TOKEN_BEDROCK / AWS creds before doing anything else — hard SystemExit(1) if none configured.' }],
-
-      ['n1','src', 400, 90, 320, 66, '"cheap"', [],
-        { k:'Scenario resolution', p:'backend/tests/evals/live_benchmark.py',
-          d:'Every discovered scenario NOT marked expensive: true in its YAML — computed dynamically from discover_all_scenarios(), not a hardcoded id list, so it scales as pipelines/scenarios accumulate.' }],
-      ['n2','src', 400, 168, 320, 66, '"all"', [],
-        { k:'Scenario resolution', p:'backend/tests/evals/live_benchmark.py',
-          d:'Every discovered scenario, including expensive ones — each capped at its YAML default_n unless --n-override <id>=N is given. --skip-expensive drops them entirely.' }],
-      ['n3','src', 400, 246, 320, 66, '<scenario-id>', [],
-        { k:'Scenario resolution', p:'backend/tests/evals/live_benchmark.py',
-          d:'One named scenario — argparse --scenario choices are validated against the discovered set, so an unknown id fails fast.' }],
-      ['n4','src', 400, 340, 320, 90, 'n_by_scenario = {id: N}', [],
-        { k:'Scenario resolution', p:'backend/tests/evals/live_benchmark.py',
-          d:'Per-scenario sample count: --n-override wins, else an expensive scenario reached via "all" is capped at its YAML default_n, else the requested --n applies as-is.' }],
-
-      ['p1','out', 810, 90, 280, 100, '_run_benchmark(id, n)', ['loop: run_live_scenario_once()', 'sequential, not parallel'],
-        { k:'Sample', p:'backend/tests/evals/live_benchmark.py',
-          d:'For i in 1..n: calls the SAME production driver as a single --live run, prints [i/n] PASS/MISS/ERROR + timing + tokens + run folder as it goes.' }],
-
-      ['q1','plat', 1170, 90, 340, 90, 'rate = passed / (n − errored)', [],
-        { k:'Aggregate', p:'backend/tests/evals/live_benchmark.py',
-          d:'Errored runs (infra failures — auth, network) never got a real model attempt, so they are EXCLUDED from the rate denominator and reported separately, not folded into "misses".' }],
-      ['q2','plat', 1170, 200, 340, 90, 'miss detail + error detail', [],
-        { k:'Aggregate', p:'backend/tests/evals/live_benchmark.py',
-          d:'Every miss prints its checker\'s failure reason; every error prints its infra reason — plus total tokens in/out across the whole sample.' }],
-      ['q3','out', 1170, 322, 340, 140, 'Observed: prototype_multi_issue_repair\nN=2 → 1 PASS + 1 MISS = 50%', ['run1: 80.4s · in=497,634 · out=9,006', 'run2: 102.6s · in=820,232 · out=13,319'],
-        { k:'Real observed result', p:'backend/tests/evals/logs/260727183735-.../ + .../260727183856-.../',
-          d:'A real ./run-eval.sh benchmark prototype_multi_issue_repair 2 call: total tokens across both runs 1,340,191 (in=1,317,866 / out=22,325). See tab 6 for what run 2 actually got wrong.' }],
-    ],
-    edges: [
-      ['m1','b','m2','t','flow', ''],
-      ['m2','r','n1','l','dashed', ''],
-      ['m2','r','n2','l:0.6','dashed', ''],
-      ['m2','r','n3','l:0.2','dashed', ''],
-      ['n1','b','n4','t','flow', ''],
-      ['n2','b','n4','t:0.3','flow', ''],
-      ['n3','b','n4','t:0.7','flow', ''],
-      ['n4','r','p1','l','flow thick', ''],
-      ['p1','r','q1','l','flow', ''],
-      ['q1','b','q2','t','flow', ''],
-      ['q2','b','q3','t','flow thick', ''],
-    ],
-  },
-
-  /* ══════════════════════════ 6. CASE STUDY ══════════════════════════ */
-  {
-    id: 'case-study', tab: 'Case Study: prototype_multi_issue_repair', title: 'A CSS-overlap rendering bug, a 10-issue fixture, and two real live runs',
-    w: 1560, h: 900,
-    legend: [['danger','Defect / failure'], ['src','Fixture & checker'], ['out','Real observed run'], ['hook','Feeds into prompt fix']],
-    groups: [
-      ['g1', 20,   40, 480, 480, 'Root cause (verified in headless Chromium)', 'src'],
-      ['g2', 540,  40, 460, 480, 'The fixture: 10 baked bugs + one checker', 'src'],
-      ['g3', 1040, 40, 500, 480, 'Two real live runs (N=2 benchmark)', 'out'],
-      ['g4', 20,   560, 1520, 300, 'What run 2\'s failure points to in the agent prompt', 'hook'],
-    ],
-    nodes: [
-      ['rc1','src', 40, 86, 420, 90, 'example1/prototype.html (retired)', ['~124KB real user fixture', 'whole document literally duplicated'],
-        { k:'Root cause', p:'(fixture retired; recovered from a captured live-run log input/ folder to verify)',
-          d:'The ORIGINAL defect this scenario reproduces cheaply: a real user\'s prototype where the entire HTML document — doctype, head, body — appears twice back to back.' }],
-      ['rc2','danger', 40, 196, 420, 110, 'CSS grid stacks BOTH copies\nin the SAME cells', ['sidebar/topbar/main-content overlap exactly'],
-        { k:'Verified mechanism', p:'',
-          d:'body is display:grid; duplicating the document places both copies\' <aside>/<header>/<main> at identical grid-column/row coordinates. Confirmed empirically with Playwright + real Chromium — not assumed.' }],
-      ['rc3','danger', 40, 326, 420, 110, 'Second (top) sidebar physically\nBLOCKS clicks on the first', [],
-        { k:'Verified mechanism', p:'',
-          d:'Clicking the underneath copy\'s identical nav link times out in Playwright — a real user can only ever click the LATER copy\'s sidebar.' }],
-      ['rc4','danger', 40, 456, 420, 90, 'Content pane renders BLANK\nnav highlighting still works', [],
-        { k:'Verified mechanism — screenshot-confirmed', p:'',
-          d:'document.querySelector (first-match) only ever marks a section in the FIRST copy is-active; the SECOND copy\'s (visible, opaque-background) main-content pane never gets one — exactly "pages seem blank, only menus are showing," the real user\'s literal words.' }],
-
-      ['fx1','src', 580, 86, 380, 76, 'fixtures/prototype_multi_issue_repair.html', ['~205 lines, ~8KB', 'zero explanatory comments'],
-        { k:'Fixture', p:'backend/tests/evals/workflow/prototype/revision/fixtures/prototype_multi_issue_repair.html',
-          d:'Reproduces the SAME CSS-grid-overlap mechanism cheaply, deliberately asymmetric: the always-rendered copy has an empty dashboard + an unwired Save button; the never-rendered copy has real data + a wired Save button.' }],
-      ['fx2','src', 580, 176, 380, 210, '10 independent bugs', [],
-        { k:'Fixture', p:'backend/tests/evals/workflow/prototype/revision/fixtures/prototype_multi_issue_repair.html',
-          d:'One punch list, baked into one fixture.',
-          list: [
-            {n:'1. Whole-document duplication',d:'CSS-grid overlap, blank content pane'},
-            {n:'2. Save button unwired',d:'(the original S1 scenario)'},
-            {n:'3. Reports page missing entirely',d:'(the original S2 scenario)'},
-            {n:'4. Audit nav href mismatched',d:'#/audit-log vs data-page="audit"'},
-            {n:'5. Stale routes-map entry',d:"roles: '#/role' vs the '#/roles' href"},
-            {n:'6. onclick calls an undefined function',d:'exportRoles() never defined'},
-            {n:'7. Leftover "Lorem ipsum" placeholder text',d:'on the MFA page'},
-            {n:'8. Duplicated element id',d:'id="org" appears twice'},
-            {n:'9. Dead href="#" placeholder link',d:"Audit's \"View all activity\""},
-            {n:'10. Typo\'d id breaks title wiring',d:'page-tittle vs page-title'},
-          ] }],
-      ['fx3','src', 580, 396, 380, 130, 'checkers.prototype_multi_issue_repair()', ['10 non-short-circuiting sub-checks'],
-        { k:'Checker', p:'backend/tests/evals/workflow/prototype/revision/checkers.py',
-          d:'Runs every sub-check regardless of earlier failures and reports the FULL list of what\'s still broken — validates whether one revision turn fixes an entire punch list, not just the first bug it hits. Verified against a hand-built correct fix (passes) and a hand-built naive fix that keeps the visible-but-broken copy (correctly fails on save_button_wired).' }],
-
-      ['run1','out', 1080, 86, 420, 130, 'Run 1 — PASS', ['80.4s · in=497,634 · out=9,006'],
-        { k:'Real observed run', p:'backend/tests/evals/logs/260727183735-live-prototype_multi_issue_repair-f6a160ad/',
-          d:'Deduped the whole document in ONE clean edit_file call BEFORE touching anything else, then fixed the remaining 9 issues without re-triggering the "appears N times" ambiguity. All 10 checks passed.' }],
-      ['run2','danger', 1080, 226, 420, 130, 'Run 2 — MISS', ['102.6s · in=820,232 · out=13,319', '5/10 issues still unresolved'],
-        { k:'Real observed run', p:'backend/tests/evals/logs/260727183856-live-prototype_multi_issue_repair-e68baa11/',
-          d:'Interleaved other fixes with an INCOMPLETE dedup, hit repeated "appears 2 times" edit_file errors, tried write_file on an existing file (hard error), and needed a second pass to strip leftover duplicate content — 34 tool calls total.' }],
-      ['run3','danger', 1080, 366, 420, 150, 'Run 2\'s 5 unresolved checks', [],
-        { k:'Real observed run', p:'backend/tests/evals/logs/260727183856-.../log.txt',
-          d:'The exact checker output from that run.',
-          list: [
-            {n:'3. Reports route missing',d:"routes map had no 'reports' entry at all"},
-            {n:'4. Audit nav link still wrong',d:'#/audit-log never fixed'},
-            {n:'5. Roles route wrong VALUE',d:"rewrote to 'roles' (bare id), not '#/roles'"},
-            {n:'6. onclick="alert(...)"',d:'flagged as undefined (a checker false positive, since fixed — alert is a JS global)'},
-            {n:'8. id="org" missing entirely',d:'renamed to id="org-name" instead of deduped'},
-          ] }],
-
-      ['fb1','hook', 60, 620, 340, 90, 'Routes-map convention\nasserted as fixed shape', [],
-        { k:'Prompt gap', p:'backend/agents/prompts/prototype-revision-agent/AGENT.md',
-          d:'The prompt described routes as "(path → section id)" — run 2\'s model followed that literally and rewrote the map\'s VALUES from hash-paths to bare ids, breaking 2 of the 5 misses.' }],
-      ['fb2','hook', 430, 620, 340, 90, 'write_file description\ncontradicts runtime behavior', [],
-        { k:'Prompt gap', p:'backend/agents/prompts/prototype-revision-agent/AGENT.md',
-          d:'Prompt said write_file is fine "for sweeping changes" — but it is create-only and errors on any existing file. Run 2 hit exactly that error mid-recovery, wasting a turn.' }],
-      ['fb3','hook', 800, 620, 340, 90, 'No "finish deduping first"\nrule', [],
-        { k:'Prompt gap', p:'backend/agents/prompts/prototype-revision-agent/AGENT.md',
-          d:'Nothing told the model to fully resolve document duplication BEFORE other edits — run 2 interleaved fixes with an incomplete dedup, causing most of its extra token spend (820K vs 497K).' }],
-      ['fb4','hook', 1170, 620, 340, 90, 'Final verification is\n"skim," not "confirm"', [],
-        { k:'Prompt gap', p:'backend/agents/prompts/prototype-revision-agent/AGENT.md',
-          d:'Step 4 only asked the model to re-read the file and summarize — nothing forced it to check each todo item against literal expected text. Run 2 confidently reported "all 10 resolved" while 5 were still broken.' }],
-      ['fb5','hook', 430, 730, 700, 90, 'All 4 fed into concrete AGENT.md revisions', ['proposed after this log analysis — not necessarily the live prompt today'],
-        { k:'Outcome', p:'backend/agents/prompts/prototype-revision-agent/AGENT.md',
-          d:'Corrected write_file\'s tool description, added a "resolve duplication first, verify it\'s gone" rule, de-hardcoded the routes-map convention (read and match whatever shape exists, never assume), and strengthened Step 4 into a per-todo textual re-check before claiming completion.' }],
-    ],
-    edges: [
-      ['rc1','b','rc2','t','flow', ''],
-      ['rc2','b','rc3','t','flow', ''],
-      ['rc3','b','rc4','t','flow thick', ''],
-      ['rc4','r','fx1','l','dashed', 'reproduced cheaply'],
-      ['fx1','b','fx2','t','flow', ''],
-      ['fx2','b','fx3','t','flow', ''],
-      ['fx3','r','run1','l','flow', 'validated by'],
-      ['fx3','r','run2','l','flow thick danger', 'validated by'],
-      ['run2','b','run3','t','flow thick danger', ''],
-      ['run3','b:0.15','fb1','t','danger', ''],
-      ['run3','b:0.4','fb2','t','danger', ''],
-      ['run3','b:0.65','fb3','t','danger', ''],
-      ['run3','b:0.9','fb4','t','danger', ''],
-      ['fb1','b','fb5','t','flow', ''],
-      ['fb2','b','fb5','t','flow', ''],
-      ['fb3','b','fb5','t','flow', ''],
-      ['fb4','b','fb5','t','flow', ''],
+      ['q','b:0.25','c1','t','flow thick',''],
+      ['q','b:0.75','c2','t','flow thick',''],
+      ['c1','b','w1','t','flow',''],
+      ['c2','b','w2','t','flow',''],
+      ['c3','b','w3','t','dashed',''],
+      ['w2','b','gap','t:0.45','dashed','not yet calibrated'],
     ],
   },
 ];
@@ -726,7 +476,9 @@ function edgeGeom(a, b) {
   return { d: `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`, mid };
 }
 
-const ROLE = { src:'source', ins:'install', run:'runtime', plat:'plat', hook:'hook', out:'out', neu:'neutral', danger:'danger' };
+/* the semantic-role lookup — used in 3 places (group labels, legend swatches, panel kicker color).
+   if you add a colorClass, add it here too or it silently falls back to 'neutral'. */
+const ROLE = { src:'source', ins:'install', run:'runtime', plat:'plat', hook:'hook', out:'out', neu:'neutral' };
 
 /* ═══════════════════════ render ═══════════════════════ */
 const vp = $('vp'), stage = $('stage'), svg = $('svg'), tip = $('tip');
@@ -761,22 +513,17 @@ function renderDiagram(d) {
     const [id, cls, x, y, w, h, title, subs, info] = n;
     const g = el('g', { class: 'node ' + cls, 'data-id': id }, vp);
     el('rect', { x, y, width: w, height: h, rx: 10 }, g);
-    const titleLines = String(title).split('\n');
     const hasSubs = subs && subs.length;
-    const titleBlockH = titleLines.length * 16;
-    const titleStartY = hasSubs ? y + 20 : y + h / 2 - (titleBlockH / 2) + 12;
-    titleLines.forEach((line, i) => {
-      const tt = el('text', { x: x + w / 2, y: titleStartY + i * 16, 'text-anchor': 'middle', class: 'n-title' }, g);
-      tt.textContent = line;
-    });
+    const titleY = hasSubs ? y + 22 : y + h / 2 + 4.5;
+    const tt = el('text', { x: x + w / 2, y: titleY, 'text-anchor': 'middle', class: 'n-title' }, g);
+    tt.textContent = title;
     if (hasSubs) {
-      const subStartY = y + 20 + titleLines.length * 16 + 6;
       subs.forEach((s, i) => {
-        const st = el('text', { x: x + w / 2, y: subStartY + i * 15, 'text-anchor': 'middle', class: 'n-sub' }, g);
+        const st = el('text', { x: x + w / 2, y: y + 40 + i * 15, 'text-anchor': 'middle', class: 'n-sub' }, g);
         st.textContent = s;
       });
     }
-    g.__data = { title: title.replace(/\n/g, ' '), info: info || {}, cls };
+    g.__data = { title, info: info || {}, cls };
     g.addEventListener('mouseenter', () => showTip(g));
     g.addEventListener('mousemove', moveTip);
     g.addEventListener('mouseleave', hideTip);

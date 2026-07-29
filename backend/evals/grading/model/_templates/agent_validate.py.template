@@ -1,0 +1,53 @@
+"""TEMPLATE — copy to <workflow>/<agent_token>_validate.py and fill in.
+
+`.template` suffix so pytest collection, globs, and imports skip it. (The
+previous placeholder was a real `.py` file named `{agent_name}_validate.py`,
+which is not an importable module name and trips any collector that walks
+this tree.)
+
+THE CUSTOM PRECHECK HOOK — the narrow structural checks the config-driven
+`precheck` block in the rubric YAML cannot express: cross-referencing two
+sections of a document, parsing a structure, verifying specific values.
+
+Referenced from the rubric by path relative to it:
+
+    validate: ./your_agent_validate.py:check
+
+Scope discipline, in order of importance:
+
+1. STRUCTURAL ONLY. If a check requires judgement about whether the content
+   is *good*, it belongs in the judge rubric. A precheck that guesses at
+   quality produces false failures, and a false failure is worse than no
+   check — it makes the pass rate meaningless and hides real regressions.
+2. NO FALSE POSITIVES. This gate decides whether a response is judged at all.
+   Prefer missing a real defect to rejecting a valid response.
+3. NAME THE DEFECT. The reason string is what a human reads when a run fails.
+   "3 nav target(s) with no matching page section: ['#/invoices', ...]" is
+   actionable; "structure invalid" is not.
+
+Keep it to one `check` function. If it needs helpers, they are private.
+"""
+
+from __future__ import annotations
+
+import re
+
+_EXAMPLE_RE = re.compile(r"^###\s+(.+)$", re.MULTILINE)
+
+
+def check(response: str) -> tuple[bool, str]:
+    """Verify <the one thing this checks>.
+
+    Returns (passed, reason). The reason is recorded on both pass and fail —
+    on pass it says what was verified, which is how you confirm the check is
+    actually running and not silently matching nothing.
+    """
+    headings = _EXAMPLE_RE.findall(response)
+
+    # Guard the "matched nothing" case explicitly. A check that finds no
+    # input to check must FAIL, never silently pass — this is the single most
+    # common way a precheck stops doing anything without anyone noticing.
+    if not headings:
+        return False, "no '### ' section headings found"
+
+    return True, f"all {len(headings)} section(s) well-formed"

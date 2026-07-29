@@ -1,0 +1,78 @@
+# Template for a LIVE (real-model) scenario — copy this file to
+# <your-scenario-id>.yaml in this directory to add a new one. Files starting
+# with "_" (like this one) are skipped by the loader, so this template is
+# never itself treated as a runnable scenario.
+#
+# After copying, within THIS phase folder (workflow/prototype/revision/):
+#   1. id: below MUST match the filename (myid.yaml -> id: myid) — the
+#      loader asserts this so a scenario can never silently answer to two
+#      names.
+#   2. Add your fixture file(s) (an HTML prototype, optionally a design.md)
+#      somewhere under this phase folder — fixtures/ is the usual place.
+#   3. If your checker doesn't already exist, add a
+#      ``def my_checker(final_html: str) -> tuple[bool, str]`` function in
+#      this folder's checkers.py and register it in its CHECKERS dict —
+#      checker LOGIC has to be code (it inspects the delivered HTML), but
+#      everything else about a scenario is just data in this file.
+#   4. That's it — evals/hybrid/common/scenario_discovery.py picks it up
+#      automatically (both for run_live_scenario_once and for
+#      live_benchmark.py's --scenario flag / "all" / validate_scenario.py /
+#      ./evals/hybrid/eval.sh's generic `<scenario-id>` shortcut). It also shows up in
+#      this phase's test_live.py automatically (parametrized over every
+#      scenario discovered here) — no per-scenario Python file needed.
+#
+# For a NEW PIPELINE's phase folder (workflow/<domain>/<variant>/), copy
+# this whole scenarios/ folder pattern PLUS a checkers.py and a test_live.py
+# (copy an existing test_live.py verbatim — only its checkers import line
+# changes) into the new phase folder; evals/hybrid/common/ needs no changes.
+
+id: my-scenario                       # REQUIRED — must equal this filename's stem
+name: Short human-readable name       # REQUIRED — shown in reports/logs
+description: >                        # optional — freeform, for readers of this file
+  What this scenario is testing and why it exists.
+
+agent_id: prototype-revision-agent    # REQUIRED — the create_runner agent id
+                                       # this scenario's live turn drives. A
+                                       # different pipeline's scenario sets
+                                       # its OWN agent id here — the driver
+                                       # (common/live_scenario.py) is generic.
+
+# The revision instruction sent to the model. Use EXACTLY ONE of:
+instruction: "Inline instruction text goes here"
+# instruction_file: fixtures/my-scenario/prompt.md   # OR load it from a file
+#                                                     # (path relative to
+#                                                     # this phase folder)
+
+input:
+  html: fixtures/my_prototype.html    # REQUIRED — path relative to this phase folder
+  design_md: fixtures/design.md       # optional — omit or set null if the
+                                       # scenario should exercise the
+                                       # no-design.md fallback path
+
+output:
+  filename: prototype.html            # filename written to <run_dir>/output/
+                                       # (almost always prototype.html — the
+                                       # engine's deliverable filename)
+
+logs:
+  dir: .runs                           # base logs directory, relative to
+                                       # evals/hybrid/ — every run gets its own
+                                       # <dir>/<timestamp>-live-<id>-<uuid>/
+                                       # subfolder (input/output/log.txt),
+                                       # shared across every phase folder
+
+checker: my_checker_name              # REQUIRED — must be a key in THIS
+                                       # phase folder's checkers.CHECKERS
+
+benchmark:                            # optional — live_benchmark.py's
+                                       # "all" alias and --scenario reads
+                                       # these; omit entirely for defaults
+                                       # (expensive: false, default_n: 10)
+  expensive: false                    # set true if a single run is
+                                       # materially more costly than a normal
+                                       # sample (like example1's ~124KB
+                                       # fixture) — "all" then caps N for
+                                       # this scenario unless overridden
+  default_n: 10                       # the N used when this scenario is
+                                       # reached via "all" without an
+                                       # explicit --n override

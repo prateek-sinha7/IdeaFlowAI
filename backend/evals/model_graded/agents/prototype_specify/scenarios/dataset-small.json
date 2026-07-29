@@ -1,0 +1,12 @@
+[  
+  {
+    "id": "legal_case_management",
+    "industry": "Legal",
+    "prompt": "Build an internal case-management console for a mid-size law firm's litigation support team. Staff need to track active case status and key deadlines, manage document review assignments across a team, log billable time entries per case, and flag upcoming court filing dates. Target audience: paralegals and litigation support staff, not attorneys directly. No template selected — invent a formal, document-dense, trustworthy visual style appropriate for a legal back-office tool."
+  },
+  {
+    "id": "hospitality_reservations",
+    "industry": "Hospitality",
+    "prompt": "Build an internal reservations and front-desk operations console for a boutique hotel group spanning several properties. Staff need to view daily arrivals/departures per property, manage room-block and housekeeping status, handle overbooking exceptions, and log guest-service requests. Target audience: front-desk and reservations staff. No template selected — invent a warm but efficient hospitality-ops visual style, not a consumer booking site."
+  }
+]

@@ -1,0 +1,183 @@
+# Stage order and input composition for grading the `prototype` workflow.
+#
+# WHAT THIS FILE IS FOR
+# Grading a chained workflow means each stage's input is the PREVIOUS stage's
+# output. That is trivial for a linear hop and impossible to express implicitly
+# for a fan-in — `prototype-analyze` needs BOTH the spec and the tasks, for the
+# SAME row. This file is where that join is declared.
+#
+# SOURCE OF TRUTH — this file MIRRORS, it does not decide:
+#   which agents exist, and in what order  →  agents.registry.get_pipeline_agents("prototype")
+#   what each stage consumes               →  produces/consumes in agents/prompts/<id>/AGENT.md
+# The `consumes:` values below are copied verbatim from that frontmatter and are
+# annotated as such. A loader MUST assert this stage list equals the registry's
+# membership and order, and that each `from:` equals that agent's real
+# `consumes` — exactly as engine.py already asserts the workflow manifest
+# against PIPELINE_AGENTS. Without that assertion this file becomes a second,
+# silently-drifting source of truth, which is worse than no file.
+
+workflow_id: prototype
+pipeline_type: prototype
+
+registry_assertion:
+  agents: agents.registry.get_pipeline_agents
+  contracts: agents/prompts/<agent-id>/AGENT.md
+
+# Which dataset the run is driven by. The first stage reads
+# path under datasets/; every later stage's input is composed below.
+default_dataset: datasets/ten-industries.json
+
+
+stages:
+  # ── 1. specify ── the ROOT stage: reads a checked-in dataset of briefs.
+  - agent_id: prototype-specify
+    output_file: spec.md
+    order: 1
+    input:
+      source: dataset          # reads the run config's dataset file
+    produces: prototype-specify
+    status: implemented
+
+  # ── 2. plan ── LINEAR HOP: one upstream, forwarded verbatim.
+  - agent_id: prototype-plan
+    output_file: tasks.md
+    order: 2
+    input:
+      source: upstream
+      from: [prototype-specify]     # == AGENT.md consumes
+    produces: prototype-plan
+    status: implemented
+    # A DRY RUN dispatches nothing, so a downstream stage has no real upstream
+    # text to compose against. That is harmless for a stage that FORWARDS its
+    # input, but prototype-build PARSES this one for `## Task N:` headers — so
+    # without a real-shaped stand-in, every single `plan` reported an adapter
+    # failure that could never happen in a live run.
+    #
+    # This is the shape only, never a grade: nothing here is dispatched, judged
+    # or scored. `grade.sh check` asserts it passes this agent's OWN precheck,
+    # so a sample cannot rot into something the real agent would never emit.
+    dry_run_sample: |
+      <tasks>
+      ## Task 1: HTML Shell & Navigation Chrome
+      Create prototype.html with the :root design tokens, the CSS class system
+      and a nav listing every page, plus an empty section per route.
+
+      ## Task 2: Dashboard Page
+      Fill the dashboard section with the summary metrics and one chart.
+
+      ## Task 3: Detail Page
+      Fill the detail section with a table of at least five example rows.
+
+      ## Task 4: Final Wiring & Validation
+      Verify every nav link resolves to a section and no section is empty.
+      </tasks>
+
+  # ── 3. analyze ── FAN-IN: two upstreams joined into one prompt.
+  #
+  # THE CASE THE PREVIOUS LAYOUT COULD NOT EXPRESS. Both upstream outputs live
+  # in the same run's artifacts/ folder, indexed by the same stable row id, so
+  # the join is a lookup by id — which is the entire reason a run folder is
+  # keyed by dataset rather than by agent.
+  #
+  # `template` placeholders are `{<agent-id>}`, substituted with that agent's
+  # output for THIS row. Ordering is the template's, not the list's.
+  - agent_id: prototype-analyze
+    output_file: analysis.md
+    # This stage's whole point is a verdict — and NOTHING consumes it. Its only
+    # consumer in production is a Human_Gate: a person reads the analysis and
+    # decides whether to send the spec back. The harness has no person, so a
+    # "NEEDS REVISION" used to be produced, graded, and then silently discarded
+    # while the run marched on to build. Lifting it out at least puts it in front
+    # of you. Whether it should HALT the chain is a product call — see
+    # outstanding.md item 7.
+    output_signal:
+      name: readiness
+      pattern: '(READY TO BUILD|READY WITH CAUTION|NEEDS REVISION)'
+      alert: [NEEDS REVISION]
+    order: 3
+    input:
+      source: upstream
+      from: [prototype-specify, prototype-plan]   # == AGENT.md consumes
+      template: |
+        {prototype-specify}
+
+        {prototype-plan}
+    produces: prototype-analyze
+    status: implemented
+
+  # ── 4. build ── TRANSFORMED input + SEEDED files.
+  #
+  # Two things a plain hop cannot do:
+  #  - The real engine does not hand this agent tasks.md wholesale; it runs one
+  #    sub-agent per task with that task wrapped in a `=== CURRENT TASK ===`
+  #    block (see _run_build_task_loop). Grading the raw task list would grade a
+  #    prompt shape the agent never actually sees, so an adapter builds the real
+  #    one. Same path convention as a validate hook: <file>.py:<function>.
+  #  - It is tool-using: it reads spec.md/design.md from the sandbox rather than
+  #    the prompt, and writes its deliverable to a file instead of the stream.
+  #    So files are seeded before dispatch and the deliverable is read back
+  #    after, and THAT file is what gets graded — not the streamed text, which
+  #    is just a confirmation sentence.
+  - agent_id: prototype-build
+    output_file: prototype.html
+    order: 4
+    input:
+      source: upstream
+      from: [prototype-plan]              # == AGENT.md consumes
+      adapter: ./prototype_build_input.py:build_prompt
+      # A seed_files value is either an upstream agent id (that agent's response
+      # for this row, verbatim) or a `./file.py:func` derivation hook — the same
+      # path convention as `adapter:` and a rubric's `validate:`.
+      #
+      # design.md is NOT listed. It used to be `design.md: prototype-specify`,
+      # which seeded byte-identical content into two filenames while the comment
+      # claimed it was "derived from the spec's DS section" — the schema could
+      # not express derivation, so the config asserted something untrue.
+      #
+      # In production design.md comes from the injected design system, which the
+      # grading driver does not populate (see known_gaps: od_context_not_
+      # populated). It still seeds nothing rather than a duplicate: this stage is
+      # now onboarded, so the honest fix is real od_context or a derivation hook,
+      # and the build rubric must not score DS conformance the agent was never
+      # given. Recorded in known_gaps rather than papered over here.
+      seed_files:
+        spec.md: prototype-specify
+    deliverable_file: prototype.html
+    produces: prototype-build
+    status: implemented
+
+  # ── 5. validate ── seeded with the built artifact; grades the FIXED file.
+  - agent_id: prototype-validate
+    output_file: prototype.final.html
+    order: 5
+    input:
+      source: upstream
+      from: [prototype-build]             # == AGENT.md consumes
+      seed_files:
+        prototype.html: prototype-build
+    deliverable_file: prototype.html
+    produces: prototype-validate
+    status: implemented
+
+
+# ── KNOWN GAPS ────────────────────────────────────────────────────────────
+# Recorded here rather than in a comment on one stage, because they change how
+# a score should be read and are invisible in the artifacts otherwise.
+known_gaps:
+  - id: od_context_not_populated
+    affects: [prototype-specify, prototype-plan, prototype-build, prototype-validate]
+    detail: >
+      Every one of these agents declares `injects: [template, design_system,
+      ...]` in its AGENT.md, composed at runtime by factory._compose_injection
+      from AgentContext.od_context. The grading driver does not populate
+      od_context, so that injection is INERT here: no agent in this workflow is
+      currently graded with a real template or design system attached. Scores
+      therefore reflect the agent's no-template behaviour only.
+    workaround: >
+      Where a stage's grade depends on specific design-system values, the
+      intended values are stated inline in the row's prompt. This is a patch
+      over the gap, not a fix — it grades whether the agent can follow values
+      given in a prompt, not whether it honours a real injected design system.
+    fix: >
+      Populate AgentContext.od_context in the driver and declare the injected
+      template/design system per dataset row.

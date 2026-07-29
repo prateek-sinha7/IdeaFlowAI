@@ -1,0 +1,157 @@
+# Grading config for prototype-plan — the prototype workflow's second stage,
+# which decomposes the spec into the ordered build plan the engine executes.
+#
+# The engine runs ONE isolated sub-agent per `## Task N:` block, so this stage's
+# output is machine-parsed, not read by a human. Structure is load-bearing.
+
+agent_id: prototype-plan
+
+
+# ── PRECHECK ──────────────────────────────────────────────────────────────
+precheck:
+  wrapper: "<tasks>"
+
+  # AGENT.md: "The `## Task N:` headers are the ONLY thing the build agent uses
+  # to find tasks. Without them it receives nothing." Anchored and exact — two
+  # hashes, the literal word Task, a number, a colon.
+  section_pattern: '^## Task \d+:'
+  min_sections: 4          # 1 shell + >= 2 pages + 1 validation; a 1-page plan is not a prototype
+
+  # NARROW BY CONSTRUCTION. The founding bug of this harness was bare substrings
+  # ("placeholder", "stub") in the specify precheck rejecting 7 of 11 CORRECT
+  # specs, because those words are ordinary UI vocabulary. A gate that rejects
+  # correct output makes the pass rate mean nothing.
+  #
+  # A plan is even more exposed to that class of false positive: it quotes the
+  # spec's UI copy, names CSS classes, and describes the HTML shell task in HTML
+  # terms — AGENT.md's own Task 1 text says to build `<!doctype html>`, `<head>`
+  # and `:root` tokens. So nothing here may match HTML vocabulary, and the
+  # "did it emit HTML instead of a plan?" question is left to the wrapper check
+  # (an HTML dump cannot start with `<tasks>` and end with `</tasks>`) and to the
+  # judge. Only what is a contract violation in ANY context stays.
+  forbidden:
+    - pattern: '(?i)lorem ipsum'
+      reason: "filler text where the plan must name the real content to build"
+    - pattern: '(?i)\bTBD\b'
+      reason: "unresolved content — an isolated build sub-agent cannot resolve it later"
+    - pattern: '(?i)<artifact[\s>]'
+      reason: "AGENT.md forbids an <artifact> block; this agent must emit the plan only"
+    - pattern: '(?i)\bI need (?:to clarify|more (?:information|detail|context))\b'
+      reason: "AGENT.md forbids clarifying questions — an unanswerable plan blocks the build"
+
+  validate: ./prototype_plan_validate.py:check
+
+
+# ── JUDGE ─────────────────────────────────────────────────────────────────
+# Identical to prototype-specify's, deliberately: the two stages of one workflow
+# are only comparable if they were scored by the same pinned judge.
+judge:
+  provider: mistral
+  model: mistral-large-latest
+  threshold: 70
+  skip_on_precheck_failure: true
+
+
+# ── RUBRIC ────────────────────────────────────────────────────────────────
+# Each dimension is scored 0-100 by the judge; `weight` is applied afterwards in
+# Python (total = sum(score_i * weight_i) / 100), so the anchors below are a
+# 0-100 scale and a per-dimension "out of 40" would be incoherent.
+dimensions:
+  - id: page_coverage
+    weight: 40
+    description: >
+      Does EVERY page in the spec get its own task, and only its own? AGENT.md
+      requires total tasks = 1 shell + N pages + 1 validation, one page per task,
+      no page skipped and never two pages combined. A dropped page is a page the
+      prototype will simply not have; a merged page is a task the isolated build
+      sub-agent will half-finish.
+
+  - id: task_self_containment
+    weight: 40
+    description: >
+      Could ONE isolated sub-agent that cannot see the other tasks build this
+      task from its text alone? Each page task must carry the concrete content
+      AGENT.md demands — exact layout pattern and CSS classes, table columns plus
+      5 specific rows, chart type/axes plus 6+ data points with values, every
+      button's exact action, every form field's validation, the script handlers
+      needed. A task that says "add the metrics table" and defers the data to the
+      spec is not buildable in isolation.
+
+  - id: build_order_coherence
+    weight: 20
+    description: >
+      Does the sequence work as a build? Task 1 must establish the shell that
+      everything after it depends on — DS tokens mapped to :root, the CSS class
+      system, shared chrome with ALL nav items, an empty section and route for
+      EVERY page — so no later task forward-references something never created,
+      and the final validation task must check real properties of what was
+      actually built rather than restate a generic checklist.
+
+anchors:
+  90: >
+    Every spec page has exactly one task, in an order where each task only
+    depends on what earlier tasks created. Each page task names its classes,
+    concrete data rows/points, and handlers — an isolated sub-agent needs
+    nothing else. Validation checks the specific pages and routes this plan
+    created.
+  70: >
+    All pages are covered and ordered sensibly, but one or two tasks are thinner
+    than the rest — a table without its 5 rows, a chart without its data points,
+    or an interaction described but not specified.
+  50: >
+    A page is missing or two pages share a task; several tasks defer content to
+    "as per the spec", so the build sub-agent must invent it. The shell task
+    omits routes or sections that later tasks assume exist.
+  30: >
+    The plan is a restatement of the spec's headings rather than a build
+    sequence. Tasks are not independently buildable, and the ordering or the
+    validation task is generic enough to belong to any other plan.
+
+rubric: |
+  You are grading a generated BUILD PLAN — the decomposition of a prototype spec
+  into ordered, atomic build tasks. It is not documentation for a human: the
+  engine parses the `## Task N:` headers and runs ONE isolated sub-agent per
+  task. That sub-agent CANNOT see the other tasks. Judge every task by whether
+  it is buildable under that constraint.
+
+  Read the upstream spec that this plan was produced from, and check the plan
+  against it — page for page.
+
+  The deterministic pre-check has ALREADY verified: the response is wrapped in
+  <tasks>...</tasks> with no preamble or postamble, the `## Task N:` headers are
+  present and meet the minimum count, no forbidden strings appear, and the task
+  numbers form a complete 1..N sequence ending in the validation task. DO NOT
+  re-score any of that. Whether the pages are the RIGHT pages, and whether each
+  task carries enough to build, is what you are here for.
+
+  Score each dimension SEPARATELY from 0 to 100 against the anchors, and return
+  each sub-score as its own field. Do not return a single overall number — the
+  weighted total is computed from your sub-scores.
+
+  For every dimension, quote specific task numbers, page names or data points
+  from THIS response as evidence. A rationale that would read the same for a
+  different plan is not a rationale and will be treated as a non-answer. If you
+  find yourself giving every response the same score, you are not reading
+  closely enough.
+
+
+# ── BASELINE ──────────────────────────────────────────────────────────────
+# Excluded from the rubric hash.
+#
+# NOT YET CALIBRATED. No run of this stage exists. These numbers are the intent;
+# the run that sets them for real must be recorded in `set_from`.
+baseline:
+  min_precheck_pass_rate: 0.90
+  min_average_score: 80
+
+  # Negative-test rows (e.g. a spec with an unbuildable page set) must actually
+  # be rejected. Scored inverted and excluded from min_precheck_pass_rate above.
+  min_negative_correct: 1.0
+
+  # TWO-SIDED SIGNAL GUARD. A judge that returns the same number every time is
+  # dead; a judge whose spread is implausibly tight is dying. Both hide real
+  # regressions inside an average that looks fine.
+  min_distinct_scores: 3
+  max_expected_stddev: null       # set from the calibration run's observed spread
+
+  set_from: "NOT CALIBRATED — no run of prototype-plan exists yet"

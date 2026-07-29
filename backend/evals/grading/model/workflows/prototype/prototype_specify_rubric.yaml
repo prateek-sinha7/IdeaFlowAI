@@ -1,0 +1,158 @@
+# Grading config for prototype-specify — the prototype workflow's root stage,
+# which turns a product brief into a spec another agent builds HTML from.
+#
+# Deliberately industry-agnostic: the briefs vary by vertical and live in
+# the dataset file. Nothing here may reference a specific one.
+
+agent_id: prototype-specify
+
+
+# ── PRECHECK ──────────────────────────────────────────────────────────────
+precheck:
+  wrapper: "<spec>"
+
+  section_pattern: '^### '
+  min_sections: 4          # one section per page, and a spec needs >= 4 pages
+
+  # NARROWED, with evidence. The original list forbade the bare substrings
+  # "placeholder" and "stub", which failed 7 of 11 rows in run
+  # 260729-083126-ten-industries — a 36% pass rate that read as a badly
+  # misbehaving agent. Every one of those failures was a FALSE POSITIVE: the
+  # matches were legitimate UI vocabulary in a spec that describes forms and
+  # navigation.
+  #
+  #   "Search input placeholder: \"Search waitlist...\""
+  #   "`.form-input` \"Room\" placeholder \"e.g., Conf Room 3\""
+  #   "click student row -> `#/students/{id}` (stub page)"
+  #
+  # `placeholder` is an HTML input attribute; a stub page is a legitimate way
+  # to bound prototype scope. Forbidding them rejects correct specs, and a
+  # gate that rejects correct output makes the pass rate mean nothing.
+  #
+  # The real target — filler content passed off as substance — is a judgement
+  # call, so it moved to the judge's DATA REALISM dimension, where it can be
+  # weighed in context. What stays here is only what is unambiguous in any
+  # context.
+  forbidden:
+    - pattern: '(?i)lorem ipsum'
+      reason: "filler text instead of real invented data"
+    - pattern: '(?i)\bTBD\b'
+      reason: "unresolved content left for later"
+    - pattern: '(?i)coming soon'
+      reason: "deferred content in a spec that should be complete"
+    - pattern: '(?i)placeholder (text|content|data)'
+      reason: "explicit filler — narrower than bare 'placeholder', which is a legitimate HTML input attribute"
+    - pattern: '(?i)\b(Customer|Client|User|Item|Product) [A-C]\b'
+      reason: "generic invented data ('Customer A') instead of plausible domain data"
+
+  validate: ./prototype_specify_validate.py:check
+
+
+# ── JUDGE ─────────────────────────────────────────────────────────────────
+# Pinned so runs are comparable by default.
+#
+# CALIBRATION WARNING: run 260729-083126-ten-industries used mistral-small and
+# returned EXACTLY 95 for all 11 rows — zero variance, including for rows the
+# precheck had rejected. That eval had no signal at all: no regression could
+# have been detected, because every possible response scored the same. Three
+# changes below target that, and `baseline.min_distinct_scores` makes a relapse
+# fail the run instead of hiding in the average.
+judge:
+  provider: mistral
+  model: mistral-large-latest      # a small judge could not separate these rows
+  threshold: 70
+  skip_on_precheck_failure: true   # was false: malformed specs were scored 95
+
+
+# ── RUBRIC ────────────────────────────────────────────────────────────────
+# Each dimension is scored 0-100 by the judge; `weight` is applied afterwards
+# in Python (total = sum(score_i * weight_i) / 100). The anchors below are a
+# 0-100 scale, so asking the judge to score "out of 40" would be incoherent.
+# Asking for one overall number is what let a judge return the same value every
+# time without it being visible.
+dimensions:
+  - id: data_realism
+    weight: 40
+    description: >
+      Is the invented data (names, ids, amounts, dates, categories) plausible
+      and specific for THIS brief's industry — something a practitioner in that
+      field would recognise as real — rather than generic and interchangeable
+      with any other vertical?
+
+  - id: brief_intent_match
+    weight: 40
+    description: >
+      Does each page's content actually serve the needs stated in the brief? A
+      page that exists but does not serve the stated use case scores down even
+      though it passes the structural check.
+
+  - id: design_system_coherence
+    weight: 20
+    description: >
+      With no template specified, did the agent invent a coherent CSS class
+      system and visual density suited to the brief's stated audience and
+      product type, per its own no-template-mode instructions — not a
+      mismatched one (a marketing-site look for an internal ops tool)?
+
+anchors:
+  90: >
+    Data a domain practitioner would accept as a real export. Every page maps
+    to something the brief explicitly asked for. Class system is coherent,
+    complete, and unmistakably suited to the stated audience.
+  70: >
+    Data is plausible but generic in places (round numbers, stock company
+    names). Pages cover the brief but one is thin or tangential. Class system
+    works but is partly boilerplate.
+  50: >
+    Data is recognisably invented filler. Several pages are generic
+    admin-console furniture rather than answers to this brief. Class system is
+    a default grid with no domain fit.
+  30: >
+    Data is interchangeable with any other industry. The spec would produce
+    roughly the same prototype for a different brief.
+
+rubric: |
+  You are grading a generated prototype SPECIFICATION document (not code),
+  written by an agent whose job is to produce a spec another agent will build a
+  static HTML prototype from. The brief describes a real product in a specific
+  industry — read the brief itself to know which; these dimensions apply
+  regardless of which one it is.
+
+  The deterministic pre-check has ALREADY verified: the response is wrapped in
+  <spec>...</spec> with no preamble, the page count meets the minimum, no
+  forbidden filler strings appear, and every navigation target in the Pages &
+  Navigation table has a matching page section. DO NOT re-score any of that.
+
+  Score each dimension SEPARATELY from 0 to 100 against the anchors, and
+  return each sub-score as its own field. Do not return a single overall
+  number — the weighted total is computed from your sub-scores.
+
+  For every dimension, quote specific pages or data points from THIS response
+  as evidence. A rationale that would read the same for a different response is
+  not a rationale, and will be treated as a non-answer. If a dimension is
+  genuinely excellent, say what specifically makes it so; if you find yourself
+  giving every response the same score, you are not reading closely enough.
+
+
+# ── BASELINE ──────────────────────────────────────────────────────────────
+# Excluded from the rubric hash.
+#
+# NOT YET CALIBRATED. The only run available (260729-083126-ten-industries) is
+# unusable as a baseline: it used a judge that returned a constant, and a
+# precheck since found to be broken. These numbers are the intent, and the run
+# that sets them for real must be recorded in `set_from`.
+baseline:
+  min_precheck_pass_rate: 0.90    # the 0.36 observed was the broken forbidden list
+  min_average_score: 80
+
+  # The negative-test row (underspecified_brief) must actually be rejected.
+  # Scored inverted and excluded from min_precheck_pass_rate above.
+  min_negative_correct: 1.0
+
+  # TWO-SIDED SIGNAL GUARD. A judge that returns the same number every time is
+  # dead (the constant-95 run); a judge whose spread is implausibly tight is
+  # dying. Both hide real regressions inside an average that looks fine.
+  min_distinct_scores: 3
+  max_expected_stddev: null       # set from the calibration run's observed spread
+
+  set_from: "NOT CALIBRATED — pending one clean run on the fixed precheck + pinned judge"

@@ -1,0 +1,65 @@
+# Generic scenario TEMPLATE for prototype-specify — precheck/rubric config
+# shared across every prompt in dataset.json. Leading underscore means the
+# generic scenario_discovery.py glob skips this as a standalone scenario
+# (same convention as workflow/*/*/scenarios/_TEMPLATE.yaml on the
+# deterministic track); it's loaded explicitly, once, and combined with
+# each dataset.json entry to produce one GradedScenario per entry.
+#
+# Deliberately industry-agnostic: the actual briefs (which vary by
+# industry/use case) live in dataset.json, not here. Nothing below should
+# reference a specific vertical.
+agent_id: prototype-specify
+
+min_pages: 4
+
+precheck:
+  wrapper: "<spec>"
+  section_pattern: '^### '
+  forbidden:
+    - "Lorem ipsum"
+    - "TBD"
+    - "Coming soon"
+    - "future expansion"
+    - "placeholder"
+    - "stub"
+
+precheck_module: "evals.model_graded.agents.prototype_specify.nav_cross_reference_check:check"
+
+rubric: |
+  You are grading a generated prototype SPECIFICATION document (not code),
+  written by an agent whose job is to produce a spec another agent will
+  build a static HTML prototype from. The brief describes a real-world
+  product in some specific industry/domain — read the brief itself to know
+  which one; this rubric applies the same three dimensions regardless of
+  what that domain is.
+
+  The deterministic pre-check has ALREADY verified: the response is wrapped
+  in <spec>...</spec> with no preamble, the page count meets the required
+  minimum, none of the forbidden placeholder strings appear, and every
+  navigation target in the Pages & Navigation table has a matching page
+  section. DO NOT re-score any of that — focus only on what a script cannot
+  verify:
+
+  1. DATA REALISM (0-40 points): Is the invented data (names, ids, amounts,
+     dates, categories — whatever is domain-appropriate for THIS brief's
+     industry) genuinely plausible and specific — not generic placeholders
+     like "Customer A" or "Item 1"? Realistic data for the brief's actual
+     domain looks like something a practitioner in that field would
+     recognize as real, not interchangeable with any other industry's data.
+
+  2. BRIEF-INTENT MATCH (0-40 points): Does each page's content actually
+     serve the specific needs stated in the brief? A page that technically
+     exists but doesn't serve the use case described in the brief should be
+     scored down even if it passes the structural check. Weigh this against
+     what THIS brief specifically asked for, not a generic checklist.
+
+  3. TEMPLATE/DESIGN-SYSTEM USAGE (0-20 points): Since no template is
+     specified, did the agent invent a coherent CSS class system and visual
+     density appropriate for the brief's stated audience and product type
+     (per its own "no-template mode" instructions), rather than a generic
+     or mismatched one (e.g. a marketing-site look for an internal ops
+     tool, or vice versa)?
+
+  Sum the three sub-scores for the final 0-100 score. Write a rationale that
+  names specific pages/data points from THIS response, not generic praise
+  or criticism.

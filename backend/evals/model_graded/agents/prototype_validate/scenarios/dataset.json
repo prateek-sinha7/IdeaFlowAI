@@ -1,0 +1,29 @@
+[
+  {
+    "id": "billing_console_validate",
+    "industry": "SaaS Billing",
+    "prompt": "Validate and fix the current prototype.html for delivery readiness. The ACTIVE DESIGN SYSTEM for this prototype is Stripe Dashboard DS: --bg=#ffffff, --fg=#1a1a1a, --accent=#635bff, --surface=#f6f9fc, --border=#e3e8ee, --muted=#697386. Apply these exact token values.",
+    "min_pages": 2,
+    "seed_files": {
+      "prototype.html": "<!doctype html>\n<html>\n<head>\n<style>\n:root {\n  --bg: #fafaf7;\n  --fg: #141413;\n  --accent: #c96442;\n  --surface: #ffffff;\n  --border: #e5e5e5;\n  --muted: #888888;\n}\n.page { display: none; }\n.page.is-active { display: block; }\n.card { background: var(--surface); border: 1px solid var(--border); }\n</style>\n</head>\n<body>\n<nav><a href=\"#/dashboard\" data-page=\"dashboard\">Dashboard</a>\n<a href=\"#/subscriptions\" data-page=\"subscriptions\">Subscriptions</a></nav>\n<section data-page=\"dashboard\" class=\"page is-active\"><div class=\"card\"><h2>Dashboard</h2><table class=\"table\"><tr><th>Col A</th><th>Col B</th></tr><tr><td>Row 1</td><td>Val 1</td></tr></table></div></section>\n<section data-page=\"subscriptions\" class=\"page\"></section>\n<script>\nconst routes = {\"dashboard\": true, \"subscriptions\": true};\nfunction route() {\n  const hash = location.hash.slice(2) || \"dashboard\";\n  document.querySelectorAll('[data-page]').forEach(el => el.classList.remove('is-active'));\n  document.querySelector('[data-page=\"' + hash + '\"]').classList.add('is-active');\n}\nwindow.addEventListener('load', route);\nwindow.addEventListener('hashchange', route);\n</script>\n</body>\n</html>"
+    }
+  },
+  {
+    "id": "healthcare_scheduling_validate",
+    "industry": "Healthcare Scheduling",
+    "prompt": "Validate and fix the current prototype.html for delivery readiness. The ACTIVE DESIGN SYSTEM for this prototype is Clinical Ops DS: --bg=#f7fafc, --fg=#1a202c, --accent=#2b6cb0, --surface=#ffffff, --border=#cbd5e0, --muted=#718096. Apply these exact token values.",
+    "min_pages": 2,
+    "seed_files": {
+      "prototype.html": "<!doctype html>\n<html>\n<head>\n<style>\n:root {\n  --bg: #fafaf7;\n  --fg: #141413;\n  --accent: #c96442;\n  --surface: #ffffff;\n  --border: #e5e5e5;\n  --muted: #888888;\n}\n.page { display: none; }\n.page.is-active { display: block; }\n.card { background: var(--surface); border: 1px solid var(--border); }\n</style>\n</head>\n<body>\n<nav><a href=\"#/calendar\" data-page=\"calendar\">Calendar</a>\n<a href=\"#/patients\" data-page=\"patients\">Patients</a></nav>\n<section data-page=\"calendar\" class=\"page is-active\"><div class=\"card\"><h2>Calendar</h2><table class=\"table\"><tr><th>Col A</th><th>Col B</th></tr><tr><td>Row 1</td><td>Val 1</td></tr></table></div></section>\n<section data-page=\"patients\" class=\"page\"></section>\n<script>\nconst routes = {\"calendar\": true, \"patients\": true};\nfunction route() {\n  const hash = location.hash.slice(2) || \"calendar\";\n  document.querySelectorAll('[data-page]').forEach(el => el.classList.remove('is-active'));\n  document.querySelector('[data-page=\"' + hash + '\"]').classList.add('is-active');\n}\nwindow.addEventListener('load', route);\nwindow.addEventListener('hashchange', route);\n</script>\n</body>\n</html>"
+    }
+  },
+  {
+    "id": "logistics_fleet_validate",
+    "industry": "Logistics & Fleet",
+    "prompt": "Validate and fix the current prototype.html for delivery readiness. The ACTIVE DESIGN SYSTEM for this prototype is Logistics Ops DS: --bg=#ffffff, --fg=#111827, --accent=#059669, --surface=#f3f4f6, --border=#d1d5db, --muted=#6b7280. Apply these exact token values.",
+    "min_pages": 2,
+    "seed_files": {
+      "prototype.html": "<!doctype html>\n<html>\n<head>\n<style>\n:root {\n  --bg: #fafaf7;\n  --fg: #141413;\n  --accent: #c96442;\n  --surface: #ffffff;\n  --border: #e5e5e5;\n  --muted: #888888;\n}\n.page { display: none; }\n.page.is-active { display: block; }\n.card { background: var(--surface); border: 1px solid var(--border); }\n</style>\n</head>\n<body>\n<nav><a href=\"#/map\" data-page=\"map\">Live Map</a>\n<a href=\"#/vehicles\" data-page=\"vehicles\">Vehicles</a></nav>\n<section data-page=\"map\" class=\"page is-active\"><div class=\"card\"><h2>Live Map</h2><table class=\"table\"><tr><th>Col A</th><th>Col B</th></tr><tr><td>Row 1</td><td>Val 1</td></tr></table></div></section>\n<section data-page=\"vehicles\" class=\"page\"></section>\n<script>\nconst routes = {\"map\": true, \"vehicles\": true};\nfunction route() {\n  const hash = location.hash.slice(2) || \"map\";\n  document.querySelectorAll('[data-page]').forEach(el => el.classList.remove('is-active'));\n  document.querySelector('[data-page=\"' + hash + '\"]').classList.add('is-active');\n}\nwindow.addEventListener('load', route);\nwindow.addEventListener('hashchange', route);\n</script>\n</body>\n</html>"
+    }
+  }
+]

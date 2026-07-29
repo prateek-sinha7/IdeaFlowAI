@@ -1,0 +1,133 @@
+# TEMPLATE — copy to <workflow>/<agent_token>_rubric.yaml and fill in.
+#
+# `.template` suffix so globs, pytest collection, and YAML loaders skip it.
+# Everything below is the full contract; delete what you do not need.
+
+# The agent under test, exactly as it appears in agents/registry.py.
+agent_id: your-agent-id
+
+
+# ── PRECHECK ──────────────────────────────────────────────────────────────
+# Deterministic, free, runs first. Its job is to reject MALFORMED responses
+# so the judge is never asked to grade something structurally broken.
+#
+# Keep it strictly structural. Anything requiring judgement about whether the
+# content is GOOD belongs in the rubric below — a precheck that guesses at
+# quality produces false failures, and a false failure is worse than no check
+# because it makes the pass rate meaningless.
+precheck:
+  # Response must start with this and end with its closing form. Matched
+  # case-insensitively. Set close_wrapper explicitly when the closing tag is
+  # not derivable by inserting a slash (e.g. "<!doctype html>" → "</html>").
+  wrapper: "<output>"
+  # close_wrapper: "</output>"
+
+  # Response must contain at least `min_sections` lines matching this regex.
+  section_pattern: '^### '
+  min_sections: 4
+
+  # Substrings/patterns that must NOT appear. Each entry needs a `reason` —
+  # it is what a failing run reports, and writing one forces you to justify
+  # the rule.
+  #
+  # WARNING, learned the hard way: bare substring matching produces false
+  # positives that will quietly halve your pass rate. Anchor with word
+  # boundaries, and never forbid a word that is legitimate vocabulary in the
+  # domain you are grading. See prototype_specify_rubric.yaml for a worked
+  # example of a rule that had to be narrowed.
+  forbidden:
+    - pattern: '(?i)lorem ipsum'
+      reason: "filler text instead of real content"
+
+  # Optional custom hook for what config cannot express — cross-referencing
+  # two sections, parsing a structure, checking specific values.
+  #
+  # Referenced BY PATH RELATIVE TO THIS FILE, not as a dotted module. Keeps
+  # the hook co-located with its rubric, and needs no __init__.py.
+  # Signature: check(response: str) -> tuple[bool, str]
+  validate: ./your_agent_validate.py:check
+
+
+# ── JUDGE ─────────────────────────────────────────────────────────────────
+# Pinned here, not left to CLI flags, so two runs of this agent are
+# comparable by default. A CLI override should be an explicit, recorded act.
+judge:
+  provider: anthropic
+  model: claude-sonnet-5
+
+  # Score below this and the row fails. Distinct from `baseline` — this is
+  # per-row, baseline is per-run.
+  threshold: 70
+
+  # Only judge rows that passed precheck. Judging a malformed response wastes
+  # tokens and contaminates the average with a number that cannot mean
+  # anything. Set false only if you specifically want to see the judge's view
+  # of malformed output.
+  skip_on_precheck_failure: true
+
+
+# ── RUBRIC ────────────────────────────────────────────────────────────────
+# Dimensions MUST be listed explicitly and their WEIGHTS must sum to 100.
+#
+# Each dimension is scored 0-100 by the judge; `weight` is applied afterwards
+# in Python (total = sum(score_i * weight_i) / 100). Do NOT ask the judge to
+# score "out of 40" — the anchors below are a 0-100 scale, and mixing the two
+# is incoherent. Weighting in Python also means a weight change is
+# re-computable over stored sub-scores instead of needing a re-run.
+#
+# A single 0-100 number with no per-dimension structure is how a judge ends up
+# returning the same value for every row.
+dimensions:
+  - id: dimension_one
+    weight: 40
+    description: "What this dimension measures, concretely."
+  - id: dimension_two
+    weight: 40
+    description: "..."
+  - id: dimension_three
+    weight: 20
+    description: "..."
+
+# Anchors calibrate the scale. Without them "80" means whatever the judge
+# feels that day, and scores drift between runs and cluster at one value.
+# Describe what a response at each level actually LOOKS like.
+anchors:
+  90: "..."
+  70: "..."
+  50: "..."
+  30: "..."
+
+rubric: |
+  You are grading <what>, produced by an agent whose job is <what>.
+
+  The deterministic pre-check has ALREADY verified: <list exactly what>. DO
+  NOT re-score any of that — focus only on what a script cannot verify.
+
+  Score each dimension separately from 0 to 100 against the anchors, and
+  return each sub-score as its own field. Do NOT return an overall number —
+  the weighted total is computed from your sub-scores.
+
+  For every dimension, quote specific text from THIS response as evidence; a
+  rationale that would read the same for any response is not a rationale.
+
+
+# ── BASELINE ──────────────────────────────────────────────────────────────
+# The committed expectation. Without it the numbers are unfalsifiable and no
+# regression can ever be detected — which is the whole point of the eval.
+#
+# EXCLUDED FROM THE RUBRIC HASH: ratcheting a threshold must not look like a
+# change to what a score means.
+baseline:
+  min_precheck_pass_rate: 0.90
+  min_average_score: 80
+  # Fraction of `expect: fail` rows that must be correctly rejected. Scored
+  # inverted, and excluded from min_precheck_pass_rate above.
+  min_negative_correct: 1.0
+  # Fail if the judge returns too few distinct values — the signature of a
+  # judge that has stopped discriminating.
+  min_distinct_scores: 3
+  # ...and fail if the spread is implausibly tight. Both directions hide real
+  # regressions inside an average that looks perfectly healthy.
+  max_expected_stddev: null
+  # Free-text: why these numbers, and what run they were set from.
+  set_from: "TODO: dataset_run_id this was calibrated against, and the date"
