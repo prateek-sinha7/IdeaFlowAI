@@ -37,6 +37,8 @@ import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
+// KAN-128 (FIX-141): content-derived filename for the left chat panel deliverable card
+import { deriveDeliverableFilename } from "@/components/results/FilesTab";
 
 export interface DashboardLayoutProps {
   activeChatId: string | null;
@@ -1518,6 +1520,28 @@ export function DashboardLayout({
     laneHasDeliverable ? "complete" :
     "idle";
 
+  // KAN-128 (FIX-143): content-derived deliverable filename for the left chat
+  // panel "Run summary" DeliverableCard. Uses deriveDeliverableFilename (FIX-140,
+  // FilesTab.tsx) so the chat card always agrees with the Files tab and Preview
+  // URL bar. The active content slot is selected by effectiveReviseType (the same
+  // value PreviewPanel uses for workflowType) — NOT the local workflowType state,
+  // which is stale on history-reopened runs (it stays "user_stories" by default
+  // until a wizard runs, while effectiveReviseType correctly reflects
+  // contentSourceRunType e.g. "od_ppt" or "od_prototype").
+  const laneActiveContent =
+    effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision" ||
+    effectiveReviseType === "od_ppt" || effectiveReviseType === "od_ppt_revision"
+      ? pptContent
+      : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" ||
+        effectiveReviseType === "od_prototype"
+        ? prototypeContent
+        : userStoryContent; // user_stories, custom, app_builder, and revision variants
+  const laneDerivedFilename = deriveDeliverableFilename(
+    effectiveReviseType || workflowType || "user_stories",
+    laneActiveContent || undefined,
+    pipelineState?.deliverableFilename,
+  );
+
   // Phase 39 (RUNUI-06) — the live run title for the lane header. BUG-001: bind
   // it to the VIEWED run (contentSourceRunId), not recentRuns[0] (the most-recent
   // run). On a fresh launch contentSourceRunId is null → recentRuns[0] = the
@@ -1955,6 +1979,11 @@ export function DashboardLayout({
                       onBackToHistory={() => setMainView("history")}
                       runTitle={runHeaderTitle}
                       runType={effectiveReviseType || pipelineState?.pipeline_type}
+                      // KAN-128 (FIX-141): pass the content-derived filename so the
+                      // left chat panel "Run summary" DeliverableCard shows the same
+                      // name as the Files tab and Preview URL bar (not the static
+                      // manifest name from pipelineState.deliverableFilename).
+                      deliverableFilename={laneDerivedFilename || undefined}
                       // Absorbed AgentProgressPanel controls (Stop / revise / suggestions).
                       onStop={handleStopPipeline}
                       onRevise={activeReviseHandler}

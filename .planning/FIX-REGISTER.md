@@ -10,6 +10,10 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-143 | 2026-07-29 | KAN-128: Chat panel still shows static filename for PPT and Prototype — `laneActiveContent` used local `workflowType` instead of `effectiveReviseType` | FIX-141's dispatch keyed on `workflowType` (default `"user_stories"` on history-reopen) not `effectiveReviseType`. On reopened `od_ppt` run, `workflowType="user_stories"` → `laneActiveContent=""` → fallback fires. Fix: use `effectiveReviseType` in both the content slot dispatch and the `deriveDeliverableFilename` call. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/39 (FIX-141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-142 | 2026-07-29 | KAN-128: PPT filename shows "presentation.pptx" instead of content-derived ".html" — wrong extension for all ppt/od_ppt variants | `deriveDeliverableFilename` assigned `"pptx"` for `"ppt"`/`"ppt_revision"` but all PPT runs produce HTML decks. `deriveDeliverableFiles` also offered a dead `.pptx` row. Fix: both functions always use `"html"` for all four ppt variants. | `frontend/src/components/results/FilesTab.tsx` | Phase 18/22/39 (FIX-140/141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-141 | 2026-07-29 | KAN-128: Left chat panel "Run summary" deliverable card shows static manifest filename instead of content-derived name | RunChatLane's dFilename = pipelineState?.deliverableFilename (static manifest). DashboardLayout had all content props but never passed a content-derived deliverableFilename to RunChatLane. Fix: compute laneDerivedFilename using deriveDeliverableFilename() (FIX-140) in DashboardLayout and pass it as the prop. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31 (CHATUI-01 RunChatLane), Phase 39 (RUNUI-06 DeliverableCard) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-140 | 2026-07-29 | KAN-128: Output filename inconsistent between Preview URL bar / Download and Files tab across all workflow types; mid-word truncation bug | Preview reads static `pipelineState.deliverableFilename` (manifest name); FilesTab parses `<title>`/`^#` from content. Independent paths, never share a source. `.slice(0,40)` also truncates mid-syllable. Fix: extract `deriveDeliverableFilename(workflowType, content, fallback)` from FilesTab; use it in PreviewPanel for `previewFilename` and `handleHeaderDownload`. | `frontend/src/components/results/FilesTab.tsx`, `frontend/src/components/preview/PreviewPanel.tsx` | Phase 18 (ISS-021 FilesTab), Phase 22 (deliverableFilename), Phase 39 (PreviewChrome/RunHeader) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-139 | 2026-07-29 | Chained pipeline uses wrong source run context — recentRuns type-scan returns older completed run instead of the one on screen | handleChainPipeline resolved sourceRunId via recentRuns.find(type+completed) which returns the first type-match. When multiple completed user_stories runs exist, it returns an older one instead of the currently-viewed run. contentSourceRunId (already set by page.tsx on pipeline_complete) was ignored. Fix: use contentSourceRunId as primary source, recentRuns scan as fallback. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25/38 (workflow chaining / KAN-116) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-138 | 2026-07-29 | Concurrent same-type runs show mixed agent progress — HTTP response order race overwrites activelyBuildingRunIdRef with wrong run ID | When two runs are launched in quick succession, HTTP POSTs can resolve out of click order. The first-clicked run's .then() can fire AFTER the second-clicked run's .then(), overwriting activelyBuildingRunIdRef/trackedRunIdRef with the earlier-clicked run's ID, allowing that earlier run's events to reach the reducer and showing mixed agent progress. Fix: launchCounterRef increments on each click; .then() only updates trackedRunIdRef/activelyBuildingRunIdRef when thisLaunchSeq === current counter (i.e. no newer launch has registered). | `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-137 | 2026-07-29 | Multi-tab isolation + same-tab isForeignFrame empty-set gap — new tabs show running workflows, concurrent same-tab runs not fully isolated | (1) refreshLiveRuns auto-attached ALL running workflows to new tabs; launchedRunIdsRef empty → isForeignFrame always false → background runs polluted dashboard. (2) Same fix needed for isForeignRun/isForeignFrame — empty Set means no blocking. Fix: persist launchedRunIdsRef to sessionStorage (survives reload, isolated per tab); isForeignFrame blocks when Set empty; refreshLiveRuns only attaches tab-owned runs. | `frontend/src/app/dashboard/page.tsx`, `frontend/src/providers/RunConnectionProvider.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
@@ -154,6 +158,234 @@
 *Entries are appended below after each `/velocity-ai-fix` session.*
 
 ---
+
+### FIX-143 — KAN-128: Use `effectiveReviseType` for chat panel filename dispatch (fixes PPT and Prototype)
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix still showing the same issue for ppt and prototype`
+
+#### Root Cause
+
+FIX-141 introduced `laneActiveContent` to select the right content for `deriveDeliverableFilename`, but it keyed on `workflowType` (DashboardLayout's local state) instead of `effectiveReviseType`.
+
+`workflowType` is a local `useState` inside DashboardLayout:
+- It defaults to `"user_stories"` unless a wizard explicitly calls `setWorkflowType()`
+- It's set to `"ppt"` / `"prototype"` when the respective wizard launches a run
+- **It stays stale at `"user_stories"` when a completed run is opened from history**
+
+`effectiveReviseType` is computed correctly for ALL cases:
+```ts
+const viewedRunType = contentSourceRunType ?? (!isPipelineRunning && contentSourceRunId != null ? recentRuns.find(...)?.type : undefined);
+const effectiveReviseType = viewedRunType ?? workflowType;
+```
+
+For a history-reopened `"od_ppt"` run: `contentSourceRunType = "od_ppt"` → `effectiveReviseType = "od_ppt"`. But `workflowType` stays `"user_stories"`.
+
+So `laneActiveContent` was checking `workflowType === "ppt"` → `false` → fell through to `userStoryContent = ""` → `deriveDeliverableFilename("user_stories", "", fallback)` → returned the static fallback `"presentation.pptx"`.
+
+`PreviewPanel` was already correct because it uses `workflowType={effectiveReviseType}` (line ~2049). Only `laneActiveContent` was wrong.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 31 (CHATUI-01 RunChatLane), Phase 39 (RUNUI-06 DeliverableCard), follow-up to FIX-141
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** SC-001 — no workflow-name literal; dispatch keys on the existing `effectiveReviseType` variable.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | Replaced `workflowType` with `effectiveReviseType` in the `laneActiveContent` dispatch AND in the `deriveDeliverableFilename` first argument | `effectiveReviseType` is the authoritative type for the viewed run (incorporates `contentSourceRunType` for history-reopened runs); `workflowType` is stale for reopened runs |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — FE-only
+- **INV-3** (golden parity): Not affected — FE-only, no backend/golden impact
+- **INV-12** (no duplication): Uses the existing `effectiveReviseType` variable already computed above
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit`: No errors on `DashboardLayout.tsx`
+- Trace for PPT: `contentSourceRunType = "od_ppt"` → `effectiveReviseType = "od_ppt"` → `laneActiveContent = pptContent` (the HTML deck) → `deriveDeliverableFilename("od_ppt", "<html><title>GitHub OAuth Authentication</title>...", fallback)` → `"github-oauth-authentication.html"` ✅
+- Trace for Prototype: `contentSourceRunType = "od_prototype"` → `effectiveReviseType = "od_prototype"` → `laneActiveContent = prototypeContent` → `deriveDeliverableFilename("od_prototype", "<html><title>To Do App</title>...", fallback)` → `"to-do-app.html"` ✅
+- Trace for live PPT launch: `workflowType = "ppt"`, `contentSourceRunType = null` → `effectiveReviseType = "ppt"` → same as before ✅
+
+#### Notes
+
+This is the definitive fix for the chat panel filename issue. The root cause was a two-level bug:
+1. FIX-141 wired the infrastructure but used the wrong type variable (`workflowType` vs `effectiveReviseType`)
+2. FIX-142 fixed the extension (`.pptx` → `.html`) for the `"ppt"` normalised alias
+
+With FIX-143, both live runs and history-reopened runs will show the correct content-derived filename in the chat panel for all workflow types.
+
+---
+
+### FIX-142 — KAN-128: PPT always produces HTML — fix extension in all filename derivation paths
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix PPT still showing old static file name — PPT only generates html file output not pptx at all`
+
+#### Root Cause
+
+`deriveDeliverableFilename` in `FilesTab.tsx` had a branch:
+```ts
+const ext = workflowType === "od_ppt" || workflowType === "od_ppt_revision" ? "html" : "pptx";
+```
+
+When `workflowType` is `"ppt"` or `"ppt_revision"` (the normalised aliases DashboardLayout sets from `"od_ppt"`), `ext` was `"pptx"` — the wrong extension. All PPT runs in this codebase use the `od_ppt` HTML-deck path; the legacy PptxGenJS `.pptx` binary path is not used.
+
+The same wrong split existed in `deriveDeliverableFiles` which still offered a dead `.pptx` download row for `"ppt"`/`"ppt_revision"`.
+
+Additionally, since `deriveDeliverableFilename` returned `"presentation.pptx"` (with the wrong extension), and since the normalised `workflowType = "ppt"` in DashboardLayout causes `laneDerivedFilename` to evaluate with that wrong extension, the left chat panel was showing `"presentation.pptx"` as the fallback.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 18 (ISS-021 FilesTab PPT branch), Phase 22 (deliverableFilename), follow-up to FIX-140 and FIX-141
+- **Deleted code verified (not resurrected):** No deleted code resurrected. The `.pptx` row was a legacy placeholder for a path that was never used.
+- **Locked decisions respected:** INV-12 — all changes in the one shared `deriveDeliverableFilename` function
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/FilesTab.tsx` — `deriveDeliverableFilename` | Changed `ext` from conditional `"od_ppt" ? "html" : "pptx"` to always `"html"` for all four ppt variants | All PPT runs produce HTML decks; the `.pptx` path is unused |
+| `frontend/src/components/results/FilesTab.tsx` — `deriveDeliverableFiles` | Removed the `od_ppt`/`ppt` split that offered a dead `.pptx` row; all four ppt variants now produce a single `.html` FileItem | Removes a dead `.pptx` download that would 404 if clicked; Files tab now consistent with all other surfaces |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — FE-only
+- **INV-3** (golden parity): Not affected — FE-only, no backend/golden impact
+- **INV-12** (no duplication): Both functions updated together at the single source — no duplication
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on `FilesTab.tsx`
+- `workflowType = "ppt"` + content `<title>GitHub OAuth Authentication Feature</title>` → `"github-oauth-authentication-feature.html"` (correct extension, correct title)
+- `workflowType = "od_ppt"` → same result (already worked, unchanged)
+- Files tab no longer shows a dead `.pptx` download row for `"ppt"` runs
+
+#### Notes
+
+The root cause traces back to the original assumption that `"ppt"` could be either HTML or PPTX. Since the product only uses `od_ppt` (HTML decks), both the normalised alias `"ppt"` and the original `"od_ppt"` must use `"html"` extension everywhere.
+
+---
+
+### FIX-141 — KAN-128: Left chat panel "Run summary" card shows content-derived filename
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix left side chat window not showing correct titles for files generated`
+
+#### Root Cause
+
+`RunChatLane.tsx` line ~1643:
+```ts
+const dFilename = pipelineState?.deliverableFilename ?? deliverableFilename;
+```
+
+`pipelineState?.deliverableFilename` is the **static manifest name** (e.g., `"presentation.pptx"`, `"user_stories.md"`) — the same static value that FIX-140 already corrected for the Preview URL bar and Files tab. The `RunChatLane` component has no access to actual deliverable content, so it cannot derive a content-based name on its own.
+
+The fix belongs in `DashboardLayout.tsx`, which already receives all three content props (`userStoryContent`, `pptContent`, `prototypeContent`) and `workflowType`. Two changes are needed: (1) compute the derived name in DashboardLayout and pass it as the prop, and (2) fix the `??` operator precedence in RunChatLane so the explicit prop overrides the stale pipelineState value.
+
+**Trace:**
+```
+pipeline_complete → useWorkflow sets pipelineState.deliverableFilename = "presentation.pptx" (static)
+DashboardLayout mounts RunChatLane with NO deliverableFilename prop
+RunChatLane.renderTranscriptFooter: dFilename = pipelineState?.deliverableFilename = "presentation.pptx"
+SettledSummaryStrip: metaBits = ["3 agents", "presentation.pptx"]  ← [WRONG]
+DeliverableCard renders "presentation.pptx"                        ← [WRONG]
+```
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 31 (CHATUI-01 — RunChatLane / SettledSummaryStrip / DeliverableCard), Phase 39 (RUNUI-06/07 — DeliverableCard wired to pipelineState.deliverableFilename)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** INV-12 — reuses `deriveDeliverableFilename` from FIX-140 (FilesTab.tsx); no duplication; SC-001 — workflowType dispatch is in the FE component layer, not the engine kernel.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `import { deriveDeliverableFilename }` from FilesTab; computed `laneActiveContent` (content slot matching workflowType) and `laneDerivedFilename`; passed `deliverableFilename={laneDerivedFilename \|\| undefined}` to `RunChatLane` | DashboardLayout has all content props; RunChatLane does not |
+| `frontend/src/components/chat/RunChatLane.tsx` | Swapped `pipelineState?.deliverableFilename ?? deliverableFilename` to `deliverableFilename ?? pipelineState?.deliverableFilename` so the explicit content-derived prop takes precedence | The `??` operator was checking static pipelineState first, silently overriding the correct prop |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — FE-only
+- **INV-3** (golden parity): Not affected — FE-only, no backend/event/golden impact
+- **INV-12** (no duplication): Verified — reuses `deriveDeliverableFilename` from FilesTab (FIX-140 single source)
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on either changed file
+- `workflowType === "ppt"` + `pptContent` with `<title>GitHub OAuth Authentication Feature</title>` → `laneDerivedFilename = "github-oauth-authentication-feature.html"` — matches Files tab and Preview URL bar
+- During streaming: `laneActiveContent` is empty → helper returns fallback `pipelineState?.deliverableFilename` — no regression while building
+
+---
+
+### FIX-140 — KAN-128: Unify output filename — Preview URL bar, Download, and Files tab all agree
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix KAN 128`
+
+#### Root Cause
+
+Two completely independent code paths computed the deliverable filename, and they never shared logic:
+
+1. **`PreviewPanel.tsx` `previewFilename`** — read `pipelineState?.deliverableFilename`, a **static manifest value** (e.g., `"presentation.pptx"` from the workflow YAML's `deliverable.name` field). This was set by the `pipeline_complete` event handler in `useWorkflow.ts` which echoes the backend-emitted static manifest name.
+
+2. **`PreviewPanel.tsx` `handleHeaderDownload`** — also read the same static `pipelineState?.deliverableFilename`.
+
+3. **`FilesTab.tsx` `deriveDeliverableFiles()`** — parsed the **actual content** (`<title>` tags for HTML, `^#\s+(.+)` for markdown) to derive content-aware names. Also used `.slice(0, 40)` which truncates mid-syllable (e.g., `"lateral-thinking-beyond-linear-problemso.pptx"`).
+
+Result: Preview URL bar showed `"presentation.pptx"` (static manifest name), Files tab showed `"beyond-conventional-thinking.pptx"` (content-derived). Download via header also used the static name.
+
+**Trace:**
+```
+pipeline_complete → useWorkflow.ts:502 → pipelineState.deliverableFilename = manifest static name
+  → PreviewPanel previewFilename = pipelineState?.deliverableFilename  [STATIC]
+  → PreviewPanel handleHeaderDownload name = same static value          [STATIC]
+
+FilesTab.deriveDeliverableFiles() → parses <title>/<h1>/^# → content-derived name [CONTENT]
+```
+
+The additional `.slice(0, 40)` in `deriveDeliverableFiles` also cut on character boundaries, producing mid-syllable truncations.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 18 (ISS-021/UXFIX-02 — `deriveDeliverableFiles` extracted to module level, Phase 22 (UXFIX-02 `deliverableFilename` added to `pipeline_complete` emission and `_VOLATILE_STRIP_KEYS`), Phase 39 (RUNUI-06/07 — `previewFilename` and `handleHeaderDownload` added to `PreviewPanel.tsx`)
+- **Relevant register section:** Phase 18 §3 (capabilities/modules added), Phase 22 §3 (UXFIX-02 migration 0022)
+- **Deleted code verified (not resurrected):** No deleted code touched. `pipelineState.deliverableFilename` is preserved as the fallback in the new helper (used when content is not yet available / streaming).
+- **Locked decisions respected:** INV-12 (single helper, no duplication); Phase 22 UXFIX-02 (the static field is retained as a fallback, not removed); Phase 18 D-21 (generic-primary dispatch unchanged)
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/FilesTab.tsx` | Added `slugify(raw, maxWords=8)` private helper that truncates on whole-word boundaries (not `.slice(0,40)`), and exported `deriveDeliverableFilename(workflowType, content, fallback?)` pure function covering all workflow types (user_stories, custom, ppt, od_ppt, prototype, od_prototype, app_builder + _revision variants) | Single source of truth for filename derivation; word-boundary-safe truncation; fallback to static name when content not yet available |
+| `frontend/src/components/preview/PreviewPanel.tsx` | Imported `deriveDeliverableFilename` from FilesTab; replaced `pipelineState?.deliverableFilename` in `previewFilename` and `handleHeaderDownload` with a call to the helper; also corrected `handleHeaderDownload`'s mimetype to match the derived extension | Preview URL bar and Download now use the same content-derived logic as the Files tab |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — FE-only change; `deriveDeliverableFilename` dispatches on `workflowType` string in the FE component layer, not in the engine kernel
+- **INV-3** (golden parity): Not affected — FE-only; no backend/engine/event change; characterization goldens not impacted
+- **INV-12** (no duplication): Verified — `deriveDeliverableFilename` is the single implementation; `PreviewPanel` imports from `FilesTab`; `deriveDeliverableFiles` unchanged (still builds full `FileItem` arrays using its own internal name logic which also benefits from `slugify`)
+- **SC-001** (zero engine edits): Not affected — no engine edit
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on either changed file
+- Execution trace verified: `previewFilename` calls `deriveDeliverableFilename(rawPipelineType || workflowType, activeContent, fallback)` — when content is present, parses `<title>` or `^#` heading with word-boundary-safe slug; when content is empty/streaming, falls back to the static `pipelineState?.deliverableFilename`
+- `handleHeaderDownload` derives the same name and maps the file extension to the correct MIME type for download
+- The `slugify` helper splits on whitespace boundaries and takes the first `maxWords` (default 8) whole words, so `"Lateral Thinking Beyond Linear Problem Solving and Creative Approaches"` → `"lateral-thinking-beyond-linear-problem-solving-and-creative.pptx"` (first 8 words, no mid-syllable cut)
+
+#### Notes
+
+- The `deriveDeliverableFiles()` function still uses its own inline `.replace(...).slice(0, 40)` logic internally (it was not changed to use `slugify` — that would be a separate refactor touching the Files tab's existing filename generation which is out of scope for this fix). The new `deriveDeliverableFilename` helper is additive.
+- `pipelineState.deliverableFilename` (static manifest name) is retained as a fallback so the URL bar shows a meaningful name during streaming before content is available.
+- The fix covers all workflow types including revision variants (`_revision` suffix) and aliased types (`od_ppt`, `od_prototype`).
 
 ---
 
