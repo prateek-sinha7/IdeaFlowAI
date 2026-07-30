@@ -16,6 +16,7 @@ callbacks INJECTED onto the engine instance in ``app/main.py`` at startup.
 """
 
 import asyncio
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -71,6 +72,84 @@ def _cleanup_pipeline(pipeline_run_id: str) -> None:
     _PIPELINE_QUEUES.pop(pipeline_run_id, None)
     _PIPELINE_TASKS.pop(pipeline_run_id, None)
     _CANCEL_EVENTS.pop(pipeline_run_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Per-run SSE fan-out bus (KAN-134: Multi-Tab SSE Stream Silent Data Loss)
+# ---------------------------------------------------------------------------
+# Replaces the old single-queue-per-run model which caused round-robin event
+# partitioning across concurrent SSE clients. Each subscriber (SSE connection)
+# gets its own queue, fed by a shared pump (the engine). All subscribers see
+# all events in order. Based on the sanctioned websocket_handoff.py pattern
+# (Phase 44 survivor).
+#
+# run_id → list[asyncio.Queue]. Each queue belongs to one SSE client connection.
+# ``defaultdict(list)`` keeps the producer side simple; the SSE handler is
+# responsible for adding and removing its own queue via subscribe/unsubscribe.
+
+_SUBSCRIBERS: dict[str, list[asyncio.Queue]] = defaultdict(list)
+_SUBSCRIBERS_LOCK = asyncio.Lock()
+
+
+async def _subscribe(run_id: str, queue_maxsize: int = 0) -> asyncio.Queue:
+    """Subscribe an SSE client to the per-run fan-out bus.
+
+    Creates a new queue and registers it for this run. The SSE handler
+    must call unsubscribe() when the connection closes (in a finally block).
+
+    Args:
+        run_id: The workflow run ID.
+        queue_maxsize: Maximum queue size (0 = unbounded; slow clients
+                       over this threshold are evicted on put).
+
+    Returns:
+        An asyncio.Queue for the SSE handler to drain.
+    """
+    q: asyncio.Queue = asyncio.Queue(maxsize=queue_maxsize)
+    async with _SUBSCRIBERS_LOCK:
+        _SUBSCRIBERS[run_id].append(q)
+    return q
+
+
+async def _unsubscribe(run_id: str, q: asyncio.Queue) -> None:
+    """Unsubscribe an SSE client from the per-run fan-out bus.
+
+    Removes the queue from the subscriber list. Safe to call multiple times
+    or if the queue was never registered (idempotent).
+
+    Args:
+        run_id: The workflow run ID.
+        q: The queue to remove.
+    """
+    async with _SUBSCRIBERS_LOCK:
+        if run_id in _SUBSCRIBERS:
+            try:
+                _SUBSCRIBERS[run_id].remove(q)
+            except ValueError:
+                pass
+            if not _SUBSCRIBERS[run_id]:
+                _SUBSCRIBERS.pop(run_id, None)
+
+
+async def _dispatch_event_to_subscribers(run_id: str, event: dict[str, Any]) -> None:
+    """Fan-out an event to every SSE subscriber on a run.
+
+    Non-blocking: a queue with no consumer is fine (the handler disconnects
+    and cleans up via unsubscribe). A queue with a slow consumer buffers;
+    a queue at maxsize silently drops the event (slow client evicted on next
+    reconnect, which replays from the durable tail via Last-Event-ID).
+
+    Args:
+        run_id: The workflow run ID.
+        event: The event dict to dispatch.
+    """
+    async with _SUBSCRIBERS_LOCK:
+        queues = list(_SUBSCRIBERS.get(run_id, ()))
+    for q in queues:
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            pass  # Slow client; evicted on next reconnect (durable replay via Last-Event-ID)
 
 
 # ---------------------------------------------------------------------------

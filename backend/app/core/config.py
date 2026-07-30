@@ -131,6 +131,12 @@ class Settings(BaseSettings):
     # SSE stream MUST NOT be gzip-buffered or the browser receives nothing live).
     SSE_KEEPALIVE_PING_SECONDS: int = 15
     SSE_STREAM_IDLE_TIMEOUT_SECONDS: int = 300
+    # KAN-134: Per-subscriber queue maxsize for the per-run fan-out bus. Each SSE
+    # client gets its own queue fed by the shared pump. A slow client that falls
+    # behind (queue full) is silently evicted; it reconnects with Last-Event-ID and
+    # replays the gap from the durable log. 1000 events ≈ 5–10 MB in memory per
+    # subscriber. Set to 0 for unbounded (INV-3 parity with old single-queue model).
+    SSE_SUBSCRIBER_QUEUE_MAXSIZE: int = 1000
 
     # ---- Image-input ingress (default ON) ----
     # Feature flag for the image-input ingress (IMAGE-INPUT §3 Layer 1/5, Wave 2).

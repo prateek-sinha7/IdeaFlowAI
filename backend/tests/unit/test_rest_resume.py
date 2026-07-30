@@ -115,6 +115,7 @@ def env(monkeypatch):
     ws_module._PIPELINE_TASKS.clear()
     ws_module._PIPELINE_QUEUES.clear()
     ws_module._CANCEL_EVENTS.clear()
+    ws_module._SUBSCRIBERS.clear()  # KAN-134: clear per-run fan-out bus subscribers
 
     stub = _StubEngine()
     monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: stub)
@@ -136,6 +137,7 @@ def env(monkeypatch):
     ws_module._PIPELINE_TASKS.clear()
     ws_module._PIPELINE_QUEUES.clear()
     ws_module._CANCEL_EVENTS.clear()
+    ws_module._SUBSCRIBERS.clear()  # KAN-134: clear per-run fan-out bus subscribers
     Base.metadata.drop_all(bind=db_engine)
     db_engine.dispose()
 

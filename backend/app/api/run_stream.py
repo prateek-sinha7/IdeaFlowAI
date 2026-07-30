@@ -6,17 +6,6 @@ durable per-run ``seq`` onto every frame's ``id:`` line so a dropped connection
 resumes from the browser-native ``Last-Event-ID`` request header — no client cursor
 bookkeeping, no second envelope.
 
-LOCK-B (ADDITIVE transport). This router is built ALONGSIDE ``/ws/chat``:
-
-  * ``app/api/websocket.py`` is NOT modified. The live per-run event queue is reached
-    through a READ-ONLY import of the EXISTING symbols ``_get_or_create_queue`` /
-    ``_PIPELINE_QUEUES`` — the same queue the WS drainer attaches to, so an SSE
-    client and a WS client observe the identical live stream.
-  * The durable replay reads ``run_events`` through the owner-scoped ``ScopedStore``
-    (default-deny), mirroring ``runs.py::get_run_events`` VERBATIM: a cross-owner or
-    missing run resolves to 404 (IDOR → 404, never 403) via the two-layer owner check
-    (``WorkflowRun.user_id`` filter, then ``ScopedStore.get_run``).
-
 Wire parity (CHAT-07). The SSE frame body re-implements the 29-01 projection contract
 (``tests/agents/characterization/_sse_projection.py``): each frame carries an ``id:``
 line (``seq``) + a single-line ``data:`` JSON body shaped ``{"type", "data"}`` — so the
@@ -55,11 +44,14 @@ from app.models.database import get_db
 from app.models.user import User
 from app.models.workflow import WorkflowRun
 
-# Read-only import of the EXISTING per-run live-queue registry (LOCK-B — websocket.py
-# is NOT modified and NO new symbol is added there). ``_get_or_create_queue`` returns
-# the same ``asyncio.Queue`` the WS drainer feeds; membership in ``_PIPELINE_QUEUES``
-# is the liveness signal (a registered queue == a live/attached run).
-from app.api.run_engine import _PIPELINE_QUEUES, _get_or_create_queue
+# Import the per-run fan-out bus (KAN-134). Each SSE subscriber gets its own
+# queue, fed by the shared pump. Membership in ``_PIPELINE_QUEUES`` is the liveness
+# signal (a registered queue == a live/attached run).
+from app.api.run_engine import (
+    _PIPELINE_QUEUES,
+    _subscribe,
+    _unsubscribe,
+)
 
 router = APIRouter(prefix="/api/runs", tags=["runs-stream"])
 
@@ -191,18 +183,23 @@ async def _iter_sse_frames(
     #    comment-ping (SSE_KEEPALIVE_PING_SECONDS) keeps idle proxies from buffering.
     if live_queue is None:
         return
-    while True:
-        if request is not None and await request.is_disconnected():
-            return
-        event = await live_queue.get()
-        if event is None:  # sentinel: pipeline finished
-            return
-        data = event.get("data", {}) if isinstance(event, dict) else {}
-        seq = data.get("seq", replayed_through_seq) if isinstance(data, dict) else replayed_through_seq
-        yield _sse_frame(seq, event.get("type", "message"), data)
-        replayed_through_seq = seq
-        if event.get("type") in _STREAM_TERMINAL_TYPES:
-            return
+    try:
+        while True:
+            if request is not None and await request.is_disconnected():
+                return
+            event = await live_queue.get()
+            if event is None:  # sentinel: pipeline finished
+                return
+            data = event.get("data", {}) if isinstance(event, dict) else {}
+            seq = data.get("seq", replayed_through_seq) if isinstance(data, dict) else replayed_through_seq
+            yield _sse_frame(seq, event.get("type", "message"), data)
+            replayed_through_seq = seq
+            if event.get("type") in _STREAM_TERMINAL_TYPES:
+                return
+    finally:
+        # KAN-134: unsubscribe from the fan-out bus when the stream closes
+        # (client disconnect, terminal event, or request error).
+        await _unsubscribe(run_id, live_queue)
 
 
 @router.get("/{workflow_id}/events/stream")
@@ -275,10 +272,18 @@ async def stream_run_events(
         except (TypeError, ValueError):
             after_seq = 0
 
-    # Attach to the SAME per-run live queue the WS drainer feeds, IFF the run is live
-    # (a registered queue). A finished run has no queue → durable replay + handshake is
-    # the complete response. LOCK-B: read-only use of the existing websocket.py symbols.
-    live_queue = _get_or_create_queue(workflow_id) if workflow_id in _PIPELINE_QUEUES else None
+    # KAN-134: Subscribe to the per-run fan-out bus if the run is live.
+    # Each SSE subscriber gets its own queue, fed by the shared pump. A finished run
+    # has no live queue → durable replay + handshake is the complete response.
+    # The subscriber is unsubscribed in the finally block of _iter_sse_frames.
+    from app.core.config import settings
+
+    live_queue = None
+    if workflow_id in _PIPELINE_QUEUES:
+        live_queue = await _subscribe(
+            workflow_id,
+            queue_maxsize=settings.SSE_SUBSCRIBER_QUEUE_MAXSIZE,
+        )
 
     from sse_starlette import EventSourceResponse
 
