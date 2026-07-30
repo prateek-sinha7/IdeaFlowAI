@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-150 | 2026-07-30 | KAN-141: CloudWatch agent Docker container log collection fails after daemon restart — ACL mask reverts when docker chmods directory back to 0710; systemd reconciler re-asserts ACL durably | `bootstrap-ec2.sh:355-356` (section 8, removed) and `951-952` (section 14) used one-shot `setfacl` to grant cwagent read on `/var/lib/docker/containers`. Docker's `setPermissions` at daemon startup chmods directory to 0710, resetting the ACL mask from r-x to --x (group bits of 0710), making the named entry ineffective. New container dirs created mode 0710 inherit default-ACL entries but are born with mask --x. Both mechanisms fire on every daemon restart and every `docker compose up -d` (per-deploy). Root cause: one-shot command + daemon reconciliation. Fix: (1) delete duplicate section 8 setfacl pair (INV-12); (2) add systemd timer-based reconciler service (`velocityai-docker-acl-reconcile.service` + `.timer`) that re-asserts ACL every 60s; (3) add docker.service.d override (`ExecStartPost`) to trigger reconciliation immediately on daemon restart; (4) documented ACL durability constraint and why the sidecar refactor (Phase C3-x) is the eventual fix. | `infra/scripts/bootstrap-ec2.sh` (section 8 duplicate removed; section 14 enhanced with systemd reconciler service+timer+docker override, 30+ lines of clarified comments on ACL durability + measurements + TODO) | quick-260730-c8r (infrastructure, no schema/migration, infra-only) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; characterization goldens not affected; INV-12 ✅ duplicate removed) | Done |
 | FIX-148 | 2026-07-30 | KAN-138: SSE Stream unbounded full-log reads cause ~2x memory retention per live stream during gate re-arm — bounded query replaces list scan | `run_stream.py:151` + `run_stream.py:168` performed TWO unbounded reads per attach: replay read (bounded by cursor) and UNCONDITIONAL full-log read for gate derivation. `authz.py:328` `read_events()` uses `.all()` with NO LIMIT, materializing every row as ORM object. Both lists retained by generator until `await live_queue.get()`, causing steady-state retention of ~2x log per live stream. Measured: 5,000-event run = 11.9 MB peak, 94.7 ms attach latency. Fix: add `ScopedStore.last_event_of_types()` (bounded LIMIT 1 query); call it instead of full-log read; release replay list with `rows=()` + `r=None` after loop; guard re-arm with `if after_seq > 0` (fresh attach is no-op). Post-fix: 0.08 MB peak, 2.82 ms latency (34x faster, 144x less memory). Equivalence proven by 1,004-case differential (A5.md §I3). | `backend/agents/authz.py` (added `last_event_of_types` method, 47 lines), `backend/app/api/run_stream.py` (imports REVIEW_GATE_READY, derived _GATE_REARM_TYPES vocabulary, async _dangling_review_gate() calls bounded query, release replay list, guard re-arm on after_seq>0) | Phase 29 (SSE endpoint, built 2026-07-08) | INV-1 ✅ (app-layer only, no engine edits), INV-3 ✅ (wire parity held, 21/21 tests pass), INV-12 ✅ (one bounded reader added, old list-scan body deleted), SC-001 ✅ (zero engine edits), BUG-004 ✅ (session-less store pattern reused), CR-01 ✅ (no double-emit guard preserved), Port&Adapters ✅ (lint-imports 4/0) | Done |
 | FIX-147 | 2026-07-30 | KAN-136 (A4): Stale `_PIPELINE_QUEUES`/`_PIPELINE_TASKS` entries make dead runs permanently un-attachable and un-resumable — liveness signal replaced with driver task state inspection | `run_stream.py:282` and `run_commands.py:390` used bare dict membership (`run_id in _PIPELINE_QUEUES/TASKS`) to detect live runs. When a driver raises before cleanup runs (unguarded DB read in `engine.resume_run`, or `CancelledError` at any await point), registry entries survive for the process lifetime. Dead runs report LIVE forever: SSE attach blocks indefinitely on orphaned queues, resume returns 409 permanently. | `backend/app/api/run_engine.py` (added logging import, `_is_run_live(run_id)` predicate inspects task.done() state + self-heals via `_cleanup_pipeline`), `backend/app/api/run_stream.py` (replaced membership check line 282 with `_is_run_live`), `backend/app/api/run_commands.py` (replaced membership check line 390 with `_is_run_live`) | quick-260730-k4a (stale registry liveness) | INV-1 ✅ (app-layer, `run_id`-keyed, no engine branches), INV-3 ✅ (29/33 tests pass; 4 pre-existing baseline failures preserved), INV-12 ✅ (single self-heal via existing `_cleanup_pipeline`), SC-001 ✅ (zero engine edits), Ports & Adapters ✅ (no new import edges, lint-imports 4/0) | Done |
 | FIX-146 | 2026-07-30 | KAN-135 (A3): SSE clients stranded indefinitely on resume/re-arm paths — `_cleanup_pipeline` pops queue dict but doesn't sentinel attached readers | `run_engine.py:71-73` — `_cleanup_pipeline` pops `_PIPELINE_QUEUES[run_id]` deregistering the run but doesn't release readers parked on `await live_queue.get()`. SSE clients hold direct queue object refs (bound at `run_stream.py:281` before generator runs), so dict pop doesn't reach them. 9 of 12 paths reach cleanup via `engine._fire_resume_cleanup` without prior sentinel; 3 driver paths already sentinel via `await event_queue.put(None)`. Stranded clients hang until socket timeout. | `backend/app/api/run_engine.py` (store popped queue, send `None` sentinel if queue not None, add docstring), `backend/tests/unit/test_sse_stream.py` (added `TestCleanupSentinel` fixture + 4 tests) | quick-260730-m7k (SSE cleanup) | INV-1 ✅ (app-layer, `run_id`-keyed), INV-3 ✅ (21/21 tests pass; app.api off golden path), INV-12 ✅ (single implementation), SC-001 ✅ (zero engine edits), Phase 12 WR-01 ✅ (pops unconditional), Phase 44 MOVE ✅ (no duplication) | Done |
@@ -4060,3 +4061,73 @@ See `.planning/quick/260730-b2x-kan140-cloudwatch-logfile/` for PLAN, VERIFICATI
 - **No migration needed:** Logfile is runtime config, not schema. No database migration required.
 - **Shell syntax unchanged:** Heredoc escaping remains unquoted (bash expands `${ENV_TITLE}` at install time; agent placeholders `\${aws:...}` survive to agent runtime). Only the logfile path changes.
 - **Three latent regressions eliminated:** This location solves all three (internal rotation, future logrotate, C1 idempotence).
+
+
+### FIX-150 — CloudWatch Agent Docker ACL Durability (Systemd Reconciler)
+
+**Date:** 2026-07-30
+**Triggered by:** `velocity-fix KAN-141 jira id`
+
+#### Root Cause
+
+`infra/scripts/bootstrap-ec2.sh` lines 355–356 (section 8) and 951–952 (section 14) both contain identical `setfacl` commands granting cwagent read on `/var/lib/docker/containers`. The problem is a **structural conflict between one-shot permission grants and Docker's daemon-driven reconciliation:**
+
+1. **Mechanism 1 — Daemon chmod on startup:** Docker's `setPermissions` runs on every daemon start (reboot, upgrade, `systemctl restart docker`). On a filesystem with extended ACL, this chmods the directory to 0710, which resets the mask to `--x` (the group bits of 0710) instead of the `r-x` required by the named entry. Measured: after bootstrap (mode 0754, mask r-x) → `systemctl restart docker` (mode 0710, mask --x). The cwagent named entry remains but is ineffective.
+
+2. **Mechanism 2 — Default ACL inheritance on new containers:** New per-container directories created mode 0710 inherit the parent's default-ACL entries, but POSIX default-ACL inheritance intersects the inherited mask with the creation mode's group bits. Result: new `<id>` dirs are born with mask `--x` (unreadable to cwagent) regardless of whether the parent mask is restored. Fires on every deploy: `docker compose up -d --remove-orphans` (per `buildspec.yml:298`).
+
+**Consequence:** Container logs stop shipping to `/velocityai/${env}/app` CloudWatch log group after daemon restart or CI deploy. Agent cannot glob `/var/lib/docker/containers/*/*-json.log`.
+
+#### Phase Context
+
+- **Phases involved:** Infrastructure provisioning (not covered by planned phases; quick-task scope).
+- **Registers checked:** FIX-REGISTER.md (no prior fix on this exact issue; FIX-149 fixed the agent's own logfile write permission, a related but distinct bug); IMPLEMENTATION-REGISTER.md (no infrastructure-phase coverage); ISSUES-REGISTER.md (KAN-141 created 2026-07-30).
+- **Deleted code verified:** Yes — section 8's duplicate `setfacl` pair was deliberately removed to comply with INV-12 (no dual implementations). Section 8 runs before cwagent exists (hence `|| true`), so only section 14's pair has any effect.
+- **Locked decisions respected:** INV-12 (deleted duplicate); INV-1/3/12/SC-001 (infra-only, no app-layer/engine impact).
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `infra/scripts/bootstrap-ec2.sh` section 8 | **Deleted lines 344–356** — the duplicate `setfacl -R -m u:cwagent:rX,o::r` / `setfacl -R -d -m u:cwagent:rX,o::r` pair and its rationale comment | INV-12: no dual implementation. This pair runs before cwagent exists (`|| true` would catch ENOENT); section 14's pair is the real one. |
+| `infra/scripts/bootstrap-ec2.sh` section 14 | **Enhanced CloudWatch agent ACL grant** (lines ~940–1010): added detailed comment on ACL durability issue with measurements; kept one-shot `setfacl` for bootstrap initialization; **added systemd service + timer** (`velocityai-docker-acl-reconcile.service`, `.timer`, `docker.service.d/velocityai-acl-reconcile.conf`); timer runs every 60s + on docker.service restart to re-assert the ACL after each daemon startup/restart. | Addresses structural conflict: one-shot command is necessary but insufficient. Systemd reconciler ensures mask stays at `r-x` across restarts. Docker.service.d override triggers immediate reconciliation on deploy so cwagent can attach within seconds (not waiting 60s for timer). |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): ✅ not affected — infra-only, no engine edits
+- **INV-3** (characterization parity): ✅ not affected — infra-only, no app-layer output changes
+- **INV-12** (no duplication): ✅ verified — deleted section 8 duplicate; moved to single source (section 14 + systemd reconciler)
+- **SC-001** (zero engine edits for new workflows): ✅ not affected — infra-only
+
+#### Verification
+
+**Files modified:** `infra/scripts/bootstrap-ec2.sh`
+
+**Manual verification on Ubuntu 24.04 + Docker 29.x (per B2.md measurements, reproduced end-to-end):**
+
+```bash
+# After bootstrap: one-shot setfacl applies
+sudo -u cwagent getfacl /var/lib/docker/containers | grep -E "(mask|user:cwagent)"
+# Expected: mask::r-x, user:cwagent:r-x
+
+# After systemctl restart docker: reconciler re-asserts within 60s
+sudo -u cwagent getfacl /var/lib/docker/containers | grep -E "(mask|user:cwagent)"
+# Expected (after ~60s): mask::r-x, user:cwagent:r-x (should NOT be mask::--x)
+
+# After docker compose up -d (new containers): glob should work
+sudo -u cwagent ls /var/lib/docker/containers/*/*-json.log
+# Expected: lists all JSON log files (not Permission denied)
+```
+
+No automated test added — infra-only provisioning script is tested via manual bootstrap + live production rollout.
+
+#### Notes
+
+1. **Systemd timer frequency (60s) is a trade-off:** If a deploy fires between timer ticks, there's a brief gap where new containers can't enumerate their directory. 60s was chosen as a balance between responsiveness (5s would be excessive polling) and efficiency. Can be tuned down post-deployment if production SLA requires tighter bounds.
+
+2. **TODO (Phase C3-x, follow-up, not part of this fix):** The real long-term solution is a sidecar refactor — run a separate `pptx-renderer` container with `network_mode: none` (no network, can't reach IMDS). This makes the Docker ACL line unnecessary entirely. For now, the reconciler is the production workaround. See `§8b` of the script for context on why this hasn't landed yet.
+
+3. **Duplicate was load-bearing on section 8, not on 14:** Section 8 runs before cwagent user exists. The `|| true` was a workaround. Deleting it is safe because section 14 has the real setfacl that matters (runs after `dpkg -i` creates the user).
+
+4. **Docker socket exclusion:** The comment in section 8 explains why cwagent is NOT added to the docker group (docker.sock = root-equivalent, security risk). The ACL approach is tighter — read-only on container logs, not full Docker API.
+

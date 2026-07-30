@@ -336,25 +336,6 @@ apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable --now docker
 
-# POSIX ACL so cwagent can read /var/lib/docker/containers/*.log without
-# being in the docker group (docker.sock = root-equivalent). `|| true`
-# because the cwagent user may not exist yet — repeated after cwagent install
-# in §13.
-#
-# `o::r` is intentional and load-bearing. /var/lib/docker/containers is
-# mode 0710 by default — owner:root, group:root, other:---. When setfacl
-# sets a default ACL it inherits the dir's current "other" bits as the
-# default for new files. That meant new container bind-mount files
-# (notably /etc/hosts, which docker generates per container and bind-mounts
-# in) got mode 0640 — readable only by root and the cwagent named entry.
-# Containers running as a non-root user (our Dockerfile sets uid 10001
-# `velocityai`) then can't read /etc/hosts and DNS lookups for entries we
-# added via `extra_hosts: host.docker.internal:host-gateway` fail with
-# "Temporary failure in name resolution". Forcing `o::r` here restores the
-# normal world-readable /etc/hosts so app containers can use the host.
-setfacl -R -m u:cwagent:rX,o::r /var/lib/docker/containers || true
-setfacl -R -d -m u:cwagent:rX,o::r /var/lib/docker/containers || true
-
 echo "[bootstrap] Docker installed: $(docker --version), $(docker compose version)"
 
 # ── 8b. IMDS containment for the pptx_export Node subprocess (C2-2) ────
@@ -961,11 +942,82 @@ if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
     dpkg -i /tmp/cw-agent.deb
     rm /tmp/cw-agent.deb
 fi
-# Re-grant ACL now that cwagent user exists. See §8 above for why o::r is
-# load-bearing (preserves world-read on per-container /etc/hosts so non-
-# root containers can do DNS).
+# ACL for cwagent to read container logs. See the detailed comment above (§8) for
+# why o::r is load-bearing: it ensures per-container /etc/hosts stays world-
+# readable so non-root app containers can resolve DNS. See also the comment
+# below on ACL durability.
+#
+# ── Docker daemon ACL reconciliation (§14-acl-durability) ────────────────
+#
+# The setfacl grant below is necessary but NOT SUFFICIENT to make container
+# logs readable long-term. Docker's daemon runs setPermissions at startup
+# (e.g., systemctl restart docker, daemon upgrade, host reboot), which chmods
+# /var/lib/docker/containers back to 0710. On a filesystem with extended ACL,
+# that chmod resets the mask to --x (group bits of 0710), making the named
+# entry ineffective despite being present. Additionally, new per-container
+# directories inherit the default ACL but are born with mask --x, so even
+# freshly-created containers can't enumerate their directory. The solution
+# is a systemd service + timer that re-asserts the ACL after every daemon
+# restart.
+#
+# Measured on Ubuntu 24.04 with Docker 29.x:
+#   - One-shot setfacl at bootstrap: works immediately (mode 0754, mask r-x)
+#   - After systemctl restart docker: mask reverts to --x (mode 0710, chmod
+#     rewrites the mask from group bits)
+#   - After docker compose up -d (deploys new containers): new <id> subdirs
+#     inherit default-ACL entries but are born with mask --x, unreadable
+# The reconciler fires on docker.service restart (Wants=docker.service) and
+# periodically every 60s (OnUnitActiveSec), ensuring mask stays at r-x.
+#
+# TODO (follow-up, Phase C3-x): replace with sidecar network_mode:none
+# (see §8b for full context), which makes this whole ACL line unnecessary.
+# For now, this reconciler is the production workaround.
+
 setfacl -R -m u:cwagent:rX,o::r /var/lib/docker/containers
 setfacl -R -d -m u:cwagent:rX,o::r /var/lib/docker/containers
+
+# Create the reconciler service that re-asserts the ACL after docker restarts
+mkdir -p /etc/systemd/system
+cat > /etc/systemd/system/velocityai-docker-acl-reconcile.service <<'ACL_SERVICE'
+[Unit]
+Description=Re-assert CloudWatch agent ACL on /var/lib/docker/containers
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/var/lib/docker/containers
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/setfacl -R -m u:cwagent:rX,o::r /var/lib/docker/containers
+ExecStart=/usr/sbin/setfacl -R -d -m u:cwagent:rX,o::r /var/lib/docker/containers
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+ACL_SERVICE
+
+cat > /etc/systemd/system/velocityai-docker-acl-reconcile.timer <<'ACL_TIMER'
+[Unit]
+Description=Periodic timer to reconcile Docker container ACL (every 60s)
+Requires=velocityai-docker-acl-reconcile.service
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=60s
+Unit=velocityai-docker-acl-reconcile.service
+
+[Install]
+WantedBy=timers.target
+ACL_TIMER
+
+systemctl daemon-reload
+systemctl enable --now velocityai-docker-acl-reconcile.timer
+
+# Also trigger immediately on docker.service restart so cwagent can attach
+# to logs within seconds of a deploy (not waiting up to 60s for the timer).
+cat > /etc/systemd/system/docker.service.d/velocityai-acl-reconcile.conf <<'DOCKER_OVERRIDE'
+[Service]
+ExecStartPost=/usr/bin/systemctl start --no-block velocityai-docker-acl-reconcile.service
+DOCKER_OVERRIDE
 
 # CloudWatch agent config — materialized from SIMPLE_AWS_DEPLOYMENT.md §10.1.
 # - `${ENV_TITLE}` / `${ENVIRONMENT}` interpolate at install time (bash).
