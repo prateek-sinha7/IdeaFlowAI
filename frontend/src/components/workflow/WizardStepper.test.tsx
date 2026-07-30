@@ -47,6 +47,7 @@ function makeWebTemplate(
     craft_required: [],
     example_prompt: null,
     has_preview: true,
+    has_thumbnail: false,
     ...partial,
   };
 }
@@ -63,6 +64,7 @@ function makeDeckTemplate(
     craft_required: [],
     example_prompt: null,
     has_preview: true,
+    has_thumbnail: false,
     design_system: {},
     ...partial,
   };
