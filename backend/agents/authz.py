@@ -329,6 +329,54 @@ class ScopedStore:
             if owned:
                 session.close()
 
+    async def last_event_of_types(
+        self, run_id: str, types: Any, after_seq: int = 0
+    ) -> Any | None:
+        """Return the HIGHEST-``seq`` owner+workspace-scoped ``run_events`` row whose
+        ``type`` is in ``types`` and whose ``seq > after_seq`` -- or ``None``.
+
+        The bounded (``LIMIT 1``) counterpart to ``read_events`` for "what is the LAST
+        event of these kinds?" questions. It applies the SAME default-deny
+        ``_scope_owner_ws`` filter and the SAME ``after_seq`` semantics, so
+
+            last_event_of_types(run, T, after_seq=k)
+              == max-by-seq of [r for r in read_events(run, after_seq=k) if r.type in T]
+
+        exactly -- the ``uq_run_events_scope_seq`` UNIQUE ``(run_id, owner_id,
+        workspace_id, seq)`` constraint (``run_event.py:58-61``; migration ``0029``) makes
+        that maximum unique, so ``ORDER BY seq DESC LIMIT 1`` is deterministic.
+
+        The ``after_seq`` parameter is NOT optional-in-spirit: it is what keeps this method
+        a faithful bounded substitute for a ``read_events(..., after_seq=k)`` scan. A
+        caller that drops it would see rows the equivalent unbounded read filters out
+        (any ``seq <= k`` row), which is a silent behaviour change -- not a speedup.
+
+        ``types`` is materialised as ``tuple(sorted(types))`` rather than the raw
+        frozenset: ``frozenset`` iteration order over ``str`` varies with
+        ``PYTHONHASHSEED`` across processes, and a stable IN-list keeps the emitted SQL
+        deterministic (Postgres plan reuse, reproducible ``EXPLAIN``).
+
+        Uses the same ``_acquire`` / ``finally: if owned: session.close()`` idiom as every
+        other read here -- MANDATORY, because the SSE streaming generator is deliberately
+        fed a SESSION-LESS ``ScopedStore`` (``run_stream.py:251-265``, BUG-004) so each read
+        must open AND close its own ``SessionLocal``; a method that skipped the ``finally``
+        would leak one pooled connection per live stream.
+        """
+        from app.models.run_event import RunEvent
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(RunEvent).filter(
+                RunEvent.run_id == run_id,
+                RunEvent.seq > after_seq,
+                RunEvent.type.in_(tuple(sorted(types))),
+            )
+            query = self._scope_owner_ws(query, RunEvent)
+            return query.order_by(RunEvent.seq.desc()).limit(1).first()
+        finally:
+            if owned:
+                session.close()
+
     async def append_event_next_seq(
         self,
         run_id: str,
