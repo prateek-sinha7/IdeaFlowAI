@@ -35,6 +35,7 @@ module "compute" {
     aws_s3_object.compose_yaml,
     aws_s3_object.deploy_env,
     aws_s3_object.bootstrap_script,
+    aws_s3_object.reconcile_script,
   ]
 
   name_prefix               = local.name_prefix
@@ -89,6 +90,34 @@ resource "aws_s3_object" "bootstrap_script" {
 
   tags = {
     Name      = "${local.name_prefix}-bootstrap-script"
+    Component = "compute"
+  }
+}
+
+# --- Host-config reconcile script hosted in S3 --------------------------------
+# The declarative half of bootstrap-ec2.sh (nginx site + limits + proxy-header
+# snippet, CloudWatch agent config + ACLs), extracted so it can be re-applied
+# to a RUNNING host. bootstrap-ec2.sh fetches and runs it on first boot; the CI
+# deploy fetches and runs it on every deploy. `source_hash` re-uploads whenever
+# the local script changes, so a repo edit reaches a live host on the next
+# deploy without any pipeline change.
+#
+# Same category as bootstrap_script: infrastructure that must exist before any
+# CI run, not deploy output. Same bucket/prefix/KMS key, so the instance role's
+# existing s3-config-read + kms-decrypt grants already cover it.
+resource "aws_s3_object" "reconcile_script" {
+  bucket = local.fnd.backup_bucket_name
+  key    = "config/reconcile-host-config.sh"
+
+  source      = "${path.root}/../../scripts/reconcile-host-config.sh"
+  source_hash = filemd5("${path.root}/../../scripts/reconcile-host-config.sh")
+
+  content_type           = "text/x-shellscript"
+  server_side_encryption = "aws:kms"
+  kms_key_id             = local.fnd.kms_key_arn
+
+  tags = {
+    Name      = "${local.name_prefix}-reconcile-script"
     Component = "compute"
   }
 }
