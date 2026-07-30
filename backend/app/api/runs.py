@@ -118,6 +118,11 @@ class WorkflowRunResponse(BaseModel):
     #     _run_response since from_attributes cannot supply a computed field.
     parent_run_id: Optional[str] = None
     root_run_id: str
+    # KAN-130: expose the chaining indicator so the frontend can show "(Chained)"
+    # in the Jump Back In section. source_run_id is set when a run was launched
+    # by chaining from a prior run's output. The column already exists (migration
+    # 0014 forward field) — no migration needed; from_attributes resolves it.
+    source_run_id: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
 

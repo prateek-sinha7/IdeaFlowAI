@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-145 | 2026-07-30 | KAN-130: Jump Back In shows raw od_ppt/od_prototype names and no Revised/Chained indicators | WORKFLOW_LABELS map missing 4 od_* entries; source_run_id not in WorkflowRunResponse so "(Chained)" impossible. Fix: add od_ppt/od_prototype/revision entries; expose source_run_id through backend → api.ts → WorkflowRun type → HomeLaunchGrid "(Chained)" suffix. | `frontend/src/hooks/useNotifications.ts`, `backend/app/api/runs.py`, `frontend/src/lib/api.ts`, `frontend/src/types/index.ts`, `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 36 (SHELL-02 Jump Back In) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-144 | 2026-07-30 | KAN-129: Context Received panel shows "artifact" instead of source labels — formatContextSource ignores `label` field and doesn't handle run_input/context_block types | `formatContextSource` in AgentDetailPanel.tsx only checks `"summary"` type; all other types fall to `src.artifact_type \|\| "artifact"`. Backend emits `"run_input"` and `"context_block"` with a `label` field (added by KAN-102) but FE type and function never accounted for them. Fix: extend ContextSource type, update formatContextSource to read label, change backend label from "User brief" to "prompt.md". | `frontend/src/types/index.ts`, `frontend/src/components/results/AgentDetailPanel.tsx`, `backend/agents/execution_engine/engine.py` | Phase 22 (KAN-102 context_sources) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-143 | 2026-07-29 | KAN-128: Chat panel still shows static filename for PPT and Prototype — `laneActiveContent` used local `workflowType` instead of `effectiveReviseType` | FIX-141's dispatch keyed on `workflowType` (default `"user_stories"` on history-reopen) not `effectiveReviseType`. On reopened `od_ppt` run, `workflowType="user_stories"` → `laneActiveContent=""` → fallback fires. Fix: use `effectiveReviseType` in both the content slot dispatch and the `deriveDeliverableFilename` call. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/39 (FIX-141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-142 | 2026-07-29 | KAN-128: PPT filename shows "presentation.pptx" instead of content-derived ".html" — wrong extension for all ppt/od_ppt variants | `deriveDeliverableFilename` assigned `"pptx"` for `"ppt"`/`"ppt_revision"` but all PPT runs produce HTML decks. `deriveDeliverableFiles` also offered a dead `.pptx` row. Fix: both functions always use `"html"` for all four ppt variants. | `frontend/src/components/results/FilesTab.tsx` | Phase 18/22/39 (FIX-140/141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
@@ -157,6 +158,57 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-145 — KAN-130: Jump Back In shows correct workflow labels and Revised/Chained indicators
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN 130`
+
+#### Root Cause
+
+**Part 1 — Raw `od_ppt` / `od_prototype` labels:**
+`getWorkflowLabel` in `useNotifications.ts` returns `WORKFLOW_LABELS[type] || type`. The `od_ppt`, `od_prototype`, `od_ppt_revision`, and `od_prototype_revision` pipeline types were not in `WORKFLOW_LABELS`, so they fell back to the raw internal alias string.
+
+**Part 2 — No "(Chained)" indicator:**
+`source_run_id` exists on the `WorkflowRun` ORM model (migration 0014 forward field) and is set when a run was launched by chaining. However, it was never included in `WorkflowRunResponse`, so the frontend had no way to detect chained runs. The `WorkflowRun` FE type and `normalizeWorkflowRun` in `api.ts` also lacked the field.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 36 (SHELL-02 Jump Back In / HomeLaunchGrid), Phase 5 (WorkflowRunResponse additive fields), KAN-130 analysis
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** INV-1 — no pipeline_type branch anywhere; `sourceRunId` is a generic field. Q3 additive-only — `source_run_id` column already exists, no migration needed. INV-12 — `getWorkflowLabel` is the single label function; extended in place.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useNotifications.ts` | Added `od_ppt`, `od_ppt_revision`, `od_prototype`, `od_prototype_revision` to `WORKFLOW_LABELS` | These were the actual `run.type` values stored in the DB but had no label entry |
+| `backend/app/api/runs.py` | Added `source_run_id: Optional[str] = None` to `WorkflowRunResponse` | Exposes the chaining indicator — column already exists, picked up by the `from_attributes` loop |
+| `frontend/src/lib/api.ts` | Added `source_run_id?: string | null` to `RawWorkflowRun`; mapped to `sourceRunId` in `normalizeWorkflowRun` | Threads the new backend field through to the FE model |
+| `frontend/src/types/index.ts` | Added `sourceRunId?: string | null` to `WorkflowRun` interface | Required for TypeScript to accept the new field in the FE model |
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Changed `getWorkflowLabel(run.type)` to `getWorkflowLabel(run.type) + (run.sourceRunId ? " (Chained)" : "")` | Shows "(Chained)" for runs launched by chaining, keyed generically on `sourceRunId` |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — label dispatch on the generic `WORKFLOW_LABELS` map key; chained indicator on `sourceRunId` (a data field)
+- **INV-3** (golden parity): Not affected — FE-only display + additive backend field
+- **INV-12** (no duplication): `getWorkflowLabel` is extended in place; no new label function
+- **SC-001** (zero engine edits): Not affected — backend change is in the API response layer only
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on all 4 changed FE files
+- Backend restarted and confirmed running
+- Trace: `od_ppt` run → `getWorkflowLabel("od_ppt")` → `WORKFLOW_LABELS["od_ppt"]` = `"Presentation"` ✅
+- Trace: chained prototype run → `run.sourceRunId = "prev-run-id"` → `"Prototype (Chained)"` ✅
+- Trace: revision run → `run.type = "prototype_revision"` → `"Prototype (Revised)"` ✅ (unchanged)
+
+#### Notes
+
+- The "(Revised)" labels for `od_ppt_revision` and `od_prototype_revision` were also missing and are now fixed.
+- The "(Chained)" label requires the `source_run_id` column to be populated. For runs launched via the chain flow in DashboardLayout/LaunchWizard this field is set server-side; legacy runs or runs launched without chaining will have `null` and show no suffix (correct).
 
 ---
 

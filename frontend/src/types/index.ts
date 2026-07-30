@@ -363,6 +363,10 @@ export interface WorkflowRun {
   // run is its own root).
   parentRunId: string | null;
   rootRunId: string;
+  // KAN-130: chaining indicator — non-null when this run was launched by chaining
+  // from a prior run's output (e.g. User Stories → Prototype chain).
+  // Used to show "(Chained)" in the Jump Back In section.
+  sourceRunId?: string | null;
   createdAt: string;
   completedAt?: string;
   duration?: number;

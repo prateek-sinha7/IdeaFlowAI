@@ -21,8 +21,14 @@ const WORKFLOW_LABELS: Record<string, string> = {
   user_stories_revision: "User Stories (Revised)",
   ppt: "Presentation",
   ppt_revision: "Presentation (Revised)",
+  // KAN-130: od_ppt and od_prototype are the actual pipeline_type values stored
+  // in WorkflowRun.type; they had no entry and fell back to the raw alias string.
+  od_ppt: "Presentation",
+  od_ppt_revision: "Presentation (Revised)",
   prototype: "Prototype",
   prototype_revision: "Prototype (Revised)",
+  od_prototype: "Prototype",
+  od_prototype_revision: "Prototype (Revised)",
   app_builder: "App Builder",
   app_builder_revision: "App Builder (Revised)",
   mulesoft_to_springboot: "Mulesoft Migration",
