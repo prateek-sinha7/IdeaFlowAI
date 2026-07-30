@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-144 | 2026-07-30 | KAN-129: Context Received panel shows "artifact" instead of source labels — formatContextSource ignores `label` field and doesn't handle run_input/context_block types | `formatContextSource` in AgentDetailPanel.tsx only checks `"summary"` type; all other types fall to `src.artifact_type \|\| "artifact"`. Backend emits `"run_input"` and `"context_block"` with a `label` field (added by KAN-102) but FE type and function never accounted for them. Fix: extend ContextSource type, update formatContextSource to read label, change backend label from "User brief" to "prompt.md". | `frontend/src/types/index.ts`, `frontend/src/components/results/AgentDetailPanel.tsx`, `backend/agents/execution_engine/engine.py` | Phase 22 (KAN-102 context_sources) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-143 | 2026-07-29 | KAN-128: Chat panel still shows static filename for PPT and Prototype — `laneActiveContent` used local `workflowType` instead of `effectiveReviseType` | FIX-141's dispatch keyed on `workflowType` (default `"user_stories"` on history-reopen) not `effectiveReviseType`. On reopened `od_ppt` run, `workflowType="user_stories"` → `laneActiveContent=""` → fallback fires. Fix: use `effectiveReviseType` in both the content slot dispatch and the `deriveDeliverableFilename` call. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/39 (FIX-141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-142 | 2026-07-29 | KAN-128: PPT filename shows "presentation.pptx" instead of content-derived ".html" — wrong extension for all ppt/od_ppt variants | `deriveDeliverableFilename` assigned `"pptx"` for `"ppt"`/`"ppt_revision"` but all PPT runs produce HTML decks. `deriveDeliverableFiles` also offered a dead `.pptx` row. Fix: both functions always use `"html"` for all four ppt variants. | `frontend/src/components/results/FilesTab.tsx` | Phase 18/22/39 (FIX-140/141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-141 | 2026-07-29 | KAN-128: Left chat panel "Run summary" deliverable card shows static manifest filename instead of content-derived name | RunChatLane's dFilename = pipelineState?.deliverableFilename (static manifest). DashboardLayout had all content props but never passed a content-derived deliverableFilename to RunChatLane. Fix: compute laneDerivedFilename using deriveDeliverableFilename() (FIX-140) in DashboardLayout and pass it as the prop. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31 (CHATUI-01 RunChatLane), Phase 39 (RUNUI-06 DeliverableCard) | INV-1/3/12/SC-001 ✅ | Done |
@@ -159,7 +160,53 @@
 
 ---
 
-### FIX-143 — KAN-128: Use `effectiveReviseType` for chat panel filename dispatch (fixes PPT and Prototype)
+### FIX-144 — KAN-129: Context Received panel shows correct labels instead of "artifact"
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN 129`
+
+#### Root Cause
+
+`formatContextSource` in `AgentDetailPanel.tsx` only handled `type === "summary"` (prior-agent outputs). Every other type fell through to `src.artifact_type || "artifact"`. KAN-102 added two new source types to the backend — `"run_input"` (user brief) and `"context_block"` (template/design system) — both with a `label` field (e.g. `"User brief"`, `"Template: ibm-carbon"`). The frontend type `ContextSource` in `types/index.ts` was never updated to include these types or the `label` field, and `formatContextSource` never read `label` at all. Result: every first-agent context source across all workflows displayed as `"artifact"`.
+
+The backend also emitted `"label": "User brief"` for the user brief source. Since the product requirement was to show `"prompt.md"`, the backend label was changed to `"prompt.md"`. This is INV-3 safe: `context_sources` is in `_VOLATILE_STRIP_KEYS` in `_normalize.py`, so goldens are byte-identical.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 22 (KAN-102 — introduced run_input/context_block source types), Phase 31/39 (AgentDetailPanel formatContextSource)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** INV-12 — `formatContextSource` is the single derivation function; one fix, all consumers benefit. SC-001 — dispatch on generic `type` field, never a workflow/agent-name literal.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/types/index.ts` | Extended `ContextSource.type` union to include `"run_input"` and `"context_block"`; added `label?: string` and `size_chars?: number` fields | Type was stale; missing fields caused silent runtime mismatches |
+| `frontend/src/components/results/AgentDetailPanel.tsx` | Updated `formatContextSource` to read `src.label` for `"run_input"` (fallback `"prompt.md"`) and `"context_block"` (fallback `"context"`); updated `rawSize` derivation to include `size_chars` for new types | Makes all 4 source types render their correct human-readable label and size |
+| `backend/agents/execution_engine/engine.py` | Changed `"label": "User brief"` → `"label": "prompt.md"` on the `run_input` source in `_build_context_sources` | Product requirement: show `"prompt.md"` as the context name for the user brief; INV-3 safe since `context_sources` is in `_VOLATILE_STRIP_KEYS` |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — `formatContextSource` dispatches on `src.type` only (generic data field, never a pipeline/workflow name)
+- **INV-3** (golden parity): Not affected — `context_sources` is in `_VOLATILE_STRIP_KEYS` in `characterization/_normalize.py`; the backend label change is golden-neutral
+- **INV-12** (no duplication): `formatContextSource` is the single source; no new render function added
+- **SC-001** (zero engine edits for new workflows): The engine edit (`_build_context_sources`) changes only a display label string — no routing, no capability, no strategy logic changed
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on either changed FE file
+- Trace: backend emits `{type: "run_input", label: "prompt.md", size_chars: N}` → `useWorkflow` stores as `contextSources` → `ContextReceivedPanel` calls `formatContextSource` → `src.type === "run_input"` → `src.label || "prompt.md"` → shows `"prompt.md"`
+- PPT/Prototype: `{type: "context_block", label: "Template: ibm-carbon", ...}` → `src.label || "context"` → shows `"Template: ibm-carbon"`
+- Prior-agent handoffs (`"summary"` type): unaffected — existing path unchanged
+
+#### Notes
+
+- Backend restart required since `engine.py` was changed.
+- The `size_chars` field is now displayed in the meta line (e.g. "48.3k") for `run_input` and `context_block` sources, matching the pattern for `"summary"` sources.
+
+---
+
+
 
 **Date:** 2026-07-29
 **Triggered by:** `/velocity-ai-fix still showing the same issue for ppt and prototype`
