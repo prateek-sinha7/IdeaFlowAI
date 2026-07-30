@@ -1026,6 +1026,16 @@ DOCKER_OVERRIDE
 # - The collect_list mirrors the doc (nginx access/error, postgres, audit,
 #   auth, unattended-upgrades, letsencrypt) PLUS the Docker JSON log path
 #   that captures backend+frontend stdout via the json-file log driver.
+#
+# STREAM NAMING RULE (INV-12, maintained for durability):
+# Every entry's log_stream_name follows {instance_id}/<source-slug> where
+# <source-slug> is unique across the whole list. This ensures:
+#  (1) Each file gets its own stream within a log group (CloudWatch requires
+#      unique (logGroupName, logStreamName) pairs per the CreateLogStream API).
+#  (2) Future edits adding files to an existing group (e.g., a second file to
+#      the /system group) cannot accidentally collide — the slug pattern is
+#      self-evident and checkable by inspection (INV-12, no dual implementations).
+# If adding a new log file, use {instance_id}/<meaningful-slug-for-this-file>.
 mkdir -p /opt/aws/amazon-cloudwatch-agent/{etc,logs}
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
 {
@@ -1053,14 +1063,14 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
     "logs_collected": {
       "files": {
         "collect_list": [
-          {"file_path": "/var/log/nginx/access.log",                            "log_group_name": "/velocityai/${ENVIRONMENT}/nginx-access", "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/nginx/error.log",                             "log_group_name": "/velocityai/${ENVIRONMENT}/nginx-error",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/postgresql/postgresql-16-main.log",           "log_group_name": "/velocityai/${ENVIRONMENT}/postgres",     "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/audit/audit.log",                             "log_group_name": "/velocityai/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/auth.log",                                    "log_group_name": "/velocityai/${ENVIRONMENT}/auth",         "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/velocityai/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/letsencrypt/letsencrypt.log",                 "log_group_name": "/velocityai/${ENVIRONMENT}/letsencrypt",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/lib/docker/containers/*/*-json.log",              "log_group_name": "/velocityai/${ENVIRONMENT}/app",          "log_stream_name": "{instance_id}/docker", "timezone": "UTC"}
+          {"file_path": "/var/log/nginx/access.log",                            "log_group_name": "/velocityai/${ENVIRONMENT}/nginx-access", "log_stream_name": "{instance_id}/nginx-access",        "timezone": "UTC"},
+          {"file_path": "/var/log/nginx/error.log",                             "log_group_name": "/velocityai/${ENVIRONMENT}/nginx-error",  "log_stream_name": "{instance_id}/nginx-error",         "timezone": "UTC"},
+          {"file_path": "/var/log/postgresql/postgresql-16-main.log",           "log_group_name": "/velocityai/${ENVIRONMENT}/postgres",     "log_stream_name": "{instance_id}/postgres",            "timezone": "UTC"},
+          {"file_path": "/var/log/audit/audit.log",                             "log_group_name": "/velocityai/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}/audit",               "timezone": "UTC"},
+          {"file_path": "/var/log/auth.log",                                    "log_group_name": "/velocityai/${ENVIRONMENT}/auth",         "log_stream_name": "{instance_id}/auth",                "timezone": "UTC"},
+          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/velocityai/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}/unattended-upgrades", "timezone": "UTC"},
+          {"file_path": "/var/log/letsencrypt/letsencrypt.log",                 "log_group_name": "/velocityai/${ENVIRONMENT}/letsencrypt",  "log_stream_name": "{instance_id}/letsencrypt",         "timezone": "UTC"},
+          {"file_path": "/var/lib/docker/containers/*/*-json.log",              "log_group_name": "/velocityai/${ENVIRONMENT}/app",          "log_stream_name": "{instance_id}/docker",              "timezone": "UTC"}
         ]
       }
     }

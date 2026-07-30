@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-151 | 2026-07-30 | KAN-142: CloudWatch agent duplicate log stream configuration — audit.log and unattended-upgrades.log collide on /velocityai/*/system:{instance_id} | Two entries in the collect_list both targeted identical (logGroupName, logStreamName) pair (/velocityai/${ENVIRONMENT}/system, {instance_id}), violating CloudWatch's unique stream constraint per CreateLogStream API. Root: config materialized verbatim from documentation in 2026-07-01 prefix-rename pass (commit e1a3a495); uniqueness never validated. Collision latent due to B1 (agent crash-loop on missing logfile perms, FIX-149). Fix: apply uniform stream-naming scheme across all 8 entries — every entry now uses {instance_id}/<source-slug> for unique, self-documenting stream names (nginx-access, nginx-error, postgres, audit, auth, unattended-upgrades, letsencrypt, docker). Added durability comment documenting the naming rule and INV-12 contract. | `infra/scripts/bootstrap-ec2.sh` (collect_list entries lines 1066–1073 renamed, durability comment added lines 1030–1041) | quick-260730-k8x (infrastructure, no schema/migration, infra-only) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; characterization goldens not affected; INV-12 ✅ uniform pattern established and documented) | Done |
 | FIX-150 | 2026-07-30 | KAN-141: CloudWatch agent Docker container log collection fails after daemon restart — ACL mask reverts when docker chmods directory back to 0710; systemd reconciler re-asserts ACL durably | `bootstrap-ec2.sh:355-356` (section 8, removed) and `951-952` (section 14) used one-shot `setfacl` to grant cwagent read on `/var/lib/docker/containers`. Docker's `setPermissions` at daemon startup chmods directory to 0710, resetting the ACL mask from r-x to --x (group bits of 0710), making the named entry ineffective. New container dirs created mode 0710 inherit default-ACL entries but are born with mask --x. Both mechanisms fire on every daemon restart and every `docker compose up -d` (per-deploy). Root cause: one-shot command + daemon reconciliation. Fix: (1) delete duplicate section 8 setfacl pair (INV-12); (2) add systemd timer-based reconciler service (`velocityai-docker-acl-reconcile.service` + `.timer`) that re-asserts ACL every 60s; (3) add docker.service.d override (`ExecStartPost`) to trigger reconciliation immediately on daemon restart; (4) documented ACL durability constraint and why the sidecar refactor (Phase C3-x) is the eventual fix. | `infra/scripts/bootstrap-ec2.sh` (section 8 duplicate removed; section 14 enhanced with systemd reconciler service+timer+docker override, 30+ lines of clarified comments on ACL durability + measurements + TODO) | quick-260730-c8r (infrastructure, no schema/migration, infra-only) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; characterization goldens not affected; INV-12 ✅ duplicate removed) | Done |
 | FIX-148 | 2026-07-30 | KAN-138: SSE Stream unbounded full-log reads cause ~2x memory retention per live stream during gate re-arm — bounded query replaces list scan | `run_stream.py:151` + `run_stream.py:168` performed TWO unbounded reads per attach: replay read (bounded by cursor) and UNCONDITIONAL full-log read for gate derivation. `authz.py:328` `read_events()` uses `.all()` with NO LIMIT, materializing every row as ORM object. Both lists retained by generator until `await live_queue.get()`, causing steady-state retention of ~2x log per live stream. Measured: 5,000-event run = 11.9 MB peak, 94.7 ms attach latency. Fix: add `ScopedStore.last_event_of_types()` (bounded LIMIT 1 query); call it instead of full-log read; release replay list with `rows=()` + `r=None` after loop; guard re-arm with `if after_seq > 0` (fresh attach is no-op). Post-fix: 0.08 MB peak, 2.82 ms latency (34x faster, 144x less memory). Equivalence proven by 1,004-case differential (A5.md §I3). | `backend/agents/authz.py` (added `last_event_of_types` method, 47 lines), `backend/app/api/run_stream.py` (imports REVIEW_GATE_READY, derived _GATE_REARM_TYPES vocabulary, async _dangling_review_gate() calls bounded query, release replay list, guard re-arm on after_seq>0) | Phase 29 (SSE endpoint, built 2026-07-08) | INV-1 ✅ (app-layer only, no engine edits), INV-3 ✅ (wire parity held, 21/21 tests pass), INV-12 ✅ (one bounded reader added, old list-scan body deleted), SC-001 ✅ (zero engine edits), BUG-004 ✅ (session-less store pattern reused), CR-01 ✅ (no double-emit guard preserved), Port&Adapters ✅ (lint-imports 4/0) | Done |
 | FIX-147 | 2026-07-30 | KAN-136 (A4): Stale `_PIPELINE_QUEUES`/`_PIPELINE_TASKS` entries make dead runs permanently un-attachable and un-resumable — liveness signal replaced with driver task state inspection | `run_stream.py:282` and `run_commands.py:390` used bare dict membership (`run_id in _PIPELINE_QUEUES/TASKS`) to detect live runs. When a driver raises before cleanup runs (unguarded DB read in `engine.resume_run`, or `CancelledError` at any await point), registry entries survive for the process lifetime. Dead runs report LIVE forever: SSE attach blocks indefinitely on orphaned queues, resume returns 409 permanently. | `backend/app/api/run_engine.py` (added logging import, `_is_run_live(run_id)` predicate inspects task.done() state + self-heals via `_cleanup_pipeline`), `backend/app/api/run_stream.py` (replaced membership check line 282 with `_is_run_live`), `backend/app/api/run_commands.py` (replaced membership check line 390 with `_is_run_live`) | quick-260730-k4a (stale registry liveness) | INV-1 ✅ (app-layer, `run_id`-keyed, no engine branches), INV-3 ✅ (29/33 tests pass; 4 pre-existing baseline failures preserved), INV-12 ✅ (single self-heal via existing `_cleanup_pipeline`), SC-001 ✅ (zero engine edits), Ports & Adapters ✅ (no new import edges, lint-imports 4/0) | Done |
@@ -4131,3 +4132,54 @@ No automated test added — infra-only provisioning script is tested via manual 
 
 4. **Docker socket exclusion:** The comment in section 8 explains why cwagent is NOT added to the docker group (docker.sock = root-equivalent, security risk). The ACL approach is tighter — read-only on container logs, not full Docker API.
 
+
+
+---
+
+### FIX-151 — KAN-142: CloudWatch agent duplicate log stream configuration fix
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-fix KAN-142`
+
+#### Root Cause
+Two entries in the CloudWatch agent `collect_list` configuration both targeted the identical `(logGroupName, logStreamName)` pair: `/velocityai/${ENVIRONMENT}/system` with stream name `{instance_id}` (audit.log and unattended-upgrades.log).
+
+**File:** `infra/scripts/bootstrap-ec2.sh`
+**Lines:** 1058, 1064 (in the original; after fix: 1069, 1071)
+
+**Why it fails:** CloudWatch Logs API (`CreateLogStream`) requires unique `(logGroupName, logStreamName)` pairs within an account/region. When the agent runs (latent today due to B1 crash-loop), both tailers would open the same stream, causing interleaved output with no mechanism to distinguish which file a line originated from.
+
+**How it occurred:** The config was materialized verbatim from `docs/SIMPLE_AWS_DEPLOYMENT.md` §10.1 during the 2026-07-01 prefix-rename pass (commit e1a3a495). The documentation carried the identical collision from an earlier `/flowin/prod/system` configuration. The uniqueness constraint was never validated at config-write time.
+
+**Proof:** B3.md investigation (`.planning/dev-sse-infra-investigations/B3.md`) machine-verified the entire `collect_list` by rendering the JSON with `ENVIRONMENT=dev` and parsing it to check for duplicate (group, stream) pairs. Found exactly one duplicate pair: rows 4 and 6 (audit.log and unattended-upgrades.log both → `/velocityai/dev/system:{instance_id}`).
+
+#### Phase Context
+- **Phase(s) involved:** Infrastructure-only; no backend/frontend/engine phase owns this
+- **Relevant register section:** None (first infrastructure fix in the register; all prior FIX entries touch backend/frontend/test layers)
+- **Deleted code verified (not resurrected):** No prior fix touched this; no resurrection risk. This is a straightforward rename.
+- **Locked decisions respected:** INV-12 — established ONE uniform naming pattern across all 8 entries, documented in code, preventing future re-collision
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `infra/scripts/bootstrap-ec2.sh` lines 1066–1073 | Renamed all 8 `collect_list` entries' `log_stream_name` values to unique `{instance_id}/<source-slug>` pattern: nginx-access → `{instance_id}/nginx-access`, nginx-error → `{instance_id}/nginx-error`, postgres → `{instance_id}/postgres`, audit → `{instance_id}/audit` (WAS colliding), auth → `{instance_id}/auth`, unattended-upgrades → `{instance_id}/unattended-upgrades` (WAS colliding), letsencrypt → `{instance_id}/letsencrypt`, docker → `{instance_id}/docker` (already compliant) | Eliminates the collision; establishes self-documenting pattern that prevents re-collision when B4 adds a third system-group file. Uniform naming satisfies INV-12 (one pattern, no workarounds). |
+| `infra/scripts/bootstrap-ec2.sh` lines 1030–1041 | Added 8-line durability comment documenting the stream naming rule, explaining the CloudWatch uniqueness constraint per CreateLogStream API, and referencing INV-12 | Future maintainers immediately understand the pattern and cannot accidentally re-introduce collisions. The comment also explains why the uniform scheme (not per-case workarounds) is the right choice. |
+
+#### Invariants Verified
+- **INV-1** (kernel knows no workflow by name): not affected — infrastructure-only, no engine edits
+- **INV-3** (golden parity): not affected — infra-only, no characterization goldens touched
+- **INV-12** (no duplication): **verified** — established and documented ONE uniform naming pattern; no per-case workarounds
+- **SC-001** (zero engine edits for new workflows): not affected — zero engine changes
+
+#### Verification
+- **All 8 collect_list entries have unique (group, stream) pairs:** Verified by inspection and regex extraction of all `log_stream_name` values; no duplicates
+- **Stream naming follows uniform pattern:** All 8 entries use `{instance_id}/<source-slug>` (docker already was compliant; 7 renamed from bare `{instance_id}`)
+- **Collision resolved:** audit.log now uses `{instance_id}/audit` (was `{instance_id}`); unattended-upgrades.log now uses `{instance_id}/unattended-upgrades` (was `{instance_id}`)
+- **Naming rule documented:** Comment added explaining the pattern and durability constraint
+- **No CloudWatch resources broken:** B3.md investigation proved no metric filters, subscription filters, dashboards, or Insights queries hardcode stream names — rename is safe
+
+#### Notes
+- **B1 status (blocker):** B1 (agent crash-loop on missing logfile perms, FIX-149) is the reason the collision remains latent. Once B1 is fixed and confirmed deployed, the agent will run and this fix will be live.
+- **B4 context (future):** B4 plan adds a third file to the `/system` log group. Without this fix's documented pattern, future edits could easily re-introduce a collision. The uniform scheme makes the rule self-evident.
+- **No migrations, no test changes:** Infra-only, no database/schema changes, no code-layer test changes needed.
+- **Safe to deploy:** All 7 renames are log streams, not log groups. Terraform owns group names (verified in `monitoring/main.tf:16-22` — all 7 groups still present). No persisted streams exist yet (B1 prevents execution). No consumer code reads stream names (proven in B3.md §I4.B).
