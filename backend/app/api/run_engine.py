@@ -69,9 +69,38 @@ def _get_or_create_queue(pipeline_run_id: str) -> asyncio.Queue:
 
 
 def _cleanup_pipeline(pipeline_run_id: str) -> None:
-    _PIPELINE_QUEUES.pop(pipeline_run_id, None)
+    """Drop a run's live registrations AND release anyone attached to its queue.
+
+    A3. Popping ``_PIPELINE_QUEUES`` is only half of "this run is no longer live":
+    an SSE client that attached while the entry existed is parked in
+    ``run_stream._iter_sse_frames`` at ``await live_queue.get()`` (``run_stream.py:197``)
+    holding a direct reference to the queue OBJECT, so the dict pop does not reach it.
+    Of the twelve paths that reach this function, only three (the launch driver's
+    ``finally`` at ``run_commands.py:2185-2186``, the revision driver's at ``:2488-2489``,
+    and ``engine._drive_resumed_stream``'s at ``engine.py:7823+7830``) send the ``None``
+    sentinel first; the nine resume/re-arm paths that reach it through
+    ``engine._fire_resume_cleanup`` do not, and their attached client hangs until the
+    socket drops. Sending the sentinel HERE makes "stop tracking this run" and "release
+    its readers" one atomic operation instead of two things every caller must remember.
+
+    The sentinel goes onto the SOURCE queue we just popped, never to a consumer, so it
+    QUEUES BEHIND anything still pending: on the three already-sentinelled paths this is
+    a harmless second sentinel the reader never reaches (it returns on the first), and no
+    tail is truncated. ``put_nowait`` is used because this function is synchronous and is
+    called from both sync and async contexts; the queue is unbounded (``maxsize=0``,
+    ``_get_or_create_queue``) so ``QueueFull`` is unreachable -- the guard is there only so
+    a future bound queue degrades instead of raising inside a cleanup path. The pops stay
+    unconditional (Phase-12 WR-01: every exit path must drop the task entry) and the
+    function stays idempotent -- a second call pops ``None`` and sends nothing.
+    """
+    queue = _PIPELINE_QUEUES.pop(pipeline_run_id, None)
     _PIPELINE_TASKS.pop(pipeline_run_id, None)
     _CANCEL_EVENTS.pop(pipeline_run_id, None)
+    if queue is not None:
+        try:
+            queue.put_nowait(None)
+        except Exception:  # noqa: BLE001 -- releasing readers must never raise in cleanup
+            pass
 
 
 # ---------------------------------------------------------------------------

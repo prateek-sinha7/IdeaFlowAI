@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-146 | 2026-07-30 | KAN-135 (A3): SSE clients stranded indefinitely on resume/re-arm paths — `_cleanup_pipeline` pops queue dict but doesn't sentinel attached readers | `run_engine.py:71-73` — `_cleanup_pipeline` pops `_PIPELINE_QUEUES[run_id]` deregistering the run but doesn't release readers parked on `await live_queue.get()`. SSE clients hold direct queue object refs (bound at `run_stream.py:281` before generator runs), so dict pop doesn't reach them. 9 of 12 paths reach cleanup via `engine._fire_resume_cleanup` without prior sentinel; 3 driver paths already sentinel via `await event_queue.put(None)`. Stranded clients hang until socket timeout. | `backend/app/api/run_engine.py` (store popped queue, send `None` sentinel if queue not None, add docstring), `backend/tests/unit/test_sse_stream.py` (added `TestCleanupSentinel` fixture + 4 tests) | quick-260730-m7k (SSE cleanup) | INV-1 ✅ (app-layer, `run_id`-keyed), INV-3 ✅ (21/21 tests pass; app.api off golden path), INV-12 ✅ (single implementation), SC-001 ✅ (zero engine edits), Phase 12 WR-01 ✅ (pops unconditional), Phase 44 MOVE ✅ (no duplication) | Done |
 | FIX-145 | 2026-07-30 | KAN-134 (A2): Multi-Tab SSE Stream Silent Data Loss — per-run fan-out bus (pump + subscribers pattern) eliminates round-robin event partitioning | `run_engine.py:64-67` — `_get_or_create_queue(run_id)` returned the SAME `asyncio.Queue` for all clients. `run_stream.py:197,281` — SSE endpoint parked concurrent clients on `await live_queue.get()` with two waiters. `asyncio.Queue.get()` wakes exactly one waiter → events partitioned round-robin: Tab A received 3/6/9/12, Tab B received 4/7/10. Root: shared queue + consuming-once semantics. | `backend/app/api/run_engine.py` (added `_SUBSCRIBERS` dict, `_subscribe()`, `_unsubscribe()`, `_dispatch_event_to_subscribers()`), `backend/app/api/run_stream.py` (rewired endpoint to use subscribe/unsubscribe, added cleanup in finally block, deleted stale LOCK-B prose), `backend/app/core/config.py` (added `SSE_SUBSCRIBER_QUEUE_MAXSIZE` setting), `backend/tests/unit/test_rest_resume.py` (added `_SUBSCRIBERS.clear()` to fixture teardown) | Phase 16/29-02/44 (SSE transport / multi-tab / Phase 44 transport-neutral home) | INV-1 ✅ (no engine kernel branches; keyed on `run_id` only), INV-3 ✅ (wire bytes unchanged; characterization goldens pass), INV-12 ✅ (move-don't-copy from `websocket_handoff.py`), SC-001 ✅ (workflow-agnostic, run-scoped), Ports & Adapters ✅ (transport-adjacent), Import-clean ✅ (lint-imports 4/0) | Done |
 | FIX-144 | 2026-07-30 | KAN-133 (A1): SSE run event stream rate-limited with HTTP 429, causing intermittent "Reconnecting..." banner — nginx /api/ prefix location improperly applied request-rate limiting to a long-lived streaming connection | nginx config (written 2026-05-11) assumed "every /api/ URL is a short request". SSE stream endpoint (created 2026-07-08, Phase 29) invalidated this assumption. When REST page-load traffic drains the 120 r/min burst pool (burst=20), stream attach receives 429. Frontend treats 429 as fatal (useRunStream.ts:359), triggering exponential-backoff reconnect (1s → 30s) and yellow banner, blocking live pipeline updates. Fix: add regex location ~ ^/api/runs/[^/]+/events/stream/?$ before /api/, using limit_conn (concurrency) instead of limit_req (rate), sized to 64. New zone velocityai_stream declared. | `infra/scripts/bootstrap-ec2.sh`, `backend/tests/unit/test_nginx_site_template.py` | quick-260730-a1n (infrastructure) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-143 | 2026-07-29 | KAN-128: Chat panel still shows static filename for PPT and Prototype — `laneActiveContent` used local `workflowType` instead of `effectiveReviseType` | FIX-141's dispatch keyed on `workflowType` (default `"user_stories"` on history-reopen) not `effectiveReviseType`. On reopened `od_ppt` run, `workflowType="user_stories"` → `laneActiveContent=""` → fallback fires. Fix: use `effectiveReviseType` in both the content slot dispatch and the `deriveDeliverableFilename` call. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/39 (FIX-141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
@@ -3788,4 +3789,73 @@ Phase 5 (run_events model) · Phase 29 (CR-03 seq allocator race) · Phase 43 (W
 - ✅ No migration rollback; downgrade path tested (reversible via batch_alter_table)
 
 **Status:** ✅ Done
+
+
+
+---
+
+### FIX-146 — KAN-135 (A3): SSE Clients Stranded Indefinitely on Resume/Re-Arm Paths
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-fix KAN-135`
+
+#### Root Cause
+
+`_cleanup_pipeline` (backend/app/api/run_engine.py:71-73) pops three registry entries (`_PIPELINE_QUEUES`, `_PIPELINE_TASKS`, `_CANCEL_EVENTS`) to deregister a finished run. However, it does **not** release attached SSE clients waiting on `await live_queue.get()` (run_stream.py:197).
+
+The SSE endpoint binds a direct reference to the queue **object** at `run_stream.py:281` before the generator runs. When the dict is popped, the generator still holds a reference to the queue object, so the pop doesn't reach it. Clients parked in `await live_queue.get()` hang forever unless the socket times out.
+
+**The 12 invocation paths of `_cleanup_pipeline`:**
+- **3 sentinelled** (already send `None` sentinel before cleanup):
+  - `run_commands.py:2186` — `_drive_launch_to_queue` finally (`:2185 await event_queue.put(None)`)
+  - `run_commands.py:2489` — `_drive_revision_to_queue` finally (`:2488 await event_queue.put(None)`)
+  - `engine.py:7830` — `_drive_resumed_stream` finally (`:7823+7830 put_nowait(None)`)
+- **9 NOT sentinelled** (reach cleanup via `engine._fire_resume_cleanup` without prior sentinel):
+  - `engine.py:5551` — `_rearm_gate_run` outer finally
+  - `engine.py:7541, 7586, 7591` — `resume_run` early returns (no row, agents raise, empty agents)
+  - `engine.py:7890, 7914, 7920, 7937, 7955` — `_replay_clarify_run` early returns
+
+On these 9 paths, attached clients hang indefinitely.
+
+**Evidence:**
+- A3.md (`.planning/dev-sse-infra-investigations/A3.md`) contains detailed analysis including reproduced traces and measurements
+- Reproduced against real production generator code — clients times out without fix, closes cleanly with fix
+- No tests existed for this path; added 4 new test cases that fail before the fix (2s+ timeout), pass after
+
+#### Phase Context
+- **Phase(s) involved:** quick-260730-m7k (SSE cleanup), Phase 16 (terminal-state integrity + reconnect), Phase 44 (SSE transport / run event stream)
+- **Relevant register section:** Phase 12 WR-01 (unconditional pops on all exit paths — preserved by this fix)
+- **Deleted code verified (not resurrected):** No code deleted. All three pops remain unconditional per WR-01 decision.
+- **Locked decisions respected:** Phase 12 WR-01 (unconditional pops), Phase 44 MOVE (single implementation), INV-1/SC-001 (no engine edits)
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/run_engine.py:71-102` | Store popped queue in a local variable; after unconditional pops, check `if queue is not None`, call `queue.put_nowait(None)` with broad exception handling; add comprehensive docstring explaining the A3 mechanism, all 12 paths, and why sentinelling is needed | On 9 paths (resume/re-arm via `_fire_resume_cleanup`), the dict pop alone leaves readers stranded. The sentinel makes cleanup atomic — clients either receive it and close cleanly, or never attached (dict pop removed the entry before binding). |
+| `backend/tests/unit/test_sse_stream.py:495-625` | Added `registries` fixture to isolate process-global registries; added `TestCleanupSentinel` class with 4 test methods: (1) cleanup without prior sentinel releases attached client; (2) cleanup releases client still in durable replay; (3) driver sentinel then cleanup doesn't truncate (double sentinel harmless); (4) cleanup is idempotent and never resurrects queue | Covers the fix: tests validate that sentinelling actually releases readers and doesn't corrupt the stream. All 4 tests fail with 2s+ timeout before fix, pass after. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ not affected — app-layer only, keys on `run_id` only
+- **INV-3** (golden parity): ✅ app.api off golden path (verified grep); 17 existing + 4 new tests all pass
+- **INV-12** (no duplication): ✅ single `_cleanup_pipeline` implementation preserved in place
+- **SC-001** (zero engine edits): ✅ app-layer body-only edit; engine untouched
+- **Phase 12 WR-01** (locked): ✅ all three pops remain unconditional per original decision
+- **Phase 44 MOVE** (locked): ✅ single implementation; INV-12 already held
+- **Import-linter**: ✅ no new imports added (body-only addition to existing code)
+
+#### Verification
+- **Test results:** 21/21 tests pass (17 existing + 4 new in `test_sse_stream.py`)
+  - `test_cleanup_without_prior_sentinel_releases_attached_client` — PASS
+  - `test_cleanup_releases_a_client_still_in_replay` — PASS
+  - `test_driver_sentinel_then_cleanup_does_not_truncate` — PASS
+  - `test_cleanup_is_idempotent_and_never_resurrects_the_queue` — PASS
+- **Code inspection:** Popped queue stored; sentinel sent only if queue is not None; exception handling prevents cleanup from raising
+- **Docstring clarity:** Explains mechanism for all 12 paths, why sentinel is needed, why double sentinel on driver paths is harmless
+
+#### Notes
+- **Why sentinel to the popped queue, not to subscriber queues:** On driver paths that already sentinelled, if we tried to sentinel "all" subscribers, we'd be appending sentinels to the *original* source queue, which would truncate the live tail. The fix sentinels to the SOURCE queue after popping it (which no producer is writing to anymore), so the sentinel queues BEHIND all pending events and is never reached by readers (they return on the first sentinel).
+- **Why `put_nowait` not `await put`:** `_cleanup_pipeline` is sync (called from both sync and async contexts). `put_nowait` is safe here because the queue is unbounded (`maxsize=0`, `_get_or_create_queue`) so `QueueFull` is unreachable. The broad exception handler is defensive — if a future change bounds the queue, cleanup still doesn't raise.
+- **Why idempotent:** Second call pops `None` (the key is gone) and attempts to sentinnel None, which the `if queue is not None` guard prevents. No resurrection, no error.
+- **Frontend visible change:** One extra reconnect round-trip when clients are released (I6 in A3.md). Clients now see a brief "Reconnecting..." banner instead of a permanent hang. On high-concurrency SSE roots this is strictly better UX.
+- **Prerequisite for A2:** A2 (multi-tab fanout) without A3 causes additional resource leaks (`_PUMPS` entries never close). Landing A3 first ensures A2's self-heal (calling `_close_run` from the pump's `finally`) actually wakes the pump to run it.
 
