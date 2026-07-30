@@ -70,11 +70,11 @@ from app.models.workflow import WorkflowRun
 # because the WS copies are nested socket-coupled closures, not importable.
 from app.api.run_engine import (
     _CANCEL_EVENTS,
-    _PIPELINE_QUEUES,
     _PIPELINE_TASKS,
     _cleanup_pipeline,
     _get_db,
     _get_or_create_queue,
+    _is_run_live,
     _resolve_owned_parent_run_id,
     _review_gate_owned_by,
     _review_gate_run_is_terminal,
@@ -383,11 +383,13 @@ async def resume_run_endpoint(
                 http_status=status.HTTP_409_CONFLICT,
             )
 
-        # (3) Overlap mutex — the authoritative liveness signal is the in-process
-        # registry (NOT the DB status). NO ``await`` between this check and the
-        # synchronous registration in step 4 (asyncio no-preemption ⇒ a concurrent
-        # double-POST resuming after step 4 sees the entry → 409).
-        if run_id in _PIPELINE_TASKS or run_id in _PIPELINE_QUEUES:
+        # (3) Overlap mutex — the authoritative liveness signal is the in-process DRIVER
+        # TASK (NOT the DB status, and NOT bare registry membership: a stale entry from a
+        # driver that raised before its cleanup used to 409 this run forever). NO ``await``
+        # between this check and the synchronous registration in step 4 (asyncio
+        # no-preemption ⇒ a concurrent double-POST resuming after step 4 sees the entry
+        # → 409). ``_is_run_live`` is a plain ``def`` precisely to preserve that.
+        if _is_run_live(run_id):
             raise _reject(
                 "pipeline_already_running",
                 "Run is already live",

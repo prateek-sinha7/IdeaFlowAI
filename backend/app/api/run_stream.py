@@ -45,10 +45,11 @@ from app.models.user import User
 from app.models.workflow import WorkflowRun
 
 # Import the per-run fan-out bus (KAN-134). Each SSE subscriber gets its own
-# queue, fed by the shared pump. Membership in ``_PIPELINE_QUEUES`` is the liveness
-# signal (a registered queue == a live/attached run).
+# queue, fed by the shared pump. Liveness is determined by the DRIVER TASK via
+# ``_is_run_live()`` (A4: stale queue/task entries are self-healed). A finished run
+# (no live task) has no live queue → durable replay + handshake is the complete response.
 from app.api.run_engine import (
-    _PIPELINE_QUEUES,
+    _is_run_live,
     _subscribe,
     _unsubscribe,
 )
@@ -273,13 +274,14 @@ async def stream_run_events(
             after_seq = 0
 
     # KAN-134: Subscribe to the per-run fan-out bus if the run is live.
-    # Each SSE subscriber gets its own queue, fed by the shared pump. A finished run
-    # has no live queue → durable replay + handshake is the complete response.
+    # A run has a live queue iff it has a LIVE driver task. After A4, stale queue/task
+    # entries from failed drivers are self-healed, so _is_run_live() returns False and
+    # the stream is a durable replay + handshake (the complete response, clean close).
     # The subscriber is unsubscribed in the finally block of _iter_sse_frames.
     from app.core.config import settings
 
     live_queue = None
-    if workflow_id in _PIPELINE_QUEUES:
+    if _is_run_live(workflow_id):
         live_queue = await _subscribe(
             workflow_id,
             queue_maxsize=settings.SSE_SUBSCRIBER_QUEUE_MAXSIZE,

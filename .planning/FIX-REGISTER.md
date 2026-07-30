@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-147 | 2026-07-30 | KAN-136 (A4): Stale `_PIPELINE_QUEUES`/`_PIPELINE_TASKS` entries make dead runs permanently un-attachable and un-resumable — liveness signal replaced with driver task state inspection | `run_stream.py:282` and `run_commands.py:390` used bare dict membership (`run_id in _PIPELINE_QUEUES/TASKS`) to detect live runs. When a driver raises before cleanup runs (unguarded DB read in `engine.resume_run`, or `CancelledError` at any await point), registry entries survive for the process lifetime. Dead runs report LIVE forever: SSE attach blocks indefinitely on orphaned queues, resume returns 409 permanently. | `backend/app/api/run_engine.py` (added logging import, `_is_run_live(run_id)` predicate inspects task.done() state + self-heals via `_cleanup_pipeline`), `backend/app/api/run_stream.py` (replaced membership check line 282 with `_is_run_live`), `backend/app/api/run_commands.py` (replaced membership check line 390 with `_is_run_live`) | quick-260730-k4a (stale registry liveness) | INV-1 ✅ (app-layer, `run_id`-keyed, no engine branches), INV-3 ✅ (29/33 tests pass; 4 pre-existing baseline failures preserved), INV-12 ✅ (single self-heal via existing `_cleanup_pipeline`), SC-001 ✅ (zero engine edits), Ports & Adapters ✅ (no new import edges, lint-imports 4/0) | Done |
 | FIX-146 | 2026-07-30 | KAN-135 (A3): SSE clients stranded indefinitely on resume/re-arm paths — `_cleanup_pipeline` pops queue dict but doesn't sentinel attached readers | `run_engine.py:71-73` — `_cleanup_pipeline` pops `_PIPELINE_QUEUES[run_id]` deregistering the run but doesn't release readers parked on `await live_queue.get()`. SSE clients hold direct queue object refs (bound at `run_stream.py:281` before generator runs), so dict pop doesn't reach them. 9 of 12 paths reach cleanup via `engine._fire_resume_cleanup` without prior sentinel; 3 driver paths already sentinel via `await event_queue.put(None)`. Stranded clients hang until socket timeout. | `backend/app/api/run_engine.py` (store popped queue, send `None` sentinel if queue not None, add docstring), `backend/tests/unit/test_sse_stream.py` (added `TestCleanupSentinel` fixture + 4 tests) | quick-260730-m7k (SSE cleanup) | INV-1 ✅ (app-layer, `run_id`-keyed), INV-3 ✅ (21/21 tests pass; app.api off golden path), INV-12 ✅ (single implementation), SC-001 ✅ (zero engine edits), Phase 12 WR-01 ✅ (pops unconditional), Phase 44 MOVE ✅ (no duplication) | Done |
 | FIX-145 | 2026-07-30 | KAN-134 (A2): Multi-Tab SSE Stream Silent Data Loss — per-run fan-out bus (pump + subscribers pattern) eliminates round-robin event partitioning | `run_engine.py:64-67` — `_get_or_create_queue(run_id)` returned the SAME `asyncio.Queue` for all clients. `run_stream.py:197,281` — SSE endpoint parked concurrent clients on `await live_queue.get()` with two waiters. `asyncio.Queue.get()` wakes exactly one waiter → events partitioned round-robin: Tab A received 3/6/9/12, Tab B received 4/7/10. Root: shared queue + consuming-once semantics. | `backend/app/api/run_engine.py` (added `_SUBSCRIBERS` dict, `_subscribe()`, `_unsubscribe()`, `_dispatch_event_to_subscribers()`), `backend/app/api/run_stream.py` (rewired endpoint to use subscribe/unsubscribe, added cleanup in finally block, deleted stale LOCK-B prose), `backend/app/core/config.py` (added `SSE_SUBSCRIBER_QUEUE_MAXSIZE` setting), `backend/tests/unit/test_rest_resume.py` (added `_SUBSCRIBERS.clear()` to fixture teardown) | Phase 16/29-02/44 (SSE transport / multi-tab / Phase 44 transport-neutral home) | INV-1 ✅ (no engine kernel branches; keyed on `run_id` only), INV-3 ✅ (wire bytes unchanged; characterization goldens pass), INV-12 ✅ (move-don't-copy from `websocket_handoff.py`), SC-001 ✅ (workflow-agnostic, run-scoped), Ports & Adapters ✅ (transport-adjacent), Import-clean ✅ (lint-imports 4/0) | Done |
 | FIX-144 | 2026-07-30 | KAN-133 (A1): SSE run event stream rate-limited with HTTP 429, causing intermittent "Reconnecting..." banner — nginx /api/ prefix location improperly applied request-rate limiting to a long-lived streaming connection | nginx config (written 2026-05-11) assumed "every /api/ URL is a short request". SSE stream endpoint (created 2026-07-08, Phase 29) invalidated this assumption. When REST page-load traffic drains the 120 r/min burst pool (burst=20), stream attach receives 429. Frontend treats 429 as fatal (useRunStream.ts:359), triggering exponential-backoff reconnect (1s → 30s) and yellow banner, blocking live pipeline updates. Fix: add regex location ~ ^/api/runs/[^/]+/events/stream/?$ before /api/, using limit_conn (concurrency) instead of limit_req (rate), sized to 64. New zone velocityai_stream declared. | `infra/scripts/bootstrap-ec2.sh`, `backend/tests/unit/test_nginx_site_template.py` | quick-260730-a1n (infrastructure) | INV-1/3/12/SC-001 ✅ | Done |
@@ -3858,4 +3859,119 @@ On these 9 paths, attached clients hang indefinitely.
 - **Why idempotent:** Second call pops `None` (the key is gone) and attempts to sentinnel None, which the `if queue is not None` guard prevents. No resurrection, no error.
 - **Frontend visible change:** One extra reconnect round-trip when clients are released (I6 in A3.md). Clients now see a brief "Reconnecting..." banner instead of a permanent hang. On high-concurrency SSE roots this is strictly better UX.
 - **Prerequisite for A2:** A2 (multi-tab fanout) without A3 causes additional resource leaks (`_PUMPS` entries never close). Landing A3 first ensures A2's self-heal (calling `_close_run` from the pump's `finally`) actually wakes the pump to run it.
+
+
+---
+
+### FIX-147 — KAN-136 (A4): Stale `_PIPELINE_QUEUES`/`_PIPELINE_TASKS` Entries Make Dead Runs Permanently Un-Attachable and Un-Resumable
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-fix KAN-136`
+
+#### Root Cause
+
+When a driver raises before `_cleanup_pipeline()` runs (e.g., unguarded DB read in `engine.resume_run`, or `CancelledError` at any await point), the three registry entries (`_PIPELINE_QUEUES`, `_PIPELINE_TASKS`, `_CANCEL_EVENTS`) survive in the process registry for the lifetime of the backend process.
+
+Two liveness checks rely on bare dict membership:
+- `run_stream.py:282` — `if workflow_id in _PIPELINE_QUEUES:` (SSE attach "is this run live?")
+- `run_commands.py:390` — `if run_id in _PIPELINE_TASKS or run_id in _PIPELINE_QUEUES:` (resume overlap mutex)
+
+**Problem:** A dead run (task is `done()`) still reports LIVE because its stale entry remains in the dict. This causes two permanent failures:
+
+1. **SSE attach hangs indefinitely** — the endpoint attaches to the orphaned queue, waits for events that will never come, and times out after socket timeout (typically 60–120s). Clients see the "Reconnecting..." banner forever.
+2. **Resume returns 409 permanently** — the overlap mutex sees the stale entry and blocks the resume endpoint's registration, returning 409 Conflict forever. Users cannot resume the run.
+
+**Evidence:**
+- A4.md (`.planning/dev-sse-infra-investigations/A4.md`) contains detailed analysis including reproduced traces
+- Reproduced against real production generator code — dead runs permanently block SSE attach and resume without fix
+- `test_rest_resume.py:260` includes a sentinel `object()` that validates the fail-safe contract
+
+#### Phase Context
+
+- **Phase(s) involved:** quick-260730-k4a (stale registry liveness), Phase 44 (SSE transport / run event stream)
+- **Related phases:** Phase 12 WR-01 (unconditional registry pops — still preserved), Phase 29 (SSE stream creation)
+- **Prerequisite for:** A3 (A3 integration ensures self-heal via sentinel releases clients; A4 ensures the heartbeat is correct)
+- **Deleted code verified (not resurrected):** No code deleted. All three pops in `_cleanup_pipeline` remain unconditional.
+- **Locked decisions respected:** INV-1 (no engine branches), INV-3 (byte-identical deliverables), INV-12 (single mechanism), SC-001 (zero engine edits)
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/run_engine.py:1-20` | Added `import logging` and `logger = logging.getLogger("app.api.run_engine")` | Self-heal logging for observability; module had no logging baseline (D11) |
+| `backend/app/api/run_engine.py:75-117` | Added `_is_run_live(run_id: str) -> bool` predicate (43 lines + 30-line docstring) after `_cleanup_pipeline()` | Replaces both membership tests; inspects driver task's `done()` state instead of dict membership; calls `_cleanup_pipeline()` when task is `done()` but entries survive (self-heal) |
+| `backend/app/api/run_stream.py:52-57, 282` | Removed `_PIPELINE_QUEUES` import; added `_is_run_live` import from `run_engine`; replaced membership check `if workflow_id in _PIPELINE_QUEUES:` → `if _is_run_live(workflow_id):` | Use task liveness instead of queue membership; self-heal ensures stale entries are cleaned up atomically; SSE attach now returns `live:false` + clean stream close for dead runs |
+| `backend/app/api/run_commands.py:71-82, 390` | Removed `_PIPELINE_QUEUES` import; added `_is_run_live` import from `run_engine`; replaced membership check `if run_id in _PIPELINE_TASKS or run_id in _PIPELINE_QUEUES:` → `if _is_run_live(run_id):` | Use task liveness instead of queue/task membership; self-heal ensures stale entries are cleaned up atomically; resume retries now succeed instead of permanent 409 |
+
+#### Invariants Verified
+
+- **INV-1** (no workflow-by-name): ✅ Keyed on `run_id` only; no engine-kernel branching on workflow type
+- **INV-3** (byte-identical deliverables): ✅ 29/33 tests pass; 4 pre-existing failures (unrelated `_StubEngine` harness, baseline preserved per A4.md I8)
+- **INV-12** (no duplication): ✅ Self-heal via existing `_cleanup_pipeline()` (the ONLY registry teardown); no duplicate `.pop()` calls
+- **SC-001** (zero engine edits): ✅ All changes in `app.api` layer; engine kernel untouched
+- **Ports & Adapters**: ✅ No new import edges; lint-imports 4/0 verified
+- **Phase 12 WR-01** (locked): ✅ All three pops in `_cleanup_pipeline` remain unconditional per original decision
+
+#### Verification
+
+**Test results:**
+```
+pytest tests/unit/test_sse_stream.py tests/unit/test_rest_resume.py tests/unit/test_run_stream_pool_leak.py -v
+
+29 PASSED:
+  test_sse_stream.py: 17/17 passed
+  test_rest_resume.py: 9/13 passed (4 pre-existing failures)
+  test_run_stream_pool_leak.py: 3/3 passed
+
+4 FAILED (pre-existing baseline):
+  test_resume_cancelled_409
+  test_resume_double_post_second_409
+  test_resume_registers_queue_before_status_flip
+  test_resume_flips_running_and_stamps_marker
+  
+Baseline confirmed (per A4.md I8): AttributeError: '_StubEngine' object has no attribute '_state_machine'
+```
+
+**Critical test:** `test_resume_already_running_409` PASSED ✅ — validates fail-safe contract (unintrospectable tasks report live, never heal what can't be proven)
+
+**Code inspection:**
+- Predicate keyed on `run_id` only (SC-001 name-free ✅)
+- Synchronous signature (preserves resume double-POST atomicity ✅)
+- Fail-safe direction: task has no callable `done()` or `done()` raises → return `True` (live) → never heal (cannot prove dead ✅)
+- Self-heal calls existing `_cleanup_pipeline()` (INV-12 ✅)
+- Logger used only in self-heal path (observability of stale entry detection ✅)
+
+#### Decision Log
+
+**Decision 1: Synchronous predicate, not async**
+- **Chosen:** `def _is_run_live(run_id: str) -> bool:`
+- **Rationale:** `resume_run_endpoint` double-POST atomicity requires NO `await` between overlap mutex (line 346 docstring: atomicity guarantee) and registration. Async would interleave, allowing a second POST to see an unfilled registry slot.
+- **Rejected:** `async def` — would break atomicity contract proven in `test_resume_already_running_409`
+
+**Decision 2: Fail-safe direction on unintrospectable tasks**
+- **Chosen:** Return `True` (live) when task has no callable `done()` or `done()` raises
+- **Rationale:** `test_rest_resume.py:260` seeds bare `object()` sentinel expecting 409 (fail-safe: treat unknown as live, don't heal it). This is the escape hatch for harness test stubs. Reversing would break that contract and allow a 200 where 409 was expected.
+- **Rejected:** Return `False` (dead) — would make predicate pop the sentinel, endpoint returns 200 instead of 409 → regression in the test contract
+
+**Decision 3: Self-heal via existing `_cleanup_pipeline()`, not duplicate**
+- **Chosen:** Call `_cleanup_pipeline(run_id)` from predicate when task is `done()` but entries survive
+- **Rationale:** INV-12 (single mechanism); `_cleanup_pipeline` is the ONLY registry teardown point in the codebase. A3 integration means sentinel is already deployed. Re-implementing three `.pop()` calls would violate INV-12.
+- **Rejected:** Re-implement pops in predicate — would be a second implementation of the same logic, violating INV-12
+
+**Decision 4: Predicate location in `run_engine.py`, not elsewhere**
+- **Chosen:** Define in `backend/app/api/run_engine.py` (transport-neutral home for run infrastructure)
+- **Rationale:** Phase 44-03 locked `run_engine.py` as the single home for run infrastructure predicates. Both consumers already import from it. Placing in `run_stream.py` would force `run_commands.py` to import SSE endpoint module (architecture violation — transport layer should not import client-facing routes).
+- **Rejected:** Define in `run_stream.py` — would require `run_commands.py` to import from SSE endpoint (poor architecture)
+
+#### Notes
+
+- **Why not just `_PIPELINE_QUEUES.get(run_id)` as the liveness signal?** Because `get()` still returns a stale queue object, which SSE attach then reads events from forever. We need an OUT-OF-BAND signal: the driver's own task object, which transitions from running → done() when the driver exits. That signal cannot go stale because it's not a dict entry; it's the kernel's own task state.
+  
+- **Why call `_cleanup_pipeline` from the predicate?** Because self-healing stale entries is the predicate's job: "is this run live?" → "yes, it's done() but entries are stale" → "let me heal that for you" → call cleanup. This is the only place where we know (a) the task is done and (b) the entries still exist. If we DON'T heal here, the next run with the same `run_id` will see the orphaned entries and either attach to the wrong queue or think it's still running.
+
+- **Why log the self-heal?** Observability. If frequency is high in production, it signals a driver is raising before cleanup regularly. We need to know if this is a real production leak (driver bug) or just test harness artifacts (which don't reach prod). Logging makes it visible in CloudWatch / Splunk.
+
+- **Frontend visible change:** With FIX-147 + FIX-146 (A3) integrated, dead runs now (a) self-detect via liveness predicate, (b) self-heal via cleanup, (c) release attached clients via A3 sentinel, and (d) allow resume to proceed and either complete or fail cleanly. Before: permanent 409 + indefinite hang. After: one reconnect round-trip + clean terminal state.
+
+- **Prerequisite for A2 + A3 correctness:** A2 (multi-tab fanout) and A3 (cleanup sentinel) both assume the liveness predicate is correct. If stale entries report LIVE, A3's sentinel is sent to a dead pump, wasting resources. With A4, the predicate is authoritative: it keys on the driver's task.done() state, which is the single source of truth.
 

@@ -16,6 +16,7 @@ callbacks INJECTED onto the engine instance in ``app/main.py`` at startup.
 """
 
 import asyncio
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -27,6 +28,8 @@ from app.core.security import decode_access_token, is_token_revoked
 from app.models.database import SessionLocal
 from app.models.user import User
 from app.models.workflow import WorkflowRun
+
+logger = logging.getLogger("app.api.run_engine")
 
 # ---------------------------------------------------------------------------
 # Pipeline event queue registry
@@ -101,6 +104,72 @@ def _cleanup_pipeline(pipeline_run_id: str) -> None:
             queue.put_nowait(None)
         except Exception:  # noqa: BLE001 -- releasing readers must never raise in cleanup
             pass
+
+
+def _is_run_live(run_id: str) -> bool:
+    """True iff ``run_id`` has a LIVE in-process driver task.
+
+    Replaces the two ``run_id in _PIPELINE_QUEUES`` membership tests that treated a
+    surviving registry entry as proof a run is live. Membership is NOT liveness: a
+    driver that raises before its cleanup runs (``engine.resume_run``'s unguarded DB
+    read; a ``CancelledError`` at any of its pre-drive awaits) leaves the queue + task
+    entries behind for the process lifetime, which made the run permanently
+    un-attachable (the SSE attach blocks on a queue nobody feeds) and permanently
+    un-resumable (``POST /{id}/resume`` → 409 forever).
+
+    The authoritative signal is the DRIVER TASK, because every one of the seven
+    registration sites registers the queue and the task with NO ``await`` between them
+    (run_commands.py :399/:421, :991/:1003, :1204/:1216, :1775/:1796, :2383/:2395;
+    engine.py :5372/:5388, :5440/:5457) -- so on a single-threaded event loop a
+    registered queue is never observable without its task. And every driver's cleanup
+    (``_cleanup_pipeline`` / the engine's injected ``_fire_resume_cleanup``) runs INSIDE
+    the driver, i.e. strictly before its task transitions to ``done()``. A ``done()``
+    task whose registry entries survive is therefore unambiguously stale.
+
+    SIDE EFFECT (deliberate, and the reason this is not named ``_run_is_live``): a stale
+    registration is SELF-HEALED here via ``_cleanup_pipeline`` -- the single registry
+    teardown (INV-12). After A3, ``_cleanup_pipeline`` also sentinels the run's pump, so
+    the heal additionally releases any client already blocked on the orphaned queue.
+
+    Fail-safe: anything we cannot PROVE is finished is reported LIVE. A task object with
+    no callable ``done`` (``tests/unit/test_rest_resume.py:260`` seeds a bare ``object()``
+    sentinel and expects the overlap mutex to still return 409) and a ``done()`` that
+    raises both take the live branch -- never self-heal something whose state is unknown.
+
+    SC-001: keyed on ``run_id`` only. No workflow name, no pipeline type.
+    Synchronous by contract: ``resume_run_endpoint``'s double-POST atomicity argument
+    (run_commands.py:346) requires NO ``await`` between the overlap mutex and the
+    registration that closes it. Do not make this a coroutine.
+    """
+    task = _PIPELINE_TASKS.get(run_id)
+    if task is not None:
+        done = getattr(task, "done", None)
+        if not callable(done):
+            # Un-introspectable sentinel -> assume live (never heal what we cannot prove).
+            return True
+        try:
+            finished = bool(done())
+        except Exception:  # noqa: BLE001 - an unreadable task is treated as live
+            return True
+        if not finished:
+            return True
+
+    # Not live. Self-heal any surviving registration. Evidence is the QUEUE or TASK entry
+    # only -- NOT _CANCEL_EVENTS: ``launch_run`` registers the cancel event at :1734
+    # before the queue at :1775, so a lone cancel-event entry is a legitimate mid-launch
+    # state, not staleness. ``_cleanup_pipeline`` pops all three, which is correct once a
+    # queue/task entry has proven the run dead.
+    if run_id in _PIPELINE_QUEUES or run_id in _PIPELINE_TASKS:
+        logger.warning(
+            "stale run registration self-healed: run=%s task_present=%s "
+            "task_done=%s queue_present=%s",
+            run_id,
+            task is not None,
+            None if task is None else getattr(task, "done", lambda: None)(),
+            run_id in _PIPELINE_QUEUES,
+        )
+        _cleanup_pipeline(run_id)
+    return False
 
 
 # ---------------------------------------------------------------------------
