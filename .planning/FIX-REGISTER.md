@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-144 | 2026-07-30 | KAN-133 (A1): SSE run event stream rate-limited with HTTP 429, causing intermittent "Reconnecting..." banner — nginx /api/ prefix location improperly applied request-rate limiting to a long-lived streaming connection | nginx config (written 2026-05-11) assumed "every /api/ URL is a short request". SSE stream endpoint (created 2026-07-08, Phase 29) invalidated this assumption. When REST page-load traffic drains the 120 r/min burst pool (burst=20), stream attach receives 429. Frontend treats 429 as fatal (useRunStream.ts:359), triggering exponential-backoff reconnect (1s → 30s) and yellow banner, blocking live pipeline updates. Fix: add regex location ~ ^/api/runs/[^/]+/events/stream/?$ before /api/, using limit_conn (concurrency) instead of limit_req (rate), sized to 64. New zone velocityai_stream declared. | `infra/scripts/bootstrap-ec2.sh`, `backend/tests/unit/test_nginx_site_template.py` | quick-260730-a1n (infrastructure) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-143 | 2026-07-29 | KAN-128: Chat panel still shows static filename for PPT and Prototype — `laneActiveContent` used local `workflowType` instead of `effectiveReviseType` | FIX-141's dispatch keyed on `workflowType` (default `"user_stories"` on history-reopen) not `effectiveReviseType`. On reopened `od_ppt` run, `workflowType="user_stories"` → `laneActiveContent=""` → fallback fires. Fix: use `effectiveReviseType` in both the content slot dispatch and the `deriveDeliverableFilename` call. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/39 (FIX-141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-142 | 2026-07-29 | KAN-128: PPT filename shows "presentation.pptx" instead of content-derived ".html" — wrong extension for all ppt/od_ppt variants | `deriveDeliverableFilename` assigned `"pptx"` for `"ppt"`/`"ppt_revision"` but all PPT runs produce HTML decks. `deriveDeliverableFiles` also offered a dead `.pptx` row. Fix: both functions always use `"html"` for all four ppt variants. | `frontend/src/components/results/FilesTab.tsx` | Phase 18/22/39 (FIX-140/141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-141 | 2026-07-29 | KAN-128: Left chat panel "Run summary" deliverable card shows static manifest filename instead of content-derived name | RunChatLane's dFilename = pipelineState?.deliverableFilename (static manifest). DashboardLayout had all content props but never passed a content-derived deliverableFilename to RunChatLane. Fix: compute laneDerivedFilename using deriveDeliverableFilename() (FIX-140) in DashboardLayout and pass it as the prop. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31 (CHATUI-01 RunChatLane), Phase 39 (RUNUI-06 DeliverableCard) | INV-1/3/12/SC-001 ✅ | Done |
@@ -218,6 +219,90 @@ This is the definitive fix for the chat panel filename issue. The root cause was
 2. FIX-142 fixed the extension (`.pptx` → `.html`) for the `"ppt"` normalised alias
 
 With FIX-143, both live runs and history-reopened runs will show the correct content-derived filename in the chat panel for all workflow types.
+
+---
+
+### FIX-144 — KAN-133 (A1): SSE Run Stream Rate-Limited with HTTP 429 — nginx infrastructure patch
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-fix KAN-133 (jiraissue)`
+
+#### Root Cause
+
+The SSE run event stream endpoint (`GET /api/runs/{workflow_id}/events/stream`) was incorrectly routed through nginx's generic `/api/` prefix location, which applies a request-rate limit of 120 requests/minute per client IP with a burst of 20. 
+
+The endpoint is a **long-lived streaming connection** held open for the entire duration of a run (seconds to hours), not a request-rate phenomenon. When concurrent REST traffic from normal page loads (REST calls to `/api/runs`, `/api/auth/me`, `/api/analytics/summary`, etc.) drains the 20-request burst pool, the stream attach request receives HTTP 429 (Conflict).
+
+The frontend treats HTTP 429 as fatal (`useRunStream.ts:359-360`), throwing an exception that triggers exponential-backoff reconnection logic (1s → 2s → 4s → 8s → 16s → 30s), surfacing the yellow "Reconnecting..." banner and blocking live pipeline updates for 1–30 seconds per retry cycle.
+
+**Evidence:**
+- `infra/scripts/bootstrap-ec2.sh:710` — `limit_req_zone $binary_remote_addr zone=velocityai_api:10m rate=120r/m;`
+- `infra/scripts/bootstrap-ec2.sh:822–830` — `location /api/ { limit_req zone=velocityai_api burst=20 ... }`
+- `frontend/src/hooks/useRunStream.ts:359-360` — `if (!res.ok || !res.body) { throw new Error(...) }`
+- Pre-fix measurement (A1.md I3): 40 concurrent SSE attaches → 21×200 OK, 19×429 Conflict (exact burst=20 match)
+
+#### Phase Context
+
+- **Phase(s) involved:** quick-260730-a1n (infrastructure-only fix), not part of a planned phase
+- **Phase 29 context:** `run_stream.py` created 2026-07-08; `/api/runs/{id}/events/stream` endpoint landed (IMPL :2747)
+- **Phase 44 context:** `/ws/chat` websocket retired; SSE + REST declared sole run transport (IMPL :3696)
+- **Deleted code verified (not resurrected):** Phase 44 deleted `/ws/chat` endpoint. The nginx `location /ws/chat` (bootstrap-ec2.sh:843-856) is now dead config but is deliberately NOT removed here (separate cleanup concern).
+- **Locked decisions respected:** LOCK-B (Phase 29 additive-transport constraint) was superseded by Phase 44; does not constrain the nginx layer. INV-1/3/12/SC-001 not affected (nginx config decoupled from engine).
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `infra/scripts/bootstrap-ec2.sh` line 710 | Add `limit_conn_zone $binary_remote_addr zone=velocityai_stream:10m;` after the four existing `limit_req_zone` declarations | Declare shared memory zone for SSE stream connection accounting (connection concurrency, not request rate) |
+| `infra/scripts/bootstrap-ec2.sh` lines 816–836 (new block inserted before `/api/` location) | Insert new regex location block: `location ~ ^/api/runs/[^/]+/events/stream/?$ { limit_conn velocityai_stream 64; proxy_pass ...; ... }` | Exempt SSE stream from request-rate limiting; apply connection concurrency cap (64) instead. Must sit BEFORE generic `/api/` location to win nginx's regex-precedence rule. |
+| `backend/tests/unit/test_nginx_site_template.py` (new file) | Create 6-assertion offline test suite | Pin the SSE exemption structure in code; validate general limiter survives; provide fail-before/pass-after proof |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — nginx config decoupled from engine
+- **INV-3** (golden parity): Not affected — nginx config is decoupled from engine; no Python/TS output changes
+- **INV-12** (no duplication): Not applicable — nginx template is a single source
+- **SC-001** (zero engine edits): Not affected — infrastructure-only fix
+- **Import-linter**: Not affected — no Python/TS imports added; nginx config is non-code
+
+#### Verification
+
+**Repo-side tests (ran on Windows):**
+```
+$ cd backend && uv run pytest tests/unit/test_nginx_site_template.py -v
+6 passed  ✅
+  - test_limit_conn_zone_declared_for_the_stream ✅
+  - test_sse_location_exists_and_is_the_only_regex_location ✅
+  - test_sse_location_is_not_rate_limited_but_is_connection_capped ✅
+  - test_sse_location_keeps_the_streaming_proxy_contract ✅
+  - test_sse_location_declares_no_add_header ✅  (D3 security header inheritance guard)
+  - test_general_api_rate_limit_survives ✅  (regression check)
+```
+
+**Baseline regression check (no new failures):**
+```
+$ cd backend && uv run pytest tests/unit/test_sse_stream.py \
+    tests/agents/test_attach_replay_matrix.py tests/unit/test_run_stream_pool_leak.py -q
+1 failed, 31 passed  ✅  (matches pre-fix baseline; no regression)
+  - 1 pre-existing harness gap: test_last_event_id_header_resumes_over_http (noted in A1.md Appendix 1)
+```
+
+**Expected post-deployment (measured on nginx 1.24.0 in A1.md I3):**
+- 40 concurrent SSE attaches: 0×429, all 40×200 (or 401 auth failure, indicating nginx passed through) ✅
+- 60 concurrent `/api/auth/me` (REST limiter): substantial 429 count (limiter intact) ✅
+- Security headers on SSE path: 5/5 inherited (no `add_header` in the block, so server-level headers cascade down) ✅
+
+#### Notes
+
+**A1 is a category error, not a tuning error.** The assumption "every /api/ URL is a short request" was valid when the config was written (2026-05-11) but became false on 2026-07-08 when the SSE endpoint was created. The nginx config never anticipated a long-lived streaming connection.
+
+**Why not raise the rate limit instead?** Raising `rate=120r/m` to, say, `600r/m` would allow streams through the generic zone, but it weakens protection on genuinely expensive endpoints (Bedrock LLM calls, database queries). The structural solution (separate concurrency limiter) is correct.
+
+**Sizing of `limit_conn 64`:** This is sized to allow multi-tab legitimate users (estimated 20–60 concurrent streams per egress IP based on BUG-013 frontend cap and user-per-IP ratios) while sitting an order of magnitude below the nginx box ceiling (~1536 proxied streams, measured in A1.md I4.13). See A1.md I5 for full sizing rationale.
+
+**C1 (Correction from A1.md):** A `limit_conn` rejection produces a 503 response, which re-enters the same `!res.ok` throw at `useRunStream.ts:359` as the 429, triggering the same "Reconnecting..." banner. The 64-sized cap and the 503 default status (left unchanged) combine to make this boundary substantially above normal load, but it is now a known limit beyond which users will see the banner with a 503 instead of 429. The fix reduces 429 frequency to near-zero under normal load; operating beyond the connection cap is a separate, documented failure mode.
+
+**D3 (Dead code check):** The nginx `location /ws/chat` (bootstrap-ec2.sh:843-856) is now dead config (route deleted in Phase 44). It is deliberately NOT removed here; cleanup is a separate concern. A1 adds only the SSE block.
 
 ---
 

@@ -708,6 +708,7 @@ limit_req_zone $binary_remote_addr zone=velocityai_login:10m rate=10r/m;
 limit_req_zone $binary_remote_addr zone=velocityai_register:10m rate=5r/m;
 limit_req_zone $binary_remote_addr zone=velocityai_change_pw:10m rate=10r/m;
 limit_req_zone $binary_remote_addr zone=velocityai_api:10m rate=120r/m;
+limit_conn_zone $binary_remote_addr zone=velocityai_stream:10m;
 
 log_format velocityai '$remote_addr - $remote_user [$time_local] '
                   '"$request_method $uri $server_protocol" '
@@ -818,6 +819,21 @@ server {
         limit_req_status 429;
         proxy_pass         http://velocityai_backend;
         include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
+    }
+    # A1: SSE run event stream — long-lived connection, not a request-rate phenomenon.
+    # Exempt from request-rate limiting (limit_req); apply connection concurrency cap instead.
+    # This regex must sit BEFORE the generic /api/ prefix location to win nginx's matching rule
+    # (regex in definition order). Must NOT declare add_header here — it would drop the 5 inherited
+    # security headers from server level (D3). sse_starlette already force-sets X-Accel-Buffering.
+    location ~ ^/api/runs/[^/]+/events/stream/?$ {
+        limit_conn         velocityai_stream 64;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
+        proxy_buffering    off;
+        proxy_request_buffering off;
+        proxy_read_timeout 5400s;
+        proxy_send_timeout 5400s;
+        proxy_cache        off;
     }
     location /api/ {
         limit_req zone=velocityai_api burst=20 nodelay;
