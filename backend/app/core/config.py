@@ -124,13 +124,19 @@ class Settings(BaseSettings):
     # feature-gate is gone (44-07) — the stream is now unconditional.
     # D-14h streaming-infra knobs. ``sse-starlette`` emits a comment-``ping`` at
     # this cadence so an idle proxy never buffers/half-closes a long-lived stream;
-    # the idle-timeout floor MUST exceed the ping so the ingress keeps the socket
-    # open between events. The route also sets ``X-Accel-Buffering: no`` +
-    # ``Cache-Control: no-cache`` on the response and REQUIRES the ingress run with
-    # ``proxy_buffering off`` for ``text/event-stream`` (documented for ops — an
-    # SSE stream MUST NOT be gzip-buffered or the browser receives nothing live).
+    # the INGRESS (nginx/ALB) idle-timeout MUST exceed the ping cadence so the
+    # socket stays open between events. The route also sets ``X-Accel-Buffering: no``
+    # + ``Cache-Control: no-cache`` on the response and REQUIRES the ingress to run
+    # with ``proxy_buffering off`` for ``text/event-stream`` (documented for ops).
+    # SSE stream endpoints (for ops reference):
+    #   GET /api/runs/{id}/events/stream — per-run live + durable event firehose
+    # Nginx idle-timeout for SSE (ops-owned, not enforced here):
+    #   proxy_read_timeout 300s; (or proxy_read_timeout 0; for unlimited)
+    # D10 (KAN-139): SSE_STREAM_IDLE_TIMEOUT_SECONDS was dead configuration with
+    # zero readers anywhere in the codebase (logged as Phase 29 IN-01 and Phase 44
+    # IN-01 for months). It has been DELETED. Idle-timeout is purely an ops/nginx
+    # concern and is not enforced at the application layer.
     SSE_KEEPALIVE_PING_SECONDS: int = 15
-    SSE_STREAM_IDLE_TIMEOUT_SECONDS: int = 300
 
     # ---- Image-input ingress (default ON) ----
     # Feature flag for the image-input ingress (IMAGE-INPUT §3 Layer 1/5, Wave 2).
@@ -177,7 +183,9 @@ class Settings(BaseSettings):
     # quality knob. Maps to LangGraph's recursion_limit.
     AGENT_RECURSION_LIMIT: int = 400
     # Retention for a finished run's sandbox dir before the cleanup sweep removes it.
-    RUN_DIR_TTL_HOURS: int = 48
+    # D6 (KAN-139): raised to 168 hours (7 days) to cover the revision-parent seed
+    # window — the old 48h was too short for users creating revisions the next day.
+    RUN_DIR_TTL_HOURS: int = 168
 
     # ── Render fail-closed default (quick-260701-bob / REQUIRE-RENDER-KNOB) ────
     # The DEFAULT for the per-step ``require_render`` knob when a manifest step does
@@ -197,6 +205,32 @@ class Settings(BaseSettings):
     # grain (T-11-04-01). Mirrors the LocalExecutionPolicy cap-seam pattern.
     WORKSPACE_BUDGET_MAX_SUBAGENTS: int | None = None
     WORKSPACE_BUDGET_MAX_TOKENS: int | None = None
+
+    # ── Startup restore admission control (D9 — KAN-139) ─────────────────────
+    # Gate the restore_non_terminal_runs() concurrent resume drivers so N
+    # non-terminal runs at restart do NOT fire N simultaneous Bedrock calls that
+    # saturate the checkpointer pool (10 connections) and the Bedrock concurrency
+    # limit, AND do NOT block the event loop with unbounded read_events queries
+    # before the port is bound. The port is bound before restore_non_terminal_runs
+    # returns because the lifespan `yield` delivers traffic immediately; restore
+    # runs AFTER yield-ing only when all drivers are batched with a stagger.
+    # RESTORE_ADMISSION_CONCURRENCY: max simultaneous resume drivers in flight.
+    # RESTORE_ADMISSION_STAGGER_SECONDS: time-based stagger between batches (NOT a
+    # lifetime lease — a gate-parked run never acquires the semaphore so this cannot
+    # deadlock). Defaults match the KAN-139 spec (4 concurrent, 15s stagger).
+    RESTORE_ADMISSION_CONCURRENCY: int = 4
+    RESTORE_ADMISSION_STAGGER_SECONDS: float = 15.0
+
+    # ── Sandbox sweep interval (D6 — KAN-139) ─────────────────────────────────
+    # How often (seconds) the periodic sandbox sweep task runs in the background.
+    # Default = 6 hours (21600s). Set lower in dev to observe sweeps faster.
+    SANDBOX_SWEEP_INTERVAL_SECONDS: int = 21_600
+
+    # RUN_DIR_TTL_HOURS: raised to 168h (7 days) to cover the revision-parent seed
+    # window. The old 48h was too short — a run could be deleted before a user
+    # creates a revision from it. Operator-overridable via the env var.
+    # (Field already declared above; the default value update is noted here for
+    # documentation; update the default if changing.)
 
     # Base URL the IDE-side slash command and the MCP client use to reach
     # Flowin. Used to format the handoff URL returned by /api/handoff/receive.

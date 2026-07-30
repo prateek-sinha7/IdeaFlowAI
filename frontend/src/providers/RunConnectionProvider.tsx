@@ -410,8 +410,24 @@ export function RunConnectionProvider({
       // `concierge` literal — every other /messages response stays JSON and takes
       // the unchanged `return null` path below.
       if (runId) {
+        // D2 (KAN-139): check res.ok BEFORE reading the body. A 429/404/409/5xx
+        // response previously returned null silently, leaving the chat message as
+        // an orphan optimistic bubble forever with no error shown. Throw ApiError
+        // on any non-ok response so the caller can surface it to the user.
+        if (!res.ok) {
+          let detail: unknown;
+          try {
+            const body = (await res.json()) as Record<string, unknown>;
+            detail = body.detail ?? body;
+          } catch {
+            detail = `HTTP ${res.status}`;
+          }
+          throw new Error(
+            typeof detail === "string" ? detail : JSON.stringify(detail),
+          );
+        }
         const contentType = res.headers.get("content-type") ?? "";
-        if (res.ok && res.body && contentType.includes("text/event-stream")) {
+        if (res.body && contentType.includes("text/event-stream")) {
           // Drain with the SAME reader-loop shape as useRunStream (split on
           // "\n\n", CRLF-normalized, parseSseBlock each block, drop keepalives,
           // flush the trailing block). The streamed frames reach the transcript

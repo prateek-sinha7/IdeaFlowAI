@@ -24,6 +24,7 @@ logger = logging.getLogger("app.agents.checkpointer")
 
 _checkpointer = None  # cached process-wide singleton
 _pool = None          # AsyncConnectionPool when on Postgres
+_closed = False       # D7 (KAN-139): one-way latch set by close_checkpointer()
 
 
 def _is_postgres() -> bool:
@@ -36,8 +37,18 @@ async def get_checkpointer():
     On Postgres: opens an async pool and runs ``.setup()`` once (idempotent) to
     create the checkpoint tables. On sqlite/dev: returns an in-memory saver and
     warns that pauses won't survive a restart.
+
+    D7 (KAN-139): raises ``RuntimeError`` when called after ``close_checkpointer()``
+    so a straggler task never silently opens a new pool that nothing will close.
     """
     global _checkpointer, _pool
+    # D7: latch guard — a straggler task calling get_checkpointer() AFTER shutdown
+    # gets RuntimeError rather than a fresh pool that will never be closed.
+    if _closed:
+        raise RuntimeError(
+            "get_checkpointer() called after close_checkpointer() — "
+            "the checkpointer has been shut down and cannot be reused."
+        )
     if _checkpointer is not None:
         return _checkpointer
 
@@ -102,11 +113,32 @@ async def get_checkpointer():
 
 
 async def close_checkpointer() -> None:
-    """Close the Postgres pool on app shutdown (idempotent)."""
-    global _checkpointer, _pool
-    if _pool is not None:
-        try:
-            await _pool.close()
-        finally:
-            _pool = None
+    """Close the Postgres pool on app shutdown.
+
+    D7 (KAN-139) hardening:
+    1. **One-way ``_closed`` latch**: set BEFORE any global is nulled so a concurrent
+       ``get_checkpointer()`` call arriving during shutdown sees the closed state.
+    2. **Atomic global nulling BEFORE pool.close()**: nulls both ``_checkpointer`` and
+       ``_pool`` before calling ``_pool.close()`` so a straggler ``get_checkpointer()``
+       call AFTER the pool is half-closed gets ``RuntimeError`` instead of a new pool.
+    3. **Non-raising on pool.close() failure**: catches any exception from
+       ``pool.close()`` and logs a warning; the latch is already set and the globals are
+       already null so the process state is consistent even on a failed close.
+    4. **RuntimeError guard in get_checkpointer()**: callers after close get an
+       immediate error, not a fresh pool that nothing will ever close.
+    Idempotent: calling twice is safe (second call returns immediately at the latch).
+    """
+    global _checkpointer, _pool, _closed
+    if _closed:
+        return
+    _closed = True
+    # Null the globals FIRST so any concurrent get_checkpointer() call after this
+    # point hits RuntimeError rather than returning a partially-closed pool.
+    pool_to_close = _pool
+    _pool = None
     _checkpointer = None
+    if pool_to_close is not None:
+        try:
+            await pool_to_close.close()
+        except Exception as exc:  # noqa: BLE001 — non-raising, latch already set
+            logger.warning("close_checkpointer: pool.close() raised (non-fatal): %s", exc)

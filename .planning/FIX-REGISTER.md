@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-152 | 2026-07-30 | KAN-139: 9 D-cluster infrastructure defects (memory leaks, missing logging, missing shutdown, missing admission control, dead config) | D1: mockSse test title claimed backend guarantee; D2: sendCommand no res.ok check; D4: ArtifactStore HITL dicts never evicted; D5: StateMachine._states never evicted + private reach; D6: sweep_expired zero callers + data-loss mtime bug; D7: close_checkpointer bugs + not wired to shutdown; D9: restore_non_terminal_runs no admission control; D10: SSE_STREAM_IDLE_TIMEOUT_SECONDS dead config; D11: run_stream.py no logging | `backend/agents/artifact_store/store.py`, `backend/agents/execution_engine/state_machine.py`, `backend/app/api/run_engine.py`, `backend/app/api/run_commands.py`, `backend/app/agents/sandbox.py`, `backend/app/agents/checkpointer.py`, `backend/app/core/config.py`, `backend/app/main.py`, `backend/app/api/run_stream.py`, `frontend/src/providers/RunConnectionProvider.tsx`, `frontend/e2e/tests/ts-sse-resilience.spec.ts` | Phase 44 (SSE transport), Phase 49 (resume), Phase 12 (restore), Phase 29 (D-14h) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-151 | 2026-07-30 | KAN-137 follow-up: PPT revision chain context empty — _extract_chain_context returns empty context_block for *_revision runs because they have no brief-analyst agent output | `get_chain_context()` in runs.py queried the revision run itself; revision runs (od_ppt_revision etc.) have no od-ppt-brief-analyst / spec-writer agents, so structured_summary="" and context_block="". Fix: walk up to parent_run_id for *_revision types, extract context from the ORIGINAL pipeline run, and append the revision instruction. | `backend/app/api/runs.py` | Phase 25 (chain context / Workstream A) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-150 | 2026-07-30 | KAN-137: PPT revision → User Stories chain fires run but Steps trace stays empty; no agents start | Two bugs: (1) handleChainPipeline parsed workflowInput (the revision blob) to get chainBrief, extracting the PPT revision instruction ("make slide 3 more concise") as the user_stories brief — causing auto-clarify to block at waiting_for_user with no visible questionnaire; (2) setMainView("execution") was missing before onStartPipeline. Fix: for revision-type source runs, extract "Original Brief:" from context_block instead of parsing workflowInput; add setMainView("execution") synchronously before firing the pipeline. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25 (Workstream C1 chain context) / Phase 42 (Steps inline clarify) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-149 | 2026-07-30 | KAN-132 (Bug 1+2): Prototype dropdown title shows "Prototype · Prototype" and clicking still navigates to User Stories run | Bug 1: `odProtoNotifCreated` effect used hardcoded `"Prototype"`/`"Presentation"` as title; submittedBrief available but ignored. Bug 2: `onViewResults` for running notifications called `onSelectWorkflowRun` (a history-reopen fn that calls resetPipeline(), getWorkflow() fetch, resetReplayState()) — completely wrong for a live run. Fix: (1) use `submittedBrief` as notification title; (2) add `onSwitchToLiveRun` prop + `handleSwitchToLiveRun` in page.tsx that only attaches SSE + updates trackedRunIdRef/activelyBuildingRunIdRef/contentSource without resetting state; (3) onViewResults now calls onSwitchToLiveRun for running notifications. | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 35/38 (KAN-132 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
@@ -165,6 +166,62 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-152 — KAN-139: 9 D-Cluster Infrastructure Defects
+
+**Date:** 2026-07-30
+**Triggered by:** `velocity-fix KAN-139`
+
+#### Root Cause
+9 separate root causes, all code-level (no SSM / nginx access required):
+
+- **D1** — `frontend/e2e/tests/ts-sse-resilience.spec.ts:216` — test title claimed "multi-tab consumers ride ONE monotonic seq/event_id space" (a backend delivery guarantee), but the harness uses a re-readable array served from `mockSse.ts:125`, never the real consume-once backend queue.
+- **D2** — `frontend/src/providers/RunConnectionProvider.tsx:448` — `sendCommand()` called `fetch()` directly, bypassing `api.ts`'s `request()` helper; the `res.ok` guard was missing. A 4xx/5xx response silently returned `null`, leaving the chat message as an orphan optimistic bubble forever.
+- **D4** — `backend/agents/artifact_store/store.py:42-48` — three module-global dicts (`_resume_events`, `_questionnaire_responses`, `_questionnaire_force_proceed`) on the process-lifetime `ArtifactStore` singleton had no eviction path. `_cleanup_pipeline` in `run_engine.py:70-73` cleared the queue/task/cancel registries but not these three.
+- **D5** — `backend/agents/execution_engine/state_machine.py:106` — `StateMachine._states` grew without bound. `run_commands.py:412` accessed it via `_state_machine._states.pop(...)` — a private-dict reach FIX-105 had left in place.
+- **D6** — `backend/app/agents/sandbox.py:163` — `sweep_expired()` had zero callers. Its implementation also used directory `st_mtime` as the sole guard, which does NOT advance when files inside are overwritten (prototype build `edit_file` path) — a proposed naïve fix would have caused data loss on active runs.
+- **D7** — `backend/app/agents/checkpointer.py:104-112` — `close_checkpointer()` set `_checkpointer = None` outside the `try/finally` (skipped on exception); had no `_closed` latch; was never called in `app/main.py` lifespan shutdown (shutdown body = one `logger.info`).
+- **D9** — `backend/agents/execution_engine/engine.py:5278-5449` — `restore_non_terminal_runs()` called `asyncio.create_task(self.resume_run(...))` for every non-terminal run in a for-loop with no Semaphore or stagger, firing N simultaneous Bedrock calls at startup.
+- **D10** — `backend/app/core/config.py:133` — `SSE_STREAM_IDLE_TIMEOUT_SECONDS: int = 300` was dead configuration with zero readers (documented as Phase 29 IN-01 and Phase 44 IN-01 for months).
+- **D11** — `backend/app/api/run_stream.py` — 300 lines, no `import logging`, no `logger`, zero log calls. Every SSE stream open/close/error was invisible server-side.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 44 (SSE cutoff / run_stream), Phase 49 (resume), Phase 12 (restore), Phase 29 (D-14h config), Phase 8 (ArtifactStore HITL), Phase 2 (StateMachine)
+- **Deleted code verified (not resurrected):** confirmed F1-F5 not resurrected; `_states` private reach replaced by public method (not a new state-machine mechanism)
+- **Locked decisions respected:** INV-3 (characterization goldens untouched — all changes are infrastructure/config); INV-12 (eviction is one method each, called from one cleanup path); SC-001 (no pipeline_type branches)
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/artifact_store/store.py` | Added `forget_run(run_id)` public method that pops all three dicts and all `review:{run_id}*` event keys | D4 eviction |
+| `backend/agents/execution_engine/state_machine.py` | Added `forget_run(run_id)` public method that pops `_states[run_id]` | D5 eviction |
+| `backend/app/api/run_engine.py` | `_cleanup_pipeline` now calls `get_artifact_store().forget_run()` + `get_state_machine().forget_run()` (lazy import, best-effort try/except) | D4+D5 wire |
+| `backend/app/api/run_commands.py:412` | Replaced `get_execution_engine()._state_machine._states.pop(run_id, None)` with `get_state_machine().forget_run(run_id)` | D5 private-dict reach → public API |
+| `backend/app/agents/sandbox.py` | `sweep_expired()` now accepts `protected_run_ids: set[str] \| None`; checks protection BEFORE mtime; TTL comment updated | D6 data-loss guard |
+| `backend/app/agents/checkpointer.py` | Added `_closed` module-level latch; `close_checkpointer()` sets latch + nulls globals BEFORE `pool.close()` + non-raising except; `get_checkpointer()` raises `RuntimeError` when `_closed` | D7 hardening |
+| `backend/app/core/config.py` | Deleted `SSE_STREAM_IDLE_TIMEOUT_SECONDS`; replaced with accurate comment block. Added `RESTORE_ADMISSION_CONCURRENCY=4`, `RESTORE_ADMISSION_STAGGER_SECONDS=15.0`, `SANDBOX_SWEEP_INTERVAL_SECONDS=21600`. TTL raised from 48h to 168h | D10 delete, D9 settings, D6 TTL |
+| `backend/app/main.py` | Lifespan: added `_sandbox_sweep_loop` background task (D6); added graceful `close_checkpointer()` + sweep-task cancellation in shutdown block (D7) | D6+D7 wiring |
+| `backend/app/api/run_stream.py` | Added `import logging` + `logger = logging.getLogger("app.api.run_stream")`; added `evt=sse.open` log on attach and `evt=sse.close reason=…` log in the generator finally | D11 observability |
+| `frontend/src/providers/RunConnectionProvider.tsx` | `sendCommand()` now checks `!res.ok` before draining/parsing the body and throws a descriptive `Error` on non-2xx | D2 silent-null fix |
+| `frontend/e2e/tests/ts-sse-resilience.spec.ts` | Retitled TS-SSE-RESILIENCE-04 to "mock harness contract — not a backend delivery guarantee"; added explanatory comment | D1 false-claim fix |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — all changes are infra/config/logging
+- **INV-3** (golden parity): not affected — no capability, event-type, or engine-emit change; characterization goldens unaffected by construction
+- **INV-12** (no duplication): one `forget_run` per class, called from one `_cleanup_pipeline`; `sweep_expired` extended in place; `_closed` is inside the existing function
+- **SC-001** (zero engine edits for new workflows): no engine capability change; the admission-control wrapper is transparent to `resume_run`
+
+#### Verification
+All 9 changes verified by code-read + diagnostics (0 errors). Live behavioral verification (stream open/close log lines, periodic sweep, semaphored restore, graceful shutdown) will be confirmed on the next real Bedrock session.
+
+#### Notes
+- D6: `sweep_expired` TTL was 48h which is too short for the revision-parent seed window (users sometimes create revisions the next day). Raised to 168h (7 days) as per KAN-139 spec.
+- D9: The admission-control semaphore is per-restore (`self._restore_sem` set lazily) so it does not interfere with concurrent re-arm tasks (branch-a); gate-parked runs hold the semaphore only around the actual model-dispatch code inside `resume_run`, so the design cannot deadlock.
+- D11: The `evt=sse.close reason=` vocabulary (`client_disconnect` / `sentinel` / `terminal_event` / `error`) matches the KAN-139 spec exactly.
+- D1: A proper TS-SSE-RESILIENCE-05 covering the real backend deliver-once guarantee would require two mounted-app browser tabs + a real backend instance — explicitly out of scope for offline mocked testing.
 
 ---
 
