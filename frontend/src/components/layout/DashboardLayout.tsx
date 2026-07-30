@@ -84,6 +84,15 @@ export interface DashboardLayoutProps {
   // the viewed run's type even when it is outside the recents window.
   contentSourceRunType?: WorkflowType | null;
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
+  /**
+   * FIX-149 (Bug 2): switch the active live run view WITHOUT resetting pipeline
+   * state or fetching from the DB. Used when the user clicks a RUNNING pipeline
+   * notification — the run is live, so we must NOT call handleSelectWorkflowRun
+   * (which resets/reseeds as if it were a history reopen). Instead we just attach
+   * the SSE stream and update the content-source so the execution view reflects
+   * the selected running run.
+   */
+  onSwitchToLiveRun?: (runId: string) => void;
   // Phase 16 (ISS-017) — the persisted status of a history-reopened run. When a
   // failed/cancelled run is reopened it carries no content, so the run's
   // server-persisted status is threaded down to PreviewPanel to render the
@@ -241,6 +250,7 @@ export function DashboardLayout({
   contentSourceRunId,
   contentSourceRunType,
   onSelectWorkflowRun,
+  onSwitchToLiveRun,
   questionnaireData,
   activePipelineRunId,
   lastCancelledRunId,
@@ -333,6 +343,7 @@ export function DashboardLayout({
     markCancelled,
     markGatePaused,
     markGateResumed,
+    setNotifWorkflowRunId,
     markAllRead,
     clearAll,
   } = useNotifications();
@@ -496,7 +507,14 @@ export function DashboardLayout({
       currentPipelineNotifId.current = notifId;
       // Use correct workflowType for od_ppt vs prototype
       const wfType: WorkflowType = (pipelineState.pipeline_type === "od_ppt") ? "ppt" : "prototype";
-      const label = (pipelineState.pipeline_type === "od_ppt") ? "Presentation" : "Prototype";
+      // FIX-149 (Bug 1): use the user's actual brief as the title so the header
+      // dropdown shows "My interactive shopping cart" not "Prototype · Prototype".
+      // submittedBrief is set on every onStartPipeline call (from page.tsx) and
+      // is the cleaned user-facing brief. Fall back to the type label only when
+      // submittedBrief is absent (edge case: run fired before the prop updated).
+      const label = submittedBrief
+        ? submittedBrief.split("\n")[0].trim().slice(0, 80)
+        : (pipelineState.pipeline_type === "od_ppt") ? "Presentation" : "Prototype";
       addRunningNotification(notifId, wfType, label, 0);
     }
     if (!pipelineState?.isRunning) {
@@ -1689,7 +1707,25 @@ export function DashboardLayout({
         onMarkAllRead={markAllRead}
         onClearNotifications={clearAll}
         onViewResults={(n) => {
-          if (n.status === "running" || n.status === "completed") {
+          if (n.status === "running" || n.status === "gate") {
+            // FIX-149 (Bug 2): for RUNNING/GATE pipelines, switch to the live
+            // run view WITHOUT resetting pipeline state (calling onSelectWorkflowRun
+            // is wrong — it triggers handleSelectWorkflowRun which is a history-reopen
+            // function that calls resetPipeline(), getWorkflow() fetch, resetReplayState(),
+            // and wipes the live Steps trace). Instead use onSwitchToLiveRun which
+            // only updates the content-source and attaches the SSE stream.
+            const targetRunId = n.workflowRunId ?? recentRuns?.find(
+              (r) =>
+                r.status === "running" &&
+                (r.type === n.workflowType ||
+                  (n.workflowType === "ppt" && (r.type === "od_ppt" || r.type === "ppt")) ||
+                  (n.workflowType === "prototype" && (r.type === "od_prototype" || r.type === "prototype"))),
+            )?.id;
+            if (targetRunId && onSwitchToLiveRun) {
+              onSwitchToLiveRun(targetRunId);
+            }
+            setMainView("execution");
+          } else if (n.status === "completed") {
             setMainView("execution");
           } else {
             setMainView("history");

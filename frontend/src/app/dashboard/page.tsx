@@ -1593,6 +1593,46 @@ export default function DashboardPage() {
     []
   );
 
+  // FIX-149 (Bug 2 — KAN-132): switch to a LIVE running run WITHOUT resetting
+  // pipeline state. This is used when the user clicks a running notification
+  // in the header dropdown — the run is live and must NOT call
+  // handleSelectWorkflowRun which is a history-reopen that calls resetPipeline()
+  // and wipes live Step traces / gate state / questionnaire state.
+  //
+  // Only performs the minimal operations needed to switch which run is "viewed":
+  // - Attaches the SSE stream for that run (so live events still flow in).
+  // - Updates trackedRunIdRef so foreign-run guard allows the run's frames.
+  // - Updates activelyBuildingRunIdRef so the reducer gate routes frames.
+  // - Updates contentSourceRunId so DashboardLayout routes to it.
+  // - Updates contentSourceRunType so PreviewPanel uses the right renderer.
+  //
+  // Does NOT call resetPipeline(), getWorkflow() fetch, resetReplayState(),
+  // or clear pipeline state — the run is live and its state is correct.
+  const handleSwitchToLiveRun = useCallback(
+    (runId: string) => {
+      // Find the run's type from recentRuns so we know the correct renderer.
+      const run = recentRuns.find((r) => r.id === runId);
+      if (!run) {
+        // Not in recents yet — just attach and switch view without content-type.
+        trackedRunIdRef.current = runId;
+        activelyBuildingRunIdRef.current = runId;
+        runConnection.attachRun(runId);
+        setContentSourceRunId(runId);
+        return;
+      }
+      // Point tracking refs at the selected run.
+      trackedRunIdRef.current = runId;
+      activelyBuildingRunIdRef.current = runId;
+      // Make the selected run the sticky SSE focus.
+      runConnection.attachRun(runId);
+      // Update the content-source so DashboardLayout and PreviewPanel use the
+      // correct renderer (effectiveReviseType derives from contentSourceRunType).
+      setContentSourceRunId(runId);
+      setContentSourceRunType(run.type ?? null);
+    },
+    [recentRuns, runConnection],
+  );
+
   // Handle selecting a workflow run from sidebar/hub
   const handleSelectWorkflowRun = useCallback(
     async (run: WorkflowRun) => {
@@ -1987,6 +2027,7 @@ export default function DashboardPage() {
       contentSourceRunId={contentSourceRunId}
       contentSourceRunType={contentSourceRunType}
       onSelectWorkflowRun={handleSelectWorkflowRun}
+      onSwitchToLiveRun={handleSwitchToLiveRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}
       lastCancelledRunId={lastCancelledRunId}

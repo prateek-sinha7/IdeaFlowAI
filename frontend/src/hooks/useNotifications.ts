@@ -146,6 +146,16 @@ export function useNotifications() {
     setNotifications([]);
   }, []);
 
+  // KAN-132 (FIX-148): store the backend run id on a running notification so
+  // the header dropdown can navigate to the specific run that was clicked, not
+  // just the active building run. Called from page.tsx's onStartPipeline .then()
+  // once the launchedRunId is available.
+  const setNotifWorkflowRunId = useCallback((id: string, workflowRunId: string) => {
+    setNotifications(prev =>
+      prev.map(n => n.id === id ? { ...n, workflowRunId } : n)
+    );
+  }, []);
+
   const unreadCount = notifications.filter(n => !n.read && n.status !== "running").length;
 
   return {
@@ -158,6 +168,7 @@ export function useNotifications() {
     markCancelled,
     markGatePaused,
     markGateResumed,
+    setNotifWorkflowRunId,
     markAllRead,
     clearAll,
     unreadCount,

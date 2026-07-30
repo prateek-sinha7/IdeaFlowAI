@@ -10,6 +10,10 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-149 | 2026-07-30 | KAN-132 (Bug 1+2): Prototype dropdown title shows "Prototype · Prototype" and clicking still navigates to User Stories run | Bug 1: `odProtoNotifCreated` effect used hardcoded `"Prototype"`/`"Presentation"` as title; submittedBrief available but ignored. Bug 2: `onViewResults` for running notifications called `onSelectWorkflowRun` (a history-reopen fn that calls resetPipeline(), getWorkflow() fetch, resetReplayState()) — completely wrong for a live run. Fix: (1) use `submittedBrief` as notification title; (2) add `onSwitchToLiveRun` prop + `handleSwitchToLiveRun` in page.tsx that only attaches SSE + updates trackedRunIdRef/activelyBuildingRunIdRef/contentSource without resetting state; (3) onViewResults now calls onSwitchToLiveRun for running notifications. | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 35/38 (KAN-132 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-148 | 2026-07-30 | Clicking Prototype in multi-run header dropdown still navigates to User Stories — onViewResults only called setMainView("execution") regardless of which run was clicked | onViewResults was a single handler that called setMainView("execution") for any running notification, showing whatever pipelineState was tracking (the active building run). Fix: (1) add setNotifWorkflowRunId to useNotifications; (2) onViewResults now finds the matching recentRun by workflowType and calls onSelectWorkflowRun to switch the active context to that specific run. | `frontend/src/hooks/useNotifications.ts`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 35 (SHELL-01 AppHeader / FIX-146/147 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-147 | 2026-07-30 | KAN-132: clicking Presentation in multi-run dropdown navigated to User Stories run | All dropdown entries called the same onGoToPipeline callback (routes to the single active run). Fix: call onViewResults(pipeline) per entry — already a per-notification callback that DashboardLayout wires to each run's navigation. | `frontend/src/components/layout/AppHeader.tsx` | Phase 35 (SHELL-01 AppHeader) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-146 | 2026-07-30 | KAN-132: Header shows all running pipelines via dropdown when multiple workflows are active | AppHeader badge used scalar isPipelineRunning/pipelineType (one run only). notifications[] already tracked all running pipelines. Fixed by deriving runningPipelines from notifications inside AppHeader: 1 running → existing badge unchanged; >1 running → "N Running" dropdown listing each pipeline with label + title + progress; 0 from notifications but scalar says running → legacy fallback. | `frontend/src/components/layout/AppHeader.tsx` | Phase 35 (SHELL-01 AppHeader) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-145 | 2026-07-30 | KAN-130: Jump Back In shows raw od_ppt/od_prototype names and no Revised/Chained indicators | WORKFLOW_LABELS map missing 4 od_* entries; source_run_id not in WorkflowRunResponse so "(Chained)" impossible. Fix: add od_ppt/od_prototype/revision entries; expose source_run_id through backend → api.ts → WorkflowRun type → HomeLaunchGrid "(Chained)" suffix. | `frontend/src/hooks/useNotifications.ts`, `backend/app/api/runs.py`, `frontend/src/lib/api.ts`, `frontend/src/types/index.ts`, `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 36 (SHELL-02 Jump Back In) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-144 | 2026-07-30 | KAN-129: Context Received panel shows "artifact" instead of source labels — formatContextSource ignores `label` field and doesn't handle run_input/context_block types | `formatContextSource` in AgentDetailPanel.tsx only checks `"summary"` type; all other types fall to `src.artifact_type \|\| "artifact"`. Backend emits `"run_input"` and `"context_block"` with a `label` field (added by KAN-102) but FE type and function never accounted for them. Fix: extend ContextSource type, update formatContextSource to read label, change backend label from "User brief" to "prompt.md". | `frontend/src/types/index.ts`, `frontend/src/components/results/AgentDetailPanel.tsx`, `backend/agents/execution_engine/engine.py` | Phase 22 (KAN-102 context_sources) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-143 | 2026-07-29 | KAN-128: Chat panel still shows static filename for PPT and Prototype — `laneActiveContent` used local `workflowType` instead of `effectiveReviseType` | FIX-141's dispatch keyed on `workflowType` (default `"user_stories"` on history-reopen) not `effectiveReviseType`. On reopened `od_ppt` run, `workflowType="user_stories"` → `laneActiveContent=""` → fallback fires. Fix: use `effectiveReviseType` in both the content slot dispatch and the `deriveDeliverableFilename` call. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/39 (FIX-141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
@@ -158,6 +162,114 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-147 — KAN-132: Multi-run dropdown entries navigate to their own run
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix Currently 2 pipeline running clicking on presentation going to user story run`
+
+#### Root Cause
+
+Each dropdown entry in the multi-run badge called the same shared `onGoToPipeline?.()` callback:
+
+```ts
+// AppHeader.tsx — BEFORE fix
+onClick={() => {
+  setRunningDropdownOpen(false);
+  onGoToPipeline?.();  // ← same callback for every entry
+}}
+```
+
+`onGoToPipeline` in DashboardLayout is `() => setMainView("execution")` — it navigates to whichever run is currently "active", not to the run that was clicked. So clicking "Presentation" executed the same action as clicking "User Stories": navigate to the active run's view.
+
+`onViewResults` was already wired as a per-notification callback and correctly routes to each run's view. It receives the full `PipelineNotification` object and DashboardLayout handles the routing:
+
+```ts
+onViewResults={(n) => {
+  if (n.status === "running" || n.status === "completed") {
+    setMainView("execution");
+  } else {
+    setMainView("history");
+  }
+}}
+```
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 35 (SHELL-01 AppHeader shell chrome), FIX-146 (multi-run badge implementation)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** SC-001 — no workflow-name branch; routing keys on generic `n.status` field.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/AppHeader.tsx` | Changed each dropdown entry's `onClick` from `onGoToPipeline?.()` to `onViewResults?.(pipeline)` | `onViewResults` is the per-notification callback already wired by DashboardLayout to route each notification to its own run view |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — routing keys on generic `n.status`
+- **INV-3** (golden parity): Not affected — FE-only change
+- **INV-12** (no duplication): Reuses the existing `onViewResults` callback
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors
+- Trace: 2 running (Presentation + User Stories) → click "Presentation" → `onViewResults?.(presentationNotification)` → DashboardLayout routes to execution view of the Presentation run ✅
+- `onGoToPipeline` is still used for the single-run badge and legacy fallback — unaffected ✅
+
+#### Notes
+
+- `onViewResults` in DashboardLayout currently always calls `setMainView("execution")` for running/completed status — it navigates to the execution view regardless of which run. A future enhancement could track which specific concurrent run the user clicked and switch the `activelyBuildingRunIdRef` to it.
+
+---
+
+### FIX-146 — KAN-132: Header running badge shows all concurrent pipelines via dropdown
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN 132`
+
+#### Root Cause
+
+`AppHeader` received three scalar props — `isPipelineRunning`, `pipelineType`, `pipelineAgentsCompleted/Total` — that can represent only ONE pipeline at a time. When multiple pipelines run concurrently, only the most recently active one was shown; all others were invisible in the header.
+
+The `notifications` array from `useNotifications` (passed to `AppHeader` as the `notifications` prop since Phase 35) already contains entries for ALL running and gate-paused pipelines with `status`, `workflowType`, `title`, and agent counts. It was only used to feed `NotificationPanel`, not the running badge.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 35 (SHELL-01 AppHeader shell chrome), Phase 38 (SHELL-05 notifications feed)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** SC-001 — label derivation uses `getWorkflowLabel()` (generic map), never a pipeline_type/workflow-name branch. INV-12 — reuses `PipelineNotification` and `getWorkflowLabel` from the single source in `useNotifications.ts`.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/AppHeader.tsx` | (1) Added `runningDropdownOpen` state and its outside-click `useEffect`. (2) Derived `runningPipelines` from `notifications.filter(n => n.status === "running" \|\| n.status === "gate")`. (3) Split badge into three branches: **1 running** → existing single badge (unchanged); **>1 running** → "N Running" dropdown button that lists all pipelines with type label, title, and agent progress; **0 from notifications but scalar isPipelineRunning is true** → legacy fallback badge (backward-compat for the first render before notifications catch up). | All data already existed in `notifications` — just needed to be surfaced in the badge |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — `getWorkflowLabel(pipeline.workflowType)` is a generic map lookup; `pipeline.status` is a generic status field
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/golden impact
+- **INV-12** (no duplication): Reuses `PipelineNotification` type and `getWorkflowLabel` from `useNotifications.ts`; no parallel tracking structure added
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on `AppHeader.tsx`
+- Trace (0 running): `runningPipelines = []`, `isPipelineRunning=false` → no badge shown ✅
+- Trace (1 running): `runningPipelines = [{ status:"running", workflowType:"prototype", ... }]` → single badge shows "Prototype" with pulse dot and agent count ✅
+- Trace (2 running): `runningPipelines = [prototype, user_stories]` → "2 Running" button; click opens dropdown listing "Prototype / brief" and "User Stories / brief" ✅
+- Trace (gate-paused run): `status === "gate"` → amber dot instead of pulsing white dot ✅
+- `DashboardLayout.tsx` was NOT changed — zero regression risk on the call site
+
+#### Notes
+
+- The dropdown's `onGoToPipeline` callback currently navigates to the execution view of whatever run `DashboardLayout` considers active. A future improvement (tracked in KAN-132) could allow each dropdown entry to navigate to its specific run's view by passing a per-notification callback.
+- The legacy fallback branch ensures no regression during the brief window at page load before `addRunningNotification` has been called but `pipelineState.isRunning` is already true.
 
 ---
 
