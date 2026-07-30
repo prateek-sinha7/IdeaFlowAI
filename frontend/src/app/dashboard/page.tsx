@@ -376,7 +376,7 @@ export default function DashboardPage() {
     if (!currentToken) return;
 
     getWorkflows(currentToken, { limit: 50 })
-      .then((runs) => setRecentRuns(runs))
+      .then(({ runs }) => setRecentRuns(runs))
       .catch(() => {
         // Silently fail — workflows will load when backend is available
         // This prevents the error from showing on the UI
@@ -840,7 +840,7 @@ export default function DashboardPage() {
           // run that just completed via closure, so we exclude ONLY that run from protection.
           const completedRunIdForThisEvent = completingRunId;
           getWorkflows(currentToken, { limit: 50 })
-            .then((runs) => setRecentRuns((prev) => {
+            .then(({ runs }) => setRecentRuns((prev) => {
               return runs.map((r) => {
                 // Preserve "running" for any locally-launched run that hasn't completed yet
                 // (its pipeline_complete hasn't been processed by this tab's handler yet).
@@ -868,7 +868,7 @@ export default function DashboardPage() {
           // KAN-125: the same protection applies to the delayed refetch.
           setTimeout(() => {
             const t = getToken();
-            if (t) getWorkflows(t, { limit: 50 }).then((runs) => setRecentRuns((prev) => {
+            if (t) getWorkflows(t, { limit: 50 }).then(({ runs }) => setRecentRuns((prev) => {
               return runs.map((r) => {
                 if (
                   r.id !== completedRunIdForThisEvent &&
@@ -916,7 +916,7 @@ export default function DashboardPage() {
           // runs as completed in history.
           const failedRunId = (msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined;
           getWorkflows(currentToken, { limit: 50 })
-            .then((runs) => setRecentRuns((prev) => {
+            .then(({ runs }) => setRecentRuns((prev) => {
               return runs.map((r) => {
                 if (
                   r.id !== failedRunId &&

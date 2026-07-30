@@ -340,20 +340,30 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
 
 export async function getWorkflows(
   token: string,
-  options?: { type?: WorkflowType; limit?: number }
-): Promise<WorkflowRun[]> {
+  options?: { type?: WorkflowType; limit?: number; offset?: number }
+): Promise<{ runs: WorkflowRun[]; total: number }> {
   let path = "/api/runs";
   const params = new URLSearchParams();
   if (options?.type) params.set("type", options.type);
   if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
   const qs = params.toString();
   if (qs) path += `?${qs}`;
 
-  const raw = await request<RawWorkflowRun[]>(path, {
+  const res = await fetch(`${ENV.API_URL}${path}`, {
     method: "GET",
     headers: authHeaders(token),
   });
-  return raw.map(normalizeWorkflowRun);
+
+  if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
+
+  const raw = (await res.json()) as RawWorkflowRun[];
+  const total = parseInt(res.headers.get("X-Total-Count") ?? "0", 10);
+  
+  return {
+    runs: raw.map(normalizeWorkflowRun),
+    total,
+  };
 }
 
 // --- Analytics API (SC-1) ---

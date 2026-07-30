@@ -179,7 +179,7 @@ export function HomeLaunchGrid({
 
     if (!hasRecents) {
       getWorkflows(jwt, { limit: RECENTS_LIMIT })
-        .then((runs) => {
+        .then(({ runs }) => {
           if (cancelled) return;
           const sliced = runs.slice(0, RECENTS_LIMIT);
           setRecents(sliced);
@@ -189,7 +189,7 @@ export function HomeLaunchGrid({
     } else {
       // Background revalidation for recents.
       getWorkflows(jwt, { limit: RECENTS_LIMIT })
-        .then((runs) => {
+        .then(({ runs }) => {
           if (cancelled) return;
           const sliced = runs.slice(0, RECENTS_LIMIT);
           setRecents(sliced);

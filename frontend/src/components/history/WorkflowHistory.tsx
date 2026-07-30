@@ -144,7 +144,9 @@ function cleanDisplayTitle(
 
 export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline, onOpenRun }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const [totalRuns, setTotalRuns] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -183,11 +185,26 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const token = getToken();
     if (!token) return;
     setLoading(true);
-    getWorkflows(token, { limit: 100 })
-      .then((data) => setRuns(data))
+    getWorkflows(token, { limit: 50 })
+      .then(({ runs: data, total }) => {
+        setRuns(data);
+        setTotalRuns(total);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [filterType]);
+
+  const handleLoadMore = useCallback(() => {
+    const token = getToken();
+    if (!token || loadingMore || runs.length >= totalRuns) return;
+    setLoadingMore(true);
+    getWorkflows(token, { limit: 50, offset: runs.length })
+      .then(({ runs: moreRuns }) => {
+        setRuns((prev) => [...prev, ...moreRuns]);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  }, [runs.length, totalRuns, loadingMore]);
 
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
     // KAN-96: if this run is the currently-active pipeline, navigate to the
