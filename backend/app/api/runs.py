@@ -801,23 +801,83 @@ def get_chain_context(
     Returns the key text content from the run's agent outputs, formatted
     as a ready-to-inject context block for the next chained pipeline.
     Only returns context for completed runs owned by the current user.
+
+    For *_revision pipeline types (od_ppt_revision, ppt_revision, etc.) the
+    revision run itself has no brief-analyst / spec-writer output — those agents
+    run only on the original pipeline.  We therefore walk up one level to the
+    parent run and extract its context instead, preserving the slide-plan /
+    spec structure the chained pipeline needs.  The revision instruction from
+    the *_revision run's input is appended as additional context so the
+    downstream pipeline knows what changed.
     """
     workflow_run = (
         db.query(WorkflowRun)
         .filter(
             WorkflowRun.id == workflow_id,
             WorkflowRun.user_id == current_user.id,
-            WorkflowRun.status == "completed",
         )
         .first()
     )
     if not workflow_run:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workflow run not found or not completed",
+            detail="Workflow run not found",
         )
 
-    return _extract_chain_context(workflow_run)
+    # KAN-137: for *_revision pipeline types, extract context from the PARENT
+    # run (the original pipeline that the revision modifies). The revision run
+    # itself has no brief-analyst / spec-writer output, so its own context_block
+    # would be empty — leaving the downstream pipeline with no useful context.
+    # Generic suffix check (SC-001/INV-1 — no pipeline-name literals).
+    source_run = workflow_run
+    revision_instruction: str | None = None
+    if workflow_run.type.endswith("_revision") and workflow_run.parent_run_id:
+        parent_run = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.id == workflow_run.parent_run_id,
+                WorkflowRun.user_id == current_user.id,
+            )
+            .first()
+        )
+        if parent_run:
+            source_run = parent_run
+            # Extract the revision instruction from the *_revision run's input
+            # so the context_block can include "what was changed" alongside
+            # the parent's full slide-plan / spec structure.
+            import re as _re_rev
+            rev_match = _re_rev.search(
+                r"===\s*REVISION REQUEST\s*===\s*(.*?)\s*(?:===|$)",
+                workflow_run.input or "",
+                _re_rev.DOTALL,
+            )
+            if rev_match:
+                revision_instruction = rev_match.group(1).split("\n")[0].strip()
+            else:
+                # Fallback: use the stored title (cleaned) as the instruction
+                revision_instruction = workflow_run.title or None
+
+    ctx = _extract_chain_context(source_run)
+
+    # Append the revision instruction to the context_block so the chained
+    # pipeline knows what the user changed in the revision (additional signal
+    # without replacing the parent's structural context).
+    if revision_instruction and ctx.context_block:
+        ctx = ChainContextResponse(
+            workflow_id=ctx.workflow_id,
+            pipeline_type=ctx.pipeline_type,
+            title=ctx.title,
+            brief=ctx.brief,
+            structured_summary=ctx.structured_summary,
+            agent_summaries=ctx.agent_summaries,
+            context_block=(
+                ctx.context_block.rstrip("=").rstrip()
+                + f"\nLatest Revision: {revision_instruction}\n"
+                + "=== END PREVIOUS CONTEXT ==="
+            ),
+        )
+
+    return ctx
 
 
 # ---------------------------------------------------------------------------

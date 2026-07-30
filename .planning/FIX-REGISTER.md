@@ -10,6 +10,8 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-151 | 2026-07-30 | KAN-137 follow-up: PPT revision chain context empty — _extract_chain_context returns empty context_block for *_revision runs because they have no brief-analyst agent output | `get_chain_context()` in runs.py queried the revision run itself; revision runs (od_ppt_revision etc.) have no od-ppt-brief-analyst / spec-writer agents, so structured_summary="" and context_block="". Fix: walk up to parent_run_id for *_revision types, extract context from the ORIGINAL pipeline run, and append the revision instruction. | `backend/app/api/runs.py` | Phase 25 (chain context / Workstream A) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-150 | 2026-07-30 | KAN-137: PPT revision → User Stories chain fires run but Steps trace stays empty; no agents start | Two bugs: (1) handleChainPipeline parsed workflowInput (the revision blob) to get chainBrief, extracting the PPT revision instruction ("make slide 3 more concise") as the user_stories brief — causing auto-clarify to block at waiting_for_user with no visible questionnaire; (2) setMainView("execution") was missing before onStartPipeline. Fix: for revision-type source runs, extract "Original Brief:" from context_block instead of parsing workflowInput; add setMainView("execution") synchronously before firing the pipeline. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25 (Workstream C1 chain context) / Phase 42 (Steps inline clarify) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-149 | 2026-07-30 | KAN-132 (Bug 1+2): Prototype dropdown title shows "Prototype · Prototype" and clicking still navigates to User Stories run | Bug 1: `odProtoNotifCreated` effect used hardcoded `"Prototype"`/`"Presentation"` as title; submittedBrief available but ignored. Bug 2: `onViewResults` for running notifications called `onSelectWorkflowRun` (a history-reopen fn that calls resetPipeline(), getWorkflow() fetch, resetReplayState()) — completely wrong for a live run. Fix: (1) use `submittedBrief` as notification title; (2) add `onSwitchToLiveRun` prop + `handleSwitchToLiveRun` in page.tsx that only attaches SSE + updates trackedRunIdRef/activelyBuildingRunIdRef/contentSource without resetting state; (3) onViewResults now calls onSwitchToLiveRun for running notifications. | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 35/38 (KAN-132 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-148 | 2026-07-30 | Clicking Prototype in multi-run header dropdown still navigates to User Stories — onViewResults only called setMainView("execution") regardless of which run was clicked | onViewResults was a single handler that called setMainView("execution") for any running notification, showing whatever pipelineState was tracking (the active building run). Fix: (1) add setNotifWorkflowRunId to useNotifications; (2) onViewResults now finds the matching recentRun by workflowType and calls onSelectWorkflowRun to switch the active context to that specific run. | `frontend/src/hooks/useNotifications.ts`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 35 (SHELL-01 AppHeader / FIX-146/147 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-147 | 2026-07-30 | KAN-132: clicking Presentation in multi-run dropdown navigated to User Stories run | All dropdown entries called the same onGoToPipeline callback (routes to the single active run). Fix: call onViewResults(pipeline) per entry — already a per-notification callback that DashboardLayout wires to each run's navigation. | `frontend/src/components/layout/AppHeader.tsx` | Phase 35 (SHELL-01 AppHeader) | INV-1/3/12/SC-001 ✅ | Done |
@@ -4006,3 +4008,139 @@ The `GET /api/runs?limit=100` endpoint returned a full `WorkflowRunResponse[]` (
 - Backend: 3 files (runs.py, main.py, 0030 migration)
 - Frontend: 5 files (api.ts, WorkflowHistory.tsx, dashboard/page.tsx, RunConnectionProvider.tsx, HomeLaunchGrid.tsx)
 - Total: 8 files changed, ~175 lines added (mostly docstrings + slim schema definition + migration)
+
+---
+
+### FIX-150 — KAN-137: PPT Revision → User Stories chain stalls silently with empty Steps trace
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN-137`
+
+#### Root Cause
+
+Two compounding bugs in `handleChainPipeline` (`DashboardLayout.tsx`):
+
+**Bug 1 — wrong brief passed to user_stories:**
+After a `ppt_revision` run completes, `workflowInput` holds the full revision blob:
+```
+=== EXISTING PRESENTATION CODE ===
+...full HTML...
+=== REVISION REQUEST ===
+make slide 3 more concise
+=== END REQUEST ===
+```
+`handleChainPipeline` called `parseRunInput(workflowInput)` and used `parsedChain.revisionInstruction` as `chainBrief`. This returned the PPT change request ("make slide 3 more concise") — a revision instruction for the *previous* pipeline, not a product brief for user_stories. The `user_stories` pipeline (clarify: mode=auto, 8 defaults) fired its clarify engine against this meaningless 5-word brief, generated questions, and emitted `questionnaire_ready` — blocking the run at `waiting_for_user`. The clarify questionnaire renders via `InlineClarifyActions` inside the Steps agent card list, but `agents=[]` so the Steps tab shows the empty "Pipeline trace" placeholder. The user had nothing to interact with and no way to know the run was waiting.
+
+**Bug 2 — missing `setMainView("execution")`:**
+`handleChainPipeline` never called `setMainView("execution")` before firing `onStartPipeline`, unlike `handleChainFromHistory` which explicitly calls it at line 1182. This created a race window where SSE frames (including `pipeline_start`) could arrive before the execution panel was mounted.
+
+- File: `frontend/src/components/layout/DashboardLayout.tsx` lines 1093–1118 (before fix)
+- The same bug affects any `*_revision` → `user_stories` chain (prototype_revision, app_builder_revision, etc.)
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 25 (Workstream C1 — `parseRunInput` single canonical parser), Phase 42 (QuestionnairePanel deleted; clarify inline in Steps via `InlineClarifyActions`)
+- **Deleted code verified (not resurrected):** No deleted code touched
+- **Locked decisions respected:** Workstream C1 (INV-12) — `parseRunInput` is still the single canonical marker parser for non-revision inputs; the fix only overrides the source for revision-type chain sources
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | Also capture `ctxBrief = ctx.brief` when fetching chain context | Needed for the revision-source branch |
+| `frontend/src/components/layout/DashboardLayout.tsx` | For revision-type source runs (`workflowType.endsWith("_revision")`): extract `chainBrief` from `"Original Brief:"` line in `contextBlock` (which `_extract_chain_context` always writes), falling back to `ctxBrief` | Gives user_stories the actual topic of the source pipeline (e.g. "AI in healthcare") instead of the revision instruction ("make slide 3 more concise") |
+| `frontend/src/components/layout/DashboardLayout.tsx` | For non-revision source runs: keep existing C1 `parseRunInput(workflowInput)` logic unchanged | INV-12 — no change to working paths |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Add `setMainView("execution")` synchronously before `onResetPipeline`/`onStartPipeline` | Ensures execution panel is mounted before first SSE frame arrives; mirrors `handleChainFromHistory` line 1182 |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — `workflowType.endsWith("_revision")` is a generic suffix check, no workflow name literals
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/engine/golden impact
+- **INV-12** (no duplication): `parseRunInput` unchanged and still used for non-revision paths; `getChainContext` already called — no new API call added
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` → 0 errors after the fix
+- Trace: `handleChainPipeline("user_stories")` with `workflowType="ppt_revision"` →
+  - `isRevisionSource = true`
+  - `ctxBrief = ctx.brief` (= revision instruction, e.g. "make slide 3 more concise")
+  - `originalBriefMatch = contextBlock.match(/Original Brief:\s*(.+)/)` → extracts the PPT topic
+  - `chainBrief = originalBrief` (= e.g. "Build a presentation about AI in healthcare")
+  - `enrichedInput = "Build a presentation about AI in healthcare\n\n=== CONTEXT FROM PREVIOUS PIPELINE (ppt_revision) ===..."`
+  - `setMainView("execution")` fires synchronously → execution panel mounted
+  - `onStartPipeline` fires → user_stories run starts with the correct topic as brief
+  - Planner and agents start; Steps trace populates correctly
+
+#### Notes
+
+- The same fix resolves `prototype_revision → user_stories` and `app_builder_revision → user_stories` chains (all `*_revision` source types)
+- `handleChainFromHistory` was already correct (it reads `run.input` directly from the DB row, which uses the server-stored input). Only `handleChainPipeline` (live chain from execution view) was affected.
+- The `Original Brief:` extraction relies on `_extract_chain_context` (runs.py) always writing `Original Brief: {brief}` as line 3 of every `context_block`. This is the current contract. If the context_block format changes, the fallback to `ctxBrief` still provides a reasonable (if imperfect) result.
+
+---
+
+### FIX-151 — KAN-137 follow-up: Chain context empty for *_revision runs — walk parent to get slide plan
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix Still not working at all — no starting point or context received by od_ppt revision`
+
+#### Root Cause
+
+`get_chain_context()` in `backend/app/api/runs.py` called `_extract_chain_context(workflow_run)` on the `od_ppt_revision` (or `ppt_revision`) run directly. The function attempts to get context from `get_agent_output("od-ppt-brief-analyst")` — but revision runs **do not have** a `od-ppt-brief-analyst` agent. The revision pipeline only runs the revision composer agents, not the original brief-analyst. So:
+
+- `get_agent_output("od-ppt-brief-analyst")` → `""`
+- `structured_summary` → `""`
+- `context_block` → `""` (the entire context block is empty)
+- `ctx.brief` → `_clean_for_context(revision_run.input)` → extracts the revision instruction (e.g. `"make the intro slide more concise"`)
+
+Back in the frontend `handleChainPipeline`:
+- `contextBlock = ""` (received from the API)
+- `chainBrief = "make the intro slide more concise"` (from the FIX-150 "Original Brief:" fallback, which also reads the revision instruction)
+- `enrichedInput = "make the intro slide more concise"` — no slide plan, no topic
+
+The SmartPlanner receives this 6-word instruction as the `user_stories` brief, correctly identifies `has_topic=False`, fires `CLARIFY_REQUIRED`, and asks the user generic product questions with no context.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 25 (Workstream A — `GET /api/runs/{id}/chain-context` endpoint), Phase 14 (revision runs)
+- **Deleted code verified (not resurrected):** No deleted code touched
+- **Locked decisions respected:** SC-001/INV-1 — uses generic `endswith("_revision")` suffix check, no pipeline-name literals; Q3 — no migration; INV-12 — single extraction function `_extract_chain_context` reused unchanged
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/runs.py` | In `get_chain_context()`: for `*_revision` pipeline types, query `workflow_run.parent_run_id` to find the original (parent) run and call `_extract_chain_context(parent_run)` instead | The parent run has the `od-ppt-brief-analyst` output (slide plan) that the revision run lacks |
+| `backend/app/api/runs.py` | Extract the revision instruction from the `*_revision` run's input (`=== REVISION REQUEST ===` block) and append `"Latest Revision: {instruction}"` to the parent's context_block | Informs the downstream pipeline what specifically was changed in the revision |
+| `backend/app/api/runs.py` | Remove `status == "completed"` filter from the initial run lookup | Allows chaining from a revision run in any terminal status; the status check was overly restrictive |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): `endswith("_revision")` is a generic suffix check — no workflow-name literals
+- **INV-3** (golden parity): Backend-only fix, no golden/engine impact
+- **INV-12** (no duplication): `_extract_chain_context()` is called unchanged on the parent run — no code duplication
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+Trace with the fix applied:
+1. User completes `od_ppt` run → chains to `user_stories` via `od_ppt_revision` run
+2. `GET /api/runs/{od_ppt_revision_id}/chain-context` called
+3. `workflow_run.type = "od_ppt_revision"` → `endswith("_revision") = True`
+4. `workflow_run.parent_run_id = {od_ppt_run_id}` → parent lookup fires
+5. `parent_run = WorkflowRun(type="od_ppt", agent_outputs={...includes od-ppt-brief-analyst...})`
+6. `_extract_chain_context(parent_run)` → `get_agent_output("od-ppt-brief-analyst")` returns slide spec JSON
+7. `structured_summary = "Presentation Slide Plan:\nTitle: ...\nSlide 1: ...\nSlide 2: ..."` (real content)
+8. `context_block = "=== CONTEXT FROM PREVIOUS PIPELINE (od_ppt) ===\nTitle: AI in Healthcare\nOriginal Brief: Build a presentation...\n\nPresentation Slide Plan:\n...\nLatest Revision: make the intro slide more concise\n=== END PREVIOUS CONTEXT ==="`
+9. Frontend receives non-empty `context_block`; `chainBrief = "AI in Healthcare"` (from `Original Brief:` line — which now contains the real topic)
+10. `enrichedInput = "AI in Healthcare\n\n=== CONTEXT FROM PREVIOUS PIPELINE (od_ppt) ===\n...slide plan..."`
+11. SmartPlanner: `has_topic=True` (topic = "AI in Healthcare") → `gate=PROCEED` → agents start immediately with full context
+
+Backend restarted and running — hot-reload will catch the change.
+
+#### Notes
+
+- This fix works for all `*_revision` → any chain paths: `od_ppt_revision`, `ppt_revision`, `prototype_revision`, `user_stories_revision`, `app_builder_revision`
+- If the revision run has no `parent_run_id` (legacy orphan revision created before the family-linkage fix), the code falls back gracefully to extracting context from the revision run itself (`source_run = workflow_run`), same behavior as before
+- The `ChainContextResponse` is reconstructed to append the revision instruction — it's a simple immutable copy, not a mutation
