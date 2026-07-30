@@ -33,6 +33,15 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
+# ── Degraded-completion accumulator ────────────────────────────────────
+# Some checks must be LOUD but must NOT abort the run. Aborting mid-script
+# strands every later section (see the rationale block above §14a), which is
+# strictly worse than finishing with a reported defect. Such a check appends a
+# short tag here; §20 writes the completion sentinel, prints the tags and exits
+# non-zero — the box ends up fully provisioned AND the invoking SSM command /
+# CI step reports failure.
+BOOTSTRAP_DEGRADED=()
+
 # ── 0. Wait for cloud-init to finish ───────────────────────────────────
 # Must come BEFORE sourcing /etc/velocityai/bootstrap.env: that file is written
 # by user_data which runs as cloud-init's final stage. `aws ec2 wait
@@ -1078,12 +1087,143 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
 }
 EOF
 
-# fetch-config also starts the agent if it isn't running. We don't `systemctl
-# enable` separately — the agent's deb postinst already does that.
+# ── 14a-fn. CloudWatch agent liveness assertion (KAN-143 / B5) ────────
+# Kept beside §14 so C1's later extraction of §13/§14 into
+# infra/scripts/reconcile-host-config.sh is a pure move, not a rewrite.
+#
+# ORACLE CHOICE. systemd is the AUTHORITATIVE readiness oracle here, not the
+# agent's own `-a status` text: `systemctl is-active` is a stable contract,
+# whereas the ctl's JSON is an undocumented third-party output whose wording
+# could drift and turn a healthy boot into a permanent red. The ctl output is
+# used only to CORROBORATE — it can fail the check when it explicitly says the
+# agent is not running, but an unparseable/absent blob only warns.
+#
+# The five knobs are `:-` defaults purely so the function can be exercised by
+# infra/scripts/tests/test-cwagent-assert.sh with stub binaries on PATH;
+# production never sets them.
+CW_AGENT_CTL="${CW_AGENT_CTL:-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl}"
+CW_AGENT_UNIT="${CW_AGENT_UNIT:-amazon-cloudwatch-agent}"
+CW_AGENT_SETTLE_SECONDS="${CW_AGENT_SETTLE_SECONDS:-60}"
+CW_AGENT_STABILITY_SECONDS="${CW_AGENT_STABILITY_SECONDS:-12}"
+CW_AGENT_POLL_SECONDS="${CW_AGENT_POLL_SECONDS:-3}"
+
+_cw_agent_status_blob() {
+    [[ -x "$CW_AGENT_CTL" ]] || { printf ''; return 0; }
+    "$CW_AGENT_CTL" -m ec2 -a status 2>/dev/null || true
+}
+_cw_unit_state()    { systemctl is-active "$CW_AGENT_UNIT" 2>/dev/null || true; }
+_cw_restart_count() { systemctl show -p NRestarts --value "$CW_AGENT_UNIT" 2>/dev/null || true; }
+_cw_diag()          { journalctl -u "$CW_AGENT_UNIT" -n 40 --no-pager >&2 || true; }
+
+# 0 iff the agent is RUNNING and STAYS running. Prints its own diagnosis and
+# never exits — the caller decides whether the failure is fatal.
+assert_cloudwatch_agent_running() {
+    local blob state deadline stable_deadline r0 r1
+
+    if [[ ! -x "$CW_AGENT_CTL" ]]; then
+        echo "[bootstrap] ERROR: $CW_AGENT_CTL missing or not executable — the agent package did not install correctly." >&2
+        return 1
+    fi
+
+    # 1. Settle. `systemctl restart` (which `-s` ends in) returns as soon as
+    #    the process forks, so an immediate check reads "activating" on a
+    #    perfectly HEALTHY agent. Poll instead of guessing a sleep.
+    deadline=$(( SECONDS + CW_AGENT_SETTLE_SECONDS ))
+    while :; do
+        state="$(_cw_unit_state)"
+        [[ "$state" == "active" ]] && break
+        if (( SECONDS >= deadline )); then
+            echo "[bootstrap] ERROR: amazon-cloudwatch-agent never reached 'active' within ${CW_AGENT_SETTLE_SECONDS}s (last state: '${state:-<none>}')." >&2
+            echo "[bootstrap]        agent-ctl -a status = $(_cw_agent_status_blob)" >&2
+            _cw_diag
+            return 1
+        fi
+        sleep "$CW_AGENT_POLL_SECONDS"
+    done
+
+    # 2. Corroborate with the agent's own view — only when it is parseable.
+    blob="$(_cw_agent_status_blob)"
+    if printf '%s' "$blob" | grep -Eq '"status"[[:space:]]*:'; then
+        if ! printf '%s' "$blob" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"running"'; then
+            echo "[bootstrap] ERROR: systemd reports the unit active but the agent reports itself not running." >&2
+            echo "[bootstrap]        agent-ctl -a status = ${blob}" >&2
+            _cw_diag
+            return 1
+        fi
+    else
+        echo "[bootstrap] WARN: could not parse 'agent-ctl -a status' output; relying on systemd only. Output was: ${blob:-<empty>}" >&2
+    fi
+    if printf '%s' "$blob" | grep -Eq '"configstatus"[[:space:]]*:' \
+       && ! printf '%s' "$blob" | grep -Eq '"configstatus"[[:space:]]*:[[:space:]]*"configured"'; then
+        echo "[bootstrap] WARN: agent reports configstatus != configured — fetch-config may not have installed the JSON. Output was: ${blob}" >&2
+    fi
+
+    # 3. Stability. A crash-looping agent is 'active' for a fraction of each
+    #    restart period, so a single sample can be a false green. Require the
+    #    unit to STAY active, and cross-check systemd's own restart counter
+    #    (the same number the journal prints as "restart counter is at N").
+    r0="$(_cw_restart_count)"
+    stable_deadline=$(( SECONDS + CW_AGENT_STABILITY_SECONDS ))
+    while (( SECONDS < stable_deadline )); do
+        sleep "$CW_AGENT_POLL_SECONDS"
+        state="$(_cw_unit_state)"
+        if [[ "$state" != "active" ]]; then
+            echo "[bootstrap] ERROR: amazon-cloudwatch-agent did not stay active for ${CW_AGENT_STABILITY_SECONDS}s (observed '${state:-<none>}') — crash-looping." >&2
+            _cw_diag
+            return 1
+        fi
+    done
+    r1="$(_cw_restart_count)"
+    if [[ "$r0" =~ ^[0-9]+$ ]] && [[ "$r1" =~ ^[0-9]+$ ]] && (( r1 > r0 )); then
+        echo "[bootstrap] ERROR: amazon-cloudwatch-agent restarted ${r0}->${r1} during the observation window — crash-looping." >&2
+        _cw_diag
+        return 1
+    fi
+
+    echo "[bootstrap] OK: amazon-cloudwatch-agent active and stable for ${CW_AGENT_STABILITY_SECONDS}s (NRestarts=${r1:-n/a})."
+    return 0
+}
+
+# Enable the unit EXPLICITLY, before fetch-config.
+#
+# The previous comment here claimed the deb postinst enables the unit. Whether
+# it is the postinst or `agent-ctl`'s own `start` action (which `-s` triggers)
+# is not observable from this script — and it does not matter, because BOTH
+# are downstream of a fetch-config that gets far enough to start the agent. If
+# fetch-config dies earlier (bad JSON, translate failure) the unit is left
+# DISABLED and the agent is gone after the next reboot, with nothing to
+# re-run this script on dev (its userData has no firstboot service). One
+# idempotent line closes that hole.
+systemctl enable "$CW_AGENT_UNIT" >/dev/null 2>&1 \
+    || echo "[bootstrap] WARN: systemctl enable $CW_AGENT_UNIT failed — unit file missing?"
+
+# fetch-config installs the JSON, translates it and (because of -s) starts the
+# agent. Its exit status IS checked — `set -e` aborts on a non-zero — but a
+# zero here only proves the agent was ASKED to start: the wrapper ends in
+# `systemctl restart`, which returns as soon as the process forks. The agent
+# can (and on this fleet did) exit 1 milliseconds later and crash-loop forever
+# while bootstrap reports success. §14a asserts the thing we actually want.
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
     -a fetch-config -m ec2 -s \
-    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
-    || { echo "ERROR: amazon-cloudwatch-agent fetch-config failed with exit code $?"; exit 1; }
+    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+# ── 14a. Assert the agent is actually running (not just asked to run) ──
+#
+# WHY THIS IS NOT `exit 1` IN PLACE. Everything from §15 to §20 runs after
+# this point: the velocityai-deploy user + its restricted sudoers, the
+# pg_dump / skills-backup / stuck-workflow scripts, EVERY systemd unit
+# including velocityai-app.service, the first velocityai-load-secrets run
+# that materialises DATABASE_URL and SECRET_KEY into /etc/velocityai/app.env,
+# the app start, and the completion sentinel. Aborting here would leave a box
+# with Postgres, nginx and TLS but no application, no backups, no boot-time
+# start and no sentinel — strictly worse than a blind CloudWatch agent. So the
+# failure is recorded and the script continues; §20 exits non-zero.
+#
+# The nearest precedent in this file is the §8b IMDSv1 drift check, which
+# deliberately does not exit and says "the log line is the operator signal;
+# cwagent ships it". That reasoning is exactly what a dead cwagent breaks, so
+# a log line alone is not sufficient here — hence the deferred non-zero exit.
+assert_cloudwatch_agent_running || BOOTSTRAP_DEGRADED+=("cloudwatch-agent")
 
 # ── 15. velocityai-deploy user + restricted sudoers + image-tag wrapper ────
 if ! id velocityai-deploy >/dev/null 2>&1; then
@@ -1358,6 +1498,18 @@ fi
 #     attempting a container redeploy (avoids racing docker compose against
 #     an install that hasn't put Docker on the box yet).
 install -d -m 0755 /var/lib/velocityai
-date -u --iso-8601=seconds > /var/lib/velocityai/.bootstrap-done
 
+# The sentinel is written BEFORE the degraded gate on purpose: the host IS
+# provisioned, and withholding it would make velocityai-firstboot re-run the
+# whole bootstrap on every reboot and make CI's wait-for-sentinel loop time
+# out. The non-zero exit below is the SIGNAL; the sentinel is STATE.
+if [[ ${#BOOTSTRAP_DEGRADED[@]} -gt 0 ]]; then
+    date -u --iso-8601=seconds > /var/lib/velocityai/.bootstrap-done
+    echo "[bootstrap] DEGRADED: ${BOOTSTRAP_DEGRADED[*]}" >&2
+    echo "[bootstrap] The host is provisioned but one or more subsystems are unhealthy." >&2
+    echo "[bootstrap] complete (DEGRADED) $(date -u --iso-8601=seconds)" >&2
+    exit 1
+fi
+
+date -u --iso-8601=seconds > /var/lib/velocityai/.bootstrap-done
 echo "[bootstrap] complete $(date -u --iso-8601=seconds)"
