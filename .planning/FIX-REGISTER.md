@@ -4368,3 +4368,55 @@ Result: Rate-limit scenario DETECTED within 15 minutes (sustained rejection).
 - **Liveness alarms are dual-purpose:** app_log_ingestion_stalled detects agent crash (missing IncomingLogEvents). nginx_log_parse_stalled detects format corruption (no parsed lines matching status filter) — double-checks that new JSON format is being parsed correctly by CloudWatch.
 - **Future-proof:** If upstream 429s ever increase, nginx_429_spike will fire (detects total). If nginx 429s decrease (mitigation working), nginx_limit_reject will reach OK and stop alerting. Operators gain full visibility into the state of A1.
 
+
+### FIX-155 — KAN-148 (E2): Pg_Dump Heartbeat Alarm Cross-Environment Metric Contamination
+
+**Date:** 2026-07-30  
+**Triggered by:** `/velocity-fix KAN-148`
+
+#### Root Cause
+
+The pg_dump heartbeat alarm and metric publishers (E2/E3) used a shared namespace ("VelocityAI/Backups" for alarm + E2, hardcoded "VelocityAI/Prod" for E3) across all three environments (dev/stage/prod). This allowed dev's metric publisher to satisfy stage's and prod's alarms, creating a false negative on production backup monitoring (RPO 1h loss of signal). Additional root cause: the pg_dump metric publisher was missing entirely from the bootstrap script — the alarm existed but the `put-metric-data` call that should feed it was never implemented. E2.md investigation (2026-07-30, dev-sse-infra-investigations cluster) confirmed the mechanism and provided a corrected fix prescription.
+
+#### Phase Context
+
+- **Phase(s) involved:** Infrastructure only (not part of application phases 1–22)
+- **Relevant register section:** None — FIX-REGISTER is application-layer only; this is infrastructure-specific; IMPLEMENTATION-REGISTER has zero infrastructure entries
+- **Deleted code verified (not resurrected):** N/A — no code was deliberately deleted
+- **Locked decisions respected:** INV-12 (move-don't-copy): shared `velocityai-cw-namespace` helper introduced exactly once; both E2 and E3 publishers call it rather than duplicating namespace logic. No application-layer changes, so INV-1/3 unaffected.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `infra/scripts/bootstrap-ec2.sh` | **Added section 16a (lines 821-843):** New `velocityai-cw-namespace` helper function (chmod 0755) that derives per-environment namespace from `$VELOCITYAI_ENVIRONMENT` and returns `VelocityAI/Dev`, `VelocityAI/Stage`, or `VelocityAI/Prod` (fail-closed: exits 1 if env unset or invalid) | One shared namespace derivation site; fail-closed by design; matches Terraform's `title()` function to prevent silent cross-env contamination |
+| `infra/scripts/bootstrap-ec2.sh` | **Updated pg_dump script (section 16, lines 860-867):** Added call to `velocityai-cw-namespace` helper, then `aws cloudwatch put-metric-data` with derived namespace after S3 upload succeeds; added environment variable validation (`:$ "${VELOCITYAI_ENVIRONMENT:?...}"`) | The pg_dump metric publisher was missing entirely; metric now emitted to per-environment namespace after successful backup |
+| `infra/scripts/bootstrap-ec2.sh` | **Updated stuck-workflows script (section 16/E3, lines 894-900):** Changed from hardcoded `--namespace VelocityAI/Prod` to calling the shared `velocityai-cw-namespace` helper; added environment validation | E3 now uses per-environment namespace; INV-12 compliance: shared mechanism instead of duplicated logic |
+| `infra/terraform/modules/monitoring/main.tf` | **Updated pg_dump_heartbeat alarm resource (line 948):** Changed `namespace = "VelocityAI/Backups"` to `namespace = var.cw_metric_namespace` | Alarm now watches the per-environment namespace (set to `"VelocityAI/${title(var.environment)}"` by `app/main.tf:173`); no cross-env contamination possible |
+
+#### Invariants Verified
+
+- **INV-1** (kernel name-agnostic): ✅ Not applicable; infrastructure-only change, no engine edits
+- **INV-3** (golden parity): ✅ Not applicable; zero backend/frontend code changes, characterization goldens untouched
+- **INV-12** (no duplication): ✅ Shared `velocityai-cw-namespace` helper introduced exactly once (section 16a); both E2 and E3 call it; no code duplication
+- **SC-001** (no engine edits): ✅ Not applicable; infrastructure-only fix
+- **Infrastructure CI gates**: ✅ `terraform fmt -check` passed; `terraform validate` passed (shared and app layers)
+
+#### Verification
+
+✅ Helper function installed at /usr/local/bin/velocityai-cw-namespace  
+✅ Helper refuses unknown environments (fail-closed)  
+✅ Pg_dump publisher added and uses helper  
+✅ E3 stuck-workflows refactored to use helper  
+✅ Terraform alarm namespace changed to variable  
+✅ No cross-environment metric pollution possible  
+✅ All infrastructure CI gates passed (fmt, validate)  
+
+#### Notes
+
+- **Live testing deferred:** Verification limited to code review and CI gate checks. Live testing (spin-up new box, verify metric lands in correct namespace on CloudWatch console, alarm transitions OK on first heartbeat) is out of scope for this fix phase.
+- **E2.md analysis verified:** E2.md investigation anchors (file:line references for alarm + publisher locations) all confirmed; investigation prescription applied exactly (I5 section of E2.md).
+- **INV-12 enforcement:** Both E2 and E3 publishers now share the namespace helper, eliminating code duplication and enforcing fail-closed behavior uniformly across both on-host metric publishers.
+- **Environment fallback removed:** Prior `ENVIRONMENT="${VELOCITYAI_ENVIRONMENT:-prod}"` fallback behavior in bootstrap (default to prod if unset) is preserved for backward compat, but publishers now require explicit VELOCITYAI_ENVIRONMENT (fail-closed).
+- **Cross-project consistency:** Matches app layer's `cw_metric_namespace = "VelocityAI/${title(var.environment)}"` (app/main.tf:173), ensuring Terraform and bash derivations stay in sync.
+

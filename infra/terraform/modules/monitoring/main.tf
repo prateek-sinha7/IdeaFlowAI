@@ -945,7 +945,7 @@ resource "aws_cloudwatch_metric_alarm" "pg_dump_heartbeat" {
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 1
   metric_name         = "PgDumpHeartbeat"
-  namespace           = "VelocityAI/Backups"
+  namespace           = var.cw_metric_namespace
   period              = 7200 # 2 hours
   # SampleCount on a count metric — number of put-metric-data calls in
   # the period. Less than 1 in two hours means at least two hourly runs

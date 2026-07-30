@@ -816,6 +816,31 @@ else
     exit 1
 fi
 rm -f "$SUDOERS_TMP"
+rm -f "$SUDOERS_TMP"
+
+# ── 16a. Shared CloudWatch metric namespace for on-host publishers ──────────
+#
+# ONE derivation site for the per-environment namespace used by every on-host
+# ws cloudwatch put-metric-data caller. Fail-closed by design: publishers
+# that cannot resolve their environment refuse to publish, loudly.
+cat > /usr/local/bin/velocityai-cw-namespace <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -z ""${VELOCITYAI_ENVIRONMENT:-}"" ]]; then
+    echo "velocityai-cw-namespace: VELOCITYAI_ENVIRONMENT is unset (expected from /etc/velocityai/bootstrap.env) - refusing to guess" >&2
+    exit 1
+fi
+case """" in
+    dev)   echo "VelocityAI/Dev"   ;;
+    stage) echo "VelocityAI/Stage" ;;
+    prod)  echo "VelocityAI/Prod"  ;;
+    *)
+        echo "velocityai-cw-namespace: unknown environment '' (expected dev|stage|prod)" >&2
+        exit 1
+        ;;
+esac
+EOF
+chmod 0755 /usr/local/bin/velocityai-cw-namespace
 
 # â”€â”€ 16. Backups: pg_dump + skills tarball + stuck-workflow probe â”€â”€â”€â”€â”€â”€â”€
 cat > /usr/local/bin/velocityai-pg-dump <<'EOF'
@@ -832,7 +857,13 @@ aws s3 cp "$DUMP" "s3://${VELOCITYAI_BACKUP_BUCKET}/postgres/${TS}/velocityai.sq
     --region "${VELOCITYAI_REGION:-eu-central-1}" \
     --sse aws:kms \
     --sse-kms-key-id "$VELOCITYAI_KMS_KEY_ID"
-echo "pg_dump complete: $(stat -c%s "$DUMP") bytes uploaded to S3"
+CW_NAMESPACE=$(/usr/local/bin/velocityai-cw-namespace)
+aws cloudwatch put-metric-data \
+    --namespace "$CW_NAMESPACE" \
+    --metric-name PgDumpHeartbeat \
+    --value 1 \
+    --region "${VELOCITYAI_REGION:-eu-central-1}"
+echo "pg_dump complete: $(stat -c%s "$DUMP") bytes uploaded to S3; metric published to $CW_NAMESPACE"
 EOF
 chmod 0755 /usr/local/bin/velocityai-pg-dump
 
@@ -861,8 +892,9 @@ COUNT=$(psql "$HOST_DB_URL" -tAc \
     "SELECT count(*) FROM workflow_runs \
      WHERE status='running' AND created_at < NOW() - INTERVAL '60 minutes'")
 COUNT=${COUNT:-0}
+CW_NAMESPACE=$(/usr/local/bin/velocityai-cw-namespace)
 aws cloudwatch put-metric-data \
-    --namespace VelocityAI/Prod \
+    --namespace "$CW_NAMESPACE" \
     --metric-name StuckRunningWorkflows \
     --value "$COUNT" \
     --region "$AWS_REGION"
@@ -1053,3 +1085,5 @@ fi
 
 date -u --iso-8601=seconds > /var/lib/velocityai/.bootstrap-done
 echo "[bootstrap] complete $(date -u --iso-8601=seconds)"
+
+
