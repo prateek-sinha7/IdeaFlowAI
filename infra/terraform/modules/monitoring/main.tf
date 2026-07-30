@@ -463,10 +463,19 @@ resource "aws_cloudwatch_metric_alarm" "disk_data_high" {
 }
 
 # 4. nginx 5xx spike — derived metric from a log filter
+# E1: the access log is `log_format velocityai escape=json`
+# (infra/scripts/reconcile-host-config.sh section 3), so `$.status` is a JSON NUMBER.
+# `>= 500` is exactly equivalent to the retired `status_code=5*` for every
+# status nginx can emit (100-599) -- and unlike the positional pattern it
+# cannot be broken by a field being added to or removed from the format.
+#
+# Note (A1 interaction): once the SSE location carries `limit_conn`, a
+# connection-cap rejection is a 503 nginx generates itself, and it IS counted
+# here. `NginxLimitReject` below is the disambiguator -- see the alarm comment.
 resource "aws_cloudwatch_log_metric_filter" "nginx_5xx" {
   name           = "${var.name_prefix}-nginx-5xx"
   log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/nginx-access"].name
-  pattern        = "[ip, id, user, ts, request, status_code=5*, ...]"
+  pattern        = "{ $.status >= 500 }"
 
   metric_transformation {
     name          = "Nginx5xx"
@@ -487,6 +496,212 @@ resource "aws_cloudwatch_metric_alarm" "nginx_5xx_spike" {
   statistic           = "Sum"
   threshold           = 10
   treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# --- E1: 429 accounting -----
+#
+# Two metrics, deliberately. `Nginx429` is the TOTAL; `NginxLimitReject` is the
+# subset nginx produced itself. `upstream_addr == "-"` is the discriminator:
+# nginx sets that variable when it proxied and leaves it unset when it answered
+# from limit_req / limit_conn / return. The velocityai log_format normalises the
+# unset case to "-" with a `map` (escape=json would otherwise emit ""), so this
+# pattern matches exactly as written. Measured on nginx 1.24.0.
+#
+# `Nginx429 - NginxLimitReject` is the count FastAPI returned. If they are
+# equal, every 429 a user saw was us throttling ourselves.
+resource "aws_cloudwatch_log_metric_filter" "nginx_429" {
+  name           = "${var.name_prefix}-nginx-429"
+  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/nginx-access"].name
+  pattern        = "{ $.status = 429 }"
+
+  metric_transformation {
+    name          = "Nginx429"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "nginx_429_spike" {
+  alarm_name          = "${var.name_prefix}-nginx-429-spike"
+  alarm_description   = "More than 10 HTTP 429 responses in each of two consecutive 5-minute windows. Could be the nginx rate limiter or the application; compare against NginxLimitReject to tell which."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  datapoints_to_alarm = 2
+  metric_name         = "Nginx429"
+  namespace           = var.cw_metric_namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 10
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# The alarm that would have caught A1 on day one. `upstream_addr = "-"` means
+# nginx rejected the request WITHOUT proxying it, which for an internal tool is
+# essentially always misconfiguration rather than abuse.
+#
+# Threshold is defensible from the config: /api/ allows 120r/m + burst=20 per IP
+# (reconcile-host-config.sh lines 97), so an occasional burst overrun produces a handful
+# of 429s in one window. Requiring at least one rejection in each of THREE
+# consecutive 5-minute windows means 15 minutes of sustained rejection -- which a
+# user fumbling the login form (that zone is a much tighter 10r/m + burst=5)
+# cannot sustain, but a mis-scoped location block produces continuously.
+resource "aws_cloudwatch_log_metric_filter" "nginx_limit_reject" {
+  name           = "${var.name_prefix}-nginx-limit-reject"
+  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/nginx-access"].name
+  pattern        = "{ $.status = 429 && $.upstream_addr = \"-\" }"
+
+  metric_transformation {
+    name          = "NginxLimitReject"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "nginx_limit_reject" {
+  alarm_name          = "${var.name_prefix}-nginx-limit-reject"
+  alarm_description   = "nginx's own rate limiter rejected at least one request in each of three consecutive 5-minute windows. We are throttling our own users -- a location block is mis-scoped or a zone rate is too low. This is the alarm that would have surfaced the SSE 429 outage (A1)."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "NginxLimitReject"
+  namespace           = var.cw_metric_namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# --- E1: SSE stream close counter (informational, no alarm) -----
+#
+# CORRECTION to the original E1.md proposal: `request_time` on a streaming
+# response is the FULL LIFETIME of the stream, not a latency: measured 6.007
+# on a 6-second stream through a real nginx 1.24. `> 1` therefore matches every
+# stream on every run longer than one second, so the metric measures stream COUNT,
+# not slowness. Renamed accordingly and the misleading predicate dropped.
+#
+# It is still worth having: streams-closed-per-minute is precisely the
+# reconnect-storm signal the A1 symptom produced. Attach LATENCY is not
+# obtainable here (`upstream_header_time` is a string because nginx renders it
+# as a comma list on a retry) -- that belongs to the structured application log.
+#
+# nginx logs a streaming request only at CLOSE, so this metric is silent for
+# the whole duration of a live run. That is inherent, and it is exactly why
+# structured application logging (D11) is not redundant with this.
+resource "aws_cloudwatch_log_metric_filter" "sse_stream_closed" {
+  name           = "${var.name_prefix}-sse-stream-closed"
+  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/nginx-access"].name
+  pattern        = "{ $.uri = \"*/events/stream\" }"
+
+  metric_transformation {
+    name          = "SseStreamClosed"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+# --- E1: is anything shipping at all? (liveness alarms) -----
+#
+# The alarms this whole incident argues for. AWS/Logs::IncomingLogEvents is
+# published by CloudWatch Logs itself, so it is the ONE signal that does not
+# depend on the CloudWatch Agent being alive to report on the CloudWatch Agent.
+#
+# `treat_missing_data = "breaching"` is LOAD-BEARING and non-negotiable: when a
+# log group receives nothing, CloudWatch publishes NO datapoint (it does not
+# publish a zero). Without `breaching` the alarm sits in INSUFFICIENT_DATA
+# forever -- which is precisely the month of blindness B1 would produce.
+#
+# Window sizing: period 21600 x evaluation_periods 4 = 24 hours of total
+# silence. Deliberately wide. A dev box is legitimately idle overnight and at
+# weekends, and `location = /health` sets `access_log off` (reconcile-host-config.sh)
+# so probe traffic does not keep the group warm. A 1-hour window -- which the
+# original E1.md proposed -- would page every idle night. 24 hours still turns a
+# month-long outage into a one-day one. Tighten on a busy environment.
+resource "aws_cloudwatch_metric_alarm" "app_log_ingestion_stalled" {
+  alarm_name          = "${var.name_prefix}-app-log-ingestion-stalled"
+  alarm_description   = "No log events reached /velocityai/${var.environment}/app in 24 hours. Either the CloudWatch Agent is not running (see the amazon-cloudwatch-agent journal on the box) or it cannot read the Docker container logs."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 4
+  metric_name         = "IncomingLogEvents"
+  namespace           = "AWS/Logs"
+  period              = 21600
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+
+  dimensions = {
+    LogGroupName = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/app"].name
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# --- E1: are the nginx lines PARSING? (format divergence detector) -----
+#
+# `{ $.status >= 0 }` matches any line CloudWatch could parse as JSON carrying a
+# numeric status -- i.e. every well-formed velocityai access-log line. Zero of
+# them in 24 hours means one of exactly two things, and both are worth a page:
+#
+#   (a) nothing is being shipped for this group      (the CloudWatch Agent failure), or
+#   (b) nginx's format and these filters have DIVERGED (the multi-environment
+#       hazard: the module is shared code, so an environment whose box still
+#       emits the old space-delimited format will match none of the JSON
+#       filters, and every one of them would otherwise fail SILENTLY because
+#       nginx_5xx_spike is treat_missing_data = notBreaching).
+#
+# This is a strict superset of an IncomingLogEvents alarm on the same group, so
+# only one alarm exists for the pair (no duplicate page for one cause).
+resource "aws_cloudwatch_log_metric_filter" "nginx_parsed" {
+  name           = "${var.name_prefix}-nginx-parsed"
+  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/nginx-access"].name
+  pattern        = "{ $.status >= 0 }"
+
+  metric_transformation {
+    name          = "NginxParsedLines"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "nginx_log_parse_stalled" {
+  alarm_name          = "${var.name_prefix}-nginx-log-parse-stalled"
+  alarm_description   = "No parseable JSON access-log line reached /velocityai/${var.environment}/nginx-access in 24 hours. Either nothing is shipping (CloudWatch Agent) or nginx's log_format has diverged from the metric-filter patterns (check `nginx -T | grep -A2 log_format` on the host)."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 4
+  metric_name         = "NginxParsedLines"
+  namespace           = var.cw_metric_namespace
+  period              = 21600
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "breaching"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

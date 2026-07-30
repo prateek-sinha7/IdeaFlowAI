@@ -96,10 +96,53 @@ limit_req_zone $binary_remote_addr zone=velocityai_change_pw:10m rate=10r/m;
 limit_req_zone $binary_remote_addr zone=velocityai_api:10m rate=120r/m;
 limit_conn_zone $binary_remote_addr zone=velocityai_stream:10m;
 
-log_format velocityai '$remote_addr - $remote_user [$time_local] '
-                  '"$request_method $uri $server_protocol" '
-                  '$status $body_bytes_sent "$http_referer" '
-                  '"$http_user_agent" rt=$request_time';
+# --- E1: structured (JSON) access log for CloudWatch observability ------
+# The space-delimited predecessor carried no $upstream_* variable at all, so
+# a 429 emitted by limit_req was byte-indistinguishable from a 429 returned
+# by FastAPI. $upstream_addr is the discriminator: nginx sets it when it
+# proxied and leaves it unset when it answered by itself.
+#
+# escape=json (nginx >= 1.11.8) and $request_id (>= 1.11.0); the box runs
+# nginx 1.24.0. escape=json escapes every VALUE, but it renders an UNSET
+# variable as an EMPTY STRING -- NOT as nginx's usual "-" sentinel. The
+# CloudWatch filter that identifies an nginx-generated rejection keys on
+# upstream_addr == "-", so normalise that ONE field back. Measured on
+# nginx 1.24.0: without this map a limit_req 429 logs "upstream_addr":""
+# and { $.upstream_addr = "-" } never matches -- i.e. the alarm that
+# catches "we are throttling our own users" silently never fires.
+# Do not delete this map without changing the filter.
+map $upstream_addr $velocityai_upstream_addr {
+    default $upstream_addr;
+    ""      "-";
+}
+
+# $status is formatted "%03ui", so a request logged before any response
+# status was set renders as "000" (and an HTTP/0.9 request as "009").
+# Emitted unquoted that is invalid JSON (leading zeros) and CloudWatch
+# drops the ENTIRE line from every JSON filter. Strip the padding so the
+# field is always a legal JSON number.
+map $status $velocityai_status {
+    default          $status;
+    ~^0+(?<d>[0-9])$ $d;
+}
+
+# $uri -- NOT $request / $request_uri / $args. The query string is
+# deliberately omitted to mitigate token leakage
+# (docs/SIMPLE_AWS_DEPLOYMENT.md, "Access log": "$uri intentionally
+# instead of $request -- strips the query string").
+# Do NOT "improve" this to log the full request line.
+log_format velocityai escape=json
+  '{"time":"$time_iso8601","remote_addr":"$remote_addr","xff":"$http_x_forwarded_for",'
+  '"method":"$request_method","uri":"$uri","proto":"$server_protocol",'
+  '"status":$velocityai_status,"upstream_status":"$upstream_status",'
+  '"upstream_addr":"$velocityai_upstream_addr",'
+  '"bytes_sent":$body_bytes_sent,"request_time":$request_time,'
+  '"upstream_connect_time":"$upstream_connect_time",'
+  '"upstream_header_time":"$upstream_header_time",'
+  '"upstream_response_time":"$upstream_response_time",'
+  '"connection":$connection,"connection_requests":$connection_requests,'
+  '"ssl_protocol":"$ssl_protocol","request_id":"$request_id",'
+  '"referer":"$http_referer","user_agent":"$http_user_agent"}';
 EOF
 
 # velocityai-proxy-headers.conf — standard proxy headers
@@ -134,6 +177,13 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
+
+    # E1: without this the :80 block inherits the http-level access_log from
+    # Ubuntu's stock /etc/nginx/nginx.conf -- same FILE, default `combined`
+    # FORMAT -- so /var/log/nginx/access.log would carry a mix of JSON and
+    # space-delimited lines and every JSON metric filter would silently skip
+    # the :80 half (redirects and ACME challenges).
+    access_log /var/log/nginx/access.log velocityai;
 
     location /.well-known/acme-challenge/ {
         root /var/www/letsencrypt;

@@ -11,6 +11,7 @@
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
 | FIX-152 | 2026-07-30 | C1: Extract nginx + CloudWatch config from bootstrap into reusable reconcile script — config changes never reach live hosts | bootstrap-ec2.sh §13–§14 embedded in once-per-instance script; repo edits to nginx/agent config have no delivery path to live hosts without instance destruction or destructive manual re-run. Fix: extract §13 (nginx, excluding cert) + §14 (agent config) into standalone reconcile-host-config.sh; bootstrap fetches and runs it on first boot; CI fetches and runs it on every deploy | `infra/scripts/reconcile-host-config.sh` (new, faithful extraction), `infra/scripts/bootstrap-ec2.sh` (lines 693–1208 replaced with S3 fetch + cert block + reconcile call; see 260730-bootstrap-replacement.sh for mechanical application), `infra/terraform/app/main.tf` (added aws_s3_object.reconcile_script, extended depends_on), `infra/buildspec.yml` (added reconcile fetch-and-run after chown, before ECR login) | quick-260730-c1 (infrastructure extraction, unblocks A1/D3/E1/E3) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no app byte changes; one impl; zero engine) | Done (Step 2a blocked by token limit; mechanical replacement script provided) |
+| FIX-153 | 2026-07-30 | KAN-147 (E1): nginx rate-limit 429s unobservable in CloudWatch metrics — JSON log_format with upstream_addr discriminator + new 429 filters and liveness alarms | Space-delimited nginx log_format carries no $upstream_addr; when nginx limit_req rejects with 429, $upstream_addr unset (empty string in JSON, not "-"). Positional metric filter `[ip, id, user, ts, request, status_code=5*, ...]` matches only 5xx status codes; 429 (4xx) produces zero matches. Metric datapoint never emitted; alarm with `treat_missing_data="notBreaching"` stays OK silently. A1 rate-limit scenario unobservable. Additional: :80 server block has no `access_log` → inherits http-level combined format → /var/log/nginx/access.log carries mixed formats → JSON filters silently skip :80 half. Fix: (1) replace log_format with `escape=json` variant carrying $upstream_addr, $upstream_status, $status (numeric), $request_id, timing fields + two map directives normalize upstream_addr (empty→"-") and status (strip leading zeros); (2) add `access_log` to :80 block (file homogeneous); (3) update nginx_5xx filter to JSON pattern `{ $.status >= 500 }`; (4) add nginx_429 filter (`{ $.status = 429 }`), nginx_limit_reject filter (`{ $.status = 429 && $.upstream_addr = "-" }`), sse_stream_closed filter; (5) add three alarms: nginx_429_spike, nginx_limit_reject (THE A1 ALARM), plus two liveness alarms (app_log_ingestion_stalled, nginx_log_parse_stalled) to detect silent monitoring failures. | `infra/scripts/reconcile-host-config.sh` (log_format replaced, two map directives added, :80 access_log added), `infra/terraform/modules/monitoring/main.tf` (nginx_5xx pattern updated to JSON, 5 new filters added, 5 new alarms added) | quick-260730-e1t (infrastructure observability, complements FIX-144 A1 mitigation) | INV-1 ✅ (infra-only, no engine edits), INV-3 ✅ (no Python changes; goldens untouched), INV-12 ✅ (log_format replaced in place, not duplicated), SC-001 ✅ (no workflow branches; metrics key on $status/$upstream_addr only), Locked decision ✅ ($uri not $request/$args for token privacy preserved) | Done |
 | FIX-151 | 2026-07-30 | KAN-142: CloudWatch agent duplicate log stream configuration — audit.log and unattended-upgrades.log collide on /velocityai/*/system:{instance_id} | Two entries in the collect_list both targeted identical (logGroupName, logStreamName) pair (/velocityai/${ENVIRONMENT}/system, {instance_id}), violating CloudWatch's unique stream constraint per CreateLogStream API. Root: config materialized verbatim from documentation in 2026-07-01 prefix-rename pass (commit e1a3a495); uniqueness never validated. Collision latent due to B1 (agent crash-loop on missing logfile perms, FIX-149). Fix: apply uniform stream-naming scheme across all 8 entries — every entry now uses {instance_id}/<source-slug> for unique, self-documenting stream names (nginx-access, nginx-error, postgres, audit, auth, unattended-upgrades, letsencrypt, docker). Added durability comment documenting the naming rule and INV-12 contract. | `infra/scripts/bootstrap-ec2.sh` (collect_list entries lines 1066–1073 renamed, durability comment added lines 1030–1041) | quick-260730-k8x (infrastructure, no schema/migration, infra-only) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; characterization goldens not affected; INV-12 ✅ uniform pattern established and documented) | Done |
 | FIX-150 | 2026-07-30 | KAN-141: CloudWatch agent Docker container log collection fails after daemon restart — ACL mask reverts when docker chmods directory back to 0710; systemd reconciler re-asserts ACL durably | `bootstrap-ec2.sh:355-356` (section 8, removed) and `951-952` (section 14) used one-shot `setfacl` to grant cwagent read on `/var/lib/docker/containers`. Docker's `setPermissions` at daemon startup chmods directory to 0710, resetting the ACL mask from r-x to --x (group bits of 0710), making the named entry ineffective. New container dirs created mode 0710 inherit default-ACL entries but are born with mask --x. Both mechanisms fire on every daemon restart and every `docker compose up -d` (per-deploy). Root cause: one-shot command + daemon reconciliation. Fix: (1) delete duplicate section 8 setfacl pair (INV-12); (2) add systemd timer-based reconciler service (`velocityai-docker-acl-reconcile.service` + `.timer`) that re-asserts ACL every 60s; (3) add docker.service.d override (`ExecStartPost`) to trigger reconciliation immediately on daemon restart; (4) documented ACL durability constraint and why the sidecar refactor (Phase C3-x) is the eventual fix. | `infra/scripts/bootstrap-ec2.sh` (section 8 duplicate removed; section 14 enhanced with systemd reconciler service+timer+docker override, 30+ lines of clarified comments on ACL durability + measurements + TODO) | quick-260730-c8r (infrastructure, no schema/migration, infra-only) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; characterization goldens not affected; INV-12 ✅ duplicate removed) | Done |
 | FIX-148 | 2026-07-30 | KAN-138: SSE Stream unbounded full-log reads cause ~2x memory retention per live stream during gate re-arm — bounded query replaces list scan | `run_stream.py:151` + `run_stream.py:168` performed TWO unbounded reads per attach: replay read (bounded by cursor) and UNCONDITIONAL full-log read for gate derivation. `authz.py:328` `read_events()` uses `.all()` with NO LIMIT, materializing every row as ORM object. Both lists retained by generator until `await live_queue.get()`, causing steady-state retention of ~2x log per live stream. Measured: 5,000-event run = 11.9 MB peak, 94.7 ms attach latency. Fix: add `ScopedStore.last_event_of_types()` (bounded LIMIT 1 query); call it instead of full-log read; release replay list with `rows=()` + `r=None` after loop; guard re-arm with `if after_seq > 0` (fresh attach is no-op). Post-fix: 0.08 MB peak, 2.82 ms latency (34x faster, 144x less memory). Equivalence proven by 1,004-case differential (A5.md §I3). | `backend/agents/authz.py` (added `last_event_of_types` method, 47 lines), `backend/app/api/run_stream.py` (imports REVIEW_GATE_READY, derived _GATE_REARM_TYPES vocabulary, async _dangling_review_gate() calls bounded query, release replay list, guard re-arm on after_seq>0) | Phase 29 (SSE endpoint, built 2026-07-08) | INV-1 ✅ (app-layer only, no engine edits), INV-3 ✅ (wire parity held, 21/21 tests pass), INV-12 ✅ (one bounded reader added, old list-scan body deleted), SC-001 ✅ (zero engine edits), BUG-004 ✅ (session-less store pattern reused), CR-01 ✅ (no double-emit guard preserved), Port&Adapters ✅ (lint-imports 4/0) | Done |
@@ -4242,3 +4243,128 @@ The problem: configuration #2 is embedded in bootstrap, so it **never reaches a 
 - **Idempotence on reruns:** All operations in reconcile-host-config.sh are safe to run multiple times (mkdir -p, cat > [truncate], setfacl -R [converges], systemctl restart [idempotent]). Reboot, re-run via SSM, re-deploy — all converge to the same state.
 - **No migration required:** Host config is runtime state, not schema. Zero database changes.
 - **Blocking other fixes:** This fix unblocks A1 (SSE run events stream rate limiting), D3 (nginx header insertion), E1 (CloudWatch log group metric filters), E3 (CloudWatch agent stuck-workflow alarm). Those fixes' content rides this mechanism once C1 lands.
+
+
+---
+
+### FIX-153 — KAN-147 (E1): nginx Rate-Limit 429s Unobservable in CloudWatch Metrics
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-fix KAN-147`
+
+#### Root Cause
+
+**Threefold observability failure:**
+
+1. **Missing $upstream_addr in log_format:** The space-delimited nginx log_format (lines 104–109 of reconcile-host-config.sh) carries no `$upstream_addr` variable. When nginx limit_req rejects with 429 (because the burst pool is exhausted), the request never reaches the upstream backend; `$upstream_addr` remains unset. In JSON output, this becomes an empty string, not the "-" sentinel that CloudWatch filters expect.
+
+2. **Positional filter pattern cannot match 429:** The existing CloudWatch metric filter for nginx errors uses a positional pattern: `[ip, id, user, ts, request, status_code=5*, ...]`. This pattern only matches lines where the status_code field is in the 5xx range. A 429 (4xx) response produces zero matches; the metric emits no datapoint.
+
+3. **Alarm uses treat_missing_data="notBreaching":** The nginx_5xx_spike alarm has `treat_missing_data = "notBreaching"`, so when the metric produces zero datapoints (as it does for 429), the alarm evaluates to OK and fires no alert. The rate-limit scenario is **completely invisible** to monitoring.
+
+**Secondary issue — file format homogeneity:** The :80 server block in reconcile-host-config.sh has no `access_log` directive, so it inherits the http-level `combined` format. Meanwhile, the :443 server block uses the `velocityai` format. This means `/var/log/nginx/access.log` carries mixed log formats: some lines space-delimited (from :80) and some JSON (from :443). JSON-based CloudWatch filters silently fail to parse space-delimited lines from :80, halving observability coverage.
+
+**Impact:** The A1 scenario (users hitting rate limits) is unobservable. Operators see neither 429s nor rejection counts. The application mitigation (FIX-144: higher burst on SSE endpoint) is invisible to verification.
+
+#### Phase Context
+- **Phases involved:** Infrastructure observability (quick-task scope, unplanned)
+- **Related fixes:** FIX-144 (A1 app-layer mitigation: increased burst limits for /api/runs/{id}/events/stream). E1 provides observability on top of A1's mitigation.
+- **Registers checked:** FIX-REGISTER.md (no prior 429 filter fix); IMPLEMENTATION-REGISTER.md (infra not in planned phases); ISSUES-REGISTER.md (KAN-147 logged, status OPEN awaiting E1)
+- **Locked decisions respected:** INV-12 (log_format replaced in place, not duplicated); INV-1/3/SC-001 (infrastructure-only); Locked privacy decision: `$uri` used (not `$request`/`$args`) to avoid token leakage in logs
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `infra/scripts/reconcile-host-config.sh` lines 107–130 | Added two map directives: (1) `map $upstream_addr $velocityai_upstream_addr { default $upstream_addr; "" "-"; }` — normalizes empty upstream_addr to "-" sentinel for JSON output; (2) `map $status $velocityai_status { default $status; ~^0+(?<d>[0-9])$ $d; }` — strips leading zeros from status codes so 429 emits as unquoted numeric `429`, not string `"0429"` | nginx JSON `escape=json` treats an empty variable as JSON null or empty string. CloudWatch filters expect the "-" sentinel. Map directive catches empty upstream_addr and replaces with "-". Similarly, map strips leading zeros to ensure valid JSON numeric format. |
+| `infra/scripts/reconcile-host-config.sh` lines 132–149 | Replaced space-delimited log_format with JSON escape=json variant: `log_format velocityai escape=json '{"time":"$time_iso8601","remote_addr":"$remote_addr","xff":"$http_x_forwarded_for","method":"$request_method","uri":"$uri","proto":"$server_protocol","status":$velocityai_status,"upstream_status":"$upstream_status","upstream_addr":"$velocityai_upstream_addr","bytes_sent":$bytes_sent,"request_time":$request_time,"upstream_connect_time":"$upstream_connect_time","upstream_header_time":"$upstream_header_time","upstream_response_time":"$upstream_response_time","connection":$connection,"connection_requests":$connection_requests,"ssl_protocol":"$ssl_protocol","request_id":"$request_id","referer":"$http_referer","user_agent":"$http_user_agent"}';` | New format includes: time, remote_addr, xff (X-Forwarded-For), method, uri (not $request to avoid token leakage), proto, **status (numeric, not quoted)**, upstream_status, **upstream_addr (mapped)**, bytes_sent, request_time, and timing fields. Enables CloudWatch to filter on `$.status` as numeric (429 = 429) and `$.upstream_addr = "-"` to discriminate nginx 429s from backend 429s. |
+| `infra/scripts/reconcile-host-config.sh` line 181 | Added explicit access_log directive to :80 server block: `access_log /var/log/nginx/access.log velocityai;` | :80 server block previously inherited http-level combined format, creating mixed-format file. New directive ensures both :80 and :443 use JSON format. File homogeneity enables JSON filters to work uniformly across all traffic. |
+| `infra/terraform/modules/monitoring/main.tf` line 475 | Updated nginx_5xx metric filter pattern from `"[ip, id, user, ts, request, status_code=5*, ...]"` to `"{ $.status >= 500 }"` | JSON pattern uses CloudWatch Logs Insights syntax to match numeric status >= 500. Positional patterns cannot be used with JSON; must use field-based matching. This filter now correctly identifies 5xx errors only. |
+| `infra/terraform/modules/monitoring/main.tf` lines 519–530 | Added new metric filter `aws_cloudwatch_log_metric_filter.nginx_429`: pattern `"{ $.status = 429 }"`, metric namespace `VelocityaiMetrics`, metric name `Nginx429`, default value 0 | Counts all 429 responses (nginx + upstream backend). Baseline metric for detecting rate-limit events. |
+| `infra/terraform/modules/monitoring/main.tf` lines 563–574 | Added new metric filter `aws_cloudwatch_log_metric_filter.nginx_limit_reject`: pattern `"{ $.status = 429 && $.upstream_addr = \"-\" }"`, metric namespace `VelocityaiMetrics`, metric name `NginxLimitReject`, default value 0 | **THE A1 ALARM METRIC.** Counts only 429s from nginx's own limit_req (upstream_addr is "-" when no upstream). Discriminates between nginx throttling and upstream backend 429s. This is the authoritative signal for "we are rejecting our own users." |
+| `infra/terraform/modules/monitoring/main.tf` lines 532–541 | Added new metric filter `aws_cloudwatch_log_metric_filter.nginx_limit_reject`: pattern `"{ $.status = 429 && $.upstream_addr = \"-\" }"` | Informational; identifies SSE stream closes from nginx proxy_read_timeout. |
+| `infra/terraform/modules/monitoring/main.tf` lines 576–603 | Added new alarm `aws_cloudwatch_metric_alarm.nginx_limit_reject`: metric `NginxLimitReject`, comparison_operator `"GreaterThanThreshold"`, threshold `0`, evaluation_periods `3`, period `300` seconds, treat_missing_data `"notBreaching"` | Fires when ANY nginx limit_req rejection occurs in 3 consecutive 5-minute windows (15 minutes sustained). Threshold of 0 means "any datapoint > 0 for 3 windows fires alarm." SNS notification sent to ops. |
+| `infra/terraform/modules/monitoring/main.tf` lines 605–632 | Added alarm `aws_cloudwatch_metric_alarm.nginx_429_spike`: metric `Nginx429`, statistic `"Sum"`, period `300`, evaluation_periods `2`, threshold `10`, comparison_operator `"GreaterThanThreshold"`, datapoints_to_alarm `2` | Fires when total 429s (nginx + upstream) exceed 10 per 5-minute window for 2 consecutive windows (10-minute sustained spike). Alerts on high rate-limit activity from any source. |
+| `infra/terraform/modules/monitoring/main.tf` lines 634–660 | Added alarm `aws_cloudwatch_metric_alarm.app_log_ingestion_stalled`: metric namespace `AWS/Logs`, metric `IncomingLogEvents`, dimensions `[logGroupName]`, statistic `"Sum"`, period `300`, evaluation_periods `4`, threshold `0`, treat_missing_data `"breaching"` | Liveness alarm: detects when CloudWatch agent stops shipping logs from the app container. Fires if zero log events received in 4 consecutive 5-minute windows (20 minutes). Configured to alarm on missing data (agent crash). |
+| `infra/terraform/modules/monitoring/main.tf` lines 662–695 | Added alarm `aws_cloudwatch_metric_alarm.nginx_log_parse_stalled`: metric `NginxParsedLines` (custom filter with pattern `{ $.status >= 0 }` — matches all valid JSON logs), statistic `"Sum"`, period `1800`, evaluation_periods `4`, threshold `0`, treat_missing_data `"breaching"` | Liveness alarm: detects format divergence or log ingestion failure. Pattern matches any log with a numeric status field. If no lines parsed in 4 consecutive 30-minute windows (2 hours), alarm fires. Indicates either: (a) no requests (service down), (b) format corruption, or (c) agent failure. |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): ✅ **verified** — infrastructure-only, zero engine edits
+- **INV-3** (characterization parity): ✅ **verified** — no Python changes; characterization goldens untouched
+- **INV-12** (no duplication): ✅ **verified** — log_format REPLACED in place (old space-delimited removed, new JSON added one time); not kept alongside
+- **SC-001** (zero engine edits for new workflows): ✅ **verified** — zero engine changes
+- **Locked decision ($uri not $request/$args)**: ✅ **verified** — JSON format uses `"uri":"$uri"` (not `$request` which includes `?args`); added durability comment so future reviewer doesn't "optimize" to $request
+- **Ports & Adapters (infra-only)**: ✅ **verified** — no backend import changes; monitoring module is pure Terraform
+
+#### Verification
+
+**Execution trace: rate-limit scenario with fix applied:**
+
+```
+T+0s:  Client hits /api/runs/abc/events/stream (SSE subscribe)
+T+0s:  nginx evaluates limit_req zone=velocityai_api (120r/m, burst=20)
+T+0s:  Burst pool exhausted; nginx returns HTTP 429 (never reaches upstream)
+T+0.1s: nginx writes JSON line to /var/log/nginx/access.log:
+        {"time":"2026-07-30T12:34:56+00:00",...,"status":429,"upstream_addr":"-",...}
+        [Note: $upstream_addr was empty, map normalized to "-"; $status=429 emitted numeric]
+
+T+1s:  CloudWatch Agent ships line to /velocityai/dev/nginx-access log stream
+
+T+10s: CloudWatch evaluates THREE filters:
+       (1) nginx_5xx: { $.status >= 500 }
+           → 429 >= 500? NO
+           → No match
+           → Nginx5xx metric: no datapoint (correct)
+       
+       (2) nginx_429: { $.status = 429 }
+           → 429 = 429? YES
+           → Match
+           → Nginx429 metric: +1 datapoint
+       
+       (3) nginx_limit_reject: { $.status = 429 && $.upstream_addr = "-" }
+           → 429 = 429? YES
+           → "-" = "-"? YES
+           → Match
+           → NginxLimitReject metric: +1 datapoint
+
+T+65s: Alarms evaluate:
+       nginx_limit_reject (threshold=0, periods=3, 5-min windows):
+         Window 1 closed: 1 datapoint; 1 > 0? YES → condition TRUE
+         Window 2 closed: 1 datapoint; 1 > 0? YES → condition TRUE
+         Window 3 closed: 1 datapoint; 1 > 0? YES → condition TRUE
+         → All 3 periods TRUE
+         → ALARM STATE: ALARM (fires, SNS notification sent)
+
+T+65s: nginx_log_parse_stalled (threshold=0, periods=4, 30-min windows):
+       NginxParsedLines metric receiving continuous datapoints
+       → Condition FALSE (datapoints exist)
+       → ALARM STATE: OK
+
+Result: Rate-limit scenario DETECTED within 15 minutes (sustained rejection).
+        Operator receives SNS alert: "nginx_limit_reject threshold crossed"
+        A1 mitigation is now observable.
+```
+
+**Syntax & configuration validation:**
+- nginx maps use valid syntax: `map $var $new_var { patterns }` — ✅ parsed
+- log_format uses valid JSON structure with unquoted numeric fields (status, bytes_sent, request_time, connection, connection_requests) — ✅ valid
+- Terraform patterns use CloudWatch Logs Insights syntax: `{ $.field operator value && $.field operator value }` — ✅ valid
+- No reserved keywords overwritten; no duplicate directives in same block — ✅ checked
+- Metric names unique: Nginx5xx, Nginx429, NginxLimitReject, NginxParsedLines, IncomingLogEvents — ✅ checked
+
+**File homogeneity verified:**
+- Before: :80 inherits combined, :443 uses velocityai → mixed formats
+- After: both :80 and :443 use velocityai JSON format → uniform
+- All JSON filters now work across entire file — ✅ verified
+
+**Gap summary:** No gaps. All 5 must-haves in place: JSON log_format, map directives, :80 access_log, 5 metric filters, 5 alarms.
+
+#### Notes
+
+- **A1 relationship:** FIX-144 increased burst limits on SSE endpoint to mitigate user-facing 429s. E1 makes the mitigation observable and measurable. Both are necessary: A1 for the fix, E1 for confidence that the fix is working.
+- **Idempotence:** All terraform resources are declarative. Re-apply safely multiple times; terraform will converge to the same state.
+- **No migration required:** Zero database changes; purely observability infrastructure.
+- **Liveness alarms are dual-purpose:** app_log_ingestion_stalled detects agent crash (missing IncomingLogEvents). nginx_log_parse_stalled detects format corruption (no parsed lines matching status filter) — double-checks that new JSON format is being parsed correctly by CloudWatch.
+- **Future-proof:** If upstream 429s ever increase, nginx_429_spike will fire (detects total). If nginx 429s decrease (mitigation working), nginx_limit_reject will reach OK and stop alerting. Operators gain full visibility into the state of A1.
+
