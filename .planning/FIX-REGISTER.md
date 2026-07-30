@@ -14,6 +14,7 @@
 | FIX-147 | 2026-07-30 | KAN-136 (A4): Stale `_PIPELINE_QUEUES`/`_PIPELINE_TASKS` entries make dead runs permanently un-attachable and un-resumable — liveness signal replaced with driver task state inspection | `run_stream.py:282` and `run_commands.py:390` used bare dict membership (`run_id in _PIPELINE_QUEUES/TASKS`) to detect live runs. When a driver raises before cleanup runs (unguarded DB read in `engine.resume_run`, or `CancelledError` at any await point), registry entries survive for the process lifetime. Dead runs report LIVE forever: SSE attach blocks indefinitely on orphaned queues, resume returns 409 permanently. | `backend/app/api/run_engine.py` (added logging import, `_is_run_live(run_id)` predicate inspects task.done() state + self-heals via `_cleanup_pipeline`), `backend/app/api/run_stream.py` (replaced membership check line 282 with `_is_run_live`), `backend/app/api/run_commands.py` (replaced membership check line 390 with `_is_run_live`) | quick-260730-k4a (stale registry liveness) | INV-1 ✅ (app-layer, `run_id`-keyed, no engine branches), INV-3 ✅ (29/33 tests pass; 4 pre-existing baseline failures preserved), INV-12 ✅ (single self-heal via existing `_cleanup_pipeline`), SC-001 ✅ (zero engine edits), Ports & Adapters ✅ (no new import edges, lint-imports 4/0) | Done |
 | FIX-146 | 2026-07-30 | KAN-135 (A3): SSE clients stranded indefinitely on resume/re-arm paths — `_cleanup_pipeline` pops queue dict but doesn't sentinel attached readers | `run_engine.py:71-73` — `_cleanup_pipeline` pops `_PIPELINE_QUEUES[run_id]` deregistering the run but doesn't release readers parked on `await live_queue.get()`. SSE clients hold direct queue object refs (bound at `run_stream.py:281` before generator runs), so dict pop doesn't reach them. 9 of 12 paths reach cleanup via `engine._fire_resume_cleanup` without prior sentinel; 3 driver paths already sentinel via `await event_queue.put(None)`. Stranded clients hang until socket timeout. | `backend/app/api/run_engine.py` (store popped queue, send `None` sentinel if queue not None, add docstring), `backend/tests/unit/test_sse_stream.py` (added `TestCleanupSentinel` fixture + 4 tests) | quick-260730-m7k (SSE cleanup) | INV-1 ✅ (app-layer, `run_id`-keyed), INV-3 ✅ (21/21 tests pass; app.api off golden path), INV-12 ✅ (single implementation), SC-001 ✅ (zero engine edits), Phase 12 WR-01 ✅ (pops unconditional), Phase 44 MOVE ✅ (no duplication) | Done |
 | FIX-145 | 2026-07-30 | KAN-134 (A2): Multi-Tab SSE Stream Silent Data Loss — per-run fan-out bus (pump + subscribers pattern) eliminates round-robin event partitioning | `run_engine.py:64-67` — `_get_or_create_queue(run_id)` returned the SAME `asyncio.Queue` for all clients. `run_stream.py:197,281` — SSE endpoint parked concurrent clients on `await live_queue.get()` with two waiters. `asyncio.Queue.get()` wakes exactly one waiter → events partitioned round-robin: Tab A received 3/6/9/12, Tab B received 4/7/10. Root: shared queue + consuming-once semantics. | `backend/app/api/run_engine.py` (added `_SUBSCRIBERS` dict, `_subscribe()`, `_unsubscribe()`, `_dispatch_event_to_subscribers()`), `backend/app/api/run_stream.py` (rewired endpoint to use subscribe/unsubscribe, added cleanup in finally block, deleted stale LOCK-B prose), `backend/app/core/config.py` (added `SSE_SUBSCRIBER_QUEUE_MAXSIZE` setting), `backend/tests/unit/test_rest_resume.py` (added `_SUBSCRIBERS.clear()` to fixture teardown) | Phase 16/29-02/44 (SSE transport / multi-tab / Phase 44 transport-neutral home) | INV-1 ✅ (no engine kernel branches; keyed on `run_id` only), INV-3 ✅ (wire bytes unchanged; characterization goldens pass), INV-12 ✅ (move-don't-copy from `websocket_handoff.py`), SC-001 ✅ (workflow-agnostic, run-scoped), Ports & Adapters ✅ (transport-adjacent), Import-clean ✅ (lint-imports 4/0) | Done |
+| FIX-149 | 2026-07-30 | KAN-140: CloudWatch agent fails to initialize — cannot write its own log file due to permission mismatch (cwagent uid 997 lacks write on root-owned /var/log) | `bootstrap-ec2.sh:985-986` config specifies `logfile: /var/log/amazon-cloudwatch-agent.log` with `run_as_user: cwagent` (uid 997). /var/log is root:root 0755, so agent receives EACCES on open(O_CREAT|O_APPEND), treats logger init as fatal, exits status 1 before collecting logs/metrics. systemd restarts indefinitely (restart counter 977 over 16h). fetch-config exit status never checked (line 1019-1021), so bootstrap reports success despite agent being dead. Three latent regressions: internal rotation fails (rename needs write on parent dir); future logrotate stanzas recreate file root:root (re-breaks agent); C1 reconcile re-runs truncate live inode. | `infra/scripts/bootstrap-ec2.sh` (logfile relocated to /opt/aws/amazon-cloudwatch-agent/logs, mkdir includes logs subdir, fetch-config exit status guarded) | quick-260730-b2x (infrastructure, no schema/migration, infra-only) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; characterization goldens not affected) | Done |
 | FIX-144 | 2026-07-30 | KAN-133 (A1): SSE run event stream rate-limited with HTTP 429, causing intermittent "Reconnecting..." banner — nginx /api/ prefix location improperly applied request-rate limiting to a long-lived streaming connection | nginx config (written 2026-05-11) assumed "every /api/ URL is a short request". SSE stream endpoint (created 2026-07-08, Phase 29) invalidated this assumption. When REST page-load traffic drains the 120 r/min burst pool (burst=20), stream attach receives 429. Frontend treats 429 as fatal (useRunStream.ts:359), triggering exponential-backoff reconnect (1s → 30s) and yellow banner, blocking live pipeline updates. Fix: add regex location ~ ^/api/runs/[^/]+/events/stream/?$ before /api/, using limit_conn (concurrency) instead of limit_req (rate), sized to 64. New zone velocityai_stream declared. | `infra/scripts/bootstrap-ec2.sh`, `backend/tests/unit/test_nginx_site_template.py` | quick-260730-a1n (infrastructure) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-143 | 2026-07-29 | KAN-128: Chat panel still shows static filename for PPT and Prototype — `laneActiveContent` used local `workflowType` instead of `effectiveReviseType` | FIX-141's dispatch keyed on `workflowType` (default `"user_stories"` on history-reopen) not `effectiveReviseType`. On reopened `od_ppt` run, `workflowType="user_stories"` → `laneActiveContent=""` → fallback fires. Fix: use `effectiveReviseType` in both the content slot dispatch and the `deriveDeliverableFilename` call. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/39 (FIX-141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-142 | 2026-07-29 | KAN-128: PPT filename shows "presentation.pptx" instead of content-derived ".html" — wrong extension for all ppt/od_ppt variants | `deriveDeliverableFilename` assigned `"pptx"` for `"ppt"`/`"ppt_revision"` but all PPT runs produce HTML decks. `deriveDeliverableFiles` also offered a dead `.pptx` row. Fix: both functions always use `"html"` for all four ppt variants. | `frontend/src/components/results/FilesTab.tsx` | Phase 18/22/39 (FIX-140/141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
@@ -3976,3 +3977,86 @@ Baseline confirmed (per A4.md I8): AttributeError: '_StubEngine' object has no a
 
 - **Prerequisite for A2 + A3 correctness:** A2 (multi-tab fanout) and A3 (cleanup sentinel) both assume the liveness predicate is correct. If stale entries report LIVE, A3's sentinel is sent to a dead pump, wasting resources. With A4, the predicate is authoritative: it keys on the driver's task.done() state, which is the single source of truth.
 
+
+
+---
+
+### FIX-149 — KAN-140: CloudWatch Agent Logfile Permission Failure
+
+**Date:** 2026-07-30
+**Triggered by:** `velocity-fix KAN-140 (jira-id)` — critical infrastructure bug (zero observability)
+
+#### Root Cause
+
+`bootstrap-ec2.sh:985-986` configures CloudWatch agent with:
+- `"logfile": "/var/log/amazon-cloudwatch-agent.log"` (root-owned directory, mode 0755)
+- `"run_as_user": "cwagent"` (uid 997, gid 986, no supplementary groups)
+
+When the agent starts, it:
+1. Drops privileges to uid 997
+2. Attempts `open("/var/log/amazon-cloudwatch-agent.log", O_CREAT|O_APPEND, ...)`
+3. Receives EACCES (Permission denied) because cwagent lacks write on `/var/log`
+4. Treats logger construction as fatal
+5. Exits with status 1 **before collecting a single log or metric**
+6. systemd restarts agent via `Restart=on-failure` → infinite restart loop (restart counter reached 977 over 16 hours)
+
+**Compounding issue:** `fetch-config` exit status never checked (line 1019-1021 is a bare command, no `||` guard). The wrapper returns 0 when systemd accepts the job, even if the agent subsequently fails. Bootstrap script reports success, masking the failure until operator investigates empty CloudWatch console hours later.
+
+**Three latent regressions:**
+1. Internal rotation (agent rotates its own log by size) requires `rename()` + `create()` in the parent directory — cwagent lacks write on `/var/log`, so rotation fails after ~100 MB (agent may switch to stderr, losing structured logging).
+2. Future `logrotate` stanza — if added by an operator, it will recreate the file as root:root → agent dies on next rotation (repeat of today's failure).
+3. C1 reconcile (re-running bootstrap under infrastructure-as-code) uses `cat > ... <<EOF` (idempotent overwrite). If a running agent holds the fd to `/var/log/...`, the new `cat >` creates a new inode; the agent keeps writing to the old (unlinked) inode until restart, losing output.
+
+#### Phase Context
+- **Phase(s) involved:** quick-260730-b2x (infrastructure only, no planned phase owns this)
+- **Relevant register section:** None (infra-only, not backend/agents)
+- **Deleted code verified:** N/A (no deleted code in prior phases to respect here)
+- **Locked decisions:** INV-1 (kernel agnostic), INV-3 (goldens not affected), INV-12 (no duplication), SC-001 (no engine edits) — all respected by design (infra-only)
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `infra/scripts/bootstrap-ec2.sh:978` | `mkdir -p /opt/aws/amazon-cloudwatch-agent/{etc,logs}` | Create logs directory alongside etc; both owned by root, agent can write via permissions |
+| `infra/scripts/bootstrap-ec2.sh:985` | `"logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log"` | Relocate to vendor-standard, cwagent-accessible directory; eliminates 3 latent regressions |
+| `infra/scripts/bootstrap-ec2.sh:1024` | `\|\| { echo "ERROR: amazon-cloudwatch-agent fetch-config failed..."; exit 1; }` | Guard exit status; fail fast with visible error instead of silent failure |
+
+**Why this location:**
+- `/opt/aws/amazon-cloudwatch-agent/` is already created and owned by root
+- Vendor-standard path (AWS CloudWatch agent docs)
+- Agent now owns its rotated files (not root), so internal rotation works
+- Future logrotate stanzas won't touch it (clearly not in `/var/log`)
+- C1 reconcile reruns are idempotent (no live inode corruption)
+
+#### Invariants Verified
+- **INV-1** (no workflow-name branches): ✅ not engaged (infra-only, no engine code)
+- **INV-3** (golden parity): ✅ not engaged (characterization tests do not execute bootstrap script; log file path is not on the golden path)
+- **INV-12** (no duplication): ✅ not applicable (infra script, not Python capability)
+- **SC-001** (new workflow = manifest + AGENT.md): ✅ not engaged (no new workflow)
+
+#### Verification
+
+**Automated checks (pre-merge):**
+- ✅ Logfile path correctly relocated to `/opt/aws/amazon-cloudwatch-agent/logs/`
+- ✅ Logs directory created idempotently via `mkdir -p {etc,logs}`
+- ✅ Exit status guard in place with error message
+- ✅ JSON config structure valid (quotes, commas, nesting intact)
+- ✅ No unintended changes to other sections or collect_list entries
+- ✅ Idempotence preserved (reruns safe, C1 reconcile safe)
+
+**Live verification (post-merge, requires AWS access):**
+- ⧰ Agent starts without restart loop
+- ⧰ Diagnostic log appears in `/opt/aws/.../logs/` (proves write permission works)
+- ⧰ All 7 log groups receive `CreateLogStream` API calls
+- ⧰ Metrics appear in `VelocityAI/Dev` namespace
+- ⧰ Bootstrap fails visibly if fetch-config fails
+- ⧰ Re-running bootstrap is idempotent (C1 reconcile confirmed safe)
+
+See `.planning/quick/260730-b2x-kan140-cloudwatch-logfile/` for PLAN, VERIFICATION, SUMMARY.
+
+#### Notes
+
+- **Idempotence on reruns:** `mkdir -p` is idempotent; `cat >` overwrites (idempotent if content identical); `||` guard only triggers on true failures, not reruns. Bootstrap is safe to run multiple times (C1 design).
+- **No migration needed:** Logfile is runtime config, not schema. No database migration required.
+- **Shell syntax unchanged:** Heredoc escaping remains unquoted (bash expands `${ENV_TITLE}` at install time; agent placeholders `\${aws:...}` survive to agent runtime). Only the logfile path changes.
+- **Three latent regressions eliminated:** This location solves all three (internal rotation, future logrotate, C1 idempotence).

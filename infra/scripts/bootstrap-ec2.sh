@@ -974,12 +974,12 @@ setfacl -R -d -m u:cwagent:rX,o::r /var/lib/docker/containers
 # - The collect_list mirrors the doc (nginx access/error, postgres, audit,
 #   auth, unattended-upgrades, letsencrypt) PLUS the Docker JSON log path
 #   that captures backend+frontend stdout via the json-file log driver.
-mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
+mkdir -p /opt/aws/amazon-cloudwatch-agent/{etc,logs}
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
 {
   "agent": {
     "metrics_collection_interval": 60,
-    "logfile": "/var/log/amazon-cloudwatch-agent.log",
+    "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
     "run_as_user": "cwagent"
   },
   "metrics": {
@@ -1020,7 +1020,8 @@ EOF
 # enable` separately — the agent's deb postinst already does that.
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
     -a fetch-config -m ec2 -s \
-    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+    || { echo "ERROR: amazon-cloudwatch-agent fetch-config failed with exit code $?"; exit 1; }
 
 # ── 15. velocityai-deploy user + restricted sudoers + image-tag wrapper ────
 if ! id velocityai-deploy >/dev/null 2>&1; then
