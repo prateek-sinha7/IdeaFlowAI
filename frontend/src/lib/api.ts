@@ -294,6 +294,9 @@ interface RawWorkflowRun {
   // Revision Families (B1 / D1-D2-D7): optional so legacy raw rows still parse.
   parent_run_id?: string | null;
   root_run_id?: string;
+  // KAN-130: chaining indicator — set when a run was launched from a prior run's
+  // output (chain into). Optional so legacy rows without it still parse.
+  source_run_id?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -330,6 +333,8 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     // root — matches the backend's "standalone run → own id" semantics.
     parentRunId: raw.parent_run_id ?? null,
     rootRunId: raw.root_run_id ?? raw.id,
+    // KAN-130: chaining indicator — non-null when launched by chaining from another run.
+    sourceRunId: raw.source_run_id ?? null,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,

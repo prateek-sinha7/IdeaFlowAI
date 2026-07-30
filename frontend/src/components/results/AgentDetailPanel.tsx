@@ -26,19 +26,33 @@ import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOver
 
 // ─── Shared context-source formatting (INV-12 — the single derivation the sticky
 //     panel + any future consumer share; was inline in the retired ContextSourcesRow).
+// KAN-129: extended to handle "run_input" and "context_block" source types added
+// by KAN-102 — these carry a backend `label` field (e.g. "prompt.md",
+// "Template: ibm-carbon") that was previously ignored, causing all first-agent
+// sources to render as "artifact". SC-001: dispatch on generic type field only,
+// never on agent/workflow name.
 export function formatContextSource(src: ContextSource): { name: string; meta: string } {
-  const name = src.type === "summary"
-    ? (src.agent_name || src.agent_id || "Agent")
-    : (src.artifact_type || "artifact");
-  const sizeK = src.type === "summary" && src.summary_length != null
-    ? `${(src.summary_length / 1000).toFixed(1)}k`
-    : src.type === "artifact" && src.artifact_size_chars != null
-    ? `${(src.artifact_size_chars / 1000).toFixed(1)}k`
+  const name =
+    src.type === "summary"
+      ? (src.agent_name || src.agent_id || "Agent")
+      : src.type === "run_input"
+      ? (src.label || "prompt.md")
+      : src.type === "context_block"
+      ? (src.label || "context")
+      : (src.artifact_type || "artifact");
+  const rawSize =
+    src.type === "summary" ? src.summary_length
+    : src.type === "artifact" ? src.artifact_size_chars
+    : src.type === "run_input" || src.type === "context_block" ? src.size_chars
     : null;
-  const compression = src.type === "summary" && src.summary_length != null &&
-    src.full_output_length != null && src.full_output_length > 0
-    ? Math.round((1 - src.summary_length / src.full_output_length) * 100)
-    : null;
+  const sizeK = rawSize != null ? `${(rawSize / 1000).toFixed(1)}k` : null;
+  const compression =
+    src.type === "summary" &&
+    src.summary_length != null &&
+    src.full_output_length != null &&
+    src.full_output_length > 0
+      ? Math.round((1 - src.summary_length / src.full_output_length) * 100)
+      : null;
   const meta = [sizeK, compression != null && compression > 0 ? `-${compression}%` : null]
     .filter(Boolean).join(" · ") || "context";
   return { name, meta };

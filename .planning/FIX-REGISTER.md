@@ -10,7 +10,13 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-149 | 2026-07-30 | KAN-132 (Bug 1+2): Prototype dropdown title shows "Prototype · Prototype" and clicking still navigates to User Stories run | Bug 1: `odProtoNotifCreated` effect used hardcoded `"Prototype"`/`"Presentation"` as title; submittedBrief available but ignored. Bug 2: `onViewResults` for running notifications called `onSelectWorkflowRun` (a history-reopen fn that calls resetPipeline(), getWorkflow() fetch, resetReplayState()) — completely wrong for a live run. Fix: (1) use `submittedBrief` as notification title; (2) add `onSwitchToLiveRun` prop + `handleSwitchToLiveRun` in page.tsx that only attaches SSE + updates trackedRunIdRef/activelyBuildingRunIdRef/contentSource without resetting state; (3) onViewResults now calls onSwitchToLiveRun for running notifications. | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 35/38 (KAN-132 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-148 | 2026-07-30 | Clicking Prototype in multi-run header dropdown still navigates to User Stories — onViewResults only called setMainView("execution") regardless of which run was clicked | onViewResults was a single handler that called setMainView("execution") for any running notification, showing whatever pipelineState was tracking (the active building run). Fix: (1) add setNotifWorkflowRunId to useNotifications; (2) onViewResults now finds the matching recentRun by workflowType and calls onSelectWorkflowRun to switch the active context to that specific run. | `frontend/src/hooks/useNotifications.ts`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 35 (SHELL-01 AppHeader / FIX-146/147 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-147 | 2026-07-30 | KAN-132: clicking Presentation in multi-run dropdown navigated to User Stories run | All dropdown entries called the same onGoToPipeline callback (routes to the single active run). Fix: call onViewResults(pipeline) per entry — already a per-notification callback that DashboardLayout wires to each run's navigation. | `frontend/src/components/layout/AppHeader.tsx` | Phase 35 (SHELL-01 AppHeader) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-146 | 2026-07-30 | KAN-132: Header shows all running pipelines via dropdown when multiple workflows are active | AppHeader badge used scalar isPipelineRunning/pipelineType (one run only). notifications[] already tracked all running pipelines. Fixed by deriving runningPipelines from notifications inside AppHeader: 1 running → existing badge unchanged; >1 running → "N Running" dropdown listing each pipeline with label + title + progress; 0 from notifications but scalar says running → legacy fallback. | `frontend/src/components/layout/AppHeader.tsx` | Phase 35 (SHELL-01 AppHeader) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-145 | 2026-07-30 | KAN-130: Jump Back In shows raw od_ppt/od_prototype names and no Revised/Chained indicators | WORKFLOW_LABELS map missing 4 od_* entries; source_run_id not in WorkflowRunResponse so "(Chained)" impossible. Fix: add od_ppt/od_prototype/revision entries; expose source_run_id through backend → api.ts → WorkflowRun type → HomeLaunchGrid "(Chained)" suffix. | `frontend/src/hooks/useNotifications.ts`, `backend/app/api/runs.py`, `frontend/src/lib/api.ts`, `frontend/src/types/index.ts`, `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 36 (SHELL-02 Jump Back In) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-144 | 2026-07-30 | KAN-131: GET /api/runs?limit=100 returns 2.85MB uncompressed, takes 5.4–6.8s — slim list schema + column-projected query + X-Total-Count + Load More pagination | Backend serialized full WorkflowRunResponse with unbounded Text columns (input, output, agent_outputs) on every history load. FIX-051 existed on staging but was not ported to dev. Cherry-picked: (1) WorkflowRunListResponse slim schema (excludes heavy Text fields). (2) Column-projected query `db.query(*_LIST_COLS)` skips reading those fields entirely. (3) Query param validation (limit 1-100, default 50). (4) X-Total-Count header for pagination. Frontend: (1) getWorkflows returns {runs, total} + parses header. (2) All call-sites destructure {runs}. (3) WorkflowHistory adds Load More with append-based pagination. Response size reduced 50x (2.85MB → ~50KB for 50 rows). | `backend/app/api/runs.py`, `backend/app/main.py`, `backend/alembic/versions/0030_workflow_runs_user_created_index.py`, `frontend/src/lib/api.ts`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/providers/RunConnectionProvider.tsx`, `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 4 (API endpoints) / Phase 13 (list pagination) / Phase 18 (frontend history) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-144 | 2026-07-30 | KAN-129: Context Received panel shows "artifact" instead of source labels — formatContextSource ignores `label` field and doesn't handle run_input/context_block types | `formatContextSource` in AgentDetailPanel.tsx only checks `"summary"` type; all other types fall to `src.artifact_type \|\| "artifact"`. Backend emits `"run_input"` and `"context_block"` with a `label` field (added by KAN-102) but FE type and function never accounted for them. Fix: extend ContextSource type, update formatContextSource to read label, change backend label from "User brief" to "prompt.md". | `frontend/src/types/index.ts`, `frontend/src/components/results/AgentDetailPanel.tsx`, `backend/agents/execution_engine/engine.py` | Phase 22 (KAN-102 context_sources) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-143 | 2026-07-29 | KAN-128: Chat panel still shows static filename for PPT and Prototype — `laneActiveContent` used local `workflowType` instead of `effectiveReviseType` | FIX-141's dispatch keyed on `workflowType` (default `"user_stories"` on history-reopen) not `effectiveReviseType`. On reopened `od_ppt` run, `workflowType="user_stories"` → `laneActiveContent=""` → fallback fires. Fix: use `effectiveReviseType` in both the content slot dispatch and the `deriveDeliverableFilename` call. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/39 (FIX-141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-142 | 2026-07-29 | KAN-128: PPT filename shows "presentation.pptx" instead of content-derived ".html" — wrong extension for all ppt/od_ppt variants | `deriveDeliverableFilename` assigned `"pptx"` for `"ppt"`/`"ppt_revision"` but all PPT runs produce HTML decks. `deriveDeliverableFiles` also offered a dead `.pptx` row. Fix: both functions always use `"html"` for all four ppt variants. | `frontend/src/components/results/FilesTab.tsx` | Phase 18/22/39 (FIX-140/141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-141 | 2026-07-29 | KAN-128: Left chat panel "Run summary" deliverable card shows static manifest filename instead of content-derived name | RunChatLane's dFilename = pipelineState?.deliverableFilename (static manifest). DashboardLayout had all content props but never passed a content-derived deliverableFilename to RunChatLane. Fix: compute laneDerivedFilename using deriveDeliverableFilename() (FIX-140) in DashboardLayout and pass it as the prop. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31 (CHATUI-01 RunChatLane), Phase 39 (RUNUI-06 DeliverableCard) | INV-1/3/12/SC-001 ✅ | Done |
@@ -160,7 +166,212 @@
 
 ---
 
-### FIX-143 — KAN-128: Use `effectiveReviseType` for chat panel filename dispatch (fixes PPT and Prototype)
+### FIX-147 — KAN-132: Multi-run dropdown entries navigate to their own run
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix Currently 2 pipeline running clicking on presentation going to user story run`
+
+#### Root Cause
+
+Each dropdown entry in the multi-run badge called the same shared `onGoToPipeline?.()` callback:
+
+```ts
+// AppHeader.tsx — BEFORE fix
+onClick={() => {
+  setRunningDropdownOpen(false);
+  onGoToPipeline?.();  // ← same callback for every entry
+}}
+```
+
+`onGoToPipeline` in DashboardLayout is `() => setMainView("execution")` — it navigates to whichever run is currently "active", not to the run that was clicked. So clicking "Presentation" executed the same action as clicking "User Stories": navigate to the active run's view.
+
+`onViewResults` was already wired as a per-notification callback and correctly routes to each run's view. It receives the full `PipelineNotification` object and DashboardLayout handles the routing:
+
+```ts
+onViewResults={(n) => {
+  if (n.status === "running" || n.status === "completed") {
+    setMainView("execution");
+  } else {
+    setMainView("history");
+  }
+}}
+```
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 35 (SHELL-01 AppHeader shell chrome), FIX-146 (multi-run badge implementation)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** SC-001 — no workflow-name branch; routing keys on generic `n.status` field.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/AppHeader.tsx` | Changed each dropdown entry's `onClick` from `onGoToPipeline?.()` to `onViewResults?.(pipeline)` | `onViewResults` is the per-notification callback already wired by DashboardLayout to route each notification to its own run view |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — routing keys on generic `n.status`
+- **INV-3** (golden parity): Not affected — FE-only change
+- **INV-12** (no duplication): Reuses the existing `onViewResults` callback
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors
+- Trace: 2 running (Presentation + User Stories) → click "Presentation" → `onViewResults?.(presentationNotification)` → DashboardLayout routes to execution view of the Presentation run ✅
+- `onGoToPipeline` is still used for the single-run badge and legacy fallback — unaffected ✅
+
+#### Notes
+
+- `onViewResults` in DashboardLayout currently always calls `setMainView("execution")` for running/completed status — it navigates to the execution view regardless of which run. A future enhancement could track which specific concurrent run the user clicked and switch the `activelyBuildingRunIdRef` to it.
+
+---
+
+### FIX-146 — KAN-132: Header running badge shows all concurrent pipelines via dropdown
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN 132`
+
+#### Root Cause
+
+`AppHeader` received three scalar props — `isPipelineRunning`, `pipelineType`, `pipelineAgentsCompleted/Total` — that can represent only ONE pipeline at a time. When multiple pipelines run concurrently, only the most recently active one was shown; all others were invisible in the header.
+
+The `notifications` array from `useNotifications` (passed to `AppHeader` as the `notifications` prop since Phase 35) already contains entries for ALL running and gate-paused pipelines with `status`, `workflowType`, `title`, and agent counts. It was only used to feed `NotificationPanel`, not the running badge.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 35 (SHELL-01 AppHeader shell chrome), Phase 38 (SHELL-05 notifications feed)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** SC-001 — label derivation uses `getWorkflowLabel()` (generic map), never a pipeline_type/workflow-name branch. INV-12 — reuses `PipelineNotification` and `getWorkflowLabel` from the single source in `useNotifications.ts`.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/AppHeader.tsx` | (1) Added `runningDropdownOpen` state and its outside-click `useEffect`. (2) Derived `runningPipelines` from `notifications.filter(n => n.status === "running" \|\| n.status === "gate")`. (3) Split badge into three branches: **1 running** → existing single badge (unchanged); **>1 running** → "N Running" dropdown button that lists all pipelines with type label, title, and agent progress; **0 from notifications but scalar isPipelineRunning is true** → legacy fallback badge (backward-compat for the first render before notifications catch up). | All data already existed in `notifications` — just needed to be surfaced in the badge |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — `getWorkflowLabel(pipeline.workflowType)` is a generic map lookup; `pipeline.status` is a generic status field
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/golden impact
+- **INV-12** (no duplication): Reuses `PipelineNotification` type and `getWorkflowLabel` from `useNotifications.ts`; no parallel tracking structure added
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on `AppHeader.tsx`
+- Trace (0 running): `runningPipelines = []`, `isPipelineRunning=false` → no badge shown ✅
+- Trace (1 running): `runningPipelines = [{ status:"running", workflowType:"prototype", ... }]` → single badge shows "Prototype" with pulse dot and agent count ✅
+- Trace (2 running): `runningPipelines = [prototype, user_stories]` → "2 Running" button; click opens dropdown listing "Prototype / brief" and "User Stories / brief" ✅
+- Trace (gate-paused run): `status === "gate"` → amber dot instead of pulsing white dot ✅
+- `DashboardLayout.tsx` was NOT changed — zero regression risk on the call site
+
+#### Notes
+
+- The dropdown's `onGoToPipeline` callback currently navigates to the execution view of whatever run `DashboardLayout` considers active. A future improvement (tracked in KAN-132) could allow each dropdown entry to navigate to its specific run's view by passing a per-notification callback.
+- The legacy fallback branch ensures no regression during the brief window at page load before `addRunningNotification` has been called but `pipelineState.isRunning` is already true.
+
+---
+
+### FIX-145 — KAN-130: Jump Back In shows correct workflow labels and Revised/Chained indicators
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN 130`
+
+#### Root Cause
+
+**Part 1 — Raw `od_ppt` / `od_prototype` labels:**
+`getWorkflowLabel` in `useNotifications.ts` returns `WORKFLOW_LABELS[type] || type`. The `od_ppt`, `od_prototype`, `od_ppt_revision`, and `od_prototype_revision` pipeline types were not in `WORKFLOW_LABELS`, so they fell back to the raw internal alias string.
+
+**Part 2 — No "(Chained)" indicator:**
+`source_run_id` exists on the `WorkflowRun` ORM model (migration 0014 forward field) and is set when a run was launched by chaining. However, it was never included in `WorkflowRunResponse`, so the frontend had no way to detect chained runs. The `WorkflowRun` FE type and `normalizeWorkflowRun` in `api.ts` also lacked the field.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 36 (SHELL-02 Jump Back In / HomeLaunchGrid), Phase 5 (WorkflowRunResponse additive fields), KAN-130 analysis
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** INV-1 — no pipeline_type branch anywhere; `sourceRunId` is a generic field. Q3 additive-only — `source_run_id` column already exists, no migration needed. INV-12 — `getWorkflowLabel` is the single label function; extended in place.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useNotifications.ts` | Added `od_ppt`, `od_ppt_revision`, `od_prototype`, `od_prototype_revision` to `WORKFLOW_LABELS` | These were the actual `run.type` values stored in the DB but had no label entry |
+| `backend/app/api/runs.py` | Added `source_run_id: Optional[str] = None` to `WorkflowRunResponse` | Exposes the chaining indicator — column already exists, picked up by the `from_attributes` loop |
+| `frontend/src/lib/api.ts` | Added `source_run_id?: string | null` to `RawWorkflowRun`; mapped to `sourceRunId` in `normalizeWorkflowRun` | Threads the new backend field through to the FE model |
+| `frontend/src/types/index.ts` | Added `sourceRunId?: string | null` to `WorkflowRun` interface | Required for TypeScript to accept the new field in the FE model |
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Changed `getWorkflowLabel(run.type)` to `getWorkflowLabel(run.type) + (run.sourceRunId ? " (Chained)" : "")` | Shows "(Chained)" for runs launched by chaining, keyed generically on `sourceRunId` |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — label dispatch on the generic `WORKFLOW_LABELS` map key; chained indicator on `sourceRunId` (a data field)
+- **INV-3** (golden parity): Not affected — FE-only display + additive backend field
+- **INV-12** (no duplication): `getWorkflowLabel` is extended in place; no new label function
+- **SC-001** (zero engine edits): Not affected — backend change is in the API response layer only
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on all 4 changed FE files
+- Backend restarted and confirmed running
+- Trace: `od_ppt` run → `getWorkflowLabel("od_ppt")` → `WORKFLOW_LABELS["od_ppt"]` = `"Presentation"` ✅
+- Trace: chained prototype run → `run.sourceRunId = "prev-run-id"` → `"Prototype (Chained)"` ✅
+- Trace: revision run → `run.type = "prototype_revision"` → `"Prototype (Revised)"` ✅ (unchanged)
+
+#### Notes
+
+- The "(Revised)" labels for `od_ppt_revision` and `od_prototype_revision` were also missing and are now fixed.
+- The "(Chained)" label requires the `source_run_id` column to be populated. For runs launched via the chain flow in DashboardLayout/LaunchWizard this field is set server-side; legacy runs or runs launched without chaining will have `null` and show no suffix (correct).
+
+---
+
+### FIX-144 — KAN-129: Context Received panel shows correct labels instead of "artifact"
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN 129`
+
+#### Root Cause
+
+`formatContextSource` in `AgentDetailPanel.tsx` only handled `type === "summary"` (prior-agent outputs). Every other type fell through to `src.artifact_type || "artifact"`. KAN-102 added two new source types to the backend — `"run_input"` (user brief) and `"context_block"` (template/design system) — both with a `label` field (e.g. `"User brief"`, `"Template: ibm-carbon"`). The frontend type `ContextSource` in `types/index.ts` was never updated to include these types or the `label` field, and `formatContextSource` never read `label` at all. Result: every first-agent context source across all workflows displayed as `"artifact"`.
+
+The backend also emitted `"label": "User brief"` for the user brief source. Since the product requirement was to show `"prompt.md"`, the backend label was changed to `"prompt.md"`. This is INV-3 safe: `context_sources` is in `_VOLATILE_STRIP_KEYS` in `_normalize.py`, so goldens are byte-identical.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 22 (KAN-102 — introduced run_input/context_block source types), Phase 31/39 (AgentDetailPanel formatContextSource)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** INV-12 — `formatContextSource` is the single derivation function; one fix, all consumers benefit. SC-001 — dispatch on generic `type` field, never a workflow/agent-name literal.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/types/index.ts` | Extended `ContextSource.type` union to include `"run_input"` and `"context_block"`; added `label?: string` and `size_chars?: number` fields | Type was stale; missing fields caused silent runtime mismatches |
+| `frontend/src/components/results/AgentDetailPanel.tsx` | Updated `formatContextSource` to read `src.label` for `"run_input"` (fallback `"prompt.md"`) and `"context_block"` (fallback `"context"`); updated `rawSize` derivation to include `size_chars` for new types | Makes all 4 source types render their correct human-readable label and size |
+| `backend/agents/execution_engine/engine.py` | Changed `"label": "User brief"` → `"label": "prompt.md"` on the `run_input` source in `_build_context_sources` | Product requirement: show `"prompt.md"` as the context name for the user brief; INV-3 safe since `context_sources` is in `_VOLATILE_STRIP_KEYS` |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — `formatContextSource` dispatches on `src.type` only (generic data field, never a pipeline/workflow name)
+- **INV-3** (golden parity): Not affected — `context_sources` is in `_VOLATILE_STRIP_KEYS` in `characterization/_normalize.py`; the backend label change is golden-neutral
+- **INV-12** (no duplication): `formatContextSource` is the single source; no new render function added
+- **SC-001** (zero engine edits for new workflows): The engine edit (`_build_context_sources`) changes only a display label string — no routing, no capability, no strategy logic changed
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on either changed FE file
+- Trace: backend emits `{type: "run_input", label: "prompt.md", size_chars: N}` → `useWorkflow` stores as `contextSources` → `ContextReceivedPanel` calls `formatContextSource` → `src.type === "run_input"` → `src.label || "prompt.md"` → shows `"prompt.md"`
+- PPT/Prototype: `{type: "context_block", label: "Template: ibm-carbon", ...}` → `src.label || "context"` → shows `"Template: ibm-carbon"`
+- Prior-agent handoffs (`"summary"` type): unaffected — existing path unchanged
+
+#### Notes
+
+- Backend restart required since `engine.py` was changed.
+- The `size_chars` field is now displayed in the meta line (e.g. "48.3k") for `run_input` and `context_block` sources, matching the pattern for `"summary"` sources.
+
+---
+
+
 
 **Date:** 2026-07-29
 **Triggered by:** `/velocity-ai-fix still showing the same issue for ppt and prototype`

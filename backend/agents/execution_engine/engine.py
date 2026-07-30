@@ -5993,7 +5993,7 @@ class ExecutionEngine:
             if user_message:
                 sources.append({
                     "type": "run_input",
-                    "label": "User brief",
+                    "label": "prompt.md",
                     "size_chars": len(user_message),
                 })
 

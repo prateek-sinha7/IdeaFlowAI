@@ -60,7 +60,10 @@ export function AppHeader({
   onViewResults,
 }: AppHeaderProps) {
   const [profileOpen, setProfileOpen] = useState(false);
+  // KAN-132: dropdown state for the multi-pipeline running badge
+  const [runningDropdownOpen, setRunningDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const runningDropdownRef = useRef<HTMLDivElement>(null);
   // a11y: Escape closes the profile menu and returns focus here (D-15 a11y).
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -74,6 +77,17 @@ export function AppHeader({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [profileOpen]);
 
+  // KAN-132: close the running-pipelines dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (runningDropdownRef.current && !runningDropdownRef.current.contains(e.target as Node)) {
+        setRunningDropdownOpen(false);
+      }
+    };
+    if (runningDropdownOpen) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [runningDropdownOpen]);
+
   // a11y: Escape closes the menu and refocuses the trigger. Bound on the wrapper
   // so it fires whether focus is on the trigger button or a menu item.
   const handleMenuKeyDown = (e: React.KeyboardEvent) => {
@@ -83,6 +97,14 @@ export function AppHeader({
       triggerRef.current?.focus();
     }
   };
+
+  // KAN-132: derive all currently-running pipelines from the notifications array
+  // (already passed by DashboardLayout). SC-001: keyed on generic status field,
+  // never a pipeline_type/workflow-name branch. "gate" = paused at review gate,
+  // shown with an amber dot. "running" = actively building, shown with blue dot.
+  const runningPipelines = notifications.filter(
+    (n) => n.status === "running" || n.status === "gate"
+  );
 
   // Nav shape is a GENERIC {key,label,icon} list keyed on page keys — never a
   // workflow name (SC-001/INV-1). The saved-workflows item is relabeled to
@@ -136,10 +158,114 @@ export function AppHeader({
       {/* Right — Running badge + Notifications + Profile */}
       <div className="flex items-center gap-2">
 
-        {/* Running pipeline badge — only when pipeline is active */}
+        {/* Running pipeline badge(s) — only when at least one pipeline is active.
+            KAN-132: single pipeline → existing badge; multiple → dropdown listing all.
+            SC-001: label uses getWorkflowLabel (generic map), never a name branch.
+            Dot colour: blue (animate-pulse) for running, amber for gate (paused). */}
         <AnimatePresence>
-          {isPipelineRunning && pipelineType && (
+          {runningPipelines.length === 1 && (
+            /* Single-pipeline: existing badge, unchanged behaviour */
             <motion.button
+              key="single-run-badge"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
+              onClick={onGoToPipeline}
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-button)] bg-brand/80 border border-brand text-[11px] font-medium text-white hover:bg-brand transition-colors"
+            >
+              <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${runningPipelines[0].status === "gate" ? "bg-amber-300" : "bg-white animate-pulse"}`} />
+              <span className="max-w-[120px] truncate">{getWorkflowLabel(runningPipelines[0].workflowType)}</span>
+              {(runningPipelines[0].agentsTotal ?? 0) > 0 && (
+                <span className="text-white/60 flex-shrink-0">
+                  {runningPipelines[0].agentsCompleted ?? 0}/{runningPipelines[0].agentsTotal}
+                </span>
+              )}
+            </motion.button>
+          )}
+
+          {runningPipelines.length > 1 && (
+            /* Multi-pipeline: dropdown button showing count + expanded list */
+            <motion.div
+              key="multi-run-badge"
+              ref={runningDropdownRef}
+              className="relative hidden sm:block"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
+            >
+              <button
+                onClick={() => setRunningDropdownOpen((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={runningDropdownOpen}
+                aria-label={`${runningPipelines.length} pipelines running — click to view`}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-button)] bg-brand/80 border border-brand text-[11px] font-medium text-white hover:bg-brand transition-colors"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse flex-shrink-0" />
+                <span>{runningPipelines.length} Running</span>
+                <ChevronDown className={`h-3 w-3 transition-transform ${runningDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              <AnimatePresence>
+                {runningDropdownOpen && (
+                  <motion.div
+                    role="menu"
+                    initial={{ opacity: 0, y: 6, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute right-0 top-full mt-1.5 w-64 rounded-[var(--radius-menu)] border border-line-border bg-surface-card shadow-[var(--elevation-menu)] overflow-hidden z-50"
+                  >
+                    <div className="px-3 py-2 border-b border-line-divider">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
+                        Active Pipelines
+                      </p>
+                    </div>
+                    <div className="flex flex-col divide-y divide-line-divider">
+                      {runningPipelines.map((pipeline) => (
+                        <button
+                          key={pipeline.id}
+                          role="menuitem"
+                          onClick={() => {
+                            setRunningDropdownOpen(false);
+                            // KAN-132 fix: call per-notification onViewResults so
+                            // each entry navigates to its own run, not the shared
+                            // onGoToPipeline which always routes to the active run.
+                            onViewResults?.(pipeline);
+                          }}
+                          className="flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-surface-warm transition-colors w-full"
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 mt-0.5 ${pipeline.status === "gate" ? "bg-amber-400" : "bg-brand animate-pulse"}`} />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[12px] font-semibold text-ink-900 truncate">
+                              {getWorkflowLabel(pipeline.workflowType)}
+                            </p>
+                            {pipeline.title && (
+                              <p className="text-[10.5px] text-ink-400 truncate mt-0.5">
+                                {pipeline.title}
+                              </p>
+                            )}
+                          </div>
+                          {(pipeline.agentsTotal ?? 0) > 0 && (
+                            <span className="text-[10px] text-ink-400 flex-shrink-0 font-mono">
+                              {pipeline.agentsCompleted ?? 0}/{pipeline.agentsTotal}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          )}
+
+          {/* Legacy: fall back to old scalar props if notifications don't carry
+              a running entry but pipelineState says running (edge case on first render) */}
+          {runningPipelines.length === 0 && isPipelineRunning && pipelineType && (
+            <motion.button
+              key="legacy-run-badge"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
@@ -153,7 +279,8 @@ export function AppHeader({
                 <span className="text-white/60 flex-shrink-0">
                   {pipelineAgentsCompleted}/{pipelineAgentsTotal}
                 </span>
-              )}            </motion.button>
+              )}
+            </motion.button>
           )}
         </AnimatePresence>
 

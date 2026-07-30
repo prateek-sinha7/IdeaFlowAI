@@ -363,6 +363,10 @@ export interface WorkflowRun {
   // run is its own root).
   parentRunId: string | null;
   rootRunId: string;
+  // KAN-130: chaining indicator — non-null when this run was launched by chaining
+  // from a prior run's output (e.g. User Stories → Prototype chain).
+  // Used to show "(Chained)" in the Jump Back In section.
+  sourceRunId?: string | null;
   createdAt: string;
   completedAt?: string;
   duration?: number;
@@ -557,10 +561,12 @@ export interface AgentRunState {
   validationPassed?: boolean;
 }
 
-/** A source of context for an agent — either a summarized prior-agent output
- *  or a typed Artifact from the Artifact_Store. */
+/** A source of context for an agent — either a summarized prior-agent output,
+ *  a typed Artifact from the Artifact_Store, or a run-originating source
+ *  (user brief / template / design system). KAN-129: added "run_input" and
+ *  "context_block" types + `label` field to match what the backend emits. */
 export interface ContextSource {
-  type: "summary" | "artifact";
+  type: "summary" | "artifact" | "run_input" | "context_block";
   // For type="summary":
   agent_id?: string;
   agent_name?: string;
@@ -569,6 +575,11 @@ export interface ContextSource {
   // For type="artifact":
   artifact_type?: string;
   artifact_size_chars?: number;
+  // For type="run_input" and type="context_block" (KAN-129):
+  // Human-readable label emitted by the backend (e.g. "prompt.md",
+  // "Template: ibm-carbon", "Design system: ibm-carbon").
+  label?: string;
+  size_chars?: number;
 }
 
 /** A single tool invocation recorded in the Thinking tab. */

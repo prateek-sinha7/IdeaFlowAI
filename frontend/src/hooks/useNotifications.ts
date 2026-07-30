@@ -21,8 +21,14 @@ const WORKFLOW_LABELS: Record<string, string> = {
   user_stories_revision: "User Stories (Revised)",
   ppt: "Presentation",
   ppt_revision: "Presentation (Revised)",
+  // KAN-130: od_ppt and od_prototype are the actual pipeline_type values stored
+  // in WorkflowRun.type; they had no entry and fell back to the raw alias string.
+  od_ppt: "Presentation",
+  od_ppt_revision: "Presentation (Revised)",
   prototype: "Prototype",
   prototype_revision: "Prototype (Revised)",
+  od_prototype: "Prototype",
+  od_prototype_revision: "Prototype (Revised)",
   app_builder: "App Builder",
   app_builder_revision: "App Builder (Revised)",
   mulesoft_to_springboot: "Mulesoft Migration",
@@ -140,6 +146,16 @@ export function useNotifications() {
     setNotifications([]);
   }, []);
 
+  // KAN-132 (FIX-148): store the backend run id on a running notification so
+  // the header dropdown can navigate to the specific run that was clicked, not
+  // just the active building run. Called from page.tsx's onStartPipeline .then()
+  // once the launchedRunId is available.
+  const setNotifWorkflowRunId = useCallback((id: string, workflowRunId: string) => {
+    setNotifications(prev =>
+      prev.map(n => n.id === id ? { ...n, workflowRunId } : n)
+    );
+  }, []);
+
   const unreadCount = notifications.filter(n => !n.read && n.status !== "running").length;
 
   return {
@@ -152,6 +168,7 @@ export function useNotifications() {
     markCancelled,
     markGatePaused,
     markGateResumed,
+    setNotifWorkflowRunId,
     markAllRead,
     clearAll,
     unreadCount,
