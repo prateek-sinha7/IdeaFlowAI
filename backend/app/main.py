@@ -183,6 +183,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # KAN-131: expose X-Total-Count so the frontend can read the total run count
+    # for pagination without a separate request. Custom response headers are NOT
+    # accessible from browser fetch() by default — they must be explicitly listed
+    # in Access-Control-Expose-Headers.
+    expose_headers=["X-Total-Count"],
 )
 
 
