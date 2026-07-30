@@ -266,7 +266,7 @@ export function RunConnectionProvider({
       return;
     }
     try {
-      const runs = await getWorkflows(t, { limit: 50 });
+      const { runs } = await getWorkflows(t, { limit: 50 });
       // KAN-125 MULTI-TAB FIX: only auto-attach runs that this browser TAB
       // actually launched (restored from sessionStorage). A new tab has an
       // empty sessionStorage set and should not inherit another tab's running
