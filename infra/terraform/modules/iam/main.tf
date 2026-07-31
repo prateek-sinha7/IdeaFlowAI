@@ -93,6 +93,31 @@ resource "aws_iam_role_policy" "kms_decrypt" {
   })
 }
 
+# The CloudWatch Agent's log delivery needs CreateLogStream + PutLogEvents
+# (both scoped to log-stream ARNs and matched by the log-group prefix wildcard),
+# plus DescribeLogStreams (scoped to log-group, not used by the modern agent).
+#
+# Deliberately NOT granted (do not re-add without re-reading this):
+#
+#   logs:DescribeLogGroups — the action has NO resource type in AWS IAM Service
+#     Reference (no "Resources" entry), so it can only ever be granted with
+#     Resource "*". Previously present here scoped to /velocityai/<env>/* ARN,
+#     which made it a silent no-op (IAM accepts it but never matches). Agent
+#     only calls it if target.Retention > 0 (pusher/target.go:79), and no
+#     collect_list entry in bootstrap-ec2.sh sets retention_in_days — Terraform
+#     owns retention (modules/monitoring/main.tf:44). If that ever changes, BOTH
+#     DescribeLogGroups AND PutRetentionPolicy become needed, both on Resource
+#     "*". See B3 (prevents retention in collect_list) and B4 (agent log
+#     visibility) for the safety net. Deleted per FIX-144 least-privilege fix.
+#
+#   logs:CreateLogGroup — Terraform pre-creates all seven log groups with
+#     prevent_destroy (modules/monitoring/main.tf:15-23). Agent only calls
+#     CreateLogGroup on ResourceNotFoundException from CreateLogStream, which
+#     cannot happen while Terraform owns the groups.
+#
+# The metric/describe half of the agent (CloudWatch PutMetricData + EC2
+# Describe*) lives in the separate cwagent-describe policy below (line 157)
+# — see that comment for the same rule applied to actions with no resource types.
 resource "aws_iam_role_policy" "cloudwatch_write" {
   name = "${var.name_prefix}-cloudwatch-write"
   role = aws_iam_role.instance.id

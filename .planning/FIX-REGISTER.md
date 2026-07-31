@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-154 | 2026-07-31 | KAN-149 (E4): Remove no-op `logs:DescribeLogGroups` from instance-role CloudWatch IAM policy | `logs:DescribeLogGroups` has no AWS IAM resource type (AWS Service Reference: no "Resources" entry), so scoping it to `arn:...:log-group:/velocityai/<env>/*` was a silent no-op. Agent never calls it in this config (gate: `target.Retention > 0` at pusher/target.go:79; default -1; no config sets it). Deleted statement + documented why via HCL comment so it's not re-added. Widening to `Resource:"*"` was rejected: would grant unnecessary account-wide cross-env log-group enumeration to internet-facing host for a call path that doesn't execute. | `infra/terraform/policies/cloudwatch-write.json` (deleted DescribeLogGroups statement), `infra/terraform/modules/iam/main.tf` (added 23-line durability comment above resource) | quick-260731-fx3 (infrastructure, least-privilege hardening) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no app changes; no duplication; no engine branches; no migrations) | Done |
 | FIX-152 | 2026-07-30 | C1: Extract nginx + CloudWatch config from bootstrap into reusable reconcile script — config changes never reach live hosts | bootstrap-ec2.sh §13–§14 embedded in once-per-instance script; repo edits to nginx/agent config have no delivery path to live hosts without instance destruction or destructive manual re-run. Fix: extract §13 (nginx, excluding cert) + §14 (agent config) into standalone reconcile-host-config.sh; bootstrap fetches and runs it on first boot; CI fetches and runs it on every deploy | `infra/scripts/reconcile-host-config.sh` (new, faithful extraction), `infra/scripts/bootstrap-ec2.sh` (lines 693–1208 replaced with S3 fetch + cert block + reconcile call; see 260730-bootstrap-replacement.sh for mechanical application), `infra/terraform/app/main.tf` (added aws_s3_object.reconcile_script, extended depends_on), `infra/buildspec.yml` (added reconcile fetch-and-run after chown, before ECR login) | quick-260730-c1 (infrastructure extraction, unblocks A1/D3/E1/E3) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no app byte changes; one impl; zero engine) | Done (Step 2a blocked by token limit; mechanical replacement script provided) |
 | FIX-153 | 2026-07-30 | KAN-147 (E1): nginx rate-limit 429s unobservable in CloudWatch metrics — JSON log_format with upstream_addr discriminator + new 429 filters and liveness alarms | Space-delimited nginx log_format carries no $upstream_addr; when nginx limit_req rejects with 429, $upstream_addr unset (empty string in JSON, not "-"). Positional metric filter `[ip, id, user, ts, request, status_code=5*, ...]` matches only 5xx status codes; 429 (4xx) produces zero matches. Metric datapoint never emitted; alarm with `treat_missing_data="notBreaching"` stays OK silently. A1 rate-limit scenario unobservable. Additional: :80 server block has no `access_log` → inherits http-level combined format → /var/log/nginx/access.log carries mixed formats → JSON filters silently skip :80 half. Fix: (1) replace log_format with `escape=json` variant carrying $upstream_addr, $upstream_status, $status (numeric), $request_id, timing fields + two map directives normalize upstream_addr (empty→"-") and status (strip leading zeros); (2) add `access_log` to :80 block (file homogeneous); (3) update nginx_5xx filter to JSON pattern `{ $.status >= 500 }`; (4) add nginx_429 filter (`{ $.status = 429 }`), nginx_limit_reject filter (`{ $.status = 429 && $.upstream_addr = "-" }`), sse_stream_closed filter; (5) add three alarms: nginx_429_spike, nginx_limit_reject (THE A1 ALARM), plus two liveness alarms (app_log_ingestion_stalled, nginx_log_parse_stalled) to detect silent monitoring failures. | `infra/scripts/reconcile-host-config.sh` (log_format replaced, two map directives added, :80 access_log added), `infra/terraform/modules/monitoring/main.tf` (nginx_5xx pattern updated to JSON, 5 new filters added, 5 new alarms added) | quick-260730-e1t (infrastructure observability, complements FIX-144 A1 mitigation) | INV-1 ✅ (infra-only, no engine edits), INV-3 ✅ (no Python changes; goldens untouched), INV-12 ✅ (log_format replaced in place, not duplicated), SC-001 ✅ (no workflow branches; metrics key on $status/$upstream_addr only), Locked decision ✅ ($uri not $request/$args for token privacy preserved) | Done |
 | FIX-151 | 2026-07-30 | KAN-142: CloudWatch agent duplicate log stream configuration — audit.log and unattended-upgrades.log collide on /velocityai/*/system:{instance_id} | Two entries in the collect_list both targeted identical (logGroupName, logStreamName) pair (/velocityai/${ENVIRONMENT}/system, {instance_id}), violating CloudWatch's unique stream constraint per CreateLogStream API. Root: config materialized verbatim from documentation in 2026-07-01 prefix-rename pass (commit e1a3a495); uniqueness never validated. Collision latent due to B1 (agent crash-loop on missing logfile perms, FIX-149). Fix: apply uniform stream-naming scheme across all 8 entries — every entry now uses {instance_id}/<source-slug> for unique, self-documenting stream names (nginx-access, nginx-error, postgres, audit, auth, unattended-upgrades, letsencrypt, docker). Added durability comment documenting the naming rule and INV-12 contract. | `infra/scripts/bootstrap-ec2.sh` (collect_list entries lines 1066–1073 renamed, durability comment added lines 1030–1041) | quick-260730-k8x (infrastructure, no schema/migration, infra-only) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; characterization goldens not affected; INV-12 ✅ uniform pattern established and documented) | Done |
@@ -4420,3 +4421,86 @@ The pg_dump heartbeat alarm and metric publishers (E2/E3) used a shared namespac
 - **Environment fallback removed:** Prior `ENVIRONMENT="${VELOCITYAI_ENVIRONMENT:-prod}"` fallback behavior in bootstrap (default to prod if unset) is preserved for backward compat, but publishers now require explicit VELOCITYAI_ENVIRONMENT (fail-closed).
 - **Cross-project consistency:** Matches app layer's `cw_metric_namespace = "VelocityAI/${title(var.environment)}"` (app/main.tf:173), ensuring Terraform and bash derivations stay in sync.
 
+
+
+---
+
+### FIX-154 — KAN-149: Remove no-op `logs:DescribeLogGroups` from instance-role CloudWatch policy
+
+**Date:** 2026-07-31
+**Triggered by:** `/velocity-fix KAN-149`
+
+#### Root Cause
+The VelocityAI dev instance-role CloudWatch IAM policy (`infra/terraform/policies/cloudwatch-write.json:14-21`, Sid: `DescribeLogGroups`) contains a statement that scopes `logs:DescribeLogGroups` to an ARN pattern (`arn:aws:logs:eu-central-1:577954642302:log-group:/velocityai/dev/*`). 
+
+This is a **silent no-op** because AWS's IAM Service Reference (fetched 2026-07-30) shows that `logs:DescribeLogGroups` has **no "Resources" entry** — the action does not support resource-level permissions. When an action lacks resource-type support, scoping it to an ARN makes the statement syntactically valid but functionally never matching any authorization request.
+
+**Why the no-op:** 
+- The CloudWatch agent only calls `DescribeLogGroups` if `target.Retention > 0` (pusher/target.go:79 gate)
+- `RetentionInDays` defaults to -1 when not set (fileconfig.go:155-156)
+- No `collect_list` entry in bootstrap-ec2.sh sets `retention_in_days`
+- Therefore the call is provably unreachable in this configuration
+
+**Blast radius (if widened to `Resource: "*"`)**:
+Would grant account-wide log-group enumeration across dev/stage/prod (single account, three environments in one state file per env) to an internet-facing instance role. No condition key can narrow it (action has no `ActionConditionKeys` in AWS feed). Paying a real security cost for a call path that does not execute is the opposite of least privilege.
+
+#### Phase Context
+- **Phase(s) involved:** Infrastructure (not under app phases; quick-task 260731-fx3)
+- **Relevant register section:** None — infrastructure is tracked separately via FIX-REGISTER, not IMPLEMENTATION-REGISTER
+- **Deleted code verified (not resurrected):** No deleted code involved; defect is a latent mistake in code that was never removed
+- **Locked decisions respected:** 
+  - `infra/terraform/modules/iam/main.tf:151-156` — written rule: "These cannot be scoped down by Resource... The aws:RequestedRegion condition bounds the blast radius..." This fix applies that rule to the file that missed it
+  - `infra/terraform/modules/iam/main.tf:226-238` — sealed-set exclusive-policies contract: no new `aws_iam_role_policy` resource created; existing policy name unchanged
+  - Least privilege as design goal — deletion (not widening) advances it
+
+#### Fix Applied
+| File | Change | Why |
+|---|---|---|
+| `infra/terraform/policies/cloudwatch-write.json` | Deleted lines 14–21 (the entire `DescribeLogGroups` statement) and removed the trailing comma after the first statement | Silent no-op: action has no resource-type support; scoping to ARN never matches. Least privilege demands deletion, not widening to `Resource: "*"` which would grant unnecessary account-wide enumeration. |
+| `infra/terraform/modules/iam/main.tf` | Added 23-line comment block (lines 96–119) above `resource "aws_iam_role_policy" "cloudwatch_write"` explaining why `DescribeLogGroups` is NOT granted | Durability: the design rule (actions without resource-type support are harmful when scoped to ARN) was written 45 lines away (lines 151–156) and correctly applied elsewhere in the file. Comment prevents accidental re-addition by future editors. Includes references to gate code (pusher/target.go:79), retention ownership (Terraform), config facts, and safety nets (B3, B4). |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ Infrastructure-only; zero engine edits
+- **INV-3** (golden parity): ✅ No Python/TS changes; characterization goldens untouched; application layer zero-impact
+- **INV-12** (no duplication): ✅ Single implementation; no new resource created; existing policy name unchanged; sealed-set list untouched
+- **SC-001** (zero engine edits for workflows): ✅ Not applicable to infra fixes
+- **Least-privilege** (house architecture goal): ✅ Deletion removes unused grant; avoids unnecessary security boundary crossing; advances least privilege
+
+#### Verification
+Manual verification steps (cannot execute in current environment; documented for future deployment):
+
+```bash
+# Syntax gate — must succeed
+cd infra/terraform
+terraform init -backend=false
+terraform validate
+
+# Verify statement deletion
+python3 -c "
+import json
+with open('policies/cloudwatch-write.json') as f:
+    doc = json.load(f)
+print(f'Statements: {len(doc[\"Statement\"])}')
+for st in doc['Statement']:
+    print(f'  - Sid: {st.get(\"Sid\")}, Actions: {len(st.get(\"Action\", []))}')
+"
+# Expected: Statements: 1, Sid: WriteVelocityAILogGroups, Actions: 3
+
+# Verify no DescribeLogGroups in output
+grep -q "DescribeLogGroups" policies/cloudwatch-write.json && echo "FAIL" || echo "PASS"
+
+# Verify comment in HCL
+grep -q "logs:DescribeLogGroups — the action has NO resource type" modules/iam/main.tf && echo "PASS" || echo "FAIL"
+```
+
+#### Architecture & Deployment
+- **Scope:** Infrastructure-only change. Single IAM policy update, in-place, no instance role replacement.
+- **Delivery:** Commit to `dev` branch → CodeBuild `velocityai-gitlab-runner-dev` → `infra/buildspec.yml:159` runs `foundation apply -var-file=dev.tfvars` → `PutRolePolicy` API call on `velocityai-dev-instance:velocityai-dev-cloudwatch-write` (synchronous, no instance restart).
+- **Multi-env:** Template is shared in git; policy renders per-env via variables. Dev apply updates only the dev role. Stage and prod get the fix on their own builds (normal promotion).
+- **Rollback:** One-line `git revert` → next build re-applies the original policy. Zero downtime, reversible.
+
+#### Notes
+- This is the **first infrastructure fix to be logged** to FIX-REGISTER; infrastructure and app phases are tracked separately.
+- The defect is **latent and stable** — exists since 2026-07-01 (commit e1a3a495, CI/CD migration), never edited. No functional harm today; the grant simply does nothing.
+- B1 (agent investigation) and B4 (agent log visibility) independently confirmed the call is unreachable. B3 adds a build-failing guard against future `retention_in_days` config that would make the grant needed.
+- The two-step fix (statement deletion + HCL comment) is durable: future editors reading the resource see the documented rule and know not to "fix" it back. The comment references gate code, config ownership, and safety nets.
