@@ -326,7 +326,7 @@ export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "p
 // run (websocket.py), and the revision drainer can persist "revising". The raw
 // status is cast through this union at api.ts:288 (`raw.status as ...`); include
 // both so the cast is honest and the history-reopen comparisons type-check.
-export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising";
+export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising" | "planning" | "generating" | "waiting_for_user" | "clarifying" | "analyzing";
 
 export interface WorkflowRun {
   id: string;

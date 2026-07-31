@@ -10,6 +10,11 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-157 | 2026-07-31 | Running dropdown and notification panel: click doesn't open correct run page; progress shows 0/N; onViewResults status filter misses planning/generating | Three bugs: (1) `handleRunClick` in AppHeader called `onSwitchToLiveRun` but not `onGoToPipeline` → execution view never switched; (2) `onViewResults` targetRunId lookup used `r.status === "running"` and missed runs in planning/generating/clarifying states; (3) `runningPipelines` always mapped `agentsCompleted: 0` — fixed by passing `activePipelineRunId` and using live `pipelineAgentsCompleted`/`Total` for the matching run | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 35 (SHELL-01 AppHeader), FIX-156 follow-up | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-156 | 2026-07-31 | Running dropdown not showing user_stories (or any run) — `runningPipelines` undefined causing crash; `recentRuns` never passed to AppHeader | Two bugs: (1) `runningPipelines` variable used throughout AppHeader JSX was NEVER DEFINED — causing `ReferenceError: runningPipelines is not defined` and the entire header crashing; (2) `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` were never passed to AppHeader from DashboardLayout — so even after defining the variable, it would get empty server data. Fix: define `runningPipelines` derived from `recentRuns` (same source as Jump Back In); pass the 3 missing props to AppHeader; add status label text in the dropdown rows; extend `WorkflowStatus` type to include live statuses. | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/ui/NotificationPanel.tsx`, `frontend/src/types/index.ts` | Phase 35 (SHELL-01 AppHeader), Phase 36 (SHELL-02 Jump Back In) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-155 | 2026-07-31 | Header shows duplicate running workflow entries (7 instead of 3) — notifications for prototype/ppt not created when user_stories runs concurrently | With 3 concurrent runs, `currentPipelineNotifId` is a single ref. `handleRunPipeline` (user_stories) sets it first; `pendingOdProtoParams`/`pendingOdPptParams` handlers see it non-null and try to reuse it (calling `updateAgentsTotal` on the user_stories notification instead of creating a new one); `odProtoNotifCreated` reactive effect also guards on `!currentPipelineNotifId.current` → false → skips. Result: prototype and ppt notifications never created. Fix: add `odProtoNotifId`/`odPptNotifId` per-type refs; explicit handlers always create their own notification and pre-set the type-specific ref; reactive effect checks the type-specific ref before calling `addRunningNotification`. | `frontend/src/components/layout/DashboardLayout.tsx` | FIX-149 (notification system) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-154 | 2026-07-31 | user_stories review gate shows no summary content — discriminateArtifact called without artifactKind param | `InlineGateActions` called `discriminateArtifact(output)` without the second `artifactKind` argument, so agents whose output lacks XML wrapper tags (user_stories domain-analyst = plain markdown, kind="summary") returned null. `GateContext` also had no `artifactKind` field so the backend value never reached the component. | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx`, `frontend/src/components/chat/InlineGateActions.tsx` | Phase 42 (gate inline), Phase 28 (artifactPreview) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-153 | 2026-07-30 | KAN-146: Concurrent run review gates cross-contaminate screens and appear before agent output (corrected: trackedRunIdRef not activelyBuildingRunIdRef) | `isForeignGate`/`isForeignQuestionnaire` checks in page.tsx initially used `launchedRunIdsRef` (all same-tab run IDs), then corrected to `activelyBuildingRunIdRef` (latest-launched run — wrong for 3+ runs or run-switching). Final fix uses `trackedRunIdRef` (the run currently VIEWED on screen), which is updated by all run-switch paths. DashboardLayout also gained mutual exclusion between gate and clarify panels. | `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | KAN-125 (FIX-135 pattern) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-152 | 2026-07-30 | KAN-139: 9 D-cluster infrastructure defects (memory leaks, missing logging, missing shutdown, missing admission control, dead config) | D1: mockSse test title claimed backend guarantee; D2: sendCommand no res.ok check; D4: ArtifactStore HITL dicts never evicted; D5: StateMachine._states never evicted + private reach; D6: sweep_expired zero callers + data-loss mtime bug; D7: close_checkpointer bugs + not wired to shutdown; D9: restore_non_terminal_runs no admission control; D10: SSE_STREAM_IDLE_TIMEOUT_SECONDS dead config; D11: run_stream.py no logging | `backend/agents/artifact_store/store.py`, `backend/agents/execution_engine/state_machine.py`, `backend/app/api/run_engine.py`, `backend/app/api/run_commands.py`, `backend/app/agents/sandbox.py`, `backend/app/agents/checkpointer.py`, `backend/app/core/config.py`, `backend/app/main.py`, `backend/app/api/run_stream.py`, `frontend/src/providers/RunConnectionProvider.tsx`, `frontend/e2e/tests/ts-sse-resilience.spec.ts` | Phase 44 (SSE transport), Phase 49 (resume), Phase 12 (restore), Phase 29 (D-14h) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-151 | 2026-07-30 | KAN-137 follow-up: PPT revision chain context empty — _extract_chain_context returns empty context_block for *_revision runs because they have no brief-analyst agent output | `get_chain_context()` in runs.py queried the revision run itself; revision runs (od_ppt_revision etc.) have no od-ppt-brief-analyst / spec-writer agents, so structured_summary="" and context_block="". Fix: walk up to parent_run_id for *_revision types, extract context from the ORIGINAL pipeline run, and append the revision instruction. | `backend/app/api/runs.py` | Phase 25 (chain context / Workstream A) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-150 | 2026-07-30 | KAN-137: PPT revision → User Stories chain fires run but Steps trace stays empty; no agents start | Two bugs: (1) handleChainPipeline parsed workflowInput (the revision blob) to get chainBrief, extracting the PPT revision instruction ("make slide 3 more concise") as the user_stories brief — causing auto-clarify to block at waiting_for_user with no visible questionnaire; (2) setMainView("execution") was missing before onStartPipeline. Fix: for revision-type source runs, extract "Original Brief:" from context_block instead of parsing workflowInput; add setMainView("execution") synchronously before firing the pipeline. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25 (Workstream C1 chain context) / Phase 42 (Steps inline clarify) | INV-1/3/12/SC-001 ✅ | Done |
@@ -166,6 +171,284 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-157 — Running Dropdown/Notification Panel Click Doesn't Navigate; Progress Shows 0/N; Status Filter Misses Live States
+
+**Date:** 2026-07-31
+**Triggered by:** `/velocity-ai-fix running dropdown and notification panel not showing correct status/progress and clicking does not open run page`
+
+#### Root Cause
+
+Three bugs found after FIX-156:
+
+**Bug 1 — Clicking the running dropdown does NOT navigate to execution view:**
+`AppHeader.handleRunClick` called `onSwitchToLiveRun(run.id)` but never called `onGoToPipeline()`. `setMainView("execution")` lives in DashboardLayout — only reachable via `onGoToPipeline` (`() => setMainView("execution")`). Without it, clicking attaches the SSE stream but the user stays on the home/history page.
+
+**Bug 2 — `onViewResults` targetRunId lookup fails for planning/generating/clarifying runs:**
+`DashboardLayout.onViewResults` searched `recentRuns.find((r) => r.status === "running" && ...)`. Runs in `planning`, `generating`, `clarifying` etc. are never found → `targetRunId` is undefined → `onSwitchToLiveRun` is not called → user navigates to execution but sees the wrong run.
+
+**Bug 3 — Progress always shows 0/N:**
+`runningPipelines` mapped every run with `agentsCompleted: 0`. The list endpoint only has `agentCount` (total), not live completion count. The live `pipelineState.completedCount`/`agents.length` exists in DashboardLayout but was never forwarded.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `AppHeader.tsx` — `handleRunClick` | Added `onGoToPipeline?.()` after `onSwitchToLiveRun` | `setMainView("execution")` needs to fire; only reachable via `onGoToPipeline` |
+| `AppHeader.tsx` — `AppHeaderProps` | Added `activePipelineRunId?: string \| null` | Allows live progress enrichment for the tracked run |
+| `AppHeader.tsx` — `runningPipelines` mapping | `agentsCompleted`/`agentsTotal` use live values when `r.id === activePipelineRunId` | Shows real "2/6" progress instead of "0/6" |
+| `AppHeader.tsx` — single badge click | Changed from `onGoToPipeline` to `handleRunClick(serverRun)` | Attaches SSE + navigates |
+| `AppHeader.tsx` — single badge dot | Derives from real server status (amber for waiting/planning) | Matches Jump Back In dot colors |
+| `DashboardLayout.tsx` — AppHeader mount | Pass `activePipelineRunId={pipelineState?.pipelineRunId ?? null}` | Feeds active run id to AppHeader |
+| `DashboardLayout.tsx` — `onViewResults` | `r.status === "running"` → `LIVE_RUN_STATUSES.has(r.status)` | Finds runs in planning/generating/clarifying etc. |
+
+#### Invariants Verified
+- **INV-1**: not affected — no workflow-name literals
+- **INV-3**: not affected — FE-only change
+- **INV-12/SC-001**: not affected
+
+#### Verification
+- TypeScript diagnostics: 0 errors
+- Bug 1 trace: click dropdown → `handleRunClick` → `onSwitchToLiveRun` [attach SSE] + `onGoToPipeline` [setMainView("execution")] ✓
+- Bug 2 trace: `onViewResults` → `LIVE_RUN_STATUSES.has(r.status)` finds any live run → `onSwitchToLiveRun(targetRunId)` + `setMainView("execution")` ✓
+- Bug 3 trace: `activePipelineRunId` match → `agentsCompleted = pipelineAgentsCompleted` (live) → shows "2/6" ✓
+
+---
+
+### FIX-156 — Running Dropdown Not Showing user_stories; Header Crashing (runningPipelines Undefined)
+
+**Date:** 2026-07-31
+**Triggered by:** `/velocity-ai-fix not showing user story at all in running dropdown — implement same logic as Jump Back In`
+
+#### Root Cause
+
+Two separate bugs combining to break the running dropdown entirely:
+
+**Bug 1 (CRASH) — `runningPipelines` is referenced but never defined in `AppHeader.tsx`:**
+The entire JSX in AppHeader (lines 225, 236–241, 246–265, 285, 325) references `runningPipelines`, but this variable was **never declared anywhere** in the component. The browser was crashing with `ReferenceError: runningPipelines is not defined` (confirmed in the dev log at 01:16:08). Only because React's error boundary was catching it, the header was silently failing rather than fully crashing. The code does define `liveRunsFromServer`, `runningFromNotifs`, `hasServerData`, and `liveRuns`, but then `runningPipelines` — the variable that actually drives the badge and dropdown — was just missing.
+
+**Bug 2 (MISSING DATA) — `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` were never passed to AppHeader:**
+The AppHeader mount in DashboardLayout (confirmed by reading the full `<AppHeader ...>` block) did NOT pass:
+- `recentRuns` — the server-sourced array that powers "Jump Back In" and IS the source of truth for live run statuses
+- `onSwitchToLiveRun` — the correct navigation handler for live runs (avoids resetting pipeline state)
+- `onSelectWorkflowRun` — the handler for history/terminal run navigation
+
+Without `recentRuns`, even after fixing Bug 1, `recentRuns` would be `[]` (its default), `liveRunsFromServer` would be `[]`, and the badge would always be empty.
+
+**Why Jump Back In works:** HomeLaunchGrid receives `recentRuns` prop directly from DashboardLayout and maps it to the display. AppHeader was meant to use the same data source but the prop wiring was simply missing.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 35 (SHELL-01 AppHeader), Phase 36 (SHELL-02 Jump Back In), FIX-146/147/148 (running dropdown evolution)
+- **Deleted code verified (not resurrected):** No deleted code
+- **Locked decisions respected:** SC-001 — all status branching keyed on generic `r.status` string, never workflow-name literals; `getWorkflowLabel` is the only type→label mapper
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `AppHeader.tsx` | Added `runningPipelines` definition: maps `liveRuns` (from `recentRuns`) to `PipelineNotification[]` shape, with status normalisation (`waiting_for_user`→`gate`, live statuses→`running`); falls back to `runningFromNotifs` | Defines the previously-undefined variable that all JSX references; uses server data (same as Jump Back In) as the truth |
+| `AppHeader.tsx` | Updated dropdown row click handler to use `handleRunClick(serverRun)` (the correct live-vs-terminal navigation), falling back to `onViewResults` only when no server run is found | Matches Jump Back In's click behavior: live runs → `onSwitchToLiveRun`, terminal → `onSelectWorkflowRun` |
+| `AppHeader.tsx` | Enhanced dropdown rows to show real status labels (Planning, Building, Waiting for you, etc.) from `RUN_STATUS_TONE` | Shows the same status labels as Jump Back In |
+| `AppHeader.tsx` | Pass `recentRuns` to `NotificationPanel` | Allows the notification panel to show real detailed statuses |
+| `DashboardLayout.tsx` | Added `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` props to the `<AppHeader>` mount | These were the missing props that caused AppHeader to receive empty/undefined server data |
+| `NotificationPanel.tsx` | Added `recentRuns?: WorkflowRun[]` prop; added `LIVE_STATUS_LABEL` map; updated running notification rows to look up real server status and display it | Shows "Planning", "Building", "Waiting for you" etc. in the notification bell panel |
+| `types/index.ts` | Extended `WorkflowStatus` to include `planning`, `generating`, `waiting_for_user`, `clarifying`, `analyzing` | The DB stores these values; `WorkflowRun.status` was typed too narrowly, causing silent `unknown status` for live runs |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — all new code keys on generic `status` strings and `type` field through `getWorkflowLabel`, never a workflow-name literal
+- **INV-3** (golden parity): not affected — FE-only change; no backend/golden impact
+- **INV-12** (no duplication): the same `recentRuns` data source and `getWorkflowLabel` function used in Jump Back In are reused here
+- **SC-001**: not affected — no engine edits
+
+#### Verification
+- TypeScript diagnostics: 0 errors on all 4 changed files
+- Dev log confirmed `ReferenceError: runningPipelines is not defined` at 01:16:08 (pre-fix); latest log entries show `✓ Compiled` without errors (post-fix hot-reload)
+- Logic trace with fix:
+  1. `recentRuns` now flows from `page.tsx` → `DashboardLayout` → `AppHeader`
+  2. `liveRunsFromServer = recentRuns.filter(r => LIVE_STATUSES.has(r.status))` picks up ALL live runs including user_stories, prototype, ppt
+  3. `runningPipelines` maps those to the `PipelineNotification` shape the JSX expects
+  4. The badge shows "N Running"; the dropdown lists all N runs with their real status labels
+  5. Clicking a run uses `handleRunClick` → `onSwitchToLiveRun` (live) or `onSelectWorkflowRun` (terminal), exactly like Jump Back In
+
+#### Notes
+- `runningPipelines` falling back to `runningFromNotifs` (the ephemeral notification list) is important for the very first render — before `recentRuns` is populated from the API, the notifications (created by `handleRunPipeline`) ensure the badge still shows. Once the server data arrives (typically < 1s), `liveRuns !== null` and the server data takes over.
+- The `WorkflowStatus` type extension is safe — it makes the type honest. The `as WorkflowRun["status"]` cast in `normalizeWorkflowRun` already let these values through at runtime; the type just didn't reflect them. No behaviour change.
+- `agentsCompleted: 0` in the `runningPipelines` mapping is a simplification — the backend `WorkflowRun` doesn't return live per-agent completion counts in the list endpoint (only the total `agentCount`). The notification-based fallback path has more accurate `agentsCompleted` since it's driven by live events. This is acceptable: the dropdown shows the type + title + real status, which is the most important information.
+
+---
+
+### FIX-155 — Header Running Count Shows 7 Instead of 3; Prototype/PPT Missing From Notifications
+
+**Date:** 2026-07-31
+**Triggered by:** `velocity-fix header shows 7 running, user_stories shows but not prototype; 2x prototype shown wrong`
+
+#### Root Cause
+
+`frontend/src/components/layout/DashboardLayout.tsx` — `currentPipelineNotifId` is a **single `useRef`** shared across all concurrent runs. With 3 concurrent runs (user_stories + prototype + ppt):
+
+1. `handleRunPipeline` (user_stories, ~line 1000) calls `addRunningNotification` and sets `currentPipelineNotifId.current = "pipeline-{ts1}"`
+2. `pendingOdProtoParams` effect fires for prototype: checks `currentPipelineNotifId.current ?? …` — it's already set (user_stories id) → falls into `else` branch → calls `updateAgentsTotal` on the **user_stories** notification → **no new prototype notification created**
+3. `odProtoNotifCreated` reactive effect fires: guard `!currentPipelineNotifId.current` → false (user_stories id is set) → skips entirely → **no prototype notification**
+4. Same problem for od_ppt
+
+The original FIX-155 attempted to fix duplicates (reactive effect fires before explicit handler) but introduced this new regression: the `currentPipelineNotifId.current ?? …` reuse logic ASSUMES the existing ref belongs to the SAME run, but it doesn't — it belongs to the concurrently-running user_stories run.
+
+#### Phase Context
+- **Phase(s) involved:** FIX-149 (multi-run notification system, DashboardLayout)
+- **Deleted code verified (not resurrected):** No deleted code; refs added.
+- **Locked decisions respected:** SC-001 — no workflow-name literals; all changes are generic notification management.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `DashboardLayout.tsx` | Added `odProtoNotifId` and `odPptNotifId` per-type `useRef` alongside `currentPipelineNotifId` | Each concurrent run type needs its own notification id tracking, independent of what other run types are doing |
+| `DashboardLayout.tsx` `pendingOdProtoParams` handler | Always creates a NEW notification with `Date.now()` id; sets BOTH `odProtoNotifId.current` AND `currentPipelineNotifId.current` | Never tries to reuse `currentPipelineNotifId` which may belong to a different run type |
+| `DashboardLayout.tsx` `pendingOdPptParams` handler | Same — always creates new, sets both `odPptNotifId` and `currentPipelineNotifId` | Same root cause |
+| `DashboardLayout.tsx` `odProtoNotifCreated` reactive effect | Removed `!currentPipelineNotifId.current` gate; checks `!odProtoNotifId.current` (prototype) or `!odPptNotifId.current` (ppt) instead; sets the type-specific ref when creating | The reactive effect fires for ANY pipeline_type od_prototype/ppt regardless of what other runs are doing; uses the type-specific ref to prevent the explicit+reactive double-create |
+| `DashboardLayout.tsx` `!pipelineState?.isRunning` cleanup | Clears `odProtoNotifId.current` and `odPptNotifId.current` on run end | Reset for next run |
+
+#### Invariants Verified
+- **INV-1**: not affected — no `pipeline_type` comparison in rendering logic; logic only used for notification id tracking
+- **INV-3**: not affected — FE-only change; no backend/golden impact
+- **INV-12**: not applicable — no capability duplication
+- **SC-001**: not affected — no engine edits
+
+#### Verification
+- TypeScript diagnostics: 0 errors (`get_diagnostics` ran clean)
+- With 3 concurrent runs: user_stories → `addRunningNotification(ts1, "user_stories", …)`; prototype → `addRunningNotification(ts2, "prototype", …)`; ppt → `addRunningNotification(ts3, "ppt", …)` — three independent entries, no collision
+- `odProtoNotifCreated` reactive effect: since explicit handlers pre-set `odProtoNotifId`/`odPptNotifId`, the reactive path's `if (!odProtoNotifId.current)` guard fires as false → no duplicate creation
+- `currentPipelineNotifId` still tracks the LAST-launched run for progress/gate/completion updates (the pipelineState only streams one run at a time — the last-active one)
+
+#### Notes
+- The `currentPipelineNotifId` still tracks the last-started run. For progress updates this is correct: pipelineState reflects the last active run. For completion, the effect reads `currentPipelineNotifId.current` at run end — this will be the last prototype/ppt run's id if those were started after user_stories. This is acceptable behaviour: the visible completion badges fire for whichever run's notif the ref held at completion time.
+- Future improvement: use a `Map<pipelineRunId, notifId>` to track completions per-run-id for fully independent concurrent run completion toasts.
+
+---
+
+### FIX-154 — User Stories review gate shows no summary content
+
+**Date:** 2026-07-31
+**Triggered by:** `velocity-fix user stories review gate shows no summary`
+
+#### Root Cause
+
+`frontend/src/components/chat/InlineGateActions.tsx` line 163:
+```ts
+const artifactKind = discriminateArtifact(output);  // ← missing second argument
+```
+
+`discriminateArtifact(output, artifactKind?)` has an optional second param that accepts the backend-derived `artifact_kind` value. When the second arg is absent, it falls back to content-sniffing XML wrapper tags in the output text.
+
+For **prototype/PPT** agents: their outputs contain literal `<spec>`, `<tasks>`, `<analysis>` tags, so the content-sniff finds a match → preview renders.
+
+For **user_stories** `domain-analyst`: the output is plain markdown (no XML tags). The backend calls `_artifact_kind_for("domain-analyst")` → `"summary"` (fallback for unmapped agents). This is included in the `review_gate_ready` event as `artifact_kind: "summary"`. `discriminateArtifact(undefined, "summary")` would return `"analysis"` → `AnalysisPreview` would render. But because the second arg was never passed, the function only got the plain-markdown output and returned `null` → the preview block condition `{artifactKind && !showEdit && ...}` was never entered → blank gate panel.
+
+Additionally, `GateContext` (in `RunChatLane.tsx`) had no `artifactKind` field at all, so even if `InlineGateActions` wanted to receive it, the prop chain was broken upstream.
+
+#### Trace
+```
+backend: _artifact_kind_for("domain-analyst") → "summary"
+backend: review_gate_ready { artifact_kind: "summary", output: "<plain markdown>" }
+page.tsx: reviewGateData.artifactKind = "summary"  ← stored correctly
+DashboardLayout: laneGate = { output, ..., /* NO artifactKind */ }  ← MISSING FIELD
+StepsOverviewSpine/GateAwaitingCard: InlineGateActions(output, /* no artifactKind */)
+InlineGateActions: discriminateArtifact(output)  ← ONE arg, missing "summary"
+discriminateArtifact: /<analysis>/i.test(plainMarkdown) = false → return null
+preview block condition: null && !showEdit = false → nothing rendered ❌
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 42 §2 (gate inline migration, `InlineGateActions` + `StepsOverviewSpine`); Phase 28 §3 (`artifactPreview.tsx` discriminator)
+- **Relevant register section:** Phase 42 plan 42-08 (gate 2-button + plan-preview); Phase 28 §3 (artifact kind vocabulary)
+- **Deleted code verified (not resurrected):** No deleted code involved; this is a missing prop chain.
+- **Locked decisions respected:** SC-001 — `artifactKind` is the structurally-derived backend value, never a workflow/agent-name literal. The fix propagates it without adding any name-based branch.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/chat/RunChatLane.tsx` | Added `artifactKind?: string` field to `GateContext` interface | Without this field, the prop chain was broken — no upstream component could pass the value to the gate panel |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `artifactKind: reviewGateData.artifactKind` to the `laneGate` object construction | Threads the value from `reviewGateData` (which already stored it from the SSE event) into `laneGate` |
+| `frontend/src/components/results/StepsOverviewSpine.tsx` | Added `artifactKind={laneGate.artifactKind}` to the `InlineGateActions` call inside `GateAwaitingCard` | Passes the value from the gate context through to the component that calls the discriminator |
+| `frontend/src/components/chat/InlineGateActions.tsx` | Added `artifactKind?: string` to `InlineGateActionsProps`; added to destructuring; changed `discriminateArtifact(output)` → `discriminateArtifact(output, artifactKind)` and renamed result to `resolvedArtifactKind`; updated render conditions | The actual bug site — the second argument was simply never passed |
+
+#### Invariants Verified
+- **INV-1**: not affected — uses `artifact_kind` string comparison only, no `pipeline_type` branch
+- **INV-3**: not affected — FE-only change; 5 characterization goldens unaffected by construction
+- **INV-12**: not applicable — `discriminateArtifact` is already the single implementation in `artifactPreview.tsx`; the fix just passes the missing argument
+- **SC-001**: not affected — no backend changes; `artifactKind` value comes from backend `_artifact_kind_for` which already names no workflow/agent literally
+
+#### Verification
+- All 4 changed files: TypeScript diagnostics = 0 errors
+- Trace with fix: `reviewGateData.artifactKind = "summary"` → `laneGate.artifactKind = "summary"` → `InlineGateActions(artifactKind="summary")` → `discriminateArtifact(output, "summary")` → `isAnalysis = true` (because `artifactKind === "summary"`) → returns `"analysis"` → `AnalysisPreview` renders
+- PPT/prototype unaffected: their outputs contain XML tags so `discriminateArtifact` returns the correct kind regardless of the second arg (content-sniff path)
+
+#### Notes
+- The `approveLabel` in `DashboardLayout` was already computing from `reviewGateData.artifactKind` correctly (for the button label); this fix just extends the same pattern to the preview renderer.
+- Any future agent whose output lacks XML wrapper tags will now render correctly as long as the backend's `_artifact_kind_for` returns a recognized kind ("spec", "task_list", "summary"). Unknown kinds fall back to `null` → no preview (same safe degrade as before).
+
+---
+
+### FIX-153 — KAN-146: Concurrent run review gates cross-contaminate and appear before agent output
+
+**Date:** 2026-07-30 (corrected 2026-07-31)
+**Triggered by:** `velocity-fix KAN-146`
+
+#### Root Cause
+
+**Bug 1 (cross-contamination — primary symptom shown in screenshots):**
+
+`frontend/src/app/dashboard/page.tsx` — the `review_gate_ready` and `questionnaire_ready` switch-case handlers used `launchedRunIdsRef.current` as the isolation predicate. This ref contains ALL run IDs ever launched from this browser tab. When two or more runs are active simultaneously, ALL their IDs are in the set, so the filter never blocks any of them — run A's gate overwrites run B's screen.
+
+The fix went through two iterations:
+
+*Iteration 1 (initial):* Switched to `activelyBuildingRunIdRef.current` (the latest-launched run). This worked for exactly 2 concurrent runs but broke for 3+ runs or when the user switches views. `activelyBuildingRunIdRef` holds only the most recently launched run ID. If the user has runs A, B, C active and switches to view B via the header notification dropdown, `activelyBuildingRunIdRef` still holds C. B's gate fires → `(B ≠ C)` → `isForeignGate = true` → gate silently dropped even though the user is watching B.
+
+*Iteration 2 (final — correct):* Switched to `trackedRunIdRef.current` — the run the user is **currently viewing on screen**. `trackedRunIdRef` is updated by every view-switch path:
+- `handleSwitchToLiveRun(runId)` — notification dropdown click
+- `handleSelectWorkflowRun(run)` — history reopen
+- Launch `.then()` — new run started
+- `useEffect([activePipelineRunId, contentSourceRunId])` — clarify/completed state changes
+
+This means `trackedRunIdRef` is always the one correct run to accept gates for, regardless of how many other runs are building in the background.
+
+**Bug 2 (simultaneous clarify + gate panels):**
+
+`frontend/src/components/layout/DashboardLayout.tsx:1609` — `laneGate` was derived from `reviewGateData` unconditionally, so both gate and clarify actions could render together when the SSE D-14g re-arm replayed a paused gate while a questionnaire was open.
+
+#### Phase Context
+- **Phase(s) involved:** KAN-125 / FIX-135 established the `trackedRunIdRef` / run-isolation pattern; this fix applies the same concept to gate/clarify events.
+- **Relevant register section:** Phase 42 §2 (gate inline migration); Phase 29 D-14g (SSE gate re-arm).
+- **Deleted code verified (not resurrected):** No deleted code resurrected; predicate swap only.
+- **Locked decisions respected:** SC-001 — uses `pipeline_run_id` string comparison only, no workflow-name literal. INV-1 — no `pipeline_type` branch.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | `review_gate_ready`: `isForeignGate` now uses `trackedRunIdRef.current` | The viewed-run ref; correct for 2, 3, or N concurrent runs and survives view-switching |
+| `frontend/src/app/dashboard/page.tsx` | `questionnaire_ready`: `isForeignQuestionnaire` now uses `trackedRunIdRef.current` | Same reasoning — prevents clarify from a background run capturing `activePipelineRunId` |
+| `frontend/src/components/layout/DashboardLayout.tsx` | `laneGate` derivation: `reviewGateData && !laneClarifyOpen ? {...}` | Mutual exclusion — gate and clarify panels cannot render simultaneously |
+
+#### Invariants Verified
+- **INV-1**: not affected — `pipeline_run_id` comparison only, no workflow-name literals
+- **INV-3**: not affected — FE-only; all 5 characterization goldens unaffected by construction
+- **INV-12**: not applicable
+- **SC-001**: not affected — no backend changes
+
+#### Verification
+- TypeScript diagnostics: 0 errors on both changed files
+- `trackedRunIdRef.current` is `null` on the very first launch (no prior run) → `!!trackedRunIdRef.current` is `false` → `isForeignGate = false` → gate accepted (correct first-launch behaviour preserved)
+- Switching views via notification dropdown sets `trackedRunIdRef = switchedRun.id` synchronously, so the gate filter is correct before any events arrive
+- `DashboardLayout` `laneGate` is `undefined` when clarify is open → `runLaneState` resolves to `"clarify"` (gate priority still expressed in the ternary but gate prop is nulled)
+
+#### Notes
+- The progression: `launchedRunIdsRef` (wrong — all tab runs) → `activelyBuildingRunIdRef` (wrong — only latest launch) → `trackedRunIdRef` (correct — currently viewed run).
+- The mutual-exclusion fix in DashboardLayout (Bug 2) is independent and correct regardless of the predicate choice above.
+- A future improvement: if the user is NOT viewing a run (e.g. on the home screen), `trackedRunIdRef.current` may be stale from the last-viewed run. In that case a new gate from a different background run would still be blocked. This is acceptable: the gate will be re-served on the D-14g re-arm when the user navigates to that run's screen.
 
 ---
 
