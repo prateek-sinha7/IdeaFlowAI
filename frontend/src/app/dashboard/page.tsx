@@ -1142,14 +1142,16 @@ export default function DashboardPage() {
               impact_level?: string;
             }>;
           };
-          // KAN-125: only accept this gate for the tracked run. A foreign
-          // concurrent run's questionnaire_ready must not capture activePipelineRunId
-          // and orphan this tab's clarify gate.
+          // KAN-146: only accept this questionnaire for the run the user is CURRENTLY VIEWING.
+          // Uses trackedRunIdRef (the viewed run) — same reasoning as isForeignGate:
+          // for 3+ concurrent runs, activelyBuildingRunIdRef only holds the latest-launched
+          // run, which may differ from the run the user has switched to via the header
+          // notification dropdown. trackedRunIdRef follows all run-switch paths.
           const qRunId = data.pipeline_run_id;
           const isForeignQuestionnaire =
             !!qRunId &&
-            launchedRunIdsRef.current.size > 0 &&
-            !launchedRunIdsRef.current.has(qRunId);
+            !!trackedRunIdRef.current &&
+            qRunId !== trackedRunIdRef.current;
           if (isForeignQuestionnaire) break;
 
           const mapped = (data.questions || []).map((q) => ({
@@ -1181,12 +1183,19 @@ export default function DashboardPage() {
         // Agent completed and declared Human_Gate — pause for user review.
         if (msg.data) {
           const data = msg.data as unknown as ReviewGateReadyData;
-          // KAN-125: only accept this gate for the tracked run. A foreign
-          // concurrent run's review gate must not overwrite this tab's gate.
+          // KAN-146: only accept this gate for the run the user is CURRENTLY VIEWING.
+          // Uses trackedRunIdRef (the viewed run) not activelyBuildingRunIdRef (the
+          // latest-launched run). When 3+ workflows run concurrently and the user
+          // switches to workflow B via the header dropdown, activelyBuildingRunIdRef
+          // still holds run C (last launched), but trackedRunIdRef correctly holds
+          // run B. Using activelyBuildingRunIdRef would silently drop B's gate even
+          // though the user is watching B. trackedRunIdRef is updated by every
+          // run-switch path (launch, handleSwitchToLiveRun, handleSelectWorkflowRun)
+          // so it always reflects the correct currently-viewed run.
           const isForeignGate =
             !!data.pipeline_run_id &&
-            launchedRunIdsRef.current.size > 0 &&
-            !launchedRunIdsRef.current.has(data.pipeline_run_id);
+            !!trackedRunIdRef.current &&
+            data.pipeline_run_id !== trackedRunIdRef.current;
           if (isForeignGate) break;
 
           setReviewGateData({

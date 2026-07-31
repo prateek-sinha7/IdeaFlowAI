@@ -44,6 +44,7 @@ Handshake + gate re-arm on attach:
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -54,6 +55,8 @@ from app.core.dependencies import get_current_user
 from app.models.database import get_db
 from app.models.user import User
 from app.models.workflow import WorkflowRun
+
+logger = logging.getLogger("app.api.run_stream")
 
 # Read-only import of the EXISTING per-run live-queue registry (LOCK-B — websocket.py
 # is NOT modified and NO new symbol is added there). ``_get_or_create_queue`` returns
@@ -280,16 +283,67 @@ async def stream_run_events(
     # the complete response. LOCK-B: read-only use of the existing websocket.py symbols.
     live_queue = _get_or_create_queue(workflow_id) if workflow_id in _PIPELINE_QUEUES else None
 
+    # D11 (KAN-139): log every stream open/close so A1's 429 storm, A2's event
+    # theft, and D7's pool drops are diagnosable from the application layer.
+    _close_reason: list[str] = ["client_disconnect"]  # mutable to let the generator update it
+
+    async def _iter_with_logging() -> AsyncIterator[dict]:
+        nonlocal _close_reason
+        try:
+            async for frame in _iter_sse_frames(
+                run_id=workflow_id,
+                store=stream_store,
+                after_seq=after_seq,
+                live_queue=live_queue,
+                request=request,
+            ):
+                # Detect close reason from the frame type as it flows through.
+                frame_type = frame.get("data", "")
+                if isinstance(frame_type, str):
+                    try:
+                        import json as _json
+                        parsed = _json.loads(frame_type)
+                        ft = parsed.get("type", "")
+                    except Exception:
+                        ft = ""
+                    if ft == "stream_attached":
+                        pass  # handshake — not a close
+                    elif ft in _STREAM_TERMINAL_TYPES:
+                        _close_reason[0] = "terminal_event"
+                    elif ft == "sentinel":
+                        _close_reason[0] = "sentinel"
+                yield frame
+            # If we fell through without a terminal event the queue closed via sentinel.
+            if _close_reason[0] == "client_disconnect":
+                _close_reason[0] = "sentinel"
+        except Exception:
+            _close_reason[0] = "error"
+            raise
+
+    logger.info(
+        "evt=sse.open run_id=%s user_id=%s after_seq=%s live=%s",
+        workflow_id,
+        current_user.id,
+        after_seq,
+        live_queue is not None,
+    )
+
     from sse_starlette import EventSourceResponse
 
+    async def _generator() -> AsyncIterator[dict]:
+        try:
+            async for frame in _iter_with_logging():
+                yield frame
+        finally:
+            logger.info(
+                "evt=sse.close run_id=%s user_id=%s reason=%s",
+                workflow_id,
+                current_user.id,
+                _close_reason[0],
+            )
+
     return EventSourceResponse(
-        _iter_sse_frames(
-            run_id=workflow_id,
-            store=stream_store,
-            after_seq=after_seq,
-            live_queue=live_queue,
-            request=request,
-        ),
+        _generator(),
         ping=settings.SSE_KEEPALIVE_PING_SECONDS,
         # D-14h: never let a proxy buffer/gzip an event-stream (X-Accel-Buffering: no
         # for nginx; Cache-Control: no-cache; ops MUST also set proxy_buffering off).
