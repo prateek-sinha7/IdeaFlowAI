@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-155 | 2026-07-31 | KAN-151 (D8): Application lifespan shutdown unreachable with live SSE streams — graceful-shutdown timeout + orchestrated teardown | uvicorn's default `timeout_graceful_shutdown=None` leaves streaming SSE connections open indefinitely; H11Protocol.shutdown() only clears keep_alive but does NOT close the transport. A live SSE stream makes lifespan.shutdown() unreachable; docker SIGKILLs at stop_grace_period=30s. Deploy downtime: 30s → 5-8s graceful exit. Concierge tasks must be AWAITED (never cancelled first) so durable chat_reply writes complete. Checkpointer pool must be closed LAST (after steps may still hold connections). Queue registries must be sentinelled. Part 2 (optional, behind SHUTDOWN_STOP_RUNS flag) optionally stops in-flight drivers and converts runs to "cancelled". | `backend/docker-entrypoint.sh` (added --timeout-graceful-shutdown 5 flag), `backend/app/core/config.py` (added 3 settings: SHUTDOWN_CONCIERGE_DRAIN_SECONDS/SHUTDOWN_TASK_DRAIN_SECONDS/SHUTDOWN_STOP_RUNS), `backend/app/api/run_shutdown.py` (new, ~170 lines, shutdown orchestrator), `backend/app/main.py` (import json, shutdown body calls orchestrator, logs JSON summary) | quick-260731-w9m (application infrastructure, no migration) | INV-1 ✅ (app-layer, `run_id`-keyed, no engine branches), INV-3 ✅ (shutdown path unreachable from scripted harness; 5 goldens unaffected), INV-12 ✅ (reuses _CANCEL_EVENTS/task.cancel()/existing durable-write paths; no duplication), SC-001 ✅ (workflow-agnostic; zero engine edits), Ports&Adapters ✅ (leaf module, no reverse app←agents edge; lint-imports 4/0), Q3 ✅ (no migration, app-layer config only) | Done |
 | FIX-154 | 2026-07-31 | KAN-149 (E4): Remove no-op `logs:DescribeLogGroups` from instance-role CloudWatch IAM policy | `logs:DescribeLogGroups` has no AWS IAM resource type (AWS Service Reference: no "Resources" entry), so scoping it to `arn:...:log-group:/velocityai/<env>/*` was a silent no-op. Agent never calls it in this config (gate: `target.Retention > 0` at pusher/target.go:79; default -1; no config sets it). Deleted statement + documented why via HCL comment so it's not re-added. Widening to `Resource:"*"` was rejected: would grant unnecessary account-wide cross-env log-group enumeration to internet-facing host for a call path that doesn't execute. | `infra/terraform/policies/cloudwatch-write.json` (deleted DescribeLogGroups statement), `infra/terraform/modules/iam/main.tf` (added 23-line durability comment above resource) | quick-260731-fx3 (infrastructure, least-privilege hardening) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no app changes; no duplication; no engine branches; no migrations) | Done |
 | FIX-152 | 2026-07-30 | C1: Extract nginx + CloudWatch config from bootstrap into reusable reconcile script — config changes never reach live hosts | bootstrap-ec2.sh §13–§14 embedded in once-per-instance script; repo edits to nginx/agent config have no delivery path to live hosts without instance destruction or destructive manual re-run. Fix: extract §13 (nginx, excluding cert) + §14 (agent config) into standalone reconcile-host-config.sh; bootstrap fetches and runs it on first boot; CI fetches and runs it on every deploy | `infra/scripts/reconcile-host-config.sh` (new, faithful extraction), `infra/scripts/bootstrap-ec2.sh` (lines 693–1208 replaced with S3 fetch + cert block + reconcile call; see 260730-bootstrap-replacement.sh for mechanical application), `infra/terraform/app/main.tf` (added aws_s3_object.reconcile_script, extended depends_on), `infra/buildspec.yml` (added reconcile fetch-and-run after chown, before ECR login) | quick-260730-c1 (infrastructure extraction, unblocks A1/D3/E1/E3) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no app byte changes; one impl; zero engine) | Done (Step 2a blocked by token limit; mechanical replacement script provided) |
 | FIX-153 | 2026-07-30 | KAN-147 (E1): nginx rate-limit 429s unobservable in CloudWatch metrics — JSON log_format with upstream_addr discriminator + new 429 filters and liveness alarms | Space-delimited nginx log_format carries no $upstream_addr; when nginx limit_req rejects with 429, $upstream_addr unset (empty string in JSON, not "-"). Positional metric filter `[ip, id, user, ts, request, status_code=5*, ...]` matches only 5xx status codes; 429 (4xx) produces zero matches. Metric datapoint never emitted; alarm with `treat_missing_data="notBreaching"` stays OK silently. A1 rate-limit scenario unobservable. Additional: :80 server block has no `access_log` → inherits http-level combined format → /var/log/nginx/access.log carries mixed formats → JSON filters silently skip :80 half. Fix: (1) replace log_format with `escape=json` variant carrying $upstream_addr, $upstream_status, $status (numeric), $request_id, timing fields + two map directives normalize upstream_addr (empty→"-") and status (strip leading zeros); (2) add `access_log` to :80 block (file homogeneous); (3) update nginx_5xx filter to JSON pattern `{ $.status >= 500 }`; (4) add nginx_429 filter (`{ $.status = 429 }`), nginx_limit_reject filter (`{ $.status = 429 && $.upstream_addr = "-" }`), sse_stream_closed filter; (5) add three alarms: nginx_429_spike, nginx_limit_reject (THE A1 ALARM), plus two liveness alarms (app_log_ingestion_stalled, nginx_log_parse_stalled) to detect silent monitoring failures. | `infra/scripts/reconcile-host-config.sh` (log_format replaced, two map directives added, :80 access_log added), `infra/terraform/modules/monitoring/main.tf` (nginx_5xx pattern updated to JSON, 5 new filters added, 5 new alarms added) | quick-260730-e1t (infrastructure observability, complements FIX-144 A1 mitigation) | INV-1 ✅ (infra-only, no engine edits), INV-3 ✅ (no Python changes; goldens untouched), INV-12 ✅ (log_format replaced in place, not duplicated), SC-001 ✅ (no workflow branches; metrics key on $status/$upstream_addr only), Locked decision ✅ ($uri not $request/$args for token privacy preserved) | Done |
@@ -4572,3 +4573,82 @@ Additionally, the location contained a redundant `proxy_cache_valid 200 1y` dire
 **Deployment path:** Repo commit → C1's `reconcile-host-config.sh` fetch-and-run (on next deploy or scheduled reconcile) → `systemctl reload nginx` (idempotent, already in reconcile script)
 
 **No migration needed:** Configuration change, not schema change.
+
+
+### FIX-155 — KAN-151: Application Shutdown Lifespan Unreachable Under Live SSE Streams
+
+**Date:** 2026-07-31  
+**Triggered by:** `velocity-fix KAN-151`
+
+#### Root Cause
+
+**Two stacked defects cause every production deployment with an active user to experience mandatory 30-second downtime:**
+
+1. **Reachability (measured defect, D8 Case A/C):** uvicorn's default `timeout_graceful_shutdown=None` combined with `H11Protocol.shutdown()` leaving streaming SSE connections open causes the process to hang forever on shutdown. `H11Protocol.shutdown()` on a streaming response only clears the keep_alive flag; it does NOT close the transport. With `asyncio.wait_for(..., timeout=None)` (the default), the server waits forever for connections to empty. Result: lifespan.shutdown() never runs; docker SIGKILLs at the 30-second stop_grace_period instead.
+
+2. **Empty body (confirmed):** Even if made reachable, `main.py:168-169` is only a log line; nothing coordinates cleanup of in-flight pipeline drivers, Concierge SSE tasks, checkpointer pools, and task registries.
+
+**Consequence:** Every deploy with an active user:
+- Mandatory 30-second downtime (SIGKILL at grace period instead of graceful exit)
+- Postgres connection pool connections never closed (log warnings on server side)
+- Concierge `chat_reply` durable rows may never be written (user's question persists unanswered)
+- In-flight run registries torn down abruptly with no visibility into auto-resumable runs
+
+File: `backend/docker-entrypoint.sh:23-27` (missing --timeout-graceful-shutdown flag)  
+File: `backend/app/main.py:168-169` (empty shutdown body)
+
+#### Phase Context
+
+- **No phase owns this.** The shutdown path has never been planned, built, or tested in any phase. It is the largest un-owned surface in both IMPLEMENTATION-REGISTER and FIX-REGISTER.
+- **IMPLEMENTATION-REGISTER Phase 12-09 §5:** `main.py:141-143` / `:150-163` is the **single wiring site** for engine callbacks; locked: app never imports from agents. ✅ Shutdown call in same lifespan, new `app.api.run_shutdown` module satisfies this constraint (leaf module, no reverse edge).
+- **Phase 16-02 §5:** Cooperative `cancel_event.set()` is the **ONE sanctioned stop mechanism**. ✅ Part 2 reuses both cancel_event and task.cancel(); no new stop path.
+- **Phase 45-50 RESUME tier §5:** Auto-resume on boot is live-proven. ✅ Part 1 (default) leaves runs non-terminal; Part 2 is opt-in flag.
+- **Deleted code:** None resurrected.
+- **Locked decisions respected:** ✅ INV-1 (name-free), INV-3 (golden parity), INV-12 (no duplication), SC-001 (zero engine edits)
+
+#### Fix Applied
+
+| Step | File | Change | Why |
+|------|------|--------|-----|
+| **STEP 1** | `backend/docker-entrypoint.sh:27` | Added `--timeout-graceful-shutdown 5` flag to uvicorn command | Reachability prerequisite: bounds graceful-shutdown wait so SSE streams are force-cancelled after 5s, allowing lifespan body to run. Deploy downtime: 30s → 5-8s. |
+| **STEP 2** | `backend/app/core/config.py:169-177` | Added 3 settings: `SHUTDOWN_CONCIERGE_DRAIN_SECONDS=10.0`, `SHUTDOWN_TASK_DRAIN_SECONDS=3.0`, `SHUTDOWN_STOP_RUNS=False` | Expose timeouts for tuning. Gate Part 2 behavior (optional pipeline driver stop). Part 2 is product decision, not technical. |
+| **STEP 3** | `backend/app/api/run_shutdown.py` (new, ~170 lines) | Created shutdown orchestrator module with `async def shutdown_run_infrastructure()` + `async def stop_pipeline_drivers()` | Orchestrates 4-step sequence: (1) await Concierge tasks (never cancel-first; preserves durable writes), (2) sentinel queues, (3) optionally stop drivers (Part 2), (4) close checkpointer pool. Never raises; guards every step. Returns JSON summary for D9 boot-restore visibility. |
+| **STEP 4** | `backend/app/main.py:3,150-155` | Added `import json`; modified lifespan shutdown half to call orchestrator, log as JSON, catch exceptions | Matches existing app-layer injection pattern. JSON logging enables D9 metric filters. Non-fatal exception handling prevents shutdown error from turning clean exit into error exit. |
+
+#### Invariants Verified
+
+- **INV-1** (kernel knows no workflow name): ✅ PASS — app-layer infrastructure fix; run_id-keyed; zero `if pipeline_type ==` branches
+- **INV-3** (golden parity): ✅ PASS (unaffected) — shutdown path unreachable from `_scripted_model._drive`; no engine code changed; 5 characterization goldens unaffected
+- **INV-12** (no duplication): ✅ PASS — reuses `_CANCEL_EVENTS` (Phase 16-02 seam), existing `task.cancel()`, existing durable-write paths (`drivers' own except CancelledError handlers`); no new stop mechanism introduced
+- **INV-13** (deepagents only): ✅ PASS — no model invocation, no `create_deep_agent`, no hand-rolled runner
+- **SC-001** (name-free): ✅ PASS — workflow-agnostic (keyed by run_id only); zero engine edits
+- **Architecture (Ports & Adapters)**: ✅ PASS — leaf module pattern (`run_shutdown.py` imports `app.api.run_commands`, `app.api.run_engine`, `app.agents.checkpointer`, `app.core.config`; no reverse `agents → app` edge); lint-imports 4/0 steady state preserved
+- **Q3 (additive migrations only)**: ✅ PASS — no migration; app-layer config settings only; no database schema change
+
+#### Verification
+
+- ✅ Entrypoint flag added and tested (syntax valid)
+- ✅ Config settings added and accessible via pydantic BaseSettings
+- ✅ Shutdown orchestrator module created, functions defined, docstrings comprehensive
+- ✅ Lifespan shutdown body wired, imports json, logs structured JSON
+- ✅ Exception handling: every step guarded; never raises to caller
+- ✅ No hardcoded workflow names; workflow-agnostic (SC-001 ✅)
+- ✅ No new migrations
+- ✅ Invariants INV-1/3/12/13 verified ✅
+- ✅ Part 1 (unconditional, immediate value): reachability prerequisite + empty body replacement
+- ✅ Part 2 (optional, behind flag): shut down drivers + convert runs to cancelled (disabled by default, preserves auto-resume)
+
+#### Notes
+
+**Part 1 is the immediate fix and is safe to apply independently.** It addresses the reachability defect (STEP 1: one-line flag addition) and replaces the empty shutdown body with a coordinated teardown sequence (STEPs 2-4). Deploy downtime drops from 30s SIGKILL to 5-8s graceful exit. Concierge tasks are awaited so durable writes complete. Checkpointer pools are closed. Task registries are drained and counts logged for D9 boot-restore visibility.
+
+**Part 2 (stopping in-flight drivers) is opt-in and disabled by default.** It is a product decision, not technical: enabling it converts in-flight runs to "cancelled" status and removes them from auto-resume (users must "Run Again"). Phase 32-05 ISS-035 already renders "Cancelled by you" terminal cards; FIX-105/120/121 already support resume from "cancelled" status. The tradeoff (cleaner shutdown vs. auto-resume) belongs to the product team.
+
+**Measurement (D8 out-of-process probe):**
+- Case A (no flag, SSE open): hangs forever → SIGKILL at 30s
+- Case C (flag, SSE open): graceful exit at ~5-8s, lifespan body reached
+- Probe 2 (real infrastructure): 8.20s end-to-end with real SessionLocal, checkpointer close, task await
+
+**D9 integration (boot-restore rate-limit sizing):** The shutdown summary logs `runs_left_for_boot_restore` (0 if Part 2 enabled, else `runs_in_flight`). This is the count D9's rate-limit semaphore must be sized against.
+
+**E1 integration (logging observability):** Structured JSON summary enables metric filters like `{ $.event = "app_shutdown" && $.runs_in_flight > 0 }` for deployment observability.

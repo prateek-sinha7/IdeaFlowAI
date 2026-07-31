@@ -1,5 +1,6 @@
 """FastAPI application entry point for the AI SaaS Platform."""
 
+import json
 import logging
 import os
 import sys
@@ -167,6 +168,21 @@ async def lifespan(app: FastAPI):
 
     yield
     logger.info("🔴 Shutting down...")
+
+    # ── KAN-151 D8: the shutdown half of the application lifecycle. ────────────
+    # Reachable only because docker-entrypoint.sh passes --timeout-graceful-shutdown;
+    # uvicorn's unbounded default plus a live SSE stream makes this code unreachable
+    # (measured: the process is SIGKILLed at the 30s stop_grace_period instead).
+    # The body itself lives in app.api.run_shutdown so main.py never reaches into
+    # the private per-run registries; it never raises, so a teardown failure cannot
+    # turn a clean exit into uvicorn's "Application shutdown failed".
+    try:
+        from app.api.run_shutdown import shutdown_run_infrastructure
+
+        _summary = await shutdown_run_infrastructure()
+        logger.info("shutdown summary: %s", json.dumps(_summary, default=str))
+    except Exception as _shutdown_exc:  # noqa: BLE001
+        logger.error("Shutdown teardown failed (non-fatal): %s", _shutdown_exc, exc_info=True)
 
 
 app = FastAPI(
