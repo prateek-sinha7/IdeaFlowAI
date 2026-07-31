@@ -4504,3 +4504,71 @@ grep -q "logs:DescribeLogGroups — the action has NO resource type" modules/iam
 - The defect is **latent and stable** — exists since 2026-07-01 (commit e1a3a495, CI/CD migration), never edited. No functional harm today; the grant simply does nothing.
 - B1 (agent investigation) and B4 (agent log visibility) independently confirmed the call is unreachable. B3 adds a build-failing guard against future `retention_in_days` config that would make the grant needed.
 - The two-step fix (statement deletion + HCL comment) is durable: future editors reading the resource see the documented rule and know not to "fix" it back. The comment references gate code, config ownership, and safety nets.
+| FIX-156 | 2026-07-31 | KAN-150: nginx /_next/static/ location silently drops security headers on static assets — replace-not-merge inheritance rule voids all server-level headers | nginx's `add_header` implements replace-not-merge semantics: a location-level `add_header Cache-Control` discards ALL inherited `add_header` directives from the server level (five security headers: HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP). The location also contained inert `proxy_cache_valid 200 1y` (no `proxy_cache` zone exists). Fix: delete both directives from `location /_next/static/` so it inherits all five security headers from server level. Added guard comment documenting why `add_header` must not be added here (prevents re-introduction of the bug pattern). | `infra/scripts/reconcile-host-config.sh` (deleted `add_header Cache-Control` and `proxy_cache_valid` from /_next/static/ location block; added 6-line guard comment) | quick-260731-kaq (infrastructure security posture, delivers via C1's reconcile-host-config.sh) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no Python; characterization goldens byte-identical; no duplication) | Done |
+
+
+---
+
+### FIX-156 — nginx /_next/static/ drops security headers via replace-not-merge inheritance rule
+
+**Date:** 2026-07-31  
+**Triggered by:** `/velocity-fix KAN-150` (deep infrastructure analysis from `.planning/dev-sse-infra-investigations/D3.md`)
+
+#### Root Cause
+
+Static assets served from `/_next/static/` (JavaScript, CSS, fonts) carried 0 of 5 expected response security headers (HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Content-Security-Policy), while other paths correctly carried all 5. The root cause is nginx's **replace-not-merge inheritance rule for `add_header` directives:** when ANY `add_header` directive is declared at the current configuration level (e.g., location), ALL inherited `add_header` directives from parent levels (e.g., server) are DISCARDED entirely. The `/_next/static/` location declared a single `add_header Cache-Control` directive, triggering this rule and voiding all five server-level headers on every response (200, 304, 404).
+
+Additionally, the location contained a redundant `proxy_cache_valid 200 1y` directive (inert — no `proxy_cache` zone is declared anywhere in infrastructure) and the `add_header Cache-Control` itself was redundant (Next.js upstream already emits the identical header unconditionally).
+
+**Measured:** Live on 2026-07-29: `/_next/static/` assets returned 0/5 headers; reproduced offline on nginx 1.24.0.
+
+#### Phase Context
+
+- **Phase(s) involved:** quick-260731-kaq (infrastructure security posture)
+- **Relevant register section:** None in IMPLEMENTATION-REGISTER.md (nginx is outside engine refactor scope)
+- **Deleted code verified (not resurrected):** N/A — these were inert/redundant directives being removed
+- **Locked decisions respected:** INV-1/INV-3/INV-12/SC-001 (infra-only change; no engine edits; goldens unaffected; no duplication)
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `infra/scripts/reconcile-host-config.sh` | Deleted `proxy_cache_valid 200 1y;` and `add_header Cache-Control "public, max-age=31536000, immutable";` from the `/_next/static/` location block; added 6-line guard comment | The `add_header` triggers nginx's replace-not-merge rule, discarding all five server-level headers. The `proxy_cache_valid` is inert (no zone). The comment documents why `add_header` must not be added here, preventing future re-introduction of the bug. Upstream Next.js already emits the identical Cache-Control header unconditionally. |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — infrastructure config only
+- **INV-3** (golden parity): Not affected — engine unmodified; characterization goldens byte-identical by construction (verified: only host config changed)
+- **INV-12** (no duplication): Verified — removed directives; no duplication introduced
+- **SC-001** (zero engine edits for new workflows): Not affected — no engine changes
+
+#### Verification
+
+✅ **Offline verification PASSED:**
+- Syntax check: nginx configuration is valid (no errors in location block)
+- Directive check: `add_header Cache-Control` removed from static location
+- Directive check: `proxy_cache_valid` removed from static location
+- Server-level headers: All five security headers still present and in place
+- Regression check: Other paths (`/login`, `/api/*`, etc.) still inherit headers correctly
+- Characterization goldens: Unaffected (engine unmodified)
+
+**Live verification (DEFERRED to deployment):**
+- Probe `/_next/static/` assets → expect 5/5 security headers (was 0/5)
+- Probe `/login` → expect 5/5 security headers (regression check)
+- Verify Cache-Control appears exactly once (not duplicated)
+
+#### Notes
+
+**Coordination with A1 (KAN-144 — SSE rate-limiting):** A1 adds a regex location for `/api/runs/{id}/events/stream` that is **safe as written** (declares no `add_header`). The guard comment in the `/_next/static/` block now serves as a template for documenting this constraint. A1 should also carry a similar note to prevent future authors from accidentally re-introducing the same pattern (adding X-Accel-Buffering or other headers to the regex location).
+
+**Why not the alternatives** (all analyzed in D3.md §I12):
+- **Re-declare headers inside location:** Creates a second copy of a 400-character CSP string that will drift (violates INV-12)
+- **Add `always` to the add_header:** Does not fix inheritance (replace-not-merge is level-based, not `always`-gated); proven by 404 case
+- **Wire a proxy_cache zone:** Adds failure modes, unbounded growth on unsnapshotted root disk, no measured latency benefit
+- **Move headers to http level:** Doesn't fix inheritance (replace-not-merge is per-level); also applies HSTS to plaintext :80 server
+
+**Rollback:** `git revert` the commit (no other code depends on these directives); live box: `cp /root/nginx-backup-<ts>/velocityai /etc/nginx/sites-available/velocityai && systemctl reload nginx`
+
+**Deployment path:** Repo commit → C1's `reconcile-host-config.sh` fetch-and-run (on next deploy or scheduled reconcile) → `systemctl reload nginx` (idempotent, already in reconcile script)
+
+**No migration needed:** Configuration change, not schema change.

@@ -357,11 +357,15 @@ server {
         proxy_read_timeout 60s;
     }
 
+    # Hashed, content-addressed assets. Declares NO add_header: nginx's add_header
+    # is replace-not-merge across levels, so one add_header would discard every
+    # security header inherited from the server block (D3). The immutable
+    # Cache-Control is already emitted by the upstream Next.js process (router-server.js).
+    # proxy_cache_valid was inert (no proxy_cache zone). If this location ever
+    # genuinely needs a header, it MUST include the security headers snippet.
     location /_next/static/ {
         proxy_pass         http://velocityai_frontend;
         include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-        proxy_cache_valid  200 1y;
-        add_header Cache-Control "public, max-age=31536000, immutable";
     }
 }
 EOF
