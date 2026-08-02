@@ -131,6 +131,34 @@ class Settings(BaseSettings):
     # SSE stream MUST NOT be gzip-buffered or the browser receives nothing live).
     SSE_KEEPALIVE_PING_SECONDS: int = 15
     SSE_STREAM_IDLE_TIMEOUT_SECONDS: int = 300
+    # KAN-134: Per-subscriber queue maxsize for the per-run fan-out bus. Each SSE
+    # client gets its own queue fed by the shared pump. A slow client that falls
+    # behind (queue full) is silently evicted; it reconnects with Last-Event-ID and
+    # replays the gap from the durable log. 1000 events ≈ 5–10 MB in memory per
+    # subscriber. Set to 0 for unbounded (INV-3 parity with old single-queue model).
+    SSE_SUBSCRIBER_QUEUE_MAXSIZE: int = 1000
+
+    # ---- Graceful shutdown budget (KAN-151 D8) ────────────────────────────
+    # The container's hard ceiling is docker's stop_grace_period (30s,
+    # docker-compose.yml:138); uvicorn's own --timeout-graceful-shutdown (5s,
+    # docker-entrypoint.sh) is spent BEFORE the lifespan body runs. These two
+    # knobs bound what the lifespan body itself may consume. Sum them with 5s for
+    # the checkpointer pool close and keep the total under 25s so SIGKILL is never
+    # the thing that ends the process.
+    # A Concierge turn owns the ONLY durable write of its chat_reply row
+    # (run_commands.py:1356) and is explicitly never cancelled on client
+    # disconnect - so it is AWAITED, not cancelled, and only cut past this bound.
+    SHUTDOWN_CONCIERGE_DRAIN_SECONDS: float = 10.0
+    # How long to wait for run-transport teardown (pump tasks after A2, queue
+    # sentinels) before escalating to task.cancel().
+    SHUTDOWN_TASK_DRAIN_SECONDS: float = 3.0
+    # D8/D9 conflict switch - see the D8 investigation section I11. When False
+    # (default) the shutdown leaves in-flight runs non-terminal so the next boot's
+    # restore_non_terminal_runs auto-resumes them (the shipped Phase 45-50 tier).
+    # When True the shutdown cooperatively cancels them: every in-flight run lands
+    # "cancelled", auto-resume is replaced by the user's "Run again" button
+    # (POST /api/runs/{id}/resume already accepts "cancelled", run_commands.py:379).
+    SHUTDOWN_STOP_RUNS: bool = False
 
     # ---- Image-input ingress (default ON) ----
     # Feature flag for the image-input ingress (IMAGE-INPUT §3 Layer 1/5, Wave 2).

@@ -289,6 +289,15 @@ phases:
         # dev/stage/prod consistent regardless of when each host was provisioned.
         mkdir -p /opt/velocityai/data/runs /opt/velocityai/data/skills
         chown -R 10001:10001 /opt/velocityai/data/runs /opt/velocityai/data/skills
+        # Host-config reconcile. bootstrap-ec2.sh runs ONCE per instance, so
+        # without this a change to nginx or the CloudWatch agent config in the
+        # repo never reaches a live box (see the chown comment above — same
+        # class of problem, same slot). Fail-closed on purpose: nginx -t
+        # validates in a throwaway process, so a bad template costs zero
+        # downtime, and failing the build is how the operator finds out.
+        aws s3 cp "s3://${BUCKET}/config/reconcile-host-config.sh" /opt/velocityai/reconcile-host-config.sh
+        chmod 0755 /opt/velocityai/reconcile-host-config.sh
+        bash /opt/velocityai/reconcile-host-config.sh
         aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
         docker compose pull
         docker compose up -d --remove-orphans

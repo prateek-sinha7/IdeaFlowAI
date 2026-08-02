@@ -33,6 +33,15 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
+# ── Degraded-completion accumulator ────────────────────────────────────
+# Some checks must be LOUD but must NOT abort the run. Aborting mid-script
+# strands every later section (see the rationale block above §14a), which is
+# strictly worse than finishing with a reported defect. Such a check appends a
+# short tag here; §20 writes the completion sentinel, prints the tags and exits
+# non-zero — the box ends up fully provisioned AND the invoking SSM command /
+# CI step reports failure.
+BOOTSTRAP_DEGRADED=()
+
 # ── 0. Wait for cloud-init to finish ───────────────────────────────────
 # Must come BEFORE sourcing /etc/velocityai/bootstrap.env: that file is written
 # by user_data which runs as cloud-init's final stage. `aws ec2 wait
@@ -335,25 +344,6 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable --now docker
-
-# POSIX ACL so cwagent can read /var/lib/docker/containers/*.log without
-# being in the docker group (docker.sock = root-equivalent). `|| true`
-# because the cwagent user may not exist yet — repeated after cwagent install
-# in §13.
-#
-# `o::r` is intentional and load-bearing. /var/lib/docker/containers is
-# mode 0710 by default — owner:root, group:root, other:---. When setfacl
-# sets a default ACL it inherits the dir's current "other" bits as the
-# default for new files. That meant new container bind-mount files
-# (notably /etc/hosts, which docker generates per container and bind-mounts
-# in) got mode 0640 — readable only by root and the cwagent named entry.
-# Containers running as a non-root user (our Dockerfile sets uid 10001
-# `velocityai`) then can't read /etc/hosts and DNS lookups for entries we
-# added via `extra_hosts: host.docker.internal:host-gateway` fail with
-# "Temporary failure in name resolution". Forcing `o::r` here restores the
-# normal world-readable /etc/hosts so app containers can use the host.
-setfacl -R -m u:cwagent:rX,o::r /var/lib/docker/containers || true
-setfacl -R -d -m u:cwagent:rX,o::r /var/lib/docker/containers || true
 
 echo "[bootstrap] Docker installed: $(docker --version), $(docker compose version)"
 
@@ -700,223 +690,42 @@ chmod 0640 "$OUT"; chown root:velocityai "$OUT"
 EOF
 chmod +x /usr/local/bin/velocityai-load-secrets
 
-# ── 13. nginx (Appendix A) ─────────────────────────────────────────────
+# ── 13/14. Host configuration (nginx + CloudWatch agent) ───────────────
+#
+# The declarative half of this script now lives in
+# infra/scripts/reconcile-host-config.sh, uploaded by the app layer to
+# s3://$BACKUP_BUCKET/config/reconcile-host-config.sh (aws_s3_object
+# .reconcile_script, source_hash = filemd5). Same delivery mechanism as this
+# script itself.
+#
+# WHY: bootstrap runs exactly once per instance (velocityai-firstboot.service
+# is gated on /var/lib/velocityai/.bootstrap-done), but nginx and the agent
+# config legitimately change with the application. The reconcile script is
+# idempotent and is re-run by CI on every deploy, so a repo edit reaches a
+# LIVE host. Genuinely once-per-instance provisioning -- including ISSUING the
+# TLS cert below -- stays here.
 mkdir -p /var/www/letsencrypt /etc/nginx/snippets
 
-cat > /etc/nginx/conf.d/velocityai-limits.conf <<'EOF'
-limit_req_zone $binary_remote_addr zone=velocityai_login:10m rate=10r/m;
-limit_req_zone $binary_remote_addr zone=velocityai_register:10m rate=5r/m;
-limit_req_zone $binary_remote_addr zone=velocityai_change_pw:10m rate=10r/m;
-limit_req_zone $binary_remote_addr zone=velocityai_api:10m rate=120r/m;
+# Retry the fetch. Under `set -e` (line 27) a single transient S3 failure would
+# abort provisioning; the firstboot wrapper already retries the bootstrap-script
+# fetch 30x for exactly this reason (user_data.sh.tpl:85-92) and this inherits
+# the same posture.
+for i in $(seq 1 30); do
+    if aws s3 cp "s3://${BACKUP_BUCKET}/config/reconcile-host-config.sh" \
+         /opt/velocityai/reconcile-host-config.sh --region "$REGION"; then
+        break
+    fi
+    echo "[bootstrap] reconcile-host-config.sh not available yet (attempt $i) — retrying"
+    sleep 10
+done
+[[ -s /opt/velocityai/reconcile-host-config.sh ]] || {
+    echo "[bootstrap] ERROR: could not fetch reconcile-host-config.sh from S3" >&2; exit 1; }
+chmod 0755 /opt/velocityai/reconcile-host-config.sh
 
-log_format velocityai '$remote_addr - $remote_user [$time_local] '
-                  '"$request_method $uri $server_protocol" '
-                  '$status $body_bytes_sent "$http_referer" '
-                  '"$http_user_agent" rt=$request_time';
-EOF
-
-cat > /etc/nginx/snippets/velocityai-proxy-headers.conf <<'EOF'
-proxy_http_version 1.1;
-proxy_set_header   Host              $host;
-proxy_set_header   X-Real-IP         $remote_addr;
-proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-proxy_set_header   X-Forwarded-Proto $scheme;
-proxy_set_header   Connection        "";
-proxy_redirect     off;
-EOF
-
-# The full nginx site is written with $DOMAIN interpolated. Keeping the
-# heredoc unquoted because we WANT shell expansion of $DOMAIN; nginx vars
-# (like $host, $request_uri) are escaped with \ to survive bash.
-cat > /etc/nginx/sites-available/velocityai <<EOF
-upstream velocityai_backend {
-    server 127.0.0.1:8000;
-    keepalive 64;
-}
-upstream velocityai_frontend {
-    server 127.0.0.1:3000;
-    keepalive 32;
-}
-
-map \$http_upgrade \$connection_upgrade {
-    default upgrade;
-    ''      close;
-}
-
-server {
-    listen 80;
-    listen [::]:80;
-    server_name ${DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/letsencrypt;
-        try_files \$uri =404;
-    }
-
-    location / {
-        return 301 https://\$host\$request_uri;
-    }
-}
-
-server {
-    # nginx 1.24 (apt-shipped on Ubuntu Noble) does not recognize the
-    # standalone http2 directive — that syntax was added in 1.25.1. The
-    # listen-parameter form works on both 1.24 (required) and 1.25+
-    # (deprecated but accepted), so this stays portable across Noble's
-    # lifetime. Revisit when apt-shipped nginx moves past 1.25.
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name ${DOMAIN};
-
-    server_tokens off;
-    client_max_body_size 1m;
-    client_body_timeout 30s;
-    client_header_timeout 30s;
-
-    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-    ssl_trusted_certificate /etc/letsencrypt/live/${DOMAIN}/chain.pem;
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
-    ssl_prefer_server_ciphers on;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 1d;
-    ssl_session_tickets off;
-    ssl_stapling on;
-    ssl_stapling_verify on;
-    resolver 169.254.169.253 valid=60s;
-    resolver_timeout 5s;
-
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    # SAMEORIGIN (not DENY): the prototype/ppt template + design-system galleries
-    # embed their own /api/.../preview endpoints in same-origin <iframe>s. DENY
-    # blocks all framing (incl. same-origin), which renders the previews blank.
-    # SAMEORIGIN keeps cross-origin clickjacking protection (CSP frame-src is 'self').
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; connect-src 'self' https://${DOMAIN} wss://${DOMAIN}; frame-src 'self' blob:" always;
-
-    access_log /var/log/nginx/access.log velocityai;
-    error_log  /var/log/nginx/error.log warn;
-
-    location /api/auth/login {
-        limit_req zone=velocityai_login burst=5 nodelay;
-        limit_req_status 429;
-        proxy_pass         http://velocityai_backend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-    }
-    location /api/auth/register {
-        limit_req zone=velocityai_register burst=3 nodelay;
-        limit_req_status 429;
-        proxy_pass         http://velocityai_backend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-    }
-    location /api/auth/change-password {
-        limit_req zone=velocityai_change_pw burst=5 nodelay;
-        limit_req_status 429;
-        proxy_pass         http://velocityai_backend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-    }
-    location /api/ {
-        limit_req zone=velocityai_api burst=20 nodelay;
-        limit_req_status 429;
-        proxy_pass         http://velocityai_backend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-        proxy_buffering    off;
-        proxy_request_buffering off;
-        proxy_read_timeout 300s;
-    }
-    location = /health {
-        proxy_pass         http://velocityai_backend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-        access_log         off;
-    }
-    location = /openapi.json {
-        proxy_pass         http://velocityai_backend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-    }
-    location = /docs  { return 404; }
-    location = /redoc { return 404; }
-
-    location /ws/chat {
-        proxy_pass              http://velocityai_backend;
-        proxy_http_version      1.1;
-        proxy_set_header        Upgrade \$http_upgrade;
-        proxy_set_header        Connection \$connection_upgrade;
-        proxy_set_header        Host \$host;
-        proxy_set_header        X-Real-IP \$remote_addr;
-        proxy_set_header        X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header        X-Forwarded-Proto \$scheme;
-        proxy_read_timeout      5400s;
-        proxy_send_timeout      5400s;
-        proxy_buffering         off;
-        proxy_request_buffering off;
-    }
-
-    # /velocityai-handoff live pipeline stream. Auth is JWT-subprotocol at the
-    # backend (issuer-only); nginx is just the WebSocket terminator. Same
-    # long read/send timeouts as /ws/chat because pipeline runs can take
-    # minutes (clone -> classify -> code -> test -> compliance -> push -> PR).
-    location /ws/handoff/ {
-        proxy_pass              http://velocityai_backend;
-        proxy_http_version      1.1;
-        proxy_set_header        Upgrade \$http_upgrade;
-        proxy_set_header        Connection \$connection_upgrade;
-        proxy_set_header        Host \$host;
-        proxy_set_header        X-Real-IP \$remote_addr;
-        proxy_set_header        X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header        X-Forwarded-Proto \$scheme;
-        proxy_read_timeout      5400s;
-        proxy_send_timeout      5400s;
-        proxy_buffering         off;
-        proxy_request_buffering off;
-    }
-
-    # MCP remote tool endpoint for /velocityai-handoff (JSON-RPC over HTTP).
-    # Bearer-token auth at the backend; same rate limit as /api/. Buffering
-    # off so the tool's structuredContent response streams cleanly.
-    location /mcp/ {
-        limit_req zone=velocityai_api burst=20 nodelay;
-        limit_req_status 429;
-        proxy_pass         http://velocityai_backend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-        proxy_buffering    off;
-        proxy_request_buffering off;
-        proxy_read_timeout 300s;
-    }
-
-    # Public installer endpoint for /velocityai-handoff:
-    #   curl -fsSL https://${DOMAIN}/install/velocityai-handoff | bash
-    # No auth (the file bodies are generic). Same rate limit as /api/ so the
-    # unauthenticated public surface can't be abused.
-    location /install/ {
-        limit_req zone=velocityai_api burst=20 nodelay;
-        limit_req_status 429;
-        proxy_pass         http://velocityai_backend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-    }
-
-    location / {
-        proxy_pass         http://velocityai_frontend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-        proxy_buffering    on;
-        proxy_read_timeout 60s;
-    }
-
-    location /_next/static/ {
-        proxy_pass         http://velocityai_frontend;
-        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
-        proxy_cache_valid  200 1y;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-    }
-}
-EOF
-ln -sfn /etc/nginx/sites-available/velocityai /etc/nginx/sites-enabled/velocityai
-rm -f /etc/nginx/sites-enabled/default
-
-# Initial cert (HTTP-01 webroot) — only if no cert exists yet for this domain
+# Initial cert (HTTP-01 webroot) — only if no cert exists yet for this domain.
+# Runs BEFORE the reconcile so the reconcile's `nginx -t` has a certificate to
+# validate against. The temporary bootstrap-http site below only needs the
+# webroot, not the real site file.
 if [[ ! -d /etc/letsencrypt/live/$DOMAIN ]]; then
     cat > /etc/nginx/sites-available/bootstrap-http <<EOF2
 server {
@@ -931,80 +740,63 @@ EOF2
     certbot certonly --webroot -w /var/www/letsencrypt \
         --non-interactive --agree-tos --email "$ACME_EMAIL" -d "$DOMAIN"
     rm /etc/nginx/sites-enabled/bootstrap-http
-    ln -sfn /etc/nginx/sites-available/velocityai /etc/nginx/sites-enabled/velocityai
 fi
 
-nginx -t
-systemctl reload nginx
+# Certificate auto-renewal. The apt `certbot` package ships certbot.timer and
+# its postinst normally enables it, but we do NOT rely on that: an unenabled
+# timer is a silent 90-day fuse that ends in a hard TLS outage, and this call
+# is idempotent. The renewal-heartbeat alarm (modules/monitoring/main.tf,
+# cert_renew_heartbeat_stale) watches /velocityai/<env>/letsencrypt for the
+# renewal log line, so it can only fire correctly if this timer runs.
 systemctl enable --now certbot.timer
 
-# ── 14. CloudWatch agent ───────────────────────────────────────────────
-if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
-    wget -q https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb \
-        -O /tmp/cw-agent.deb
-    dpkg -i /tmp/cw-agent.deb
-    rm /tmp/cw-agent.deb
-fi
-# Re-grant ACL now that cwagent user exists. See §8 above for why o::r is
-# load-bearing (preserves world-read on per-container /etc/hosts so non-
-# root containers can do DNS).
-setfacl -R -m u:cwagent:rX,o::r /var/lib/docker/containers
-setfacl -R -d -m u:cwagent:rX,o::r /var/lib/docker/containers
+# Writes nginx + agent config, installs/validates/reloads nginx, then installs
+# the CloudWatch agent (if absent) and applies its config via fetch-config,
+# which also starts it. Fail-closed: a bad template or an agent that will not
+# start aborts the reconcile, which aborts bootstrap here rather than shipping.
+bash /opt/velocityai/reconcile-host-config.sh
 
-# CloudWatch agent config — materialized from SIMPLE_AWS_DEPLOYMENT.md §10.1.
-# - `${ENV_TITLE}` / `${ENVIRONMENT}` interpolate at install time (bash).
-# - `\${aws:InstanceId}` / `\${aws:InstanceType}` are escaped: the CloudWatch
-#   agent resolves those itself from instance metadata at runtime.
-# - The collect_list mirrors the doc (nginx access/error, postgres, audit,
-#   auth, unattended-upgrades, letsencrypt) PLUS the Docker JSON log path
-#   that captures backend+frontend stdout via the json-file log driver.
-mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
-cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
-{
-  "agent": {
-    "metrics_collection_interval": 60,
-    "logfile": "/var/log/amazon-cloudwatch-agent.log",
-    "run_as_user": "cwagent"
-  },
-  "metrics": {
-    "namespace": "VelocityAI/${ENV_TITLE}",
-    "metrics_collected": {
-      "cpu":    {"measurement": ["cpu_usage_idle","cpu_usage_iowait","cpu_usage_user","cpu_usage_system"], "totalcpu": true, "metrics_collection_interval": 60},
-      "mem":    {"measurement": ["mem_used_percent","mem_available"], "metrics_collection_interval": 60},
-      "disk":   {"measurement": ["used_percent","inodes_free"], "resources": ["/", "/var/lib/postgresql"], "metrics_collection_interval": 60},
-      "diskio": {"measurement": ["io_time","write_bytes","read_bytes"], "resources": ["*"], "metrics_collection_interval": 60},
-      "swap":   {"measurement": ["swap_used_percent"], "metrics_collection_interval": 60},
-      "net":    {"measurement": ["bytes_sent","bytes_recv","drop_in","drop_out"], "resources": ["*"], "metrics_collection_interval": 60}
-    },
-    "append_dimensions": {
-      "InstanceId":   "\${aws:InstanceId}",
-      "InstanceType": "\${aws:InstanceType}"
-    }
-  },
-  "logs": {
-    "logs_collected": {
-      "files": {
-        "collect_list": [
-          {"file_path": "/var/log/nginx/access.log",                            "log_group_name": "/velocityai/${ENVIRONMENT}/nginx-access", "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/nginx/error.log",                             "log_group_name": "/velocityai/${ENVIRONMENT}/nginx-error",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/postgresql/postgresql-16-main.log",           "log_group_name": "/velocityai/${ENVIRONMENT}/postgres",     "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/audit/audit.log",                             "log_group_name": "/velocityai/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/auth.log",                                    "log_group_name": "/velocityai/${ENVIRONMENT}/auth",         "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/velocityai/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/letsencrypt/letsencrypt.log",                 "log_group_name": "/velocityai/${ENVIRONMENT}/letsencrypt",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/lib/docker/containers/*/*-json.log",              "log_group_name": "/velocityai/${ENVIRONMENT}/app",          "log_stream_name": "{instance_id}/docker", "timezone": "UTC"}
-        ]
-      }
-    }
-  }
+
+# ── 14a. Assert the agent is actually running (not just asked to run) ──
+#
+# WHY THIS IS NOT `exit 1` IN PLACE. Everything from §15 to §20 runs after
+# this point: the velocityai-deploy user + its restricted sudoers, the
+# pg_dump / skills-backup / stuck-workflow scripts, EVERY systemd unit
+# including velocityai-app.service, the first velocityai-load-secrets run
+# that materialises DATABASE_URL and SECRET_KEY into /etc/velocityai/app.env,
+# the app start, and the completion sentinel. Aborting here would leave a box
+# with Postgres, nginx and TLS but no application, no backups, no boot-time
+# start and no sentinel — strictly worse than a blind CloudWatch agent. So the
+# failure is recorded and the script continues; §20 exits non-zero.
+#
+# The nearest precedent in this file is the §8b IMDSv1 drift check, which
+# deliberately does not exit and says "the log line is the operator signal;
+# cwagent ships it". That reasoning is exactly what a dead cwagent breaks, so
+# a log line alone is not sufficient here — hence the deferred non-zero exit.
+#
+# Two independent checks, because either one alone gives a false PASS:
+#   - `systemctl is-active` alone passes while the agent is in a crash-restart
+#     loop between restarts (the B1/FIX-149 failure mode: unwritable logfile).
+#   - `agent-ctl -a status` alone reports the LAST requested state, and returns
+#     "running" from its status file even in some cases where the unit has since
+#     died, so it is not a liveness proof on its own.
+# `|| return 1` is explicit rather than relying on the last command's status,
+# so adding a check later cannot silently change the function's result.
+assert_cloudwatch_agent_running() {
+    if ! systemctl is-active --quiet amazon-cloudwatch-agent; then
+        echo "[bootstrap] ERROR: amazon-cloudwatch-agent unit is not active" >&2
+        return 1
+    fi
+    if ! /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+           -a status 2>/dev/null | grep -q '"status": "running"'; then
+        echo "[bootstrap] ERROR: amazon-cloudwatch-agent-ctl does not report status=running" >&2
+        return 1
+    fi
+    echo "[bootstrap] OK: CloudWatch agent is active and reporting status=running"
+    return 0
 }
-EOF
 
-# fetch-config also starts the agent if it isn't running. We don't `systemctl
-# enable` separately — the agent's deb postinst already does that.
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-    -a fetch-config -m ec2 -s \
-    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+assert_cloudwatch_agent_running || BOOTSTRAP_DEGRADED+=("cloudwatch-agent")
 
 # ── 15. velocityai-deploy user + restricted sudoers + image-tag wrapper ────
 if ! id velocityai-deploy >/dev/null 2>&1; then
@@ -1058,6 +850,40 @@ else
 fi
 rm -f "$SUDOERS_TMP"
 
+# ── 16a. Shared CloudWatch metric namespace for on-host publishers ──────────
+#
+# ONE derivation site for the per-environment namespace used by every on-host
+# `aws cloudwatch put-metric-data` caller. Fail-closed by design: publishers
+# that cannot resolve their environment refuse to publish, loudly.
+#
+# The namespace MUST match modules/monitoring's cw_metric_namespace
+# ("VelocityAI/" + title(environment)), which is what every alarm queries. The
+# cases are spelled out literally rather than derived from the variable, so a new
+# environment name fails loudly here instead of silently publishing to a
+# namespace no alarm watches.
+#
+# Callers get VELOCITYAI_ENVIRONMENT from
+# EnvironmentFile=/etc/velocityai/bootstrap.env on velocityai-pg-dump.service
+# and velocityai-stuck-workflows-check.service.
+cat > /usr/local/bin/velocityai-cw-namespace <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -z "${VELOCITYAI_ENVIRONMENT:-}" ]]; then
+    echo "velocityai-cw-namespace: VELOCITYAI_ENVIRONMENT is unset (expected from /etc/velocityai/bootstrap.env) - refusing to guess" >&2
+    exit 1
+fi
+case "$VELOCITYAI_ENVIRONMENT" in
+    dev)   echo "VelocityAI/Dev"   ;;
+    stage) echo "VelocityAI/Stage" ;;
+    prod)  echo "VelocityAI/Prod"  ;;
+    *)
+        echo "velocityai-cw-namespace: unknown environment '$VELOCITYAI_ENVIRONMENT' (expected dev|stage|prod)" >&2
+        exit 1
+        ;;
+esac
+EOF
+chmod 0755 /usr/local/bin/velocityai-cw-namespace
+
 # ── 16. Backups: pg_dump + skills tarball + stuck-workflow probe ───────
 cat > /usr/local/bin/velocityai-pg-dump <<'EOF'
 #!/usr/bin/env bash
@@ -1073,7 +899,13 @@ aws s3 cp "$DUMP" "s3://${VELOCITYAI_BACKUP_BUCKET}/postgres/${TS}/velocityai.sq
     --region "${VELOCITYAI_REGION:-eu-central-1}" \
     --sse aws:kms \
     --sse-kms-key-id "$VELOCITYAI_KMS_KEY_ID"
-echo "pg_dump complete: $(stat -c%s "$DUMP") bytes uploaded to S3"
+CW_NAMESPACE=$(/usr/local/bin/velocityai-cw-namespace)
+aws cloudwatch put-metric-data \
+    --namespace "$CW_NAMESPACE" \
+    --metric-name PgDumpHeartbeat \
+    --value 1 \
+    --region "${VELOCITYAI_REGION:-eu-central-1}"
+echo "pg_dump complete: $(stat -c%s "$DUMP") bytes uploaded to S3; metric published to $CW_NAMESPACE"
 EOF
 chmod 0755 /usr/local/bin/velocityai-pg-dump
 
@@ -1102,8 +934,9 @@ COUNT=$(psql "$HOST_DB_URL" -tAc \
     "SELECT count(*) FROM workflow_runs \
      WHERE status='running' AND created_at < NOW() - INTERVAL '60 minutes'")
 COUNT=${COUNT:-0}
+CW_NAMESPACE=$(/usr/local/bin/velocityai-cw-namespace)
 aws cloudwatch put-metric-data \
-    --namespace VelocityAI/Prod \
+    --namespace "$CW_NAMESPACE" \
     --metric-name StuckRunningWorkflows \
     --value "$COUNT" \
     --region "$AWS_REGION"
@@ -1279,6 +1112,20 @@ fi
 #     attempting a container redeploy (avoids racing docker compose against
 #     an install that hasn't put Docker on the box yet).
 install -d -m 0755 /var/lib/velocityai
-date -u --iso-8601=seconds > /var/lib/velocityai/.bootstrap-done
 
+# The sentinel is written BEFORE the degraded gate on purpose: the host IS
+# provisioned, and withholding it would make velocityai-firstboot re-run the
+# whole bootstrap on every reboot and make CI's wait-for-sentinel loop time
+# out. The non-zero exit below is the SIGNAL; the sentinel is STATE.
+if [[ ${#BOOTSTRAP_DEGRADED[@]} -gt 0 ]]; then
+    date -u --iso-8601=seconds > /var/lib/velocityai/.bootstrap-done
+    echo "[bootstrap] DEGRADED: ${BOOTSTRAP_DEGRADED[*]}" >&2
+    echo "[bootstrap] The host is provisioned but one or more subsystems are unhealthy." >&2
+    echo "[bootstrap] complete (DEGRADED) $(date -u --iso-8601=seconds)" >&2
+    exit 1
+fi
+
+date -u --iso-8601=seconds > /var/lib/velocityai/.bootstrap-done
 echo "[bootstrap] complete $(date -u --iso-8601=seconds)"
+
+

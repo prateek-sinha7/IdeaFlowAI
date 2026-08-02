@@ -539,3 +539,240 @@ async def test_endpoint_frames_satisfy_wire_parity(db_session):
     # WS frames. A dropped/added/mutated frame trips assert_wire_parity.
     assert endpoint_rows, "endpoint produced no replay frames (vacuous)"
     assert_wire_parity(ws_frames, endpoint_rows)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# A3 — _cleanup_pipeline must RELEASE an attached client, not just deregister
+# the run. Nine of its twelve invocation paths (every resume / gate-re-arm path
+# reaching it through engine._fire_resume_cleanup) pop the registry entry with
+# NO prior None sentinel, so a client parked at `await live_queue.get()`
+# (run_stream.py:197) hangs until its socket drops. The dict pop cannot reach it:
+# the endpoint bound the queue OBJECT at run_stream.py:281 before the generator ran.
+# ════════════════════════════════════════════════════════════════════════════
+_CLEANUP_TIMEOUT_S = 2.0
+
+
+@pytest.fixture
+def registries():
+    """Isolate the process-global per-run registries around each test."""
+    from app.api import run_engine as run_engine_mod
+
+    def _reset():
+        run_engine_mod._PIPELINE_QUEUES.clear()
+        run_engine_mod._PIPELINE_TASKS.clear()
+        run_engine_mod._CANCEL_EVENTS.clear()
+        run_engine_mod._SUBSCRIBERS.clear()
+        for t in run_engine_mod._PUMP_TASKS.values():
+            t.cancel()
+        run_engine_mod._PUMP_TASKS.clear()
+
+    _reset()
+    yield run_engine_mod
+    _reset()
+
+
+class TestCleanupSentinel:
+    """A3 — ``_cleanup_pipeline`` releases an attached SSE client."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_without_prior_sentinel_releases_attached_client(
+        self, db_session, registries
+    ):
+        """The resume early-return shape: pop with no sentinel. The client parked in
+        the live drain must terminate, not hang."""
+        _seed_run(db_session)
+        _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
+        q = registries._get_or_create_queue("run-1")
+        assert "run-1" in registries._PIPELINE_QUEUES
+
+        client = asyncio.create_task(
+            _collect(
+                _iter_sse_frames(
+                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=q
+                )
+            )
+        )
+        await asyncio.sleep(0.05)  # client reaches `await live_queue.get()`
+        assert not client.done(), "precondition: the client must be parked in the drain"
+
+        registries._cleanup_pipeline("run-1")
+
+        frames = await asyncio.wait_for(client, timeout=_CLEANUP_TIMEOUT_S)
+        assert [_parse(f)["type"] for f in frames] == ["agent_start", "stream_attached"]
+        assert "run-1" not in registries._PIPELINE_QUEUES
+
+    @pytest.mark.asyncio
+    async def test_cleanup_releases_a_client_still_in_replay(self, db_session, registries):
+        """The sentinel must not be lost when it lands while the client is still in the
+        durable replay (step 1) rather than the live drain (step 4): the generator holds
+        the queue OBJECT, so the pop does not detach it and the sentinel is consumed when
+        the drain is finally reached."""
+
+        class _SlowStore:
+            def __init__(self, inner):
+                self._inner = inner
+
+            async def read_events(self, run_id, after_seq=0):
+                await asyncio.sleep(0.10)
+                return await self._inner.read_events(run_id, after_seq=after_seq)
+
+        _seed_run(db_session)
+        _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
+        q = registries._get_or_create_queue("run-1")
+
+        client = asyncio.create_task(
+            _collect(
+                _iter_sse_frames(
+                    run_id="run-1",
+                    store=_SlowStore(_store(db_session)),
+                    after_seq=0,
+                    live_queue=q,
+                )
+            )
+        )
+        await asyncio.sleep(0)  # the client is inside the slow replay
+        registries._cleanup_pipeline("run-1")
+
+        frames = await asyncio.wait_for(client, timeout=_CLEANUP_TIMEOUT_S)
+        assert [_parse(f)["type"] for f in frames] == ["agent_start", "stream_attached"]
+
+    @pytest.mark.asyncio
+    async def test_driver_sentinel_then_cleanup_does_not_truncate(
+        self, db_session, registries
+    ):
+        """The launch/revision driver shape (`put(None)` then cleanup): the second
+        sentinel queues BEHIND the tail, so nothing is truncated and the reader returns
+        on the first one."""
+        _seed_run(db_session)
+        _seed_events(db_session, [(1, "agent_start", {"seq": 1})])
+        q = registries._get_or_create_queue("run-1")
+
+        client = asyncio.create_task(
+            _collect(
+                _iter_sse_frames(
+                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=q
+                )
+            )
+        )
+        await asyncio.sleep(0.05)
+        await q.put({"type": "agent_chunk", "data": {"seq": 2, "text": "tail"}})
+        await q.put(None)  # the driver's own sentinel
+        registries._cleanup_pipeline("run-1")  # adds a SECOND sentinel behind it
+
+        frames = await asyncio.wait_for(client, timeout=_CLEANUP_TIMEOUT_S)
+        assert [_parse(f)["type"] for f in frames] == [
+            "agent_start",
+            "stream_attached",
+            "agent_chunk",
+        ]
+
+    def test_cleanup_is_idempotent_and_never_resurrects_the_queue(self, registries):
+        """WR-01 (Phase 12): every exit path calls this, including paths that registered
+        nothing. A second call must be a pure no-op -- it must not re-create the queue in
+        order to sentinel it."""
+        registries._get_or_create_queue("run-x")
+        registries._cleanup_pipeline("run-x")
+        registries._cleanup_pipeline("run-x")
+        assert "run-x" not in registries._PIPELINE_QUEUES
+        assert "run-x" not in registries._PIPELINE_TASKS
+        assert "run-x" not in registries._CANCEL_EVENTS
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# C-06 — the fan-out bus must actually have a producer. Before this fix, every
+# real event producer wrote ONLY to `_PIPELINE_QUEUES`, `_dispatch_event_to_
+# subscribers` (the only writer to `_SUBSCRIBERS`) had zero callers anywhere in
+# the repo, and the SSE endpoint read ONLY from `_SUBSCRIBERS` — so a live
+# attach replayed the durable tail, sent `stream_attached`, then hung forever.
+# These tests drive the producer/consumer pair end-to-end through the real
+# registries (no mocking of the bridge) to prove events actually cross from
+# one side to the other.
+# ════════════════════════════════════════════════════════════════════════════
+class TestFanOutPump:
+    """The pump (`_ensure_pump` / `_pump_run_events`) bridges `_PIPELINE_QUEUES`
+    (producer side) into `_SUBSCRIBERS` (consumer side)."""
+
+    @pytest.mark.asyncio
+    async def test_producer_event_reaches_subscriber(self, registries):
+        """An event put on the PRODUCER queue must be observable on the
+        SUBSCRIBER queue — this is the exact wiring that was missing."""
+        producer_q = registries._get_or_create_queue("run-1")
+        registries._PIPELINE_TASKS["run-1"] = asyncio.current_task()  # any live sentinel
+
+        sub_q = await registries._subscribe("run-1")
+        try:
+            producer_q.put_nowait({"type": "agent_start", "data": {"seq": 1}})
+            event = await asyncio.wait_for(sub_q.get(), timeout=2.0)
+            assert event == {"type": "agent_start", "data": {"seq": 1}}
+        finally:
+            await registries._unsubscribe("run-1", sub_q)
+            registries._cleanup_pipeline("run-1")
+
+    @pytest.mark.asyncio
+    async def test_multiple_subscribers_all_receive_every_event(self, registries):
+        """KAN-134's whole point: every subscriber sees every event (no
+        round-robin partitioning across concurrent SSE clients)."""
+        producer_q = registries._get_or_create_queue("run-1")
+        registries._PIPELINE_TASKS["run-1"] = asyncio.current_task()
+
+        sub_a = await registries._subscribe("run-1")
+        sub_b = await registries._subscribe("run-1")
+        try:
+            producer_q.put_nowait({"type": "agent_chunk", "data": {"seq": 1}})
+            ev_a = await asyncio.wait_for(sub_a.get(), timeout=2.0)
+            ev_b = await asyncio.wait_for(sub_b.get(), timeout=2.0)
+            assert ev_a == ev_b == {"type": "agent_chunk", "data": {"seq": 1}}
+        finally:
+            await registries._unsubscribe("run-1", sub_a)
+            await registries._unsubscribe("run-1", sub_b)
+            registries._cleanup_pipeline("run-1")
+
+    @pytest.mark.asyncio
+    async def test_producer_sentinel_closes_the_subscriber_queue(self, registries):
+        """The driver's terminal ``put(None)`` must reach the subscriber so its
+        SSE drain loop returns instead of hanging forever."""
+        producer_q = registries._get_or_create_queue("run-1")
+        registries._PIPELINE_TASKS["run-1"] = asyncio.current_task()
+
+        sub_q = await registries._subscribe("run-1")
+        producer_q.put_nowait(None)  # driver's own terminal sentinel
+        event = await asyncio.wait_for(sub_q.get(), timeout=2.0)
+        assert event is None
+
+    @pytest.mark.asyncio
+    async def test_cleanup_pipeline_sentinel_reaches_subscriber_via_pump(self, registries):
+        """The resume/gate-re-arm teardown shape: `_cleanup_pipeline` sentinels the
+        PRODUCER queue with no prior sentinel. The pump must forward that sentinel
+        to the subscriber (this is the H-10-adjacent leak this bus must not have)."""
+        registries._get_or_create_queue("run-1")
+        registries._PIPELINE_TASKS["run-1"] = asyncio.current_task()
+
+        sub_q = await registries._subscribe("run-1")
+        registries._cleanup_pipeline("run-1")
+        event = await asyncio.wait_for(sub_q.get(), timeout=2.0)
+        assert event is None
+
+    @pytest.mark.asyncio
+    async def test_subscribe_to_a_run_with_no_producer_closes_immediately(self, registries):
+        """A subscriber that attaches after the producer queue is already gone
+        (the race between `_is_run_live` and `_subscribe`) must get a queue that
+        resolves to the sentinel immediately, not one that hangs forever."""
+        sub_q = await registries._subscribe("run-ghost")
+        event = await asyncio.wait_for(sub_q.get(), timeout=2.0)
+        assert event is None
+
+    @pytest.mark.asyncio
+    async def test_concurrent_subscribes_start_exactly_one_pump(self, registries):
+        """Two SSE clients attaching to the same run concurrently must not spawn
+        two pumps racing to drain the same producer queue (which would silently
+        split events between them)."""
+        registries._get_or_create_queue("run-1")
+        registries._PIPELINE_TASKS["run-1"] = asyncio.current_task()
+
+        await asyncio.gather(
+            registries._subscribe("run-1"),
+            registries._subscribe("run-1"),
+        )
+        assert len(registries._PUMP_TASKS) == 1
+        registries._cleanup_pipeline("run-1")
+

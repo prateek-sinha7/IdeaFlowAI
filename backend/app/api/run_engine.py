@@ -16,6 +16,8 @@ callbacks INJECTED onto the engine instance in ``app/main.py`` at startup.
 """
 
 import asyncio
+import logging
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -26,6 +28,8 @@ from app.core.security import decode_access_token, is_token_revoked
 from app.models.database import SessionLocal
 from app.models.user import User
 from app.models.workflow import WorkflowRun
+
+logger = logging.getLogger("app.api.run_engine")
 
 # ---------------------------------------------------------------------------
 # Pipeline event queue registry
@@ -68,9 +72,285 @@ def _get_or_create_queue(pipeline_run_id: str) -> asyncio.Queue:
 
 
 def _cleanup_pipeline(pipeline_run_id: str) -> None:
-    _PIPELINE_QUEUES.pop(pipeline_run_id, None)
+    """Drop a run's live registrations AND release anyone attached to its queue.
+
+    A3. Popping ``_PIPELINE_QUEUES`` is only half of "this run is no longer live":
+    an SSE client that attached while the entry existed is parked in
+    ``run_stream._iter_sse_frames`` at ``await live_queue.get()`` (``run_stream.py:197``)
+    holding a direct reference to the queue OBJECT, so the dict pop does not reach it.
+    Of the twelve paths that reach this function, only three (the launch driver's
+    ``finally`` at ``run_commands.py:2185-2186``, the revision driver's at ``:2488-2489``,
+    and ``engine._drive_resumed_stream``'s at ``engine.py:7823+7830``) send the ``None``
+    sentinel first; the nine resume/re-arm paths that reach it through
+    ``engine._fire_resume_cleanup`` do not, and their attached client hangs until the
+    socket drops. Sending the sentinel HERE makes "stop tracking this run" and "release
+    its readers" one atomic operation instead of two things every caller must remember.
+
+    The sentinel goes onto the SOURCE queue we just popped, never to a consumer, so it
+    QUEUES BEHIND anything still pending: on the three already-sentinelled paths this is
+    a harmless second sentinel the reader never reaches (it returns on the first), and no
+    tail is truncated. ``put_nowait`` is used because this function is synchronous and is
+    called from both sync and async contexts; the queue is unbounded (``maxsize=0``,
+    ``_get_or_create_queue``) so ``QueueFull`` is unreachable -- the guard is there only so
+    a future bound queue degrades instead of raising inside a cleanup path. The pops stay
+    unconditional (Phase-12 WR-01: every exit path must drop the task entry) and the
+    function stays idempotent -- a second call pops ``None`` and sends nothing.
+
+    C-06: since the KAN-134 fan-out bus landed, the reader parked on THIS queue is
+    usually the per-run pump (``_pump_run_events``), not the SSE client directly. The
+    sentinel still reaches the client -- the pump forwards it to every subscriber via
+    ``_dispatch_sentinel_to_subscribers`` -- just via one extra hop. If no pump was ever
+    started for this run (no subscriber ever attached), the sentinel sits in the queue
+    object until it is garbage-collected, which is harmless.
+    """
+    queue = _PIPELINE_QUEUES.pop(pipeline_run_id, None)
     _PIPELINE_TASKS.pop(pipeline_run_id, None)
     _CANCEL_EVENTS.pop(pipeline_run_id, None)
+    if queue is not None:
+        try:
+            queue.put_nowait(None)
+        except Exception:  # noqa: BLE001 -- releasing readers must never raise in cleanup
+            pass
+
+
+def _is_run_live(run_id: str) -> bool:
+    """True iff ``run_id`` has a LIVE in-process driver task.
+
+    Replaces the two ``run_id in _PIPELINE_QUEUES`` membership tests that treated a
+    surviving registry entry as proof a run is live. Membership is NOT liveness: a
+    driver that raises before its cleanup runs (``engine.resume_run``'s unguarded DB
+    read; a ``CancelledError`` at any of its pre-drive awaits) leaves the queue + task
+    entries behind for the process lifetime, which made the run permanently
+    un-attachable (the SSE attach blocks on a queue nobody feeds) and permanently
+    un-resumable (``POST /{id}/resume`` → 409 forever).
+
+    The authoritative signal is the DRIVER TASK, because every one of the seven
+    registration sites registers the queue and the task with NO ``await`` between them
+    (run_commands.py :399/:421, :991/:1003, :1204/:1216, :1775/:1796, :2383/:2395;
+    engine.py :5372/:5388, :5440/:5457) -- so on a single-threaded event loop a
+    registered queue is never observable without its task. And every driver's cleanup
+    (``_cleanup_pipeline`` / the engine's injected ``_fire_resume_cleanup``) runs INSIDE
+    the driver, i.e. strictly before its task transitions to ``done()``. A ``done()``
+    task whose registry entries survive is therefore unambiguously stale.
+
+    SIDE EFFECT (deliberate, and the reason this is not named ``_run_is_live``): a stale
+    registration is SELF-HEALED here via ``_cleanup_pipeline`` -- the single registry
+    teardown (INV-12). After A3, ``_cleanup_pipeline`` also sentinels the run's pump, so
+    the heal additionally releases any client already blocked on the orphaned queue.
+
+    Fail-safe: anything we cannot PROVE is finished is reported LIVE. A task object with
+    no callable ``done`` (``tests/unit/test_rest_resume.py:260`` seeds a bare ``object()``
+    sentinel and expects the overlap mutex to still return 409) and a ``done()`` that
+    raises both take the live branch -- never self-heal something whose state is unknown.
+
+    SC-001: keyed on ``run_id`` only. No workflow name, no pipeline type.
+    Synchronous by contract: ``resume_run_endpoint``'s double-POST atomicity argument
+    (run_commands.py:346) requires NO ``await`` between the overlap mutex and the
+    registration that closes it. Do not make this a coroutine.
+    """
+    task = _PIPELINE_TASKS.get(run_id)
+    if task is not None:
+        done = getattr(task, "done", None)
+        if not callable(done):
+            # Un-introspectable sentinel -> assume live (never heal what we cannot prove).
+            return True
+        try:
+            finished = bool(done())
+        except Exception:  # noqa: BLE001 - an unreadable task is treated as live
+            return True
+        if not finished:
+            return True
+
+    # Not live. Self-heal any surviving registration. Evidence is the QUEUE or TASK entry
+    # only -- NOT _CANCEL_EVENTS: ``launch_run`` registers the cancel event at :1734
+    # before the queue at :1775, so a lone cancel-event entry is a legitimate mid-launch
+    # state, not staleness. ``_cleanup_pipeline`` pops all three, which is correct once a
+    # queue/task entry has proven the run dead.
+    if run_id in _PIPELINE_QUEUES or run_id in _PIPELINE_TASKS:
+        logger.warning(
+            "stale run registration self-healed: run=%s task_present=%s "
+            "task_done=%s queue_present=%s",
+            run_id,
+            task is not None,
+            None if task is None else getattr(task, "done", lambda: None)(),
+            run_id in _PIPELINE_QUEUES,
+        )
+        _cleanup_pipeline(run_id)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Per-run SSE fan-out bus (KAN-134: Multi-Tab SSE Stream Silent Data Loss)
+# ---------------------------------------------------------------------------
+# Replaces the old single-queue-per-run model which caused round-robin event
+# partitioning across concurrent SSE clients. Each subscriber (SSE connection)
+# gets its own queue, fed by a shared pump (the engine). All subscribers see
+# all events in order. Based on the sanctioned websocket_handoff.py pattern
+# (Phase 44 survivor).
+#
+# run_id → list[asyncio.Queue]. Each queue belongs to one SSE client connection.
+# ``defaultdict(list)`` keeps the producer side simple; the SSE handler is
+# responsible for adding and removing its own queue via subscribe/unsubscribe.
+
+_SUBSCRIBERS: dict[str, list[asyncio.Queue]] = defaultdict(list)
+_SUBSCRIBERS_LOCK = asyncio.Lock()
+
+
+async def _subscribe(run_id: str, queue_maxsize: int = 0) -> asyncio.Queue:
+    """Subscribe an SSE client to the per-run fan-out bus.
+
+    Creates a new queue and registers it for this run. The SSE handler
+    must call unsubscribe() when the connection closes (in a finally block).
+
+    Args:
+        run_id: The workflow run ID.
+        queue_maxsize: Maximum queue size (0 = unbounded; slow clients
+                       over this threshold are evicted on put).
+
+    Returns:
+        An asyncio.Queue for the SSE handler to drain.
+    """
+    q: asyncio.Queue = asyncio.Queue(maxsize=queue_maxsize)
+    async with _SUBSCRIBERS_LOCK:
+        _SUBSCRIBERS[run_id].append(q)
+    if not await _ensure_pump(run_id):
+        # C-06: no live producer queue exists for this run (it finished in the race
+        # window between the caller's _is_run_live check and this subscribe call —
+        # _cleanup_pipeline already popped _PIPELINE_QUEUES[run_id] before we got
+        # here). Nothing will ever feed this queue, so close it now instead of
+        # leaving the SSE generator parked forever on `await live_queue.get()`.
+        q.put_nowait(None)
+    return q
+
+
+async def _unsubscribe(run_id: str, q: asyncio.Queue) -> None:
+    """Unsubscribe an SSE client from the per-run fan-out bus.
+
+    Removes the queue from the subscriber list. Safe to call multiple times
+    or if the queue was never registered (idempotent).
+
+    Args:
+        run_id: The workflow run ID.
+        q: The queue to remove.
+    """
+    async with _SUBSCRIBERS_LOCK:
+        if run_id in _SUBSCRIBERS:
+            try:
+                _SUBSCRIBERS[run_id].remove(q)
+            except ValueError:
+                pass
+            if not _SUBSCRIBERS[run_id]:
+                _SUBSCRIBERS.pop(run_id, None)
+
+
+async def _dispatch_event_to_subscribers(run_id: str, event: dict[str, Any]) -> None:
+    """Fan-out an event to every SSE subscriber on a run.
+
+    Non-blocking: a queue with no consumer is fine (the handler disconnects
+    and cleans up via unsubscribe). A queue with a slow consumer buffers;
+    a queue at maxsize silently drops the event (slow client evicted on next
+    reconnect, which replays from the durable tail via Last-Event-ID).
+
+    Args:
+        run_id: The workflow run ID.
+        event: The event dict to dispatch.
+    """
+    async with _SUBSCRIBERS_LOCK:
+        queues = list(_SUBSCRIBERS.get(run_id, ()))
+    for q in queues:
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            pass  # Slow client; evicted on next reconnect (durable replay via Last-Event-ID)
+
+
+async def _dispatch_sentinel_to_subscribers(run_id: str) -> None:
+    """Forward the producer's terminal ``None`` sentinel to every subscriber.
+
+    Mirrors ``_dispatch_event_to_subscribers`` but for the close signal: each
+    subscriber's drain loop (``run_stream._iter_sse_frames``'s
+    ``await live_queue.get()``) checks for ``None`` to end the stream cleanly.
+    """
+    async with _SUBSCRIBERS_LOCK:
+        queues = list(_SUBSCRIBERS.get(run_id, ()))
+    for q in queues:
+        try:
+            q.put_nowait(None)
+        except asyncio.QueueFull:
+            pass  # Slow client; it will still see the run's terminal status on reconnect.
+
+
+# ---------------------------------------------------------------------------
+# C-06 fix (KAN-134 fan-out bus had no producer): the pump that bridges the
+# existing per-run producer queue (``_PIPELINE_QUEUES``, fed by every launch /
+# revision / resume driver) into the per-subscriber fan-out bus (``_SUBSCRIBERS``,
+# fed only by ``_dispatch_event_to_subscribers``, which had zero callers). Every
+# real event producer writes ONLY to ``_PIPELINE_QUEUES``; every SSE subscriber
+# reads ONLY from its own ``_SUBSCRIBERS`` queue. Without this pump nothing
+# connects the two, so every live attach parks on ``live_queue.get()`` forever.
+#
+# One pump task per run, started lazily by the FIRST subscriber to attach
+# (``_ensure_pump``, called from ``_subscribe``) rather than at launch time, so a
+# run nobody is watching costs nothing extra. Guarded by ``_PUMP_TASKS_LOCK`` so
+# two SSE clients attaching concurrently never spawn two pumps racing to drain
+# the same producer queue (which would silently split events between them —
+# the exact round-robin bug KAN-134 replaced the single-queue model to fix).
+_PUMP_TASKS: dict[str, asyncio.Task] = {}
+_PUMP_TASKS_LOCK = asyncio.Lock()
+
+
+async def _pump_run_events(run_id: str, queue: asyncio.Queue) -> None:
+    """Drain one run's producer queue into every attached SSE subscriber queue.
+
+    Terminates on the producer's ``None`` sentinel — sent by the driver's own
+    ``finally`` (launch/revision) or by ``_cleanup_pipeline`` (resume / gate-re-arm
+    paths) — which it forwards to every subscriber so their drain loops return
+    instead of hanging. A dispatch failure for one event is logged and does not
+    kill the pump; a failure that escapes the loop entirely still closes out every
+    attached subscriber (via the sentinel) instead of leaving them parked forever.
+    """
+    try:
+        while True:
+            event = await queue.get()
+            if event is None:
+                await _dispatch_sentinel_to_subscribers(run_id)
+                return
+            try:
+                await _dispatch_event_to_subscribers(run_id, event)
+            except Exception:  # noqa: BLE001 - one bad event must not kill the pump
+                logger.exception(
+                    "SSE pump: failed to dispatch event for run=%s", run_id
+                )
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - the pump must not strand its subscribers
+        logger.exception("SSE pump crashed for run=%s", run_id)
+        await _dispatch_sentinel_to_subscribers(run_id)
+    finally:
+        _PUMP_TASKS.pop(run_id, None)
+
+
+async def _ensure_pump(run_id: str) -> bool:
+    """Start the fan-out pump for ``run_id`` if a live producer queue exists.
+
+    Returns ``False`` when ``run_id`` has no entry in ``_PIPELINE_QUEUES`` — the
+    run finished (and was cleaned up) in the window between the caller's liveness
+    check and this call, so there is nothing left to pump. The caller
+    (``_subscribe``) uses this to close a subscriber queue immediately instead of
+    leaving it parked with no producer that will ever feed it.
+
+    Idempotent: a second call while a pump is already running for this run is a
+    no-op (checked under ``_PUMP_TASKS_LOCK`` so concurrent subscribers never race
+    into starting two pumps on the same queue).
+    """
+    queue = _PIPELINE_QUEUES.get(run_id)
+    if queue is None:
+        return False
+    async with _PUMP_TASKS_LOCK:
+        existing = _PUMP_TASKS.get(run_id)
+        if existing is None or existing.done():
+            _PUMP_TASKS[run_id] = asyncio.create_task(_pump_run_events(run_id, queue))
+    return True
 
 
 # ---------------------------------------------------------------------------
