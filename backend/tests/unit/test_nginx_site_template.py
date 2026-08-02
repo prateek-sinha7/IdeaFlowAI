@@ -5,7 +5,7 @@ Pure stdlib, cross-platform. Extracts the site heredoc out of
 rate limited, and that the general ``/api/`` limiter survives. Non-vacuous: every
 assertion fails on the pre-fix tree.
 
-The heredocs live in ``reconcile-host-config.sh``, NOT ``bootstrap-ec2.sh``: FIX-152
+The heredocs live in ``reconcile-host-config.sh``, NOT ``bootstrap-ec2.sh``: FIX-159
 extracted the declarative nginx config so it can be re-applied to a running host.
 If a future change moves them again, ``_render_site`` / ``_render_limits`` raise
 ``StopIteration`` rather than silently passing on an empty string — the tests fail

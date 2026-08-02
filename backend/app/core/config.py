@@ -137,7 +137,6 @@ class Settings(BaseSettings):
     # IN-01 for months). It has been DELETED. Idle-timeout is purely an ops/nginx
     # concern and is not enforced at the application layer.
     SSE_KEEPALIVE_PING_SECONDS: int = 15
-    SSE_STREAM_IDLE_TIMEOUT_SECONDS: int = 300
     # KAN-134: Per-subscriber queue maxsize for the per-run fan-out bus. Each SSE
     # client gets its own queue fed by the shared pump. A slow client that falls
     # behind (queue full) is silently evicted; it reconnects with Last-Event-ID and

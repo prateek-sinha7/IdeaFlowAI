@@ -47,11 +47,15 @@ from app.models.workflow import WorkflowRun
 
 logger = logging.getLogger("app.api.run_stream")
 
-# Read-only import of the EXISTING per-run live-queue registry (LOCK-B — websocket.py
-# is NOT modified and NO new symbol is added there). ``_get_or_create_queue`` returns
-# the same ``asyncio.Queue`` the WS drainer feeds; membership in ``_PIPELINE_QUEUES``
-# is the liveness signal (a registered queue == a live/attached run).
-from app.api.run_engine import _PIPELINE_QUEUES, _get_or_create_queue
+# Import the per-run fan-out bus (KAN-134). Each SSE subscriber gets its own
+# queue, fed by the shared pump. Liveness is determined by the DRIVER TASK via
+# ``_is_run_live()`` (A4: stale queue/task entries are self-healed). A finished run
+# (no live task) has no live queue → durable replay + handshake is the complete response.
+from app.api.run_engine import (
+    _is_run_live,
+    _subscribe,
+    _unsubscribe,
+)
 
 router = APIRouter(prefix="/api/runs", tags=["runs-stream"])
 
