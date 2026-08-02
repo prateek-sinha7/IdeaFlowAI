@@ -63,6 +63,12 @@ const STATUS_ICON: Record<WorkflowStatus, typeof Loader2> = {
   // in-progress re-run. Map both so the sidebar status maps stay exhaustive.
   degraded: AlertTriangle,
   revising: Loader2,
+  // Extended live statuses (FIX-156 WorkflowStatus expansion) — all in-progress.
+  planning: Loader2,
+  generating: Loader2,
+  waiting_for_user: Loader2,
+  clarifying: Loader2,
+  analyzing: Loader2,
 };
 
 const STATUS_COLOR: Record<WorkflowStatus, string> = {
@@ -72,6 +78,12 @@ const STATUS_COLOR: Record<WorkflowStatus, string> = {
   cancelled: "text-amber-400",
   degraded: "text-amber-400",
   revising: "text-blue-400",
+  // Extended live statuses — all shown as in-progress blue.
+  planning: "text-amber-400",
+  generating: "text-blue-400",
+  waiting_for_user: "text-amber-400",
+  clarifying: "text-amber-400",
+  analyzing: "text-blue-400",
 };
 
 /**

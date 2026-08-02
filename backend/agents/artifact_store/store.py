@@ -165,6 +165,32 @@ class ArtifactStore:
         event = self._resume_events.get(f"review:{gate_key}")
         return event is not None and not event.is_set()
 
+    def forget_run(self, run_id: str) -> None:
+        """Evict all HITL state for a completed/terminal run (D4 fix — KAN-139).
+
+        Removes the run's questionnaire response, force-proceed flag, and all
+        asyncio.Event entries keyed by ``run_id`` or ``review:{run_id}:*`` so the
+        three singleton dicts do not grow without bound for the process lifetime.
+        Called by ``_cleanup_pipeline`` (run_engine.py) so run-end and HITL cleanup
+        are one atomic operation.
+
+        Safe to call multiple times (idempotent pops). The review-gate key space is
+        ``review:{run_id}:{agent_id}``, so we drop every key whose prefix matches the
+        run_id rather than only a single well-known key.
+        """
+        self._questionnaire_responses.pop(run_id, None)
+        self._questionnaire_force_proceed.pop(run_id, None)
+        # Evict the questionnaire resume event (keyed directly by run_id).
+        self._resume_events.pop(run_id, None)
+        # Evict all review-gate events for the run. These are keyed
+        # ``review:{run_id}:{agent_id}`` — scan only once with a list comprehension
+        # to avoid mutating the dict while iterating.
+        review_prefix = f"review:{run_id}:"
+        stale_keys = [k for k in self._resume_events if k == f"review:{run_id}" or k.startswith(review_prefix)]
+        for k in stale_keys:
+            self._resume_events.pop(k, None)
+        logger.debug("ArtifactStore: evicted HITL state for run=%s", run_id)
+
 
 # ------------------------------------------------------------------
 # Module-level singleton

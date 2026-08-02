@@ -411,7 +411,10 @@ async def resume_run_endpoint(
         # a failed run resumed after a restart has no entry (new process) → pop is
         # a no-op in that case. The DB status is already "running" (step 5) so
         # clearing the in-memory mirror is safe ownership-wise.
-        get_execution_engine()._state_machine._states.pop(run_id, None)
+        # D5 (KAN-139): use the public StateMachine.forget_run() instead of the private
+        # dict reach (FIX-105 workaround) — the new method is the authorised eviction path.
+        from agents.execution_engine.state_machine import get_state_machine
+        get_state_machine().forget_run(run_id)
     finally:
         db.close()
 

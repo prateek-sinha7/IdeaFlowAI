@@ -13,7 +13,8 @@ Authorization: LOCK-E/ND-4 supersede — POR §8.1.
 Coverage (RESEARCH §Validation map):
   * Owner gate (T-50-01): cross-owner + missing → 404 (never 403; no existence
     oracle; keyed on ``user_id`` never nullable ``owner_id``).
-  * Eligibility fence (T-50-02): completed / cancelled → 409 ``run_not_resumable``.
+  * Eligibility fence (T-50-02): completed → 409 ``run_not_resumable``.
+    cancelled/failed/degraded → 200 (resumable, Phase 50 RESUME-18 extended set).
   * Overlap mutex (T-50-03): an already-live run (registry entry) → 409
     ``pipeline_already_running`` (CR-01 vocab); a concurrent double-drive → exactly
     one 200, the other 409 (asyncio no-preemption atomicity).
@@ -232,15 +233,21 @@ def test_resume_completed_409(env):
     assert run_id not in env["ws"]._PIPELINE_QUEUES
 
 
-def test_resume_cancelled_409(env):
+def test_resume_cancelled_200(env):
+    """Phase 50 RESUME-18: cancelled runs ARE resumable (eligible), not a 409.
+
+    The original test expected 409, but Phase 50 extended the eligibility set to
+    ``{"failed", "cancelled", "degraded"}`` so users can recover a cancelled run
+    without starting from scratch. This test was updated to reflect the actual
+    contract (pre-existing stale assertion fixed as part of KAN-139 D5 validation).
+    """
     owner = _seed_user(env, "owner")
     run_id = _seed_run(env, owner.id, status="cancelled")
     env["state"]["user"] = owner
 
     resp = _post_resume(env, run_id)
-    assert resp.status_code == 409
-    assert resp.json()["detail"]["code"] == "run_not_resumable"
-    assert env["engine"].resume_calls == []
+    assert resp.status_code == 200
+    assert resp.json()["run_id"] == run_id
 
 
 # ════════════════════════════════════════════════════════════════════════════

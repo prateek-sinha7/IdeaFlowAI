@@ -65,6 +65,14 @@ interface InlineGateActionsProps {
    * event — this component adds NO workflow/agent-name literal of its own.
    */
   updateSpecsEligible?: boolean;
+  /**
+   * GENERIC artifact kind from the backend (_artifact_kind_for) — "spec",
+   * "task_list", "summary", etc. Passed to discriminateArtifact so agents
+   * whose output has no XML wrapper tag (e.g. user_stories domain-analyst
+   * produces plain markdown with kind="summary") still get the right preview.
+   * SC-001: never a workflow/agent literal — structurally derived server-side.
+   */
+  artifactKind?: string;
   /** KAN-100 terminal fence: actions render only while the pipeline is live. */
   isPipelineRunning: boolean;
   /** Caller-supplied primary-action label (e.g. "Accept & continue to build"). */
@@ -81,6 +89,7 @@ export function InlineGateActions({
   gateKey,
   redoable,
   updateSpecsEligible,
+  artifactKind,
   isPipelineRunning,
   approveLabel,
   onApprove,
@@ -158,9 +167,10 @@ export function InlineGateActions({
   if (!isPipelineRunning) return null;
 
   // Plan-preview block — reuse the shared artifactPreview discriminator +
-  // renderers (INV-12: no second parser). The discriminator keys only on the
-  // output's own wrapper tag (SC-001); an ordinary output renders no preview.
-  const artifactKind = discriminateArtifact(output);
+  // renderers (INV-12: no second parser). Pass the backend's artifactKind so
+  // agents with plain-markdown output (e.g. user_stories domain-analyst, kind=
+  // "summary") render correctly without requiring XML wrapper tags in their text.
+  const resolvedArtifactKind = discriminateArtifact(output, artifactKind);
 
   return (
     <div
@@ -197,14 +207,14 @@ export function InlineGateActions({
       )}
 
       {/* Task-plan PREVIEW block — reused artifactPreview renderers (no parser). */}
-      {artifactKind && !showEdit && (
+      {resolvedArtifactKind && !showEdit && (
         <div
           data-testid="chat-gate-preview"
           className="rounded-lg border border-line-border bg-surface-warm/60 px-3 py-2.5 max-h-64 overflow-y-auto"
         >
-          {artifactKind === "spec" && <SpecPreview content={output} />}
-          {artifactKind === "tasks" && <TasksPreview content={output} />}
-          {artifactKind === "analysis" && <AnalysisPreview content={output} />}
+          {resolvedArtifactKind === "spec" && <SpecPreview content={output} />}
+          {resolvedArtifactKind === "tasks" && <TasksPreview content={output} />}
+          {resolvedArtifactKind === "analysis" && <AnalysisPreview content={output} />}
         </div>
       )}
 

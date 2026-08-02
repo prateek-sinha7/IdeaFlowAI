@@ -112,6 +112,21 @@ def _cleanup_pipeline(pipeline_run_id: str) -> None:
         except Exception:  # noqa: BLE001 -- releasing readers must never raise in cleanup
             pass
 
+    # D4/D5 (KAN-139): evict singleton in-memory state for the completed run so the
+    # ArtifactStore HITL dicts and StateMachine._states do not grow without bound for
+    # the process lifetime. Imports are lazy (avoids circular-import risk at module
+    # load). Both forget_run() methods are idempotent.
+    try:
+        from agents.artifact_store.store import get_artifact_store
+        get_artifact_store().forget_run(pipeline_run_id)
+    except Exception:  # noqa: BLE001 — best-effort, never block cleanup
+        pass
+    try:
+        from agents.execution_engine.state_machine import get_state_machine
+        get_state_machine().forget_run(pipeline_run_id)
+    except Exception:  # noqa: BLE001 — best-effort, never block cleanup
+        pass
+
 
 def _is_run_live(run_id: str) -> bool:
     """True iff ``run_id`` has a LIVE in-process driver task.

@@ -213,11 +213,20 @@ test.describe("TS-SSE-RESILIENCE — sse-resilience transport (D-14)", () => {
     expect(cursor).toBe(3);
   });
 
-  test("TS-SSE-RESILIENCE-04 sse-resilience: multi-tab consumers ride ONE monotonic seq/event_id space", async ({
+  test("TS-SSE-RESILIENCE-04 sse-resilience: mock harness shares ONE monotonic seq/event_id space across tabs (harness contract — not a backend delivery guarantee)", async ({
     dashboard,
     mockSse,
     page,
   }) => {
+    // D1 (KAN-139): this test asserts the MOCK HARNESS contract — a shared MockSse
+    // instance serves both tabs from the same frames array, so they receive the same
+    // seq/event_id space. This does NOT assert the real backend's delivery guarantee
+    // (a real backend queue is consume-once, so two tabs competing for the SAME live
+    // queue would produce A2 event-theft). The test title has been retitled to avoid
+    // claiming a backend invariant that only the mock enforces.
+    // TS-SSE-RESILIENCE-05 (a separate test requiring two real browser tabs against
+    // the mounted app + real backend) would be the proper measurement point for the
+    // backend delivery property, but is out of scope for offline mocked testing.
     mockSse.autoAttach = false; // drive the transport by hand (no competing app stream)
     await dashboard.goto();
     const runId = mockSse.currentRunId;

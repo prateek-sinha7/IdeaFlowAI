@@ -166,8 +166,73 @@ async def lifespan(app: FastAPI):
     except Exception as _startup_exc:
         logger.warning("Startup restoration failed (non-fatal): %s", _startup_exc)
 
+    # D6 (KAN-139): start the periodic sandbox sweep task so run dirs no longer
+    # accumulate on the 60 GB root volume for the process lifetime.
+    # The sweep is DB-backed — it queries non-terminal run IDs PLUS the in-process
+    # live registry before deleting, so an active build run (even one with a stale
+    # directory mtime, e.g. prototype build edit_file path) is never deleted.
+    # TTL is raised to 168 hours (7 days) in config to cover the revision-parent
+    # seed window (48 h was too short).  Scheduled every 6 hours — one sweep per
+    # startup + periodic sweeps thereafter, never blocking the event loop (offloaded
+    # to a thread via asyncio.to_thread).
+    import asyncio as _asyncio
+
+    async def _sandbox_sweep_loop() -> None:
+        """Periodic sandbox sweep — runs every SANDBOX_SWEEP_INTERVAL_SECONDS (config)."""
+        while True:
+            await _asyncio.sleep(settings.SANDBOX_SWEEP_INTERVAL_SECONDS)
+            try:
+                from app.models.database import SessionLocal
+                from app.models.workflow import WorkflowRun
+                from app.api.run_engine import _PIPELINE_QUEUES
+                from app.agents.sandbox import sweep_expired
+
+                # Build the protected set: non-terminal DB run IDs ∪ live in-process IDs.
+                _db = SessionLocal()
+                try:
+                    _rows = (
+                        _db.query(WorkflowRun.id)
+                        .filter(
+                            WorkflowRun.status.notin_(("completed", "failed", "cancelled", "degraded"))
+                        )
+                        .all()
+                    )
+                    protected = {r.id for r in _rows}
+                finally:
+                    _db.close()
+                protected.update(_PIPELINE_QUEUES.keys())
+
+                removed = await _asyncio.to_thread(
+                    sweep_expired,
+                    ttl_hours=settings.RUN_DIR_TTL_HOURS,
+                    protected_run_ids=protected,
+                )
+                if removed:
+                    logger.info("sandbox sweep: removed %d expired run dir(s)", removed)
+            except Exception as _sweep_exc:  # noqa: BLE001
+                logger.warning("sandbox sweep failed (non-fatal): %s", _sweep_exc)
+
+    _sweep_task = _asyncio.create_task(_sandbox_sweep_loop())
+
     yield
-    logger.info("🔴 Shutting down...")
+
+    # ── Shutdown sequence (D7 — KAN-139): gracefully close the checkpointer pool
+    # BEFORE the process exits so Postgres async connections are returned cleanly
+    # instead of being abruptly dropped (each drop leaks one Postgres connection
+    # that the pool never reclaims until the server-side idle timeout). This is
+    # the SINGLE wiring site — close_checkpointer() was defined but never called.
+    _sweep_task.cancel()
+    try:
+        await _sweep_task
+    except _asyncio.CancelledError:
+        pass
+    try:
+        from app.agents.checkpointer import close_checkpointer
+        await close_checkpointer()
+        logger.info("Checkpointer pool closed.")
+    except Exception as _shutdown_exc:  # noqa: BLE001
+        logger.warning("Checkpointer shutdown failed (non-fatal): %s", _shutdown_exc)
+    logger.info("🔴 Shut down complete.")
 
     # ── KAN-151 D8: the shutdown half of the application lifecycle. ────────────
     # Reachable only because docker-entrypoint.sh passes --timeout-graceful-shutdown;

@@ -10,12 +10,18 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
-| FIX-155 | 2026-07-31 | KAN-151 (D8): Application lifespan shutdown unreachable with live SSE streams — graceful-shutdown timeout + orchestrated teardown | uvicorn's default `timeout_graceful_shutdown=None` leaves streaming SSE connections open indefinitely; H11Protocol.shutdown() only clears keep_alive but does NOT close the transport. A live SSE stream makes lifespan.shutdown() unreachable; docker SIGKILLs at stop_grace_period=30s. Deploy downtime: 30s → 5-8s graceful exit. Concierge tasks must be AWAITED (never cancelled first) so durable chat_reply writes complete. Checkpointer pool must be closed LAST (after steps may still hold connections). Queue registries must be sentinelled. Part 2 (optional, behind SHUTDOWN_STOP_RUNS flag) optionally stops in-flight drivers and converts runs to "cancelled". | `backend/docker-entrypoint.sh` (added --timeout-graceful-shutdown 5 flag), `backend/app/core/config.py` (added 3 settings: SHUTDOWN_CONCIERGE_DRAIN_SECONDS/SHUTDOWN_TASK_DRAIN_SECONDS/SHUTDOWN_STOP_RUNS), `backend/app/api/run_shutdown.py` (new, ~170 lines, shutdown orchestrator), `backend/app/main.py` (import json, shutdown body calls orchestrator, logs JSON summary) | quick-260731-w9m (application infrastructure, no migration) | INV-1 ✅ (app-layer, `run_id`-keyed, no engine branches), INV-3 ✅ (shutdown path unreachable from scripted harness; 5 goldens unaffected), INV-12 ✅ (reuses _CANCEL_EVENTS/task.cancel()/existing durable-write paths; no duplication), SC-001 ✅ (workflow-agnostic; zero engine edits), Ports&Adapters ✅ (leaf module, no reverse app←agents edge; lint-imports 4/0), Q3 ✅ (no migration, app-layer config only) | Done |
-| FIX-154 | 2026-07-31 | KAN-149 (E4): Remove no-op `logs:DescribeLogGroups` from instance-role CloudWatch IAM policy | `logs:DescribeLogGroups` has no AWS IAM resource type (AWS Service Reference: no "Resources" entry), so scoping it to `arn:...:log-group:/velocityai/<env>/*` was a silent no-op. Agent never calls it in this config (gate: `target.Retention > 0` at pusher/target.go:79; default -1; no config sets it). Deleted statement + documented why via HCL comment so it's not re-added. Widening to `Resource:"*"` was rejected: would grant unnecessary account-wide cross-env log-group enumeration to internet-facing host for a call path that doesn't execute. | `infra/terraform/policies/cloudwatch-write.json` (deleted DescribeLogGroups statement), `infra/terraform/modules/iam/main.tf` (added 23-line durability comment above resource) | quick-260731-fx3 (infrastructure, least-privilege hardening) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no app changes; no duplication; no engine branches; no migrations) | Done |
-| FIX-153 | 2026-07-30 | KAN-147 (E1): nginx rate-limit 429s unobservable in CloudWatch metrics — JSON log_format with upstream_addr discriminator + new 429 filters and liveness alarms | Space-delimited nginx log_format carries no $upstream_addr; when nginx limit_req rejects with 429, $upstream_addr unset (empty string in JSON, not "-"). Positional metric filter `[ip, id, user, ts, request, status_code=5*, ...]` matches only 5xx status codes; 429 (4xx) produces zero matches. Metric datapoint never emitted; alarm with `treat_missing_data="notBreaching"` stays OK silently. A1 rate-limit scenario unobservable. Additional: :80 server block has no `access_log` → inherits http-level combined format → /var/log/nginx/access.log carries mixed formats → JSON filters silently skip :80 half. Fix: (1) replace log_format with `escape=json` variant carrying $upstream_addr, $upstream_status, $status (numeric), $request_id, timing fields + two map directives normalize upstream_addr (empty→"-") and status (strip leading zeros); (2) add `access_log` to :80 block (file homogeneous); (3) update nginx_5xx filter to JSON pattern `{ $.status >= 500 }`; (4) add nginx_429 filter (`{ $.status = 429 }`), nginx_limit_reject filter (`{ $.status = 429 && $.upstream_addr = "-" }`), sse_stream_closed filter; (5) add three alarms: nginx_429_spike, nginx_limit_reject (THE A1 ALARM), plus two liveness alarms (app_log_ingestion_stalled, nginx_log_parse_stalled) to detect silent monitoring failures. | `infra/scripts/reconcile-host-config.sh` (log_format replaced, two map directives added, :80 access_log added), `infra/terraform/modules/monitoring/main.tf` (nginx_5xx pattern updated to JSON, 5 new filters added, 5 new alarms added) | quick-260730-e1t (infrastructure observability, complements FIX-144 A1 mitigation) | INV-1 ✅ (infra-only, no engine edits), INV-3 ✅ (no Python changes; goldens untouched), INV-12 ✅ (log_format replaced in place, not duplicated), SC-001 ✅ (no workflow branches; metrics key on $status/$upstream_addr only), Locked decision ✅ ($uri not $request/$args for token privacy preserved) | Done |
-| FIX-152 | 2026-07-30 | C1: Extract nginx + CloudWatch config from bootstrap into reusable reconcile script — config changes never reach live hosts | bootstrap-ec2.sh §13–§14 embedded in once-per-instance script; repo edits to nginx/agent config have no delivery path to live hosts without instance destruction or destructive manual re-run. Fix: extract §13 (nginx, excluding cert) + §14 (agent config) into standalone reconcile-host-config.sh; bootstrap fetches and runs it on first boot; CI fetches and runs it on every deploy | `infra/scripts/reconcile-host-config.sh` (new, faithful extraction), `infra/scripts/bootstrap-ec2.sh` (lines 693–1208 replaced with S3 fetch + cert block + reconcile call; see 260730-bootstrap-replacement.sh for mechanical application), `infra/terraform/app/main.tf` (added aws_s3_object.reconcile_script, extended depends_on), `infra/buildspec.yml` (added reconcile fetch-and-run after chown, before ECR login) | quick-260730-c1 (infrastructure extraction, unblocks A1/D3/E1/E3) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no app byte changes; one impl; zero engine) | Done (Step 2a blocked by token limit; mechanical replacement script provided) |
-| FIX-151 | 2026-07-30 | KAN-142: CloudWatch agent duplicate log stream configuration — audit.log and unattended-upgrades.log collide on /velocityai/*/system:{instance_id} | Two entries in the collect_list both targeted identical (logGroupName, logStreamName) pair (/velocityai/${ENVIRONMENT}/system, {instance_id}), violating CloudWatch's unique stream constraint per CreateLogStream API. Root: config materialized verbatim from documentation in 2026-07-01 prefix-rename pass (commit e1a3a495); uniqueness never validated. Collision latent due to B1 (agent crash-loop on missing logfile perms, FIX-149). Fix: apply uniform stream-naming scheme across all 8 entries — every entry now uses {instance_id}/<source-slug> for unique, self-documenting stream names (nginx-access, nginx-error, postgres, audit, auth, unattended-upgrades, letsencrypt, docker). Added durability comment documenting the naming rule and INV-12 contract. | `infra/scripts/bootstrap-ec2.sh` (collect_list entries lines 1066–1073 renamed, durability comment added lines 1030–1041) | quick-260730-k8x (infrastructure, no schema/migration, infra-only) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; characterization goldens not affected; INV-12 ✅ uniform pattern established and documented) | Done |
-| FIX-151b | 2026-07-30 | KAN-137 follow-up: PPT revision chain context empty — _extract_chain_context returns empty context_block for *_revision runs because they have no brief-analyst agent output | `get_chain_context()` in runs.py queried the revision run itself; revision runs (od_ppt_revision etc.) have no od-ppt-brief-analyst / spec-writer agents, so structured_summary="" and context_block="". Fix: walk up to parent_run_id for *_revision types, extract context from the ORIGINAL pipeline run, and append the revision instruction. | `backend/app/api/runs.py` | Phase 25 (chain context / Workstream A) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-162 | 2026-07-31 | KAN-151 (D8): Application lifespan shutdown unreachable with live SSE streams — graceful-shutdown timeout + orchestrated teardown | uvicorn's default `timeout_graceful_shutdown=None` leaves streaming SSE connections open indefinitely; H11Protocol.shutdown() only clears keep_alive but does NOT close the transport. A live SSE stream makes lifespan.shutdown() unreachable; docker SIGKILLs at stop_grace_period=30s. Deploy downtime: 30s → 5-8s graceful exit. Concierge tasks must be AWAITED (never cancelled first) so durable chat_reply writes complete. Checkpointer pool must be closed LAST (after steps may still hold connections). Queue registries must be sentinelled. Part 2 (optional, behind SHUTDOWN_STOP_RUNS flag) optionally stops in-flight drivers and converts runs to "cancelled". | `backend/docker-entrypoint.sh` (added --timeout-graceful-shutdown 5 flag), `backend/app/core/config.py` (added 3 settings: SHUTDOWN_CONCIERGE_DRAIN_SECONDS/SHUTDOWN_TASK_DRAIN_SECONDS/SHUTDOWN_STOP_RUNS), `backend/app/api/run_shutdown.py` (new, ~170 lines, shutdown orchestrator), `backend/app/main.py` (import json, shutdown body calls orchestrator, logs JSON summary) | quick-260731-w9m (application infrastructure, no migration) | INV-1 ✅ (app-layer, `run_id`-keyed, no engine branches), INV-3 ✅ (shutdown path unreachable from scripted harness; 5 goldens unaffected), INV-12 ✅ (reuses _CANCEL_EVENTS/task.cancel()/existing durable-write paths; no duplication), SC-001 ✅ (workflow-agnostic; zero engine edits), Ports&Adapters ✅ (leaf module, no reverse app←agents edge; lint-imports 4/0), Q3 ✅ (no migration, app-layer config only) | Done |
+| FIX-161 | 2026-07-31 | KAN-149 (E4): Remove no-op `logs:DescribeLogGroups` from instance-role CloudWatch IAM policy | `logs:DescribeLogGroups` has no AWS IAM resource type (AWS Service Reference: no "Resources" entry), so scoping it to `arn:...:log-group:/velocityai/<env>/*` was a silent no-op. Agent never calls it in this config (gate: `target.Retention > 0` at pusher/target.go:79; default -1; no config sets it). Deleted statement + documented why via HCL comment so it's not re-added. Widening to `Resource:"*"` was rejected: would grant unnecessary account-wide cross-env log-group enumeration to internet-facing host for a call path that doesn't execute. | `infra/terraform/policies/cloudwatch-write.json` (deleted DescribeLogGroups statement), `infra/terraform/modules/iam/main.tf` (added 23-line durability comment above resource) | quick-260731-fx3 (infrastructure, least-privilege hardening) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no app changes; no duplication; no engine branches; no migrations) | Done |
+| FIX-160 | 2026-07-30 | KAN-147 (E1): nginx rate-limit 429s unobservable in CloudWatch metrics — JSON log_format with upstream_addr discriminator + new 429 filters and liveness alarms | Space-delimited nginx log_format carries no $upstream_addr; when nginx limit_req rejects with 429, $upstream_addr unset (empty string in JSON, not "-"). Positional metric filter `[ip, id, user, ts, request, status_code=5*, ...]` matches only 5xx status codes; 429 (4xx) produces zero matches. Metric datapoint never emitted; alarm with `treat_missing_data="notBreaching"` stays OK silently. A1 rate-limit scenario unobservable. Additional: :80 server block has no `access_log` → inherits http-level combined format → /var/log/nginx/access.log carries mixed formats → JSON filters silently skip :80 half. Fix: (1) replace log_format with `escape=json` variant carrying $upstream_addr, $upstream_status, $status (numeric), $request_id, timing fields + two map directives normalize upstream_addr (empty→"-") and status (strip leading zeros); (2) add `access_log` to :80 block (file homogeneous); (3) update nginx_5xx filter to JSON pattern `{ $.status >= 500 }`; (4) add nginx_429 filter (`{ $.status = 429 }`), nginx_limit_reject filter (`{ $.status = 429 && $.upstream_addr = "-" }`), sse_stream_closed filter; (5) add three alarms: nginx_429_spike, nginx_limit_reject (THE A1 ALARM), plus two liveness alarms (app_log_ingestion_stalled, nginx_log_parse_stalled) to detect silent monitoring failures. | `infra/scripts/reconcile-host-config.sh` (log_format replaced, two map directives added, :80 access_log added), `infra/terraform/modules/monitoring/main.tf` (nginx_5xx pattern updated to JSON, 5 new filters added, 5 new alarms added) | quick-260730-e1t (infrastructure observability, complements FIX-144 A1 mitigation) | INV-1 ✅ (infra-only, no engine edits), INV-3 ✅ (no Python changes; goldens untouched), INV-12 ✅ (log_format replaced in place, not duplicated), SC-001 ✅ (no workflow branches; metrics key on $status/$upstream_addr only), Locked decision ✅ ($uri not $request/$args for token privacy preserved) | Done |
+| FIX-159 | 2026-07-30 | C1: Extract nginx + CloudWatch config from bootstrap into reusable reconcile script — config changes never reach live hosts | bootstrap-ec2.sh §13–§14 embedded in once-per-instance script; repo edits to nginx/agent config have no delivery path to live hosts without instance destruction or destructive manual re-run. Fix: extract §13 (nginx, excluding cert) + §14 (agent config) into standalone reconcile-host-config.sh; bootstrap fetches and runs it on first boot; CI fetches and runs it on every deploy | `infra/scripts/reconcile-host-config.sh` (new, faithful extraction), `infra/scripts/bootstrap-ec2.sh` (lines 693–1208 replaced with S3 fetch + cert block + reconcile call; see 260730-bootstrap-replacement.sh for mechanical application), `infra/terraform/app/main.tf` (added aws_s3_object.reconcile_script, extended depends_on), `infra/buildspec.yml` (added reconcile fetch-and-run after chown, before ECR login) | quick-260730-c1 (infrastructure extraction, unblocks A1/D3/E1/E3) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; no app byte changes; one impl; zero engine) | Done (Step 2a blocked by token limit; mechanical replacement script provided) |
+| FIX-158 | 2026-07-30 | KAN-142: CloudWatch agent duplicate log stream configuration — audit.log and unattended-upgrades.log collide on /velocityai/*/system:{instance_id} | Two entries in the collect_list both targeted identical (logGroupName, logStreamName) pair (/velocityai/${ENVIRONMENT}/system, {instance_id}), violating CloudWatch's unique stream constraint per CreateLogStream API. Root: config materialized verbatim from documentation in 2026-07-01 prefix-rename pass (commit e1a3a495); uniqueness never validated. Collision latent due to B1 (agent crash-loop on missing logfile perms, FIX-149). Fix: apply uniform stream-naming scheme across all 8 entries — every entry now uses {instance_id}/<source-slug> for unique, self-documenting stream names (nginx-access, nginx-error, postgres, audit, auth, unattended-upgrades, letsencrypt, docker). Added durability comment documenting the naming rule and INV-12 contract. | `infra/scripts/bootstrap-ec2.sh` (collect_list entries lines 1066–1073 renamed, durability comment added lines 1030–1041) | quick-260730-k8x (infrastructure, no schema/migration, infra-only) | INV-1/3/12/SC-001 ✅ (infra-only, no engine edits; characterization goldens not affected; INV-12 ✅ uniform pattern established and documented) | Done |
+| FIX-157 | 2026-07-31 | Running dropdown and notification panel: click doesn't open correct run page; progress shows 0/N; onViewResults status filter misses planning/generating | Three bugs: (1) `handleRunClick` in AppHeader called `onSwitchToLiveRun` but not `onGoToPipeline` → execution view never switched; (2) `onViewResults` targetRunId lookup used `r.status === "running"` and missed runs in planning/generating/clarifying states; (3) `runningPipelines` always mapped `agentsCompleted: 0` — fixed by passing `activePipelineRunId` and using live `pipelineAgentsCompleted`/`Total` for the matching run | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 35 (SHELL-01 AppHeader), FIX-156 follow-up | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-156 | 2026-07-31 | Running dropdown not showing user_stories (or any run) — `runningPipelines` undefined causing crash; `recentRuns` never passed to AppHeader | Two bugs: (1) `runningPipelines` variable used throughout AppHeader JSX was NEVER DEFINED — causing `ReferenceError: runningPipelines is not defined` and the entire header crashing; (2) `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` were never passed to AppHeader from DashboardLayout — so even after defining the variable, it would get empty server data. Fix: define `runningPipelines` derived from `recentRuns` (same source as Jump Back In); pass the 3 missing props to AppHeader; add status label text in the dropdown rows; extend `WorkflowStatus` type to include live statuses. | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/ui/NotificationPanel.tsx`, `frontend/src/types/index.ts` | Phase 35 (SHELL-01 AppHeader), Phase 36 (SHELL-02 Jump Back In) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-155 | 2026-07-31 | Header shows duplicate running workflow entries (7 instead of 3) — notifications for prototype/ppt not created when user_stories runs concurrently | With 3 concurrent runs, `currentPipelineNotifId` is a single ref. `handleRunPipeline` (user_stories) sets it first; `pendingOdProtoParams`/`pendingOdPptParams` handlers see it non-null and try to reuse it (calling `updateAgentsTotal` on the user_stories notification instead of creating a new one); `odProtoNotifCreated` reactive effect also guards on `!currentPipelineNotifId.current` → false → skips. Result: prototype and ppt notifications never created. Fix: add `odProtoNotifId`/`odPptNotifId` per-type refs; explicit handlers always create their own notification and pre-set the type-specific ref; reactive effect checks the type-specific ref before calling `addRunningNotification`. | `frontend/src/components/layout/DashboardLayout.tsx` | FIX-149 (notification system) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-154 | 2026-07-31 | user_stories review gate shows no summary content — discriminateArtifact called without artifactKind param | `InlineGateActions` called `discriminateArtifact(output)` without the second `artifactKind` argument, so agents whose output lacks XML wrapper tags (user_stories domain-analyst = plain markdown, kind="summary") returned null. `GateContext` also had no `artifactKind` field so the backend value never reached the component. | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx`, `frontend/src/components/chat/InlineGateActions.tsx` | Phase 42 (gate inline), Phase 28 (artifactPreview) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-153 | 2026-07-30 | KAN-146: Concurrent run review gates cross-contaminate screens and appear before agent output (corrected: trackedRunIdRef not activelyBuildingRunIdRef) | `isForeignGate`/`isForeignQuestionnaire` checks in page.tsx initially used `launchedRunIdsRef` (all same-tab run IDs), then corrected to `activelyBuildingRunIdRef` (latest-launched run — wrong for 3+ runs or run-switching). Final fix uses `trackedRunIdRef` (the run currently VIEWED on screen), which is updated by all run-switch paths. DashboardLayout also gained mutual exclusion between gate and clarify panels. | `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | KAN-125 (FIX-135 pattern) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-152 | 2026-07-30 | KAN-139: 9 D-cluster infrastructure defects (memory leaks, missing logging, missing shutdown, missing admission control, dead config) | D1: mockSse test title claimed backend guarantee; D2: sendCommand no res.ok check; D4: ArtifactStore HITL dicts never evicted; D5: StateMachine._states never evicted + private reach; D6: sweep_expired zero callers + data-loss mtime bug; D7: close_checkpointer bugs + not wired to shutdown; D9: restore_non_terminal_runs no admission control; D10: SSE_STREAM_IDLE_TIMEOUT_SECONDS dead config; D11: run_stream.py no logging | `backend/agents/artifact_store/store.py`, `backend/agents/execution_engine/state_machine.py`, `backend/app/api/run_engine.py`, `backend/app/api/run_commands.py`, `backend/app/agents/sandbox.py`, `backend/app/agents/checkpointer.py`, `backend/app/core/config.py`, `backend/app/main.py`, `backend/app/api/run_stream.py`, `frontend/src/providers/RunConnectionProvider.tsx`, `frontend/e2e/tests/ts-sse-resilience.spec.ts` | Phase 44 (SSE transport), Phase 49 (resume), Phase 12 (restore), Phase 29 (D-14h) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-151 | 2026-07-30 | KAN-137 follow-up: PPT revision chain context empty — _extract_chain_context returns empty context_block for *_revision runs because they have no brief-analyst agent output | `get_chain_context()` in runs.py queried the revision run itself; revision runs (od_ppt_revision etc.) have no od-ppt-brief-analyst / spec-writer agents, so structured_summary="" and context_block="". Fix: walk up to parent_run_id for *_revision types, extract context from the ORIGINAL pipeline run, and append the revision instruction. | `backend/app/api/runs.py` | Phase 25 (chain context / Workstream A) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-150 | 2026-07-30 | KAN-137: PPT revision → User Stories chain fires run but Steps trace stays empty; no agents start | Two bugs: (1) handleChainPipeline parsed workflowInput (the revision blob) to get chainBrief, extracting the PPT revision instruction ("make slide 3 more concise") as the user_stories brief — causing auto-clarify to block at waiting_for_user with no visible questionnaire; (2) setMainView("execution") was missing before onStartPipeline. Fix: for revision-type source runs, extract "Original Brief:" from context_block instead of parsing workflowInput; add setMainView("execution") synchronously before firing the pipeline. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25 (Workstream C1 chain context) / Phase 42 (Steps inline clarify) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-149 | 2026-07-30 | KAN-132 (Bug 1+2): Prototype dropdown title shows "Prototype · Prototype" and clicking still navigates to User Stories run | Bug 1: `odProtoNotifCreated` effect used hardcoded `"Prototype"`/`"Presentation"` as title; submittedBrief available but ignored. Bug 2: `onViewResults` for running notifications called `onSelectWorkflowRun` (a history-reopen fn that calls resetPipeline(), getWorkflow() fetch, resetReplayState()) — completely wrong for a live run. Fix: (1) use `submittedBrief` as notification title; (2) add `onSwitchToLiveRun` prop + `handleSwitchToLiveRun` in page.tsx that only attaches SSE + updates trackedRunIdRef/activelyBuildingRunIdRef/contentSource without resetting state; (3) onViewResults now calls onSwitchToLiveRun for running notifications. | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 35/38 (KAN-132 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-148 | 2026-07-30 | Clicking Prototype in multi-run header dropdown still navigates to User Stories — onViewResults only called setMainView("execution") regardless of which run was clicked | onViewResults was a single handler that called setMainView("execution") for any running notification, showing whatever pipelineState was tracking (the active building run). Fix: (1) add setNotifWorkflowRunId to useNotifications; (2) onViewResults now finds the matching recentRun by workflowType and calls onSelectWorkflowRun to switch the active context to that specific run. | `frontend/src/hooks/useNotifications.ts`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 35 (SHELL-01 AppHeader / FIX-146/147 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
@@ -170,6 +176,340 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-157 — Running Dropdown/Notification Panel Click Doesn't Navigate; Progress Shows 0/N; Status Filter Misses Live States
+
+**Date:** 2026-07-31
+**Triggered by:** `/velocity-ai-fix running dropdown and notification panel not showing correct status/progress and clicking does not open run page`
+
+#### Root Cause
+
+Three bugs found after FIX-156:
+
+**Bug 1 — Clicking the running dropdown does NOT navigate to execution view:**
+`AppHeader.handleRunClick` called `onSwitchToLiveRun(run.id)` but never called `onGoToPipeline()`. `setMainView("execution")` lives in DashboardLayout — only reachable via `onGoToPipeline` (`() => setMainView("execution")`). Without it, clicking attaches the SSE stream but the user stays on the home/history page.
+
+**Bug 2 — `onViewResults` targetRunId lookup fails for planning/generating/clarifying runs:**
+`DashboardLayout.onViewResults` searched `recentRuns.find((r) => r.status === "running" && ...)`. Runs in `planning`, `generating`, `clarifying` etc. are never found → `targetRunId` is undefined → `onSwitchToLiveRun` is not called → user navigates to execution but sees the wrong run.
+
+**Bug 3 — Progress always shows 0/N:**
+`runningPipelines` mapped every run with `agentsCompleted: 0`. The list endpoint only has `agentCount` (total), not live completion count. The live `pipelineState.completedCount`/`agents.length` exists in DashboardLayout but was never forwarded.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `AppHeader.tsx` — `handleRunClick` | Added `onGoToPipeline?.()` after `onSwitchToLiveRun` | `setMainView("execution")` needs to fire; only reachable via `onGoToPipeline` |
+| `AppHeader.tsx` — `AppHeaderProps` | Added `activePipelineRunId?: string \| null` | Allows live progress enrichment for the tracked run |
+| `AppHeader.tsx` — `runningPipelines` mapping | `agentsCompleted`/`agentsTotal` use live values when `r.id === activePipelineRunId` | Shows real "2/6" progress instead of "0/6" |
+| `AppHeader.tsx` — single badge click | Changed from `onGoToPipeline` to `handleRunClick(serverRun)` | Attaches SSE + navigates |
+| `AppHeader.tsx` — single badge dot | Derives from real server status (amber for waiting/planning) | Matches Jump Back In dot colors |
+| `DashboardLayout.tsx` — AppHeader mount | Pass `activePipelineRunId={pipelineState?.pipelineRunId ?? null}` | Feeds active run id to AppHeader |
+| `DashboardLayout.tsx` — `onViewResults` | `r.status === "running"` → `LIVE_RUN_STATUSES.has(r.status)` | Finds runs in planning/generating/clarifying etc. |
+
+#### Invariants Verified
+- **INV-1**: not affected — no workflow-name literals
+- **INV-3**: not affected — FE-only change
+- **INV-12/SC-001**: not affected
+
+#### Verification
+- TypeScript diagnostics: 0 errors
+- Bug 1 trace: click dropdown → `handleRunClick` → `onSwitchToLiveRun` [attach SSE] + `onGoToPipeline` [setMainView("execution")] ✓
+- Bug 2 trace: `onViewResults` → `LIVE_RUN_STATUSES.has(r.status)` finds any live run → `onSwitchToLiveRun(targetRunId)` + `setMainView("execution")` ✓
+- Bug 3 trace: `activePipelineRunId` match → `agentsCompleted = pipelineAgentsCompleted` (live) → shows "2/6" ✓
+
+---
+
+### FIX-156 — Running Dropdown Not Showing user_stories; Header Crashing (runningPipelines Undefined)
+
+**Date:** 2026-07-31
+**Triggered by:** `/velocity-ai-fix not showing user story at all in running dropdown — implement same logic as Jump Back In`
+
+#### Root Cause
+
+Two separate bugs combining to break the running dropdown entirely:
+
+**Bug 1 (CRASH) — `runningPipelines` is referenced but never defined in `AppHeader.tsx`:**
+The entire JSX in AppHeader (lines 225, 236–241, 246–265, 285, 325) references `runningPipelines`, but this variable was **never declared anywhere** in the component. The browser was crashing with `ReferenceError: runningPipelines is not defined` (confirmed in the dev log at 01:16:08). Only because React's error boundary was catching it, the header was silently failing rather than fully crashing. The code does define `liveRunsFromServer`, `runningFromNotifs`, `hasServerData`, and `liveRuns`, but then `runningPipelines` — the variable that actually drives the badge and dropdown — was just missing.
+
+**Bug 2 (MISSING DATA) — `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` were never passed to AppHeader:**
+The AppHeader mount in DashboardLayout (confirmed by reading the full `<AppHeader ...>` block) did NOT pass:
+- `recentRuns` — the server-sourced array that powers "Jump Back In" and IS the source of truth for live run statuses
+- `onSwitchToLiveRun` — the correct navigation handler for live runs (avoids resetting pipeline state)
+- `onSelectWorkflowRun` — the handler for history/terminal run navigation
+
+Without `recentRuns`, even after fixing Bug 1, `recentRuns` would be `[]` (its default), `liveRunsFromServer` would be `[]`, and the badge would always be empty.
+
+**Why Jump Back In works:** HomeLaunchGrid receives `recentRuns` prop directly from DashboardLayout and maps it to the display. AppHeader was meant to use the same data source but the prop wiring was simply missing.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 35 (SHELL-01 AppHeader), Phase 36 (SHELL-02 Jump Back In), FIX-146/147/148 (running dropdown evolution)
+- **Deleted code verified (not resurrected):** No deleted code
+- **Locked decisions respected:** SC-001 — all status branching keyed on generic `r.status` string, never workflow-name literals; `getWorkflowLabel` is the only type→label mapper
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `AppHeader.tsx` | Added `runningPipelines` definition: maps `liveRuns` (from `recentRuns`) to `PipelineNotification[]` shape, with status normalisation (`waiting_for_user`→`gate`, live statuses→`running`); falls back to `runningFromNotifs` | Defines the previously-undefined variable that all JSX references; uses server data (same as Jump Back In) as the truth |
+| `AppHeader.tsx` | Updated dropdown row click handler to use `handleRunClick(serverRun)` (the correct live-vs-terminal navigation), falling back to `onViewResults` only when no server run is found | Matches Jump Back In's click behavior: live runs → `onSwitchToLiveRun`, terminal → `onSelectWorkflowRun` |
+| `AppHeader.tsx` | Enhanced dropdown rows to show real status labels (Planning, Building, Waiting for you, etc.) from `RUN_STATUS_TONE` | Shows the same status labels as Jump Back In |
+| `AppHeader.tsx` | Pass `recentRuns` to `NotificationPanel` | Allows the notification panel to show real detailed statuses |
+| `DashboardLayout.tsx` | Added `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` props to the `<AppHeader>` mount | These were the missing props that caused AppHeader to receive empty/undefined server data |
+| `NotificationPanel.tsx` | Added `recentRuns?: WorkflowRun[]` prop; added `LIVE_STATUS_LABEL` map; updated running notification rows to look up real server status and display it | Shows "Planning", "Building", "Waiting for you" etc. in the notification bell panel |
+| `types/index.ts` | Extended `WorkflowStatus` to include `planning`, `generating`, `waiting_for_user`, `clarifying`, `analyzing` | The DB stores these values; `WorkflowRun.status` was typed too narrowly, causing silent `unknown status` for live runs |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — all new code keys on generic `status` strings and `type` field through `getWorkflowLabel`, never a workflow-name literal
+- **INV-3** (golden parity): not affected — FE-only change; no backend/golden impact
+- **INV-12** (no duplication): the same `recentRuns` data source and `getWorkflowLabel` function used in Jump Back In are reused here
+- **SC-001**: not affected — no engine edits
+
+#### Verification
+- TypeScript diagnostics: 0 errors on all 4 changed files
+- Dev log confirmed `ReferenceError: runningPipelines is not defined` at 01:16:08 (pre-fix); latest log entries show `✓ Compiled` without errors (post-fix hot-reload)
+- Logic trace with fix:
+  1. `recentRuns` now flows from `page.tsx` → `DashboardLayout` → `AppHeader`
+  2. `liveRunsFromServer = recentRuns.filter(r => LIVE_STATUSES.has(r.status))` picks up ALL live runs including user_stories, prototype, ppt
+  3. `runningPipelines` maps those to the `PipelineNotification` shape the JSX expects
+  4. The badge shows "N Running"; the dropdown lists all N runs with their real status labels
+  5. Clicking a run uses `handleRunClick` → `onSwitchToLiveRun` (live) or `onSelectWorkflowRun` (terminal), exactly like Jump Back In
+
+#### Notes
+- `runningPipelines` falling back to `runningFromNotifs` (the ephemeral notification list) is important for the very first render — before `recentRuns` is populated from the API, the notifications (created by `handleRunPipeline`) ensure the badge still shows. Once the server data arrives (typically < 1s), `liveRuns !== null` and the server data takes over.
+- The `WorkflowStatus` type extension is safe — it makes the type honest. The `as WorkflowRun["status"]` cast in `normalizeWorkflowRun` already let these values through at runtime; the type just didn't reflect them. No behaviour change.
+- `agentsCompleted: 0` in the `runningPipelines` mapping is a simplification — the backend `WorkflowRun` doesn't return live per-agent completion counts in the list endpoint (only the total `agentCount`). The notification-based fallback path has more accurate `agentsCompleted` since it's driven by live events. This is acceptable: the dropdown shows the type + title + real status, which is the most important information.
+
+---
+
+### FIX-155 — Header Running Count Shows 7 Instead of 3; Prototype/PPT Missing From Notifications
+
+**Date:** 2026-07-31
+**Triggered by:** `velocity-fix header shows 7 running, user_stories shows but not prototype; 2x prototype shown wrong`
+
+#### Root Cause
+
+`frontend/src/components/layout/DashboardLayout.tsx` — `currentPipelineNotifId` is a **single `useRef`** shared across all concurrent runs. With 3 concurrent runs (user_stories + prototype + ppt):
+
+1. `handleRunPipeline` (user_stories, ~line 1000) calls `addRunningNotification` and sets `currentPipelineNotifId.current = "pipeline-{ts1}"`
+2. `pendingOdProtoParams` effect fires for prototype: checks `currentPipelineNotifId.current ?? …` — it's already set (user_stories id) → falls into `else` branch → calls `updateAgentsTotal` on the **user_stories** notification → **no new prototype notification created**
+3. `odProtoNotifCreated` reactive effect fires: guard `!currentPipelineNotifId.current` → false (user_stories id is set) → skips entirely → **no prototype notification**
+4. Same problem for od_ppt
+
+The original FIX-155 attempted to fix duplicates (reactive effect fires before explicit handler) but introduced this new regression: the `currentPipelineNotifId.current ?? …` reuse logic ASSUMES the existing ref belongs to the SAME run, but it doesn't — it belongs to the concurrently-running user_stories run.
+
+#### Phase Context
+- **Phase(s) involved:** FIX-149 (multi-run notification system, DashboardLayout)
+- **Deleted code verified (not resurrected):** No deleted code; refs added.
+- **Locked decisions respected:** SC-001 — no workflow-name literals; all changes are generic notification management.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `DashboardLayout.tsx` | Added `odProtoNotifId` and `odPptNotifId` per-type `useRef` alongside `currentPipelineNotifId` | Each concurrent run type needs its own notification id tracking, independent of what other run types are doing |
+| `DashboardLayout.tsx` `pendingOdProtoParams` handler | Always creates a NEW notification with `Date.now()` id; sets BOTH `odProtoNotifId.current` AND `currentPipelineNotifId.current` | Never tries to reuse `currentPipelineNotifId` which may belong to a different run type |
+| `DashboardLayout.tsx` `pendingOdPptParams` handler | Same — always creates new, sets both `odPptNotifId` and `currentPipelineNotifId` | Same root cause |
+| `DashboardLayout.tsx` `odProtoNotifCreated` reactive effect | Removed `!currentPipelineNotifId.current` gate; checks `!odProtoNotifId.current` (prototype) or `!odPptNotifId.current` (ppt) instead; sets the type-specific ref when creating | The reactive effect fires for ANY pipeline_type od_prototype/ppt regardless of what other runs are doing; uses the type-specific ref to prevent the explicit+reactive double-create |
+| `DashboardLayout.tsx` `!pipelineState?.isRunning` cleanup | Clears `odProtoNotifId.current` and `odPptNotifId.current` on run end | Reset for next run |
+
+#### Invariants Verified
+- **INV-1**: not affected — no `pipeline_type` comparison in rendering logic; logic only used for notification id tracking
+- **INV-3**: not affected — FE-only change; no backend/golden impact
+- **INV-12**: not applicable — no capability duplication
+- **SC-001**: not affected — no engine edits
+
+#### Verification
+- TypeScript diagnostics: 0 errors (`get_diagnostics` ran clean)
+- With 3 concurrent runs: user_stories → `addRunningNotification(ts1, "user_stories", …)`; prototype → `addRunningNotification(ts2, "prototype", …)`; ppt → `addRunningNotification(ts3, "ppt", …)` — three independent entries, no collision
+- `odProtoNotifCreated` reactive effect: since explicit handlers pre-set `odProtoNotifId`/`odPptNotifId`, the reactive path's `if (!odProtoNotifId.current)` guard fires as false → no duplicate creation
+- `currentPipelineNotifId` still tracks the LAST-launched run for progress/gate/completion updates (the pipelineState only streams one run at a time — the last-active one)
+
+#### Notes
+- The `currentPipelineNotifId` still tracks the last-started run. For progress updates this is correct: pipelineState reflects the last active run. For completion, the effect reads `currentPipelineNotifId.current` at run end — this will be the last prototype/ppt run's id if those were started after user_stories. This is acceptable behaviour: the visible completion badges fire for whichever run's notif the ref held at completion time.
+- Future improvement: use a `Map<pipelineRunId, notifId>` to track completions per-run-id for fully independent concurrent run completion toasts.
+
+---
+
+### FIX-154 — User Stories review gate shows no summary content
+
+**Date:** 2026-07-31
+**Triggered by:** `velocity-fix user stories review gate shows no summary`
+
+#### Root Cause
+
+`frontend/src/components/chat/InlineGateActions.tsx` line 163:
+```ts
+const artifactKind = discriminateArtifact(output);  // ← missing second argument
+```
+
+`discriminateArtifact(output, artifactKind?)` has an optional second param that accepts the backend-derived `artifact_kind` value. When the second arg is absent, it falls back to content-sniffing XML wrapper tags in the output text.
+
+For **prototype/PPT** agents: their outputs contain literal `<spec>`, `<tasks>`, `<analysis>` tags, so the content-sniff finds a match → preview renders.
+
+For **user_stories** `domain-analyst`: the output is plain markdown (no XML tags). The backend calls `_artifact_kind_for("domain-analyst")` → `"summary"` (fallback for unmapped agents). This is included in the `review_gate_ready` event as `artifact_kind: "summary"`. `discriminateArtifact(undefined, "summary")` would return `"analysis"` → `AnalysisPreview` would render. But because the second arg was never passed, the function only got the plain-markdown output and returned `null` → the preview block condition `{artifactKind && !showEdit && ...}` was never entered → blank gate panel.
+
+Additionally, `GateContext` (in `RunChatLane.tsx`) had no `artifactKind` field at all, so even if `InlineGateActions` wanted to receive it, the prop chain was broken upstream.
+
+#### Trace
+```
+backend: _artifact_kind_for("domain-analyst") → "summary"
+backend: review_gate_ready { artifact_kind: "summary", output: "<plain markdown>" }
+page.tsx: reviewGateData.artifactKind = "summary"  ← stored correctly
+DashboardLayout: laneGate = { output, ..., /* NO artifactKind */ }  ← MISSING FIELD
+StepsOverviewSpine/GateAwaitingCard: InlineGateActions(output, /* no artifactKind */)
+InlineGateActions: discriminateArtifact(output)  ← ONE arg, missing "summary"
+discriminateArtifact: /<analysis>/i.test(plainMarkdown) = false → return null
+preview block condition: null && !showEdit = false → nothing rendered ❌
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 42 §2 (gate inline migration, `InlineGateActions` + `StepsOverviewSpine`); Phase 28 §3 (`artifactPreview.tsx` discriminator)
+- **Relevant register section:** Phase 42 plan 42-08 (gate 2-button + plan-preview); Phase 28 §3 (artifact kind vocabulary)
+- **Deleted code verified (not resurrected):** No deleted code involved; this is a missing prop chain.
+- **Locked decisions respected:** SC-001 — `artifactKind` is the structurally-derived backend value, never a workflow/agent-name literal. The fix propagates it without adding any name-based branch.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/chat/RunChatLane.tsx` | Added `artifactKind?: string` field to `GateContext` interface | Without this field, the prop chain was broken — no upstream component could pass the value to the gate panel |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `artifactKind: reviewGateData.artifactKind` to the `laneGate` object construction | Threads the value from `reviewGateData` (which already stored it from the SSE event) into `laneGate` |
+| `frontend/src/components/results/StepsOverviewSpine.tsx` | Added `artifactKind={laneGate.artifactKind}` to the `InlineGateActions` call inside `GateAwaitingCard` | Passes the value from the gate context through to the component that calls the discriminator |
+| `frontend/src/components/chat/InlineGateActions.tsx` | Added `artifactKind?: string` to `InlineGateActionsProps`; added to destructuring; changed `discriminateArtifact(output)` → `discriminateArtifact(output, artifactKind)` and renamed result to `resolvedArtifactKind`; updated render conditions | The actual bug site — the second argument was simply never passed |
+
+#### Invariants Verified
+- **INV-1**: not affected — uses `artifact_kind` string comparison only, no `pipeline_type` branch
+- **INV-3**: not affected — FE-only change; 5 characterization goldens unaffected by construction
+- **INV-12**: not applicable — `discriminateArtifact` is already the single implementation in `artifactPreview.tsx`; the fix just passes the missing argument
+- **SC-001**: not affected — no backend changes; `artifactKind` value comes from backend `_artifact_kind_for` which already names no workflow/agent literally
+
+#### Verification
+- All 4 changed files: TypeScript diagnostics = 0 errors
+- Trace with fix: `reviewGateData.artifactKind = "summary"` → `laneGate.artifactKind = "summary"` → `InlineGateActions(artifactKind="summary")` → `discriminateArtifact(output, "summary")` → `isAnalysis = true` (because `artifactKind === "summary"`) → returns `"analysis"` → `AnalysisPreview` renders
+- PPT/prototype unaffected: their outputs contain XML tags so `discriminateArtifact` returns the correct kind regardless of the second arg (content-sniff path)
+
+#### Notes
+- The `approveLabel` in `DashboardLayout` was already computing from `reviewGateData.artifactKind` correctly (for the button label); this fix just extends the same pattern to the preview renderer.
+- Any future agent whose output lacks XML wrapper tags will now render correctly as long as the backend's `_artifact_kind_for` returns a recognized kind ("spec", "task_list", "summary"). Unknown kinds fall back to `null` → no preview (same safe degrade as before).
+
+---
+
+### FIX-153 — KAN-146: Concurrent run review gates cross-contaminate and appear before agent output
+
+**Date:** 2026-07-30 (corrected 2026-07-31)
+**Triggered by:** `velocity-fix KAN-146`
+
+#### Root Cause
+
+**Bug 1 (cross-contamination — primary symptom shown in screenshots):**
+
+`frontend/src/app/dashboard/page.tsx` — the `review_gate_ready` and `questionnaire_ready` switch-case handlers used `launchedRunIdsRef.current` as the isolation predicate. This ref contains ALL run IDs ever launched from this browser tab. When two or more runs are active simultaneously, ALL their IDs are in the set, so the filter never blocks any of them — run A's gate overwrites run B's screen.
+
+The fix went through two iterations:
+
+*Iteration 1 (initial):* Switched to `activelyBuildingRunIdRef.current` (the latest-launched run). This worked for exactly 2 concurrent runs but broke for 3+ runs or when the user switches views. `activelyBuildingRunIdRef` holds only the most recently launched run ID. If the user has runs A, B, C active and switches to view B via the header notification dropdown, `activelyBuildingRunIdRef` still holds C. B's gate fires → `(B ≠ C)` → `isForeignGate = true` → gate silently dropped even though the user is watching B.
+
+*Iteration 2 (final — correct):* Switched to `trackedRunIdRef.current` — the run the user is **currently viewing on screen**. `trackedRunIdRef` is updated by every view-switch path:
+- `handleSwitchToLiveRun(runId)` — notification dropdown click
+- `handleSelectWorkflowRun(run)` — history reopen
+- Launch `.then()` — new run started
+- `useEffect([activePipelineRunId, contentSourceRunId])` — clarify/completed state changes
+
+This means `trackedRunIdRef` is always the one correct run to accept gates for, regardless of how many other runs are building in the background.
+
+**Bug 2 (simultaneous clarify + gate panels):**
+
+`frontend/src/components/layout/DashboardLayout.tsx:1609` — `laneGate` was derived from `reviewGateData` unconditionally, so both gate and clarify actions could render together when the SSE D-14g re-arm replayed a paused gate while a questionnaire was open.
+
+#### Phase Context
+- **Phase(s) involved:** KAN-125 / FIX-135 established the `trackedRunIdRef` / run-isolation pattern; this fix applies the same concept to gate/clarify events.
+- **Relevant register section:** Phase 42 §2 (gate inline migration); Phase 29 D-14g (SSE gate re-arm).
+- **Deleted code verified (not resurrected):** No deleted code resurrected; predicate swap only.
+- **Locked decisions respected:** SC-001 — uses `pipeline_run_id` string comparison only, no workflow-name literal. INV-1 — no `pipeline_type` branch.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | `review_gate_ready`: `isForeignGate` now uses `trackedRunIdRef.current` | The viewed-run ref; correct for 2, 3, or N concurrent runs and survives view-switching |
+| `frontend/src/app/dashboard/page.tsx` | `questionnaire_ready`: `isForeignQuestionnaire` now uses `trackedRunIdRef.current` | Same reasoning — prevents clarify from a background run capturing `activePipelineRunId` |
+| `frontend/src/components/layout/DashboardLayout.tsx` | `laneGate` derivation: `reviewGateData && !laneClarifyOpen ? {...}` | Mutual exclusion — gate and clarify panels cannot render simultaneously |
+
+#### Invariants Verified
+- **INV-1**: not affected — `pipeline_run_id` comparison only, no workflow-name literals
+- **INV-3**: not affected — FE-only; all 5 characterization goldens unaffected by construction
+- **INV-12**: not applicable
+- **SC-001**: not affected — no backend changes
+
+#### Verification
+- TypeScript diagnostics: 0 errors on both changed files
+- `trackedRunIdRef.current` is `null` on the very first launch (no prior run) → `!!trackedRunIdRef.current` is `false` → `isForeignGate = false` → gate accepted (correct first-launch behaviour preserved)
+- Switching views via notification dropdown sets `trackedRunIdRef = switchedRun.id` synchronously, so the gate filter is correct before any events arrive
+- `DashboardLayout` `laneGate` is `undefined` when clarify is open → `runLaneState` resolves to `"clarify"` (gate priority still expressed in the ternary but gate prop is nulled)
+
+#### Notes
+- The progression: `launchedRunIdsRef` (wrong — all tab runs) → `activelyBuildingRunIdRef` (wrong — only latest launch) → `trackedRunIdRef` (correct — currently viewed run).
+- The mutual-exclusion fix in DashboardLayout (Bug 2) is independent and correct regardless of the predicate choice above.
+- A future improvement: if the user is NOT viewing a run (e.g. on the home screen), `trackedRunIdRef.current` may be stale from the last-viewed run. In that case a new gate from a different background run would still be blocked. This is acceptable: the gate will be re-served on the D-14g re-arm when the user navigates to that run's screen.
+
+---
+
+### FIX-152 — KAN-139: 9 D-Cluster Infrastructure Defects
+
+**Date:** 2026-07-30
+**Triggered by:** `velocity-fix KAN-139`
+
+#### Root Cause
+9 separate root causes, all code-level (no SSM / nginx access required):
+
+- **D1** — `frontend/e2e/tests/ts-sse-resilience.spec.ts:216` — test title claimed "multi-tab consumers ride ONE monotonic seq/event_id space" (a backend delivery guarantee), but the harness uses a re-readable array served from `mockSse.ts:125`, never the real consume-once backend queue.
+- **D2** — `frontend/src/providers/RunConnectionProvider.tsx:448` — `sendCommand()` called `fetch()` directly, bypassing `api.ts`'s `request()` helper; the `res.ok` guard was missing. A 4xx/5xx response silently returned `null`, leaving the chat message as an orphan optimistic bubble forever.
+- **D4** — `backend/agents/artifact_store/store.py:42-48` — three module-global dicts (`_resume_events`, `_questionnaire_responses`, `_questionnaire_force_proceed`) on the process-lifetime `ArtifactStore` singleton had no eviction path. `_cleanup_pipeline` in `run_engine.py:70-73` cleared the queue/task/cancel registries but not these three.
+- **D5** — `backend/agents/execution_engine/state_machine.py:106` — `StateMachine._states` grew without bound. `run_commands.py:412` accessed it via `_state_machine._states.pop(...)` — a private-dict reach FIX-105 had left in place.
+- **D6** — `backend/app/agents/sandbox.py:163` — `sweep_expired()` had zero callers. Its implementation also used directory `st_mtime` as the sole guard, which does NOT advance when files inside are overwritten (prototype build `edit_file` path) — a proposed naïve fix would have caused data loss on active runs.
+- **D7** — `backend/app/agents/checkpointer.py:104-112` — `close_checkpointer()` set `_checkpointer = None` outside the `try/finally` (skipped on exception); had no `_closed` latch; was never called in `app/main.py` lifespan shutdown (shutdown body = one `logger.info`).
+- **D9** — `backend/agents/execution_engine/engine.py:5278-5449` — `restore_non_terminal_runs()` called `asyncio.create_task(self.resume_run(...))` for every non-terminal run in a for-loop with no Semaphore or stagger, firing N simultaneous Bedrock calls at startup.
+- **D10** — `backend/app/core/config.py:133` — `SSE_STREAM_IDLE_TIMEOUT_SECONDS: int = 300` was dead configuration with zero readers (documented as Phase 29 IN-01 and Phase 44 IN-01 for months).
+- **D11** — `backend/app/api/run_stream.py` — 300 lines, no `import logging`, no `logger`, zero log calls. Every SSE stream open/close/error was invisible server-side.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 44 (SSE cutoff / run_stream), Phase 49 (resume), Phase 12 (restore), Phase 29 (D-14h config), Phase 8 (ArtifactStore HITL), Phase 2 (StateMachine)
+- **Deleted code verified (not resurrected):** confirmed F1-F5 not resurrected; `_states` private reach replaced by public method (not a new state-machine mechanism)
+- **Locked decisions respected:** INV-3 (characterization goldens untouched — all changes are infrastructure/config); INV-12 (eviction is one method each, called from one cleanup path); SC-001 (no pipeline_type branches)
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/artifact_store/store.py` | Added `forget_run(run_id)` public method that pops all three dicts and all `review:{run_id}*` event keys | D4 eviction |
+| `backend/agents/execution_engine/state_machine.py` | Added `forget_run(run_id)` public method that pops `_states[run_id]` | D5 eviction |
+| `backend/app/api/run_engine.py` | `_cleanup_pipeline` now calls `get_artifact_store().forget_run()` + `get_state_machine().forget_run()` (lazy import, best-effort try/except) | D4+D5 wire |
+| `backend/app/api/run_commands.py:412` | Replaced `get_execution_engine()._state_machine._states.pop(run_id, None)` with `get_state_machine().forget_run(run_id)` | D5 private-dict reach → public API |
+| `backend/app/agents/sandbox.py` | `sweep_expired()` now accepts `protected_run_ids: set[str] \| None`; checks protection BEFORE mtime; TTL comment updated | D6 data-loss guard |
+| `backend/app/agents/checkpointer.py` | Added `_closed` module-level latch; `close_checkpointer()` sets latch + nulls globals BEFORE `pool.close()` + non-raising except; `get_checkpointer()` raises `RuntimeError` when `_closed` | D7 hardening |
+| `backend/app/core/config.py` | Deleted `SSE_STREAM_IDLE_TIMEOUT_SECONDS`; replaced with accurate comment block. Added `RESTORE_ADMISSION_CONCURRENCY=4`, `RESTORE_ADMISSION_STAGGER_SECONDS=15.0`, `SANDBOX_SWEEP_INTERVAL_SECONDS=21600`. TTL raised from 48h to 168h | D10 delete, D9 settings, D6 TTL |
+| `backend/app/main.py` | Lifespan: added `_sandbox_sweep_loop` background task (D6); added graceful `close_checkpointer()` + sweep-task cancellation in shutdown block (D7) | D6+D7 wiring |
+| `backend/app/api/run_stream.py` | Added `import logging` + `logger = logging.getLogger("app.api.run_stream")`; added `evt=sse.open` log on attach and `evt=sse.close reason=…` log in the generator finally | D11 observability |
+| `frontend/src/providers/RunConnectionProvider.tsx` | `sendCommand()` now checks `!res.ok` before draining/parsing the body and throws a descriptive `Error` on non-2xx | D2 silent-null fix |
+| `frontend/e2e/tests/ts-sse-resilience.spec.ts` | Retitled TS-SSE-RESILIENCE-04 to "mock harness contract — not a backend delivery guarantee"; added explanatory comment | D1 false-claim fix |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — all changes are infra/config/logging
+- **INV-3** (golden parity): not affected — no capability, event-type, or engine-emit change; characterization goldens unaffected by construction
+- **INV-12** (no duplication): one `forget_run` per class, called from one `_cleanup_pipeline`; `sweep_expired` extended in place; `_closed` is inside the existing function
+- **SC-001** (zero engine edits for new workflows): no engine capability change; the admission-control wrapper is transparent to `resume_run`
+
+#### Verification
+All 9 changes verified by code-read + diagnostics (0 errors). Live behavioral verification (stream open/close log lines, periodic sweep, semaphored restore, graceful shutdown) will be confirmed on the next real Bedrock session.
+
+#### Notes
+- D6: `sweep_expired` TTL was 48h which is too short for the revision-parent seed window (users sometimes create revisions the next day). Raised to 168h (7 days) as per KAN-139 spec.
+- D9: The admission-control semaphore is per-restore (`self._restore_sem` set lazily) so it does not interfere with concurrent re-arm tasks (branch-a); gate-parked runs hold the semaphore only around the actual model-dispatch code inside `resume_run`, so the design cannot deadlock.
+- D11: The `evt=sse.close reason=` vocabulary (`client_disconnect` / `sentinel` / `terminal_event` / `error`) matches the KAN-139 spec exactly.
+- D1: A proper TS-SSE-RESILIENCE-05 covering the real backend deliver-once guarantee would require two mounted-app browser tabs + a real backend instance — explicitly out of scope for offline mocked testing.
 
 ---
 

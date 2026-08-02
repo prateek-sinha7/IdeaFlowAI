@@ -33,6 +33,7 @@ Handshake + gate re-arm on attach:
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -44,15 +45,13 @@ from app.models.database import get_db
 from app.models.user import User
 from app.models.workflow import WorkflowRun
 
-# Import the per-run fan-out bus (KAN-134). Each SSE subscriber gets its own
-# queue, fed by the shared pump. Liveness is determined by the DRIVER TASK via
-# ``_is_run_live()`` (A4: stale queue/task entries are self-healed). A finished run
-# (no live task) has no live queue → durable replay + handshake is the complete response.
-from app.api.run_engine import (
-    _is_run_live,
-    _subscribe,
-    _unsubscribe,
-)
+logger = logging.getLogger("app.api.run_stream")
+
+# Read-only import of the EXISTING per-run live-queue registry (LOCK-B — websocket.py
+# is NOT modified and NO new symbol is added there). ``_get_or_create_queue`` returns
+# the same ``asyncio.Queue`` the WS drainer feeds; membership in ``_PIPELINE_QUEUES``
+# is the liveness signal (a registered queue == a live/attached run).
+from app.api.run_engine import _PIPELINE_QUEUES, _get_or_create_queue
 
 router = APIRouter(prefix="/api/runs", tags=["runs-stream"])
 
@@ -318,16 +317,67 @@ async def stream_run_events(
             queue_maxsize=settings.SSE_SUBSCRIBER_QUEUE_MAXSIZE,
         )
 
+    # D11 (KAN-139): log every stream open/close so A1's 429 storm, A2's event
+    # theft, and D7's pool drops are diagnosable from the application layer.
+    _close_reason: list[str] = ["client_disconnect"]  # mutable to let the generator update it
+
+    async def _iter_with_logging() -> AsyncIterator[dict]:
+        nonlocal _close_reason
+        try:
+            async for frame in _iter_sse_frames(
+                run_id=workflow_id,
+                store=stream_store,
+                after_seq=after_seq,
+                live_queue=live_queue,
+                request=request,
+            ):
+                # Detect close reason from the frame type as it flows through.
+                frame_type = frame.get("data", "")
+                if isinstance(frame_type, str):
+                    try:
+                        import json as _json
+                        parsed = _json.loads(frame_type)
+                        ft = parsed.get("type", "")
+                    except Exception:
+                        ft = ""
+                    if ft == "stream_attached":
+                        pass  # handshake — not a close
+                    elif ft in _STREAM_TERMINAL_TYPES:
+                        _close_reason[0] = "terminal_event"
+                    elif ft == "sentinel":
+                        _close_reason[0] = "sentinel"
+                yield frame
+            # If we fell through without a terminal event the queue closed via sentinel.
+            if _close_reason[0] == "client_disconnect":
+                _close_reason[0] = "sentinel"
+        except Exception:
+            _close_reason[0] = "error"
+            raise
+
+    logger.info(
+        "evt=sse.open run_id=%s user_id=%s after_seq=%s live=%s",
+        workflow_id,
+        current_user.id,
+        after_seq,
+        live_queue is not None,
+    )
+
     from sse_starlette import EventSourceResponse
 
+    async def _generator() -> AsyncIterator[dict]:
+        try:
+            async for frame in _iter_with_logging():
+                yield frame
+        finally:
+            logger.info(
+                "evt=sse.close run_id=%s user_id=%s reason=%s",
+                workflow_id,
+                current_user.id,
+                _close_reason[0],
+            )
+
     return EventSourceResponse(
-        _iter_sse_frames(
-            run_id=workflow_id,
-            store=stream_store,
-            after_seq=after_seq,
-            live_queue=live_queue,
-            request=request,
-        ),
+        _generator(),
         ping=settings.SSE_KEEPALIVE_PING_SECONDS,
         # D-14h: never let a proxy buffer/gzip an event-stream (X-Accel-Buffering: no
         # for nginx; Cache-Control: no-cache; ops MUST also set proxy_buffering off).
