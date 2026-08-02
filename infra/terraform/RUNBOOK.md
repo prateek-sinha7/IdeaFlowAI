@@ -312,12 +312,15 @@ These are deliberately outside Terraform:
    workflow for the environment (see `docs/GITHUB_CICD_SETUP.md` §5).
 3. **Confirm the SNS email** subscription (AWS emails `alert_email`). Until someone
    clicks the link the subscription stays `PendingConfirmation` and **no alerts are
-   delivered** — check with:
-   `aws sns list-subscriptions-by-topic --topic-arn <arn> --region $REGION --query "Subscriptions[].[Endpoint,SubscriptionArn]" --output text`
-   (a `SubscriptionArn` of `PendingConfirmation` means unconfirmed).
+   delivered**. Use the validation helper (M-13):
+   `bash infra/terraform/validate-sns-subscriptions.sh <env>`
+   This script checks both `velocityai-<env>-alerts` and `velocityai-<env>-critical` topics
+   and reports which subscriptions are pending. If the script reports pending subscriptions:
+   check your email (including spam) for AWS confirmation links, click to confirm, then re-run.
 4. **Request a Bedrock quota increase** for Claude Haiku 4.5 before load tests.
 5. **TLS:** certbot issues against the FQDN (nip.io works out of the box; a real
    domain needs the Route 53 path — set `use_nip_io = false` + `route53_zone_name`).
+6. **Graceful shutdown timeout** — see [§5.2](#52-graceful-shutdown-timeout-blast-radius) below. The backend now exits cleanly on deploy/restart with a 5-second timeout for draining SSE streams and persisting chat replies, **but any single request slower than 5s will be truncated** (export, render, slow agent invocations). Verify this doesn't hit your typical p99 before load-testing.
 
 ### 5.1 Running `bootstrap-ec2.sh`
 
@@ -384,6 +387,40 @@ for the `config/*` prefix and SSM Session Manager access.
 running — the script ends with a `SKIP: not starting velocityai-app.service` block
 because there is no `docker-compose.yml` yet. That is correct under D-2. Run the
 GitHub Actions **Deploy** workflow to finish the bring-up.
+
+### 5.2 Graceful shutdown timeout — blast-radius audit (M-15)
+
+**Configuration:** `backend/docker-entrypoint.sh` sets `--timeout-graceful-shutdown 5` on the uvicorn server.
+
+**Purpose:** When `docker compose stop` or a `docker-entrypoint.sh` restart signal (SIGTERM) arrives, uvicorn now has a 5-second window to:
+  1. Stop accepting new connections
+  2. Drain in-flight SSE streams (the pump's `await close()` path in run_shutdown.py)
+  3. Await pending Concierge tasks (so chat replies finish persisting to the DB)
+  4. Close the database pool
+
+**Blast-radius — what gets truncated if still draining after 5s:**
+
+- **Any HTTP request in progress** → aborted mid-response (chunked SSE stream, large file download/export, slow model invocation, slow agent computation)
+- **Specifically:** export jobs, render/PDF generation, Bedrock calls, custom-agent calls, SQL queries longer than the timeout
+- **Not affected:** completed requests; queued-but-not-started jobs (they timeout server-side per their own limits)
+
+**Impact:** Deploy / restart now takes **~5-8s instead of 30-60s** (the old `docker SIGKILLat stop_grace_period=30s`), but requests slower than 5s will be killed.
+
+**Verify before load-testing:**
+
+```bash
+# Locally, with your test suite:
+# 1. Find p99 latency for export, render, and agent calls
+# 2. Confirm none routinely exceed 4s (leaving headroom)
+# 3. If any do, either optimize them or increase the timeout in docker-entrypoint.sh
+
+# On a deployed instance, check the current setting:
+aws ssm start-session --target <instance-id> --region $REGION
+cat backend/docker-entrypoint.sh | grep timeout-graceful-shutdown
+sudo systemctl status velocityai-app.service        # see the running command
+```
+
+If any routine operation hits 5s, increase `--timeout-graceful-shutdown` to a value larger than your p99 + 1s buffer, re-apply the app layer (which fetches `docker-entrypoint.sh` from S3), and restart the service.
 
 ---
 

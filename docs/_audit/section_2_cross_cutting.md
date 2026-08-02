@@ -464,7 +464,7 @@ Branch: `infra-agent-integration`
 8. **`access_token_expire_hours` defaults to 24 in code, 12 in prod env
    template, 12 in `infra/modules/secrets/variables.tf:80`**
    - **File:** `backend/app/core/config.py:76`,
-     `env-templates/.env.production:25`,
+     `env-templates/.env.production.example:25`,
      `infra/modules/secrets/variables.tf:73-82`
    - **Description:** Three sources of truth disagree. The 12 in TF is the
      applied value in prod; the 24 in code is the dev fallback. Not wrong,

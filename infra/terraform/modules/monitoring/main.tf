@@ -1955,3 +1955,41 @@ resource "aws_cloudwatch_metric_alarm" "inode_low" {
     Component = "monitoring"
   }
 }
+
+
+# --- CloudWatch Dashboards (M-05) -------------------------------------------
+# M-05: dashboards are deferred pending live AWS design + validation. The
+# placeholder below outlines the recommended structure; operators should
+# configure dashboard widgets post-deployment to reflect actual monitoring
+# needs (host vitals, nginx status distribution, SSE stream health, agent
+# liveness, DB connection pool, alarm overview, etc.). The alarms themselves
+# (above) provide the data sources; this dashboard is purely visualization.
+#
+# TODO (M-05): after first deployment on each environment:
+# 1. Manually create a CloudWatch Dashboard via console or run this Terraform:
+#    - Host vitals: CPU, memory, disk usage, network (from EC2 detailed monitoring)
+#    - Nginx: request count by status class, 5xx spike, 429 limit rejects, SSE close events
+#    - App: log ingestion rate (nginx-access, app, postgres, auth, deploy), error count
+#    - Agent: liveness (IncomingLogEvents per log group), refresh attempts
+#    - DB: connections, query latency, backup heartbeat
+#    - Alarms: aggregate view of all alarm states
+# 2. Export the dashboard JSON and commit to version control (or wire it via
+#    aws_cloudwatch_dashboard resource once the design is approved).
+# 3. Share the dashboard URL with the ops team for daily monitoring.
+#
+# For now, this section is kept as documentation. Uncomment and customize
+# when ready to deploy:
+#
+# resource "aws_cloudwatch_dashboard" "overview" {
+#   dashboard_name = "velocityai-${var.environment}-overview"
+#   dashboard_body = jsonencode({
+#     widgets = [
+#       # Host vitals widget (CPU, memory, disk)
+#       # Nginx status widget (5xx, 429, SSE closed)
+#       # App log ingestion liveness
+#       # Agent heartbeat + refresh count
+#       # Database pool stats
+#       # Alarm overview
+#     ]
+#   })
+# }
