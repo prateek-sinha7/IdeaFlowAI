@@ -39,7 +39,6 @@ from typing import Any, AsyncIterator, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.database import get_db
 from app.models.user import User
@@ -51,7 +50,7 @@ logger = logging.getLogger("app.api.run_stream")
 # queue, fed by the shared pump. Liveness is determined by the DRIVER TASK via
 # ``_is_run_live()`` (A4: stale queue/task entries are self-healed). A finished run
 # (no live task) has no live queue → durable replay + handshake is the complete response.
-from app.api.run_engine import (
+from app.api.run_engine import (  # noqa: E402
     _is_run_live,
     _subscribe,
     _unsubscribe,
@@ -129,7 +128,7 @@ async def _dangling_review_gate(store: Any, run_id: str) -> Optional[Any]:
     ``ScopedStore.last_event_of_types`` answers the same question with ONE row.
 
     Equivalence (proven by a 1,004-case differential over the frozen pre-fix oracle, see
-    ``tests/unit/test_sse_stream.py::TestGateRearmEquivalence``): let
+    ``tests/unit/test_sse_stream.py::TestGateRearm``): let
     ``V = {review_gate_ready} | REVIEW_RESOLUTIONS``. If the max-``seq`` row in ``V`` is a
     ``review_gate_ready`` then nothing in ``V`` follows it, so no resolution does, so it is
     the last still-open ready. If it is a resolution, that resolution follows EVERY ready,
@@ -164,61 +163,91 @@ async def _iter_sse_frames(
     client disconnect). ``live_queue is None`` means the run has no live task, so the
     replayed durable tail + the handshake are the complete response.
     """
-    # 1. Durable replay — the run_events tail past the client cursor, ascending seq.
-    rows = await store.read_events(run_id, after_seq=after_seq)
+    # H-10: the WHOLE body (replay, handshake, gate re-arm, live drain) is wrapped in
+    # ONE try/finally so the subscription made by the CALLER (``stream_run_events``
+    # calls ``_subscribe`` before invoking this generator) is always released — not
+    # only on the happy path through step 4's live drain. Before this fix a
+    # ``store.read_events`` failure in step 1, a ``last_event_of_types`` failure in
+    # step 3, or a client abort before the generator body starts all left the
+    # subscriber queue registered in ``_SUBSCRIBERS`` for the process lifetime (each
+    # one buffering up to ``SSE_SUBSCRIBER_QUEUE_MAXSIZE`` events — a slow OOM).
     replayed_through_seq = after_seq
-    for r in rows:
-        yield _sse_frame(r.seq, r.type, r.payload_json)
-        replayed_through_seq = r.seq
-    # Release the replay list (and the loop variable's last row) NOW. This generator then
-    # parks in `await live_queue.get()` for the run's ENTIRE duration, so anything still
-    # bound here is retained per live stream, not per attach. Nothing below reads either
-    # name. Measured: `rows = ()` alone frees 399/400 ORM rows -- `r` pins the last one,
-    # which for an `agent_input` row is ~214 KB.
-    rows = ()
-    r = None
-
-    # 2. stream_attached handshake — the new-transport replacement for the legacy
-    #    pipeline_reconnected ack. `live` reflects whether a live queue is attached;
-    #    `replayed_through_seq` mirrors the last replayed seq (legacy semantics). Its
-    #    id: line carries the same cursor so a resume from it re-reads nothing new.
-    is_live = live_queue is not None
-    yield _sse_frame(
-        replayed_through_seq,
-        "stream_attached",
-        {
-            "pipeline_run_id": run_id,
-            "live": is_live,
-            "replayed_through_seq": replayed_through_seq,
-        },
-    )
-
-    # 3. D-14g gate re-arm — a reload during a paused human gate re-emits the durable
-    #    review_gate_ready so the FE re-opens the gate. Read-only, owner-scoped, BOUNDED
-    #    (one row). Never re-runs an agent / mutates the artifact graph.
-    #
-    #    CR-01: re-emit ONLY when the step-1 durable replay did NOT already deliver the
-    #    gate frame. Replay above yields rows with ``seq > after_seq``, so when the open
-    #    gate's ``seq`` is > after_seq it was ALREADY replayed -- re-emitting here would
-    #    DOUBLE it. The re-arm is needed ONLY when the client cursor is at or past the gate
-    #    (``dangling.seq <= after_seq``) -- exactly the case the replay filter excluded.
-    #
-    #    ``after_seq == 0`` therefore CANNOT re-arm: the derivation reads with `seq > 0`
-    #    (same filter the deleted full-log read used), so ``dangling.seq >= 1`` always and
-    #    ``dangling.seq <= 0`` is unreachable. Skipping the query on a fresh attach is a
-    #    provable no-op -- and a fresh attach (no Last-Event-ID) is the common case AND the
-    #    attach-churn amplification vector, so this is where the saving matters most.
-    if after_seq > 0:
-        dangling = await _dangling_review_gate(store, run_id)
-        if dangling is not None and dangling.seq <= after_seq:
-            yield _sse_frame(dangling.seq, "review_gate_ready", dangling.payload_json)
-
-    # 4. Live drain — forward new events off the shared per-run queue until the None
-    #    sentinel (pipeline finished) or the client disconnects. sse-starlette's built-in
-    #    comment-ping (SSE_KEEPALIVE_PING_SECONDS) keeps idle proxies from buffering.
-    if live_queue is None:
-        return
+    replayed_event_ids: set[str] = set()
     try:
+        # 1. Durable replay — the run_events tail past the client cursor, ascending seq.
+        #
+        # C-06a: the producer persists an event BEFORE it reaches the live source queue
+        # (engine.py's sink.persist() runs, then the event is yielded/queued), while the
+        # caller subscribes to the live queue BEFORE calling this generator and this step
+        # replays the durable tail AFTER that subscribe. So an event committed in the
+        # window between "subscribe" and "this replay reaches its row" is BOTH in the
+        # durable tail we are about to read AND sitting in the live queue we drain in step
+        # 4 -- with nothing, previously, to stop it being yielded twice (the two shipped
+        # frontend consumers papered over this with client-side event_id dedup; this fixes
+        # it on the wire so every consumer of the API is covered). Record every replayed
+        # row's event_id; step 4 skips any live event whose event_id is already in this
+        # set instead of re-yielding it. Deliberately NOT gated on `seq <=
+        # replayed_through_seq`: persistence is best-effort (``_RunEventSink.persist``
+        # degrades a DB failure to a warning, INV-3), so a seq-only filter would discard
+        # the only live copy of an event whose durable write silently failed. Matching on
+        # event_id (present on both the durable row and the live event dict — stamped
+        # once, at the source, engine.py) is safe either way: a never-persisted event's id
+        # is never in this set, so it is never filtered.
+        rows = await store.read_events(run_id, after_seq=after_seq)
+        for r in rows:
+            yield _sse_frame(r.seq, r.type, r.payload_json)
+            replayed_through_seq = r.seq
+            replayed_event_ids.add(r.event_id)
+        # Release the replay list (and the loop variable's last row) NOW. This generator
+        # then parks in `await live_queue.get()` for the run's ENTIRE duration, so anything
+        # still bound here is retained per live stream, not per attach. Nothing below reads
+        # either name. Measured: `rows = ()` alone frees 399/400 ORM rows -- `r` pins the
+        # last one, which for an `agent_input` row is ~214 KB. `replayed_event_ids` is
+        # bounded by the size of the replayed tail (already paid for by `rows`) and IS read
+        # below, so it is kept.
+        rows = ()
+        r = None
+
+        # 2. stream_attached handshake — the new-transport replacement for the legacy
+        #    pipeline_reconnected ack. `live` reflects whether a live queue is attached;
+        #    `replayed_through_seq` mirrors the last replayed seq (legacy semantics). Its
+        #    id: line carries the same cursor so a resume from it re-reads nothing new.
+        is_live = live_queue is not None
+        yield _sse_frame(
+            replayed_through_seq,
+            "stream_attached",
+            {
+                "pipeline_run_id": run_id,
+                "live": is_live,
+                "replayed_through_seq": replayed_through_seq,
+            },
+        )
+
+        # 3. D-14g gate re-arm — a reload during a paused human gate re-emits the durable
+        #    review_gate_ready so the FE re-opens the gate. Read-only, owner-scoped, BOUNDED
+        #    (one row). Never re-runs an agent / mutates the artifact graph.
+        #
+        #    CR-01: re-emit ONLY when the step-1 durable replay did NOT already deliver the
+        #    gate frame. Replay above yields rows with ``seq > after_seq``, so when the open
+        #    gate's ``seq`` is > after_seq it was ALREADY replayed -- re-emitting here would
+        #    DOUBLE it. The re-arm is needed ONLY when the client cursor is at or past the gate
+        #    (``dangling.seq <= after_seq``) -- exactly the case the replay filter excluded.
+        #
+        #    ``after_seq == 0`` therefore CANNOT re-arm: the derivation reads with `seq > 0`
+        #    (same filter the deleted full-log read used), so ``dangling.seq >= 1`` always and
+        #    ``dangling.seq <= 0`` is unreachable. Skipping the query on a fresh attach is a
+        #    provable no-op -- and a fresh attach (no Last-Event-ID) is the common case AND the
+        #    attach-churn amplification vector, so this is where the saving matters most.
+        if after_seq > 0:
+            dangling = await _dangling_review_gate(store, run_id)
+            if dangling is not None and dangling.seq <= after_seq:
+                yield _sse_frame(dangling.seq, "review_gate_ready", dangling.payload_json)
+
+        # 4. Live drain — forward new events off the shared per-run queue until the None
+        #    sentinel (pipeline finished) or the client disconnects. sse-starlette's built-in
+        #    comment-ping (SSE_KEEPALIVE_PING_SECONDS) keeps idle proxies from buffering.
+        if live_queue is None:
+            return
         while True:
             if request is not None and await request.is_disconnected():
                 return
@@ -226,15 +255,24 @@ async def _iter_sse_frames(
             if event is None:  # sentinel: pipeline finished
                 return
             data = event.get("data", {}) if isinstance(event, dict) else {}
+            event_id = data.get("event_id") if isinstance(data, dict) else None
+            if event_id is not None and event_id in replayed_event_ids:
+                # C-06a: this exact event was already delivered by the step-1 durable
+                # replay (the persist-before-live-queue race documented above) — skip
+                # it here instead of yielding it a second time.
+                continue
             seq = data.get("seq", replayed_through_seq) if isinstance(data, dict) else replayed_through_seq
             yield _sse_frame(seq, event.get("type", "message"), data)
             replayed_through_seq = seq
             if event.get("type") in _STREAM_TERMINAL_TYPES:
                 return
     finally:
-        # KAN-134: unsubscribe from the fan-out bus when the stream closes
-        # (client disconnect, terminal event, or request error).
-        await _unsubscribe(run_id, live_queue)
+        # KAN-134 / H-10: unsubscribe from the fan-out bus when the stream closes,
+        # for ANY reason — client disconnect, terminal event, replay/gate-re-arm
+        # error, or a client abort before step 4 is ever reached. Only meaningful
+        # when a subscription actually exists (``live_queue is not None``).
+        if live_queue is not None:
+            await _unsubscribe(run_id, live_queue)
 
 
 @router.get("/{workflow_id}/events/stream")

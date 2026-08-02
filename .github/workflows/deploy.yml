@@ -1,0 +1,475 @@
+# =============================================================================
+# VelocityAI Deploy — build, push, and redeploy to EC2 via SSM RunCommand.
+# =============================================================================
+# Mirrors the retired CodeBuild pipeline (infra/buildspec.yml) but runs on
+# GitHub Actions with OIDC — no static AWS keys, no SSH, no open port 22.
+#
+# Trigger matrix:
+#   - push to `dev` branch     → build + deploy to environment `dev`
+#   - push to `staging` branch → build + deploy to environment `stage`
+#   - tag `v*` (from main)     → build + deploy to environment `prod` (requires approval)
+#   - workflow_dispatch        → manual choice of environment
+#
+# NOTE: branch names and environment names are intentionally NOT 1:1 —
+# the `staging` BRANCH deploys to the `stage` ENVIRONMENT, matching the
+# short names already used by the live AWS infra (EC2 `Environment` tags,
+# SSM `/velocityai/<env>/*` prefixes, and the `github-cicd` IAM role's
+# `ssm:resourceTag/Environment` condition are all `dev`/`stage`/`prod`,
+# not `dev`/`staging`/`production`).
+#
+# Decisions locked (D-1..D-9):
+#   D-1: Parameter Store for env transfer
+#   D-2: Inline compose in SSM command (no S3 dependency)
+#   D-3: Hexaware-Kiro-Power/flowin OIDC subject (trust policy matches
+#        repo:Hexaware-Kiro-Power*/flowin*:environment:<dev|stage|prod>)
+#   D-4: Env-agnostic frontend (no per-env baked URLs)
+#   D-5: DATABASE_PASSWORD host-composed (GitHub doesn't push it)
+#   D-6: ENV host-anchored to production (GitHub doesn't push it)
+#
+# Action pinning: same SHA-pinned convention as ci.yml, per CVE-2026-33634.
+# See ci.yml header for full rationale.
+# =============================================================================
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - dev
+      - staging
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - stage
+          - prod
+      allow_untagged_prod:
+        description: "BREAK-GLASS: allow deploying prod from a non-v* ref (e.g. a branch). Use ONLY in emergencies when you cannot cut a tag."
+        required: false
+        type: boolean
+        default: false
+
+# NOTE: concurrency is declared on the `deploy` JOB (not here at workflow level)
+# so it can read `needs.resolve.outputs.environment` instead of re-implementing
+# the trigger -> environment mapping. A workflow-level `concurrency:` cannot see
+# the `needs` context, which previously forced a duplicate copy of the mapping
+# that could silently drift out of sync with the `resolve` job.
+#
+# Serialising only `deploy` is also the correct scope: the race is on the shared
+# EC2 instance, not on `build` (which pushes independent, tag-distinct images).
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CI gate — lint, test, and security scan on the same commit being deployed.
+  # Runs in PARALLEL with build (not blocking it) so the overall wall time is
+  # the longer of gate vs. build. deploy.yml's `deploy` job needs both.
+  # No secrets are passed (CI is AWS-blind); no environment is declared (the
+  # prod reviewer gate stays on build/deploy only).
+  # ---------------------------------------------------------------------------
+  gate:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+
+  # ---------------------------------------------------------------------------
+  # Resolve which environment and image tag to use based on the trigger event.
+  # ---------------------------------------------------------------------------
+  resolve:
+    name: Resolve environment + tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
+      sha_short: ${{ steps.resolve.outputs.sha_short }}
+    steps:
+      - name: Resolve
+        id: resolve
+        run: |
+          SHA_SHORT="${GITHUB_SHA:0:12}"
+          echo "sha_short=$SHA_SHORT" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ github.event.inputs.environment }}"
+            case "$ENV" in
+              prod)  TAG="${GITHUB_REF_NAME}" ;;
+              stage) TAG="stage-${SHA_SHORT}" ;;
+              *)     TAG="dev-${SHA_SHORT}" ;;
+            esac
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ENV="prod"
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ "$GITHUB_REF" == "refs/heads/staging" ]]; then
+            ENV="stage"
+            TAG="stage-${SHA_SHORT}"
+          else
+            ENV="dev"
+            TAG="dev-${SHA_SHORT}"
+          fi
+
+          # ── Prod tag enforcement ──────────────────────────────────────
+          # Prod MUST deploy from a v* tag. A mutable branch-name tag (e.g.
+          # :main) would be unversioned, never expired by the ECR lifecycle,
+          # and indistinguishable from a dev commit in the break-glass path.
+          # The allow_untagged_prod dispatch input is the documented escape
+          # hatch for emergencies where cutting a tag is impossible.
+          if [[ "$ENV" == "prod" && ! "$TAG" =~ ^v ]]; then
+            if [[ "${{ github.event.inputs.allow_untagged_prod }}" != "true" ]]; then
+              echo "::error::Prod deploys require a v* tag (got '$TAG'). If this is an emergency, re-run with allow_untagged_prod=true."
+              exit 1
+            fi
+            echo "::warning::BREAK-GLASS: deploying prod from non-v* ref '$TAG' (allow_untagged_prod=true)."
+          fi
+
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved: env=$ENV tag=$TAG sha=$SHA_SHORT"
+
+  # ---------------------------------------------------------------------------
+  # Build backend + frontend images and push to ECR.
+  # Images are env-agnostic (D-4): one image per tag, promoted across envs.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build + Push
+    runs-on: ubuntu-latest
+    needs: resolve
+    environment: ${{ needs.resolve.outputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d70bba72b1f3fd22344832f00baa16ece964efeb # v3.3.0
+
+      - name: Build + push backend
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
+        with:
+          context: ./backend
+          # The opendesign named context mirrors docker-compose.yml and the
+          # retired buildspec.yml: backend/Dockerfile references
+          # `COPY --from=opendesign . /app/skills/opendesign` to bake the
+          # template catalog into the image.
+          build-contexts: |
+            opendesign=./skills/opendesign
+          push: true
+          tags: |
+            ${{ vars.ECR_REGISTRY }}/velocityai/backend:${{ needs.resolve.outputs.image_tag }}
+            ${{ vars.ECR_REGISTRY }}/velocityai/backend:${{ needs.resolve.outputs.environment }}-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build + push frontend
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ vars.ECR_REGISTRY }}/velocityai/frontend:${{ needs.resolve.outputs.image_tag }}
+            ${{ vars.ECR_REGISTRY }}/velocityai/frontend:${{ needs.resolve.outputs.environment }}-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Image vulnerability scan (warn-only) ──────────────────────────
+      # Scans both pushed images for HIGH/CRITICAL CVEs. Currently warn-only
+      # (|| true) so pre-existing findings don't block day-one deploys.
+      # TODO(flip-to-failing: 2026-08-01): remove `|| true` once the backlog
+      # of pre-existing findings is triaged/suppressed.
+      - name: Install trivy v0.69.3 (checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -sSL -o trivy.tar.gz \
+            https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz
+          echo "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75  trivy.tar.gz" | sha256sum -c -
+          tar -xzf trivy.tar.gz trivy
+          sudo mv trivy /usr/local/bin/trivy
+          rm trivy.tar.gz
+
+      - name: Scan backend image (warn-only)
+        run: |
+          trivy image --severity HIGH,CRITICAL --exit-code 0 \
+            "${{ vars.ECR_REGISTRY }}/velocityai/backend:${{ needs.resolve.outputs.image_tag }}" \
+            || true
+
+      - name: Scan frontend image (warn-only)
+        run: |
+          trivy image --severity HIGH,CRITICAL --exit-code 0 \
+            "${{ vars.ECR_REGISTRY }}/velocityai/frontend:${{ needs.resolve.outputs.image_tag }}" \
+            || true
+
+  # ---------------------------------------------------------------------------
+  # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy (${{ needs.resolve.outputs.environment }})
+    runs-on: ubuntu-latest
+    needs: [resolve, gate, build]
+    environment: ${{ needs.resolve.outputs.environment }}
+    # Only one deploy per environment at a time — prevents two runs racing
+    # `systemctl restart` on the same box. Single source of truth for the
+    # environment name is the `resolve` job (see the note in the header).
+    concurrency:
+      group: deploy-${{ needs.resolve.outputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout (for docker-compose.yml)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            docker-compose.yml
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION }}
+
+      # ── Push config from GitHub variables/secrets to SSM ──────────────
+      # Only parameters with non-empty values are pushed. The on-host
+      # `velocityai-load-secrets` script handles defaults/fallbacks for
+      # anything not present in SSM.
+      - name: Push config to SSM Parameter Store
+        env:
+          SSM_PREFIX: /velocityai/${{ needs.resolve.outputs.environment }}
+          DEPLOY_ENV: ${{ needs.resolve.outputs.environment }}
+          # Secrets
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          # Variables
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+          ACCESS_TOKEN_EXPIRE_HOURS: ${{ vars.ACCESS_TOKEN_EXPIRE_HOURS }}
+          HANDOFF_MAX_TRANSCRIPT_BYTES: ${{ vars.HANDOFF_MAX_TRANSCRIPT_BYTES }}
+          LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
+          LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
+          BEDROCK_MODEL_ID: ${{ vars.BEDROCK_MODEL_ID }}
+          BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
+          BEDROCK_CODING_MODEL_ID: ${{ vars.BEDROCK_CODING_MODEL_ID }}
+          DEPLOY_AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          # Derive the project CMK alias from the environment. Must match the
+          # alias Terraform's modules/kms creates: alias/${name_prefix}, where
+          # name_prefix is "velocityai" for prod, "velocityai-<env>" otherwise.
+          # The instance role's kms-decrypt.json grants Decrypt ONLY on this key
+          # (with a PARAMETER_ARN encryption-context condition), so if we omit
+          # --key-id SSM may re-key the parameter under alias/aws/ssm and the
+          # box loses the ability to read its own secrets.
+          if [[ "$DEPLOY_ENV" == "prod" ]]; then
+            KMS_ALIAS="alias/velocityai"
+          else
+            KMS_ALIAS="alias/velocityai-${DEPLOY_ENV}"
+          fi
+
+          put_param() {
+            local key="$1" value="$2" type="${3:-String}"
+            if [[ -z "$value" ]]; then return; fi
+            local kms_args=""
+            if [[ "$type" == "SecureString" ]]; then
+              kms_args="--key-id $KMS_ALIAS"
+            fi
+            aws ssm put-parameter \
+              --name "${SSM_PREFIX}/${key}" \
+              --value "$value" \
+              --type "$type" \
+              --overwrite \
+              $kms_args \
+              --region "${{ vars.AWS_REGION || env.AWS_REGION }}" \
+              --no-cli-pager
+            echo "  pushed: ${key} (${type}${kms_args:+ -> $KMS_ALIAS})"
+          }
+
+          echo "Pushing config to SSM under ${SSM_PREFIX}/..."
+
+          # SecureString params (secrets)
+          put_param "SECRET_KEY"      "$SECRET_KEY"      "SecureString"
+          put_param "LANGSMITH_API_KEY" "$LANGSMITH_API_KEY" "SecureString"
+
+          # String params (plain config)
+          put_param "CORS_ORIGINS"                "$CORS_ORIGINS"
+          put_param "PUBLIC_BASE_URL"             "$PUBLIC_BASE_URL"
+          put_param "ACCESS_TOKEN_EXPIRE_HOURS"   "$ACCESS_TOKEN_EXPIRE_HOURS"
+          put_param "HANDOFF_MAX_TRANSCRIPT_BYTES" "$HANDOFF_MAX_TRANSCRIPT_BYTES"
+          put_param "LANGSMITH_TRACING"           "$LANGSMITH_TRACING"
+          put_param "LANGSMITH_PROJECT"           "$LANGSMITH_PROJECT"
+
+          # Bedrock LLM config (under llm/ sub-prefix)
+          put_param "llm/region"               "$DEPLOY_AWS_REGION"
+          put_param "llm/model_id"             "$BEDROCK_MODEL_ID"
+          put_param "llm/inference_profile_id" "$BEDROCK_INFERENCE_PROFILE_ID"
+          put_param "llm/coding_model_id"      "$BEDROCK_CODING_MODEL_ID"
+
+          echo "Config push complete."
+
+      # ── SSM RunCommand: inline compose + redeploy ────────────────────
+      # Mirrors buildspec.yml post_build: write compose file, update image
+      # tags, restart the app service (which triggers velocityai-load-secrets
+      # → ECR login → compose pull → up -d → alembic upgrade head).
+      - name: Redeploy via SSM RunCommand
+        id: ssm-deploy
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          DEPLOY_ENV: ${{ needs.resolve.outputs.environment }}
+        run: |
+          set -euo pipefail
+
+          COMPOSE_CONTENT=$(base64 -w 0 docker-compose.yml)
+
+          # Build the ON-BOX script with a heredoc. The delimiter is UNQUOTED so
+          # runner-side values (${COMPOSE_CONTENT}, ${ECR_REGISTRY}, ${IMAGE_TAG})
+          # are injected here — but box-side shell tokens (the health-check loop's
+          # $i and $(seq ...)) are backslash-escaped so they survive verbatim and
+          # execute ON THE EC2 INSTANCE, not on the GitHub runner. (The previous
+          # inline JSON let the runner's `set -u` shell evaluate $i → "unbound
+          # variable".)
+          cat > remote.sh <<EOF
+          #!/bin/bash
+          set -euo pipefail
+          echo '[deploy] start'
+
+          APP_ENV=/etc/velocityai/app.env
+
+          # PRE-CONDITION guard. 'sed -i s|^KEY=.*|...|' is a SILENT NO-OP when the
+          # pattern is absent: sed exits 0 having changed nothing, the service then
+          # restarts on whatever tag was already pinned, and the deploy reports
+          # success while running the PREVIOUS image. The retired buildspec.yml
+          # gained this validation in db52efc1; it never carried over to this
+          # workflow. Fail loudly instead of shipping a phantom deploy.
+          if [[ ! -f \$APP_ENV ]]; then
+            echo "[deploy] FATAL: \$APP_ENV is missing - this box is not bootstrapped. Run infra/scripts/bootstrap-ec2.sh first."
+            exit 1
+          fi
+          for key in BACKEND_IMAGE FRONTEND_IMAGE; do
+            if ! grep -q "^\${key}=" "\$APP_ENV"; then
+              echo "[deploy] FATAL: no \${key}= line in \$APP_ENV - the image pin would not apply. Refusing to deploy."
+              exit 1
+            fi
+          done
+
+          echo '${COMPOSE_CONTENT}' | base64 -d > /opt/velocityai/docker-compose.yml
+          chown velocityai:velocityai /opt/velocityai/docker-compose.yml
+          chmod 0644 /opt/velocityai/docker-compose.yml
+          chown -R 10001:10001 /opt/velocityai/data/skills /opt/velocityai/data/runs
+
+          sed -i 's|^BACKEND_IMAGE=.*|BACKEND_IMAGE=${ECR_REGISTRY}/velocityai/backend:${IMAGE_TAG}|' "\$APP_ENV"
+          sed -i 's|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=${ECR_REGISTRY}/velocityai/frontend:${IMAGE_TAG}|' "\$APP_ENV"
+
+          # POST-CONDITION: the pins must now name exactly the tag we just built.
+          # grep -qxF = whole-line, fixed-string match (no regex surprises from
+          # the '/' and ':' in an ECR URI).
+          if ! grep -qxF "BACKEND_IMAGE=${ECR_REGISTRY}/velocityai/backend:${IMAGE_TAG}" "\$APP_ENV"; then
+            echo "[deploy] FATAL: BACKEND_IMAGE pin did not apply (expected tag ${IMAGE_TAG})."
+            exit 1
+          fi
+          if ! grep -qxF "FRONTEND_IMAGE=${ECR_REGISTRY}/velocityai/frontend:${IMAGE_TAG}" "\$APP_ENV"; then
+            echo "[deploy] FATAL: FRONTEND_IMAGE pin did not apply (expected tag ${IMAGE_TAG})."
+            exit 1
+          fi
+          echo '[deploy] image pins verified'
+
+          # ── Pre-deploy backup (stage/prod only) ──────────────────────────
+          # Take a pg_dump right before the restart so there's a restore point
+          # from seconds before the new migration runs. Uses the existing
+          # systemd oneshot (picks up BACKUP_BUCKET/KMS_KEY from EnvironmentFile).
+          # A failed backup BLOCKS the deploy — deploying without a restore
+          # point defeats the purpose. Skipped on dev for speed.
+          if [[ "${DEPLOY_ENV}" == "stage" || "${DEPLOY_ENV}" == "prod" ]]; then
+            echo '[deploy] pre-deploy pg_dump (stage/prod safety net)...'
+            if ! systemctl start velocityai-pg-dump.service; then
+              echo '[deploy] FATAL: pre-deploy pg_dump FAILED. Refusing to deploy without a restore point.'
+              exit 1
+            fi
+            echo '[deploy] pre-deploy pg_dump complete'
+          fi
+
+          systemctl restart velocityai-app.service
+          echo '[deploy] waiting for health...'
+          for i in \$(seq 1 30); do
+            sleep 10
+            if curl -sf http://127.0.0.1:8000/health; then echo ' healthy'; exit 0; fi
+            echo " attempt \$i/30 failed"
+          done
+          echo '[deploy] FAILED: health check did not pass after 5 minutes'
+          exit 1
+          EOF
+
+          # jq -Rs reads the whole script as ONE raw string and emits a valid
+          # {"commands":["..."]} payload — no manual JSON escaping, handles
+          # newlines/quotes/special chars safely.
+          PARAMS=$(jq -Rs '{commands: [.]}' remote.sh)
+
+          COMMAND_ID=$(aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "$INSTANCE_ID" \
+            --timeout-seconds 600 \
+            --parameters "$PARAMS" \
+            --region "${{ vars.AWS_REGION || env.AWS_REGION }}" \
+            --query 'Command.CommandId' --output text)
+
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM Command sent: $COMMAND_ID"
+
+      - name: Poll SSM command status
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          COMMAND_ID: ${{ steps.ssm-deploy.outputs.command_id }}
+        run: |
+          set -euo pipefail
+          echo "Polling command $COMMAND_ID on instance $INSTANCE_ID..."
+
+          for i in $(seq 1 60); do
+            sleep 10
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "${{ vars.AWS_REGION || env.AWS_REGION }}" \
+              --query 'Status' --output text 2>/dev/null || echo "InProgress")
+
+            case "$STATUS" in
+              Success)
+                echo "Deploy succeeded."
+                exit 0
+                ;;
+              Failed|TimedOut|Cancelled)
+                echo "Deploy FAILED with status: $STATUS"
+                # Print the command output for debugging
+                aws ssm get-command-invocation \
+                  --command-id "$COMMAND_ID" \
+                  --instance-id "$INSTANCE_ID" \
+                  --region "${{ vars.AWS_REGION || env.AWS_REGION }}" \
+                  --query '[StandardOutputContent, StandardErrorContent]' \
+                  --output text
+                exit 1
+                ;;
+              *)
+                echo "  [$i/60] status=$STATUS"
+                ;;
+            esac
+          done
+
+          echo "Timed out waiting for command completion (10 minutes)."
+          exit 1

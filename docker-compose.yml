@@ -124,9 +124,11 @@ services:
     logging:
       # Cap container log size so the json-file driver can't fill
       # /var/lib/docker/containers and OOM the host's root filesystem.
-      # 100m × 5 files = 500 MB max per container; CloudWatch agent ships
-      # the live tail, so on-disk retention here is just for ad-hoc
-      # `docker compose logs` debugging.
+      # 100m × 5 files = 500 MB max per container; local-dev default.
+      # M-01: production overrides this to the `awslogs` driver — see
+      # docker-compose.prod.yml — so backend/frontend land in distinct
+      # per-service CloudWatch streams instead of one undifferentiated
+      # `{instance_id}/docker` tail-all-containers stream.
       driver: json-file
       options:
         max-size: "100m"
@@ -179,6 +181,7 @@ services:
         reservations:
           memory: 256M
     logging:
+      # M-01: see the matching comment on the backend service above.
       driver: json-file
       options:
         max-size: "100m"

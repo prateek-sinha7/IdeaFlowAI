@@ -534,15 +534,18 @@ TIMER
 systemctl daemon-reload
 systemctl enable --now velocityai-ecr-login.timer
 
-# ── 10. docker-compose.yml from S3 ─────────────────────────────────────
-# Terraform's envs/prod aws_s3_object.compose_yaml uploads the canonical
-# docker-compose.yml to s3://$BACKUP_BUCKET/config/docker-compose.yml on
-# every apply. The instance role's s3-config-read policy grants GetObject
-# on that exact prefix. Re-running this script picks up the latest file.
+# ── 10. docker-compose.yml (+ prod logging override) from S3 ───────────
+# Terraform's app layer uploads both the canonical docker-compose.yml and its
+# M-01 production logging override (aws_s3_object.compose_yaml /
+# .compose_prod_yaml) to s3://$BACKUP_BUCKET/config/ on every apply. The
+# instance role's s3-config-read policy grants GetObject on that exact
+# prefix. Re-running this script picks up the latest files.
 aws s3 cp "s3://${BACKUP_BUCKET}/config/docker-compose.yml" \
     /opt/velocityai/docker-compose.yml --region "$REGION"
-chown "$APP_USER:$APP_USER" /opt/velocityai/docker-compose.yml
-chmod 0644 /opt/velocityai/docker-compose.yml
+aws s3 cp "s3://${BACKUP_BUCKET}/config/docker-compose.prod.yml" \
+    /opt/velocityai/docker-compose.prod.yml --region "$REGION"
+chown "$APP_USER:$APP_USER" /opt/velocityai/docker-compose.yml /opt/velocityai/docker-compose.prod.yml
+chmod 0644 /opt/velocityai/docker-compose.yml /opt/velocityai/docker-compose.prod.yml
 
 # deploy.env (aws_s3_object.deploy_env, app layer) carries the resolved image
 # URIs for the deployed tag against the SHARED repos (velocityai/backend +
@@ -567,16 +570,16 @@ FRONTEND_IMAGE_REF="${DEPLOY_FRONTEND_IMAGE:-${ECR_REGISTRY}/velocityai/frontend
 # only reloads SSM-sourced secrets, not the image pins).
 mkdir -p /etc/velocityai
 if [[ -f /etc/velocityai/app.env ]]; then
-    # Strip the three managed lines; keep everything else operators added.
-    grep -vE '^(ENV|BACKEND_IMAGE|FRONTEND_IMAGE)=' /etc/velocityai/app.env \
+    # Strip the managed lines; keep everything else operators added.
+    grep -vE '^(ENV|BACKEND_IMAGE|FRONTEND_IMAGE|VELOCITYAI_ENVIRONMENT|VELOCITYAI_CW_LOG_GROUP)=' /etc/velocityai/app.env \
         > /etc/velocityai/app.env.new || true
 else
     # Fresh box: seed with the header comment so future operators know
     # where these values come from.
     cat > /etc/velocityai/app.env.new <<EOF
 # Populated by /usr/local/bin/velocityai-load-secrets on every velocityai-app start.
-# The loader preserves BACKEND_IMAGE / FRONTEND_IMAGE / ENV lines below;
-# everything else is overwritten from SSM ${PARAM_PREFIX}/*.
+# The loader preserves BACKEND_IMAGE / FRONTEND_IMAGE / ENV / VELOCITYAI_* lines
+# below; everything else is overwritten from SSM ${PARAM_PREFIX}/*.
 
 EOF
 fi
@@ -584,6 +587,8 @@ cat >> /etc/velocityai/app.env.new <<EOF
 ENV=production
 BACKEND_IMAGE=${BACKEND_IMAGE_REF}
 FRONTEND_IMAGE=${FRONTEND_IMAGE_REF}
+VELOCITYAI_ENVIRONMENT=${ENVIRONMENT}
+VELOCITYAI_CW_LOG_GROUP=/velocityai/${ENVIRONMENT}/app
 EOF
 mv /etc/velocityai/app.env.new /etc/velocityai/app.env
 chown root:"$APP_USER" /etc/velocityai/app.env
@@ -752,9 +757,21 @@ systemctl enable --now certbot.timer
 
 # Writes nginx + agent config, installs/validates/reloads nginx, then installs
 # the CloudWatch agent (if absent) and applies its config via fetch-config,
-# which also starts it. Fail-closed: a bad template or an agent that will not
-# start aborts the reconcile, which aborts bootstrap here rather than shipping.
+# which also starts it. L-03/H-07: nginx stays fail-closed (exit 1 aborts
+# bootstrap here rather than shipping); a CloudWatch-agent-only DEGRADED
+# result (exit 2) is reported loudly but does not abort bootstrap — §14a below
+# asserts agent health explicitly and feeds the BOOTSTRAP_DEGRADED gate.
+set +e
 bash /opt/velocityai/reconcile-host-config.sh
+RECONCILE_STATUS=$?
+set -e
+if [[ "$RECONCILE_STATUS" -eq 1 ]]; then
+    echo "[bootstrap] ERROR: reconcile-host-config.sh failed on nginx (exit 1) — aborting" >&2
+    exit 1
+elif [[ "$RECONCILE_STATUS" -ne 0 ]]; then
+    echo "[bootstrap] WARNING: reconcile-host-config.sh exited $RECONCILE_STATUS (CloudWatch-agent DEGRADED, see /var/log/velocityai-reconcile.log) — continuing; §14a below asserts agent health explicitly" >&2
+    BOOTSTRAP_DEGRADED+=("reconcile-cwagent")
+fi
 
 
 # ── 14a. Assert the agent is actually running (not just asked to run) ──
@@ -833,7 +850,15 @@ chmod 0755 /usr/local/bin/velocityai-update-image-tag
 chown root:root /usr/local/bin/velocityai-update-image-tag
 
 # Restricted sudoers via visudo -cf to refuse a malformed install.
+#
+# L-02: a single `trap ... RETURN`-style cleanup replaces the previous two
+# separate `rm -f "$SUDOERS_TMP"` lines (one in the failure branch, one after
+# the `if`) — a leftover from a careless edit pass. `trap` here fires on the
+# function/script's own EXIT, which is safe because this file has no other
+# EXIT trap active at this point (grep confirms: this is the only trap in
+# the whole script).
 SUDOERS_TMP=$(mktemp)
+trap 'rm -f "$SUDOERS_TMP"' EXIT
 cat > "$SUDOERS_TMP" <<'SUDO'
 # /etc/sudoers.d/velocityai-deploy — generated by VelocityAI bootstrap.
 velocityai-deploy ALL=(root) NOPASSWD: /usr/local/bin/velocityai-update-image-tag backend *
@@ -845,9 +870,9 @@ if visudo -cf "$SUDOERS_TMP"; then
     install -o root -g root -m 0440 "$SUDOERS_TMP" /etc/sudoers.d/velocityai-deploy
 else
     echo "[bootstrap] ERROR: velocityai-deploy sudoers stanza failed visudo check" >&2
-    rm -f "$SUDOERS_TMP"
     exit 1
 fi
+trap - EXIT
 rm -f "$SUDOERS_TMP"
 
 # ── 16a. Shared CloudWatch metric namespace for on-host publishers ──────────
@@ -943,6 +968,29 @@ aws cloudwatch put-metric-data \
 EOF
 chmod 0755 /usr/local/bin/velocityai-stuck-workflows-check
 
+# ── 16b. logrotate for velocityai's own self-logs ───────────────────────
+#
+# M-09: /var/log/velocityai-bootstrap.log and /var/log/velocityai-reconcile.log
+# are opened in append mode (`tee -a`) by both scripts and grow unbounded —
+# every deploy appends to velocityai-reconcile.log (this script's own
+# reconcile call, plus every CI redeploy's reconcile call, plus any manual
+# SSM run). H-06 ships these off-box, but ingestion is not rotation: without
+# this, the on-disk copies still grow forever between agent reads. Weekly
+# rotation, 8 weeks retained, compressed — same order of magnitude as the
+# disk_root_high alarm's safety margin.
+cat > /etc/logrotate.d/velocityai <<'EOF'
+/var/log/velocityai-*.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+chmod 0644 /etc/logrotate.d/velocityai
+
 # ── 17. systemd units (Appendix B) ─────────────────────────────────────
 cat > /etc/systemd/system/velocityai-app.service <<'EOF'
 [Unit]
@@ -957,10 +1005,10 @@ RemainAfterExit=yes
 WorkingDirectory=/opt/velocityai
 EnvironmentFile=/etc/velocityai/app.env
 ExecStartPre=/usr/local/bin/velocityai-load-secrets
-ExecStartPre=/usr/bin/docker compose pull
-ExecStart=/usr/bin/docker compose up -d --remove-orphans
-ExecStop=/usr/bin/docker compose down
-ExecReload=/usr/bin/docker compose restart
+ExecStartPre=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+ExecReload=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml restart
 TimeoutStartSec=600
 Restart=on-failure
 RestartSec=30s
@@ -1072,7 +1120,7 @@ systemctl enable --now \
 # pins in /etc/velocityai/app.env, etc.) takes effect even when neither the
 # image digest nor compose-detectable env has changed. Idempotent: on a
 # fresh box there are no containers to remove.
-( cd /opt/velocityai && docker compose down --remove-orphans 2>/dev/null || true )
+( cd /opt/velocityai && docker compose -f docker-compose.yml -f docker-compose.prod.yml down --remove-orphans 2>/dev/null || true )
 # `systemctl enable` registers the unit at boot — idempotent, safe to
 # rerun. `systemctl restart` then forces a fresh ExecStartPre+ExecStart
 # cycle.
@@ -1101,7 +1149,7 @@ sleep 15
 if ! curl -fsS http://127.0.0.1:8000/health; then
     echo "[bootstrap] WARN: /health probe failed — velocityai-app.service may still be starting"
     echo "[bootstrap]       check: sudo systemctl status velocityai-app.service"
-    echo "[bootstrap]       check: sudo docker compose -f /opt/velocityai/docker-compose.yml logs --tail=200"
+    echo "[bootstrap]       check: sudo docker compose -f /opt/velocityai/docker-compose.yml -f /opt/velocityai/docker-compose.prod.yml logs --tail=200"
 fi
 # ── 20. Completion sentinel ────────────────────────────────────────────
 # Signals that the full host bootstrap finished. Consumed by:

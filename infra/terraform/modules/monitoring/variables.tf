@@ -244,3 +244,11 @@ variable "audit_trail_bucket_force_destroy" {
   type        = bool
   default     = false
 }
+
+# --- M-07: backup-bucket data-event capture ---------------------------------
+
+variable "backup_bucket_arn" {
+  description = "ARN of the pg_dump/skills backup bucket (module.backups.backup_bucket_arn). Scopes the CloudTrail data-event selector so GetObject/PutObject on the hourly pg_dump backups is audited — the management-events-only trail above does not capture object-level S3 API calls. Empty disables the data-event selector (e.g. before the backups module exists in a partial apply)."
+  type        = string
+  default     = ""
+}

@@ -1,12 +1,14 @@
 """FastAPI application entry point for the AI SaaS Platform."""
 
+import contextvars
 import json
 import logging
 import os
 import sys
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
@@ -33,25 +35,86 @@ from app.api.run_files import router as run_files_router
 from app.core.config import settings
 from app.models.database import engine
 
+# `settings` above and `_early_settings` (imported earlier, before the logging
+# setup block, so the JSON formatter can read SERVICE_NAME/ENV) are the SAME
+# object -- Settings() is instantiated once at module import in app.core.config
+# and both names bind to it. Kept as two names deliberately: `_early_settings`
+# documents "this is read before logging.basicConfig runs" at its use site.
+
 # ============================================================
-# LOGGING CONFIGURATION
+# LOGGING CONFIGURATION (M-02 request-ID correlation, M-06 structured JSON)
 # ============================================================
 
-LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)-25s | %(message)s"
-LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+from app.core.config import settings as _early_settings  # noqa: E402 - needed before logging setup
 
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOG_FORMAT,
-    datefmt=LOG_DATE_FORMAT,
-    handlers=[logging.StreamHandler(sys.stdout)],
+# M-02: the request ID nginx generates ($request_id, forwarded as the
+# X-Request-ID header by velocityai-proxy-headers.conf) or, absent nginx (local
+# dev / a direct request), one minted here. A contextvar (not a global) so
+# concurrent requests on the same process never see each other's ID -- every
+# log line emitted while handling a request carries it via the logging filter
+# below, which is what lets an operator grep one nginx access-log line's
+# request_id and pull every app-log line that same request produced.
+_request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_id", default="-"
 )
 
-# Set specific loggers
-logging.getLogger("app").setLevel(logging.DEBUG)
-logging.getLogger("app.agents").setLevel(logging.DEBUG)
-logging.getLogger("app.api").setLevel(logging.DEBUG)
-logging.getLogger("agents.factory").setLevel(logging.DEBUG)  # KAN-71: show prompt override usage
+
+class _RequestIdFilter(logging.Filter):
+    """Stamps the CURRENT request's ID onto every LogRecord (M-02)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = _request_id_var.get()
+        return True
+
+
+class _JsonFormatter(logging.Formatter):
+    """M-06: JSON log lines with static service/environment fields + request_id.
+
+    Replaces the previous pipe-delimited text format, which carried none of
+    service/environment/request_id and required string-parsing to filter in
+    CloudWatch Logs Insights. ``sort_keys`` kept off for formatter perf; field
+    order is fixed by the dict literal below, which is good enough for grep/
+    Insights (both parse full JSON, not positionally).
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "time": self.formatTime(record, LOG_DATE_FORMAT),
+            "level": record.levelname,
+            "service": _early_settings.SERVICE_NAME,
+            "environment": _early_settings.ENV,
+            "request_id": getattr(record, "request_id", "-"),
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str, ensure_ascii=False)
+
+
+LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
+
+_log_handler = logging.StreamHandler(sys.stdout)
+_log_handler.setFormatter(_JsonFormatter())
+_log_handler.addFilter(_RequestIdFilter())
+
+logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
+
+# M-06: app.agents / app.api carry prompts/payloads/user content at DEBUG.
+# Previously HARDCODED to DEBUG in every environment -- environment-driven
+# instead: DEBUG only in ENV=development (the existing local-dev experience,
+# unchanged) or when explicitly overridden via LOG_LEVEL_APP; INFO everywhere
+# else, so a DEBUG-level prompt/payload dump is opt-in, not the always-on
+# default, once these logs ship off-box to CloudWatch (H-06).
+_app_log_level = (
+    getattr(logging, _early_settings.LOG_LEVEL_APP.upper(), None)
+    if _early_settings.LOG_LEVEL_APP
+    else (logging.DEBUG if _early_settings.ENV.lower() == "development" else logging.INFO)
+)
+logging.getLogger("app").setLevel(_app_log_level)
+logging.getLogger("app.agents").setLevel(_app_log_level)
+logging.getLogger("app.api").setLevel(_app_log_level)
+logging.getLogger("agents.factory").setLevel(_app_log_level)  # KAN-71: show prompt override usage
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -270,6 +333,25 @@ app.add_middleware(
     # in Access-Control-Expose-Headers.
     expose_headers=["X-Total-Count"],
 )
+
+
+@app.middleware("http")
+async def _request_id_middleware(request: Request, call_next):
+    """M-02: adopt nginx's X-Request-ID (forwarded per the reconcile-host-config.sh
+    proxy-headers snippet), or mint one for a request that arrived without it
+    (local dev / a request that bypassed nginx). Stashed in the module-level
+    contextvar so every log line emitted while handling this request carries
+    it (via ``_RequestIdFilter``), and echoed back on the response so a client
+    can quote it when reporting an issue.
+    """
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    token = _request_id_var.set(request_id)
+    try:
+        response = await call_next(request)
+    finally:
+        _request_id_var.reset(token)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 # Register routers

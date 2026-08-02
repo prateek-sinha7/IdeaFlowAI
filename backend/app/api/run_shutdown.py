@@ -66,7 +66,12 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
     # Deferred imports: this module is a leaf, but keeping them here also means an
     # import failure in one registry's module cannot break the whole shutdown.
     from app.api.run_commands import _CONCIERGE_STREAM_TASKS, _LIVE_ECTX
-    from app.api.run_engine import _CANCEL_EVENTS, _PIPELINE_QUEUES, _PIPELINE_TASKS
+    from app.api.run_engine import (
+        _CANCEL_EVENTS,
+        _PIPELINE_QUEUES,
+        _PIPELINE_TASKS,
+        _PUMP_TASKS,
+    )
 
     summary: dict[str, Any] = {
         "event": "app_shutdown",
@@ -80,6 +85,9 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
         "concierge_lost": 0,
         "pipeline_drivers_stopped": 0,
         "queues_sentinelled": 0,
+        "pump_tasks_in_flight": len(_PUMP_TASKS),
+        "pump_tasks_drained": 0,
+        "pump_tasks_cancelled": 0,
         "checkpointer_closed": False,
         "errors": [],
     }
@@ -89,28 +97,43 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
     # teardown"); the durable chat_reply row is written at :1356 inside _drive's
     # SECOND try, so a CancelledError raised inside converse() at :1347 skips it.
     try:
-        done, pending = await _drain(
-            set(_CONCIERGE_STREAM_TASKS), settings.SHUTDOWN_CONCIERGE_DRAIN_SECONDS
-        )
-        summary["concierge_persisted"] = done
-        summary["concierge_lost"] = pending
-        if pending:
+        _concierge_tasks = set(_CONCIERGE_STREAM_TASKS)
+        done, pending_tasks = await asyncio.wait(
+            _concierge_tasks, timeout=settings.SHUTDOWN_CONCIERGE_DRAIN_SECONDS
+        ) if _concierge_tasks else (set(), set())
+        summary["concierge_persisted"] = len(done)
+        summary["concierge_lost"] = len(pending_tasks)
+        if pending_tasks:
             logger.warning(
                 "shutdown: %d Concierge turn(s) exceeded the %.1fs drain budget - "
                 "their chat_reply rows will NOT be written (the user's question row "
                 "persists with no answer).",
-                pending,
+                len(pending_tasks),
                 settings.SHUTDOWN_CONCIERGE_DRAIN_SECONDS,
             )
+            # M-14: ``asyncio.wait(timeout=...)`` returns WITHOUT cancelling
+            # ``pending`` -- step 4 below closes the checkpointer pool
+            # unconditionally afterwards, which directly contradicts this
+            # module's own "close last because earlier steps may hold
+            # connections" invariant (see the module docstring) for exactly
+            # these stragglers. Explicitly cancel them and give them a short
+            # window to unwind (release their pooled connection) before the
+            # pool closes underneath them.
+            for t in pending_tasks:
+                t.cancel()
+            await asyncio.wait(pending_tasks, timeout=settings.SHUTDOWN_TASK_DRAIN_SECONDS)
     except Exception as exc:  # noqa: BLE001
         summary["errors"].append(f"concierge_drain: {exc}")
         logger.warning("shutdown: concierge drain failed: %s", exc)
 
     # ── 2. Run-transport teardown. ──────────────────────────────────────────────
-    # Release every attached consumer before its producer disappears. Today that is
-    # a per-run None sentinel on the shared queue; AFTER A2 lands, _close_run is the
-    # single idempotent teardown (pops the liveness key, cancels the pump, sentinels
-    # every subscriber) and the branch below MUST switch to it.
+    # Release every attached consumer before its producer disappears: a per-run
+    # None sentinel on the shared producer queue, which each run's pump (if one
+    # was ever started) forwards to its own subscribers. H-11: step 2b below
+    # additionally awaits/cancels the pump tasks themselves — sentinelling the
+    # producer queue only makes a pump exit EVENTUALLY; nothing waited for that
+    # before, so a slow pump could still be running when the checkpointer pool
+    # closes underneath it (step 4).
     try:
         for run_id in list(_PIPELINE_QUEUES.keys()):
             try:
@@ -120,6 +143,41 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
                 pass
     except Exception as exc:  # noqa: BLE001
         summary["errors"].append(f"queue_sentinel: {exc}")
+
+    # ── 2b. H-11: pump tasks are NOT covered by the queue-sentinel step above. ──
+    # Sentinelling a producer queue makes its pump exit ON ITS OWN once it drains
+    # to that sentinel (``_pump_run_events``'s own ``finally`` pops its registry
+    # entry) — but nothing here AWAITS that exit, so a slow pump (a subscriber's
+    # queue momentarily full, or simply a long backlog still ahead of the
+    # sentinel) is still running when the lifespan proceeds to close the
+    # checkpointer pool underneath it. Drain with the same budget as the run
+    # drivers, then cancel any stragglers — mirrors the run-driver drain/escalate
+    # shape in ``stop_pipeline_drivers`` without depending on ``SHUTDOWN_STOP_RUNS``
+    # (a pump is a transport-side reader, not a run-status decision, so its
+    # teardown is unconditional regardless of that switch).
+    try:
+        pump_tasks = {task for task, _generation in _PUMP_TASKS.values()}
+        if pump_tasks:
+            done_tasks, pending_tasks = await asyncio.wait(
+                pump_tasks, timeout=settings.SHUTDOWN_TASK_DRAIN_SECONDS
+            )
+            summary["pump_tasks_drained"] = len(done_tasks)
+            if pending_tasks:
+                logger.warning(
+                    "shutdown: cancelling %d SSE pump task(s) that did not exit "
+                    "within %.1fs of their sentinel.",
+                    len(pending_tasks),
+                    settings.SHUTDOWN_TASK_DRAIN_SECONDS,
+                )
+                for t in pending_tasks:
+                    t.cancel()
+                await asyncio.wait(
+                    pending_tasks, timeout=settings.SHUTDOWN_TASK_DRAIN_SECONDS
+                )
+                summary["pump_tasks_cancelled"] = len(pending_tasks)
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append(f"pump_drain: {exc}")
+        logger.warning("shutdown: pump task drain failed: %s", exc)
 
     # ── 3. Optional: stop the pipeline drivers (see stop_pipeline_drivers). ─────
     if settings.SHUTDOWN_STOP_RUNS:
@@ -137,8 +195,16 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
         await close_checkpointer()
         summary["checkpointer_closed"] = True
     except Exception as exc:  # noqa: BLE001
-        summary["errors"].append(f"close_checkpointer: {exc}")
-        logger.warning("shutdown: close_checkpointer failed: %s", exc)
+        # M-16: the pool's DSN is derived from DATABASE_URL (contains the DB
+        # password), and psycopg errors can embed the DSN in their message.
+        # These logs ship to CloudWatch (H-06) -- log only the exception TYPE
+        # in the summary/warning; the full traceback (still potentially
+        # DSN-bearing) goes to logger.exception at DEBUG-adjacent detail only
+        # an operator actively investigating would enable, not the routine
+        # shutdown path.
+        summary["errors"].append(f"close_checkpointer: {type(exc).__name__}")
+        logger.warning("shutdown: close_checkpointer failed: %s", type(exc).__name__)
+        logger.debug("shutdown: close_checkpointer failure detail", exc_info=True)
 
     summary["elapsed_seconds"] = round(time.monotonic() - t0, 3)
     # D9 measurability: runs left non-terminal here are exactly the set the next

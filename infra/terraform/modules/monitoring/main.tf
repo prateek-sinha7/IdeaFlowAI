@@ -1,18 +1,28 @@
 locals {
-  # Log group names match the destinations the on-host CloudWatch Agent ships to
-  # (see docs/SIMPLE_AWS_DEPLOYMENT.md §10.1). Keeping these in lock-step is
+  # Log group names match the destinations the on-host CloudWatch Agent (and,
+  # for `app`, the Docker `awslogs` logging driver) ship to (see
+  # docs/SIMPLE_AWS_DEPLOYMENT.md §10.1). Keeping these in lock-step is
   # load-bearing: a name drift means alarms watch a group nothing writes to.
   #
   #  - nginx-access : /var/log/nginx/access.log (target of the 5xx metric filter)
   #  - nginx-error  : /var/log/nginx/error.log
-  #  - app          : /var/lib/docker/containers/*/*-json.log (Docker container logs,
-  #                   uvicorn + Next.js combined). The log stream name {instance_id}/docker
-  #                   is assigned by the agent's collect_list.
+  #  - app          : backend + frontend containers ship DIRECTLY via the
+  #                   `awslogs` Docker logging driver (docker-compose.prod.yml,
+  #                   M-01) into per-service streams (backend/{id},
+  #                   frontend/{id}) — NOT via the CloudWatch agent tailing
+  #                   *-json.log (that undifferentiated single-stream path was
+  #                   the M-01 defect this replaced).
   #  - postgres     : /var/log/postgresql/postgresql-16-main.log
-  #  - system       : /var/log/audit/audit.log + journald system slice via /var/log/syslog
+  #  - system       : /var/log/audit/audit.log, /var/log/unattended-upgrades/*,
+  #                   and /var/log/syslog (M-08)
   #  - auth         : /var/log/auth.log (sshd / sudo)
   #  - letsencrypt  : /var/log/letsencrypt/letsencrypt.log — Phase 3 item 21
   #                   (cert-renew failures + renewal-heartbeat alarms watch this).
+  #  - deploy       : /var/log/velocityai-bootstrap.log, /var/log/velocityai-
+  #                   reconcile.log, and the CW agent's own logfile (H-06) —
+  #                   the exact evidence needed to diagnose a failed
+  #                   bootstrap/reconcile run, previously written locally via
+  #                   `tee` but never shipped anywhere off-box.
   log_groups = [
     "/velocityai/${var.environment}/nginx-access",
     "/velocityai/${var.environment}/nginx-error",
@@ -21,6 +31,7 @@ locals {
     "/velocityai/${var.environment}/system",
     "/velocityai/${var.environment}/auth",
     "/velocityai/${var.environment}/letsencrypt",
+    "/velocityai/${var.environment}/deploy",
   ]
 
   # Path -> alarm-name-friendly slug for the inode_low for_each. "/" maps
@@ -594,6 +605,54 @@ resource "aws_cloudwatch_metric_alarm" "nginx_limit_reject" {
   }
 }
 
+# --- M-03: SSE connection-cap rejections (503, not 429) -----
+#
+# The SSE location's `limit_conn` deliberately does NOT set `limit_conn_status`
+# (kept at nginx's default 503) — `tests/unit/test_nginx_site_template.py`
+# pins that decision: a dedicated 429 status on limit_conn would make a
+# connection-cap rejection indistinguishable from a genuine upstream 429 the
+# APPLICATION returned, undoing the exact status-code precision `nginx_429`/
+# `nginx_limit_reject` above depend on for request-rate limiting. So the
+# `NginxLimitReject` filter (status=429, upstream_addr="-") never fires for
+# this rejection path; it inflates `Nginx5xx` / pages `nginx_5xx_spike`
+# instead, indistinguishable from a real backend 5xx.
+#
+# This is a SEPARATE, dedicated filter+alarm for exactly that connection-cap
+# rejection shape: `upstream_addr = "-"` (nginx answered without proxying —
+# the same discriminator `nginx_limit_reject` uses) AND `status = 503`.
+resource "aws_cloudwatch_log_metric_filter" "sse_connection_cap_reject" {
+  name           = "${var.name_prefix}-sse-connection-cap-reject"
+  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/nginx-access"].name
+  pattern        = "{ $.status = 503 && $.upstream_addr = \"-\" }"
+
+  metric_transformation {
+    name          = "SseConnectionCapReject"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "sse_connection_cap_reject" {
+  alarm_name          = "${var.name_prefix}-sse-connection-cap-reject"
+  alarm_description   = "nginx's SSE limit_conn rejected at least one connection in each of three consecutive 5-minute windows (503, upstream_addr=\"-\"). Disambiguates the SSE per-IP connection cap from a genuine backend 5xx -- both would otherwise only page nginx_5xx_spike."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "SseConnectionCapReject"
+  namespace           = var.cw_metric_namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
 # --- E1: SSE stream close counter (informational, no alarm) -----
 #
 # CORRECTION to the original E1.md proposal: `request_time` on a streaming
@@ -613,7 +672,11 @@ resource "aws_cloudwatch_metric_alarm" "nginx_limit_reject" {
 resource "aws_cloudwatch_log_metric_filter" "sse_stream_closed" {
   name           = "${var.name_prefix}-sse-stream-closed"
   log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/nginx-access"].name
-  pattern        = "{ $.uri = \"*/events/stream\" }"
+  # M-11: nginx's SSE location regex (reconcile-host-config.sh) explicitly
+  # accepts an optional trailing slash (`/?$`), so `/events/stream/` is a
+  # legitimate URI this filter must also match — the single un-slashed
+  # pattern silently missed every trailing-slash request.
+  pattern = "{ $.uri = \"*/events/stream\" || $.uri = \"*/events/stream/\" }"
 
   metric_transformation {
     name          = "SseStreamClosed"
@@ -1675,6 +1738,30 @@ resource "aws_cloudtrail" "audit" {
   event_selector {
     read_write_type           = "All"
     include_management_events = true
+  }
+
+  # M-07: a SECOND, DATA-EVENT-ONLY selector scoped to the backup bucket.
+  # .checkov.yaml skips CKV_AWS_18 (S3 server access logging) citing "CloudTrail
+  # covers audit needs" — but the selector above captures MANAGEMENT events
+  # only (bucket creation, policy changes, etc.), never object-level
+  # GetObject/PutObject calls. Without this second selector, every read/write
+  # of the hourly pg_dump backups was completely unaudited despite the
+  # checkov justification claiming otherwise. `include_management_events =
+  # false` here so this selector adds ONLY the data-event capture — the
+  # management-event capture stays owned by the selector above (a trail
+  # cannot double-count the same management event twice, but declaring it
+  # true here too would be redundant and harder to reason about).
+  dynamic "event_selector" {
+    for_each = length(var.backup_bucket_arn) > 0 ? [1] : []
+    content {
+      read_write_type           = "All"
+      include_management_events = false
+
+      data_resource {
+        type   = "AWS::S3::Object"
+        values = ["${var.backup_bucket_arn}/"]
+      }
+    }
   }
 
   tags = {

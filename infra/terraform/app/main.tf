@@ -33,6 +33,7 @@ module "compute" {
   # objects only reference foundation outputs + local files, never compute.
   depends_on = [
     aws_s3_object.compose_yaml,
+    aws_s3_object.compose_prod_yaml,
     aws_s3_object.deploy_env,
     aws_s3_object.bootstrap_script,
     aws_s3_object.reconcile_script,
@@ -154,6 +155,30 @@ resource "aws_s3_object" "compose_yaml" {
   }
 }
 
+# --- docker-compose.prod.yml (M-01 logging override) hosted in S3 ----------
+# Switches backend/frontend to the awslogs driver so each ships to its own
+# CloudWatch stream instead of the CloudWatch agent's undifferentiated
+# {instance_id}/docker stream. Applied alongside docker-compose.yml via
+# `docker compose -f docker-compose.yml -f docker-compose.prod.yml` (both the
+# systemd unit in bootstrap-ec2.sh and the CI redeploy in buildspec.yml pass
+# both files). Same delivery mechanism/bucket/KMS key as compose_yaml.
+resource "aws_s3_object" "compose_prod_yaml" {
+  bucket = local.fnd.backup_bucket_name
+  key    = "config/docker-compose.prod.yml"
+
+  source      = "${path.root}/../../../docker-compose.prod.yml"
+  source_hash = filemd5("${path.root}/../../../docker-compose.prod.yml")
+
+  content_type           = "text/yaml"
+  server_side_encryption = "aws:kms"
+  kms_key_id             = local.fnd.kms_key_arn
+
+  tags = {
+    Name      = "${local.name_prefix}-compose-prod-yaml"
+    Component = "compute"
+  }
+}
+
 # --- Deploy env (image tag) hosted in S3 -----------------------------------
 # This is what makes the app layer the "deployable unit": the resolved image
 # URIs for var.image_tag. Changing image_tag changes this object's content, so
@@ -213,6 +238,10 @@ module "monitoring" {
   instance_role_arn       = local.fnd.instance_role_arn
   secrets_path_prefix_arn = local.secrets_path_prefix_arn
   project_cmk_arn         = local.fnd.kms_key_arn
+  # M-07: CloudTrail data-event capture for the backup bucket (GetObject/
+  # PutObject on the hourly pg_dump backups — the management-event trail
+  # above never captured object-level S3 API calls).
+  backup_bucket_arn = local.fnd.backup_bucket_arn
 }
 
 # --- Resource Groups (tag-query everything in this env) --------------------

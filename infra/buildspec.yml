@@ -252,6 +252,7 @@ phases:
         fi
         install -d -m 0750 /opt/velocityai /etc/velocityai
         aws s3 cp "s3://${BUCKET}/config/docker-compose.yml" /opt/velocityai/docker-compose.yml
+        aws s3 cp "s3://${BUCKET}/config/docker-compose.prod.yml" /opt/velocityai/docker-compose.prod.yml
         aws s3 cp "s3://${BUCKET}/config/deploy.env" /etc/velocityai/deploy.env
         cd /opt/velocityai
         # deploy.env (written by the app layer) is the AUTHORITATIVE source of the
@@ -297,14 +298,34 @@ phases:
         # downtime, and failing the build is how the operator finds out.
         aws s3 cp "s3://${BUCKET}/config/reconcile-host-config.sh" /opt/velocityai/reconcile-host-config.sh
         chmod 0755 /opt/velocityai/reconcile-host-config.sh
+        # H-07: exit 1 (nginx failure) still aborts this deploy — a bad nginx
+        # config is a live-traffic risk. Exit 2 (CloudWatch-agent DEGRADED
+        # only) is reported loudly but does NOT abort the app deploy.
+        set +e
         bash /opt/velocityai/reconcile-host-config.sh
+        RECONCILE_STATUS=$?
+        set -e
+        if [ "$RECONCILE_STATUS" = "1" ]; then
+          echo "reconcile-host-config.sh failed on nginx (exit 1) — aborting deploy" >&2
+          exit 1
+        elif [ "$RECONCILE_STATUS" != "0" ]; then
+          echo "reconcile-host-config.sh exited $RECONCILE_STATUS (CloudWatch-agent DEGRADED) — continuing the app deploy" >&2
+        fi
         aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
-        docker compose pull
-        docker compose up -d --remove-orphans
-        docker compose ps
+        # M-01: docker-compose.prod.yml interpolates ${VELOCITYAI_CW_LOG_GROUP} /
+        # ${AWS_REGION} for the awslogs driver. This script runs `docker compose`
+        # directly (not via velocityai-app.service's EnvironmentFile=), so export
+        # app.env into THIS shell too, or those vars resolve empty and the awslogs
+        # driver call fails closed on a missing log group.
+        set -a
+        . /etc/velocityai/app.env
+        set +a
+        docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+        docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+        docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
         for i in $(seq 1 30); do
           if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then echo "backend healthy"; exit 0; fi
-          if [ "$i" = "30" ]; then echo "backend health timeout"; docker compose logs --tail=80 backend || true; exit 1; fi
+          if [ "$i" = "30" ]; then echo "backend health timeout"; docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=80 backend || true; exit 1; fi
           sleep 10
         done
         SCRIPT

@@ -16,6 +16,7 @@ callbacks INJECTED onto the engine instance in ``app/main.py`` at startup.
 """
 
 import asyncio
+import itertools
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -65,9 +66,20 @@ _IMAGE_MAX_COUNT = 20  # max images per run
 _IMAGE_MAX_AGGREGATE_BYTES = 8 * 1024 * 1024  # ~8 MB raw across all images
 
 
+# C-06b: monotonic generation token, bumped every time a NEW producer queue is
+# CREATED for a run_id (never on a reused/idempotent get). Object identity of the
+# queue would also work as a generation token, but an explicit counter is cheaper
+# to log/compare and survives the queue object being garbage-collected. Keyed on
+# run_id only (SC-001); never cleared on cleanup — a later resume simply gets a
+# strictly higher number, which is all the comparisons below need.
+_QUEUE_GENERATIONS: dict[str, int] = {}
+_GENERATION_SEQ = itertools.count(1)
+
+
 def _get_or_create_queue(pipeline_run_id: str) -> asyncio.Queue:
     if pipeline_run_id not in _PIPELINE_QUEUES:
         _PIPELINE_QUEUES[pipeline_run_id] = asyncio.Queue(maxsize=0)  # unbounded
+        _QUEUE_GENERATIONS[pipeline_run_id] = next(_GENERATION_SEQ)
     return _PIPELINE_QUEUES[pipeline_run_id]
 
 
@@ -207,27 +219,35 @@ def _is_run_live(run_id: str) -> bool:
 # ``defaultdict(list)`` keeps the producer side simple; the SSE handler is
 # responsible for adding and removing its own queue via subscribe/unsubscribe.
 
-_SUBSCRIBERS: dict[str, list[asyncio.Queue]] = defaultdict(list)
+# Each entry is ``(queue, generation)``. ``generation`` is the ``_QUEUE_GENERATIONS``
+# token of the producer queue that was live at SUBSCRIBE time (C-06b). It is what
+# lets a pump bound to an OLDER generation avoid broadcasting its own stray sentinel
+# to a subscriber that actually belongs to a newer resume's queue -- the two are
+# never confused even though they share the same ``run_id`` key.
+_SUBSCRIBERS: dict[str, list[tuple[asyncio.Queue, int]]] = defaultdict(list)
 _SUBSCRIBERS_LOCK = asyncio.Lock()
 
 
 async def _subscribe(run_id: str, queue_maxsize: int = 0) -> asyncio.Queue:
     """Subscribe an SSE client to the per-run fan-out bus.
 
-    Creates a new queue and registers it for this run. The SSE handler
-    must call unsubscribe() when the connection closes (in a finally block).
+    Creates a new queue and registers it for this run, tagged with the CURRENT
+    producer-queue generation (C-06b) so it is only ever fed by a pump bound to
+    that same generation. The SSE handler must call unsubscribe() when the
+    connection closes (in a finally block).
 
     Args:
         run_id: The workflow run ID.
         queue_maxsize: Maximum queue size (0 = unbounded; slow clients
-                       over this threshold are evicted on put).
+                       over this threshold are evicted on put, H-09).
 
     Returns:
         An asyncio.Queue for the SSE handler to drain.
     """
     q: asyncio.Queue = asyncio.Queue(maxsize=queue_maxsize)
+    generation = _QUEUE_GENERATIONS.get(run_id)
     async with _SUBSCRIBERS_LOCK:
-        _SUBSCRIBERS[run_id].append(q)
+        _SUBSCRIBERS[run_id].append((q, generation))
     if not await _ensure_pump(run_id):
         # C-06: no live producer queue exists for this run (it finished in the race
         # window between the caller's _is_run_live check and this subscribe call —
@@ -250,49 +270,107 @@ async def _unsubscribe(run_id: str, q: asyncio.Queue) -> None:
     """
     async with _SUBSCRIBERS_LOCK:
         if run_id in _SUBSCRIBERS:
-            try:
-                _SUBSCRIBERS[run_id].remove(q)
-            except ValueError:
-                pass
+            _SUBSCRIBERS[run_id] = [
+                entry for entry in _SUBSCRIBERS[run_id] if entry[0] is not q
+            ]
             if not _SUBSCRIBERS[run_id]:
                 _SUBSCRIBERS.pop(run_id, None)
 
 
-async def _dispatch_event_to_subscribers(run_id: str, event: dict[str, Any]) -> None:
-    """Fan-out an event to every SSE subscriber on a run.
+async def _evict_subscriber(run_id: str, q: asyncio.Queue) -> None:
+    """H-09: force-close a subscriber whose queue hit ``maxsize`` instead of
+    silently dropping the event that overflowed it.
+
+    Silently dropping (the old behaviour) is worse than it looks: the client's
+    ``Last-Event-ID`` cursor keeps advancing as it drains whatever DID make it
+    through, so the gap left by the drop is never seen as a gap and is never
+    replayed on a future reconnect. Evicting instead removes the subscriber and
+    forces its SSE drain loop to observe a close (a dropped-then-recreated
+    ``None`` slot) so the client reconnects and replays from the durable log
+    starting at its LAST successfully consumed cursor -- no silent, permanent
+    gap.
+
+    M-04: eviction previously had zero observability of its own -- unlike the
+    stale-registration self-heal above, which logs. Log at WARNING (one line per
+    eviction, not per dropped event -- an eviction is already the rare/backpressure
+    case, so this is naturally rate-limited by the eviction rate itself, never by
+    per-event volume) so a slow-client pattern is visible in CloudWatch instead of
+    only being inferable from a client-side reconnect it cannot itself explain.
+    """
+    logger.warning(
+        "SSE subscriber evicted: run=%s queue_maxsize=%s qsize=%s "
+        "reason=queue_full_on_dispatch",
+        run_id,
+        q.maxsize,
+        q.qsize(),
+    )
+    await _unsubscribe(run_id, q)
+    # Free a slot for the terminal marker. Best-effort: if a concurrent consumer
+    # already drained the queue below maxsize this is a harmless no-op cost.
+    try:
+        q.get_nowait()
+    except asyncio.QueueEmpty:
+        pass
+    try:
+        q.put_nowait(None)
+    except asyncio.QueueFull:
+        # Vanishingly unlikely (would need a second concurrent producer racing
+        # the same queue); the client's own disconnect detection / the
+        # keepalive ping eventually surfaces the stall.
+        pass
+
+
+async def _dispatch_event_to_subscribers(
+    run_id: str, event: dict[str, Any], generation: int | None
+) -> None:
+    """Fan-out an event to every SSE subscriber ON THIS GENERATION of a run.
 
     Non-blocking: a queue with no consumer is fine (the handler disconnects
-    and cleans up via unsubscribe). A queue with a slow consumer buffers;
-    a queue at maxsize silently drops the event (slow client evicted on next
-    reconnect, which replays from the durable tail via Last-Event-ID).
+    and cleans up via unsubscribe). A queue with a slow consumer buffers; a
+    queue at maxsize is EVICTED (H-09) rather than silently dropped, so the
+    client reconnects and replays the gap instead of never knowing it exists.
 
     Args:
         run_id: The workflow run ID.
         event: The event dict to dispatch.
+        generation: Only subscribers tagged with this producer-queue
+            generation (C-06b) receive the event — a subscriber that attached
+            to a NEWER (or older) generation under the same run_id is never
+            fed by a pump that does not own its generation.
     """
     async with _SUBSCRIBERS_LOCK:
-        queues = list(_SUBSCRIBERS.get(run_id, ()))
+        queues = [
+            q for (q, gen) in _SUBSCRIBERS.get(run_id, ()) if gen == generation
+        ]
     for q in queues:
         try:
             q.put_nowait(event)
         except asyncio.QueueFull:
-            pass  # Slow client; evicted on next reconnect (durable replay via Last-Event-ID)
+            await _evict_subscriber(run_id, q)
 
 
-async def _dispatch_sentinel_to_subscribers(run_id: str) -> None:
-    """Forward the producer's terminal ``None`` sentinel to every subscriber.
+async def _dispatch_sentinel_to_subscribers(
+    run_id: str, generation: int | None
+) -> None:
+    """Forward the producer's terminal ``None`` sentinel to subscribers of ONE generation.
 
     Mirrors ``_dispatch_event_to_subscribers`` but for the close signal: each
     subscriber's drain loop (``run_stream._iter_sse_frames``'s
     ``await live_queue.get()``) checks for ``None`` to end the stream cleanly.
+
+    C-06b: scoped to ``generation`` for the same reason as the event fan-out —
+    a STALE pump (bound to an old, already-superseded producer queue) must
+    never close a subscriber that attached to the NEW generation's queue.
     """
     async with _SUBSCRIBERS_LOCK:
-        queues = list(_SUBSCRIBERS.get(run_id, ()))
+        queues = [
+            q for (q, gen) in _SUBSCRIBERS.get(run_id, ()) if gen == generation
+        ]
     for q in queues:
         try:
             q.put_nowait(None)
         except asyncio.QueueFull:
-            pass  # Slow client; it will still see the run's terminal status on reconnect.
+            await _evict_subscriber(run_id, q)
 
 
 # ---------------------------------------------------------------------------
@@ -304,45 +382,65 @@ async def _dispatch_sentinel_to_subscribers(run_id: str) -> None:
 # reads ONLY from its own ``_SUBSCRIBERS`` queue. Without this pump nothing
 # connects the two, so every live attach parks on ``live_queue.get()`` forever.
 #
-# One pump task per run, started lazily by the FIRST subscriber to attach
-# (``_ensure_pump``, called from ``_subscribe``) rather than at launch time, so a
-# run nobody is watching costs nothing extra. Guarded by ``_PUMP_TASKS_LOCK`` so
-# two SSE clients attaching concurrently never spawn two pumps racing to drain
-# the same producer queue (which would silently split events between them —
-# the exact round-robin bug KAN-134 replaced the single-queue model to fix).
-_PUMP_TASKS: dict[str, asyncio.Task] = {}
+# One pump task per run GENERATION, started lazily by the FIRST subscriber to
+# attach (``_ensure_pump``, called from ``_subscribe``) rather than at launch
+# time, so a run nobody is watching costs nothing extra. Guarded by
+# ``_PUMP_TASKS_LOCK`` so two SSE clients attaching concurrently never spawn two
+# pumps racing to drain the same producer queue (which would silently split
+# events between them — the exact round-robin bug KAN-134 replaced the
+# single-queue model to fix).
+#
+# C-06b: keyed by ``run_id`` alone (bare-``run_id`` keying was the root cause —
+# ``_PUMP_TASKS[run_id]`` is checked for "un-``done()``" liveness with no binding
+# to WHICH producer-queue generation it is draining. A resumed run installs a
+# brand-new queue under the same ``run_id`` while the OLD pump — still draining
+# its own now-superseded queue, not yet at its terminal sentinel — is still
+# registered, so ``_ensure_pump`` sees a live-looking entry and starts NOTHING
+# for the new generation. ``_PUMP_TASKS`` now stores ``(task, generation)`` so a
+# stale pump from an older generation is recognised as such and replaced.
+_PUMP_TASKS: dict[str, tuple[asyncio.Task, int]] = {}
 _PUMP_TASKS_LOCK = asyncio.Lock()
 
 
-async def _pump_run_events(run_id: str, queue: asyncio.Queue) -> None:
-    """Drain one run's producer queue into every attached SSE subscriber queue.
+async def _pump_run_events(run_id: str, queue: asyncio.Queue, generation: int) -> None:
+    """Drain one run GENERATION's producer queue into its own attached subscribers.
 
     Terminates on the producer's ``None`` sentinel — sent by the driver's own
     ``finally`` (launch/revision) or by ``_cleanup_pipeline`` (resume / gate-re-arm
-    paths) — which it forwards to every subscriber so their drain loops return
-    instead of hanging. A dispatch failure for one event is logged and does not
-    kill the pump; a failure that escapes the loop entirely still closes out every
-    attached subscriber (via the sentinel) instead of leaving them parked forever.
+    paths) — which it forwards (scoped to ``generation``, C-06b) to every
+    subscriber of that generation so their drain loops return instead of
+    hanging. A dispatch failure for one event is logged and does not kill the
+    pump; a failure that escapes the loop entirely still closes out every
+    attached subscriber (via the sentinel) instead of leaving them parked
+    forever.
     """
     try:
         while True:
             event = await queue.get()
             if event is None:
-                await _dispatch_sentinel_to_subscribers(run_id)
+                await _dispatch_sentinel_to_subscribers(run_id, generation)
                 return
             try:
-                await _dispatch_event_to_subscribers(run_id, event)
+                await _dispatch_event_to_subscribers(run_id, event, generation)
             except Exception:  # noqa: BLE001 - one bad event must not kill the pump
                 logger.exception(
-                    "SSE pump: failed to dispatch event for run=%s", run_id
+                    "SSE pump: failed to dispatch event for run=%s gen=%s",
+                    run_id, generation,
                 )
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001 - the pump must not strand its subscribers
-        logger.exception("SSE pump crashed for run=%s", run_id)
-        await _dispatch_sentinel_to_subscribers(run_id)
+        logger.exception("SSE pump crashed for run=%s gen=%s", run_id, generation)
+        await _dispatch_sentinel_to_subscribers(run_id, generation)
     finally:
-        _PUMP_TASKS.pop(run_id, None)
+        # C-06b: pop OUR OWN registry entry only if it still points at THIS task.
+        # A newer generation's pump may already have overwritten the entry (the
+        # replacement path below is synchronous-until-create_task, so this is a
+        # defensive check, not the primary guard) — never let an exiting stale
+        # pump clobber a fresher pump's live registration.
+        existing = _PUMP_TASKS.get(run_id)
+        if existing is not None and existing[0] is asyncio.current_task():
+            _PUMP_TASKS.pop(run_id, None)
 
 
 async def _ensure_pump(run_id: str) -> bool:
@@ -354,17 +452,27 @@ async def _ensure_pump(run_id: str) -> bool:
     (``_subscribe``) uses this to close a subscriber queue immediately instead of
     leaving it parked with no producer that will ever feed it.
 
-    Idempotent: a second call while a pump is already running for this run is a
-    no-op (checked under ``_PUMP_TASKS_LOCK`` so concurrent subscribers never race
-    into starting two pumps on the same queue).
+    C-06b: idempotent PER GENERATION, not merely per ``run_id``. A registered
+    pump whose recorded generation no longer matches the CURRENT producer
+    queue's generation is stale — its own queue was replaced (a resume/launch
+    installed a new one under the same ``run_id``) — so it is superseded with a
+    pump bound to the new generation instead of being treated as "already
+    covered". The stale pump keeps draining its OLD queue harmlessly to
+    completion (it owns no subscribers of the new generation to strand) and
+    self-unregisters in its own ``finally`` without clobbering the replacement
+    (guarded above). Two SSE clients attaching concurrently to the SAME
+    generation never race into starting two pumps (checked under
+    ``_PUMP_TASKS_LOCK``).
     """
     queue = _PIPELINE_QUEUES.get(run_id)
     if queue is None:
         return False
+    generation = _QUEUE_GENERATIONS.get(run_id)
     async with _PUMP_TASKS_LOCK:
         existing = _PUMP_TASKS.get(run_id)
-        if existing is None or existing.done():
-            _PUMP_TASKS[run_id] = asyncio.create_task(_pump_run_events(run_id, queue))
+        if existing is None or existing[0].done() or existing[1] != generation:
+            task = asyncio.create_task(_pump_run_events(run_id, queue, generation))
+            _PUMP_TASKS[run_id] = (task, generation)
     return True
 
 

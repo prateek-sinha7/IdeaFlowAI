@@ -275,6 +275,22 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
     ACCESS_TOKEN_EXPIRE_HOURS: int = 24
 
+    # ---- Logging (M-06) ------------------------------------------------
+    # app.agents / app.api carry prompts/payloads/user content at DEBUG — that
+    # was previously HARDCODED to DEBUG in every environment (main.py), which is
+    # the category of log most likely to leak sensitive request content once it
+    # ships to CloudWatch (H-06). Environment-driven instead: defaults to DEBUG
+    # in ENV=development (unchanged local-dev experience) and INFO everywhere
+    # else. Override explicitly via env var if an environment genuinely needs
+    # DEBUG temporarily for an investigation.
+    LOG_LEVEL_APP: str = ""  # "" = derive from ENV (see main.py)
+    # JSON-formatted logs carry these two static fields on every line so a
+    # CloudWatch Logs Insights query can filter/group by service+environment
+    # without string-parsing the message. SERVICE_NAME defaults per-process;
+    # docker-compose does not need to set it since each service just imports
+    # this module inside its own container.
+    SERVICE_NAME: str = "velocityai-backend"
+
     # LangSmith (set via env vars, read by LangChain automatically)
     LANGSMITH_TRACING: str = "false"
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
