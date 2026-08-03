@@ -533,8 +533,13 @@ CW_AGENT_OK=1
 # for exactly this verification flow:
 # https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/verify-CloudWatch-Agent-Package-Signature.html
 CW_AGENT_VERSION="1.300054.0"
-CW_AGENT_DEB_URL="https://amazoncloudwatch-agent-eu-central-1.s3.eu-central-1.amazonaws.com/ubuntu/amd64/${CW_AGENT_VERSION}/amazon-cloudwatch-agent.deb"
+# H-13: use region-agnostic S3 URL as primary, with region-specific as fallback.
+# The region-specific URL (s3.eu-central-1.amazonaws.com) can return 403 on transient
+# access issues; the global s3.amazonaws.com endpoint is more resilient.
+CW_AGENT_DEB_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/${CW_AGENT_VERSION}/amazon-cloudwatch-agent.deb"
+CW_AGENT_DEB_URL_FALLBACK="https://amazoncloudwatch-agent-eu-central-1.s3.eu-central-1.amazonaws.com/ubuntu/amd64/${CW_AGENT_VERSION}/amazon-cloudwatch-agent.deb"
 CW_AGENT_SIG_URL="${CW_AGENT_DEB_URL}.sig"
+CW_AGENT_SIG_URL_FALLBACK="${CW_AGENT_DEB_URL_FALLBACK}.sig"
 CW_AGENT_GPG_KEY_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/assets/amazon-cloudwatch-agent.gpg"
 
 if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
@@ -543,20 +548,38 @@ if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
     _cw_deb="$_cw_tmpdir/amazon-cloudwatch-agent.deb"
     _cw_sig="$_cw_tmpdir/amazon-cloudwatch-agent.deb.sig"
     _cw_key="$_cw_tmpdir/amazon-cloudwatch-agent.gpg"
-    if ! curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_DEB_URL" -o "$_cw_deb" \
-        || ! curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_SIG_URL" -o "$_cw_sig" \
-        || ! curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_GPG_KEY_URL" -o "$_cw_key"; then
-        degrade_agent "could not download amazon-cloudwatch-agent.deb v${CW_AGENT_VERSION} or its signature/key" "cwagent-download"
-        CW_AGENT_OK=0
-    elif ! gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --import "$_cw_key" >/dev/null 2>&1 \
-        || ! gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --verify "$_cw_sig" "$_cw_deb" >/dev/null 2>&1; then
-        degrade_agent "amazon-cloudwatch-agent.deb v${CW_AGENT_VERSION} FAILED signature verification — refusing to install a package that does not match AWS's published signature" "cwagent-signature"
-        CW_AGENT_OK=0
-    elif ! dpkg -i "$_cw_deb"; then
-        degrade_agent "dpkg -i amazon-cloudwatch-agent (signature-verified v${CW_AGENT_VERSION}) failed" "cwagent-install"
-        CW_AGENT_OK=0
+    
+    # H-13: Try primary URL first; fallback to region-specific on failure
+    if curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_DEB_URL" -o "$_cw_deb"; then
+        echo "[reconcile] Downloaded .deb from primary URL"
+    elif curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_DEB_URL_FALLBACK" -o "$_cw_deb"; then
+        echo "[reconcile] Downloaded .deb from fallback URL"
     else
-        echo "[reconcile] amazon-cloudwatch-agent v${CW_AGENT_VERSION} installed (signature verified)"
+        degrade_agent "could not download amazon-cloudwatch-agent.deb v${CW_AGENT_VERSION} from primary or fallback URLs" "cwagent-download"
+        CW_AGENT_OK=0
+    fi
+    
+    # Download signature and key (primary URL for both)
+    if [[ "$CW_AGENT_OK" -eq 1 ]]; then
+        if ! curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_SIG_URL" -o "$_cw_sig" \
+            || ! curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_GPG_KEY_URL" -o "$_cw_key"; then
+            degrade_agent "could not download amazon-cloudwatch-agent.deb signature or GPG key" "cwagent-sig-key"
+            CW_AGENT_OK=0
+        fi
+    fi
+    
+    if [[ "$CW_AGENT_OK" -eq 1 ]]; then
+    if [[ "$CW_AGENT_OK" -eq 1 ]]; then
+        if ! gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --import "$_cw_key" >/dev/null 2>&1 \
+            || ! gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --verify "$_cw_sig" "$_cw_deb" >/dev/null 2>&1; then
+            degrade_agent "amazon-cloudwatch-agent.deb v${CW_AGENT_VERSION} FAILED signature verification — refusing to install a package that does not match AWS's published signature" "cwagent-signature"
+            CW_AGENT_OK=0
+        elif ! dpkg -i "$_cw_deb"; then
+            degrade_agent "dpkg -i amazon-cloudwatch-agent (signature-verified v${CW_AGENT_VERSION}) failed" "cwagent-install"
+            CW_AGENT_OK=0
+        else
+            echo "[reconcile] amazon-cloudwatch-agent v${CW_AGENT_VERSION} installed (signature verified)"
+        fi
     fi
     rm -rf "$_cw_tmpdir"
 fi

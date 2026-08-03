@@ -472,6 +472,31 @@ if [ "$HEALTHY" -eq 1 ]; then
     else
         echo "[deploy] healthy: backend + frontend (ingress tier skipped)"
     fi
+    
+    # ── Post-deployment user verification (H-14) ────────────────────────
+    # Ensure admin and enterprise users exist in the database. This runs after
+    # health checks so the backend is running with migrations applied. Failures
+    # here do NOT abort the deploy (observability, not the request path) but ARE
+    # reported clearly for ops attention.
+    echo "[deploy] running post-deployment user verification..."
+    if [ -f "${APP_DIR}/infra/scripts/post-deploy-verify-users.py" ]; then
+        set +e
+        cd "$APP_DIR"
+        # Export app.env so the script can source it if DATABASE_URL is not yet in the shell env
+        export $(grep -v '^#' "${APP_ENV}" | xargs)
+        python3 "${APP_DIR}/infra/scripts/post-deploy-verify-users.py"
+        USER_VERIFY_RC=$?
+        set -e
+        if [ "$USER_VERIFY_RC" -eq 0 ]; then
+            echo "[deploy] post-deployment user verification completed successfully"
+        else
+            echo "[deploy] WARNING: post-deployment user verification exited ${USER_VERIFY_RC}" >&2
+            echo "[deploy]          check logs above — some required users may not exist in the database" >&2
+        fi
+    else
+        echo "[deploy] WARNING: post-deploy-verify-users.py not found at expected path" >&2
+    fi
+    
     echo "[deploy] complete $(date -u --iso-8601=seconds) tag=${IMAGE_TAG}"
     echo "[deploy]   backend  ${BACKEND_IMAGE_REF}"
     echo "[deploy]   frontend ${FRONTEND_IMAGE_REF}"
