@@ -320,7 +320,14 @@ jobs:
       # config or reach a host — that authority lives only in the per-env
       # deploy roles assumed by the `deploy` job.
       - name: Configure AWS credentials (OIDC — build role)
-        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        # FIX-NODE20-01: v4.0.2 declares `using: node20`. GitHub is phasing
+        # out Node 20 action runtimes (FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 is
+        # already opt-in today and Node 20 becomes unsupported on GitHub's
+        # own timeline); running an unsupported runtime silently or via
+        # ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION is not an acceptable long-
+        # term fix. Upgraded to the latest tagged release (v6.2.3), which
+        # declares `using: node24` (verified against its action.yml).
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
@@ -543,7 +550,6 @@ jobs:
             docker-compose.yml
             docker-compose.prod.yml
             infra/scripts/reconcile-host-config.sh
-            infra/scripts/post-deploy-verify-users.py
             .github/scripts/remote-deploy.sh
           sparse-checkout-cone-mode: false
 
@@ -560,7 +566,8 @@ jobs:
       # It holds no ECR permissions: the box pulls images with its instance
       # role (remote-deploy.sh §8).
       - name: Configure AWS credentials (OIDC — per-env deploy role)
-        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        # FIX-NODE20-01: see the identical note on the build job's step above.
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
@@ -605,10 +612,40 @@ jobs:
             KMS_ALIAS="alias/velocityai-${DEPLOY_ENV}"
           fi
 
+          # FIX-SSM-01: explicit desired-state semantics per parameter, instead
+          # of the previous blanket "empty value -> skip (leave whatever SSM
+          # already has)". A skip silently preserved a STALE value: clearing
+          # LANGSMITH_API_KEY/LANGSMITH_TRACING in GitHub, for example, did not
+          # disable tracing if an older SSM value existed, because the host
+          # loader re-reads the old parameter on every deploy. Semantics now:
+          #   required        -> empty value FAILS the deploy (never silently
+          #                      proceed on a missing secret the app needs)
+          #   delete-if-empty -> empty value DELETES the existing parameter,
+          #                      so the host loader's own documented fallback
+          #                      (a default, or the box's FQDN, etc.) applies
+          #                      instead of a value GitHub no longer sets
+          # Values are never echoed for either outcome — only key names and
+          # the action taken (created/updated/deleted/unchanged).
+          declare -i PARAMS_PUSHED=0 PARAMS_DELETED=0 PARAMS_UNCHANGED=0
+
           put_param() {
-            local key="$1" value="$2" type="${3:-String}"
+            local key="$1" value="$2" type="${3:-String}" policy="${4:-delete-if-empty}"
             if [[ -z "$value" ]]; then
-              echo "  skipped: ${key} (empty)"
+              if [[ "$policy" == "required" ]]; then
+                echo "::error::Required config value for '${key}' is empty — refusing to deploy without it."
+                exit 1
+              fi
+              # delete-if-empty: remove any existing parameter so the host's
+              # own fallback/default takes effect, rather than leaving a
+              # stale value from a previous deploy in place.
+              if aws ssm get-parameter --name "${SSM_PREFIX}/${key}" --region "$AWS_REGION" >/dev/null 2>&1; then
+                aws ssm delete-parameter --name "${SSM_PREFIX}/${key}" --region "$AWS_REGION" >/dev/null
+                echo "  deleted: ${key} (cleared in GitHub — host default/fallback now applies)"
+                PARAMS_DELETED+=1
+              else
+                echo "  unchanged: ${key} (empty, no existing parameter)"
+                PARAMS_UNCHANGED+=1
+              fi
               return
             fi
             # An ARRAY, not a word-split string: `--key-id $KMS_ALIAS` inside an
@@ -633,6 +670,7 @@ jobs:
               --region "$AWS_REGION" \
               --no-cli-pager >/dev/null
             echo "  pushed: ${key} (${type}${suffix})"
+            PARAMS_PUSHED+=1
           }
 
           echo "Pushing config to SSM under ${SSM_PREFIX}/..."
@@ -640,25 +678,87 @@ jobs:
           # SecureString params (secrets). DATABASE_PASSWORD is deliberately
           # absent (D-5): it is generated on the box by bootstrap-ec2.sh and
           # written to SSM from there. So is the app-level ENV (D-6).
-          put_param "SECRET_KEY"        "$SECRET_KEY"        "SecureString"
-          put_param "LANGSMITH_API_KEY" "$LANGSMITH_API_KEY" "SecureString"
+          # SECRET_KEY is the app's session/JWT signing secret — required,
+          # never delete-on-empty (an accidental blank GitHub secret must fail
+          # loudly, not silently wipe the running app's signing key).
+          put_param "SECRET_KEY"        "$SECRET_KEY"        "SecureString" "required"
+          put_param "LANGSMITH_API_KEY" "$LANGSMITH_API_KEY" "SecureString" "delete-if-empty"
 
-          # String params (plain config)
-          put_param "CORS_ORIGINS"                 "$CORS_ORIGINS"
-          put_param "PUBLIC_BASE_URL"              "$PUBLIC_BASE_URL"
-          put_param "ACCESS_TOKEN_EXPIRE_HOURS"    "$ACCESS_TOKEN_EXPIRE_HOURS"
-          put_param "HANDOFF_MAX_TRANSCRIPT_BYTES" "$HANDOFF_MAX_TRANSCRIPT_BYTES"
-          put_param "LANGSMITH_TRACING"            "$LANGSMITH_TRACING"
-          put_param "LANGSMITH_PROJECT"            "$LANGSMITH_PROJECT"
+          # String params (plain config) — all optional/defaulted on the host
+          # loader, so an empty GitHub value deletes the SSM override and lets
+          # the host's own documented default/fallback apply.
+          put_param "CORS_ORIGINS"                 "$CORS_ORIGINS"                 "String" "delete-if-empty"
+          put_param "PUBLIC_BASE_URL"              "$PUBLIC_BASE_URL"              "String" "delete-if-empty"
+          put_param "ACCESS_TOKEN_EXPIRE_HOURS"    "$ACCESS_TOKEN_EXPIRE_HOURS"    "String" "delete-if-empty"
+          put_param "HANDOFF_MAX_TRANSCRIPT_BYTES" "$HANDOFF_MAX_TRANSCRIPT_BYTES" "String" "delete-if-empty"
+          put_param "LANGSMITH_TRACING"            "$LANGSMITH_TRACING"            "String" "delete-if-empty"
+          put_param "LANGSMITH_PROJECT"             "$LANGSMITH_PROJECT"            "String" "delete-if-empty"
 
           # Bedrock LLM config (under the llm/ sub-prefix the host loader maps
           # to AWS_REGION / BEDROCK_* — any other key name is silently dropped).
-          put_param "llm/region"               "$AWS_REGION"
-          put_param "llm/model_id"             "$BEDROCK_MODEL_ID"
-          put_param "llm/inference_profile_id" "$BEDROCK_INFERENCE_PROFILE_ID"
-          put_param "llm/coding_model_id"      "$BEDROCK_CODING_MODEL_ID"
+          # llm/region always has a value (the resolved AWS_REGION), so it is
+          # never empty; the rest follow the same delete-if-empty semantics.
+          put_param "llm/region"               "$AWS_REGION"                   "String" "required"
+          put_param "llm/model_id"             "$BEDROCK_MODEL_ID"             "String" "delete-if-empty"
+          put_param "llm/inference_profile_id" "$BEDROCK_INFERENCE_PROFILE_ID" "String" "delete-if-empty"
+          put_param "llm/coding_model_id"      "$BEDROCK_CODING_MODEL_ID"      "String" "delete-if-empty"
 
-          echo "Config push complete."
+          echo "Config push complete: ${PARAMS_PUSHED} pushed, ${PARAMS_DELETED} deleted, ${PARAMS_UNCHANGED} unchanged."
+
+      # ── Bedrock inference profile / region consistency check ──────────
+      # FIX-BEDROCK-01: the deployed AWS_REGION and the configured Bedrock
+      # cross-region inference profile must target the same geography.
+      # Cross-region inference profiles are prefixed by geography (`eu.`,
+      # `us.`, `apac.`, ...) and Bedrock only accepts invoking a profile from
+      # within its own supported source region set — invoking a `us.*`
+      # profile from an `eu-central-1` deployment fails at the FIRST real
+      # request, not at deploy time, because the existing health gate only
+      # checks HTTP availability and never calls Bedrock. That failure mode
+      # is exactly what this catches before it reaches production: a healthy
+      # container serving 200s on /health while every actual AI request 400s.
+      # This is deliberately a prefix/consistency check, not a full
+      # GetInferenceProfile API call — the deploy role does not carry (and
+      # should not need) bedrock:GetInferenceProfile just to lint a config
+      # value; a functional smoke test against the live endpoint is a
+      # separate, larger change (invoking the model costs money and adds
+      # latency to every deploy) and is intentionally not implemented here.
+      - name: Validate Bedrock inference profile matches deploy region
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$BEDROCK_INFERENCE_PROFILE_ID" ]]; then
+            echo "BEDROCK_INFERENCE_PROFILE_ID is not set — nothing to validate (host will use its own default)."
+            exit 0
+          fi
+
+          # Map the deploy region to its Bedrock cross-region-profile geography
+          # prefix. Extend this map if/when the project deploys into another
+          # geography (ap-*, ca-*, etc.) — an unmapped region is treated as
+          # "unknown geography" and only a warning is emitted, never a hard
+          # failure, since a project-specific mapping cannot be exhaustive.
+          case "$AWS_REGION" in
+            eu-*) EXPECTED_PREFIX="eu." ;;
+            us-*) EXPECTED_PREFIX="us." ;;
+            ap-*) EXPECTED_PREFIX="apac." ;;
+            *)    EXPECTED_PREFIX="" ;;
+          esac
+
+          if [[ -z "$EXPECTED_PREFIX" ]]; then
+            echo "::warning::No known Bedrock geography prefix mapping for region '${AWS_REGION}' — skipping profile/region consistency check."
+            exit 0
+          fi
+
+          if [[ "$BEDROCK_INFERENCE_PROFILE_ID" != "$EXPECTED_PREFIX"* ]]; then
+            echo "::error::BEDROCK_INFERENCE_PROFILE_ID ('${BEDROCK_INFERENCE_PROFILE_ID}') does not match the deploy region's Bedrock geography."
+            echo "::error::Deploy region '${AWS_REGION}' expects a profile prefixed '${EXPECTED_PREFIX}' (e.g. '${EXPECTED_PREFIX}anthropic.claude-...'). Update the '${{ vars.AWS_REGION && 'AWS_REGION' || 'AWS_REGION_DEFAULT' }}' GitHub environment variable BEDROCK_INFERENCE_PROFILE_ID to the matching '${EXPECTED_PREFIX}*' profile."
+            echo "::error::A mismatched profile passes the HTTP health gate (it never calls Bedrock) and only fails on the first real user request."
+            exit 1
+          fi
+
+          echo "Bedrock inference profile '${BEDROCK_INFERENCE_PROFILE_ID}' matches deploy region '${AWS_REGION}' geography ('${EXPECTED_PREFIX}*')."
 
       # ── SSM RunCommand: inline payload + redeploy ─────────────────────
       # The payload is a prelude of literal shell assignments followed by
@@ -721,13 +821,36 @@ jobs:
 
           echo "SSM payload size: $(wc -c < remote.sh) bytes"
 
+          # FIX-SSM-02: fail fast on an oversized payload rather than
+          # discovering it as an opaque `send-command` API rejection mid-
+          # deploy. SendCommand's own document+parameters ceiling is 64 KiB
+          # (https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_CreateDocument.html);
+          # the JSON wrapper (quoting/escaping via jq -Rs) adds overhead on
+          # top of the raw script size, so guard well under that ceiling to
+          # leave headroom for the JSON framing itself.
+          PAYLOAD_BYTES="$(wc -c < remote.sh)"
+          PAYLOAD_LIMIT_BYTES=57344  # 56 KiB — leaves ~8 KiB headroom under the 64 KiB SSM ceiling for JSON framing.
+          if (( PAYLOAD_BYTES > PAYLOAD_LIMIT_BYTES )); then
+            echo "::error::SSM payload is ${PAYLOAD_BYTES} bytes, over the ${PAYLOAD_LIMIT_BYTES}-byte guard (SSM's own document+parameters ceiling is 64 KiB)."
+            echo "::error::Move newly-added bulky content (compose files, scripts) to a private, checksum-verified S3 object referenced by digest instead of inlining it here."
+            exit 1
+          fi
+
           # jq -Rs reads the whole script as ONE raw string and emits valid
           # JSON — no manual escaping, and newlines/quotes/backslashes in the
           # base64 prelude or the script body are handled correctly.
-          # executionTimeout is the ON-BOX limit (AWS-RunShellScript's own
-          # parameter); send-command's --timeout-seconds below is only the
-          # delivery deadline for reaching the instance.
-          jq -Rs '{commands: [.], executionTimeout: ["3600"]}' remote.sh > ssm-params.json
+          #
+          # FIX-SSM-03: executionTimeout (the ON-BOX limit) must stay BELOW
+          # both the polling window and this job's own timeout-minutes, or a
+          # box can keep mutating state (docker compose, nginx, the CW agent)
+          # for up to 20 minutes after CI has already given up and reported
+          # failure — an orphaned command that a LATER deploy's concurrency
+          # group would then race against. Poll window is 35 minutes (below);
+          # executionTimeout is set to 30 minutes, comfortably inside it, so a
+          # box that is going to finish gets a chance to, and a box that is
+          # genuinely stuck is cancelled by the poll step, not left running
+          # past when this job stops watching it.
+          jq -Rs '{commands: [.], executionTimeout: ["1800"]}' remote.sh > ssm-params.json
 
           COMMAND_ID="$(aws ssm send-command \
             --document-name "AWS-RunShellScript" \
@@ -741,11 +864,23 @@ jobs:
           echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
           echo "SSM command sent: $COMMAND_ID (instance $INSTANCE_ID)"
 
-      # Polls to completion and streams the box's output either way. The window
-      # (40 min) has to cover the worst case the on-box script allows for: up to
-      # 15 minutes waiting on first-boot provisioning of a brand-new instance,
-      # plus the host-config reconcile, the image pull and a 5-minute health
-      # gate. A steady-state deploy finishes in 2-4 minutes.
+      # Polls to completion and streams the box's output either way. The
+      # window (35 min) covers the worst case the on-box script allows for
+      # (first-boot provisioning, host-config reconcile, image pull, health
+      # gate) while staying comfortably below both this job's timeout-minutes
+      # (50) and the executionTimeout set on the command above (30 min), so
+      # there is no gap where the box could still be running after CI stops
+      # watching it. A steady-state deploy finishes in 2-4 minutes.
+      #
+      # FIX-SSM-04: every terminal branch now fetches BOTH stdout and stderr
+      # (previously Success only fetched stdout, so a WARNING-level message —
+      # e.g. a degraded CloudWatch agent on dev, or any other non-fatal
+      # stderr output — was invisible unless someone went looking for it on
+      # the box directly). A transient AWS API error while polling
+      # (`get-command-invocation` failing) is now distinguished from a
+      # genuine `InvocationDoesNotExist` (the normal "not yet dispatched"
+      # state right after send-command): repeated OTHER errors abort instead
+      # of silently retrying as "Pending" for up to 40 minutes.
       - name: Poll SSM command status
         env:
           AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
@@ -755,43 +890,75 @@ jobs:
           set -euo pipefail
           echo "Polling command $COMMAND_ID on instance $INSTANCE_ID..."
 
-          for i in $(seq 1 160); do
-            sleep 15
-            STATUS="$(aws ssm get-command-invocation \
+          print_box_output() {
+            echo "--- box stdout ---"
+            aws ssm get-command-invocation \
               --command-id "$COMMAND_ID" \
               --instance-id "$INSTANCE_ID" \
               --region "$AWS_REGION" \
-              --query 'Status' --output text 2>/dev/null || echo "Pending")"
+              --query 'StandardOutputContent' --output text || true
+            echo "--- box stderr ---"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" \
+              --query 'StandardErrorContent' --output text || true
+          }
+
+          declare -i API_ERROR_STREAK=0
+          MAX_ATTEMPTS=140  # 140 * 15s = 2100s = 35 minutes.
+
+          for i in $(seq 1 "$MAX_ATTEMPTS"); do
+            sleep 15
+            INVOCATION_JSON="$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" 2>&1)"
+            RC=$?
+
+            if [[ "$RC" -ne 0 ]]; then
+              if [[ "$INVOCATION_JSON" == *InvocationDoesNotExist* ]]; then
+                # Normal immediately after send-command: SSM hasn't recorded
+                # the invocation yet. Not an error — keep polling.
+                STATUS="Pending"
+                API_ERROR_STREAK=0
+              else
+                API_ERROR_STREAK+=1
+                echo "  [$i/${MAX_ATTEMPTS}] get-command-invocation API error (streak=${API_ERROR_STREAK}): ${INVOCATION_JSON}" >&2
+                if (( API_ERROR_STREAK >= 5 )); then
+                  echo "::error::5 consecutive get-command-invocation API errors — aborting rather than silently waiting out the full poll window."
+                  exit 1
+                fi
+                continue
+              fi
+            else
+              API_ERROR_STREAK=0
+              STATUS="$(echo "$INVOCATION_JSON" | jq -r '.Status // "Pending"')"
+            fi
 
             case "$STATUS" in
               Success)
-                echo "--- box output ---"
-                aws ssm get-command-invocation \
-                  --command-id "$COMMAND_ID" \
-                  --instance-id "$INSTANCE_ID" \
-                  --region "$AWS_REGION" \
-                  --query 'StandardOutputContent' --output text || true
+                print_box_output
                 echo "Deploy succeeded."
                 exit 0
                 ;;
               Failed|TimedOut|Cancelled)
                 echo "::error::Deploy FAILED with status: $STATUS"
-                echo "--- box stdout / stderr ---"
-                aws ssm get-command-invocation \
-                  --command-id "$COMMAND_ID" \
-                  --instance-id "$INSTANCE_ID" \
-                  --region "$AWS_REGION" \
-                  --query '[StandardOutputContent, StandardErrorContent]' \
-                  --output text || true
+                print_box_output
                 exit 1
                 ;;
               *)
-                echo "  [$i/160] status=$STATUS"
+                echo "  [$i/${MAX_ATTEMPTS}] status=$STATUS"
                 ;;
             esac
           done
 
-          echo "::error::Timed out after 40 minutes waiting for SSM command $COMMAND_ID."
+          echo "::error::Timed out after 35 minutes waiting for SSM command $COMMAND_ID — cancelling the orphaned command."
+          aws ssm cancel-command \
+            --command-id "$COMMAND_ID" \
+            --instance-ids "$INSTANCE_ID" \
+            --region "$AWS_REGION" || echo "::warning::cancel-command itself failed — the box may continue running the deploy script unsupervised; check it manually." >&2
+          print_box_output
           exit 1
 
       # ── Record the deployed digests as the environment's recovery point ──

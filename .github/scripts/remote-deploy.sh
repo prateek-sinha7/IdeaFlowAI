@@ -251,8 +251,24 @@ if [ "$RECONCILE_STATUS" -eq 1 ]; then
     echo "[deploy] FATAL: reconcile-host-config.sh failed on nginx (exit 1) — aborting deploy" >&2
     exit 1
 elif [ "$RECONCILE_STATUS" -ne 0 ]; then
+    # FIX-CWA-02: a degraded CloudWatch agent used to ALWAYS be report-and-
+    # continue, regardless of environment — so a deploy could report full
+    # success ("Deploy succeeded.") on stage/prod while observability was
+    # silently blind. Monitoring gaps on stage/prod are a release-blocking
+    # condition; on dev they remain a warning so day-to-day iteration isn't
+    # gated on the agent's health. Set VELOCITYAI_ALLOW_DEGRADED_MONITORING=1
+    # in bootstrap.env as an explicit, auditable break-glass override for a
+    # stage/prod deploy that must proceed despite the degradation.
+    ALLOW_DEGRADED="${VELOCITYAI_ALLOW_DEGRADED_MONITORING:-0}"
+    if { [ "$DEPLOY_ENV" = "stage" ] || [ "$DEPLOY_ENV" = "prod" ]; } && [ "$ALLOW_DEGRADED" != "1" ]; then
+        echo "[deploy] FATAL: reconcile-host-config.sh exited ${RECONCILE_STATUS} (CloudWatch agent DEGRADED) on '${DEPLOY_ENV}'." >&2
+        echo "[deploy]        Observability is a release gate on stage/prod — refusing to report success while monitoring is blind." >&2
+        echo "[deploy]        See /var/log/velocityai-reconcile.log on the host for the specific failure." >&2
+        echo "[deploy]        Break-glass: set VELOCITYAI_ALLOW_DEGRADED_MONITORING=1 in /etc/velocityai/bootstrap.env to override." >&2
+        exit 1
+    fi
     echo "[deploy] WARNING: reconcile-host-config.sh exited ${RECONCILE_STATUS} (CloudWatch agent DEGRADED)" >&2
-    echo "[deploy]          see /var/log/velocityai-reconcile.log — continuing with the app deploy." >&2
+    echo "[deploy]          see /var/log/velocityai-reconcile.log — continuing with the app deploy (env=${DEPLOY_ENV})." >&2
 fi
 
 # ── 6. Pull this deploy's config from SSM into app.env ──────────────────────
@@ -472,31 +488,20 @@ if [ "$HEALTHY" -eq 1 ]; then
     else
         echo "[deploy] healthy: backend + frontend (ingress tier skipped)"
     fi
-    
-    # ── Post-deployment user verification (H-14) ────────────────────────
-    # Ensure admin and enterprise users exist in the database. This runs after
-    # health checks so the backend is running with migrations applied. Failures
-    # here do NOT abort the deploy (observability, not the request path) but ARE
-    # reported clearly for ops attention.
-    echo "[deploy] running post-deployment user verification..."
-    if [ -f "${APP_DIR}/infra/scripts/post-deploy-verify-users.py" ]; then
-        set +e
-        cd "$APP_DIR"
-        # Export app.env so the script can source it if DATABASE_URL is not yet in the shell env
-        export $(grep -v '^#' "${APP_ENV}" | xargs)
-        python3 "${APP_DIR}/infra/scripts/post-deploy-verify-users.py"
-        USER_VERIFY_RC=$?
-        set -e
-        if [ "$USER_VERIFY_RC" -eq 0 ]; then
-            echo "[deploy] post-deployment user verification completed successfully"
-        else
-            echo "[deploy] WARNING: post-deployment user verification exited ${USER_VERIFY_RC}" >&2
-            echo "[deploy]          check logs above — some required users may not exist in the database" >&2
-        fi
-    else
-        echo "[deploy] WARNING: post-deploy-verify-users.py not found at expected path" >&2
-    fi
-    
+
+    # NOTE: a post-deployment user-verification/seeding step previously ran
+    # here (creating a default admin/enterprise account if missing). It was
+    # removed: it logged generated temporary passwords in plaintext to SSM
+    # command output (readable via ssm:GetCommandInvocation by anyone with
+    # that read permission), it required backend source + Python deps
+    # installed directly on the host despite the backend running in a
+    # container, and its failures were silently downgraded to warnings. If
+    # bootstrap user provisioning is needed again, it must (a) run inside the
+    # backend container using its own installed code, (b) source credentials
+    # from an approved secret manager rather than generating and printing
+    # them, and (c) be a deploy-blocking step if those users are functionally
+    # required — not an "observability" afterthought.
+
     echo "[deploy] complete $(date -u --iso-8601=seconds) tag=${IMAGE_TAG}"
     echo "[deploy]   backend  ${BACKEND_IMAGE_REF}"
     echo "[deploy]   frontend ${FRONTEND_IMAGE_REF}"

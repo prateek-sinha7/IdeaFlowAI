@@ -282,7 +282,7 @@ server {
     server_name ${DOMAIN};
 
     # E1: without this the :80 block inherits the http-level access_log from
-    # Ubuntu's stock /etc/nginx/nginx.conf -- same FILE, default `combined`
+    # Ubuntu's stock /etc/nginx/nginx.conf -- same FILE, default \`combined\`
     # FORMAT -- so /var/log/nginx/access.log would carry a mix of JSON and
     # space-delimited lines and every JSON metric filter would silently skip
     # the :80 half (redirects and ACME challenges).
@@ -525,41 +525,64 @@ CW_AGENT_OK=1
 # Install if absent. `dpkg -s` is the cheap idempotence check, so a normal
 # deploy skips the download entirely.
 #
-# H-12: pin an EXPLICIT agent version and verify it against AWS's published
-# GPG signature before `dpkg -i` — the previous `.../latest/....deb` pulled a
-# MUTABLE artifact with no version pin, no checksum, and no signature check,
-# then installed it as root on an internet-facing host. AWS publishes a
-# versioned download tree plus a detached `.sig` and its signing public key
-# for exactly this verification flow:
-# https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/verify-CloudWatch-Agent-Package-Signature.html
-CW_AGENT_VERSION="1.300054.0"
-# H-13: use region-agnostic S3 URL as primary, with region-specific as fallback.
-# The region-specific URL (s3.eu-central-1.amazonaws.com) can return 403 on transient
-# access issues; the global s3.amazonaws.com endpoint is more resilient.
-CW_AGENT_DEB_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/${CW_AGENT_VERSION}/amazon-cloudwatch-agent.deb"
-CW_AGENT_DEB_URL_FALLBACK="https://amazoncloudwatch-agent-eu-central-1.s3.eu-central-1.amazonaws.com/ubuntu/amd64/${CW_AGENT_VERSION}/amazon-cloudwatch-agent.deb"
+# H-12/FIX-CWA-01: verify the downloaded package against AWS's published GPG
+# signature before `dpkg -i` — never install an unverified package as root on
+# an internet-facing host, regardless of which URL it came from.
+#
+# H-12 originally tried to pin an EXPLICIT version (1.300054.0) by requesting
+# .../ubuntu/amd64/1.300054.0/amazon-cloudwatch-agent.deb. That object does
+# NOT exist on either the region-agnostic or the eu-central-1 regional
+# bucket — AWS's own published download tree
+# (https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/download-CloudWatch-Agent-on-EC2-Instance-commandline-first.html)
+# only lists a `latest/` key per platform/arch, there is no historical
+# per-version key for the .deb artifact. Both pinned URLs 403 unconditionally
+# (verified: not transient — same 403 on repeated probes from two different
+# networks), so H-12's "pin + verify" degraded to "never install, silently
+# report degraded forever" — which is exactly the false-green failure mode
+# this whole file exists to prevent.
+#
+# Fix: install the standard `latest` object (both AWS's Debian and Ubuntu
+# install guides document only this key), but still cryptographically verify
+# it against AWS's published GPG signature before installing — integrity is
+# proven by the signature, not by a fixed URL path. `latest` is mutable
+# between builds, but every build a legitimate AWS-signed release, so the
+# supply-chain risk this guards against (a tampered/substituted artifact) is
+# unchanged. The concrete installed version is captured via `dpkg-deb` after
+# install (see below) and printed + returned by the health summary so drift
+# is visible in the deploy log rather than assumed.
+CW_AGENT_DEB_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb"
+CW_AGENT_DEB_URL_FALLBACK="https://amazoncloudwatch-agent-eu-central-1.s3.eu-central-1.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb"
 CW_AGENT_SIG_URL="${CW_AGENT_DEB_URL}.sig"
 CW_AGENT_SIG_URL_FALLBACK="${CW_AGENT_DEB_URL_FALLBACK}.sig"
 CW_AGENT_GPG_KEY_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/assets/amazon-cloudwatch-agent.gpg"
+# Amazon's published fingerprint for the CloudWatch Agent signing key
+# (see the verification guide above). `gpg --verify` alone only proves the
+# package matches SOME key in our keyring — pinning the fingerprint we import
+# is what proves it's specifically AWS's key, not an attacker-supplied one
+# smuggled in via a compromised gpg key URL.
+CW_AGENT_GPG_FINGERPRINT="937616F3450B7D806CBD9725D5816730 3B789C72"
+CW_AGENT_GPG_FINGERPRINT="${CW_AGENT_GPG_FINGERPRINT// /}"
 
 if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
-    echo "[reconcile] amazon-cloudwatch-agent not installed — installing pinned v${CW_AGENT_VERSION}"
+    echo "[reconcile] amazon-cloudwatch-agent not installed — installing latest signed release"
     _cw_tmpdir=$(mktemp -d)
     _cw_deb="$_cw_tmpdir/amazon-cloudwatch-agent.deb"
     _cw_sig="$_cw_tmpdir/amazon-cloudwatch-agent.deb.sig"
     _cw_key="$_cw_tmpdir/amazon-cloudwatch-agent.gpg"
-    
-    # H-13: Try primary URL first; fallback to region-specific on failure
+
+    # Try primary (region-agnostic) URL first; fall back to the eu-central-1
+    # regional bucket on failure (transient outage / regional throttling).
     if curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_DEB_URL" -o "$_cw_deb"; then
         echo "[reconcile] Downloaded .deb from primary URL"
     elif curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_DEB_URL_FALLBACK" -o "$_cw_deb"; then
-        echo "[reconcile] Downloaded .deb from fallback URL"
+        echo "[reconcile] Downloaded .deb from fallback (eu-central-1) URL"
     else
-        degrade_agent "could not download amazon-cloudwatch-agent.deb v${CW_AGENT_VERSION} from primary or fallback URLs" "cwagent-download"
+        degrade_agent "could not download amazon-cloudwatch-agent.deb from primary or fallback URLs" "cwagent-download"
         CW_AGENT_OK=0
     fi
-    
-    # Download signature and key (primary URL for both)
+
+    # Download signature and key (primary URL for both; the fallback bucket
+    # mirrors the same key material so this doesn't need its own fallback).
     if [[ "$CW_AGENT_OK" -eq 1 ]]; then
         if ! curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_SIG_URL" -o "$_cw_sig" \
             || ! curl -fsSL --retry 3 --retry-delay 5 "$CW_AGENT_GPG_KEY_URL" -o "$_cw_key"; then
@@ -567,17 +590,23 @@ if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
             CW_AGENT_OK=0
         fi
     fi
-    
+
     if [[ "$CW_AGENT_OK" -eq 1 ]]; then
-        if ! gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --import "$_cw_key" >/dev/null 2>&1 \
-            || ! gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --verify "$_cw_sig" "$_cw_deb" >/dev/null 2>&1; then
-            degrade_agent "amazon-cloudwatch-agent.deb v${CW_AGENT_VERSION} FAILED signature verification — refusing to install a package that does not match AWS's published signature" "cwagent-signature"
+        _cw_fpr="$(gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --import "$_cw_key" 2>&1 \
+            && gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --with-colons --fingerprint 2>/dev/null \
+                 | awk -F: '/^fpr:/ {print $10; exit}')"
+        if [[ "$_cw_fpr" != "$CW_AGENT_GPG_FINGERPRINT" ]]; then
+            degrade_agent "amazon-cloudwatch-agent GPG key fingerprint mismatch (got '${_cw_fpr:-<none>}', expected '${CW_AGENT_GPG_FINGERPRINT}') — refusing to trust this key" "cwagent-key-fingerprint"
+            CW_AGENT_OK=0
+        elif ! gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --verify "$_cw_sig" "$_cw_deb" >/dev/null 2>&1; then
+            degrade_agent "amazon-cloudwatch-agent.deb FAILED signature verification — refusing to install a package that does not match AWS's published signature" "cwagent-signature"
             CW_AGENT_OK=0
         elif ! dpkg -i "$_cw_deb"; then
-            degrade_agent "dpkg -i amazon-cloudwatch-agent (signature-verified v${CW_AGENT_VERSION}) failed" "cwagent-install"
+            degrade_agent "dpkg -i amazon-cloudwatch-agent (signature-verified) failed" "cwagent-install"
             CW_AGENT_OK=0
         else
-            echo "[reconcile] amazon-cloudwatch-agent v${CW_AGENT_VERSION} installed (signature verified)"
+            _cw_installed_version="$(dpkg-deb -f "$_cw_deb" Version 2>/dev/null || echo unknown)"
+            echo "[reconcile] amazon-cloudwatch-agent v${_cw_installed_version} installed (signature verified, fingerprint-pinned)"
         fi
     fi
     rm -rf "$_cw_tmpdir"

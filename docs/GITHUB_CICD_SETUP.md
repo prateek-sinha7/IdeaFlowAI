@@ -1186,14 +1186,14 @@ Environment (§3.2). `deploy.yml` already consumes both:
 ```yaml
 # build job
 - name: Configure AWS credentials (OIDC — build role)
-  uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+  uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
   with:
     role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
     aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
 
 # deploy job
 - name: Configure AWS credentials (OIDC — per-env deploy role)
-  uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+  uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
   with:
     role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
     aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
