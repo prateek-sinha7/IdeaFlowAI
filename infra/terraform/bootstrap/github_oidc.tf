@@ -155,7 +155,7 @@ resource "aws_iam_role" "github_build" {
   count = var.create_github_oidc ? 1 : 0
 
   name                 = "${var.github_cicd_role_name}-build"
-  description          = "GitHub Actions OIDC build role for VelocityAI — ECR push/pull only, no SSM/KMS/EC2 reach. See docs/GITHUB_CICD_SETUP.md."
+  description          = "GitHub Actions OIDC build role for VelocityAI - ECR push/pull only, no SSM/KMS/EC2 reach. See docs/GITHUB_CICD_SETUP.md."
   assume_role_policy   = data.aws_iam_policy_document.github_build_assume[0].json
   permissions_boundary = var.deploy_permissions_boundary_arn != "" ? var.deploy_permissions_boundary_arn : null
   max_session_duration = 3600
@@ -254,7 +254,7 @@ resource "aws_iam_role" "github_deploy" {
   for_each = local.github_env_set
 
   name                 = "${var.github_cicd_role_name}-${each.key}"
-  description          = "GitHub Actions OIDC deploy role for VelocityAI ${each.key} — scoped to /velocityai/${each.key}/* and Environment=${each.key} instances only. See docs/GITHUB_CICD_SETUP.md."
+  description          = "GitHub Actions OIDC deploy role for VelocityAI ${each.key} - scoped to /velocityai/${each.key}/* and Environment=${each.key} instances only. See docs/GITHUB_CICD_SETUP.md."
   assume_role_policy   = data.aws_iam_policy_document.github_deploy_assume[each.key].json
   permissions_boundary = var.deploy_permissions_boundary_arn != "" ? var.deploy_permissions_boundary_arn : null
   max_session_duration = 3600

@@ -741,6 +741,13 @@ server {
 EOF2
     ln -sfn /etc/nginx/sites-available/bootstrap-http /etc/nginx/sites-enabled/bootstrap-http
     rm -f /etc/nginx/sites-enabled/velocityai
+    # Ubuntu's stock nginx package ships sites-enabled/default with its own
+    # `listen 80 default_server`, which conflicts with bootstrap-http's own
+    # default_server and makes `nginx -t` / reload fail with "a duplicate
+    # default server for 0.0.0.0:80" — aborting firstboot before the ACME
+    # cert can ever be issued. Must be removed here, not just by the later
+    # reconcile step, since this reload happens first.
+    rm -f /etc/nginx/sites-enabled/default
     systemctl reload nginx
     certbot certonly --webroot -w /var/www/letsencrypt \
         --non-interactive --agree-tos --email "$ACME_EMAIL" -d "$DOMAIN"
