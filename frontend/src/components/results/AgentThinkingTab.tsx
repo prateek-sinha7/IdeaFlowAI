@@ -38,6 +38,11 @@ interface AgentThinkingTabProps {
   onSkipClarify?: () => void;
   /** Cancel the active pipeline from the inline Steps clarify (Phase 42-02 §A2 re-home). */
   onCancelWorkflow?: () => void;
+  /** KAN-101 — spec revision cycle counter. When > 0, a violet "Spec Revision
+   *  Cycle N" banner renders above the agent spine to indicate that update_specs
+   *  fired and the specify→plan→analyze sub-pipeline is re-running. Generic —
+   *  keyed on the counter value, never a workflow/agent-name literal (SC-001). */
+  specRevisionCount?: number;
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
@@ -73,6 +78,7 @@ export function AgentThinkingTab({
   clarifications, clarificationsLoading,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
+  specRevisionCount = 0,
 }: AgentThinkingTabProps) {
   // ── The three-level Steps navigation (mirrors the mock's stepView/taskView) ──
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -195,6 +201,7 @@ export function AgentThinkingTab({
             onSubmitClarify={onSubmitClarify}
             onSkipClarify={onSkipClarify}
             onCancelWorkflow={onCancelWorkflow}
+            specRevisionCount={specRevisionCount}
           />
         )}
       </div>

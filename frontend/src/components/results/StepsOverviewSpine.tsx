@@ -12,7 +12,7 @@
 // reskinned off the Phase-32 tokens (no gray-* palette).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Check, ChevronRight, XCircle, ListChecks, RotateCw, ShieldAlert } from "lucide-react";
+import { Check, ChevronRight, XCircle, ListChecks, RotateCw, ShieldAlert, RefreshCw } from "lucide-react";
 import type { AgentRunState, ClarifyRound, PipelineRunState } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
 import { InlineGateActions } from "@/components/chat/InlineGateActions";
@@ -49,6 +49,11 @@ export interface StepsOverviewSpineProps {
   onSkipClarify?: () => void;
   /** Cancel the active pipeline from the inline Steps clarify (Phase 42-02 §A2 re-home). */
   onCancelWorkflow?: () => void;
+  /** KAN-101 — spec revision cycle counter. When > 0, a violet "Spec Revision
+   *  Cycle N" banner renders above the agent rows to give the user context that
+   *  update_specs fired and specify→plan→analyze is re-running. Generic, keyed on
+   *  the counter value (SC-001 — never a workflow/agent-name literal). */
+  specRevisionCount?: number;
 }
 
 // The "Awaiting you" card chrome from the mock (brand-tinted, focus-ring shadow).
@@ -158,6 +163,7 @@ export function StepsOverviewSpine({
   agents, pipelineState, clarifications, clarificationsLoading, onOpenAgent, topSlot, gateEvents,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
+  specRevisionCount = 0,
 }: StepsOverviewSpineProps) {
   const total = agents.length;
   const completedCount = agents.filter(a => a.status === "done").length;
@@ -263,6 +269,22 @@ export function StepsOverviewSpine({
             <InlineClarifyActions questions={clarifyQuestions} onSubmitAnswers={onSubmitClarify} onCancelWorkflow={onCancelWorkflow} />
           </div>
         </AwaitingCard>
+      )}
+
+      {/* KAN-101 — spec revision cycle banner. Shown when update_specs has fired
+          (specRevisionCount > 0) so the user knows specify→plan→analyze is re-running.
+          Violet to match the old UI's PrototypePipelineView revision banner. Generic —
+          keyed on the counter value, never a workflow/agent-name literal (SC-001). */}
+      {specRevisionCount > 0 && (
+        <div className="flex items-center gap-2.5 mb-3 px-3.5 py-3 rounded-[12px] bg-[#F4F2FB] border border-[#DED9F7]">
+          <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-brand grid place-items-center">
+            <RefreshCw className="h-3.5 w-3.5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="m-0 text-[12px] font-semibold text-brand font-[Manrope]">Spec Revision Cycle {specRevisionCount}</p>
+            <p className="mt-0.5 m-0 text-[11px] text-[#8A86B0]">Spec &amp; plan are being revised based on the analysis report</p>
+          </div>
+        </div>
       )}
 
       {/* compact navigable agent rows + gate strips */}

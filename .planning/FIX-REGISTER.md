@@ -10,6 +10,9 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-165 | 2026-08-03 | Analyze gate approve requires 2 clicks — first click disables button but does nothing visible | `onApproveReview` in page.tsx never called `setReviewGateData(null)` after the POST, so `InlineGateActions` stayed mounted with unchanged props, `useEffect([output,gateKey])` never fired, `submitted` stayed `true`, button remained disabled. All other gate handlers (reject/redo/update_specs) had the clear — approve was missing it | `frontend/src/app/dashboard/page.tsx` | Phase 8 (GATE-01/02), Phase 42 (inline gate) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-164 | 2026-08-03 | KAN-101: specRevisionCount over-counting — shows "Cycle 6" after 1 update_specs click | Detection incremented counter for EVERY agent_start of a "done" agent; update_specs re-runs 3 agents so 1 click = +3 (or more). Fix: arm/consume pattern — counter only increments once per revision cycle (when first agent re-starts), not once per agent | `frontend/src/app/dashboard/page.tsx` | Phase 27 (FIX-048/FIX-163 KAN-101) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-163 | 2026-08-03 | KAN-101: Restore spec revision cycle UX — violet "Spec Revision Cycle N" banner in Steps, elevate "Update the Specs" button out of Request changes, fix approveLabel on analyze gate | `specRevisionCount` deleted in Phase 42 (ISS-039); no detection/state for re-started agents; "Update the Specs" collapsed under "Request changes" (2-click discovery); `approveLabel` read "Approve the summary" | `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/preview/PreviewPanel.tsx`, `frontend/src/components/results/AgentThinkingTab.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx`, `frontend/src/components/chat/InlineGateActions.tsx` | Phase 27 (FIX-048 KAN-101), Phase 42 (ISS-039) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-157 | 2026-07-31 | Running dropdown and notification panel: click doesn't open correct run page; progress shows 0/N; onViewResults status filter misses planning/generating | Three bugs: (1) `handleRunClick` in AppHeader called `onSwitchToLiveRun` but not `onGoToPipeline` → execution view never switched; (2) `onViewResults` targetRunId lookup used `r.status === "running"` and missed runs in planning/generating/clarifying states; (3) `runningPipelines` always mapped `agentsCompleted: 0` — fixed by passing `activePipelineRunId` and using live `pipelineAgentsCompleted`/`Total` for the matching run | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 35 (SHELL-01 AppHeader), FIX-156 follow-up | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-156 | 2026-07-31 | Running dropdown not showing user_stories (or any run) — `runningPipelines` undefined causing crash; `recentRuns` never passed to AppHeader | Two bugs: (1) `runningPipelines` variable used throughout AppHeader JSX was NEVER DEFINED — causing `ReferenceError: runningPipelines is not defined` and the entire header crashing; (2) `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` were never passed to AppHeader from DashboardLayout — so even after defining the variable, it would get empty server data. Fix: define `runningPipelines` derived from `recentRuns` (same source as Jump Back In); pass the 3 missing props to AppHeader; add status label text in the dropdown rows; extend `WorkflowStatus` type to include live statuses. | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/ui/NotificationPanel.tsx`, `frontend/src/types/index.ts` | Phase 35 (SHELL-01 AppHeader), Phase 36 (SHELL-02 Jump Back In) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-155 | 2026-07-31 | Header shows duplicate running workflow entries (7 instead of 3) — notifications for prototype/ppt not created when user_stories runs concurrently | With 3 concurrent runs, `currentPipelineNotifId` is a single ref. `handleRunPipeline` (user_stories) sets it first; `pendingOdProtoParams`/`pendingOdPptParams` handlers see it non-null and try to reuse it (calling `updateAgentsTotal` on the user_stories notification instead of creating a new one); `odProtoNotifCreated` reactive effect also guards on `!currentPipelineNotifId.current` → false → skips. Result: prototype and ppt notifications never created. Fix: add `odProtoNotifId`/`odPptNotifId` per-type refs; explicit handlers always create their own notification and pre-set the type-specific ref; reactive effect checks the type-specific ref before calling `addRunningNotification`. | `frontend/src/components/layout/DashboardLayout.tsx` | FIX-149 (notification system) | INV-1/3/12/SC-001 ✅ | Done |
@@ -4484,3 +4487,57 @@ Backend restarted and running — hot-reload will catch the change.
 - This fix works for all `*_revision` → any chain paths: `od_ppt_revision`, `ppt_revision`, `prototype_revision`, `user_stories_revision`, `app_builder_revision`
 - If the revision run has no `parent_run_id` (legacy orphan revision created before the family-linkage fix), the code falls back gracefully to extracting context from the revision run itself (`source_run = workflow_run`), same behavior as before
 - The `ChainContextResponse` is reconstructed to append the revision instruction — it's a simple immutable copy, not a mutation
+
+
+---
+
+### FIX-163 — KAN-101: Restore Spec Revision Cycle UX (banner + button elevation + approve label)
+
+**Date:** 2026-08-03
+**Triggered by:** `velocity-fix KAN-101 "Update the Specs" UX gaps in UI2`
+
+#### Root Cause
+Three UX gaps after Phase 42 deleted `PrototypePipelineView.tsx` (ISS-039):
+
+1. **No revision cycle banner** — `specRevisionCount` state was deleted in Phase 42 / ISS-039 (commit `621a406d`) as write-only dead state when `PrototypePipelineView` (its sole reader) was removed. No mechanism existed to detect re-runs of already-done agents and no banner showed users that `update_specs` had fired.
+
+2. **"Update the Specs" hidden under "Request changes"** — `InlineGateActions.tsx` rendered the `canUpdateSpecs` button inside `{showRequestChanges && (...)}`, requiring two clicks to discover. Old UI had it as a primary CTA.
+
+3. **approveLabel reads "Approve the summary"** — `DashboardLayout.tsx` laneGate construction used `artifactKind.replace(/_/g, " ")` for all kinds, producing "Approve the summary" for the analyze gate. Should read "Accept & continue to build".
+
+Detection approach: `handleWebSocketMessage` is `useCallback([])` and cannot read state directly. Added `pipelineAgentsRef` (synced via `useEffect`) so the handler can check the pre-reset agent status before FIX-039's unconditional reset fires in `handlePipelineMsgRef`.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 27 (FIX-048 — KAN-101 backend + old UI); Phase 42 (ISS-039 — deletion)
+- **Relevant register section:** `IMPLEMENTATION-REGISTER.md` Phase 27, Phase 42 §4
+- **Deleted code verified (not resurrected):** ISS-039 confirmed the deletion was intentional (write-only dead state). The new implementation is fresh — it does NOT resurrect the `PrototypePipelineView`-coupled approach; instead it wires through a generic ref pattern matching the existing `handlePipelineMsgRef`/`trackedRunIdRef` idioms.
+- **Locked decisions respected:** FIX-039 unconditional reset block in `useWorkflow.ts` UNCHANGED (detection runs BEFORE the reset via ref); ISS-038 `_UPDATE_SPECS_ELIGIBLE_KINDS = frozenset({"summary"})` honored (approveLabel special-case uses `artifactKind === "summary"`, SC-001).
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `specRevisionCount` state (reset to 0 on `pipeline_start`); added `pipelineAgentsRef` + `setSpecRevisionCountRef`; detection in `handleWebSocketMessage` — if `agent_start` fires for an already-"done" agent, increment counter; pass `specRevisionCount` prop to `DashboardLayout` | State + detection layer |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `specRevisionCount?: number` prop (default 0); fixed `approveLabel` to return `"Accept & continue to build"` when `artifactKind === "summary"`; pass `specRevisionCount` to `PreviewPanel` | Prop thread + label fix |
+| `frontend/src/components/preview/PreviewPanel.tsx` | Added `specRevisionCount?: number` prop (default 0); pass to `AgentThinkingTab` | Prop thread |
+| `frontend/src/components/results/AgentThinkingTab.tsx` | Added `specRevisionCount?: number` prop (default 0); pass to `StepsOverviewSpine` | Prop thread |
+| `frontend/src/components/results/StepsOverviewSpine.tsx` | Added `specRevisionCount?: number` prop (default 0); render violet "Spec Revision Cycle N" banner above agent rows when `specRevisionCount > 0` | Banner render |
+| `frontend/src/components/chat/InlineGateActions.tsx` | Elevated `canUpdateSpecs` button OUTSIDE the `{showRequestChanges && ...}` block — always visible when eligible; removed it from the collapsed section | Discoverability fix |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): detection keys on `prevAgent.status === "done"` (generic); banner keys on `specRevisionCount > 0`; approveLabel keys on `artifactKind === "summary"` (server-derived). No workflow/agent-name literal anywhere.
+- **INV-3** (golden parity): all 6 changed files are `.tsx` frontend components. No backend Python, manifest, or golden file touched.
+- **INV-12** (no duplication): reuses existing `handlePipelineMsgRef`/`trackedRunIdRef` ref-sync idiom; prop threads through existing prop chain without duplication.
+- **SC-001** (zero engine edits): frontend-only.
+
+#### Verification
+- Zero TypeScript diagnostics across all 6 changed files (IDE type-check clean).
+- `specRevisionCount` resets on `pipeline_start` → banner never bleeds across runs.
+- `setSpecRevisionCountRef` holds the stable `useState` setter — never stales.
+- Detection fires BEFORE FIX-039's reset in `handlePipelineMsgRef`, reading the pre-reset status correctly from `pipelineAgentsRef.current`.
+- "Update the Specs" is now always visible when `canUpdateSpecs=true` — no second click required.
+
+#### Notes
+- The `setSpecRevisionCountRef.current` pattern (storing the setter in a ref) is used so the `useCallback([])` closure can call it without a stale-closure issue — same class as `handlePipelineMsgRef`.
+- ISS-039's warning "fix MUST preserve the FIX-039 unconditional-reset block" is fully honored: `useWorkflow.ts` was NOT modified.
+- `approveLabel` special-case uses `=== "summary"` (strict equality on the server-derived `artifactKind` string). All other gate kinds fall through to the existing per-kind label or `undefined`.

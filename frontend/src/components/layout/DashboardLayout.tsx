@@ -179,6 +179,11 @@ export interface DashboardLayoutProps {
   // StartingPointCard + Files "Run input" section render on the LIVE mount. Optional
   // and default-undefined → non-live callers/tests render unchanged.
   submittedBrief?: string;
+  // KAN-101 — spec revision cycle counter from page.tsx. Threaded to
+  // AgentThinkingTab to show a violet "Spec Revision Cycle N" banner and version
+  // chips during an active update_specs re-run. Optional + defaulted to 0 so
+  // existing callers/tests render unchanged.
+  specRevisionCount?: number;
   // ─── Phase 31 (CHATUI-01/02/03) — run chat lane wiring ──────────────────────
   // The family-anchored transcript + the transport-agnostic send from page.tsx's
   // `useRunChat` (fed by the active transport — SSE flag ON or legacy WS OFF).
@@ -269,6 +274,7 @@ export function DashboardLayout({
   userEmail,
   waves = [],
   submittedBrief,
+  specRevisionCount = 0,
   runChatMessages,
   runChatReplyStreaming,
   onRunChatSend,
@@ -1657,7 +1663,13 @@ export function DashboardLayout({
         // the correct preview for agents whose output has no XML wrapper tags
         // (e.g. user_stories domain-analyst produces plain markdown, kind="summary").
         artifactKind: reviewGateData.artifactKind,
-        approveLabel: reviewGateData.artifactKind
+        // KAN-101: the analyze gate (artifactKind="summary") is the final human
+        // decision before the build agents fire — label it clearly. Generic
+        // fallback for other gate kinds (spec, task_list). SC-001: keyed on the
+        // server-provided artifactKind string, never a workflow/agent-name literal.
+        approveLabel: reviewGateData.artifactKind === "summary"
+          ? "Accept & continue to build"
+          : reviewGateData.artifactKind
           ? `Approve the ${reviewGateData.artifactKind.replace(/_/g, " ")}`
           : undefined,
       }
@@ -2187,6 +2199,8 @@ export function DashboardLayout({
                       // now mounts INSIDE the Steps drill-down (relocated from the
                       // below-the-fold left slot). Forward the assembled groups.
                       waves={waves}
+                      // KAN-101 — spec revision cycle counter for the Steps banner.
+                      specRevisionCount={specRevisionCount}
                     />
                 </ErrorBoundary>
               </div>
