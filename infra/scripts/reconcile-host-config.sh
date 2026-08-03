@@ -405,9 +405,34 @@ if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
     fi
 
     if [[ "$CW_AGENT_OK" -eq 1 ]]; then
-        _cw_fpr="$(gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --import "$_cw_key" 2>&1 \
-            && gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --with-colons --fingerprint 2>/dev/null \
-                 | awk -F: '/^fpr:/ {print $10; exit}')"
+        # gpg reports import progress on STDERR. The previous form merged that
+        # stream into stdout (`--import "$_cw_key" 2>&1`) INSIDE the command
+        # substitution, so $_cw_fpr came out as gpg's chatter followed by the
+        # fingerprint:
+        #     gpg: key D58167303B789C72: public key "Amazon CloudWatch Agent" imported
+        #     ...
+        #     937616F3450B7D806CBD9725D58167303B789C72
+        # That never compares equal to the bare pinned fingerprint, so a
+        # CORRECT, properly signed AWS key was rejected on every run and the
+        # agent was never installed — every host log group fed by the agent
+        # (system, nginx-*, postgres, letsencrypt, deploy, auth) stayed empty
+        # while the deploy reported success, because a degraded agent is only a
+        # warning on dev (see remote-deploy.sh §5 FIX-CWA-02).
+        #
+        # Discard the import's output entirely and capture ONLY the awk result.
+        # Running the import inside `if` also removes a `set -e` hazard: as an
+        # `x="$(a && b)"` assignment, a failed import made the whole assignment
+        # non-zero and aborted the script with exit 1 (nginx failure semantics)
+        # instead of degrading to exit 2 (agent-only). The trailing `|| true`
+        # covers the same hazard on the pipeline: `awk ... {exit}` closes the
+        # pipe early, which can hand gpg a SIGPIPE and trip pipefail.
+        _cw_fpr=""
+        if gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" \
+                --import "$_cw_key" >/dev/null 2>&1; then
+            _cw_fpr="$(gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" \
+                --with-colons --fingerprint 2>/dev/null \
+                    | awk -F: '/^fpr:/ {print $10; exit}' || true)"
+        fi
         if [[ "$_cw_fpr" != "$CW_AGENT_GPG_FINGERPRINT" ]]; then
             degrade_agent "amazon-cloudwatch-agent GPG key fingerprint mismatch (got '${_cw_fpr:-<none>}', expected '${CW_AGENT_GPG_FINGERPRINT}') — refusing to trust this key" "cwagent-key-fingerprint"
             CW_AGENT_OK=0

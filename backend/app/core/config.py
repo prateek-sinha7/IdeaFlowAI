@@ -20,11 +20,42 @@ pick the inference-profile ID that maps to your region.
 import logging
 import os
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger("app.core.config")
+
+
+def redact_db_url(url: str) -> str:
+    """Return ``url`` with any inline password replaced by ``***``.
+
+    In every deployed environment ``DATABASE_URL`` carries the Postgres
+    password inline (``postgresql://user:password@host:5432/db``) because the
+    on-host loader composes it that way. Logging that value verbatim wrote the
+    LIVE database credential into CloudWatch on every single boot, where it sat
+    for the log group's full retention window (14 days on dev) readable by any
+    principal holding ``logs:GetLogEvents``. Redact before the value reaches a
+    logger, never after.
+
+    A URL with no password (e.g. the ``sqlite:///./dev.db`` default) is returned
+    unchanged, so local output is unaffected.
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        # Never let a malformed URL turn a startup banner into a crash, and
+        # never fall back to echoing the raw value.
+        return "<unparseable database url>"
+
+    if not parts.password:
+        return url
+
+    netloc = f"{parts.username or ''}:***@{parts.hostname or ''}"
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 # Resolve the backend directory (where this file lives: backend/app/core/config.py)
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent

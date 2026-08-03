@@ -32,7 +32,7 @@ from app.api.ppt_templates import router as ppt_templates_router
 from app.api.admin import router as admin_router
 from app.api.file_extract import router as file_extract_router
 from app.api.run_files import router as run_files_router
-from app.core.config import settings
+from app.core.config import redact_db_url, settings
 from app.models.database import engine
 
 # `settings` above and `_early_settings` (imported earlier, before the logging
@@ -145,7 +145,10 @@ else:
 async def lifespan(app: FastAPI):
     """Application lifespan: create database tables on startup."""
     logger.info("🚀 Starting VelocityAI Backend...")
-    logger.info("   Database: %s", settings.DATABASE_URL)
+    # NEVER log settings.DATABASE_URL directly: it embeds the live Postgres
+    # password in every deployed environment, and this banner is shipped to
+    # CloudWatch on each boot.
+    logger.info("   Database: %s", redact_db_url(settings.DATABASE_URL))
     if settings.ANTHROPIC_API_KEY:
         logger.info("   LLM provider: anthropic-direct (model=%s)", settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5")
     elif settings.AWS_BEARER_TOKEN_BEDROCK:
