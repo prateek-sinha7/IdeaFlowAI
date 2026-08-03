@@ -2,141 +2,76 @@
 #
 # VelocityAI app stack — backend (FastAPI/uvicorn) + frontend (Next.js standalone).
 #
-# Postgres and nginx run NATIVELY on the host — they are deliberately NOT in
-# this compose file. The reasoning is in docs/SIMPLE_AWS_DEPLOYMENT.md, but
-# in short:
-#   * Postgres stays native because the data dir lives on a separate encrypted
-#     EBS volume mounted at /var/lib/postgresql; that volume is what the EBS-
-#     snapshot backup path captures (§11.2 path A) and what the disaster-
-#     recovery drill re-attaches to a fresh instance (§11.3). Wrapping it in
-#     a container would put another file-system / UID / fsync layer between
-#     the database and the disk that the backup story depends on. It would
-#     also make `pg_dump` and `psql` invocations from systemd timers (the
-#     backup unit, the stuck-workflows probe) awkward. Cleaner: leave it on
-#     the host, expose it on 127.0.0.1:5432 the way it already is.
-#   * Nginx stays native because it is the TLS terminator. The certs live at
-#     /etc/letsencrypt/live/<fqdn>/, are renewed by the host's certbot
-#     timer, and need to be consumed *outside* any application-image rebuild
-#     cycle (the cert refreshes every 60 days; the app images rebuild on
-#     every deploy). Containerising nginx would force a bind-mount of
-#     /etc/letsencrypt into the container, plus signal-routing for cert
-#     reloads — for no benefit. Clean separation of concerns: nginx is
-#     infrastructure, the app is the deployable.
+# Postgres and nginx run NATIVELY on the host, not in this file (see
+# docs/SIMPLE_AWS_DEPLOYMENT.md). Postgres stays native so its data dir on the
+# separate encrypted EBS volume matches what the backup/DR path expects.
+# Nginx stays native because it terminates TLS using host-managed certbot
+# certs that must survive independently of app-image rebuilds.
 #
 # Two run modes:
-#   Local dev:  `docker compose build && docker compose up -d`
-#               (uses local sources via the `build:` context for each service)
-#   Production: `docker compose pull && docker compose up -d`
-#               (pulls pre-built images from ECR; tags from /etc/velocityai/app.env)
-#
-# In production the operator sets BACKEND_IMAGE and FRONTEND_IMAGE in
-# /etc/velocityai/app.env to fully qualified ECR URIs with a specific tag, e.g.
-#   BACKEND_IMAGE=<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com/velocityai-prod-backend:v20260510-abc1234
-#   FRONTEND_IMAGE=<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com/velocityai-prod-frontend:v20260510-abc1234
-# The `${BACKEND_IMAGE:-velocityai-backend:local}` interpolation below means an
-# unset variable falls back to the local-build tag, so the same compose file
-# works for both contexts without a `--profile` switch.
+#   Local dev:  `docker compose build && docker compose up -d` (local build context)
+#   Production: `docker compose pull && docker compose up -d` (ECR images pinned
+#               via BACKEND_IMAGE / FRONTEND_IMAGE in /etc/velocityai/app.env)
+# `${BACKEND_IMAGE:-velocityai-backend:local}` falls back to the local-build
+# tag when unset, so one compose file serves both modes.
 
 name: velocityai
 
 services:
   backend:
-    # Image URI is interpolated from the env. Fallback is the local-build tag
-    # the `build:` block below produces; that is what makes `docker compose
-    # build && docker compose up` work straight from a developer checkout.
     image: ${BACKEND_IMAGE:-velocityai-backend:local}
     build:
       context: ./backend
       dockerfile: Dockerfile
       additional_contexts:
-        # OpenDesign reference tree lives at the repo root, OUTSIDE ./backend.
-        # Named context consumed by `COPY --from=opendesign` in backend/Dockerfile
-        # so local `docker compose build` bakes /app/opendesign exactly like the
-        # CI buildx build (--build-context opendesign=skills/opendesign) does.
+        # OpenDesign reference tree lives at repo root, outside ./backend.
+        # Mirrors the CI buildx --build-context opendesign=skills/opendesign.
         opendesign: ./skills/opendesign
     restart: unless-stopped
     env_file:
-      # Two paths, both required: false. Compose merges them in order, so
-      # ./app.env overrides /etc/velocityai/app.env when both exist — that is the
-      # local-dev pattern: drop an `app.env` next to the compose file and
-      # `docker compose up` picks it up without needing root or sudo.
-      #
-      # Production:  /etc/velocityai/app.env exists (written on every start by
-      #              /usr/local/bin/velocityai-load-secrets, root:velocityai 0640),
-      #              ./app.env does not — bootstrap deliberately doesn't put
-      #              one in /opt/velocityai to avoid an accidental override.
-      # Local dev:   /etc/velocityai/app.env doesn't exist on the laptop, devs
-      #              create ./app.env with their dev settings (or copy from
-      #              app.env.example — see the example file at the repo root).
+      # Production: /etc/velocityai/app.env (written by velocityai-load-secrets).
+      # Local dev: ./app.env (see app.env.example). Compose merges both in
+      # order, so ./app.env overrides /etc/velocityai/app.env when present.
       - path: /etc/velocityai/app.env
         required: false
       - path: ./app.env
         required: false
     extra_hosts:
-      # On Linux, host.docker.internal isn't auto-mapped — `host-gateway` is
-      # the supported (Docker 20.10+) way for a container to reach a service
-      # bound to the host's loopback. Postgres is on the host at
-      # 127.0.0.1:5432; from inside this container the same Postgres is
-      # reachable as host.docker.internal:5432. The DATABASE_URL composed by
-      # /usr/local/bin/velocityai-load-secrets uses `host.docker.internal` for
-      # exactly this reason. Do NOT use `network_mode: host` instead — that
-      # disables the network namespace and undoes most of the container
-      # isolation we get for free.
+      # host-gateway lets the container reach Postgres at host.docker.internal:5432
+      # (the host's loopback Postgres). Do NOT use network_mode: host instead —
+      # that removes container network isolation entirely.
       - "host.docker.internal:host-gateway"
     ports:
-      # Bind to 127.0.0.1 only — nginx (on the host) is the only client that
-      # talks to this port. Using `127.0.0.1:8000:8000` rather than
-      # `8000:8000` (which binds 0.0.0.0:8000 by default) is a defence-in-
-      # depth measure: a misconfigured security group would still not expose
-      # uvicorn to the public internet because the host kernel never accepts
-      # the connection in the first place.
+      # 127.0.0.1-only: nginx (on the host) is the sole client. Defence in
+      # depth against a misconfigured security group.
       - "127.0.0.1:8000:8000"
     volumes:
-      # Per-user agent skills live on the EBS data volume so they survive
-      # instance replacement. Mounted RW because the backend writes new
-      # agents/skills at runtime (see backend Dockerfile note: /app/skills
-      # exists in the image as an empty mount target).
+      # EBS-backed data dirs so skills/runs survive instance replacement.
       - /opt/velocityai/data/skills:/app/skills
-      # Per-user / per-run agent sandboxes (deepagents disk filesystem). Same EBS
-      # data volume so a paused run's files survive instance replacement and
-      # checkpoint-resume can read them back. RW; the backend creates
-      # <user>/<run>/ subdirs at runtime under RUNS_ROOT=/app/runs.
       - /opt/velocityai/data/runs:/app/runs
     healthcheck:
-      # /health is implemented in app/main.py; the backend Dockerfile already
-      # has a HEALTHCHECK directive but compose's healthcheck overrides it
-      # with the same intent so it shows up in `docker compose ps` cleanly.
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       start_period: 30s
       retries: 3
     deploy:
-      # Mirrors §15.1 capacity numbers — backend can hold ~100 MB per running
-      # pipeline, hence the 8G ceiling. `reservations` is a soft hint to the
-      # scheduler; on a single-host compose deployment the limit is the part
-      # that actually matters (it maps to a kernel cgroup memory.max).
+      # Backend holds ~100MB per running pipeline; 8G ceiling mirrors §15.1
+      # capacity numbers. Limits map to the cgroup memory.max on this host.
       resources:
         limits:
           memory: 8G
         reservations:
           memory: 2G
     logging:
-      # Cap container log size so the json-file driver can't fill
-      # /var/lib/docker/containers and OOM the host's root filesystem.
-      # 100m × 5 files = 500 MB max per container; local-dev default.
-      # M-01: production overrides this to the `awslogs` driver — see
-      # docker-compose.prod.yml — so backend/frontend land in distinct
-      # per-service CloudWatch streams instead of one undifferentiated
-      # `{instance_id}/docker` tail-all-containers stream.
+      # Cap json-file size so it can't fill /var/lib/docker and OOM the host.
+      # Production overrides this to awslogs — see docker-compose.prod.yml.
       driver: json-file
       options:
         max-size: "100m"
         max-file: "5"
-    # Long-lived WebSocket pipelines (B5/W21/W33) can stream tokens for tens
-    # of minutes. SIGTERM-then-SIGKILL with a 30-second window gives uvicorn
-    # time to drain in-flight WS frames cleanly instead of the default 10s
-    # KillTimeout that would chop the last response mid-stream.
+    # Long-lived WebSocket pipelines can stream for tens of minutes; 30s grace
+    # lets uvicorn drain in-flight frames instead of the default 10s KillTimeout.
     stop_grace_period: 30s
 
   frontend:
@@ -145,51 +80,36 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Baked at BUILD time into the JS bundle (Next.js inlines NEXT_PUBLIC_*
-        # vars at build, not at runtime — they CANNOT be changed by the
-        # runtime container env). In CI these are populated from the
-        # deployment FQDN (terraform output -raw fqdn) so the same image is
-        # bound to a single environment. Empty defaults are fine for local
-        # dev: the frontend then uses relative URLs that nginx terminates.
+        # Baked at BUILD time (Next.js inlines NEXT_PUBLIC_* at build, not
+        # runtime). CI populates these from the deployment FQDN. Empty
+        # defaults are fine for local dev (relative URLs via nginx).
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
     restart: unless-stopped
     ports:
-      # Same loopback-only rationale as backend above.
       - "127.0.0.1:3000:3000"
     healthcheck:
-      # The runtime image is node:20-bookworm-slim, which ships NEITHER wget nor
-      # curl, so an earlier `wget --spider` probe always failed ("wget: not
-      # found") and pinned the container to `unhealthy`. Use Node's built-in http
-      # client instead (identical to the Dockerfile HEALTHCHECK). Next.js
-      # redirects `/` to a default route (307), which is a healthy signal, so any
-      # status < 400 counts as success. 127.0.0.1 (NOT localhost): the standalone
-      # server binds 0.0.0.0 (IPv4 only) and Debian resolves localhost to ::1
-      # first, so a v6 probe would time out and stay "starting" forever.
+      # node:20-bookworm-slim ships neither wget nor curl, so probe with
+      # Node's http client instead. 127.0.0.1 (not localhost): the standalone
+      # server binds IPv4 only, and Debian resolves localhost to ::1 first.
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 5s
       start_period: 15s
       retries: 3
     deploy:
-      # Next.js standalone is small; 1G hard cap, 256M reservation matches
-      # the previous velocityai-frontend.service `MemoryMax=2G` minus headroom
-      # we no longer need (no native systemd cache layer here).
       resources:
         limits:
           memory: 1G
         reservations:
           memory: 256M
     logging:
-      # M-01: see the matching comment on the backend service above.
       driver: json-file
       options:
         max-size: "100m"
         max-file: "5"
     depends_on:
-      # Wait for the backend's healthcheck to pass before starting frontend.
-      # Without this, the SSR layer of Next.js can race on the first request
-      # and 502 a freshly deployed box for the few seconds the backend takes
-      # to come up.
+      # Wait for backend health so the frontend's SSR layer doesn't 502 while
+      # the backend is still starting.
       backend:
         condition: service_healthy
