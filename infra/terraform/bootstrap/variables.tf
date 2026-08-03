@@ -97,7 +97,41 @@ variable "github_oidc_thumbprints" {
 }
 
 variable "github_org_repo" {
-  description = "EXACT GitHub \"<owner>/<repository>\" whose workflows may assume the CI/CD roles, e.g. \"Hexaware-HnI/velocityai\". Combined with each entry in github_environments to form the OIDC subject \"repo:<github_org_repo>:environment:<env>\", matched with StringEquals. WILDCARDS ARE REJECTED: a glob like \"my-org*/my-repo*\" also admits any other GitHub owner/repository sharing that prefix — a repo-impersonation path into this account. Rename of the org/repo is a deliberate infrastructure change, not something the trust policy should absorb. Required when create_github_oidc = true."
+  description = <<-EOT
+    EXACT GitHub "<owner>/<repository>" whose workflows may assume the CI/CD
+    roles. Combined with each entry in github_environments to form the OIDC
+    subject "repo:<github_org_repo>:environment:<env>", matched with
+    StringEquals.
+
+    TWO VALID FORMS — the correct one depends on a GitHub org/enterprise
+    setting, and getting it wrong fails every deploy at OIDC auth with
+    "Not authorized to perform sts:AssumeRoleWithWebIdentity":
+
+      1. Plain names:      "Hexaware-HnI/velocityai"
+      2. Immutable IDs:    "Hexaware-HnI@220132078/velocityai@1321162016"
+
+    Form 2 is what GitHub emits when "immutable identifiers in the OIDC
+    subject" is enabled for the org/enterprise. GitHub then suffixes the owner
+    with @<org_id> and the repository with @<repo_id> so the subject survives a
+    rename. It is the STRONGER form: an attacker who acquires a released org or
+    repo NAME cannot impersonate the numeric ID, and a rename no longer
+    silently changes which identity can assume these roles.
+
+    DO NOT GUESS which form your org uses. Read the `sub` claim STS actually
+    received from CloudTrail:
+
+      aws cloudtrail lookup-events \
+        --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+        --region <region> --max-results 5 \
+        --query 'Events[].Username' --output text
+
+    WILDCARDS ARE REJECTED: a glob like "my-org*/my-repo*" also admits any
+    other GitHub owner/repository sharing that prefix — a repo-impersonation
+    path into this account. Rename of the org/repo is a deliberate
+    infrastructure change, not something the trust policy should absorb.
+
+    Required when create_github_oidc = true.
+  EOT
   type        = string
   default     = ""
 
@@ -106,9 +140,12 @@ variable "github_org_repo" {
     error_message = "github_org_repo must be set when create_github_oidc = true."
   }
 
+  # Optional "@<digits>" suffix on either side accepts GitHub's immutable-ID
+  # subject form. `*` is still not in either character class, so a wildcard is
+  # rejected exactly as before.
   validation {
-    condition     = var.github_org_repo == "" || can(regex("^[A-Za-z0-9][A-Za-z0-9-_.]*/[A-Za-z0-9][A-Za-z0-9-_.]*$", var.github_org_repo))
-    error_message = "github_org_repo must be an exact \"<owner>/<repository>\" pair with no wildcards (e.g. \"Hexaware-HnI/velocityai\")."
+    condition     = var.github_org_repo == "" || can(regex("^[A-Za-z0-9][A-Za-z0-9-_.]*(@[0-9]+)?/[A-Za-z0-9][A-Za-z0-9-_.]*(@[0-9]+)?$", var.github_org_repo))
+    error_message = "github_org_repo must be an exact \"<owner>/<repository>\" pair with no wildcards — either plain names (\"Hexaware-HnI/velocityai\") or GitHub's immutable-ID form (\"Hexaware-HnI@220132078/velocityai@1321162016\")."
   }
 }
 

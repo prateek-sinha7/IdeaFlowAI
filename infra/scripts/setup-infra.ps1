@@ -102,7 +102,17 @@ $CostCenter = "velocityai"
 
 # --- GitHub Actions OIDC (bootstrap/github_oidc.tf) -------------------------
 $CreateGithubOidc  = $true
-$GithubOrgRepo     = "Hexaware-HnI/velocityai"   # EXACT "<owner>/<repo>", no wildcards
+# EXACT "<owner>/<repo>", no wildcards. This org has "immutable identifiers in
+# the OIDC subject" ENABLED, so GitHub emits the owner suffixed with @<org_id>
+# and the repo with @<repo_id>. The trust policy is a StringEquals match on the
+# subject, so it must use the SAME form GitHub sends or every deploy fails with
+# "Not authorized to perform sts:AssumeRoleWithWebIdentity".
+#
+# Verify the real claim (do not guess) with:
+#   aws cloudtrail lookup-events \
+#     --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+#     --region eu-central-1 --max-results 5 --query 'Events[].Username' --output text
+$GithubOrgRepo     = "Hexaware-HnI@220132078/velocityai@1321162016"
 # Optional IAM permissions boundary applied to every GitHub-assumable role.
 # Recommended in a shared AWS account; leave empty if you don't have one yet.
 $DeployBoundaryArn = ""
