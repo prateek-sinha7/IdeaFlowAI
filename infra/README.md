@@ -7,8 +7,13 @@ AWS Bedrock (Claude Haiku 4.5) for LLM calls.
 
 The codebase follows the **layered reference format**: a one-time `bootstrap`,
 a `shared` layer (ECR), and per-environment `foundation` + `app` layers, each
-with its own remote-state object. CI/CD is per-environment AWS CodeBuild
-runners driven by `buildspec.yml`.
+with its own remote-state object. CI/CD is GitHub Actions
+(`.github/workflows/ci.yml` + `deploy.yml`) — it does not run Terraform; it
+only builds/pushes images and redeploys containers via SSM RunCommand onto
+infrastructure Terraform already created. See
+[`docs/GITHUB_CICD_SETUP.md`](../docs/GITHUB_CICD_SETUP.md) for the full
+operator guide. The retired GitLab/CodeBuild pipeline is documented in that
+same file's §9 for history only.
 
 > **Shared account.** This runs in an AWS Organizations account other Hexaware
 > projects also use. The cardinal rule: *touch only this project's resources,
@@ -23,10 +28,9 @@ runners driven by `buildspec.yml`.
 ```
 infra/
 ├── README.md                  # this file
-├── buildspec.yml              # CodeBuild pipeline (validate→scan→apply→redeploy)
-├── scripts/                   # on-host bootstrap (bootstrap-ec2.sh)
+├── scripts/                   # on-host bootstrap (bootstrap-ec2.sh, reconcile-host-config.sh)
 └── terraform/
-    ├── bootstrap/             # ONCE: state bucket + lock + KMS + account guard + CI/CD runners (LOCAL state)
+    ├── bootstrap/             # ONCE: state bucket + lock + KMS + account guard + GitHub OIDC identity (LOCAL state)
     ├── shared/                # ONCE: ECR repos (velocityai/backend, velocityai/frontend) — built once, promoted by tag
     ├── foundation/            # PER-ENV: KMS, network, IAM, secrets, backups  (long-lived)
     ├── app/                   # PER-ENV: compute, DNS, compose+deploy S3 objects, monitoring, resource groups (deploy-time)
@@ -69,9 +73,13 @@ Naming follows the reference convention — **prod is bare**:
 Shared layer state key: `velocityai/shared.tfstate`. Non-overlapping VPC CIDRs:
 prod `10.20.0.0/16`, stage `10.30.0.0/16`, dev `10.40.0.0/16`.
 
-Each environment has its own state object, IAM deploy role, CodeBuild runner,
-and build log group — strong *logical* isolation in a single account. True
-hard isolation needs separate accounts (see the CI/CD section).
+Each environment has its own state object, EC2 instance role, SSM parameter
+tree, **and its own GitHub Actions deploy role** — strong *logical* isolation in
+a single account. A dev deploy cannot reach a prod box because the dev role's
+credentials are not trusted for prod and its `ssm:SendCommand` names only
+`Environment=dev` instances; this is enforced by the identity, not by a
+condition the caller has already satisfied. True hard isolation still needs
+separate accounts (see the CI/CD section).
 
 ---
 
@@ -124,47 +132,95 @@ terraform -chdir=infra/terraform/app apply \
   -var="state_bucket=$B" -var="image_tag=<tag>" -var="alert_email=<email>"
 ```
 
-In CI this whole sequence runs inside CodeBuild (`buildspec.yml`); operators
-only run it manually for the first stand-up or break-glass changes.
+This sequence is never run by CI — GitHub Actions does not execute Terraform.
+Operators run it manually for the first stand-up of an environment, and
+thereafter only when infrastructure itself changes (instance size, alarm
+thresholds, DNS strategy). Shipping application code does not need an apply;
+see the CI/CD section below.
 
 ---
 
-## CI/CD (per-environment CodeBuild runners)
+## CI/CD (GitHub Actions — no Terraform in the pipeline)
 
-`bootstrap/cicd.tf` provisions, when `create_gitlab_runner = true`:
+`bootstrap/github_oidc.tf` provisions, when `create_github_oidc = true`:
 
-- **Shared**: a GitLab CodeConnections connection + the default source
-  credential (AWS allows one per account/region).
-- **Per environment** (`var.runners`, keyed `dev`/`stage`/`prod`): an IAM
-  deploy role (cross-env + confused-deputy trust guards), a CodeBuild project,
-  a webhook, and a log group.
+- The `token.actions.githubusercontent.com` OIDC identity provider (or an
+  adopted existing one — `github_oidc_create_provider = false`).
+- **One ECR-only build role** (`<github_cicd_role_name>-build`, default
+  `velocityai-gha-deploy-build`): push/pull on the two shared repositories and
+  nothing else — no SSM, no KMS, no reach to any EC2 instance.
+- **One deploy role per environment** (`<github_cicd_role_name>-<env>`), each
+  trusting **exactly one** OIDC subject
+  (`repo:<github_org_repo>:environment:<env>`, matched with `StringEquals`) and
+  scoped to exactly one SSM prefix (`/velocityai/<env>/*`) and one EC2
+  `Environment` tag value.
 
-Triggers (per `runners[*].trigger_type`): dev/stage on a **branch push**, prod
-on a **git tag / GitLab Release**. Each project runs `infra/buildspec.yml`:
-`validate → security scan (gitleaks/checkov/trivy) → shared+foundation apply →
-build+push backend+frontend images → app apply → SSM redeploy on the host`.
-DB migrations run **in-container** (Alembic on backend start).
+  This replaced a single shared role that trusted all three environments. That
+  design could not isolate them: the OIDC `sub` is evaluated once, at
+  `sts:AssumeRoleWithWebIdentity`, and never re-checked per API call — so a
+  `dev` job holding those credentials could write `/velocityai/prod/*` and send
+  commands to a prod-tagged box. `github_org_repo` must now also be an exact
+  `owner/repo` (wildcards are rejected by validation), because a glob admits
+  any similarly-prefixed owner/repository in any organisation.
+
+Two workflows in `.github/workflows/`:
+
+- **`ci.yml`** — lint/test/security-scan quality gate (ruff, pyright,
+  import-linter, vulture, pytest; eslint, vitest, build; gitleaks, checkov,
+  trivy config, tflint). No AWS access.
+- **`deploy.yml`** — triggered by a push to `dev`/`staging` or a `v*` tag (or
+  manual dispatch). The CI gate must be green on the commit *before* anything is
+  pushed to ECR. Then: OIDC-assume the **build** role → build + push the backend
+  and frontend images → block on a HIGH/CRITICAL image scan of the exact digests
+  → OIDC-assume that environment's **deploy** role → push GitHub-configured
+  variables/secrets to SSM → run `.github/scripts/remote-deploy.sh` on the
+  tagged EC2 instance via SSM RunCommand (compose file + reconcile script
+  shipped inline in the payload, images pinned **by digest** in
+  `/etc/velocityai/app.env`, then health-checked). DB migrations run
+  **in-container** (Alembic on backend start).
+
+  A `v*` tag only reaches prod if its commit is an ancestor of `main` — tag
+  names alone prove nothing about what is being released. Pair that with
+  GitHub-side protected tag rules and the prod Environment's reviewers.
+
+  The health gate covers the backend, the frontend **and** the nginx ingress; a
+  failure rolls the host back to the previously pinned digests and verifies that
+  the rollback restored service. Database migrations are **not** rolled back —
+  that is what the pre-deploy `pg_dump` on stage/prod is for.
+
+**Terraform does not run in this pipeline.** `bootstrap`, `shared`,
+`foundation(<env>)`, and `app(<env>)` are applied by an operator (see
+[Apply order](#apply-order) below); GitHub Actions only builds images and
+redeploys containers onto infrastructure that already exists. Full operator
+guide: [`docs/GITHUB_CICD_SETUP.md`](../docs/GITHUB_CICD_SETUP.md).
 
 The frontend image is built **environment-agnostic** (relative URLs nginx
-terminates), so one image promotes dev→stage→prod by tag — matching the
-shared-ECR promote-by-tag model.
+terminates), so one image promotes dev→stage→prod unchanged. Promotion is **by
+digest**, not by tag: the shared ECR repositories are `IMMUTABLE`, deploys
+reference `repo@sha256:...`, and no floating `-latest` alias takes part. A
+re-run of an already-built commit adopts the existing image's digest instead of
+re-pushing it, which is what keeps immutable tags compatible with retries.
 
-Non-secret per-env config (CORS origins, Bedrock model, alert email) is
-injected as `TF_VAR_*` from the runner. **Secrets are never in CodeBuild env**:
-`app_secret_key` / `db_password` are auto-generated by the foundation `secrets`
-module into SSM SecureStrings.
+Non-secret per-env config (CORS origins, Bedrock model, alert email) is pushed
+from GitHub Environment variables into SSM on every deploy. **Secrets are never
+in GitHub Actions env beyond the push itself**: `SECRET_KEY` is a GitHub secret
+pushed as an SSM SecureString; `DATABASE_PASSWORD` is host-generated by
+`bootstrap-ec2.sh` and never passes through GitHub at all.
 
-> **Two shared-account caveats:** (1) the single default GitLab source
-> credential is per account/region — coordinate if sibling projects also use
-> GitLab CodeConnections; (2) the deploy role's broad `ProvisionStack`
-> permissions can't be resource-scoped, and prod's bare `velocityai-*` prefix
-> is a superset of `velocityai-stage-*`. Set
-> `deploy_permissions_boundary_arn` (scoped to `velocityai-*`) to harden, or
-> use separate accounts for true isolation.
+> **Shared-account caveat:** each environment now has its own deploy role, whose
+> `ssm:SendCommand` is restricted to instances carrying *that* environment's
+> `Environment` tag, so CI cannot cross environments. The residual risk is not
+> in CI: the broad provisioning Terraform itself performs is applied by an
+> operator, and cannot be resource-scoped everywhere. Set
+> `deploy_permissions_boundary_arn` (scoped to `velocityai-*`) to harden, or use
+> separate AWS accounts for true hard isolation. Note also that the per-role
+> boundary is what stops a compromised CI role from creating *new* IAM
+> identities outside the project namespace.
 
-**One-time manual step:** after the first bootstrap apply, authorize the GitLab
-connection once in the AWS console (Developer Tools → Settings → Connections →
-"Update pending connection"). Until then webhooks won't fire.
+**Retired:** the previous GitLab/CodeBuild pipeline (`infra/buildspec.yml`,
+`bootstrap/cicd.tf`) is gone. See `docs/GITHUB_CICD_SETUP.md` §9 for a history
+note; if you're auditing the AWS account for leftover resources, see that
+same section's break-glass/cleanup pointers.
 
 ---
 

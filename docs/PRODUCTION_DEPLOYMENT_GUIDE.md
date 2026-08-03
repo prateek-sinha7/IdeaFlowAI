@@ -182,7 +182,7 @@ cd frontend && npm run dev
 # 1. Configure AWS credentials:
 aws configure sso  # or set AWS_PROFILE
 # 2. Set your .env:
-cp env-templates/.env.production backend/.env
+cp env-templates/.env.production.example backend/.env
 # 3. Start full stack:
 docker-compose up
 ```
@@ -761,7 +761,7 @@ psql -h localhost -U ideaflow -d ideaflow -c "\dt"
 |--------------|---------|
 | Run on office laptop (mock) | `cp env-templates/.env.local backend/.env` then start servers |
 | Test with my Anthropic key | `cp env-templates/.env.development backend/.env` + add your key |
-| Test with AWS Bedrock | `cp env-templates/.env.production backend/.env` + `aws sso login` |
+| Test with AWS Bedrock | `cp env-templates/.env.production.example backend/.env` + `aws sso login` |
 | Run full Docker stack | `docker-compose up` |
 | Run just DB + Redis | `docker-compose -f docker-compose.dev.yml up -d` |
 | Deploy to AWS | `git push origin main` (CI/CD handles it) |

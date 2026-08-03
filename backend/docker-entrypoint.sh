@@ -21,8 +21,15 @@ set -eu
 echo "[entrypoint] running alembic upgrade head"
 alembic upgrade head
 echo "[entrypoint] starting uvicorn"
+# KAN-151 D8: Bound uvicorn's graceful-shutdown wait to 5 seconds. Without this,
+# H11Protocol.shutdown() does NOT close a connection whose response is still
+# streaming (SSE), so a live SSE stream makes lifespan.shutdown() unreachable
+# and docker SIGKILLs at stop_grace_period (30s, docker-compose.yml:138).
+# With --timeout-graceful-shutdown 5, streams are force-cancelled after 5s,
+# allowing the lifespan body to run. Deploy downtime: 30s -> ~5-8s graceful exit.
 exec uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 8000 \
     --proxy-headers \
-    --forwarded-allow-ips '*'
+    --forwarded-allow-ips '*' \
+    --timeout-graceful-shutdown 5

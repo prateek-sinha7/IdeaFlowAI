@@ -1,0 +1,283 @@
+# =============================================================================
+# VelocityAI CI — lint, test, and security-scan gate.
+# =============================================================================
+# This workflow has NO AWS access (no OIDC role, no secrets, no cloud calls).
+# It is a pure quality gate:
+#   - backend: ruff, pyright (import resolution), import-linter, vulture, pytest
+#   - frontend: eslint, vitest, next build
+#   - security-scan: gitleaks, checkov, trivy (config), tflint
+#
+# USAGE:
+#   (a) Standalone — runs on push to `main` and on every pull_request.
+#   (b) Reusable workflow — called by deploy.yml as a gate before deploy.
+#       When called, it receives no secrets (AWS-blind) and inherits no
+#       environment, so the prod reviewer gate stays on the deploy job only.
+#
+#   `dev` / `staging` / `v*` are deliberately NOT standalone push triggers:
+#   deploy.yml fires on exactly those refs and calls this workflow as its
+#   `gate` job, so listing them here too would run the whole suite twice on
+#   the same commit and report two independent statuses for one push.
+#
+# deploy.yml depends on this gate: no deploy lands without lint + test + scan
+# passing on the same commit. This gate BLOCKS deploy.yml's `build` job (which
+# blocks `deploy`), so no image is pushed to the shared ECR registry — not even
+# under a throwaway tag — until this workflow is green on that commit. It used
+# to run in parallel with build for speed, which meant a failing commit still
+# published artifacts.
+#
+# NO TERRAFORM BINARY HERE. Terraform is not installed, initialised, planned or
+# applied anywhere in CI/CD (locked design decision — see
+# docs/GITHUB_CICD_SETUP.md). IaC coverage comes from static analysis only:
+# checkov + trivy config + tflint read the .tf files without a provider or a
+# backend. `terraform fmt`/`validate`, which the retired infra/buildspec.yml
+# ran in its pre_build phase, are covered locally by .pre-commit-config.yaml.
+#
+# Action pinning: every third-party/first-party action below is pinned to a
+# full commit SHA (not a mutable tag), per GitHub's supply-chain guidance and
+# in direct response to CVE-2026-33634 (GHSA-69fq-xp46-6x23) — the March 2026
+# Trivy/aquasecurity compromise where attackers force-pushed malicious commits
+# onto existing version tags of aquasecurity/trivy-action and
+# aquasecurity/setup-trivy. Because of that incident, the security-scan job
+# below does NOT use either of those actions at all: gitleaks, checkov, trivy,
+# and tflint are all installed as direct release binaries with a pinned
+# version + verified sha256 checksum instead.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  # Reusable workflow entry point — deploy.yml calls this as a gate.
+  workflow_call:
+
+# Cancel superseded runs on the same branch/PR. When called as a reusable
+# workflow, github.workflow resolves to the CALLER's name ("Deploy"), so we
+# include github.event_name in the key to keep CI-invoked and Deploy-invoked
+# runs in separate groups. PRs cancel in-progress; everything else queues.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least-privilege default: this workflow only reads the repo. No job needs
+# write access to contents, PRs, or (crucially) any AWS/OIDC token.
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Backend — Python 3.12, dependencies from backend/requirements*.txt.
+  #
+  # NOTE on `uv`: backend/pyproject.toml does not declare [project.dependencies]
+  # (uv.lock is an intentionally-empty lockfile for the local project only —
+  # see backend/pyproject.toml / .gitignore comment). Real runtime + dev deps
+  # are pinned in requirements.txt / requirements-dev.txt and installed the
+  # same way the production Dockerfile does: `uv pip install -r requirements
+  # .txt`, uv's pip-compatible frontend. `uv sync` would install nothing given
+  # the current (dependency-less) pyproject.toml, so it is deliberately NOT
+  # used here.
+  # ---------------------------------------------------------------------------
+  backend:
+    name: Backend (Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Create venv + install dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Python syntax gate
+        run: uv run --no-sync python -m compileall -q app agents
+
+      - name: ruff (correctness rules)
+        run: uv run --no-sync ruff check .
+
+      - name: pyright (import resolution only)
+        run: uv run --no-sync pyright
+
+      - name: import-linter (kernel/ports boundary contracts)
+        run: uv run --no-sync lint-imports
+
+      - name: vulture (dead-code detection)
+        run: uv run --no-sync vulture app/ agents/
+
+      - name: pytest
+        run: uv run --no-sync pytest tests/ -v
+
+      # TODO(flip-to-failing: 2026-08-01): remove `|| true` once pre-existing
+      # findings are triaged. pip-audit checks requirements.txt against the
+      # PyPI advisory database for known CVEs.
+      - name: pip-audit (warn-only)
+        run: |
+          uv pip install pip-audit
+          uv run --no-sync pip-audit -r requirements.txt || true
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Node 20 (matches frontend/Dockerfile + backend's pptx-builder
+  # stage), npm only (package-lock.json is the lockfile of record).
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend (Node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test (single-pass)
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      # TODO(flip-to-failing: 2026-08-01): remove `|| true` once pre-existing
+      # findings are triaged. npm audit checks package-lock.json against the
+      # npm advisory database for known CVEs.
+      - name: npm audit (warn-only)
+        run: npm audit --audit-level=high || true
+
+  # ---------------------------------------------------------------------------
+  # Security scan — gitleaks, checkov, trivy (config), tflint.
+  #
+  # Every scanner is installed as a direct, checksum-verified release binary
+  # rather than via a third-party setup-* GitHub Action. This is a deliberate,
+  # stricter-than-default choice for the trivy/tflint/gitleaks steps because of
+  # CVE-2026-33634 (see workflow header) and the broader campaign it was part
+  # of (compromised npm + PyPI packages in the same window) — pinning a
+  # checksum we verify ourselves removes any dependency on a third party's
+  # action staying uncompromised between now and when this workflow runs.
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: Security scan (gitleaks / checkov / trivy / tflint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # --- gitleaks: secret scanning (repo-wide, see .gitleaks.toml) ---------
+      - name: Install gitleaks v8.30.1 (checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -sSL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          rm gitleaks.tar.gz
+          gitleaks version
+
+      - name: gitleaks detect
+        # Flags match the retired infra/buildspec.yml pre_build invocation
+        # verbatim so a finding history stays comparable across the migration:
+        #   --no-git    scan the working tree, not the commit history (the CI
+        #               checkout is shallow, so history scanning is unreliable)
+        #   --redact    never print the discovered secret VALUE to the CI log,
+        #               only its location — the "never log sensitive data" rule
+        #   --no-banner keep the log readable
+        #   -v          list every finding rather than just the count
+        run: gitleaks detect --no-git --redact --no-banner -v --config .gitleaks.toml --source .
+
+      # --- checkov: Terraform IaC scanning (see .checkov.yaml) ---------------
+      - name: Setup Python (for checkov)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install checkov
+        run: pip install --no-cache-dir checkov==3.3.8
+
+      - name: checkov IaC scan
+        run: checkov -d infra/terraform --config-file .checkov.yaml
+
+      # --- trivy: Terraform misconfiguration scanning (see .trivyignore) -----
+      - name: Install trivy v0.69.3 (checksum-verified, pre-compromise release)
+        run: |
+          set -euo pipefail
+          curl -sSL -o trivy.tar.gz \
+            https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz
+          echo "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75  trivy.tar.gz" | sha256sum -c -
+          tar -xzf trivy.tar.gz trivy
+          sudo mv trivy /usr/local/bin/trivy
+          rm trivy.tar.gz
+          trivy --version
+
+      # Flags match the retired infra/buildspec.yml pre_build invocation. All
+      # three are load-bearing, not cosmetic:
+      #   --severity HIGH,CRITICAL  the accepted-findings baseline in
+      #       .trivyignore was triaged at this threshold; without it every
+      #       MEDIUM/LOW advisory in the tree fails the build on day one
+      #   --skip-dirs **/examples/**    module usage demos, never deployed
+      #   --skip-dirs **/localstack/**  local-only throwaway layer whose values
+      #       are explicit placeholders
+      # The two skip-dirs mirror the `skip-path` entries in .checkov.yaml, so
+      # both scanners look at exactly the same set of deployed resources.
+      - name: trivy config scan
+        run: |
+          trivy config --exit-code 1 --severity HIGH,CRITICAL \
+            --ignorefile .trivyignore \
+            --skip-dirs "**/examples/**" \
+            --skip-dirs "**/localstack/**" \
+            infra/terraform
+
+      # --- tflint: Terraform lint (see infra/terraform/.tflint.hcl) ----------
+      - name: Install tflint v0.64.0 (checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -sSL -o tflint.zip \
+            https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip
+          echo "cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537  tflint.zip" | sha256sum -c -
+          unzip -q tflint.zip
+          sudo mv tflint /usr/local/bin/tflint
+          rm tflint.zip
+          tflint --version
+
+      # An ABSOLUTE TFLINT_CONFIG_FILE is required with --recursive: tflint
+      # resolves a relative config path against each module directory it walks
+      # into, so a relative path would only be found for the top directory.
+      # This is the same export the .pre-commit-config.yaml tflint hook does.
+      - name: tflint init (fetch pinned ruleset plugins)
+        env:
+          TFLINT_CONFIG_FILE: ${{ github.workspace }}/infra/terraform/.tflint.hcl
+        run: tflint --chdir=infra/terraform --init
+
+      # --minimum-failure-severity=error: the `recommended` terraform preset
+      # emits warnings (missing description/type, naming conventions) across a
+      # tree this size. Those are review comments, not merge blockers; genuine
+      # errors (invalid instance type, unresolvable reference) still fail.
+      - name: tflint (recursive)
+        env:
+          TFLINT_CONFIG_FILE: ${{ github.workspace }}/infra/terraform/.tflint.hcl
+        run: tflint --chdir=infra/terraform --recursive --minimum-failure-severity=error

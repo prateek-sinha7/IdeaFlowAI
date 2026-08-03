@@ -1,0 +1,43 @@
+# docker-compose.prod.yml — production logging override (M-01).
+#
+# Compose merges this on top of docker-compose.yml when both are passed with
+# `-f docker-compose.yml -f docker-compose.prod.yml` (velocityai-app.service
+# does this — see infra/scripts/bootstrap-ec2.sh §17). It switches the
+# backend/frontend `logging:` block from the local-dev `json-file` driver to
+# `awslogs`, so each service ships straight to its OWN CloudWatch Logs stream
+# instead of being interleaved into the CloudWatch agent's undifferentiated
+# `{instance_id}/docker` tail-all-containers stream (every container's
+# *-json.log file glued into one stream with no service field).
+#
+# Requires two things the production host already has and a laptop does not:
+#   - VELOCITYAI_CW_LOG_GROUP in /etc/velocityai/app.env (written by
+#     bootstrap-ec2.sh §11, e.g. /velocityai/prod/app)
+#   - the EC2 instance role's `logs:CreateLogStream` + `logs:PutLogEvents`
+#     grant, already scoped to that exact log-group ARN
+#     (infra/terraform/policies/cloudwatch-write.json) — no new IAM needed.
+#
+# Not used in local dev (`docker compose up` with no `-f` override): compose
+# then uses only docker-compose.yml's json-file driver, which needs neither
+# AWS credentials nor a pre-existing log group.
+services:
+  backend:
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-eu-central-1}
+        awslogs-group: ${VELOCITYAI_CW_LOG_GROUP}
+        awslogs-stream: backend/{{.ID}}
+        # The log group already exists (Terraform, prevent_destroy=true) and
+        # the instance role is not granted logs:CreateLogGroup (see the
+        # durability comment in infra/terraform/modules/iam/main.tf) — fail
+        # loudly rather than have the driver silently try to create one.
+        awslogs-create-group: "false"
+
+  frontend:
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-eu-central-1}
+        awslogs-group: ${VELOCITYAI_CW_LOG_GROUP}
+        awslogs-stream: frontend/{{.ID}}
+        awslogs-create-group: "false"

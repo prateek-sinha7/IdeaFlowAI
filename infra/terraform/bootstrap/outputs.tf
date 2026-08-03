@@ -33,19 +33,28 @@ output "kms_key_alias" {
   value       = aws_kms_alias.bootstrap.name
 }
 
-# --- CI/CD runner outputs ---------------------------------------------------
+# --- GitHub Actions CI/CD outputs (github_oidc.tf) --------------------------
+# The retired GitLab/CodeBuild outputs (codebuild_deploy_role_arns,
+# gitlab_connection_arn, gitlab_runner_project_names) lived here.
+#
+# The single `github_cicd_role_arn` output is GONE: there is no single shared
+# role any more. github_oidc.tf now creates one ECR-only build role plus one
+# deploy role per environment, so GitHub needs TWO variables per Environment:
+#   AWS_BUILD_ROLE_ARN  <- github_build_role_arn      (same in every env)
+#   AWS_DEPLOY_ROLE_ARN <- github_deploy_role_arns[e] (env-specific)
+# See docs/GITHUB_CICD_SETUP.md §3.2 and infra/terraform/RUNBOOK.md §1a.
 
-output "codebuild_deploy_role_arns" {
-  description = "Per-environment ARNs of the IAM roles CodeBuild assumes to run the pipeline, keyed by environment."
-  value       = { for env, role in aws_iam_role.codebuild_deploy : env => role.arn }
+output "github_build_role_arn" {
+  description = "ARN of the GitHub Actions OIDC build role (ECR push/pull only). Set as the AWS_BUILD_ROLE_ARN variable in EVERY GitHub Environment — the same value in each. Null when create_github_oidc = false."
+  value       = var.create_github_oidc ? aws_iam_role.github_build[0].arn : null
 }
 
-output "gitlab_connection_arn" {
-  description = "ARN of the shared GitLab CodeConnections connection. PENDING until authorized once in the AWS console."
-  value       = var.create_gitlab_runner ? aws_codestarconnections_connection.gitlab[0].arn : null
+output "github_deploy_role_arns" {
+  description = "Map of environment name -> per-environment GitHub Actions OIDC deploy role ARN. Set each value as the AWS_DEPLOY_ROLE_ARN variable in the MATCHING GitHub Environment; crossing them over will fail at STS, which is the intended behaviour. Empty when create_github_oidc = false."
+  value       = { for env, role in aws_iam_role.github_deploy : env => role.arn }
 }
 
-output "gitlab_runner_project_names" {
-  description = "Per-environment CodeBuild project names, keyed by environment (named after the branch each serves; triggered by their webhooks)."
-  value       = { for env, proj in aws_codebuild_project.gitlab_runner : env => proj.name }
+output "github_oidc_provider_arn" {
+  description = "ARN of the GitHub Actions OIDC identity provider (created here, or adopted from an existing one — see github_oidc_create_provider). Null when create_github_oidc = false."
+  value       = var.create_github_oidc ? local.github_oidc_provider_arn : null
 }

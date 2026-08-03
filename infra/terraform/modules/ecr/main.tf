@@ -1,15 +1,23 @@
 # =============================================================================
-# ECR repositories — SHARED across environments (build once, promote by tag).
+# ECR repositories — SHARED across environments (build once, promote by DIGEST).
 # =============================================================================
-# Pull access is granted entirely IAM-side:
+# Pull/push access is granted entirely IAM-side:
 #   * the per-env EC2 instance roles (foundation/modules/iam, ecr-pull.json)
-#     are scoped to these repo ARNs;
-#   * the per-env CodeBuild deploy roles (bootstrap/cicd.tf) hold ecr:* on
-#     velocityai/* so the pipeline can push.
+#     are scoped to these repo ARNs and do the actual image pull on the box;
+#   * ONE GitHub Actions build role (bootstrap/github_oidc.tf) holds the push
+#     actions on exactly these repos. The per-environment DEPLOY roles hold no
+#     ECR permissions at all.
 # There is intentionally NO aws_ecr_repository_policy here: a repo policy would
 # have to name every per-env consumer role, which lives in a downstream layer
 # and would create a cross-layer dependency cycle. IAM-side scoping is the
 # single, cycle-free control point.
+#
+# TAG IMMUTABILITY IS LOAD-BEARING (var.image_tag_mutability, default
+# IMMUTABLE). The repositories are shared, and ECR IAM offers no per-tag
+# condition for ecr:PutImage — so IAM alone cannot stop a build triggered for
+# one environment from re-pointing another environment's tag. Immutability can:
+# an existing tag cannot be overwritten by anyone. Deploys then reference the
+# resolved digest (repo@sha256:...), so what was scanned is what runs.
 
 locals {
   # Per-environment "keep last N" rules for branch builds, one per tag prefix
@@ -45,8 +53,12 @@ locals {
 }
 
 resource "aws_ecr_repository" "this" {
-  # checkov:skip=CKV_AWS_51:Tag mutability is operator-configurable via var.image_tag_mutability (default MUTABLE) so a build retry can re-push the same <env>-<sha>/release tag — the reference CI model. Reviewed and accepted.
   # checkov:skip=CKV_AWS_136:AES256 (S3-managed) encryption is the default because the shared layer is applied BEFORE the per-env CMKs exist; a CMK can be supplied via var.kms_key_arn when one is available. Reviewed and accepted.
+  #
+  # CKV_AWS_51 (immutable tags) is NOT skipped any more: var.image_tag_mutability
+  # now defaults to IMMUTABLE, so the check passes on the default configuration.
+  # An operator who deliberately sets MUTABLE re-opens the finding, which is the
+  # correct signal rather than a blanket suppression.
   for_each = toset(var.repository_names)
 
   name                 = each.value

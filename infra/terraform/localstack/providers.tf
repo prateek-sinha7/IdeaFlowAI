@@ -44,7 +44,7 @@ provider "aws" {
       Project     = "velocityai"
       Environment = var.environment
       ManagedBy   = "terraform"
-      Repo        = "gitlab.com/hexaware-uki/velocityai"
+      Repo        = "github.com/Hexaware-HnI/velocityai"
       Owner       = var.owner
       CostCenter  = var.cost_center
     }
@@ -75,7 +75,7 @@ provider "aws" {
       Project     = "velocityai"
       Environment = var.environment
       ManagedBy   = "terraform"
-      Repo        = "gitlab.com/hexaware-uki/velocityai"
+      Repo        = "github.com/Hexaware-HnI/velocityai"
       Owner       = var.owner
       CostCenter  = var.cost_center
     }

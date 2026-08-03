@@ -137,6 +137,34 @@ class Settings(BaseSettings):
     # IN-01 for months). It has been DELETED. Idle-timeout is purely an ops/nginx
     # concern and is not enforced at the application layer.
     SSE_KEEPALIVE_PING_SECONDS: int = 15
+    # KAN-134: Per-subscriber queue maxsize for the per-run fan-out bus. Each SSE
+    # client gets its own queue fed by the shared pump. A slow client that falls
+    # behind (queue full) is silently evicted; it reconnects with Last-Event-ID and
+    # replays the gap from the durable log. 1000 events ≈ 5–10 MB in memory per
+    # subscriber. Set to 0 for unbounded (INV-3 parity with old single-queue model).
+    SSE_SUBSCRIBER_QUEUE_MAXSIZE: int = 1000
+
+    # ---- Graceful shutdown budget (KAN-151 D8) ────────────────────────────
+    # The container's hard ceiling is docker's stop_grace_period (30s,
+    # docker-compose.yml:138); uvicorn's own --timeout-graceful-shutdown (5s,
+    # docker-entrypoint.sh) is spent BEFORE the lifespan body runs. These two
+    # knobs bound what the lifespan body itself may consume. Sum them with 5s for
+    # the checkpointer pool close and keep the total under 25s so SIGKILL is never
+    # the thing that ends the process.
+    # A Concierge turn owns the ONLY durable write of its chat_reply row
+    # (run_commands.py:1356) and is explicitly never cancelled on client
+    # disconnect - so it is AWAITED, not cancelled, and only cut past this bound.
+    SHUTDOWN_CONCIERGE_DRAIN_SECONDS: float = 10.0
+    # How long to wait for run-transport teardown (pump tasks after A2, queue
+    # sentinels) before escalating to task.cancel().
+    SHUTDOWN_TASK_DRAIN_SECONDS: float = 3.0
+    # D8/D9 conflict switch - see the D8 investigation section I11. When False
+    # (default) the shutdown leaves in-flight runs non-terminal so the next boot's
+    # restore_non_terminal_runs auto-resumes them (the shipped Phase 45-50 tier).
+    # When True the shutdown cooperatively cancels them: every in-flight run lands
+    # "cancelled", auto-resume is replaced by the user's "Run again" button
+    # (POST /api/runs/{id}/resume already accepts "cancelled", run_commands.py:379).
+    SHUTDOWN_STOP_RUNS: bool = False
 
     # ---- Image-input ingress (default ON) ----
     # Feature flag for the image-input ingress (IMAGE-INPUT §3 Layer 1/5, Wave 2).
@@ -246,6 +274,22 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./dev.db"
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
     ACCESS_TOKEN_EXPIRE_HOURS: int = 24
+
+    # ---- Logging (M-06) ------------------------------------------------
+    # app.agents / app.api carry prompts/payloads/user content at DEBUG — that
+    # was previously HARDCODED to DEBUG in every environment (main.py), which is
+    # the category of log most likely to leak sensitive request content once it
+    # ships to CloudWatch (H-06). Environment-driven instead: defaults to DEBUG
+    # in ENV=development (unchanged local-dev experience) and INFO everywhere
+    # else. Override explicitly via env var if an environment genuinely needs
+    # DEBUG temporarily for an investigation.
+    LOG_LEVEL_APP: str = ""  # "" = derive from ENV (see main.py)
+    # JSON-formatted logs carry these two static fields on every line so a
+    # CloudWatch Logs Insights query can filter/group by service+environment
+    # without string-parsing the message. SERVICE_NAME defaults per-process;
+    # docker-compose does not need to set it since each service just imports
+    # this module inside its own container.
+    SERVICE_NAME: str = "velocityai-backend"
 
     # LangSmith (set via env vars, read by LangChain automatically)
     LANGSMITH_TRACING: str = "false"
