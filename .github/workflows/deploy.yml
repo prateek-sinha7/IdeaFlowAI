@@ -325,6 +325,32 @@ jobs:
           role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
 
+      - name: Debug — print all environment variables (build job)
+        run: |
+          echo "=== BUILD JOB ENVIRONMENT VARIABLES ==="
+          echo "AWS_BUILD_ROLE_ARN=${{ vars.AWS_BUILD_ROLE_ARN }}"
+          echo "AWS_REGION_DEFAULT=$AWS_REGION_DEFAULT"
+          echo "AWS_REGION=${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}"
+          echo "ECR_REGISTRY=${{ vars.ECR_REGISTRY }}"
+          echo "EC2_INSTANCE_ID=${{ vars.EC2_INSTANCE_ID }}"
+          echo "PUBLIC_BASE_URL=${{ vars.PUBLIC_BASE_URL }}"
+          echo "CORS_ORIGINS=${{ vars.CORS_ORIGINS }}"
+          echo "ACCESS_TOKEN_EXPIRE_HOURS=${{ vars.ACCESS_TOKEN_EXPIRE_HOURS }}"
+          echo "BEDROCK_MODEL_ID=${{ vars.BEDROCK_MODEL_ID }}"
+          echo "BEDROCK_INFERENCE_PROFILE_ID=${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}"
+          echo "BEDROCK_CODING_MODEL_ID=${{ vars.BEDROCK_CODING_MODEL_ID }}"
+          echo "HANDOFF_MAX_TRANSCRIPT_BYTES=${{ vars.HANDOFF_MAX_TRANSCRIPT_BYTES }}"
+          echo "LANGSMITH_TRACING=${{ vars.LANGSMITH_TRACING }}"
+          echo "LANGSMITH_PROJECT=${{ vars.LANGSMITH_PROJECT }}"
+          echo "IMAGE_TAG=${{ needs.resolve.outputs.image_tag }}"
+          echo "ENVIRONMENT=${{ needs.resolve.outputs.environment }}"
+          echo "SHA_SHORT=${{ needs.resolve.outputs.sha_short }}"
+          echo "AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID:-not-set}"
+          echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:+***}"
+          echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:+***}"
+          echo "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:+***}"
+          echo "=== END BUILD JOB ENVIRONMENT VARIABLES ==="
+
       - name: Login to ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
@@ -559,6 +585,32 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+
+      - name: Debug — print all environment variables (deploy job)
+        run: |
+          echo "=== DEPLOY JOB ENVIRONMENT VARIABLES ==="
+          echo "AWS_DEPLOY_ROLE_ARN=${{ vars.AWS_DEPLOY_ROLE_ARN }}"
+          echo "AWS_REGION_DEFAULT=$AWS_REGION_DEFAULT"
+          echo "AWS_REGION=${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}"
+          echo "ECR_REGISTRY=${{ vars.ECR_REGISTRY }}"
+          echo "EC2_INSTANCE_ID=${{ vars.EC2_INSTANCE_ID }}"
+          echo "PUBLIC_BASE_URL=${{ vars.PUBLIC_BASE_URL }}"
+          echo "CORS_ORIGINS=${{ vars.CORS_ORIGINS }}"
+          echo "ACCESS_TOKEN_EXPIRE_HOURS=${{ vars.ACCESS_TOKEN_EXPIRE_HOURS }}"
+          echo "BEDROCK_MODEL_ID=${{ vars.BEDROCK_MODEL_ID }}"
+          echo "BEDROCK_INFERENCE_PROFILE_ID=${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}"
+          echo "BEDROCK_CODING_MODEL_ID=${{ vars.BEDROCK_CODING_MODEL_ID }}"
+          echo "HANDOFF_MAX_TRANSCRIPT_BYTES=${{ vars.HANDOFF_MAX_TRANSCRIPT_BYTES }}"
+          echo "LANGSMITH_TRACING=${{ vars.LANGSMITH_TRACING }}"
+          echo "LANGSMITH_PROJECT=${{ vars.LANGSMITH_PROJECT }}"
+          echo "ENVIRONMENT=${{ needs.resolve.outputs.environment }}"
+          echo "IMAGE_TAG=${{ needs.resolve.outputs.image_tag }}"
+          echo "SHA_SHORT=${{ needs.resolve.outputs.sha_short }}"
+          echo "AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID:-not-set}"
+          echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:+***}"
+          echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:+***}"
+          echo "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:+***}"
+          echo "=== END DEPLOY JOB ENVIRONMENT VARIABLES ==="
 
       # ── Push config from GitHub variables/secrets to SSM ──────────────
       # Only parameters with non-empty values are pushed. The on-host
