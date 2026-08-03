@@ -585,6 +585,7 @@ jobs:
           # Secrets
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
           # Variables
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
           PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
@@ -595,6 +596,7 @@ jobs:
           BEDROCK_MODEL_ID: ${{ vars.BEDROCK_MODEL_ID }}
           BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
           BEDROCK_CODING_MODEL_ID: ${{ vars.BEDROCK_CODING_MODEL_ID }}
+          BOOTSTRAP_ADMIN_EMAIL: ${{ vars.BOOTSTRAP_ADMIN_EMAIL }}
         run: |
           set -euo pipefail
 
@@ -681,8 +683,9 @@ jobs:
           # SECRET_KEY is the app's session/JWT signing secret — required,
           # never delete-on-empty (an accidental blank GitHub secret must fail
           # loudly, not silently wipe the running app's signing key).
-          put_param "SECRET_KEY"        "$SECRET_KEY"        "SecureString" "required"
-          put_param "LANGSMITH_API_KEY" "$LANGSMITH_API_KEY" "SecureString" "delete-if-empty"
+          put_param "SECRET_KEY"              "$SECRET_KEY"              "SecureString" "required"
+          put_param "LANGSMITH_API_KEY"       "$LANGSMITH_API_KEY"       "SecureString" "delete-if-empty"
+          put_param "bootstrap/admin-password" "$BOOTSTRAP_ADMIN_PASSWORD" "SecureString" "delete-if-empty"
 
           # String params (plain config) — all optional/defaulted on the host
           # loader, so an empty GitHub value deletes the SSM override and lets
@@ -693,6 +696,7 @@ jobs:
           put_param "HANDOFF_MAX_TRANSCRIPT_BYTES" "$HANDOFF_MAX_TRANSCRIPT_BYTES" "String" "delete-if-empty"
           put_param "LANGSMITH_TRACING"            "$LANGSMITH_TRACING"            "String" "delete-if-empty"
           put_param "LANGSMITH_PROJECT"             "$LANGSMITH_PROJECT"            "String" "delete-if-empty"
+          put_param "bootstrap/admin-email"        "$BOOTSTRAP_ADMIN_EMAIL"        "String" "delete-if-empty"
 
           # Bedrock LLM config (under the llm/ sub-prefix the host loader maps
           # to AWS_REGION / BEDROCK_* — any other key name is silently dropped).

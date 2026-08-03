@@ -725,6 +725,27 @@ while IFS=$'\t' read -r name value; do
             # from the preserve list above. Skipped silently rather than falling
             # through to the WARN below, which would fire on every app start.
             ;;
+        bootstrap/*)
+            # One-shot initial-administrator credentials
+            # (bootstrap/admin-email, bootstrap/admin-password), consumed by
+            # remote-deploy.sh §12 and streamed straight into
+            # `python -m app.scripts.bootstrap_admin --password-stdin` inside
+            # the backend container.
+            #
+            # These must NOT reach app.env. Doing so would put the bootstrap
+            # password into the long-running container's environment — visible
+            # via `docker inspect` and inherited by every subprocess the app
+            # spawns — for the entire life of the deployment, to serve a step
+            # that runs at most once. The deploy script fetches them from SSM
+            # on demand instead.
+            #
+            # Explicit skip rather than falling through to the WARN below:
+            # unknown-parameter warnings fire on every single app start, and a
+            # recurring warning for an expected parameter trains operators to
+            # ignore the one that matters. Note the WARN prints only the
+            # parameter NAME, never $value, so the previous behaviour was noisy
+            # rather than leaky.
+            ;;
         *)
             echo "[velocityai-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;
     esac

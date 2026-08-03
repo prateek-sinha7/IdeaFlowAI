@@ -489,18 +489,108 @@ if [ "$HEALTHY" -eq 1 ]; then
         echo "[deploy] healthy: backend + frontend (ingress tier skipped)"
     fi
 
-    # NOTE: a post-deployment user-verification/seeding step previously ran
-    # here (creating a default admin/enterprise account if missing). It was
-    # removed: it logged generated temporary passwords in plaintext to SSM
-    # command output (readable via ssm:GetCommandInvocation by anyone with
-    # that read permission), it required backend source + Python deps
-    # installed directly on the host despite the backend running in a
-    # container, and its failures were silently downgraded to warnings. If
-    # bootstrap user provisioning is needed again, it must (a) run inside the
-    # backend container using its own installed code, (b) source credentials
-    # from an approved secret manager rather than generating and printing
-    # them, and (c) be a deploy-blocking step if those users are functionally
-    # required — not an "observability" afterthought.
+    # ── 12. Bootstrap the initial administrator (empty database only) ───────
+    # Self-registration is disabled and /api/admin/users needs an existing
+    # admin, so a fresh environment has no way in. This is the replacement for
+    # the default-admin hook removed from this script earlier, and it satisfies
+    # the three conditions that removal set out: it runs INSIDE the backend
+    # container using the image's own installed code, it sources credentials
+    # from SSM (KMS-encrypted SecureString) rather than generating and printing
+    # them, and it BLOCKS the deploy when it is required and cannot complete.
+    #
+    # Ordering: after the health gate, so migrations have run (the container
+    # entrypoint does `alembic upgrade head`) and we never bootstrap into a
+    # stack that is about to be rolled back.
+    #
+    # Two-phase on purpose. The check comes first and needs no secret, so on
+    # every redeploy — the overwhelmingly common case — the password is never
+    # decrypted, never leaves SSM, and never touches this host.
+    #
+    # PREFIX: the host's own bootstrap.env is authoritative (Terraform writes
+    # it), not a string rebuilt from DEPLOY_ENV. They agree today, and §2 has
+    # already hard-failed on any host/deploy environment mismatch; using the
+    # host value keeps a future prefix change in one place instead of two.
+    SSM_PREFIX="${VELOCITYAI_PARAM_PREFIX:-/velocityai/${DEPLOY_ENV}}"
+    ADMIN_EMAIL_PARAM="${SSM_PREFIX}/bootstrap/admin-email"
+    ADMIN_PASSWORD_PARAM="${SSM_PREFIX}/bootstrap/admin-password"
+
+    echo "[deploy] checking whether an initial administrator is needed..."
+    set +e
+    compose_stack exec -T backend python -m app.scripts.bootstrap_admin --check-only
+    BOOTSTRAP_CHECK_RC=$?
+    set -e
+
+    case "$BOOTSTRAP_CHECK_RC" in
+        0)
+            echo "[deploy] users table already initialised — no bootstrap needed"
+            ;;
+        10)
+            echo "[deploy] users table is empty — bootstrapping the initial administrator"
+
+            # The email is not a secret, so it is fetched into a variable and
+            # logged: knowing WHICH account was created is exactly what an
+            # operator reading a deploy log needs.
+            if ! ADMIN_EMAIL="$(aws ssm get-parameter \
+                --name "$ADMIN_EMAIL_PARAM" \
+                --query 'Parameter.Value' \
+                --output text \
+                --region "$REGION" 2>/dev/null)"; then
+                echo "[deploy] FATAL: this environment has no users and ${ADMIN_EMAIL_PARAM} is not set." >&2
+                echo "[deploy]        Set BOOTSTRAP_ADMIN_EMAIL on the '${DEPLOY_ENV}' GitHub Environment and re-run." >&2
+                exit 1
+            fi
+            if [ -z "$ADMIN_EMAIL" ] || [ "$ADMIN_EMAIL" = "None" ]; then
+                echo "[deploy] FATAL: ${ADMIN_EMAIL_PARAM} is empty." >&2
+                exit 1
+            fi
+            echo "[deploy] initial administrator will be: ${ADMIN_EMAIL}"
+
+            # The password is NEVER assigned to a shell variable: a variable is
+            # readable in /proc, survives into any subprocess environment, and
+            # tends to end up in an error message. It goes SSM -> pipe -> the
+            # container's stdin and nowhere else. Note there is no `echo` of
+            # this pipeline and no `set -x` anywhere in this script.
+            #
+            # pipefail (set at the top of this file) is what makes this safe:
+            # if get-parameter fails, the pipeline is non-zero even though the
+            # container command may exit on its own — and the command would in
+            # any case reject the empty stdin. Fail-closed either way.
+            echo "[deploy] streaming the bootstrap password from SSM (never logged)..."
+            set +e
+            aws ssm get-parameter \
+                --name "$ADMIN_PASSWORD_PARAM" \
+                --with-decryption \
+                --query 'Parameter.Value' \
+                --output text \
+                --region "$REGION" 2>/dev/null \
+                | compose_stack exec -T backend \
+                    python -m app.scripts.bootstrap_admin \
+                        --email "$ADMIN_EMAIL" \
+                        --password-stdin
+            BOOTSTRAP_RC=$?
+            set -e
+
+            if [ "$BOOTSTRAP_RC" -ne 0 ]; then
+                echo "[deploy] FATAL: could not create the initial administrator (exit ${BOOTSTRAP_RC})." >&2
+                echo "[deploy]        Check that ${ADMIN_PASSWORD_PARAM} exists as a SecureString and is" >&2
+                echo "[deploy]        at least 16 characters (BOOTSTRAP_ADMIN_PASSWORD on the '${DEPLOY_ENV}'" >&2
+                echo "[deploy]        GitHub Environment). The command is idempotent — re-running is safe." >&2
+                echo "[deploy]        The stack itself is HEALTHY and is deliberately NOT rolled back: no" >&2
+                echo "[deploy]        earlier image can log anyone in either, so reverting fixes nothing." >&2
+                exit 1
+            fi
+            echo "[deploy] initial administrator ready — change this password after first login"
+            ;;
+        *)
+            # Neither "needed" nor "not needed": the database state is unknown
+            # (container gone, migrations incomplete, connection refused).
+            # Reporting success here would advertise a usable environment
+            # without knowing whether anyone can log into it.
+            echo "[deploy] FATAL: could not determine whether bootstrap is needed (exit ${BOOTSTRAP_CHECK_RC})." >&2
+            compose_stack logs --tail=40 backend >&2 || true
+            exit 1
+            ;;
+    esac
 
     echo "[deploy] complete $(date -u --iso-8601=seconds) tag=${IMAGE_TAG}"
     echo "[deploy]   backend  ${BACKEND_IMAGE_REF}"
