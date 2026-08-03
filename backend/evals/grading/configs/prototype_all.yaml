@@ -1,0 +1,43 @@
+# ALL — the complex dataset through every stage. THE run whose grade matters.
+#
+# datasets/prototype_complex.json holds 20 production-shaped briefs: 5-6 pages,
+# a dynamic detail route, working filters, a state-changing action, cross-page
+# data consistency. This is what the tightened rubric, the consistency caps and
+# the code track were calibrated to separate — an A here means something.
+#
+# `limit: 1` FOR NOW: one complex brief end to end is 5 agent + up to 5 judge
+# calls, and the build stages on these briefs are token-heavy. Raise the limit
+# (or set it null for all 20) once the single-row grade looks sane.
+#
+#   ./evals/grading/grade.sh plan all      # free — prints the blast radius
+#   ./evals/grading/grade.sh run all       # LIVE
+
+run_id: all
+
+track: model
+workflow: prototype
+
+dataset: datasets/prototype_complex.json
+
+agents: all
+from_run: null
+
+rows: null
+limit: 1                      # fleet_dispatch, the first row — raise deliberately
+
+agent_under_test:
+  provider: mistral
+  model: mistral-small-latest
+
+judge:
+  provider: mistral
+  model: mistral-large-latest
+  threshold: null             # null = the rubric's 70
+
+options:
+  # Mistral rate-limits hard and the judge retries on 429, but starting polite
+  # is cheaper than retrying: these briefs produce the largest judge prompts in
+  # the suite.
+  concurrency: 2
+  no_judge: false
+  repeats: 1

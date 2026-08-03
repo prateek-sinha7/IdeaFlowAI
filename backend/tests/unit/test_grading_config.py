@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,7 @@ from evals.grading.config import (
 GRADING_DIR = Path(__file__).resolve().parents[2] / "evals" / "grading"
 CONFIGS_DIR = GRADING_DIR / "configs"
 WORKFLOW_DIR = GRADING_DIR / "model" / "workflows" / "prototype"
-REAL_CONFIGS = ("smoke.yaml", "small.yaml", "full.yaml", "partial.yaml")
+REAL_CONFIGS = ("prototype_smoke.yaml", "prototype_small.yaml", "prototype_full.yaml", "prototype_partial.yaml")
 
 
 def real_rubric() -> dict:
@@ -67,8 +68,8 @@ def test_real_run_configs_load(name):
 
 
 def test_agents_all_and_agents_list_both_parse():
-    every = load_run_config(CONFIGS_DIR / "full.yaml", {})
-    subset = load_run_config(CONFIGS_DIR / "partial.yaml", {})
+    every = load_run_config(CONFIGS_DIR / "prototype_full.yaml", {})
+    subset = load_run_config(CONFIGS_DIR / "prototype_partial.yaml", {})
 
     assert every.agents == "all"
     assert subset.agents == ["prototype-specify"]
@@ -86,7 +87,7 @@ def test_missing_path_produces_a_valid_config_from_defaults_and_cli():
 
 def test_merge_precedence_defaults_then_file_then_cli():
     config = load_run_config(
-        CONFIGS_DIR / "partial.yaml",
+        CONFIGS_DIR / "prototype_partial.yaml",
         {"options": {"concurrency": 8}},
     )
 
@@ -98,10 +99,10 @@ def test_merge_precedence_defaults_then_file_then_cli():
 def test_every_diverging_cli_value_is_recorded_as_an_override():
     # The "config" side of each override is read from the file rather than
     # hardcoded, so this survives a shipped config changing its values.
-    baseline = load_run_config(CONFIGS_DIR / "partial.yaml", {})
+    baseline = load_run_config(CONFIGS_DIR / "prototype_partial.yaml", {})
 
     config = load_run_config(
-        CONFIGS_DIR / "partial.yaml",
+        CONFIGS_DIR / "prototype_partial.yaml",
         {"limit": 999, "judge": {"model": "some-other-judge", "threshold": 60}},
     )
 
@@ -115,10 +116,10 @@ def test_every_diverging_cli_value_is_recorded_as_an_override():
 def test_cli_value_equal_to_the_config_is_not_an_override():
     # Read the config's own values rather than hardcoding them, so this keeps
     # testing "CLI == config records nothing" even when a shipped config changes.
-    baseline = load_run_config(CONFIGS_DIR / "partial.yaml", {})
+    baseline = load_run_config(CONFIGS_DIR / "prototype_partial.yaml", {})
 
     config = load_run_config(
-        CONFIGS_DIR / "partial.yaml",
+        CONFIGS_DIR / "prototype_partial.yaml",
         {
             "options": {"concurrency": baseline.options["concurrency"]},
             "agents": baseline.agents,
@@ -256,7 +257,7 @@ def test_anthropic_provider_warns_rather_than_raising(tmp_path):
 def test_every_shipped_rubric_pins_a_provider_build_model_honours():
     """A pin nothing can resolve makes every baseline verdict REFUSED forever."""
     from evals.grading import config as config_module
-    from evals.grading import judge as judge_module
+    from evals.grading.model import judge as judge_module
 
     workflow = config_module.load_workflow("prototype")
     for stage in workflow["stages"]:
@@ -354,7 +355,7 @@ def test_missing_dataset_file_raises_clearly(tmp_path):
 
 
 def test_rubric_hash_ignores_baseline_but_tracks_dimensions():
-    config = load_run_config(CONFIGS_DIR / "partial.yaml", {})
+    config = load_run_config(CONFIGS_DIR / "prototype_partial.yaml", {})
     rubric = real_rubric()
     dataset = real_dataset()
     original = compute_hashes(config, rubric, dataset)["rubric_hash"]
@@ -370,7 +371,7 @@ def test_rubric_hash_ignores_baseline_but_tracks_dimensions():
 
 
 def test_dataset_hash_changes_when_a_prompt_changes():
-    config = load_run_config(CONFIGS_DIR / "partial.yaml", {})
+    config = load_run_config(CONFIGS_DIR / "prototype_partial.yaml", {})
     rubric = real_rubric()
     dataset = real_dataset()
     original = compute_hashes(config, rubric, dataset)["dataset_hash"]
@@ -382,7 +383,7 @@ def test_dataset_hash_changes_when_a_prompt_changes():
 
 
 def test_hashes_are_stable_across_key_reordering():
-    config = load_run_config(CONFIGS_DIR / "partial.yaml", {})
+    config = load_run_config(CONFIGS_DIR / "prototype_partial.yaml", {})
     rubric = real_rubric()
     dataset = real_dataset()
     original = compute_hashes(config, rubric, dataset)
@@ -398,7 +399,7 @@ def test_hashes_are_stable_across_key_reordering():
 
 def test_all_three_hashes_are_sha256_prefixed():
     hashes = compute_hashes(
-        load_run_config(CONFIGS_DIR / "partial.yaml", {}),
+        load_run_config(CONFIGS_DIR / "prototype_partial.yaml", {}),
         real_rubric(),
         real_dataset(),
     )
@@ -408,12 +409,12 @@ def test_all_three_hashes_are_sha256_prefixed():
 
 
 def test_config_hash_changes_with_a_setting_but_not_with_provenance():
-    base = load_run_config(CONFIGS_DIR / "partial.yaml", {})
+    base = load_run_config(CONFIGS_DIR / "prototype_partial.yaml", {})
     # Drive a DIFFERENT file to byte-identical settings purely through CLI
     # overrides — the point being that `overrides` is provenance, not a setting,
     # so two runs that arrive at the same place compare equal.
     same_settings_via_cli = load_run_config(
-        CONFIGS_DIR / "full.yaml",
+        CONFIGS_DIR / "prototype_full.yaml",
         {
             "run_id": base.run_id,
             "agents": base.agents,
@@ -425,7 +426,7 @@ def test_config_hash_changes_with_a_setting_but_not_with_provenance():
             "options": dict(base.options),
         },
     )
-    different = load_run_config(CONFIGS_DIR / "partial.yaml", {"limit": 99})
+    different = load_run_config(CONFIGS_DIR / "prototype_partial.yaml", {"limit": 99})
     rubric, dataset = real_rubric(), real_dataset()
 
     assert compute_hashes(same_settings_via_cli, rubric, dataset)["config_hash"] == (
@@ -440,51 +441,68 @@ def test_config_hash_changes_with_a_setting_but_not_with_provenance():
 
 
 def test_every_shipped_config_is_reachable_by_its_own_name():
-    """`grade.sh <name>` resolves `<name>.yaml`; a config with no arm is invisible."""
+    """A shipped config with no `grade.sh` arm is invisible to anyone using it.
+
+    Configs are named `<workflow>_<name>.yaml` and `_config_path` resolves the
+    SHORT name (`grade.sh all` -> `prototype_all.yaml`), so the arm to look for
+    is the part after the workflow prefix — checked here against whichever of
+    the two spellings a config uses, never assuming the prefix is present.
+    """
     shipped = {path.name for path in CONFIGS_DIR.glob("*.yaml")}
     arm = (GRADING_DIR / "grade.sh").read_text()
-    names = [name.removesuffix(".yaml") for name in sorted(shipped)]
 
-    for name in names:
-        assert f"{name}|" in arm or f"|{name})" in arm or f"|{name}|" in arm, (
-            f"{name}.yaml ships but grade.sh has no subcommand arm for it"
-        )
+    for filename in sorted(shipped):
+        stem = filename.removesuffix(".yaml")
+        short = stem.split("_", 1)[1] if "_" in stem else stem
+        assert any(
+            token in arm
+            for name in (stem, short)
+            for token in (f"{name}|", f"|{name})", f"|{name}|")
+        ), f"{filename} ships but grade.sh has no subcommand arm for it (tried {short!r})"
 
 
 def test_small_config_is_cheap_and_judged():
     """The debug loop must exercise the judge — otherwise it proves nothing."""
-    config = load_run_config(CONFIGS_DIR / "small.yaml", {})
+    config = load_run_config(CONFIGS_DIR / "prototype_small.yaml", {})
 
     assert config.options["no_judge"] is False
     assert config.dataset.endswith("small.json")
 
 
-def test_small_dataset_is_small_and_keeps_the_negative_row():
-    """Three rows: two narrow positives plus the shared negative test."""
+def test_small_dataset_is_all_interaction_briefs():
+    """Every row is a compact positive that demands working interactions.
+
+    The count is deliberately not pinned — rows get added to this dataset as new
+    interaction shapes are worth exercising. What must hold is that `small` stays
+    all-positive: the negative test lives in ten-industries, and a `fail` row here
+    would silently drag the debugging loop's averages down."""
     dataset = json.loads(
         (
-            GRADING_DIR / "model/workflows/prototype/datasets/small.json"
+            GRADING_DIR / "model/workflows/prototype/datasets/prototype_small.json"
         ).read_text(encoding="utf-8")
     )
 
-    assert dataset["dataset_id"] == "small"
+    assert dataset["dataset_id"] == "prototype_small"
     assert dataset["for_agent"] == "prototype-specify"
-    assert len(dataset["rows"]) == 3
-    negative = [row for row in dataset["rows"] if row.get("expect") == "fail"]
-    assert len(negative) == 1
-    assert negative[0]["id"] == "underspecified_brief", "row id stays stable across datasets"
+    assert len(dataset["rows"]) >= 2
+    assert not any(row.get("expect") == "fail" for row in dataset["rows"])
 
 
 def test_small_dataset_says_its_scores_are_not_comparable():
-    """The briefs cap their own length, so the numbers mean something different."""
+    """The briefs cap their own size, so the numbers mean something different."""
     dataset = json.loads(
         (
-            GRADING_DIR / "model/workflows/prototype/datasets/small.json"
+            GRADING_DIR / "model/workflows/prototype/datasets/prototype_small.json"
         ).read_text(encoding="utf-8")
     )
 
     assert "not comparable" in dataset["description"].lower()
     for row in dataset["rows"]:
-        if row.get("expect") == "fail":
-            continue
-        assert "brevity is a hard requirement" in row["prompt"].lower()
+        # Each brief must demand verifiable behaviour — a dynamic detail route
+        # the code track can actually click — so scores have room to
+        # differentiate. Assert the ROUTE, not the words "dynamic route": the
+        # briefs express it as `#/sku/:id` or `#/job/:id`, and pinning the prose
+        # made this fail the moment a brief said the same thing in route syntax.
+        assert re.search(r"#/\w+/:\w+", row["prompt"]), (
+            f"row {row['id']!r} declares no dynamic detail route"
+        )

@@ -9,7 +9,7 @@
 #   ./evals/grading/grade.sh small         # LIVE, ~4 model calls
 #
 # ⚠️ SCORES FROM THIS CONFIG ARE NOT COMPARABLE TO ANYTHING ELSE.
-# The briefs in datasets/small.json order the agent to be brief, which is not
+# The briefs in datasets/prototype_small.json order the agent to be brief, which is not
 # what the real prompt is being asked to do. Use it to prove the machinery works
 # and is stable; use `full` to judge whether a prompt got better.
 
@@ -18,14 +18,17 @@ run_id: small
 track: model
 workflow: prototype
 
-# Three rows: two narrow positives and the shared negative test. The negative
-# row is never judged, so it exercises that path for the cost of one dispatch.
-dataset: datasets/small.json
+# Two compact positive briefs that demand working interactions (filters,
+# state-changing buttons, dynamic detail routes), so the judge and the code
+# track both have room to differentiate. The negative-test row lives in
+# ten-industries; run it there (optionally with --propagate-negative to watch
+# the whole chain digest it).
+dataset: datasets/prototype_small.json
 
 agents: all
 from_run: null
 
-rows: null
+rows: ["warehouse_slotting"]
 limit: null
 
 

@@ -1,0 +1,12 @@
+schema_version = "1.3"
+
+# tasks.md is the deliverable; spec.md is the INPUT it gets graded against —
+# spec_page_coverage compares the two, so both must come back.
+#
+# The only hand-written file here; the rest is assembled by sync_common.sh
+# from common/plan/ x scenarios/warehouse-slotting/.
+artifacts = ["/app/tasks.md", "/app/spec.md"]
+
+[task]
+name = "velocity/warehouse-slotting-plan"
+description = "Dispatch the real prototype-plan prompt against an upstream warehouse-slotting spec; grade the task list against that spec."

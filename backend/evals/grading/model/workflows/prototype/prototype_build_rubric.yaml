@@ -103,7 +103,12 @@ dimensions:
       and product type?
 
 anchors:
-  90: >
+  95: >
+    Reference quality — you hunted for a weakness and found none worth
+    reporting. A user could complete every flow the brief implies; the data
+    reads as a real export on every page; the dynamic routes render distinct
+    records; one token system with zero drift.
+  85: >
     Data a domain practitioner would accept as a real export, with depth on every
     page. Every page fully answers its purpose. One coherent visual system, DS
     tokens used throughout, chrome identical across pages.
@@ -146,29 +151,52 @@ rubric: |
   find yourself giving every response the same score, you are not reading
   closely enough.
 
+  REPORTING FINDINGS. Everything you find wrong goes in that dimension's
+  `findings`, each tagged `blocking`, `major` or `minor` — the definitions are
+  in the scoring-discipline block above. The tag is what decides the cost, so a
+  nit is cheap and a real gap is not: report freely and tag honestly rather than
+  withholding a criticism to protect a number. Score the dimension for the
+  quality you actually see and let the findings do the deducting; do not
+  pre-deduct for them yourself.
+
 
 # ── BASELINE ──────────────────────────────────────────────────────────────
 # Excluded from the rubric hash.
 #
-# NOT YET CALIBRATED. No run of this stage exists — prototype-build has never
-# been dispatched by this harness (its input adapter did not exist until now).
-# These numbers are the intent, and the run that sets them for real must be
-# recorded in `set_from`. Note also that scores from this stage measure the
-# SINGLE-DISPATCH approximation documented in prototype_build_input.py, not
-# production's per-task build loop.
+# CALIBRATED AGAINST THE GOLDEN ARTIFACTS (2026-07-30). golden/<brief>/ holds
+# hand-written reference outputs that pass every precheck and score 100 on the
+# code track — proof these thresholds are satisfiable, not aspiration. The
+# thresholds are floors a competent run must clear, not the golden ceiling:
+#
+#   min_precheck_pass_rate 1.0 — the golden proves flawless structure is
+#     achievable; any malformed row fails the stage.
+#   min_average_score 70 — RE-DERIVED from `grade.sh calibrate` (2026-07-30)
+#     under severity pricing: the worst golden brief scored 90.96, and the floor
+#     sits ~20 below that observed ceiling. It lands on the same 70 the retired
+#     cap scale used, which is a coincidence of arithmetic, not a carry-over —
+#     the number was recomputed from a live run, not kept. Previously: the
+#     golden ceiling sits in the high 80s-to-95 band.
+#
+# set_from pins ONLY the rubric hash and the judge: config_hash and
+# dataset_hash are deliberately omitted so any dataset and any agent under
+# test evaluates against this baseline. Editing the rubric (anchors,
+# dimensions, precheck) changes the hash and correctly flips runs back to
+# REFUSED until this block is re-pinned.
 baseline:
-  min_precheck_pass_rate: 0.90
-  min_average_score: 80
+  min_precheck_pass_rate: 1.0
+  min_average_score: 70
 
-  # No negative row reaches this stage: `expect: fail` rows are never propagated
-  # downstream (stage_input._expect_reason), so there is nothing to invert. Left
-  # null rather than 1.0, which would assert a check that never runs.
-  min_negative_correct: null
+  # The negative-test row must actually be rejected wherever the dataset
+  # carries one; a dataset with no negatives skips this check.
+  min_negative_correct: 1.0
 
-  # TWO-SIDED SIGNAL GUARD, same as prototype-specify. A judge that returns the
-  # same number every time is dead; one whose spread is implausibly tight is
-  # dying. Both hide real regressions inside an average that looks fine.
+  # THE DEAD-JUDGE GUARD (the constant-95 run). Sample-size gated in scoring:
+  # it arms only when judged rows >= 2x this value, so a 1-2 row debug run is
+  # never failed over a tie while an 11-row constant still is.
   min_distinct_scores: 3
-  max_expected_stddev: null       # set from the calibration run's observed spread
+  max_expected_stddev: null
 
-  set_from: "NOT CALIBRATED — no run of this stage exists yet"
+  set_from:
+    rubric_hash: "sha256:94b7f7499fff889f603f217c9ba87894afd707098908d188a9de42ff325451e9"
+    judge_resolved_model_id: "mistral-large-latest"
+    calibrated: "grade.sh calibrate, 2026-07-30 — golden ceiling 90.96 (worst of 6 briefs), hollow fixture 53.62, separation 37.34; severity pricing per spec 008-grading-calibration"

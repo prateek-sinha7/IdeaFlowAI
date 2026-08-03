@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from evals.grading.precheck import closing_tag, run, validate_config
+from evals.grading.model.precheck import closing_tag, run, validate_config
 
 WORKFLOW_DIR = (
     Path(__file__).resolve().parents[2]
@@ -246,6 +246,7 @@ def test_generic_check_runs_even_when_the_hook_fails():
 # ── replay against the committed run ──────────────────────────────────────
 
 
+@pytest.mark.skipif(not RUN_ARTIFACT_PATH.exists(), reason="the committed example-run fixture is not on disk")
 def test_narrowed_config_passes_every_committed_positive_response():
     """The 11 real specs the old bare-substring list rejected 7 of."""
     rows = [row for row in json.loads(RUN_ARTIFACT_PATH.read_text()) if row["expect"] == "pass"]

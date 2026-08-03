@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from evals.grading import artifacts, config, dispatch, judge, model_grader
+from evals.grading import artifacts, config
+from evals.grading.model import dispatch, judge, model_grader
 
 REAL_WORKFLOW_DIR = (
     Path(__file__).resolve().parents[2]
@@ -36,16 +37,28 @@ GOOD_SPEC = """<spec>
 | Settings | `#/settings` | preferences |
 
 ### Dashboard (`#/dashboard`)
-Monthly recurring revenue of $48,210 across 312 active subscriptions.
+**Components**:
+  - MRR summary: monthly recurring revenue of $48,210 across 312 active subscriptions.
+**Interactions**:
+  - nav link → navigates to `#/dashboard`
 
 ### Invoices (`#/invoices`)
-Invoice INV-20418 for Northwind Traders, $1,240.00, paid 2026-03-04.
+**Components**:
+  - Invoice table: INV-20418 for Northwind Traders, $1,240.00, paid 2026-03-04.
+**Interactions**:
+  - invoice row → navigates to `#/invoices`
 
 ### Accounts (`#/accounts`)
-Northwind Traders on the Scale plan since 2024-11-02.
+**Components**:
+  - Account list: Northwind Traders on the Scale plan since 2024-11-02.
+**Interactions**:
+  - account row → navigates to `#/accounts`
 
 ### Settings (`#/settings`)
-Dunning retry schedule and notification recipients.
+**Components**:
+  - Dunning retry schedule and notification recipients form.
+**Interactions**:
+  - save button → shows the inline confirmation
 </spec>
 """
 
@@ -494,7 +507,8 @@ def test_resolved_config_is_written_before_the_first_dispatch(
     seen = {}
 
     async def checking(row, *, agent_id, sandbox_run_id, log_path, provider=None, model=None):
-        run_dir = Path(log_path).parents[1]
+        # logs/<row_id>/<agent>.log — the run dir is three levels up.
+        run_dir = Path(log_path).parents[2]
         seen["config"] = artifacts.read_resolved_config(run_dir)
         return make_result(row, agent_id)
 
@@ -514,7 +528,7 @@ def test_run_summary_is_running_mid_stage_and_terminal_after(
     async def checking(row, *, agent_id, sandbox_run_id, log_path, provider=None, model=None):
         # FIRST dispatch only: by the last one the first stage has finished, so
         # overwriting would assert about the end of the run, not the middle.
-        run_dir = Path(log_path).parents[1]
+        run_dir = Path(log_path).parents[2]
         seen.setdefault("mid", artifacts.read_run_summary(run_dir))
         return make_result(row, agent_id)
 
@@ -643,3 +657,347 @@ def test_a_failed_write_never_fails_the_run(tmp_path):
     assert artifacts.write_src_file(None, "row", "spec.md", "x") is None
     assert artifacts.write_src_file(tmp_path, "row", "", "x") is None
     assert artifacts.write_src_file(tmp_path, "row", "spec.md", "") is None
+
+
+# ── rejudge: the main run minus the generation ─────────────────────────────
+
+
+def _first_run(workflow_dir) -> str:
+    """One scripted run of the first stage, returning its dataset_run_id."""
+    result = asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(agents=[SPECIFY], rows=["billing_console"])
+        )
+    )
+    return result["dataset_run_id"]
+
+
+def test_rejudge_replays_stored_responses_and_never_dispatches(
+    workflow_dir, any_agent_rubric, dispatches, judgements, monkeypatch
+):
+    """A rejudge re-scores the captured responses; the agent is never called."""
+    run_id = _first_run(workflow_dir)
+
+    async def no_dispatch(*args, **kwargs):
+        raise AssertionError("rejudge must never dispatch an agent")
+
+    rejudged_calls = []
+
+    async def stricter_grade(response, *, rubric, system_prompt, prompt, precheck_reason):
+        rejudged_calls.append({"response": response, "system_prompt": system_prompt})
+        return judge.JudgeVerdict(
+            sub_scores={d["id"]: 60 for d in rubric["dimensions"]},
+            resolved_model_id="fake-judge-v2",
+        )
+
+    monkeypatch.setattr(dispatch, "run_row", no_dispatch)
+    monkeypatch.setattr(judge, "grade", stricter_grade)
+
+    result = asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(agents=[SPECIFY], from_run=run_id), rejudge=True
+        )
+    )
+
+    run_dir = Path(result["run_dir"])
+    # The judge saw the ORIGINAL response and the CAPTURED prompt, verbatim.
+    assert rejudged_calls[0]["response"] == GOOD_SPEC
+    assert rejudged_calls[0]["system_prompt"] == f"composed system prompt for {SPECIFY}"
+    # The new verdict replaced the old one, through the ordinary scoring path.
+    score = artifacts.read_stage_artifact(run_dir, "prototype_specify", "score")
+    assert score["scores"]["average_all"] == 60.0
+    assert score["hashes"]["judge_resolved_model_id"] == "fake-judge-v2"
+    # The captured response survives, and the replaced artifacts are superseded.
+    runs = artifacts.read_stage_artifact(run_dir, "prototype_specify", "run")
+    assert runs[0]["response"] == GOOD_SPEC
+    superseded = run_dir / "artifacts" / "superseded"
+    assert list(superseded.glob("prototype_specify_a1_*")), "old verdict is kept"
+    # The reports regenerate in place — one set, no rejudge-specific copies.
+    assert (run_dir / "reports" / "report.md").exists()
+    assert result["summary"]["status"] == "completed"
+
+
+def test_rejudge_all_restricts_itself_to_the_captured_stages(
+    workflow_dir, any_agent_rubric, dispatches, judgements
+):
+    """`agents: all` re-judges what the folder holds and lists the rest as not run."""
+    run_id = _first_run(workflow_dir)
+
+    result = asyncio.run(
+        model_grader.run_workflow(make_run_config(from_run=run_id), rejudge=True)
+    )
+
+    ran = [stage["agent_id"] for stage in result["stages"]]
+    assert ran == [SPECIFY]
+    assert PLAN in result["summary"]["not_run"]
+
+
+def test_rejudge_of_an_uncaptured_stage_is_an_error(
+    workflow_dir, any_agent_rubric, dispatches, judgements
+):
+    """Naming a stage with nothing captured must fail loudly, not silently skip."""
+    run_id = _first_run(workflow_dir)
+
+    with pytest.raises(ValueError, match="no captured run artifact"):
+        asyncio.run(
+            model_grader.run_workflow(
+                make_run_config(agents=[PLAN], from_run=run_id), rejudge=True
+            )
+        )
+
+
+def test_rejudge_without_an_existing_folder_is_an_error(
+    workflow_dir, any_agent_rubric, dispatches, judgements
+):
+    """A typo'd run id must not mint an empty folder."""
+    with pytest.raises(ValueError, match="no run folder"):
+        asyncio.run(
+            model_grader.run_workflow(
+                make_run_config(from_run="260101-000000-nope"), rejudge=True
+            )
+        )
+    assert not (workflow_dir / ".runs" / "260101-000000-nope").exists()
+
+
+def test_rejudge_keeps_code_findings_in_place(
+    workflow_dir, any_agent_rubric, dispatches, judgements
+):
+    """The replayed responses are unchanged, so the code findings over them stay valid."""
+    run_id = _first_run(workflow_dir)
+    run_dir = run_folders(workflow_dir)[0]
+    findings = run_dir / "artifacts" / "prototype_specify_code_findings.json"
+    findings.write_text('{"findings": {"billing_console": {"ok": true}}}', encoding="utf-8")
+
+    asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(agents=[SPECIFY], from_run=run_id), rejudge=True
+        )
+    )
+
+    assert findings.exists(), "a rejudge must not supersede still-valid code findings"
+    superseded = run_dir / "artifacts" / "superseded"
+    assert not list(superseded.glob("*code_findings*"))
+    assert list(superseded.glob("prototype_specify_a1_grade.json"))
+
+
+# ── automatic code grading after the model track ───────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def code_grading_stub(monkeypatch):
+    """Record the auto code-grade call; unit tests never launch a browser."""
+    calls = []
+
+    def fake(dataset_run_id, *, workflow_dir, render=False, interactions=False, only=None):
+        calls.append({
+            "run": dataset_run_id, "only": only,
+            "render": render, "interactions": interactions,
+        })
+        return {"dataset_run_id": dataset_run_id, "status": "graded", "stages": []}
+
+    monkeypatch.setattr(model_grader.code_grader, "grade_run_folder", fake)
+    return calls
+
+
+def test_code_grading_runs_automatically_after_the_html_stages(
+    workflow_dir, any_agent_rubric, dispatches, judgements, code_grading_stub
+):
+    """A full run grades its HTML stages' output without a second command."""
+    result = asyncio.run(model_grader.run_workflow(make_run_config(rows=["billing_console"])))
+
+    assert len(code_grading_stub) == 1
+    call = code_grading_stub[0]
+    assert call["only"] == ["prototype-build", "prototype-validate"]
+    assert call["render"] is True and call["interactions"] is True
+    assert result["code"]["status"] == "graded"
+
+
+def test_code_grading_can_be_disabled_per_run(
+    workflow_dir, any_agent_rubric, dispatches, judgements, code_grading_stub
+):
+    asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(rows=["billing_console"], options={"code_grading": False})
+        )
+    )
+    assert code_grading_stub == []
+
+
+def test_a_run_with_no_html_stage_skips_code_grading(
+    workflow_dir, any_agent_rubric, dispatches, judgements, code_grading_stub
+):
+    asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(agents=[SPECIFY], rows=["billing_console"])
+        )
+    )
+    assert code_grading_stub == []
+
+
+# ── automatic prompt advice after the code track ───────────────────────────
+
+
+def _emit_all(on_event, events) -> None:
+    """Push a list of progress events through a callback that may be absent."""
+    for event in events:
+        if on_event is not None:
+            on_event(event)
+
+
+@pytest.fixture(autouse=True)
+def advise_stub(monkeypatch):
+    """Record the auto-advise call; unit tests never reach a real advisor.
+
+    Autouse and unconditional: the advise step is LIVE, so an unstubbed test
+    would spend tokens. `_auto_advise` swallows failures by design, which means
+    a missing stub would not fail loudly — it would just quietly call out.
+    """
+    calls = []
+
+    async def fake(dataset_run_id, *, workflow_name, agents, judge_overrides, on_event=None):
+        calls.append({
+            "run": dataset_run_id, "workflow": workflow_name,
+            "agents": agents, "judge": judge_overrides,
+        })
+        # The real advisor speaks the model-stage vocabulary; emitting it here is
+        # what proves model_grader re-tags it before the printer ever sees it.
+        for agent in agents:
+            _emit_all(on_event, [
+                {"event": "stage_start", "agent_id": agent, "rows": 1},
+                {"event": "stage_done", "agent_id": agent, "status": "advised", "edits": 1},
+            ])
+        return {
+            "dataset_run_id": dataset_run_id,
+            "stages": [{"agent_id": agent, "edits": 1, "errored": False} for agent in agents],
+        }
+
+    monkeypatch.setattr(model_grader.prompt_advisor, "advise_run", fake)
+    return calls
+
+
+def test_advice_runs_automatically_over_the_graded_stages(
+    workflow_dir, any_agent_rubric, dispatches, judgements, advise_stub
+):
+    """One live run closes the whole loop: judge, code checks, then advice."""
+    result = asyncio.run(model_grader.run_workflow(make_run_config(rows=["billing_console"])))
+
+    assert len(advise_stub) == 1
+    assert advise_stub[0]["agents"] == [
+        SPECIFY, "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate",
+    ]
+    assert [stage["agent_id"] for stage in result["advice"]["stages"]] == advise_stub[0]["agents"]
+
+
+def test_every_post_model_phase_reports_its_progress(
+    workflow_dir, any_agent_rubric, dispatches, judgements, advise_stub
+):
+    """Both silent phases announce themselves, and advice never masquerades as a stage.
+
+    The advisor emits `stage_start`/`stage_done` exactly like a model stage.
+    Forwarded raw, the printer drew an empty titled rule per advised stage at
+    the end of a finished run; re-tagging is what stops that.
+    """
+    events = []
+    asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(rows=["billing_console"]), on_event=events.append
+        )
+    )
+
+    phases = [event["phase"] for event in events if event["event"] == "phase_start"]
+    assert phases == ["code", "advice"], "each post-model phase announces itself, in order"
+    assert {event["event"] for event in events} >= {
+        "phase_start", "phase_done", "advice_stage_start", "advice_stage_done",
+    }
+    advised = [event for event in events if event["event"].startswith("advice_")]
+    assert advised and all(event["phase"] == "advice" for event in advised)
+    # No advisor event may reach the printer wearing a model stage's name.
+    after_model = events[events.index(next(e for e in events if e["event"] == "phase_start")):]
+    assert not [event for event in after_model if event["event"] in ("stage_start", "stage_done")]
+
+
+def test_advice_can_be_disabled_per_run(
+    workflow_dir, any_agent_rubric, dispatches, judgements, advise_stub
+):
+    asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(rows=["billing_console"], options={"advise": False})
+        )
+    )
+    assert advise_stub == []
+
+
+def test_a_run_that_never_judged_has_nothing_to_advise_on(
+    workflow_dir, any_agent_rubric, dispatches, judgements, advise_stub
+):
+    """`no_judge` leaves no weaknesses, so advising would be a call for nothing."""
+    asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(rows=["billing_console"], options={"no_judge": True})
+        )
+    )
+    assert advise_stub == []
+
+
+def test_a_failing_advisor_never_fails_the_run(
+    workflow_dir, any_agent_rubric, dispatches, judgements, monkeypatch
+):
+    """Advice is a proposal — a paid run must not be reported as failed over it."""
+    async def boom(*args, **kwargs):
+        raise RuntimeError("rate limited")
+
+    monkeypatch.setattr(model_grader.prompt_advisor, "advise_run", boom)
+
+    result = asyncio.run(model_grader.run_workflow(make_run_config(rows=["billing_console"])))
+
+    assert result["summary"]["status"] == "completed"
+    assert result["advice"]["status"] == "errored"
+    assert "rate limited" in result["advice"]["reason"]
+
+
+def test_the_plan_counts_the_advice_calls_it_will_make(
+    workflow_dir, any_agent_rubric, dispatches, judgements
+):
+    """The cost preview names the advisor's spend rather than hiding it."""
+    plan = asyncio.run(
+        model_grader.run_workflow(make_run_config(rows=["billing_console"]), dry_run=True)
+    )
+    estimate = plan["dispatch_estimate"]
+
+    assert estimate["advice_calls"] == 5, "one advisor call per judged stage"
+    assert estimate["total"] == (
+        estimate["agent_calls"] + estimate["judge_calls"] + estimate["advice_calls"]
+    )
+
+
+def test_a_plan_with_advice_off_estimates_no_advisor_spend(
+    workflow_dir, any_agent_rubric, dispatches, judgements
+):
+    plan = asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(rows=["billing_console"], options={"advise": False}), dry_run=True
+        )
+    )
+
+    assert plan["dispatch_estimate"]["advice_calls"] == 0
+
+
+def test_rejudge_regrades_only_the_stages_missing_findings(
+    workflow_dir, any_agent_rubric, dispatches, judgements, code_grading_stub
+):
+    """A rejudge keeps valid findings; only a stage without any gets the browser pass."""
+    result = asyncio.run(model_grader.run_workflow(make_run_config(rows=["billing_console"])))
+    run_dir = Path(result["run_dir"])
+    code_grading_stub.clear()
+    # The build stage already has findings; validate does not.
+    (run_dir / "artifacts" / "prototype_build_code_findings.json").write_text(
+        '{"findings": {"billing_console": {"ok": true}}}', encoding="utf-8"
+    )
+
+    asyncio.run(
+        model_grader.run_workflow(
+            make_run_config(from_run=result["dataset_run_id"]), rejudge=True
+        )
+    )
+
+    assert [call["only"] for call in code_grading_stub] == [["prototype-validate"]]

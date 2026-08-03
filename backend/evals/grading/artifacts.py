@@ -23,6 +23,7 @@ ARTIFACTS_DIR_NAME = "artifacts"
 SUPERSEDED_DIR_NAME = "superseded"
 PROMPTS_DIR_NAME = "prompts"
 LOGS_DIR_NAME = "logs"
+REPORTS_DIR_NAME = "reports"
 RUN_SUMMARY_NAME = "run_summary.json"
 RESOLVED_CONFIG_NAME = "grade_config.resolved.yaml"
 _SUPERSEDED_PATTERN = re.compile(r"_a(\d+)_")
@@ -71,6 +72,13 @@ def artifact_path(run_dir: Path, agent_token: str, kind: str) -> Path:
     return artifacts_dir(run_dir) / f"{agent_token}_{kind}.json"
 
 
+def reports_dir(run_dir: Path) -> Path:
+    """The `reports/` folder: the human-readable rendering of this run."""
+    path = Path(run_dir) / REPORTS_DIR_NAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def src_dir(run_dir: Path, row_id: str) -> Path:
     """`<run>/src/<brief>/` — one folder holding that brief's whole document set.
 
@@ -95,8 +103,13 @@ def write_src_file(run_dir, row_id: str, filename: str, content: str) -> Path | 
 
 
 def log_path(run_dir: Path, agent_token: str, row_id: str) -> Path:
-    """Path of one dispatch transcript: `logs/<agent_token>_<row_id>.log`."""
-    return Path(run_dir) / LOGS_DIR_NAME / f"{agent_token}_{row_id}.log"
+    """Path of one dispatch transcript: `logs/<row_id>/<agent_token>.log`.
+
+    Keyed by ROW first, like src/: one brief's transcripts across every stage
+    are one story, and reading them together is how a bad final HTML is traced
+    back to the stage that introduced it.
+    """
+    return Path(run_dir) / LOGS_DIR_NAME / str(row_id) / f"{agent_token}.log"
 
 
 def compute_system_prompt_hash(system_prompt: str) -> str:
@@ -105,11 +118,18 @@ def compute_system_prompt_hash(system_prompt: str) -> str:
     return f"sha256:{digest}"
 
 
-def guard_append_only(run_dir: Path, agent_token: str, *, replace: bool) -> None:
+def guard_append_only(
+    run_dir: Path, agent_token: str, *, replace: bool, keep: tuple[str, ...] = ()
+) -> None:
     """Refuse to overwrite a stage's artifacts unless `replace` is set.
 
     Silent overwrite is unrecoverable — the captured response text is gone. With
     `replace`, move the existing artifacts to `superseded/<agent_token>_a<N>_*.json`.
+
+    `keep` names artifact kinds left IN PLACE rather than superseded. A rejudge
+    keeps `code_findings`: the responses it re-scores are unchanged, so the
+    deterministic findings over them are still true — whereas a live --replace
+    produces new responses and must supersede them as stale.
     """
     existing = artifact_path(run_dir, agent_token, "run")
     if not existing.exists():
@@ -122,7 +142,10 @@ def guard_append_only(run_dir: Path, agent_token: str, *, replace: bool) -> None
     attempt = _next_supersede_attempt(run_dir, agent_token)
     target_dir = artifacts_dir(run_dir) / SUPERSEDED_DIR_NAME
     target_dir.mkdir(parents=True, exist_ok=True)
+    kept = {f"{agent_token}_{kind}.json" for kind in keep}
     for path in sorted(artifacts_dir(run_dir).glob(f"{agent_token}_*.json")):
+        if path.name in kept:
+            continue
         kind = path.name[len(agent_token) + 1 :]
         path.rename(target_dir / f"{agent_token}_a{attempt}_{kind}")
 
@@ -183,6 +206,44 @@ def read_system_prompt(run_dir: Path, agent_token: str) -> str:
     if not path.exists():
         raise FileNotFoundError(f"no captured system prompt at {path}")
     return path.read_text(encoding="utf-8")
+
+
+def advice_markdown_path(run_dir: Path, agent_token: str) -> Path:
+    """`reports/prompt_advice_<agent_token>.md` — the advisor's human artifact."""
+    return Path(run_dir) / REPORTS_DIR_NAME / f"prompt_advice_{agent_token}.md"
+
+
+def advice_json_path(run_dir: Path, agent_token: str) -> Path:
+    """`reports/prompt_advice_<agent_token>.json` — the same advice, machine-readable."""
+    return Path(run_dir) / REPORTS_DIR_NAME / f"prompt_advice_{agent_token}.json"
+
+
+def write_advice_json(run_dir: Path, agent_token: str, payload: dict) -> None:
+    """Write the advisor's structured advice beside its markdown rendering.
+
+    The markdown is what a person reads; this is what `apply-advice` applies.
+    They are written from the same object, so they cannot disagree — and only
+    this one preserves `current_text` verbatim, which is what makes an exact,
+    unambiguous match against the prompt body possible.
+    """
+    _write_json(advice_json_path(run_dir, agent_token), payload)
+
+
+def read_advice_json(run_dir: Path, agent_token: str) -> dict:
+    """Read back structured advice; raise naming the fix when it was never written.
+
+    Runs graded before this sidecar existed have only the markdown. Re-advising
+    an existing run is cheap — one judge call, no agent dispatches — but that is
+    not obvious from a bare "file not found", so the error says it.
+    """
+    path = advice_json_path(run_dir, agent_token)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"no structured advice at {path} — run "
+            f"`grade.sh advise {Path(run_dir).name}` to generate it "
+            "(one judge call per stage, no agent dispatches)"
+        )
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def write_run_summary(run_dir: Path, summary: dict) -> None:

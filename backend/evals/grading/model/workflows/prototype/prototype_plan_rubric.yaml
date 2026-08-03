@@ -88,7 +88,12 @@ dimensions:
       actually built rather than restate a generic checklist.
 
 anchors:
-  90: >
+  95: >
+    Reference quality — you hunted for a weakness and found none worth
+    reporting. Every task is independently buildable with nothing left to
+    invent, dependencies are strictly forward, and the validation task tests
+    the specific routes, interactions and data THIS plan created.
+  85: >
     Every spec page has exactly one task, in an order where each task only
     depends on what earlier tasks created. Each page task names its classes,
     concrete data rows/points, and handlers — an isolated sub-agent needs
@@ -134,24 +139,52 @@ rubric: |
   find yourself giving every response the same score, you are not reading
   closely enough.
 
+  REPORTING FINDINGS. Everything you find wrong goes in that dimension's
+  `findings`, each tagged `blocking`, `major` or `minor` — the definitions are
+  in the scoring-discipline block above. The tag is what decides the cost, so a
+  nit is cheap and a real gap is not: report freely and tag honestly rather than
+  withholding a criticism to protect a number. Score the dimension for the
+  quality you actually see and let the findings do the deducting; do not
+  pre-deduct for them yourself.
+
 
 # ── BASELINE ──────────────────────────────────────────────────────────────
 # Excluded from the rubric hash.
 #
-# NOT YET CALIBRATED. No run of this stage exists. These numbers are the intent;
-# the run that sets them for real must be recorded in `set_from`.
+# CALIBRATED AGAINST THE GOLDEN ARTIFACTS (2026-07-30). golden/<brief>/ holds
+# hand-written reference outputs that pass every precheck and score 100 on the
+# code track — proof these thresholds are satisfiable, not aspiration. The
+# thresholds are floors a competent run must clear, not the golden ceiling:
+#
+#   min_precheck_pass_rate 1.0 — the golden proves flawless structure is
+#     achievable; any malformed row fails the stage.
+#   min_average_score 70 — RE-DERIVED from `grade.sh calibrate` (2026-07-30)
+#     under severity pricing: the worst golden brief scored 90.96, and the floor
+#     sits ~20 below that observed ceiling. It lands on the same 70 the retired
+#     cap scale used, which is a coincidence of arithmetic, not a carry-over —
+#     the number was recomputed from a live run, not kept. Previously: the
+#     golden ceiling sits in the high 80s-to-95 band.
+#
+# set_from pins ONLY the rubric hash and the judge: config_hash and
+# dataset_hash are deliberately omitted so any dataset and any agent under
+# test evaluates against this baseline. Editing the rubric (anchors,
+# dimensions, precheck) changes the hash and correctly flips runs back to
+# REFUSED until this block is re-pinned.
 baseline:
-  min_precheck_pass_rate: 0.90
-  min_average_score: 80
+  min_precheck_pass_rate: 1.0
+  min_average_score: 70
 
-  # Negative-test rows (e.g. a spec with an unbuildable page set) must actually
-  # be rejected. Scored inverted and excluded from min_precheck_pass_rate above.
+  # The negative-test row must actually be rejected wherever the dataset
+  # carries one; a dataset with no negatives skips this check.
   min_negative_correct: 1.0
 
-  # TWO-SIDED SIGNAL GUARD. A judge that returns the same number every time is
-  # dead; a judge whose spread is implausibly tight is dying. Both hide real
-  # regressions inside an average that looks fine.
+  # THE DEAD-JUDGE GUARD (the constant-95 run). Sample-size gated in scoring:
+  # it arms only when judged rows >= 2x this value, so a 1-2 row debug run is
+  # never failed over a tie while an 11-row constant still is.
   min_distinct_scores: 3
-  max_expected_stddev: null       # set from the calibration run's observed spread
+  max_expected_stddev: null
 
-  set_from: "NOT CALIBRATED — no run of prototype-plan exists yet"
+  set_from:
+    rubric_hash: "sha256:831526800d765897c28282f5f8defe7afc7543e19d871202d071e3f4e9cd03cb"
+    judge_resolved_model_id: "mistral-large-latest"
+    calibrated: "grade.sh calibrate, 2026-07-30 — golden ceiling 90.96 (worst of 6 briefs), hollow fixture 53.62, separation 37.34; severity pricing per spec 008-grading-calibration"

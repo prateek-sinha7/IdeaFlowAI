@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# docker -> podman shim for Harbor.
+#
+# Harbor shells out to a `docker` binary rather than using the Docker SDK
+# (harbor/environments/docker/docker.py gates on shutil.which("docker") and
+# subprocess-calls it), so a CLI shim is sufficient — no Docker Desktop needed.
+#
+# One call needs translating: Harbor's _detect_daemon_os() runs
+#   docker info --format {{.OSType}}
+# and podman's info schema has no such field. Podman's Go template names are
+# capitalised (.Host.OS) but the JSON keys are lowercase, so `--format json`
+# plus a parse is the stable form — the template spelling differs between
+# podman versions, the JSON key does not.
+#
+# Harbor tolerates a failure here by returning None, but returning the real
+# value keeps the linux/windows container check meaningful rather than unknown.
+if [[ "$1" == "info" && "$*" == *"{{.OSType}}"* ]]; then
+  exec podman info --format '{{.Host.OS}}'
+fi
+exec podman "$@"

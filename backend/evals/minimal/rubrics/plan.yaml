@@ -1,0 +1,87 @@
+# Grading config for prototype-plan — decomposes the spec into the ordered
+# build plan the engine executes. The engine runs ONE isolated sub-agent per
+# `## Task N:` block, so structure is load-bearing and the output is
+# machine-parsed, not read by a human.
+#
+# Only `judge`, `scoring`, `dimensions` and `rubric` are read. The removed
+# `precheck`/`baseline`/`threshold`/`agent_id` blocks were carried over from
+# the retired evals/grading system and were never read here — dead config
+# whose `rubric` text actively told the judge a precheck had verified
+# structure when none ever ran. See rubrics/specify.yaml for the full note.
+
+judge:
+  provider: mistral
+  model: mistral-large-latest      # identical to every other stage, so stages stay comparable
+
+
+# Score from what the findings COST (judge.SEVERITY_COST), not the number the
+# judge volunteers — see rubrics/specify.yaml for the runs that forced this.
+scoring: severity_priced
+
+
+# No anchors block, deliberately. A fixed scale gave the judge round numbers
+# to snap to; severity pricing replaced it.
+dimensions:
+  - id: page_coverage
+    weight: 40
+    description: >
+      Does every spec page get its own task, and only its own? Total tasks =
+      1 shell + N pages + 1 validation. Flag: a page with no task (the
+      prototype will not have it), and two pages merged into one task (the
+      isolated sub-agent will half-finish it).
+
+  - id: task_self_containment
+    weight: 40
+    description: >
+      Could ONE sub-agent that cannot see the other tasks build this task from
+      its text alone? Each page task needs its exact layout pattern and CSS
+      classes, table columns plus 5 specific rows, chart type/axes plus 6+
+      valued data points, every button's action, every field's validation, the
+      handlers required. "Add the metrics table" with the data deferred to the
+      spec is not buildable in isolation.
+
+  - id: build_order_coherence
+    weight: 20
+    description: >
+      Does the sequence work as a build? Task 1 must establish what everything
+      after it depends on — DS tokens on :root, the CSS class system, shared
+      chrome with ALL nav items, an empty section and route for EVERY page.
+      Flag: a later task forward-referencing something never created, and a
+      final validation task that restates a generic checklist instead of
+      testing what this plan actually built.
+
+rubric: |
+  Grading a BUILD PLAN — a prototype spec decomposed into ordered, atomic
+  tasks. Not documentation: the engine parses `## Task N:` headers and runs
+  ONE isolated sub-agent per task, and that sub-agent CANNOT see the other
+  tasks. Judge every task by whether it is buildable under that constraint.
+
+  Read the upstream spec this plan came from and check the plan against it,
+  page for page.
+
+  Nothing has been pre-screened. Judge the response as-is, including whether
+  it is properly wrapped and whether task numbers form a complete sequence.
+
+  Return an entry for EVERY dimension listed. A partial list is discarded in
+  full.
+
+  FINDINGS ARE THE SCORE. Per dimension, list every real defect in
+  `weaknesses` as a string PREFIXED with its severity — `"blocking: ..."`,
+  `"major: ..."`, `"minor: ..."`:
+  - blocking — a sub-agent cannot build the task, or builds the wrong thing:
+    a spec page with no task, content deferred to an artifact the sub-agent
+    cannot see, a forward reference to something no earlier task creates.
+  - major — real gap, but a reasonable assumption gets past it: a table
+    without its rows, a chart without its data points, an interaction named
+    but not specified.
+  - minor — nit; changes nothing about what gets built.
+
+  The tag IS the deduction. Tag honestly: never withhold a finding to protect
+  a score, never inflate a nit. No real defects = empty `weaknesses` = a
+  legitimate 100. Do not invent a flaw to avoid giving one.
+
+  `score`: your own 0-100. Recorded for comparison, NOT the score of record.
+  Answer it honestly, not strategically.
+
+  `evidence`: quote specific task numbers, page names or data points from
+  THIS response. Text that would fit any other plan is a non-answer.

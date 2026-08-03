@@ -17,19 +17,13 @@ import pathlib
 import pytest
 import yaml
 
-from evals.grading import (
-    artifacts,
-    config,
-    dispatch,
-    grade_runner,
-    judge,
-    model_grader,
-)
+from evals.grading import artifacts, config, grade_runner
+from evals.grading.model import dispatch, judge, model_grader
 
 GRADING_DIR = Path(__file__).resolve().parents[2] / "evals" / "grading"
 REAL_WORKFLOW_DIR = GRADING_DIR / "model" / "workflows" / "prototype"
 CONFIGS_DIR = GRADING_DIR / "configs"
-SMOKE_CONFIG = str(CONFIGS_DIR / "smoke.yaml")
+SMOKE_CONFIG = str(CONFIGS_DIR / "prototype_smoke.yaml")
 
 
 def _row_count(config_path: str) -> int:
@@ -65,8 +59,8 @@ def _expected_estimate(config_path: str, *, stages: int = 1) -> str:
         f"{rows} AI calls to do the work + {judge_calls} to grade it "
         f"= {total} AI call{'' if total == 1 else 's'} in total"
     )
-CALIBRATION_CONFIG = str(CONFIGS_DIR / "partial.yaml")
-FULL_CONFIG = str(CONFIGS_DIR / "full.yaml")
+CALIBRATION_CONFIG = str(CONFIGS_DIR / "prototype_partial.yaml")
+FULL_CONFIG = str(CONFIGS_DIR / "prototype_full.yaml")
 SPECIFY = "prototype-specify"
 
 GOOD_SPEC = """<spec>
@@ -79,16 +73,28 @@ GOOD_SPEC = """<spec>
 | Settings | `#/settings` | preferences |
 
 ### Dashboard (`#/dashboard`)
-Monthly recurring revenue of $48,210 across 312 active subscriptions.
+**Components**:
+  - MRR summary: monthly recurring revenue of $48,210 across 312 active subscriptions.
+**Interactions**:
+  - nav link → navigates to `#/dashboard`
 
 ### Invoices (`#/invoices`)
-Invoice INV-20418 for Northwind Traders, $1,240.00, paid 2026-03-04.
+**Components**:
+  - Invoice table: INV-20418 for Northwind Traders, $1,240.00, paid 2026-03-04.
+**Interactions**:
+  - invoice row → navigates to `#/invoices`
 
 ### Accounts (`#/accounts`)
-Northwind Traders on the Scale plan since 2024-11-02.
+**Components**:
+  - Account list: Northwind Traders on the Scale plan since 2024-11-02.
+**Interactions**:
+  - account row → navigates to `#/accounts`
 
 ### Settings (`#/settings`)
-Dunning retry schedule and notification recipients.
+**Components**:
+  - Dunning retry schedule and notification recipients form.
+**Interactions**:
+  - save button → shows the inline confirmation
 </spec>
 """
 
@@ -198,10 +204,15 @@ def stub_workflow(monkeypatch, result):
     recorded = []
     real = model_grader.run_workflow
 
-    async def stubbed(run_config, *, dry_run=False, replace=False, on_event=None):
-        recorded.append({"run_config": run_config, "dry_run": dry_run, "replace": replace})
+    async def stubbed(
+        run_config, *, dry_run=False, replace=False, on_event=None, dataset_run_id=None
+    ):
+        recorded.append({
+            "run_config": run_config, "dry_run": dry_run, "replace": replace,
+            "dataset_run_id": dataset_run_id,
+        })
         if dry_run:
-            return await real(run_config, dry_run=True)
+            return await real(run_config, dry_run=True, dataset_run_id=dataset_run_id)
         return result
 
     monkeypatch.setattr(model_grader, "run_workflow", stubbed)
@@ -288,7 +299,10 @@ def test_the_bare_config_form_prints_the_plan_before_dispatching(
 
     code = grade_runner.main(["--config", SMOKE_CONFIG])
 
-    assert code == grade_runner.EXIT_OK
+    # Not EXIT_OK: the stub answers every stage with a SPEC, so the four stages
+    # after specify fail their own prechecks and the calibrated baseline says so.
+    # This test is about ORDER, and the order holds either way.
+    assert code in (grade_runner.EXIT_OK, grade_runner.EXIT_BASELINE_FAIL)
     assert events[0] == "plan"
     assert events.count("dispatch") >= 1, "the plan printed and then it really ran"
 
@@ -404,7 +418,10 @@ def test_no_judge_skips_the_preflight_and_still_runs(
     code = grade_runner.main(["--config", SMOKE_CONFIG, "model"])
     output = capsys.readouterr().out
 
-    assert code == grade_runner.EXIT_OK
+    # The point is that the UNRESOLVABLE judge never stopped the run: with
+    # --no-judge it is never asked. A baseline FAIL downstream (the stub answers
+    # every stage with a spec) is a verdict, not a preflight abort.
+    assert code != grade_runner.EXIT_JUDGE_PREFLIGHT
     assert len(dispatches) >= 1
     assert "Full details" in output
 
@@ -504,6 +521,45 @@ def test_replace_reaches_run_workflow_as_a_keyword(workflow_dir, credentials, mo
     assert code == grade_runner.EXIT_OK
     assert recorded[-1]["replace"] is True
     assert recorded[-1]["dry_run"] is False
+
+
+def test_the_run_folder_is_the_id_the_plan_announced(workflow_dir, credentials, monkeypatch):
+    """One id per run, minted once.
+
+    The CLI calls run_workflow twice — a dry run to print the plan, then the
+    real one. Each call used to mint its own `YYMMDD-HHMMSS-<dataset>` id, so
+    the folder on disk carried a timestamp seconds later than the one the header
+    had just printed, and `grade.sh report <printed-id>` found nothing.
+    """
+    recorded = stub_workflow(monkeypatch, make_result("PASS"))
+
+    grade_runner.main(["--config", SMOKE_CONFIG, "model"])
+
+    planned, live = recorded[0], recorded[-1]
+    assert planned["dry_run"] is True and live["dry_run"] is False
+    # The live run is TOLD its id rather than minting a second one.
+    assert re.fullmatch(r"\d{6}-\d{6}-\w+", live["dataset_run_id"] or "")
+
+
+def test_the_printed_id_and_the_created_folder_agree(
+    workflow_dir, credentials, dispatches, capsys, monkeypatch
+):
+    """End to end: the id in the header is the folder that appears on disk."""
+    monkeypatch.setattr(judge, "resolve_judge_model", lambda judge_config: object())
+
+    grade_runner.main(["--config", SMOKE_CONFIG, "model"])
+
+    printed = capsys.readouterr().out
+    match = re.search(r"run\s+\S+\s+·\s+\S+\s+·\s+(\S+)", printed)
+    assert match, "the header did not print a dataset_run_id at all"
+    announced = match.group(1)
+    on_disk = [
+        path.name for path in artifacts.runs_root(workflow_dir).iterdir() if path.is_dir()
+    ]
+
+    assert on_disk == [announced], (
+        f"header announced {announced!r} but the folder is {on_disk!r}"
+    )
 
 
 # ── exit codes ────────────────────────────────────────────────────────────
@@ -905,7 +961,8 @@ def test_report_writes_the_markdown_beside_the_artifacts(workflow_dir, capsys):
     code = grade_runner.main(["report", "run-a"])
 
     assert code == grade_runner.EXIT_OK
-    assert (run_dir / "REPORT.md").exists()
+    assert (run_dir / "reports" / "report.md").exists()
+    assert (run_dir / "reports" / "prototype_specify_report.md").exists()
     assert "markdown        not written" not in capsys.readouterr().err
 
 
@@ -1055,3 +1112,87 @@ def test_no_notes_heading_when_there_is_nothing_to_note(capsys):
     grade_runner.print_plan_header(_plan_with([_stage_entry("prototype-specify")]))
 
     assert "notes" not in capsys.readouterr().out
+
+
+# ── progress for the post-model phases ────────────────────────────────────
+
+
+def test_the_code_phase_announces_itself_before_the_browser_runs(capsys):
+    """The slowest silent stretch of a run must not look like a hang."""
+    grade_runner.print_progress({
+        "event": "phase_start", "phase": "code",
+        "agent_ids": ["prototype-build", "prototype-validate"],
+    })
+
+    printed = capsys.readouterr().out
+    assert "code checks" in printed
+    assert "prototype-build, prototype-validate" in printed
+    assert "browser" in printed, "it says what it is about to do, not just that it started"
+
+
+def test_the_code_phase_prints_a_score_per_checked_stage(capsys):
+    grade_runner.print_progress({
+        "event": "phase_done", "phase": "code",
+        "result": {"status": "graded", "stages": [
+            {"agent_id": "prototype-build", "average_code_score": 95.5,
+             "rows_ok": 1, "rows_checked": 2},
+        ]},
+    })
+
+    printed = capsys.readouterr().out
+    assert "prototype-build" in printed and "95.5" in printed
+    assert "rows ok 1 / 2" in printed
+
+
+def test_a_failed_code_phase_says_so_rather_than_printing_nothing(capsys):
+    grade_runner.print_progress({
+        "event": "phase_done", "phase": "code",
+        "result": {"status": "errored", "reason": "playwright is not installed", "stages": []},
+    })
+
+    assert "playwright is not installed" in capsys.readouterr().out
+
+
+def test_the_advice_phase_prints_a_line_per_advised_stage(capsys):
+    """Advice is a live model call per stage — each one is visible as it happens."""
+    grade_runner.print_progress({
+        "event": "phase_start", "phase": "advice", "agent_ids": ["prototype-specify"],
+    })
+    grade_runner.print_progress({
+        "event": "advice_stage_start", "agent_id": "prototype-specify", "phase": "advice",
+    })
+    grade_runner.print_progress({
+        "event": "advice_stage_done", "agent_id": "prototype-specify", "status": "advised",
+        "edits": 3, "deviations": 2, "tokens_in": 9000, "tokens_out": 1200,
+    })
+
+    printed = capsys.readouterr().out
+    assert "prompt advice" in printed
+    assert "advising…" in printed
+    assert "3 edit(s) · 2 deviation(s)" in printed
+
+
+def test_a_failed_advice_stage_prints_its_reason(capsys):
+    grade_runner.print_progress({
+        "event": "advice_stage_done", "agent_id": "prototype-build", "status": "errored",
+        "error_reason": "rate limited by provider after 4 retries",
+    })
+
+    printed = capsys.readouterr().out
+    assert "✖" in printed and "rate limited" in printed
+
+
+def test_an_advice_event_never_renders_as_an_empty_model_stage(capsys):
+    """The regression this vocabulary exists to prevent.
+
+    The advisor emits `stage_start`/`stage_done` too. Forwarded raw, the model
+    printer drew a titled rule with no rows under it for every advised stage —
+    five empty headers at the end of a run that had already finished.
+    """
+    grade_runner.print_progress({
+        "event": "advice_stage_start", "agent_id": "prototype-specify", "phase": "advice",
+    })
+
+    printed = capsys.readouterr().out
+    assert "─" not in printed, "an advised stage is a line, never a stage rule"
+    assert "1 row" not in printed

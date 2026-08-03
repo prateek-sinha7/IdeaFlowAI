@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledgerline — Expense Approvals</title>
+<style>
+:root {
+  --bg: #f7f7f9;
+  --fg: #1f2430;
+  --accent: #3b4bd8;
+  --surface: #ffffff;
+  --border: #e2e4ea;
+  --muted: #6b7280;
+  --approve: #157347;
+  --reject: #b02a37;
+  --pending: #92400e;
+  --pending-soft: #fff4e0;
+  --approve-soft: #e5f3ec;
+  --reject-soft: #fdecec;
+  --font-body: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { display: flex; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; }
+
+.sidebar { width: 220px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 20px 12px; }
+.brand { font-size: 15px; font-weight: 700; color: var(--accent); padding: 0 10px 18px; }
+.nav-link { display: block; padding: 9px 10px; margin-bottom: 2px; border-radius: 6px; color: var(--fg); text-decoration: none; }
+.nav-link:hover { background: var(--bg); }
+.nav-link.active { background: var(--accent); color: var(--surface); }
+
+.main { flex: 1; padding: 26px 30px; max-width: 1100px; }
+.page { display: none; }
+.page.is-active { display: block; }
+.page-header { margin-bottom: 18px; }
+.page-title { font-size: 20px; font-weight: 700; }
+.page-sub { color: var(--muted); margin-top: 4px; }
+
+.filter-group { display: flex; gap: 6px; margin-bottom: 14px; }
+.filter-btn { padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; font-size: 13px; }
+.filter-btn:hover { border-color: var(--accent); }
+.filter-btn.active { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; }
+.table th { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.table tr:last-child td { border-bottom: none; }
+.amount { font-variant-numeric: tabular-nums; text-align: right; }
+th.amount { text-align: right; }
+.row-link { cursor: pointer; }
+.row-link:hover { background: var(--bg); }
+.expense-link { color: var(--accent); text-decoration: none; font-weight: 600; }
+.expense-link:hover { text-decoration: underline; }
+.total-row td { font-weight: 700; border-top: 2px solid var(--border); }
+
+.badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.badge-pending { background: var(--pending-soft); color: var(--pending); }
+.badge-approved { background: var(--approve-soft); color: var(--approve); }
+.badge-rejected { background: var(--reject-soft); color: var(--reject); }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+.card-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.detail-list { list-style: none; }
+.detail-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.detail-list li:last-child { border-bottom: none; }
+.detail-list .k { color: var(--muted); }
+.back-link { display: inline-block; margin-bottom: 14px; color: var(--accent); text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+
+.action-row { display: flex; gap: 10px; margin-top: 16px; }
+.btn { padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; font-size: 14px; }
+.btn-approve { background: var(--approve); border-color: var(--approve); color: var(--surface); }
+.btn-reject { background: var(--reject); border-color: var(--reject); color: var(--surface); }
+.btn-approve:hover, .btn-reject:hover { opacity: 0.92; }
+
+.form-group { margin-bottom: 14px; }
+.form-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+.form-input { width: 100%; max-width: 320px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); font-size: 14px; }
+.empty-note { color: var(--muted); font-style: italic; }
+.save-note { margin-top: 10px; color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<nav class="sidebar" data-od-id="sidebar">
+  <div class="brand">Ledgerline</div>
+  <a href="#/inbox" data-page-link="inbox" class="nav-link">Inbox</a>
+  <a href="#/reports" data-page-link="reports" class="nav-link">Reports</a>
+  <a href="#/settings" data-page-link="settings" class="nav-link">Settings</a>
+</nav>
+
+<main class="main" data-od-id="main">
+
+  <section data-page="inbox" class="page is-active" data-od-id="page-inbox">
+    <header class="page-header">
+      <h1 class="page-title">Expense inbox</h1>
+      <p class="page-sub">5 submissions this week · Ledgerline finance</p>
+    </header>
+    <div class="filter-group" id="status-filters">
+      <button type="button" class="filter-btn active" data-status="all" onclick="onStatusFilter('all')">All</button>
+      <button type="button" class="filter-btn" data-status="Pending" onclick="onStatusFilter('Pending')">Pending</button>
+      <button type="button" class="filter-btn" data-status="Approved" onclick="onStatusFilter('Approved')">Approved</button>
+      <button type="button" class="filter-btn" data-status="Rejected" onclick="onStatusFilter('Rejected')">Rejected</button>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>Expense</th><th>Merchant</th><th class="amount">Amount</th><th>Category</th><th>Submitted</th><th>Employee</th><th>Status</th></tr>
+        </thead>
+        <tbody id="inbox-rows">
+          <tr class="row-link"><td><a href="#/expense/2201" class="expense-link">EXP-2201</a></td><td>Delta Air Lines</td><td class="amount">$482.30</td><td>Travel</td><td>2026-03-02</td><td>Sofia Marin</td><td><span class="badge badge-pending">Pending</span></td></tr>
+          <tr class="row-link"><td><a href="#/expense/2202" class="expense-link">EXP-2202</a></td><td>Atlassian (Jira licences)</td><td class="amount">$683.76</td><td>Software</td><td>2026-03-03</td><td>James Cho</td><td><span class="badge badge-approved">Approved</span></td></tr>
+          <tr class="row-link"><td><a href="#/expense/2203" class="expense-link">EXP-2203</a></td><td>Blue Bottle Coffee (client meeting)</td><td class="amount">$58.42</td><td>Meals</td><td>2026-03-04</td><td>Priya Patel</td><td><span class="badge badge-pending">Pending</span></td></tr>
+          <tr class="row-link"><td><a href="#/expense/2204" class="expense-link">EXP-2204</a></td><td>Office Depot (standing desks)</td><td class="amount">$1,207.95</td><td>Office</td><td>2026-03-05</td><td>Miguel Torres</td><td><span class="badge badge-rejected">Rejected</span></td></tr>
+          <tr class="row-link"><td><a href="#/expense/2205" class="expense-link">EXP-2205</a></td><td>Lyft (airport transfer)</td><td class="amount">$63.18</td><td>Travel</td><td>2026-03-06</td><td>Sofia Marin</td><td><span class="badge badge-approved">Approved</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section data-page="expense-detail" class="page" data-od-id="page-expense-detail">
+    <a href="#/inbox" class="back-link">← Back to inbox</a>
+    <header class="page-header">
+      <h1 class="page-title" id="expense-title">Expense</h1>
+      <p class="page-sub" id="expense-status-line">Current status: <span class="badge badge-pending" id="expense-badge">Pending</span></p>
+    </header>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Submission</div>
+        <ul class="detail-list" id="expense-submission"></ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Receipt</div>
+        <ul class="detail-list" id="expense-receipt"></ul>
+      </div>
+    </div>
+    <div class="action-row">
+      <button type="button" class="btn btn-approve" onclick="approveExpense()">Approve</button>
+      <button type="button" class="btn btn-reject" onclick="rejectExpense()">Reject</button>
+    </div>
+  </section>
+
+  <section data-page="reports" class="page" data-od-id="page-reports">
+    <header class="page-header">
+      <h1 class="page-title">Spend by category</h1>
+      <p class="page-sub">Week of 2 Mar 2026 — totals over the five inbox submissions</p>
+    </header>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>Category</th><th>Expenses</th><th class="amount">Total</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Travel</td><td>2</td><td class="amount">$545.48</td></tr>
+          <tr><td>Software</td><td>1</td><td class="amount">$683.76</td></tr>
+          <tr><td>Meals</td><td>1</td><td class="amount">$58.42</td></tr>
+          <tr><td>Office</td><td>1</td><td class="amount">$1,207.95</td></tr>
+          <tr class="total-row"><td>All categories</td><td>5</td><td class="amount">$2,495.61</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section data-page="settings" class="page" data-od-id="page-settings">
+    <header class="page-header">
+      <h1 class="page-title">Settings</h1>
+      <p class="page-sub">Approval policy preferences</p>
+    </header>
+    <div class="card">
+      <div class="form-group">
+        <label class="form-label" for="setting-threshold">Auto-approve threshold</label>
+        <input class="form-input" id="setting-threshold" type="text" value="$75.00">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="setting-currency">Default currency</label>
+        <input class="form-input" id="setting-currency" type="text" value="USD">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="setting-contact">Finance contact</label>
+        <input class="form-input" id="setting-contact" type="text" value="finance@ledgerline.io">
+      </div>
+      <button type="button" class="btn" onclick="onSavePolicy()">Save policy</button>
+      <div class="save-note" id="settings-note"></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+const store = {
+  expenses: [
+    { id: 2201, merchant: "Delta Air Lines",                  amount: "$482.30",   category: "Travel",   submitted: "2026-03-02", employee: "Sofia Marin",   costCentre: "SALES-04", method: "Corporate Amex ·· 3007", receiptRef: "RCT-88412", status: "Pending" },
+    { id: 2202, merchant: "Atlassian (Jira licences)",        amount: "$683.76",   category: "Software", submitted: "2026-03-03", employee: "James Cho",     costCentre: "ENG-01",   method: "Corporate Visa ·· 5521", receiptRef: "RCT-88437", status: "Approved" },
+    { id: 2203, merchant: "Blue Bottle Coffee (client meeting)", amount: "$58.42", category: "Meals",    submitted: "2026-03-04", employee: "Priya Patel",   costCentre: "SALES-04", method: "Personal — reimburse",   receiptRef: "RCT-88453", status: "Pending" },
+    { id: 2204, merchant: "Office Depot (standing desks)",    amount: "$1,207.95", category: "Office",   submitted: "2026-03-05", employee: "Miguel Torres", costCentre: "OPS-02",   method: "Corporate Visa ·· 5521", receiptRef: "RCT-88490", status: "Rejected" },
+    { id: 2205, merchant: "Lyft (airport transfer)",          amount: "$63.18",    category: "Travel",   submitted: "2026-03-06", employee: "Sofia Marin",   costCentre: "SALES-04", method: "Corporate Amex ·· 3007", receiptRef: "RCT-88502", status: "Approved" }
+  ],
+  filters: { status: "all" },
+  settings: { autoApprove: "$75.00", currency: "USD", contact: "finance@ledgerline.io" },
+  currentExpenseId: null
+};
+
+const routes = [
+  { pattern: "inbox",       page: "inbox" },
+  { pattern: "expense/:id", page: "expense-detail" },
+  { pattern: "reports",     page: "reports" },
+  { pattern: "settings",    page: "settings" }
+];
+
+function matchRoute(hash) {
+  const path = hash.replace(/^#\/?/, "") || "inbox";
+  const segments = path.split("/");
+  for (const route of routes) {
+    const parts = route.pattern.split("/");
+    if (parts.length !== segments.length) continue;
+    const params = {};
+    let ok = true;
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].charAt(0) === ":") { params[parts[i].slice(1)] = segments[i]; }
+      else if (parts[i] !== segments[i]) { ok = false; break; }
+    }
+    if (ok) return { page: route.page, params: params };
+  }
+  return { page: "inbox", params: {} };
+}
+
+function handleRouteChange() {
+  const matched = matchRoute(window.location.hash);
+  document.querySelectorAll("section[data-page]").forEach(function (s) { s.classList.remove("is-active"); });
+  const section = document.querySelector('section[data-page="' + matched.page + '"]');
+  if (section) section.classList.add("is-active");
+  document.querySelectorAll("[data-page-link]").forEach(function (a) { a.classList.remove("active"); });
+  document.querySelectorAll('[data-page-link="' + matched.page + '"]').forEach(function (a) { a.classList.add("active"); });
+  if (matched.page === "expense-detail") renderExpense(matched.params.id);
+  if (matched.page === "inbox") renderInbox();
+}
+
+function badgeClass(status) {
+  if (status === "Approved") return "badge badge-approved";
+  if (status === "Rejected") return "badge badge-rejected";
+  return "badge badge-pending";
+}
+
+function renderInbox() {
+  const status = store.filters.status;
+  const rows = store.expenses.filter(function (e) {
+    return status === "all" || e.status === status;
+  });
+  const body = document.getElementById("inbox-rows");
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="empty-note">No expenses in this state.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(function (e) {
+    return '<tr class="row-link" onclick="openExpense(' + e.id + ')">' +
+      '<td><span class="expense-link">EXP-' + e.id + "</span></td>" +
+      "<td>" + e.merchant + "</td>" +
+      '<td class="amount">' + e.amount + "</td>" +
+      "<td>" + e.category + "</td>" +
+      "<td>" + e.submitted + "</td>" +
+      "<td>" + e.employee + "</td>" +
+      '<td><span class="' + badgeClass(e.status) + '">' + e.status + "</span></td>" +
+      "</tr>";
+  }).join("");
+}
+
+function onStatusFilter(status) {
+  store.filters.status = status;
+  document.querySelectorAll("#status-filters .filter-btn").forEach(function (b) {
+    b.classList.toggle("active", b.getAttribute("data-status") === status);
+  });
+  renderInbox();
+}
+
+function openExpense(id) {
+  window.location.hash = "#/" + ["expense", id].join("/");
+}
+
+function renderExpense(id) {
+  const expense = store.expenses.find(function (e) { return String(e.id) === String(id); });
+  const titleEl = document.getElementById("expense-title");
+  const submissionEl = document.getElementById("expense-submission");
+  const receiptEl = document.getElementById("expense-receipt");
+  if (!expense) {
+    store.currentExpenseId = null;
+    titleEl.textContent = "Unknown expense";
+    document.getElementById("expense-badge").textContent = "—";
+    submissionEl.innerHTML = '<li><span class="empty-note">No expense found for this link.</span></li>';
+    receiptEl.innerHTML = '<li><span class="empty-note">Nothing to show.</span></li>';
+    return;
+  }
+  store.currentExpenseId = expense.id;
+  titleEl.textContent = "EXP-" + expense.id + " · " + expense.merchant;
+  renderExpenseBadge(expense);
+  submissionEl.innerHTML =
+    '<li><span class="k">Merchant</span><span>' + expense.merchant + "</span></li>" +
+    '<li><span class="k">Amount</span><span class="amount">' + expense.amount + "</span></li>" +
+    '<li><span class="k">Category</span><span>' + expense.category + "</span></li>" +
+    '<li><span class="k">Submitted</span><span>' + expense.submitted + "</span></li>" +
+    '<li><span class="k">Employee</span><span>' + expense.employee + "</span></li>" +
+    '<li><span class="k">Cost centre</span><span>' + expense.costCentre + "</span></li>";
+  receiptEl.innerHTML =
+    '<li><span class="k">Payment method</span><span>' + expense.method + "</span></li>" +
+    '<li><span class="k">Receipt reference</span><span>' + expense.receiptRef + "</span></li>" +
+    '<li><span class="k">Approver note</span><span>None yet</span></li>';
+}
+
+function renderExpenseBadge(expense) {
+  const badge = document.getElementById("expense-badge");
+  badge.className = badgeClass(expense.status);
+  badge.textContent = expense.status;
+}
+
+function setExpenseStatus(status) {
+  const expense = store.expenses.find(function (e) { return e.id === store.currentExpenseId; });
+  if (!expense) return;
+  expense.status = status;
+  renderExpenseBadge(expense);
+}
+
+function approveExpense() { setExpenseStatus("Approved"); }
+function rejectExpense() { setExpenseStatus("Rejected"); }
+
+function onSavePolicy() {
+  store.settings.autoApprove = document.getElementById("setting-threshold").value;
+  store.settings.currency = document.getElementById("setting-currency").value;
+  store.settings.contact = document.getElementById("setting-contact").value;
+  document.getElementById("settings-note").textContent = "Policy saved.";
+}
+
+window.addEventListener("hashchange", handleRouteChange);
+window.addEventListener("load", function () {
+  renderInbox();
+  handleRouteChange();
+});
+</script>
+</body>
+</html>

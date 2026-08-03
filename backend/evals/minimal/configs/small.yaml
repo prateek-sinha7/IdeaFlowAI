@@ -1,0 +1,50 @@
+# ONE row, all 5 stages. Start here — always.
+#
+# Run the whole chain in one go:
+#
+#   ./eval.sh configs/small.yaml --advise
+#
+# ...or one stage at a time, reading the report between each. `--into` appends
+# to an EXISTING run so every stage lands in the same folder and the same
+# report row, seeded from what that run already produced:
+#
+#   ./eval.sh configs/small.yaml --stage specify --advise        # prints RUN_ID
+#   ./eval.sh configs/small.yaml --stage plan     --into RUN_ID --advise
+#   ./eval.sh configs/small.yaml --stage analyze  --into RUN_ID --advise
+#   ./eval.sh configs/small.yaml --stage build    --into RUN_ID --advise
+#   ./eval.sh configs/small.yaml --stage validate --into RUN_ID --advise
+#
+# Stages must run in `order`: each consumes the one(s) before it, per the
+# produces/consumes contracts in the real AGENT.md files.
+#
+# Once this comes back clean, and only then, run configs/ten.yaml.
+dataset_id: prototype_small
+dataset: small.json
+
+order: [specify, plan, analyze, build, validate]
+
+# `seed_as` is the filename each stage's output is written to in the shared
+# sandbox, so the next agent finds it where its AGENT.md says to look
+# (prototype-build opens `spec.md` and `design.md` by name). Without this the
+# downstream agent reads nothing and invents its own inputs.
+agents:
+  specify:
+    agent_id: prototype-specify
+    seed_as: spec.md
+  plan:
+    agent_id: prototype-plan
+    seed_as: tasks.md
+  analyze:
+    agent_id: prototype-analyze
+    seed_as: analysis.md
+  build:
+    agent_id: prototype-build
+    deliverable: prototype.html
+  validate:
+    # Production's single global deliverable (agents/workflows/prototype/
+    # workflow.yaml: strategy: single_file, name: prototype.html) — validate
+    # edits the SAME file build wrote, in place. There is no separate
+    # "prototype.final.html"; naming one made sandbox.read() always miss and
+    # silently fall back to validate's short narrative text as `response`.
+    agent_id: prototype-validate
+    deliverable: prototype.html

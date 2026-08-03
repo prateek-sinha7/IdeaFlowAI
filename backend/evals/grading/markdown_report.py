@@ -1,49 +1,91 @@
-"""Render a finished run folder as one readable REPORT.md.
+"""Render a finished run folder as the `reports/` document set.
 
 Reads only what the run already wrote to disk — run_summary plus each stage's
-score/grade/run artifacts — so it can be regenerated at any time and never
-needs a model. Every table here answers "which prompt do I fix next".
+score/grade/run artifacts (and the code track's findings when it ran) — so it
+can be regenerated at any time and never needs a model.
+
+The set is layered by how much the reader wants to know:
+
+- `reports/report.md` — the top level: one score per phase, the clustered
+  strengths and weaknesses across the whole run, and the command that
+  re-judges it without re-generating anything.
+- `reports/<agent_token>_report.md` — one phase in full: spread statistics,
+  per-dimension aggregates, every row's sub-scores, and the judge's narrative.
+- `reports/code_report.md` — the deterministic code track's findings, when it ran.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from evals.grading import artifacts, render, scoring
+from evals.grading import artifacts, grades, render
+from evals.grading.code import code_grader
+from evals.grading.model import scoring
 
-REPORT_NAME = "REPORT.md"
+TOP_REPORT_NAME = "report.md"
+CODE_REPORT_NAME = "code_report.md"
 
-# Every row of a markdown table is padded to these, so the raw file is readable
-# in a plain editor and not only after a renderer gets hold of it.
 DASH = render.DASH
+
+# The grade arithmetic lives in `grades` so the HTML dashboard can import it
+# without importing this module. Re-exported here because every existing
+# caller and test reaches for it at this path.
+GRADE_BANDS = grades.GRADE_BANDS
+FAIL_GRADE = grades.FAIL_GRADE
+letter_grade = grades.letter_grade
+compute_overall = grades.compute_overall
+_cell_value = grades.cell_value
 
 
 def write_report(run_dir: Path) -> Path:
-    """Render the run folder to `REPORT.md` inside it and return the path."""
+    """Render the whole `reports/` set for one run and return the top-level path."""
     run_dir = Path(run_dir)
     summary = artifacts.read_run_summary(run_dir)
-    text = render_report(run_dir, summary)
-    path = run_dir / REPORT_NAME
-    path.write_text(text, encoding="utf-8")
-    return path
+    reports = artifacts.reports_dir(run_dir)
+
+    stages = [
+        stage for stage in summary.get("stages") or [] if _has_score(run_dir, stage)
+    ]
+    for stage in stages:
+        token = _token(stage)
+        path = reports / f"{token}_report.md"
+        path.write_text(_stage_report(run_dir, stage, summary), encoding="utf-8")
+
+    code_stages = _code_findings(run_dir, stages)
+    if code_stages:
+        (reports / CODE_REPORT_NAME).write_text(
+            _code_report(summary, code_stages), encoding="utf-8"
+        )
+
+    top = reports / TOP_REPORT_NAME
+    top.write_text(_top_report(run_dir, summary, stages, code_stages), encoding="utf-8")
+
+    # The HTML dashboard is regenerated from the same artifacts, here rather
+    # than at each caller, so a caller added later cannot silently skip it.
+    # Imported at call time: `site` imports this module's siblings, and this
+    # keeps the dependency one-directional at import time.
+    from evals.grading.site import builder
+
+    builder.rebuild_for_run(run_dir)
+    return top
 
 
-def render_report(run_dir: Path, summary: dict) -> str:
-    """Build the whole markdown document for one run."""
+# ── the top-level report ──────────────────────────────────────────────────
+
+
+def _top_report(run_dir: Path, summary: dict, stages: list, code_stages: dict) -> str:
+    """The whole run on one page: phase scores, strengths, weaknesses, rejudge."""
     blocks = [
         _header(run_dir, summary),
-        _overview_table(summary),
+        _phase_table(run_dir, stages, code_stages),
         _not_run_section(summary),
+        _signals_section(stages),
+        _narrative_section(run_dir, stages, "recurring_strengths", "Strengths"),
+        _narrative_section(run_dir, stages, "recurring_weaknesses", "Weaknesses"),
+        _phase_links(stages, code_stages, artifacts.reports_dir(run_dir)),
+        _rejudge_section(run_dir),
     ]
-    for stage in summary.get("stages") or []:
-        if not _has_score(run_dir, stage):
-            continue
-        blocks.append(_stage_section(run_dir, stage))
-    blocks.append(_reproduce_section(run_dir))
     return "\n".join(block for block in blocks if block).rstrip() + "\n"
-
-
-# ── header and overview ───────────────────────────────────────────────────
 
 
 def _header(run_dir: Path, summary: dict) -> str:
@@ -55,6 +97,7 @@ def _header(run_dir: Path, summary: dict) -> str:
     lines = [
         f"# Grading run — {summary.get('dataset_run_id', run_dir.name)}",
         "",
+        *_grade_lines(run_dir),
         f"**Status:** `{summary.get('status', 'unknown')}` · "
         f"**Started:** {summary.get('created_at', DASH)} · "
         f"**Finished:** {summary.get('finished_at') or DASH}",
@@ -83,39 +126,91 @@ def _header(run_dir: Path, summary: dict) -> str:
     return "\n".join(lines)
 
 
-def _overview_table(summary: dict) -> str:
-    """One line per stage that ran — the headline numbers, side by side."""
-    stages = [
-        stage for stage in summary.get("stages") or []
-        if stage.get("status") not in (None, "not_run")
+def _grade_lines(run_dir: Path) -> list[str]:
+    """The one-line answer at the top: the blended score and its letter grade."""
+    overall = compute_overall(run_dir)
+    if overall is None:
+        return []
+    failed = overall["failed_cells"]
+    detail = (
+        f"judge and code blended over {render.plural(overall['counted'], 'graded cell')}"
+        + (f", of which **{failed} failed outright** (precheck fail, error, or a "
+           "broken chain — each scores 0)" if failed else ", none failed")
+    )
+    return [
+        f"## Grade: {overall['grade']} — {overall['score']:.1f} / 100",
+        "",
+        f"> {detail}.",
+        "> Scale: A++ ≥97 · A+ ≥93 · A ≥90 · B ≥80 · C ≥70 · D ≥60 · E ≥50 · **F <50 = fail**.",
+        "",
     ]
+
+
+def _phase_table(run_dir: Path, stages: list, code_stages: dict) -> str:
+    """One line per phase, ending in the column the headline grade averages.
+
+    `judge` and `code` are what each track measured; `effective` is the grade
+    arithmetic made visible — judge blended with code per row, a failed row
+    counting 0 — and the **overall** footer row is the mean of every phase's
+    cells, i.e. exactly the headline number. Spread statistics live in the
+    phase reports.
+    """
     if not stages:
         return ""
-    # Scores use render.score and rates use render.number, exactly as the
-    # terminal does — the two views must never disagree about one number.
-    rows = [
-        [
-            f"`{stage.get('agent_id')}`",
-            stage.get("status"),
-            render.number(stage.get("precheck_pass_rate")),
-            render.negative(stage.get("negative_rows_correct")),
-            render.score(stage.get("average_all")),
-            render.score(stage.get("average_precheck_passed")),
-            render.score(stage.get("stddev")),
-            stage.get("distinct_score_count", DASH),
+    overall = compute_overall(run_dir) or {}
+    per_stage = overall.get("stages") or {}
+    rows = []
+    for stage in stages:
+        agent_id = stage.get("agent_id")
+        # The score ARTIFACT is the source of truth; summaries written by older
+        # versions carried nulls where the artifact has the real averages.
+        score = _stage_score(run_dir, stage)
+        stats = score.get("scores") or {}
+        judge_avg = (
+            stats.get("average_all")
+            if stats.get("average_all") is not None
+            else stats.get("average_clean_chain")
+        )
+        code_avg = (code_stages.get(agent_id) or {}).get("average_code_score")
+        effective = (per_stage.get(agent_id) or {}).get("effective")
+        failed = (per_stage.get(agent_id) or {}).get("failed") or 0
+        counts = score.get("counts") or {}
+        rows.append([
+            f"[`{agent_id}`]({_token(stage)}_report.md)",
+            counts.get("rows", DASH),
+            counts.get("judged", 0),
+            render.score(judge_avg),
+            render.score(code_avg),
+            render.score(effective) + (f" ({failed} failed)" if failed else ""),
             stage.get("baseline_verdict", DASH),
-        ]
-        for stage in stages
-    ]
-    headers = ["stage", "status", "precheck", "negative", "avg(all)", "avg(pass)",
-               "stddev", "distinct", "baseline"]
-    return "\n".join(
-        ["## Overview", "", *render.md_table(headers, rows, "llrrrrrrl"), ""]
+        ])
+    if overall:
+        rows.append([
+            f"**overall — grade {overall['grade']}**",
+            overall["counted"],
+            DASH, DASH, DASH,
+            f"**{overall['score']:.1f}**",
+            DASH,
+        ])
+    headers = ["phase", "rows", "graded", "judge", "code", "effective", "baseline"]
+    lines = ["## Phase scores", "", *render.md_table(headers, rows, "lrrrrrl"), ""]
+    lines.append(
+        "`effective` = judge score blended with code score per row (0.7 / 0.3, "
+        "whichever exists when only one does); a row that failed — precheck fail, "
+        "error, or a chain broken upstream — counts **0**. The **overall** row is "
+        "the mean of every phase's rows, and is the headline grade above."
     )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _stage_score(run_dir: Path, stage: dict) -> dict:
+    """One stage's stored score artifact, or empty when it never wrote one."""
+    return grades.stage_score(run_dir, stage)
 
 
 def _not_run_section(summary: dict) -> str:
-    """Name the stages that never ran, so an empty report is never mysterious."""
+    """Name the stages that never ran, so a short table is never mysterious."""
     not_run = summary.get("not_run") or []
     if not not_run:
         return ""
@@ -123,39 +218,146 @@ def _not_run_section(summary: dict) -> str:
     return f"**Not run:** {listed}\n"
 
 
-# ── one stage ─────────────────────────────────────────────────────────────
+def _signals_section(stages: list) -> str:
+    """Any verdict a stage declared that nothing downstream consumes."""
+    lines = []
+    for stage in stages:
+        signals = stage.get("signals") or {}
+        if not signals:
+            continue
+        counts = ", ".join(f"{count}× {value}" for value, count in signals["counts"].items())
+        lines.append(f"- `{stage.get('agent_id')}` says: {counts}")
+        for row_id in signals.get("alert_rows") or []:
+            lines.append(f"  - ⚠️ `{row_id}` judged NOT ready — the run proceeded anyway")
+    if not lines:
+        return ""
+    return "\n".join(["## Signals", "", *lines, ""])
 
 
-def _stage_section(run_dir: Path, stage: dict) -> str:
-    """Everything known about one stage: aggregates, rows, and judge detail."""
-    token = str(stage["agent_id"]).replace("-", "_")
-    score = artifacts.read_stage_artifact(run_dir, token, "score")
-    grades = _read(run_dir, token, "grade")
-    runs = _read(run_dir, token, "run")
+def _narrative_section(run_dir: Path, stages: list, key: str, title: str) -> str:
+    """One clustered narrative table across every phase — strengths or weaknesses.
+
+    Columns answer the improvement loop's questions in order: which phase's
+    prompt, how widespread (rows affected), what exactly, and which rows to
+    open to see it.
+    """
+    rows = []
+    for stage in stages:
+        try:
+            score = artifacts.read_stage_artifact(run_dir, _token(stage), "score")
+        except FileNotFoundError:
+            continue
+        for cluster in score.get(key) or []:
+            row_ids = cluster.get("row_ids") or []
+            rows.append([
+                f"`{stage.get('agent_id')}`",
+                len(row_ids),
+                render.truncate(cluster.get("evidence"), limit=220),
+                ", ".join(f"`{row_id}`" for row_id in row_ids),
+            ])
+    if not rows:
+        return ""
+    # Most widespread first, across phases — a weakness on every row of one
+    # phase outranks a one-row nitpick on another.
+    rows.sort(key=lambda row: -row[1])
+    headers = ["phase", "rows affected", "description", "rows"]
+    return "\n".join([f"## {title}", "", *render.md_table(headers, rows, "lrll"), ""])
+
+
+def _phase_links(stages: list, code_stages: dict, reports: Path | None = None) -> str:
+    """Where the detail lives — one line per phase report plus the code report.
+
+    Prompt advice is listed only where the file exists: it is written by the
+    advise step of the run, so an older folder (or a `--no-advise` run) links
+    nothing rather than linking a 404.
+    """
+    if not stages:
+        return ""
+    lines = ["## Phase reports", ""]
+    lines.extend(
+        f"- [`{stage.get('agent_id')}`]({_token(stage)}_report.md)" for stage in stages
+    )
+    if code_stages:
+        lines.append(f"- [code track]({CODE_REPORT_NAME})")
+    advice = [
+        f"- [`{stage.get('agent_id')}`](prompt_advice_{_token(stage)}.md)"
+        for stage in stages
+        if reports is not None and (reports / f"prompt_advice_{_token(stage)}.md").exists()
+    ]
+    if advice:
+        lines.extend([
+            "",
+            "### Prompt advice",
+            "",
+            "Proposed edits to each agent's prompt, derived from this run's evidence — "
+            "a proposal, never a grade.",
+            "",
+            *advice,
+        ])
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _rejudge_section(run_dir: Path) -> str:
+    """The command that re-grades this run's stored outputs without re-generating them."""
     return "\n".join(
-        block
-        for block in (
-            f"## `{stage['agent_id']}`\n",
-            _identity_table(score, grades),
-            _warnings_block(score),
-            _baseline_block(score),
-            _tokens_table(score.get("tokens") or {}),
-            _dimensions_table(score.get("dimensions") or {}),
-            _rows_table(score, grades),
-            _weaknesses_block(score.get("recurring_weaknesses") or []),
-            _row_detail_block(grades, runs),
-        )
-        if block
+        [
+            "---",
+            "",
+            "## Rejudge this run",
+            "",
+            "Re-score every stored response with the judge — the same run, minus the "
+            "generation, so nothing is dispatched to an agent and judge tokens are the "
+            "only spend. This report is regenerated in place; the superseded artifacts "
+            "are kept under `artifacts/superseded/`.",
+            "",
+            "```bash",
+            f"./evals/grading/grade.sh rejudge {run_dir.name}",
+            "```",
+            "",
+            "To re-run the deterministic code checks (free):",
+            "",
+            "```bash",
+            f"./evals/grading/grade.sh code {run_dir.name}",
+            "```",
+            "",
+            "The full generation is reproducible from the run's own frozen settings:",
+            "",
+            "```bash",
+            f"./evals/grading/grade.sh run {run_dir}/grade_config.resolved.yaml",
+            "```",
+        ]
     )
 
 
-def _identity_table(score: dict, grades: list) -> str:
-    """The models and hashes that make this stage comparable to another run.
+# ── one phase's report ────────────────────────────────────────────────────
 
-    The judge-error count falls back to the grade artifacts, so a run recorded
-    before that count existed still reports its failures here rather than
-    claiming zero while the rows table below says otherwise.
-    """
+
+def _stage_report(run_dir: Path, stage: dict, summary: dict) -> str:
+    """Everything known about one phase: spread, dimensions, rows, judge detail."""
+    token = _token(stage)
+    score = artifacts.read_stage_artifact(run_dir, token, "score")
+    grades = _read(run_dir, token, "grade")
+    runs = _read(run_dir, token, "run")
+    blocks = [
+        f"# `{stage['agent_id']}` — {summary.get('dataset_run_id', run_dir.name)}\n",
+        _identity_table(score, grades),
+        _spread_table(score),
+        _warnings_block(score),
+        _baseline_block(score),
+        _tokens_table(score.get("tokens") or {}),
+        _dimensions_table(score.get("dimensions") or {}),
+        _rows_table(run_dir, score, grades, stage),
+        _clusters_block(score.get("recurring_strengths") or [], "Recurring strengths"),
+        _clusters_block(score.get("recurring_weaknesses") or [], "Recurring weaknesses"),
+        _row_detail_block(grades, runs),
+        _stage_rejudge_section(run_dir, stage),
+    ]
+    return "\n".join(block for block in blocks if block).rstrip() + "\n"
+
+
+def _identity_table(score: dict, grades: list) -> str:
+    """The models and hashes that make this phase comparable to another run."""
     hashes = score.get("hashes") or {}
     counts = score.get("counts") or {}
     judge_errors = counts.get("judge_errored")
@@ -176,6 +378,24 @@ def _identity_table(score: dict, grades: list) -> str:
             "",
         ]
     )
+
+
+def _spread_table(score: dict) -> str:
+    """The spread statistics the top-level table deliberately leaves out."""
+    stats = score.get("scores") or {}
+    if not stats:
+        return ""
+    headers = ["avg(all)", "avg(passed)", "median", "stddev", "min", "max", "distinct"]
+    row = [
+        render.score(stats.get("average_all")),
+        render.score(stats.get("average_precheck_passed")),
+        render.score(stats.get("median")),
+        render.score(stats.get("stddev")),
+        render.score(stats.get("min")),
+        render.score(stats.get("max")),
+        stats.get("distinct_score_count", DASH),
+    ]
+    return "\n".join(["### Score", "", *render.md_table(headers, [row], "rrrrrrr"), ""])
 
 
 def _warnings_block(score: dict) -> str:
@@ -203,12 +423,7 @@ def _baseline_block(score: dict) -> str:
 
 
 def _tokens_table(tokens: dict) -> str:
-    """What the stage cost, split by who spent it.
-
-    A run recorded before the split has no breakdown; its flat totals were
-    agent-only, so attribute them there rather than printing a zero row that
-    contradicts the total beside it.
-    """
+    """What the phase cost, split by who spent it."""
     if not tokens:
         return ""
     agent = tokens.get("agent") or {
@@ -250,22 +465,21 @@ def _dimensions_table(dimensions: dict) -> str:
     return "\n".join(lines)
 
 
-def _rows_table(score: dict, grades: list) -> str:
+def _rows_table(run_dir: Path, score: dict, grades: list, stage: dict) -> str:
     """Every row on one line, with its per-dimension sub-scores spread out."""
     results = score.get("results") or []
     if not results:
         return ""
     dimension_ids = list((score.get("dimensions") or {}).keys())
     grades_by_id = {_row_id(grade): grade for grade in grades}
-    headers = ["row", "expect", "precheck", "score", "passed"]
-    headers.extend(f"`{name}`" for name in dimension_ids)
-    headers.append("note")
-    lines = [
-        "### Rows",
-        "",
-        "| " + " | ".join(headers) + " |",
-        "|" + "---|" * 3 + "---:|" + "---|" + "---:|" * len(dimension_ids) + "---|",
-    ]
+    code = code_grader.read_findings(run_dir, _token(stage)) or {}
+    code_findings = code.get("findings") or {}
+    headers = ["row", "expect", "precheck", "score"]
+    if code_findings:
+        headers += ["code", "combined"]
+    headers += ["passed", *[f"`{name}`" for name in dimension_ids], "note"]
+    aligns = "lll" + "r" * (3 if code_findings else 1) + "l" + "r" * len(dimension_ids) + "l"
+    rows = []
     for row in results:
         grade = grades_by_id.get(row.get("row_id")) or {}
         sub_scores = grade.get("sub_scores") or {}
@@ -274,13 +488,16 @@ def _rows_table(score: dict, grades: list) -> str:
             str(row.get("expect", DASH)),
             render.flag(row.get("precheck_passed")),
             render.number(row.get("score")),
-            render.flag(row.get("passed")),
         ]
+        if code_findings:
+            code_score = (code_findings.get(row.get("row_id")) or {}).get("code_score")
+            cells.append(render.score(code_score))
+            cells.append(render.score(code_grader.blended_score(row.get("score"), code_score)))
+        cells.append(render.flag(row.get("passed")))
         cells.extend(str(sub_scores.get(name, DASH)) for name in dimension_ids)
         cells.append(_row_note(row, grade))
-        lines.append("| " + " | ".join(cells) + " |")
-    lines.append("")
-    return "\n".join(lines)
+        rows.append(cells)
+    return "\n".join(["### Rows", "", *render.md_table(headers, rows, aligns), ""])
 
 
 def _row_note(row: dict, grade: dict) -> str:
@@ -296,8 +513,8 @@ def _row_note(row: dict, grade: dict) -> str:
     return ""
 
 
-def _weaknesses_block(clusters: list) -> str:
-    """The judge's criticisms clustered across rows — the prompt-fix shortlist."""
+def _clusters_block(clusters: list, title: str) -> str:
+    """One clustered narrative list — the prompt-fix (or must-keep) shortlist."""
     if not clusters:
         return ""
     rows = []
@@ -309,8 +526,8 @@ def _weaknesses_block(clusters: list) -> str:
             ", ".join(f"`{row_id}`" for row_id in row_ids),
         ])
     return "\n".join(
-        ["### Recurring weaknesses", "",
-         *render.md_table(["rows", "weakness", "affected"], rows, "rll"), ""]
+        [f"### {title}", "",
+         *render.md_table(["rows", "description", "affected"], rows, "rll"), ""]
     )
 
 
@@ -332,11 +549,46 @@ def _row_detail_block(grades: list, runs: list) -> str:
             lines.append(f"**Precheck:** {grade['precheck_reason']}\n")
         if grade.get("rationale"):
             lines.append(f"**Rationale:** {grade['rationale']}\n")
+        caps = grade.get("score_caps") or {}
+        if caps:
+            lines.append(f"**Score reductions:** {_caps_summary(caps)}\n")
         lines.extend(_bullets("Strengths", grade.get("strengths")))
         lines.extend(_bullets("Weaknesses", grade.get("weaknesses")))
         lines.extend(_evidence_lines(grade.get("evidence") or {}))
         lines.append("</details>\n")
     return "\n".join(lines)
+
+
+def _caps_summary(caps: dict) -> str:
+    """Render per-dimension score reductions across both cap schemas.
+
+    The severity-priced judge writes `final` plus severity counts; the older
+    count-based judge wrote `capped_to` plus `weaknesses`. Both shapes exist in
+    committed run folders, and a rendering crash on either one takes down the
+    whole report — which is how a run folder ends up with fresh artifacts and a
+    stale `report.md` still showing the previous grade. Missing keys degrade to
+    a bare arrow rather than raising.
+    """
+    parts = []
+    for dim, cap in caps.items():
+        before = cap.get("reported", "?")
+        after = cap.get("final", cap.get("capped_to", "?"))
+        if before == after:
+            continue
+        counts = [
+            f"{cap[key]} {label}"
+            for key, label in (
+                ("blocking", "blocking"),
+                ("severe", "severe"),
+                ("major", "major"),
+                ("minor", "minor"),
+                ("weaknesses", "weakness(es)"),
+            )
+            if cap.get(key)
+        ]
+        detail = f" ({', '.join(counts)})" if counts else ""
+        parts.append(f"`{dim}` {before}→{after}{detail}")
+    return "; ".join(parts) if parts else "none"
 
 
 def _detail_summary(grade: dict) -> str:
@@ -364,22 +616,127 @@ def _evidence_lines(evidence: dict) -> list[str]:
     return lines
 
 
-def _reproduce_section(run_dir: Path) -> str:
-    """The exact command that re-runs this run's resolved spec."""
+def _stage_rejudge_section(run_dir: Path, stage: dict) -> str:
+    """The command that re-judges JUST this phase's stored outputs."""
     return "\n".join(
         [
             "---",
             "",
-            "## Reproduce",
-            "",
             "```bash",
-            f"./evals/grading/grade.sh run {run_dir}/grade_config.resolved.yaml",
+            f"./evals/grading/grade.sh rejudge {run_dir.name} --agents {stage['agent_id']}",
             "```",
-            "",
-            "The resolved config is the run's own frozen settings, so this stays exact even "
-            "if the config file in `configs/` has changed since.",
         ]
     )
+
+
+# ── the code report ───────────────────────────────────────────────────────
+
+
+def _code_findings(run_dir: Path, stages: list) -> dict:
+    """Every stage's stored code findings, keyed by agent id."""
+    findings = {}
+    for stage in stages:
+        found = code_grader.read_findings(run_dir, _token(stage))
+        if found and found.get("findings"):
+            findings[stage.get("agent_id")] = found
+    return findings
+
+
+def _code_report(summary: dict, code_stages: dict) -> str:
+    """The deterministic track on its own page: per-row scores and every finding."""
+    lines = [
+        f"# Code grading — {summary.get('dataset_run_id', DASH)}",
+        "",
+        "Deterministic checks over the built HTML: structure (`static_check`), a "
+        "headless render with every nav target clicked (`render_check`), and an "
+        "interaction sweep over buttons and filter inputs. No judge model — every "
+        "finding below is reproducible for free.",
+        "",
+    ]
+    for agent_id, result in code_stages.items():
+        lines.append(f"## `{agent_id}` — `{result.get('deliverable_file', DASH)}`")
+        lines.append("")
+        rows = []
+        for row_id, finding in (result.get("findings") or {}).items():
+            rendered = finding.get("render") or {}
+            interactions = finding.get("interactions") or {}
+            nav = rendered.get("nav_results") or []
+            nav_summary = (
+                f"{sum(1 for n in nav if n.get('ok'))}/{len(nav)} ok" if nav else DASH
+            )
+            # Exercised counts, not just failures: "0 failed" must be
+            # distinguishable from "nothing was clickable to begin with".
+            if interactions.get("available"):
+                exercised = len(interactions.get("actions") or []) + len(
+                    interactions.get("failures") or []
+                )
+                probes = f"{exercised - len(interactions.get('failures') or [])}/{exercised} ok"
+            else:
+                probes = DASH
+            rows.append([
+                f"`{row_id}`",
+                render.score(finding.get("code_score")),
+                render.flag(finding.get("ok")),
+                nav_summary,
+                len(rendered.get("console_errors") or []) + len(rendered.get("page_errors") or [])
+                if rendered.get("available") else DASH,
+                probes,
+            ])
+        headers = ["row", "code score", "static ok", "nav", "js errors", "interactions"]
+        lines.extend(render.md_table(headers, rows, "lrlrrr"))
+        lines.append("")
+        lines.append(
+            "Full per-row transcripts — every route driven and every control probed, "
+            f"outcome by outcome — are in `logs/<row_id>/{_token({'agent_id': agent_id})}"
+            "_code_checks.log`.\n"
+        )
+        lines.extend(_code_row_details(result))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _code_row_details(result: dict) -> list[str]:
+    """Every concrete finding, per row — the evidence behind the table above."""
+    lines = []
+    for row_id, finding in (result.get("findings") or {}).items():
+        details = _code_finding_lines(finding)
+        if not details:
+            continue
+        lines.append(f"<details><summary><b>{row_id}</b> — findings</summary>\n")
+        lines.extend(details)
+        lines.append("</details>\n")
+    return lines
+
+
+def _code_finding_lines(finding: dict) -> list[str]:
+    """One row's findings as bullets; empty when the row is clean."""
+    lines = []
+    for issue in finding.get("issues") or []:
+        lines.append(f"- **static issue** — {issue}")
+    for warning in finding.get("warnings") or []:
+        lines.append(f"- static warning — {warning}")
+    rendered = finding.get("render") or {}
+    for error in rendered.get("console_errors") or []:
+        lines.append(f"- **console error** — {render.truncate(error)}")
+    for error in rendered.get("page_errors") or []:
+        lines.append(f"- **uncaught exception** — {render.truncate(error)}")
+    for nav in rendered.get("nav_results") or []:
+        if not nav.get("ok"):
+            lines.append(
+                f"- **dead nav** — `{nav.get('href')}` expected `{nav.get('expected')}`, "
+                f"activated `{nav.get('activated')}`"
+            )
+    for error in rendered.get("coverage_errors") or []:
+        lines.append(f"- **nav coverage** — {render.truncate(error)}")
+    interactions = finding.get("interactions") or {}
+    for failure in interactions.get("failures") or []:
+        errors = "; ".join(failure.get("errors") or [])
+        lines.append(
+            f"- **interaction failure** — {failure.get('action')} "
+            f"`{failure.get('target')}`: {render.truncate(errors)}"
+        )
+    if lines:
+        lines.append("")
+    return lines
 
 
 # ── small helpers ─────────────────────────────────────────────────────────
@@ -391,9 +748,14 @@ def _model_code(spec) -> str:
     return label if label == DASH else f"`{label}`"
 
 
+def _token(stage: dict) -> str:
+    """`prototype-specify` -> `prototype_specify`, the artifact file-name form."""
+    return grades.agent_token(stage)
+
+
 def _has_score(run_dir: Path, stage: dict) -> bool:
     """Whether this stage actually wrote a score artifact to read."""
-    token = str(stage.get("agent_id", "")).replace("-", "_")
+    token = _token(stage)
     return bool(token) and artifacts.artifact_path(run_dir, token, "score").exists()
 
 
@@ -418,9 +780,3 @@ def _row_id(entry: dict) -> str:
 def _first_prompt_hash(score: dict) -> str | None:
     """The system-prompt hash this stage graded, when the score carries one."""
     return (score.get("hashes") or {}).get("system_prompt_hash")
-
-
-
-
-
-

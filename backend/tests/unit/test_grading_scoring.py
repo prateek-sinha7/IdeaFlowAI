@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from evals.grading.scoring import evaluate_baseline, summarize_stage, weighted_total
+from evals.grading.model.scoring import evaluate_baseline, summarize_stage, weighted_total
 
 WORKFLOW_DIR = (
     Path(__file__).resolve().parents[2] / "evals/grading/model/workflows/prototype"
@@ -48,14 +48,15 @@ def dimensions(rubric) -> list[dict]:
     return rubric["dimensions"]
 
 
-def _run(row_id, *, expect="pass", errored=False, chain=None, tokens_out=100) -> dict:
+def _run(row_id, *, expect="pass", errored=False, chain=None, tokens_out=100,
+         tokens_in=10) -> dict:
     """A minimal run.json entry."""
     return {
         "scenario_id": row_id,
         "expect": expect,
         "errored": errored,
         "upstream_chain": chain or [],
-        "tokens_in": 10,
+        "tokens_in": tokens_in,
         "tokens_out": tokens_out,
     }
 
@@ -128,6 +129,7 @@ def test_constant_95_run_has_no_judge_signal(rubric):
     assert any("distinct_score_count 1 < 3" in failure for failure in verdict["failures"])
 
 
+@pytest.mark.skipif(not ARTIFACTS_DIR.exists(), reason="the committed example-run fixture is not on disk")
 def test_real_example_run_artifacts_summarize(rubric):
     """The committed 11-row artifacts (score 95, sub_scores null) aggregate cleanly."""
     runs = json.loads((ARTIFACTS_DIR / "prototype_specify_run.json").read_text())
@@ -325,12 +327,16 @@ def test_refused_when_the_judge_resolved_to_another_model(rubric):
     assert any("mistral-small-latest" in failure for failure in verdict["failures"])
 
 
-def test_refused_while_the_committed_baseline_is_uncalibrated(rubric):
-    """`set_from` is the literal NOT CALIBRATED string today — refuse, don't score."""
+def test_refused_when_the_rubric_drifts_from_the_calibrated_pin(rubric):
+    """The committed baseline pins a rubric hash; a different one must REFUSE.
+
+    The committed set_from is calibrated against the golden artifacts, so a
+    summary carrying some OTHER rubric hash is not comparable to it.
+    """
     verdict = evaluate_baseline(_healthy_summary(rubric), rubric["baseline"], CALIBRATED_HASHES)
 
     assert verdict["verdict"] == "REFUSED"
-    assert any("not calibrated" in failure for failure in verdict["failures"])
+    assert any("rubric_hash" in failure for failure in verdict["failures"])
 
 
 def test_max_expected_stddev_flags_an_implausibly_wide_spread(rubric):
@@ -368,8 +374,11 @@ def test_empty_input_does_not_raise(rubric):
 
     calibrated = {**rubric["baseline"], "set_from": CALIBRATED_SET_FROM}
     verdict = evaluate_baseline(summary, calibrated, CALIBRATED_HASHES)
-    assert verdict["verdict"] == "FAIL"
-    assert any("distinct_score_count 0" in failure for failure in verdict["failures"])
+    # With zero judged rows the sample-size-gated distinct guard stays unarmed
+    # and no threshold has data — the run is empty, not failing. Emptiness is
+    # caught upstream (the dead-judge exit code and the JUDGE FAILED warning).
+    assert verdict["verdict"] == "PASS"
+    assert verdict["failures"] == []
 
 
 def test_all_errored_rows_do_not_raise(rubric):
@@ -460,7 +469,7 @@ def test_stage_tokens_include_the_judge_and_stay_attributable(rubric):
 
 def test_judge_error_is_read_under_either_key_spelling():
     """Folders written before the rename used a bare `errored` on grade entries."""
-    from evals.grading import scoring as scoring_module
+    from evals.grading.model import scoring as scoring_module
 
     old = {"errored": True, "error_reason": "validation failed"}
     new = {"judge_errored": True, "judge_error_reason": "validation failed"}
@@ -474,7 +483,7 @@ def test_judge_error_is_read_under_either_key_spelling():
 
 def test_a_dispatch_error_is_never_mistaken_for_a_judge_error(rubric):
     """`errored` on a RUN entry means the agent failed — a different failure."""
-    from evals.grading import scoring as scoring_module
+    from evals.grading.model import scoring as scoring_module
 
     assert scoring_module.judge_errored({"judged": True, "score": 80}) is False
 
@@ -528,15 +537,16 @@ def test_a_judge_using_a_real_range_raises_no_resolution_warning(rubric):
 
 
 def test_every_sub_score_in_the_top_band_is_flagged_as_a_ceiling(rubric):
+    """The top band is 95 (reference quality) since the anchors re-band."""
     summary = summarize_stage(
         [_run("a"), _run("b")],
-        [_sub("a", 90, 95, 100), _sub("b", 92, 97, 94)],
+        [_sub("a", 95, 96, 100), _sub("b", 97, 98, 99)],
         rubric,
     )
 
     ceiling = [w for w in summary["warnings"] if "SCORE CEILING" in w]
     assert len(ceiling) == 1
-    assert ">= 90" in ceiling[0], "the top anchor comes from the rubric, not a constant"
+    assert ">= 95" in ceiling[0], "the top anchor comes from the rubric, not a constant"
 
 
 def test_one_scored_row_raises_no_resolution_warning(rubric):
@@ -569,3 +579,32 @@ def test_a_stage_verdict_is_counted_even_though_nothing_reads_it(rubric):
 
 def test_a_stage_with_no_declared_signal_reports_none(rubric):
     assert summarize_stage([_run("a")], [_grade("a")], rubric)["signals"] == {}
+
+
+def test_a_dispatched_row_with_no_output_tokens_warns(rubric):
+    """The real case the warning is for: input was billed, output went uncounted."""
+    summary = summarize_stage(
+        [_run("billing_console", tokens_in=5830, tokens_out=0)],
+        [_grade("billing_console", score=90)],
+        rubric,
+    )
+
+    assert [w for w in summary["warnings"] if "TOKENS UNDER-REPORTED" in w]
+
+
+def test_a_row_that_was_never_dispatched_does_not_warn(rubric):
+    """A seeded/replayed row has no token counts at all — nothing is under-reported.
+
+    `golden-mission-control` is built from committed responses rather than a live
+    dispatch, so every row carries `tokens_in == tokens_out == 0` while holding a
+    136 KB response. `rejudge` never dispatches, so those zeros can never be
+    filled in — the old predicate fired on all five stages of every rejudge,
+    claiming rows were "dispatched" when they never were.
+    """
+    summary = summarize_stage(
+        [_run("mission_control", tokens_in=0, tokens_out=0)],
+        [_grade("mission_control", score=92)],
+        rubric,
+    )
+
+    assert not [w for w in summary["warnings"] if "TOKENS UNDER-REPORTED" in w]

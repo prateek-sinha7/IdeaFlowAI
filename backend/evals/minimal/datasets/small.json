@@ -1,0 +1,17 @@
+{
+  "dataset_id": "prototype_small",
+  "for_agent": "prototype-specify",
+  "description": "ONE row, full 5-stage chain. The stage-at-a-time config: run a stage, read the report, run the next. warehouse_slotting is the shortest brief in the library that still asks for several pages, so every stage including build and validate has something real to judge.",
+  "rows": [
+    {
+      "id": "warehouse_slotting",
+      "industry": "Warehouse Ops",
+      "tags": [
+        "inventory",
+        "table-heavy",
+        "detail-route"
+      ],
+      "prompt": "Build a slotting-optimisation workbench for Granite Peak Distribution's pick floor. Pages: Slot Grid, SKU Detail via #/sku/:id, Replenishment, Velocity Report, Moves, Settings. Slot Grid lists 20 pick slots (aisle-bay-level code, SKU, on-hand, daily picks, fill %) filterable by aisle and by a 'below reorder point' toggle, with SKU text search. SKU Detail shows the clicked SKU's velocity history table, current slot, and a 'Queue move' action selecting a suggested better slot — queued moves appear on the Moves page and flag the source row on the Slot Grid. Velocity Report's top-10 must be derivable from the grid data. Realistic SKUs, case quantities, aisle codes like A-07-2."
+    }
+  ]
+}

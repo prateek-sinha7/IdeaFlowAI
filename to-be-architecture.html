@@ -1,0 +1,1954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Velocity AI &mdash; To-Be Architecture</title>
+<style>
+:root{
+  --bg:#f4f6f8;--panel:#fff;--ink:#111827;--muted:#64748b;--border:#d7dde6;
+  --navy:#123f6e;--blue:#2563eb;--teal:#0f766e;--amber:#b45309;--red:#b91c1c;
+  --exp:#eaf2fb;--ctl:#eef6f2;--run:#f4effb;--data:#fff7e8;--exec:#fbeef0;--ext:#eef2f7;
+  --shadow:0 8px 24px rgba(15,23,42,.07)
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:30px 32px;background:linear-gradient(135deg,#0b2440,#123f6e 70%,#24598f);color:#fff}
+header h1{margin:0 0 8px;font-size:30px}
+header p{margin:0;max-width:1150px;line-height:1.55;color:#dbeafe}
+header .prov{margin-top:14px;display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;color:#b9d4f4;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+main{max-width:1760px;margin:0 auto;padding:22px}
+.panel{background:var(--panel);border:1px solid #e5e7eb;border-radius:16px;box-shadow:var(--shadow);margin-bottom:22px;overflow:hidden}
+.panel-head{padding:18px 20px;border-bottom:1px solid #e5e7eb;background:#fbfcfd;display:flex;justify-content:space-between;gap:16px}
+.panel-head h2{margin:0;font-size:19px}.panel-head p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.content{padding:20px}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.tab{border:1px solid #cbd5e1;background:#fff;color:#334155;padding:9px 13px;border-radius:10px;cursor:pointer;font-weight:700}
+.tab.active{background:var(--navy);border-color:var(--navy);color:#fff}
+.workflow{display:none}.workflow.active{display:block}
+.diagram-wrap{border:1px solid var(--border);border-radius:14px;overflow:auto;background:#fff}
+.diagram{position:relative}
+.lane{display:grid;grid-template-columns:190px 1fr;min-height:162px;border-bottom:1px solid var(--border)}
+.lane:last-child{border-bottom:none}
+.lane-label{position:sticky;left:0;z-index:30;padding:18px 14px;border-right:1px solid var(--border);font-weight:800}
+.lane-label small{display:block;margin-top:5px;color:#475569;font-weight:500;line-height:1.35}
+.lane-canvas{position:relative;min-height:162px}
+.experience .lane-label,.experience .lane-canvas{background:var(--exp)}
+.control .lane-label,.control .lane-canvas{background:var(--ctl)}
+.runtime .lane-label,.runtime .lane-canvas{background:var(--run)}
+.data .lane-label,.data .lane-canvas{background:var(--data)}
+.execution .lane-label,.execution .lane-canvas{background:var(--exec)}
+.external .lane-label,.external .lane-canvas{background:var(--ext)}
+.tone-a .lane-label,.tone-a .lane-canvas{background:var(--exp)}
+.tone-b .lane-label,.tone-b .lane-canvas{background:var(--ctl)}
+.tone-c .lane-label,.tone-c .lane-canvas{background:var(--run)}
+.tone-d .lane-label,.tone-d .lane-canvas{background:var(--data)}
+.tone-e .lane-label,.tone-e .lane-canvas{background:var(--exec)}
+.tone-f .lane-label,.tone-f .lane-canvas{background:var(--ext)}
+.node{position:absolute;width:168px;min-height:86px;padding:11px;border-radius:11px;background:rgba(255,255,255,.98);border:1px solid rgba(100,116,139,.35);box-shadow:0 4px 10px rgba(15,23,42,.06);z-index:20}
+.node h4{margin:0 0 5px;font-size:13px;line-height:1.3}.node p{margin:0;color:var(--muted);font-size:11px;line-height:1.42}
+.node p .loc{display:block;margin-top:3px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;color:#94a3b8;word-break:break-all}
+.node .num{position:absolute;top:-9px;left:-9px;width:24px;height:24px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;border:2px solid #fff}
+/* change budget: every node declares what it costs us */
+.keep{border-left:5px solid var(--teal)}
+.mod{border-left:5px solid var(--amber)}
+.new{border-left:5px solid var(--blue)}
+.secure{border-left:5px solid var(--red)}
+.data-node{border-left:5px solid var(--amber)}.async{border-left:5px solid var(--blue)}.success{border-left:5px solid var(--teal)}
+.wires{position:absolute;inset:0;z-index:10;pointer-events:none;overflow:visible}
+.board-slot{display:block}
+.sub-note{margin-top:14px;font-size:13px;color:var(--muted);line-height:1.55}
+.sub-table{margin-top:16px;overflow-x:auto}
+.sub-table table{min-width:760px}
+.sub-table th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#475569}
+.sub-table td{font-size:12.5px}
+.sub-table td:first-child{font-weight:700;color:var(--ink);white-space:nowrap}
+.pill{display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
+.pill.l1{background:#eaf2fb;color:#1d4ed8}
+.pill.l2{background:#eef6f2;color:#0f766e}
+.pill.both{background:#f4effb;color:#6d28d9}
+.pill.only{background:#fff7e8;color:#b45309}
+.pill.keep{background:#e7f5f1;color:#0f766e;border:0}
+.pill.mod{background:#fff3e0;color:#b45309;border:0}
+.pill.new{background:#e8f0fe;color:#1d4ed8;border:0}
+.pill.sec{background:#fdeaea;color:#b91c1c;border:0}
+.gap{color:#b45309;font-size:12.5px}
+.gap.none{color:#94a3b8}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;color:#475569;font-size:12px}
+.legend span{display:flex;align-items:center;gap:6px}
+.sw{width:30px;height:0;border-top:2px solid #475569;position:relative}
+.sw::after{content:"";position:absolute;right:-2px;top:-5px;border-left:8px solid #475569;border-top:4px solid transparent;border-bottom:4px solid transparent}
+.sw.blue{border-top:2px dashed #2563eb}.sw.blue::after{border-left-color:#2563eb}
+.sw.green{border-top-color:#0f766e}.sw.green::after{border-left-color:#0f766e}
+.sw.red{border-top:2px dashed #b91c1c}.sw.red::after{border-left-color:#b91c1c}
+.chip{display:inline-block;width:13px;height:13px;border-radius:3px;border-left:5px solid}
+.chip.k{border-left-color:var(--teal);background:#e7f5f1}
+.chip.m{border-left-color:var(--amber);background:#fff3e0}
+.chip.n{border-left-color:var(--blue);background:#e8f0fe}
+.chip.s{border-left-color:var(--red);background:#fdeaea}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:16px}
+.grid3{grid-template-columns:repeat(3,1fr)}
+.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:16px}
+.card{border:1px solid #e2e8f0;border-radius:12px;padding:14px;background:#fff}
+.card h3{margin:0 0 7px;font-size:14px}.card p,.card li{color:var(--muted);font-size:12px;line-height:1.5}.card ul{margin:0;padding-left:18px}
+.card.k{border-top:4px solid var(--teal)}.card.m{border-top:4px solid var(--amber)}.card.n{border-top:4px solid var(--blue)}.card.s{border-top:4px solid var(--red)}
+.callout{margin-top:16px;padding:14px 16px;border-left:5px solid var(--blue);border-radius:10px;background:#eff6ff;color:#1e3a5f;font-size:13px;line-height:1.55}
+.callout.warn{border-left-color:var(--amber);background:#fffaf0;color:#6b3e05}
+.callout.stop{border-left-color:var(--red);background:#fdf2f2;color:#7a1d1d}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:11px 10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}th{background:#f8fafc}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;background:#f1f5f9;padding:1px 4px;border-radius:3px}
+details{border:1px solid #e2e8f0;border-radius:12px;margin-bottom:10px;background:#fff}summary{cursor:pointer;font-weight:700;padding:14px 16px}.inside{padding:0 16px 16px;color:#475569;font-size:13px;line-height:1.6}
+.phase{border:1px solid #e2e8f0;border-radius:12px;padding:0;margin-bottom:12px;overflow:hidden}
+.phase-h{display:flex;gap:12px;align-items:baseline;padding:13px 16px;background:#f8fafc;border-bottom:1px solid #e5e7eb}
+.phase-h b{font-size:14px}.phase-h .tag{font-size:11px;font-weight:700;color:#fff;background:var(--navy);padding:2px 8px;border-radius:999px}
+.phase-h .why{color:var(--muted);font-size:12.5px}
+.phase-b{padding:14px 16px;font-size:12.5px;color:#475569;line-height:1.6}
+.phase-b ul{margin:6px 0 0;padding-left:18px}
+.adr{border:1px solid #e2e8f0;border-radius:12px;margin-bottom:12px;background:#fff;overflow:hidden}
+.adr-h{display:flex;gap:10px;align-items:baseline;padding:13px 16px;background:#f8fafc;border-bottom:1px solid #e5e7eb}
+.adr-h b{font-size:14px}
+.adr-h .verdict{font-size:11px;font-weight:700;color:#fff;background:var(--red);padding:2px 8px;border-radius:999px}
+.adr-h .verdict.defer{background:var(--amber)}
+.adr-b{padding:13px 16px;font-size:12.5px;color:#475569;line-height:1.6}
+.adr-b p{margin:6px 0}
+.est{display:inline-block;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:800;letter-spacing:.05em;background:#fff7e8;color:#b45309;border:1px solid #f5d9a8;vertical-align:middle}
+@media(max-width:900px){.grid,.grid3{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}header{padding:24px 18px}main{padding:12px}}
+@media(max-width:560px){.grid,.grid3{grid-template-columns:1fr}}
+@media print{
+  body{background:#fff}
+  .tabs{display:none}
+  .panel{box-shadow:none;break-inside:avoid}
+  .diagram-wrap{overflow:visible}
+  .diagram{transform:scale(.62);transform-origin:top left}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Velocity AI &mdash; To-Be Architecture</h1>
+  <p>The production target for Velocity AI (internally Flowin), designed from the verified as-is record
+  rather than from a reference model. The premise throughout: the workflow kernel, the capability layer,
+  the 86 agent definitions, the SSE event contract and the frontend are already built and verified, and
+  they do not change. What changes is the plumbing underneath them &mdash; where state lives, how runs are
+  dispatched, how events reach the browser, and how the whole thing is packaged per tenant. Every diagram
+  is colour-coded by <strong>change budget</strong> so the cost of each flow is visible on the drawing,
+  and every node that corresponds to something that exists today carries its repository path.</p>
+  <div class="prov">
+    <span>as-is baseline: dev @ 2d8d9f60 (as-is-architecture.html &mdash; 12 planes / 36 flows / 641 steps / 296 findings)</span>
+    <span>decision 1: compute = ECS Fargate + ALB</span>
+    <span>decision 2 (v2): Cognito broker in the control plane; internal JWT contract unchanged</span>
+    <span>decision 3: durable task graph in v1 - custom, hardened lease rules</span>
+    <span>decision 4 (v2): tiered tenancy - pooled default; dedicated + customer-hosted tiers</span>
+    <span>date: 2026-08-02</span>
+  </div>
+</header>
+
+<main>
+<!-- ============================ CHANGE BUDGET ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>The change budget</h2><p>Three columns of concrete modules. The kernel, the capability layer, the agents, the event contract and the frontend do not change; the plumbing underneath a handful of modules does.</p></div></div>
+  <div class="content">
+    <div class="grid grid3">
+      <div class="card k"><h3><span class="chip k"></span> Unchanged &mdash; do not touch</h3><ul>
+        <li><code>agents/workflows/</code> manifest layer, compiler and <code>CompiledWorkflow</code> (18 manifests) &mdash; already declarative and correct</li>
+        <li>All 68 registered capabilities across 22 kinds and their ports (<code>agents/capabilities/registry.py</code>)</li>
+        <li>All 86 <code>AGENT.md</code> definitions, guardrails, skills, hooks and prompt composition (<code>agents/factory.py</code>)</li>
+        <li><code>ExecutionEngine._execute_impl</code> step loop, gates and clarify logic (budget's per-tenant concurrency ceiling is NOT frozen - see 3.7's per-tenant cap replacing <code>budget.py</code>'s hardcoded 4)</li>
+        <li><code>DeepAgentRunner</code> / <code>create_deep_agent</code> runtime, runner and model factory (retries and fallback included)</li>
+        <li><strong>The SSE v1 vocabulary and wire format, wire-compatible throughout the re-platform</strong> &mdash; the frontend is untouched until the negotiated v2 migration (Phase 5)</li>
+        <li>Postgres schema changes stay additive-only within a release cycle; contraction only in the dedicated compaction release (Phase 5)</li>
+      </ul></div>
+      <div class="card m"><h3><span class="chip m"></span> Same seam, new implementation</h3><ul>
+        <li><code>run_engine.py</code> registries (queues, cancel, tasks) &rarr; Redis-backed bus and leases</li>
+        <li><code>artifact_store/store.py</code> gate + clarify waiters &rarr; durable answer + Redis wake-up</li>
+        <li><code>_RunEventSink</code> persist (<code>authz.py:296</code>) &rarr; batched, off the event loop</li>
+        <li><code>sandbox.py</code> local disk &rarr; task-local ephemeral tree + S3 step checkpoints (EFS only if measured restore latency demands it)</li>
+        <li><code>artifact_refs.content</code> inline Text &rarr; S3 object via the existing unused <code>location</code> column</li>
+        <li><code>get_current_user</code> &rarr; identity adapter fronted by the Cognito broker; internal JWT + a real <code>/api/auth/refresh</code> unchanged for the routers</li>
+        <li><code>main.py</code> router registration &rarr; <code>ROLE</code>-gated (control / web / worker / scheduler)</li>
+        <li><code>StateMachine</code> &rarr; Aurora-authoritative state with one status vocabulary</li>
+      </ul></div>
+      <div class="card n"><h3><span class="chip n"></span> Net new</h3><ul>
+        <li>ECS Fargate services + ALB; seven roles from one image</li>
+        <li>Aurora PostgreSQL Multi-AZ + RDS Proxy (replaces host Postgres + hourly dump)</li>
+        <li>ElastiCache Redis &mdash; event fan-out, control nudges, quota counters; never a queue, never truth (the dispatch queue lives in Aurora via <code>FOR UPDATE SKIP LOCKED</code>)</li>
+        <li>Run ownership leases + reaper in Aurora; Aurora is also the dispatch queue</li>
+        <li><strong>Durable task graph + scheduler role</strong> for multi-day builds (decision 3)</li>
+        <li><strong>Per-tenant plane as a Terraform module</strong>: VPC, Aurora, Redis, S3, CMK, services (decision 4 (v2))</li>
+        <li>Velocity control plane: tenant registry, entitlement, catalogue, provisioning</li>
+        <li>Migration runner task (advisory-locked, gates rollout)</li>
+      </ul></div>
+    </div>
+    <div class="callout stop"><strong>The cost of decisions 3 and 4, stated honestly, once.</strong>
+    The durable task graph and full per-tenant isolation are the two largest items in this programme &mdash;
+    together they are the majority of the net-new engineering, and per-tenant isolation also multiplies the
+    monthly infrastructure bill by tenant count (see the cost model below). Both were re-examined in v2 (task graph stays, hardened; tenancy is tiered, pooled default) and are
+    designed for here, not re-litigated. The mitigation baked into the design is that <em>neither reaches into
+    the kernel</em>: the task graph is a scheduler service beside the existing strategies, reusing the task
+    parsers and the <code>subagent_runs</code> / <code>wave_runs</code> tables that already exist; per-tenant
+    isolation is a Terraform packaging concern plus closing three nullable-tenancy gaps in the schema. If the
+    programme must shrink, these are the two dials &mdash; not the re-platform, and not the Phase 0 defect fixes.</div>
+    <div class="callout"><strong>Non-goals, stated explicitly.</strong> No non-AWS cloud support (AWS only, by requirement). No replacement of the manifest format. No frontend rewrite &mdash; the v1 event contract stays wire-compatible through the re-platform, and its v2 successor is a negotiated migration (Phase 5), not a break. Owning a password database long-term is a non-goal: identity federates through the OIDC broker; local bcrypt remains only as the fallback path.</div>
+    <div class="legend">
+      <span><i class="chip k"></i>Unchanged</span>
+      <span><i class="chip m"></i>New implementation, same seam</span>
+      <span><i class="chip n"></i>Net new component</span>
+      <span><i class="chip s"></i>Security-critical (overrides the others)</span>
+    </div>
+  </div>
+</section>
+<!-- ============================ L1 ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Level 1 &mdash; end-to-end workflows</h2><p>Each flow as it will run after the re-platform, colour-coded by what it costs to get there. Nodes that correspond to something that exists today carry the repository path.</p></div></div>
+  <div class="content">
+    <div class="tabs" role="tablist" aria-label="End-to-end workflows" data-group="l1">
+      <button class="tab active" role="tab" aria-selected="true" data-target="rapid">Rapid Prototype</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="revision">Revision</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="chain">Chaining</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="build">Multi-day Build</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="status">Concierge / Status</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="hitl">Gate &amp; Clarify</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="identity">Login</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="sse">SSE &amp; Multi-tab</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="control">Stop / Resume / Pause</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="sandbox">Sandbox Lifecycle</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="bedrock">Bedrock Invocation</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="preview">Preview &amp; Deliverable</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="governance">Governance Hooks</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="tenant">Tenant Provisioning</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="customer">Customer-hosted Run</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="failure">Failure Recovery</button>
+    </div>
+
+    <div id="rapid" class="workflow active"><div class="board-slot"></div>
+      <div class="sub-note"><strong>What changes and what does not.</strong> The wizard, the compile path,
+      the kernel and the run screen are the product as it exists today and are untouched. The re-platform is
+      entirely in how the run is <em>dispatched</em> (a worker claims it from an Aurora dispatch queue (SKIP LOCKED) instead of
+      <code>asyncio.create_task</code> on the API process, <code>run_commands.py:1779</code>), how events are
+      <em>persisted</em> (batched off the event loop instead of one synchronous <code>commit()</code> per
+      streamed chunk, <code>authz.py:296</code>), and how they are <em>fanned out</em> (published to every
+      viewer instead of one exclusive <code>queue.get()</code> consumer, <code>run_stream.py:200</code>).
+      The event vocabulary and <code>seq</code>-based replay are unchanged.</div>
+    </div>
+    <div id="revision" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Almost nothing changes.</strong> Revisions are shipped and live-proven:
+      <code>parent_run_id</code> (resolved only for <code>*_revision</code> types,
+      <code>run_commands.py:1745</code>), the parent-artifact fallback chain
+      (<code>engine.py:5759</code>) and <code>revises_existing</code> lineage all work today. The one
+      structural change is that the parent's working tree is restored from an S3 checkpoint rather than
+      assumed present on the same box &mdash; which is what lets a revision land on any worker. Two as-is
+      defects are fixed in passing: revision runs get a milestone sink (today they emit no narrator cards,
+      <code>run_commands.py:2403</code>) and the child no longer silently drops the parent's
+      template/design-system context (<code>engine.py:5931</code> forces <code>od_context=None</code>).</div>
+    </div>
+    <div id="chain" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Nothing here is new work.</strong> Chaining is shipped and live-proven
+      (chain chips + <code>matchChainTarget</code>, <code>RunChatLane.tsx:1114</code>; chain context via
+      <code>chain_hints</code>). The flow is drawn to show that the child run is dispatched exactly like any
+      other run, so it inherits admission control, tenancy scoping and leasing for free once those exist.</div>
+    </div>
+    <div id="build" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>The largest new build in the programme (decision 3).</strong>
+      Today <code>app_builder</code> is 15 agents executed strictly serially inside one coroutine
+      (<code>engine.py:2276</code>); if the process dies at agent 12 the restart scan orphan-fails the run
+      (<code>engine.py:5519</code>). The target turns the plan into durable task rows &mdash; a ~500-task
+      build is 500 rows with dependency edges, attempts, leases and heartbeats &mdash; dispatched by a
+      scheduler with bounded per-tenant parallelism and a write-domain lock per lane. Each task still
+      executes through the <em>existing</em> step machinery: the scheduler decides <em>what</em> runs, the
+      unchanged kernel decides <em>how</em>. The task parsers (<code>heading_tasks</code>,
+      <code>json_tasks</code>) and the <code>subagent_runs</code> / <code>wave_runs</code> audit tables are
+      reused, not rebuilt. The flow is drawn on <code>app_builder</code> because it is the extreme consumer - the graph itself is keyed to task-producing <em>strategies</em>, not workflow names: the prototype's <code>task_loop</code> step and any builder-composed fan-out stage ride the same rows (see the task-graph drill-down). See the three-day timeline board below for why this is worth building.</div>
+    </div>
+    <div id="status" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Mid-run questions without interrupting execution &mdash; a stated product
+      requirement that already works.</strong> The Concierge answers from real run data through owner-scoped
+      read tools (<code>concierge.py:431</code>) and streams over <code>chat_reply_chunk</code>
+      (<code>run_commands.py:1332</code>). On the target it reads from Aurora rather than a process-local
+      context, so any web task can answer while the run executes on a different worker. Two as-is defects are
+      fixed on this path: the reply is published to all viewers, not only the tab that POSTed
+      (<code>run_commands.py:1319</code>), and the per-turn full-log read that grows with run length
+      (<code>run_commands.py:1105</code>) is replaced by an indexed open-gate lookup.</div>
+    </div>
+    <div id="hitl" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>The single most important correctness change in the document.</strong>
+      Today every human-gate and clarify wake-up is an <code>asyncio.Event</code> in a module-level dict
+      (<code>artifact_store/store.py:42</code>): a gate can only be resolved by the exact process running the
+      run, answers submitted with no waiting coroutine are silently dropped (<code>run_commands.py:274</code>),
+      and a restart loses the wait entirely. On the target the <em>answer</em> is durable in Aurora and the
+      <em>wake-up</em> travels over Redis, so any web task can accept an approval and the owning worker is
+      woken wherever it runs. The same change removes the bare-text-defaults-to-approve hazard
+      (<code>chat_router.py:222</code>): an untyped chat turn at an open gate becomes a question, never an
+      implicit approval.</div>
+    </div>
+    <div id="identity" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Decision 2 (v2), concretely: Amazon Cognito is the broker; the internal JWT is untouched.</strong> One Cognito user pool per control-plane environment; each tenant configures its own IdP (Okta, Entra, any SAML/OIDC provider) as a federated identity provider, so their users sign in with their corporate identity and MFA policy &mdash; we never hold their passwords. Sign-in is the authorization-code + PKCE flow (hosted UI acceptable for v1); the control plane exchanges the code, validates Cognito&#39;s tokens, links or JIT-provisions the user (matched by verified email on first federated login), resolves tenant, tier and tenant-admin role from Aurora, and mints exactly the internal JWT + rotating refresh the 20 routers already verify &mdash; federation is an edge concern and zero router code changes. Email + password against the user pool remains the fallback for tenants without an IdP and for local dev; bcrypt-local survives only for air-gapped customer planes. SCIM arrives with the first contract that demands it; invite, reset and tenant-admin flows land in Phase 1 regardless. Auth events gain an audit log (today <code>auth.py</code> has no logger at all).</div>
+    </div>
+    <div id="sse" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Fixes a live defect, not just a scale limit.</strong> Today
+      <code>_PIPELINE_QUEUES</code> holds one <code>asyncio.Queue</code> per run and every SSE attach consumes
+      it exclusively (<code>run_stream.py:200</code>), so two tabs on one run split the event stream and only
+      one receives the end sentinel (<code>run_stream.py:201</code>). Publishing each persisted event to a
+      per-run channel gives every viewer a full copy; the durable log remains the replay source of truth by
+      <code>seq</code>, exactly as today. This is also the prerequisite for running more than one web task.
+      The stream gets its own rate budget &mdash; today it shares the generic <code>/api/</code> 120 r/min
+      zone and a reconnect storm competes with all other traffic (<code>bootstrap-ec2.sh:710</code>).</div>
+    </div>
+    <div id="control" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Also fixes a live defect.</strong> Cancel is currently a silent no-op for
+      every run driven by the resume tier &mdash; <code>_drive_resumed_stream</code> never passes
+      <code>cancel_event</code> into <code>_execute_impl</code> (<code>engine.py:7789</code>) while
+      <code>POST /cancel</code> still answers <code>cancelled: true</code> (<code>run_commands.py:301</code>).
+      Routing control commands over Redis to whichever worker holds the run lease makes stop, pause and
+      resume uniform across launch, user resume and restart auto-resume. The v3.0 resume spine itself is kept wholesale - the kernel-computed cursor with content-addressed task identity, gate re-entry with all five actions live post-restart, clarify replay without re-generation, and resume-from-failed - all live-proven on Bedrock; the target re-homes the wake-up signals, not the machinery. The intent is durable before
+      anything is signalled, and the UI repaints only on the state actually reached &mdash; fixing the
+      cancel-at-clarify screen that today keeps showing Clarifying. Pause is net new; no pause command
+      exists today.</div>
+    </div>
+    <div id="sandbox" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>The agent-facing contract is unchanged.</strong>
+      <code>write_file</code> / <code>edit_file</code> / <code>read_file</code> / <code>ls</code> /
+      <code>glob</code> / <code>grep</code> against a per-run tree with traversal containment
+      (<code>sandbox.py:79</code>) stay exactly as they are. What changes is where the tree lives (task-local ephemeral storage - fast for the many-small-file agent loop; a replacement task restores from the checkpoint) and that it is checkpointed to S3 at step boundaries, so a run can
+      resume on a different worker or after a deploy. Cleanup becomes explicit at run end instead of relying
+      solely on the 7-day TTL sweep (<code>RunSandbox.cleanup()</code> has no production caller today,
+      <code>sandbox.py:152</code>).</div>
+    </div>
+    <div id="bedrock" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Two additions to a path that otherwise works.</strong> Provider selection,
+      600 s read timeout, adaptive retries and the model fallback chain
+      (<code>model_factory.py:104</code>, <code>engine.py:3830</code>) are kept. Added: a per-tenant token and
+      concurrency lease before invoke, so one tenant cannot starve another (today there is no admission
+      control at all, <code>run_commands.py:1779</code>); and invocation through a VPC endpoint (already
+      present on the instance today, <code>compute/main.tf:85</code>; preserved per tenant plane). Prompt
+      caching is configured (<code>BEDROCK_PROMPT_CACHE_ENABLED</code> default true) but has never been
+      observed to register cache reads &mdash; that is a Phase 0 measurement task, and at 5&ndash;21M tokens
+      per prototype build it is the single largest cost lever in the system.</div>
+    </div>
+    <div id="preview" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Where a generic target would over-specify us.</strong> The shipped
+      prototype deliverable is a single HTML file rendered in a browser iframe &mdash; no container is
+      involved, and none is added. The container preview tier applies to <code>app_builder</code> output
+      only. The real, urgent issue on this path is different: the prototype and deck previews frame
+      model-generated HTML with <code>sandbox="allow-scripts allow-same-origin"</code>
+      (<code>PrototypePreview.tsx:611</code>, <code>PPTPreview.tsx:234</code>), which does not isolate the
+      framed document from our origin &mdash; a token-theft primitive given the JWT sits in
+      <code>localStorage</code>. Target: serve all model-generated previews from an isolated origin, and
+      make the sandbox policy uniform across the three renderers.</div>
+    </div>
+    <div id="governance" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Keep the default, fix the sharp edge.</strong> The compiler injects
+      <code>audit_logger</code> and <code>secret_scan</code> into every step that omits a <code>hooks:</code>
+      key, and no manifest declares one, so both hooks already fire on every step of every workflow
+      (<code>compiler.py:401</code>). The audit trail (<code>gate_events</code>, <code>hook_runs</code>,
+      <code>exec_runs</code>, <code>validation_results</code>) already carries tenancy keys. Two fixes: a
+      <code>secret_scan</code> block on <code>before_write</code> currently halts the deliverable write and
+      emits no stream event (<code>engine.py:3999</code>) &mdash; it will emit a visible blocked event; and
+      <code>hook_run</code> events currently bypass the seq/persist chokepoint entirely
+      (<code>kernel_services.py:387</code>) &mdash; they will go through it, so audits replay like everything
+      else.</div>
+    </div>
+    <div id="tenant" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Decision 4 (v2) &mdash; tiered tenancy.</strong> Pooled is the default tier; the control plane stays pooled and shared;
+      everything that touches tenant data &mdash; Aurora, Redis, S3, KMS key, ECS services, sandboxes &mdash;
+      comes from one Terraform tenant-plane module instantiated per tenant. Deploying into a customer account
+      is a deploy of the <em>same module</em>, not a rebuild, which is the requirement that pays for the
+      packaging work. Three schema gaps must close first: <code>workflow_runs.owner_id</code> /
+      <code>workspace_id</code> are nullable (<code>workflow.py:58</code>), <code>workflow_memory</code> has
+      no workspace key at all (<code>workflow_memory.py:23</code>), and scope is stamped only mid-engine
+      rather than at INSERT (<code>engine.py:1331</code>), which today makes a freshly launched run's own
+      SSE attach transiently 404.</div>
+    </div>
+    <div id="customer" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>The Cursor model, which is a stated requirement.</strong> The frontend,
+      identity, entitlement and workflow catalogue stay in the Velocity control plane and are centrally
+      upgraded. Everything that touches customer data &mdash; runtime, database, artifacts, sandboxes, keys,
+      audit, Bedrock &mdash; runs inside the customer's own AWS account, reached over PrivateLink. Source
+      code and generated artefacts never leave their VPC; only run metadata and stream events come back.
+      The connector enforces <em>local</em> guardrails and quotas (for example, a ceiling on concurrent
+      generations) so the customer plane is protected even from our control plane. It is the same
+      tenant-plane Terraform module, pointed at a different account.</div>
+    </div>
+    <div id="failure" class="workflow"><div class="board-slot"></div>
+      <div class="sub-note"><strong>Replaces irreversible startup failure with bounded, observable
+      recovery.</strong> Today a restart scan writes <code>status='failed'</code> to any non-terminal run
+      without durable rows and emits no event (<code>engine.py:5519</code>), so an attached client shows the
+      run mid-flight forever (<code>useRunStream.ts:399</code>); a parked <code>waiting_for_user</code> run
+      with no derivable gate has no driver and no resume path (<code>engine.py:5412</code>); and there is no
+      cross-process resume lock (<code>engine.py:7576</code>). On the target a dead worker's lease expires,
+      a reaper marks the run reclaimable, a replacement claims it and resumes from the last completed step
+      using the existing resume-offset computation (<code>engine.py:7645</code>). Every transition emits an
+      event; repeated failure routes to a DLQ instead of an infinite retry.</div>
+    </div>
+
+    <div class="legend">
+      <span><i class="sw"></i>Primary handoff</span>
+      <span><i class="sw blue"></i>Model / external call</span>
+      <span><i class="sw green"></i>Return event / result</span>
+      <span><i class="sw red"></i>Failure path</span>
+      <span><i class="chip k"></i>Unchanged</span>
+      <span><i class="chip m"></i>New implementation</span>
+      <span><i class="chip n"></i>Net new</span>
+      <span><i class="chip s"></i>Security-critical</span>
+    </div>
+  </div>
+</section>
+<!-- ============================ L2 ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Level 2 &mdash; subsystem drill-downs</h2><p>The detail behind the flows above, written against this codebase rather than a reference model.</p></div></div>
+  <div class="content">
+    <div class="tabs" role="tablist" aria-label="Level 2 drill-downs" data-group="l2">
+      <button class="tab active" role="tab" aria-selected="true" data-target="l2delta">As-is to To-be Delta</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="l2ux">Latency &amp; Smoothness</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="l2data">Data Plane</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="l2deploy">Deployment Topology</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="inframap">Full Infra Map</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="l2capacity">Capacity at 200 Users</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="l2control">Workflow Control</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="l2orch">Task Graph Internals</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="l2ops">Operations</button>
+      <button class="tab" role="tab" aria-selected="false" data-target="l2failure">Failure &amp; DR Matrix</button>
+    </div>
+
+    <div id="l2delta" class="workflow active">
+      <div class="board-slot"></div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Seam</th><th>As-is (verified, with locator)</th><th>Target</th><th>Cost</th><th>Why it must move</th></tr></thead>
+          <tbody>
+            <tr><td>Live event channel</td><td><code>_PIPELINE_QUEUES</code>: one <code>asyncio.Queue</code> per run, consumed exclusively (<code>run_engine.py:39</code>, <code>run_stream.py:200</code>)</td><td>Redis publish per run; Aurora remains the replay source of truth by <code>seq</code></td><td><span class="pill mod">seam</span></td><td>Fixes multi-tab frame stealing today; prerequisite for &gt;1 web task</td></tr>
+            <tr><td>Run dispatch</td><td>Bare <code>asyncio.create_task</code> on the request's own process (<code>run_commands.py:1779</code>)</td><td>Aurora dispatch queue (<code>FOR UPDATE SKIP LOCKED</code>) claimed under a lease; Redis nudges workers. <strong>The one genuinely invasive app-layer change</strong>: the three driver functions in <code>run_commands.py</code> move onto the claim loop</td><td><span class="pill new">new</span></td><td>Decouples execution from the API process; deploys stop killing runs</td></tr>
+            <tr><td>Cancel signal</td><td><code>_CANCEL_EVENTS</code> dict (<code>run_engine.py:47</code>); never passed on the resume tier (<code>engine.py:7789</code>)</td><td>Durable intent + control channel to the lease owner; uniform across launch and resume</td><td><span class="pill mod">seam</span></td><td>Cancel is a silent no-op for every resumed run while the API answers <code>cancelled: true</code></td></tr>
+            <tr><td>Gate / clarify wake-up</td><td><code>_resume_events</code> / <code>_questionnaire_responses</code> module dict (<code>artifact_store/store.py:42</code>); answers with no waiter silently dropped (<code>run_commands.py:274</code>)</td><td>Answer durable in Aurora; wake-up over Redis; waits carry timeouts</td><td><span class="pill mod">seam</span></td><td>A gate can only be resolved by the one process holding it, and dies on restart</td></tr>
+            <tr><td>Event persistence</td><td>Synchronous <code>add</code> + <code>commit()</code> inside <code>async def</code>, once per streamed chunk, one pooled connection per call (<code>authz.py:296-313</code>)</td><td>Batched writes on an executor; one commit per flush window; single durable seq allocator (extending the shipped migration-0024 per-run uniqueness + append_event_next_seq - today chat-writers-only - to the engine path); <strong>publish to viewers only after the durable flush - transient-by-design frames (<code>chat_reply_chunk</code>) are exempt: never persisted, never replayed; agent stream deltas (<code>agent_chunk</code>) stay persisted for replay parity pending a separately-reviewed golden reconciliation</strong></td><td><span class="pill mod">seam</span></td><td><strong>The single largest source of UI lag</strong>, and a hard blocker for a network database</td></tr>
+            <tr><td>Run state authority</td><td><code>StateMachine._states</code> in memory (<code>state_machine.py:60</code>); DB writes bypass it; <code>running</code>/<code>degraded</code> not in <code>VALID_STATES</code> (<code>state_machine.py:30</code> vs <code>run_commands.py:2127</code>)</td><td>Aurora authoritative; one status vocabulary with a transition table</td><td><span class="pill mod">seam</span></td><td>Two writers and three vocabularies today; unresolvable across processes</td></tr>
+            <tr><td>Run sandbox</td><td>Local disk under <code>RUNS_ROOT</code> on the root EBS volume, 7-day TTL sweep (<code>sandbox.py:81</code>, <code>docker-compose.yml:104</code>)</td><td>Task-local ephemeral tree + S3 checkpoint at step boundaries (EFS only if restore latency demands it)</td><td><span class="pill mod">seam</span></td><td>A run pinned to one box cannot resume anywhere else; sandboxes are on an unbacked-up volume</td></tr>
+            <tr><td>Artifact storage</td><td>Content INLINE in <code>artifact_refs.content</code> (Text, unbounded); <code>location</code> column exists unused (<code>artifact_ref.py:40</code>); same deliverable stored up to three times</td><td>S3 object per version; <code>location</code> holds the key; <code>content_hash</code> verifies the copy</td><td><span class="pill mod">seam</span></td><td>Large deliverables bloat every row read; the column for the fix already exists</td></tr>
+            <tr><td>Database</td><td>Postgres native on the app EC2 host; hourly logical <code>pg_dump</code> (<code>bootstrap-ec2.sh:1071</code>); backup alarm watches a metric nothing publishes (<code>monitoring/main.tf:727</code>)</td><td>Aurora PostgreSQL Multi-AZ + RDS Proxy; PITR; per-tenant CMK</td><td><span class="pill new">new</span></td><td>RPO up to one hour; the host is a single point of failure for the whole environment</td></tr>
+            <tr><td>Process model</td><td>One uvicorn process, no <code>--workers</code> (<code>docker-entrypoint.sh:24</code>); scale-out explicitly out of scope (<code>engine.py:7573</code>)</td><td><code>control</code> / <code>web</code> / <code>worker</code> / <code>scheduler</code> roles, one image, ECS services</td><td><span class="pill new">new</span></td><td>All runs and all connections share one event loop</td></tr>
+            <tr><td>Router registration</td><td>All 20 routers mounted on every process (<code>main.py:260-290</code>)</td><td><code>ROLE</code>-gated registration: control-plane vs runtime routers</td><td><span class="pill mod">seam</span></td><td>Control / data plane separation for roughly 30 lines of change</td></tr>
+            <tr><td>Identity internals</td><td>bcrypt + 24 h HS256 JWT in <code>localStorage</code>; frontend calls a <code>/api/auth/refresh</code> that does not exist (<code>useRunStream.ts:204</code>)</td><td>OIDC broker at the edge issuing our short-lived JWT + refresh (adapter behind <code>get_current_user</code>); internal contract unchanged</td><td><span class="pill mod">seam</span></td><td>Sessions and long run streams hard-expire at 24 h with no recovery</td></tr>
+            <tr><td>Tenancy keys</td><td><code>owner_id</code>/<code>workspace_id</code> nullable on <code>workflow_runs</code> (<code>workflow.py:58</code>); absent on <code>workflow_memory</code>; stamped mid-engine, not at INSERT</td><td>NOT NULL everywhere; scope stamped at INSERT; tenant id on every write path</td><td><span class="pill mod">seam</span></td><td>Per-tenant isolation cannot be enforced on a nullable key</td></tr>
+            <tr><td>Migrations</td><td><code>alembic upgrade head</code> on every container start, no advisory lock; 0029 deletes rows during upgrade (<code>docker-entrypoint.sh:22</code>, <code>0029:95</code>)</td><td>A separate migration task, advisory-locked, gating rollout; <code>alembic check</code> in CI; expand/contract (Phase 5) replaces additive-only-forever</td><td><span class="pill new">new</span></td><td>N tasks starting concurrently would race one migration; drift already happened once (0028)</td></tr>
+            <tr><td>Long-running work</td><td>15 sequential agents in one coroutine (<code>engine.py:2276</code>); no token or wall-clock cap outside fan-out (<code>budget.py:109</code>)</td><td>Durable task rows, leases, heartbeats, attempts, dependency edges, scheduler, DLQ</td><td><span class="pill new">new</span></td><td>Locked for v1; the only way a multi-day build survives a deploy</td></tr>
+            <tr><td>Rate limiting</td><td>nginx only; SSE shares the generic <code>/api/</code> 120 r/min burst-20 zone (<code>bootstrap-ec2.sh:710</code>); no app-layer limits at all</td><td>WAF + ALB; stream and reconnect on their own budget; per-tenant admission in the app</td><td><span class="pill mod">seam</span></td><td>A reconnect storm competes with all other traffic for one ~2 req/s budget</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>Read this table as the whole programme.</strong> Sixteen seams. Eleven are
+      re-implementations behind an interface that already exists in one module &mdash; which is precisely why
+      this is a re-platform and not a rewrite. The as-is already funnels each concern through a single place
+      (<code>run_engine.py</code>, <code>artifact_store/store.py</code>, <code>authz.py</code>,
+      <code>sandbox.py</code>), so replacing what sits behind those modules reaches almost everything without
+      touching the kernel.</div>
+    </div>
+
+    <div id="l2ux" class="workflow">
+      <div class="board-slot"></div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Symptom the user sees</th><th>Verified cause</th><th>Fix</th><th>Phase</th></tr></thead>
+          <tbody>
+            <tr><td>Stream stutters; the whole app feels sluggish while any run is streaming</td><td>Synchronous <code>commit()</code> per streamed chunk inside <code>async def</code> blocks the only event loop (<code>authz.py:296-313</code>); state transitions do the same (<code>state_machine.py:104</code>)</td><td>Batch event writes off the loop; one commit per flush window</td><td>0</td></tr>
+            <tr><td>Second tab on the same run shows half the events and never completes</td><td>Exclusive <code>await queue.get()</code> on one shared queue (<code>run_stream.py:200</code>)</td><td>Publish to all subscribers; per-viewer cursor</td><td>0</td></tr>
+            <tr><td>UI shows a running pipeline that does not exist</td><td><code>sendCommand</code> returns null on any non-2xx create with no catch, after <code>isRunning</code> was set optimistically (<code>RunConnectionProvider.tsx:468</code>, <code>useWorkflow.ts:59</code>)</td><td>Surface the launch error; roll back the optimistic state</td><td>0</td></tr>
+            <tr><td>Run appears stuck mid-flight forever after a backend restart</td><td>Orphan-failed runs emit no <code>run_events</code> row (<code>engine.py:5519</code>), so a reconnecting client replays nothing and settles disconnected (<code>useRunStream.ts:399</code>)</td><td>Emit a terminal event on orphan-fail (interim); leases + reaper (final)</td><td>0 / 2</td></tr>
+            <tr><td>Page hangs on load or reattach</td><td><code>getWorkflows</code> bypasses the <code>request()</code> wrapper, so no 30 s abort timeout (<code>api.ts:346-370</code>)</td><td>Route it through the shared wrapper</td><td>0</td></tr>
+            <tr><td>Reconnect storms return 429</td><td>SSE shares the generic <code>/api/</code> 120 r/min burst-20 zone (<code>bootstrap-ec2.sh:710</code>)</td><td>Own rate budget for stream + reconnect; jittered client backoff</td><td>0</td></tr>
+            <tr><td>Fan-out and merge look frozen &mdash; no progress renders</td><td><code>subagent_*</code> events carry no <code>wave_index</code> so the dashboard drops them (<code>page.tsx:495</code>, <code>fanout.py:522</code>); all eleven <code>merge_*</code>/<code>step_*</code>/<code>budget_warning</code> types are absent from the client union (<code>types/index.ts:100</code>)</td><td>Stamp <code>wave_index</code>; add the missing types to the client union</td><td>0</td></tr>
+            <tr><td>Deliverable write silently stalls</td><td>A <code>secret_scan</code> block halts the write and emits no stream event (<code>engine.py:3999</code>)</td><td>Emit a visible blocked event with the reason</td><td>0</td></tr>
+            <tr><td>Stop does nothing on a resumed run</td><td><code>cancel_event</code> is never threaded into the resume tier (<code>engine.py:7789</code>) while the API acks <code>cancelled: true</code></td><td>Thread it now (one-line class of fix); durable control channel (final)</td><td>0 / 2</td></tr>
+            <tr><td>Session dies mid-run at 24 h</td><td>No refresh endpoint exists; the frontend already calls it (<code>useRunStream.ts:204</code>)</td><td>Implement refresh; shorten the access token</td><td>1</td></tr>
+            <tr><td>Long deploy window; runs die on every deploy</td><td><code>alembic upgrade head</code> on every container start (0029 does per-group DELETEs); runs live inside the API process</td><td>Migration as a gated pre-deploy task; workers drain and checkpoint</td><td>2</td></tr>
+            <tr><td>One heavy user slows everyone</td><td>No per-user or global admission control; every launch spawns another driver on the one loop (<code>run_commands.py:1779</code>)</td><td>Per-tenant admission and Bedrock quota leases; separate worker pools</td><td>2</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn"><strong>Nine of these twelve need no new infrastructure.</strong> They are
+      defects in the current build and ship on the existing single instance before any re-platform work
+      starts. If the objective is "no lags or hangs or delays", Phase 0 delivers most of it and is the
+      cheapest work in this document. The event-loop fix is also a hard prerequisite for Aurora: a network
+      round trip per streamed chunk would be dramatically worse than the current local socket.</div>
+    </div>
+
+    <div id="l2data" class="workflow">
+      <div class="board-slot"></div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Store</th><th>Holds</th><th>Authoritative</th><th>Today</th><th>If lost</th></tr></thead>
+          <tbody>
+            <tr><td>Aurora PostgreSQL</td><td>Users, runs, <code>run_events</code>, artifact metadata, clarifications, gate/hook/exec/validation audit, task graph, leases, tenancy</td><td>Yes</td><td>Postgres on the app host; hourly <code>pg_dump</code>; 24 app tables + 4 LangGraph tables</td><td>Everything. This is the one store that must not fail; Multi-AZ + PITR exist for exactly this reason</td></tr>
+            <tr><td>Amazon S3</td><td>Artifact content (via <code>artifact_refs.location</code>), sandbox checkpoints, deliverable bundles, exports, event archive</td><td>Yes</td><td>Used only for backups; application content is inline in Postgres</td><td>Artifact bodies and checkpoints; runs cannot resume on a new worker</td></tr>
+            <tr><td>Task-local ephemeral (EFS fallback)</td><td>Active per-run working tree the agent tools read and write - small-file I/O is latency-sensitive, so local by default</td><td>No</td><td>Local dirs on the instance root volume (not backed up, <code>delete_on_termination=true</code>)</td><td>Rebuilt from the last S3 checkpoint; at most one step of agent edits replayed</td></tr>
+            <tr><td>ElastiCache Redis</td><td>Dispatch stream, control channel, live event fan-out, run leases, presence, per-tenant quota leases</td><td><strong>No &mdash; by rule</strong></td><td>Does not exist; all of this is in-process Python dicts and <code>asyncio.Event</code>s</td><td>Live streams re-establish from the durable log; leases repopulate; nothing authoritative is lost</td></tr>
+            <tr><td>LangGraph checkpoints</td><td>Per-agent-invocation graph state (thread per invocation, task, redo, retry, worker)</td><td>Yes, during a run</td><td>Created outside Alembic by <code>AsyncPostgresSaver.setup()</code>; <strong>never pruned</strong> (<code>checkpointer.py:110</code>)</td><td>In-flight agent turns restart from the step boundary instead of mid-turn</td></tr>
+            <tr><td>KMS + Secrets Manager</td><td>Per-tenant CMK, JWT signing key, GitHub PATs, MCP credentials</td><td>Yes</td><td>Fernet key derived from the same <code>SECRET_KEY</code> that signs JWTs (<code>crypto.py:29</code>); secrets in SSM</td><td>Tenant data unreadable &mdash; a tenancy-level incident; this is why keys get their own lifecycle</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>The rule that makes scale-out possible: memory and cache are never sources
+      of truth.</strong> This rule must be <em>established</em>, not maintained &mdash; today it is broken in
+      six places, all authoritative in process memory: the per-run SSE queue, the driver task handle, the
+      cancel signal, every human-gate and clarify wake-up, the live execution context, and the run state
+      machine's state dict. Anything needed to resume, revise, chain, answer a status question or replay a
+      stream must survive process replacement. Closing those six is the re-platform.</div>
+      <div class="callout warn"><strong>Two housekeeping items become urgent before per-tenant Aurora
+      multiplies their cost.</strong> <code>run_events</code> grows unbounded &mdash; one row per streamed
+      LLM chunk, no TTL, no partitioning, only a per-run delete cascade (<code>engine.py:1032</code>,
+      <code>runs.py:549</code>). And the four LangGraph checkpoint tables are outside Alembic and never
+      pruned while every task, retry, redo and fan-out worker mints a new thread. Both get a retention policy
+      in the data migration plan below.</div>
+    </div>
+
+    <div id="l2deploy" class="workflow">
+      <div class="board-slot"></div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Service</th><th>Role</th><th>Scales on</th><th>Stateless</th><th>From</th></tr></thead>
+          <tbody>
+            <tr><td><code>control-api</code></td><td>Identity, tenant registry, entitlement, workflow catalogue, admin, provisioning</td><td>Request rate</td><td>Yes</td><td>Same image, <code>ROLE=control</code></td></tr>
+            <tr><td><code>web</code></td><td>Run REST commands and the SSE down-channel</td><td>Concurrent SSE connections and request rate</td><td>Yes</td><td>Same image, <code>ROLE=web</code></td></tr>
+            <tr><td><code>worker</code></td><td>Drives the unchanged <code>ExecutionEngine</code> for claimed runs</td><td>Claimed runs and in-flight model turns</td><td>Yes &mdash; state in Aurora, tree ephemeral + checkpointed to S3</td><td>Same image, <code>ROLE=worker</code></td></tr>
+            <tr><td><code>scheduler</code></td><td>Task-graph dependency evaluation and bounded dispatch</td><td>Ready-task backlog age</td><td>Yes &mdash; any instance may dispatch safely (SKIP LOCKED); no leader election</td><td>Same image, <code>ROLE=scheduler</code></td></tr>
+            <tr><td><code>build-worker</code></td><td>Long-running build tasks with their own quota pool</td><td>Queued build tasks per tenant</td><td>Yes</td><td>Same image, <code>ROLE=worker</code>, separate service</td></tr>
+            <tr><td><code>preview</code></td><td>Ephemeral app previews (<code>app_builder</code> only)</td><td>Active previews and TTL churn</td><td>Yes, ephemeral</td><td>Per-revision image in tenant ECR</td></tr>
+            <tr><td><code>migrate</code></td><td>One-shot <code>alembic upgrade head</code> under an advisory lock</td><td>n/a &mdash; runs once per deploy and gates rollout</td><td>Yes</td><td>Same image, <code>ROLE=migrate</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>One image, one repository, seven roles.</strong> This is the customisation
+      that keeps the change budget small. The same scaling and blast-radius separation a service decomposition
+      would give is achieved by gating router registration and the startup path on a <code>ROLE</code>
+      environment variable in <code>main.py</code>. No repo split, no per-service build pipeline, and a
+      developer still runs the whole product locally with one compose file. Two Fargate edges are handled explicitly: the worker service keeps a small warm minimum so burst launches do not pay task cold starts, and preview image builds run as kaniko-style userspace builds (or CodeBuild) because Fargate has no Docker daemon.</div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Deployment mode</th><th>Control plane</th><th>Runtime &amp; data</th><th>Execution</th><th>Bedrock &amp; keys</th><th>Why choose it</th></tr></thead>
+          <tbody>
+            <tr><td>Velocity SaaS pooled (Tier 1 &mdash; the default)</td><td>Ours, pooled</td><td>Shared plane; row-level isolation on NOT NULL tenancy keys + ScopedStore</td><td>Ours, per-tenant sandboxes</td><td>Our Bedrock, per-tenant CMK</td><td>The v2 default; cheapest and fastest onboarding</td></tr>
+            <tr><td>Dedicated tenant AWS account</td><td>Ours, pooled</td><td>Velocity-owned account dedicated to one tenant</td><td>Dedicated account</td><td>Our Bedrock, dedicated CMK</td><td>Tier 2 &mdash; contractual isolation with our operations</td></tr>
+            <tr><td>Customer-owned AWS (Cursor model)</td><td><strong>Ours, pooled</strong> &mdash; centrally upgraded</td><td>Customer account, customer VPC</td><td>Customer account, customer VPC</td><td>Customer Bedrock, customer KMS</td><td>Tier 3 &mdash; data residency; source never leaves their VPC</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>What this deployment model deliberately is NOT.</strong> It is
+      <em>not one container per agent</em>: the 86 agents are <code>AGENT.md</code> markdown files loaded as
+      runtime configuration into one <code>deepagents</code> graph inside a worker process
+      (<code>agents/prompts/*/AGENT.md</code>, <code>factory.py:186</code>). They are not services, and making
+      them services would add a network hop and a cold start to every reasoning step for no isolation
+      benefit, because agents in one run share that run's context by design. It is <em>not one container per
+      tool command</em> &mdash; a run reuses its warm working tree rather than paying a cold start on every
+      <code>ls</code>. And it is <em>not one process that must survive three days</em> &mdash; the durable
+      task graph exists precisely so no single process has to. What scales independently is the seven roles
+      above, nothing finer-grained.</div>
+      <div class="callout warn"><strong>What this replaces.</strong> Today: one EC2 instance per environment
+      in a single AZ, nginx and Postgres native on the host beside two containers, one uvicorn process, no
+      ASG, no load balancer, no managed database, no standby (<code>compute/main.tf:72</code>,
+      <code>docker-entrypoint.sh:24</code>) &mdash; and production served on a <code>nip.io</code>
+      wildcard-DNS hostname with no Route 53 record and no ACM certificate (<code>prod.tfvars:23</code>).
+      Instance loss is total environment loss. That single instance is also the only reason the six in-memory
+      registries have been survivable until now.</div>
+    </div>
+
+    <div id="inframap" class="workflow">
+      <div class="board-slot"></div>
+      <div style="padding:14px 8px;color:#475569;font-size:13px;line-height:1.6;max-width:1200px">Every component of the target estate on one board: the edge and sign-in path, the pooled control account (API, control DB, plane-stamping Terraform, CI/ECR, observability), the tenant VPC with the one image in five roles, the data tier (Aurora truth + dispatch queue, Redis fan-out, S3 objects, per-tenant keys), and the execution/external ring (sandboxes, the isolated preview origin, Bedrock through VPC endpoints, GitHub and tenant IdPs, and the Tier 2/3 planes stamped from the same module). Wires follow the same flow/call/return grammar as every other board; colours mark what is new, modified, kept or security-motivated.</div>
+    </div>
+    <div id="l2capacity" class="workflow">
+      <div class="board-slot"></div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Scaling dimension</th><th>Scale on</th><th>200-user worked example <span class="est">ESTIMATE</span></th><th>Capacity signal</th><th>Today</th></tr></thead>
+          <tbody>
+            <tr><td><code>control-api</code></td><td>Request rate, CPU</td><td>2 tasks, burst to 4 <span class="est">ESTIMATE</span></td><td>p95 latency and saturation</td><td>Shares one process with everything else</td></tr>
+            <tr><td><code>web</code> (REST + SSE)</td><td>Concurrent connections, outbound event rate, memory</td><td>~200&ndash;400 concurrent SSE streams incl. multi-tab; 2&ndash;4 tasks <span class="est">ESTIMATE</span></td><td>Connections per task vs headroom; stream lag</td><td>One event loop for all connections and all runs</td></tr>
+            <tr><td><code>worker</code></td><td>Claimed runs and in-flight model turns</td><td>~40 simultaneous model-driven agent turns; 4&ndash;8 tasks <span class="est">ESTIMATE</span></td><td>Dispatch-to-claim latency</td><td>Runs execute inside the API process</td></tr>
+            <tr><td><code>scheduler</code></td><td>Ready-task backlog age</td><td>1 elected task; hundreds of ready tasks <span class="est">ESTIMATE</span></td><td>Backlog age, not backlog size</td><td>Does not exist</td></tr>
+            <tr><td><code>build-worker</code> pool</td><td>Queued build tasks and tenant quotas</td><td>~10&ndash;30 concurrent build tasks per active build <span class="est">ESTIMATE</span></td><td>Ready-task backlog per tenant</td><td>Does not exist; builds run inline and serially</td></tr>
+            <tr><td>Sandboxes (ephemeral trees)</td><td>Active runs and preview demand</td><td>~30 interactive + ~20 build trees <span class="est">ESTIMATE</span></td><td>Time-to-tree, checkpoint duration</td><td>Local dirs on one 60&ndash;100 GB root volume</td></tr>
+            <tr><td>Bedrock quota</td><td>Tokens and concurrent invocations per tenant</td><td>Leases sized from measured run mix <span class="est">ESTIMATE</span></td><td>Throttle rate and lease-refusal rate</td><td>No leases; first come, first served; no admission control</td></tr>
+            <tr><td>Aurora connections</td><td>Pooled connections via RDS Proxy</td><td>Proxy absorbs per-task pools <span class="est">ESTIMATE</span></td><td>Proxy pinning rate, wait time</td><td>Default max_connections=100 vs a 60+10 connection appetite on one host</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout stop"><strong>Every number in this table is an estimate. Nothing in the as-is was
+      executed &mdash; no load test, no profiling run exists.</strong> The ratios that decide the bill
+      (agent turns per worker task, SSE connections per web task, sandbox density) depend on real context
+      sizes, and the as-is records prototype builds re-sending a 45&ndash;68k-token context hundreds of times
+      per run. Treat this table as the shape of the capacity model and the list of signals to instrument.
+      The load-test harness is Phase 0 work, before any of these numbers is committed to.</div>
+      <div class="sub-note"><strong>Why these must not share one scaling metric.</strong> A one-hour prototype
+      run, a five-minute-to-two-hour revision and a one-to-three-day build place completely different load on
+      different roles. Driving worker count from SSE connection volume, or sandbox pools from request rate,
+      oversupplies one dimension and starves another &mdash; which is exactly what a single process does
+      today, because it has only one dimension to scale.</div>
+    </div>
+
+    <div id="l2control" class="workflow">
+      <div class="board-slot"></div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Command</th><th>Scheduler</th><th>Owning worker</th><th>Sandbox</th><th>Model stream</th><th>Resumable</th><th>Today</th></tr></thead>
+          <tbody>
+            <tr><td>Pause</td><td>Stops dispatch; ready tasks stay queued</td><td>Finishes the current step, then holds</td><td>Kept warm to idle TTL, then checkpointed</td><td>Current invocation completes; no new calls</td><td>Yes, from the durable control point</td><td>No pause command exists</td></tr>
+            <tr><td>Resume</td><td>Re-evaluates dependencies; dispatches the ready wave</td><td>Loads state from Aurora; rebuilds context via <code>_compute_resume_offset</code> (kept)</td><td>Reuses the warm tree or restores the checkpoint</td><td>Quota lease re-acquired</td><td>n/a</td><td>Works (<code>engine.py:7645</code>), but only on the process that holds the run</td></tr>
+            <tr><td>Cancel</td><td>Drains the queue; remaining tasks marked cancelled</td><td>Durable intent first; cooperative cancel per chunk and pre-step (kept, <code>engine.py:3621, 2287</code>)</td><td>Flush, checkpoint, terminate</td><td>In-flight invocation aborted; lease released</td><td>No &mdash; artifacts retained, run terminal</td><td><strong>Silent no-op on every resumed run</strong> (<code>engine.py:7789</code>)</td></tr>
+            <tr><td>Retry</td><td>Re-queues the failed task with a new attempt number</td><td>Restores step context from the checkpoint</td><td>Fresh tree, workspace restored, idempotent</td><td>New invocation, possibly the fallback model (kept, <code>engine.py:3830</code>)</td><td>Yes</td><td>Bounded fix-loops exist; no task-level retry (<code>engine.py:6557</code>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="sub-note"><strong>Why a quiesce step exists.</strong> A control command cannot take effect
+      instantly because work is in flight across four subsystems at once: the scheduler may be dispatching, a
+      worker may be mid-step, a sandbox may be mid-write, and a model invocation may be mid-stream. The
+      owning worker broadcasts intent, collects acknowledgements, and force-transitions after a timeout. The
+      user-facing rule that falls out of this: <strong>the UI paints only states the system has actually
+      reached</strong>. That rule fixes a defect that exists today &mdash; cancelling at a clarify prompt
+      leaves the run screen showing Clarifying because the client paints intent rather than a confirmed
+      state.</div>
+    </div>
+
+    <div id="l2orch" class="workflow">
+      <div class="board-slot"></div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Concern</th><th>Reused (unchanged)</th><th>New</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td>Task production</td><td><code>heading_tasks</code> and <code>json_tasks</code> parsers; content-addressed <code>task_identity</code> (<code>task_loop.py:236</code>)</td><td>Persist parsed tasks as durable rows with dependency edges</td><td>The parsers already produce the ordered, keyed task list; today it lives in memory for the run's lifetime</td></tr>
+            <tr><td>Task execution</td><td>The entire step machinery: strategies, gates, validators, hooks, deliverables</td><td>Nothing</td><td><strong>The containment boundary</strong>: the scheduler decides what runs, the unchanged kernel decides how</td></tr>
+            <tr><td>Concurrency</td><td><code>fanout_batch</code>, <code>wave_scheduler</code>, wave building with conflict-key splitting (<code>wave_scheduler.py:96-119</code>)</td><td>Per-tenant cap replaces the hardcoded <code>min(declared, 4)</code> (<code>fanout.py:559</code>, <code>budget.py:114</code>)</td><td>A manifest can currently lower parallelism but never raise it above 4</td></tr>
+            <tr><td>Isolation</td><td>Sub-sandbox and worktree isolation modes (<code>fanout.py:332</code>)</td><td>Activate them &mdash; dormant because no manifest grants <code>exec</code>, so <code>KernelServices.workspace</code> is None (<code>kernel_services.py:645</code>)</td><td>Today every parallel worker writes into one shared per-run sandbox</td></tr>
+            <tr><td>Merge</td><td><code>copy_disjoint</code>, <code>git_3way</code>, <code>html_fragment</code>, <code>json_merge</code></td><td>Wire merge events to the frontend; make merge declarable (today it is hardcoded to isolation kind, <code>fanout.py:793</code>)</td><td>All four strategies are built; every <code>merge_*</code> event is currently unrendered</td></tr>
+            <tr><td>Audit</td><td><code>subagent_runs</code> and <code>wave_runs</code> (owner-scoped, indexed)</td><td>Add <code>attempt</code>, <code>lease_owner</code>, <code>lease_expires_at</code> columns (additive)</td><td>The audit tables already exist and already carry tenancy keys</td></tr>
+            <tr><td>Recovery</td><td>&mdash;</td><td>Lease expiry returns a task to ready; bounded attempts, then DLQ with an operator redrive</td><td>Replaces orphan-failing the whole run; fixes worker failures being invisible to the terminal decision (<code>fanout.py:411</code>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Concurrency model</th><th>How writes are separated</th><th>Parallelism</th><th>Merge cost</th><th>Maps onto</th></tr></thead>
+          <tbody>
+            <tr><td>A &mdash; Serialised writes</td><td>Many reasoning tasks, one code-writing lane</td><td>Low</td><td>None</td><td>What we effectively have today: all workers share one sandbox</td></tr>
+            <tr><td>B &mdash; Branch / worktree per task</td><td>Each task owns an isolated branch and worktree</td><td>High</td><td>High &mdash; dependency-aware merges and conflict resolution on every task</td><td>The dormant <code>worktree</code> mode plus <code>git_3way</code></td></tr>
+            <tr><td><strong>C &mdash; Bounded parallelism by module (recommended)</strong></td><td>Frontend, backend, database and infra write lanes</td><td>Medium</td><td>Low &mdash; conflicts are rare across module boundaries</td><td>The dormant <code>sub_sandbox</code> mode plus <code>copy_disjoint</code> &mdash; the merge strategy least likely to fail unattended</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="sub-note"><strong>Recommendation and why.</strong> Start at model C. Move to B only if
+      wall-clock time proves to be the binding constraint, because B pays its merge cost on every task and
+      none of the merge strategies has ever run in production. The scheduler must understand both task
+      dependencies and workspace write domains &mdash; dependency order alone does not stop two tasks editing
+      the same file. Six of the seven concerns in the first table already exist in this codebase, dormant or
+      in-memory; the genuinely new engineering is durable task rows with leasing plus the scheduler role. Three hardening rules are part of the design, not options: the lease TTL must exceed the longest legitimate model read (600 s) and the heartbeat runs beside the model stream, never inside it; every task is idempotent (the content-addressed keys already exist) because lease expiry implies possible double execution; and the sequential-parity golden test is load-bearing - app_builder's agents were authored for sequential context order, so parallelism is validated against output quality, not just infrastructure. <strong>Scope: the graph belongs to the strategies, never to a workflow (SC-001).</strong> It is the same machinery the prototype already uses: the prototype's 50-minute build step declares <code>strategy: task_loop</code> (<code>prototype/workflow.yaml:53</code>), its tasks come from the same <code>heading_tasks</code> parser with the same content-addressed <code>task_identity</code>; <code>od_ppt</code> has no task-producing step; <code>app_builder</code> today is 15 <code>single_shot</code> agents that only become task-based through this graph; and fan-out stages are builder-composable, so custom workflows can contain parallel task stages. The rows back every task-producing strategy: a sequential <code>task_loop</code> chain rides them at parallelism 1 behind the sequential-parity gate; <code>fanout_batch</code> / <code>wave_scheduler</code> ride them with leases, write domains and merge. Forbidden outcomes: a scheduler that special-cases any workflow by name (SC-001), and a permanent dual path where builds use rows while the prototype loop keeps in-memory bookkeeping (INV-3) - once parity holds, the in-memory task ledger is deleted. Two pieces are already shipped: migration 0026 stamps task_id/worker_index on subagent_runs at spawn, and the content-addressed task_key identity module (agents/capabilities/task_identity.py) is the idempotency key - the graph's rows extend a live substrate, not a blank page.</div>
+    </div>
+
+    <div id="l2ops" class="workflow">
+      <div class="board-slot"></div>
+      <div class="sub-table">
+        <table>
+          <thead><tr><th>Capability</th><th>Today (verified)</th><th>Target</th></tr></thead>
+          <tbody>
+            <tr><td>Correlation</td><td>None: no request-id middleware, no <code>run_id</code> in the log format (<code>main.py:245</code>)</td><td>Tenant, session, run, step, agent, task and sandbox ids on every record and span</td></tr>
+            <tr><td>Log format</td><td>Pipe-delimited text; four loggers pinned to DEBUG in production; uvicorn access log suppressed (<code>main.py:39-58</code>)</td><td>Structured JSON at INFO; level per environment</td></tr>
+            <tr><td>Error handling</td><td><strong>No global exception handler</strong> &mdash; unhandled exceptions return a default 500 with no correlation id</td><td>Handler that logs with correlation and returns a typed error the frontend can render</td></tr>
+            <tr><td>Tracing</td><td><code>otel_tracing</code> hook exists but reads an undeclared env var and no manifest uses it</td><td>OTel collector; spans for run, step, agent turn, model call, tool call</td></tr>
+            <tr><td>Metrics</td><td>18 CloudWatch alarms; the backup-freshness alarm watches a metric nothing publishes (<code>monitoring/main.tf:727</code>); the disconnect alarm targets the retired WebSocket transport</td><td>SLO-driven alarms per role: stream lag, dispatch latency, error rate, saturation, cost burn &mdash; each verified to fire</td></tr>
+            <tr><td>Cost attribution</td><td>Token counts per agent (<code>agent_complete</code>); unknown models silently price at the cheapest tier (<code>model_pricing.py:96</code>); no tenant attribution</td><td>Per-tenant token, sandbox-minute and storage attribution; priced models fail loudly</td></tr>
+            <tr><td>CI gates</td><td><code>compileall</code> only; no backend tests, no frontend lint/test/typecheck, no image scan (<code>buildspec.yml:95</code>)</td><td>Characterisation + parity suites, frontend typecheck and e2e, image scanning, <code>alembic check</code>, migration dry-run</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout stop"><strong>Observability is the weakest plane in the as-is and it does not
+      improve by itself.</strong> Debugging a distributed run across a web task, a worker and a scheduler
+      with no correlation id and unstructured logs is materially harder than debugging one process.
+      Correlation and structured logging are a prerequisite for operating the split at all, which is why they
+      land in Phase 1, before the split in Phase 2.</div>
+    </div>
+
+    <div id="l2failure" class="workflow">
+      <div class="sub-note"><strong>Reading this matrix.</strong> Each column is one failure scenario; the
+      rows are detect / contain / recover / RPO / <strong>what happens today</strong>. The last row is what
+      justifies the work. RPO and RTO figures are design targets, not measured results
+      <span class="est">ESTIMATE</span>, and must be validated by game-day testing before appearing in any
+      contract.</div>
+      <div class="board-slot"></div>
+    </div>
+
+    <div class="legend">
+      <span><i class="sw"></i>Primary handoff</span>
+      <span><i class="sw blue"></i>Cross-boundary or external call</span>
+      <span><i class="sw green"></i>Return event / result</span>
+      <span><i class="sw red"></i>Failure path</span>
+    </div>
+  </div>
+</section>
+<!-- ============================ G. LONG-RUN TIMELINE ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>A three-day build, end to end</h2><p>A multi-day build is not a sequence diagram &mdash; it is a timeline that survives events. One 500-task <code>app_builder</code> run across three days, with a deploy, a backend restart, a human gate, a throttling episode and a reconnect happening during it, and what the user sees at each moment.</p></div></div>
+  <div class="content">
+    <div class="tabs" role="tablist" aria-label="Long-run timeline" data-group="timeline">
+      <button class="tab active" role="tab" aria-selected="true" data-target="timeline">Day 1 &rarr; Day 3</button>
+    </div>
+    <div id="timeline" class="workflow active">
+      <div class="board-slot"></div>
+      <div class="sub-note"><strong>Why this board exists.</strong> Read the top lane alone: at every moment
+      the user sees an honest, current state &mdash; including while a deploy rolls, while Bedrock throttles,
+      and after a worker dies overnight. Each of those three events is fatal today: a deploy replaces the
+      process that holds every run; the restart scan writes <code>status='failed'</code> with no event
+      (<code>engine.py:5519</code>), so a reconnecting client replays nothing and shows the run mid-flight
+      forever; and a throttle that outlives the model fallback chain fails the step permanently because no
+      task-level retry exists (<code>engine.py:6557</code>). The durable task graph is what turns all three
+      into non-events, which is the clearest justification for building it.</div>
+      <div class="sub-note"><strong>What is being demonstrated per event.</strong> The deploy (T4) drains and
+      checkpoints, and version pinning keeps the run on the engine and manifest versions it started with
+      (see the environments section). The overnight gate (T5&ndash;T6) is a durable row, so the approval from
+      a phone the next morning lands on any web task and wakes the owning worker over the control channel.
+      The throttle (T7) holds tasks in ready rather than failing them; the quota lease is what stops a
+      retry storm. The worker loss (T8) is detected by lease expiry, and a replacement claims the run and
+      remounts the tree from the last checkpoint. The reconnect (T9) replays by <code>seq</code> from the
+      durable log exactly as it does today &mdash; the one mechanism in this timeline that already works.</div>
+      <div class="legend">
+        <span><i class="sw"></i>Timeline / handoff</span>
+        <span><i class="sw blue"></i>Model / external call</span>
+        <span><i class="sw green"></i>Return / recovery</span>
+        <span><i class="sw red"></i>Failure or disruption</span>
+        <span><i class="chip k"></i>Unchanged</span>
+        <span><i class="chip m"></i>New implementation</span>
+        <span><i class="chip n"></i>Net new</span>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- ============================ MIGRATION ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Migration path</h2><p><em>Execution companion (2026-08-03): migration-playbook.md expands every phase below into a full cutover chapter; migration-coverage-ledger.md proves as-is coverage (656 elements) and target-coverage-ledger.md proves every commitment in this document has an owning step (303 commitments, reverse-totality audited). Where that audit found this document wrong, the text has been corrected in place.</em></p><p>Every phase executes as a GSD milestone in the repo's own strangler discipline - characterization-gated plans, RED-then-GREEN changes, per-phase verification, migration-ledger deletion ratchets: the method that shipped the 51 phases in <code>.planning/IMPLEMENTATION-REGISTER.md</code>. The re-platform inherits a proven operating system, not just a codebase.</p><p>Ordered so that every phase ships value on its own and nothing is a big-bang cutover. <strong>The current single instance keeps serving production through Phases 0 and 1; traffic moves to the ECS plane during Phase 2 and the instance is retired at the end of it.</strong></p></div></div>
+  <div class="content">
+
+    <div class="phase"><div class="phase-h"><span class="tag">Phase 0</span><b>Make it feel fast, and measure it</b><span class="why">No new infrastructure. Ships on the existing instance.</span></div>
+      <div class="phase-b"><strong>Entry gate - re-green the safety net first.</strong> The proof harness is RED on the integration branch (2026-08-02: all five characterization event snapshots fail, the byte snapshots pass; import-linter one broken contract) - the feature branch's green never fully merged. No seam work until goldens + lint are green, unpushed feature work is reconciled, and the open v2.0/v3.0 milestone bookkeeping is closed. Nine of the twelve smoothness defects need only application changes (see Latency &amp; Smoothness). This is the cheapest work in the document and delivers most of the perceived-performance win at today's load &mdash; one Python process still caps total throughput, so Phase 2 remains mandatory for 200 users.
+      <ul>
+        <li>Unify the two seq allocators onto the shipped 0024 durable allocator - append_event_next_seq, today chat-writers-only - (<code>engine.py:995</code> vs <code>authz.py:373</code>), then batch <code>run_events</code> writes off the event loop (<code>authz.py:296</code>) under the invariant that an event is published to viewers only after its durable flush &mdash; also the hard prerequisite for Aurora</li>
+        <li>Fan live events out to every viewer with a per-viewer cursor &mdash; fixes multi-tab today (<code>run_stream.py:200</code>)</li>
+        <li>Hotfix first: thread <code>cancel_event</code> into the resume tier (<code>engine.py:7789</code>) &mdash; a one-line class of fix for the cancel no-op</li>
+        <li>Surface launch failures and roll back the optimistic running state (<code>RunConnectionProvider.tsx:468</code>)</li>
+        <li>Emit a terminal event when the restart scan orphan-fails a run (<code>engine.py:5519</code>)</li>
+        <li>Route <code>getWorkflows</code> through the timeout wrapper (<code>api.ts:346</code>)</li>
+        <li>Own rate budget for the SSE stream and reconnect path (<code>bootstrap-ec2.sh:710</code>)</li>
+        <li>Stamp <code>wave_index</code> on fan-out events; add the eleven missing event types to the client union (<code>types/index.ts:100</code>)</li>
+        <li>Emit a visible blocked event when <code>secret_scan</code> halts a write (<code>engine.py:3999</code>)</li>
+        <li>Build the load-test harness and measure: loop stall, stream lag, tokens per run, Bedrock cache-read registration</li>
+      </ul></div>
+    </div>
+
+    <div class="phase"><div class="phase-h"><span class="tag">Phase 1</span><b>Managed data and observability</b><span class="why">Still one instance. Removes the worst durability and debuggability gaps.</span></div>
+      <div class="phase-b">
+      <ul>
+        <li>Sweep the SSE-cutover residue: drop the dead nginx <code>/ws/chat</code> proxy block and replace the now-blind <code>ws_disconnect_spike</code> alarm (its log pattern matches only the deleted WebSocket layer) with an SSE reconnect-storm alarm</li>
+        <li>Aurora PostgreSQL Multi-AZ + RDS Proxy; migrate off the host database (rehearsed cutover &mdash; see the data migration plan). PITR replaces the hourly dump: RPO from up to an hour to near zero. Precondition spike: <code>AsyncPostgresSaver</code> behind RDS Proxy (psycopg3 connection pinning is unverified)</li>
+        <li>Artifact content to S3 via the existing <code>location</code> column; sandbox checkpoints to S3</li>
+        <li>Correlation ids, structured JSON logging, a global exception handler, OTel spans</li>
+        <li><code>/api/auth/refresh</code>, shorter access token, identity adapter behind <code>get_current_user</code></li>
+        <li>Invite-based onboarding, password reset and a tenant-admin role (today registration is admin-only and the only privilege flag is the global <code>is_admin</code>)</li>
+        <li>Retention policy for <code>run_events</code> and the LangGraph checkpoint tables; bring the checkpoint tables under Alembic</li>
+        <li>Real CI gates: characterisation + parity suites, frontend typecheck and e2e, image scanning, <code>alembic check</code></li>
+        <li>Close the tenancy gaps: <code>owner_id</code>/<code>workspace_id</code> NOT NULL, scope stamped at INSERT, tenancy on <code>workflow_memory</code></li>
+      </ul></div>
+    </div>
+
+    <div class="phase"><div class="phase-h"><span class="tag">Phase 2</span><b>Split the process, scale out</b><span class="why">The re-platform. ECS Fargate, ALB, Redis. The single instance retires here.</span></div>
+      <div class="phase-b">The six in-memory registries move behind their existing seams, and the single process becomes roles. The frontend is untouched because the event contract does not change. <strong>The phase is sliced so there is no big bang inside it either:</strong> (2a) gates, cancel and fan-out move onto the durable + Redis primitives while still single-process on one box &mdash; the code migrates, the topology does not; (2b) web splits from worker with exactly one worker &mdash; the three driver functions in <code>run_commands.py</code> move onto the claim loop here, the one genuinely invasive app-layer change in the programme; (2c) N workers and rolling deploys. Each sub-step ships and reverts independently.
+      <ul>
+        <li>ECS Fargate services behind an ALB; <code>control</code>, <code>web</code>, <code>worker</code> from one image via <code>ROLE</code>; real DNS + ACM replace <code>nip.io</code>; ALB idle timeout set above the SSE keepalive ping so the edge does not recreate today's 300 s stream cut</li>
+        <li>Aurora dispatch queue (SKIP LOCKED) + run leases; Redis for fan-out, control nudges and quota counters only</li>
+        <li>Run ownership leases and a reaper &mdash; replaces startup orphan-failing</li>
+        <li>Durable gate and clarify answers; wake-up over the control channel; bare-text-at-gate no longer approves</li>
+        <li>Cancel routed to the owning worker &mdash; the permanent fix for the resume-tier no-op</li>
+        <li>Migrations as a gated pre-deploy task under an advisory lock</li>
+        <li>Rolling deploys that drain and checkpoint instead of killing runs</li>
+        <li>Per-tenant admission control and Bedrock quota leases</li>
+      </ul></div>
+    </div>
+
+    <div class="phase"><div class="phase-h"><span class="tag">Phase 3</span><b>Durable task graph</b><span class="why">Decision 3 &mdash; beside the kernel, never inside it; hardened lease + idempotency rules.</span></div>
+      <div class="phase-b">
+      <ul>
+        <li>Durable task rows with dependency edges, attempts, leases and heartbeats; tasks produced by the existing parsers</li>
+        <li>Converge every task-producing strategy onto the rows: <code>task_loop</code> chains run at parallelism 1 behind the sequential-parity gate; the in-memory task ledger is deleted once parity holds (INV-3)</li>
+        <li><code>scheduler</code> role: dependency + write-domain evaluation, bounded per-tenant dispatch, DLQ with operator redrive</li>
+        <li>Activate the dormant workspace isolation so parallel workers stop sharing one sandbox (<code>kernel_services.py:645</code>)</li>
+        <li>Write-domain locking per concurrency lane (model C); wire the four existing merge strategies to the UI</li>
+        <li>Replace the hardcoded parallelism cap of 4 with a per-tenant quota (<code>budget.py:114</code>)</li>
+        <li>Separate <code>build-worker</code> pool so long builds cannot starve interactive runs</li>
+        <li>Reuse the shipped v3.0 resume spine (kernel cursor, content-addressed task_key, gate re-entry, clarify replay) as the graph's recovery layer - the new build is leases, attempts, DLQ and parallel dispatch, never a rebuilt recovery path</li>
+      </ul></div>
+    </div>
+
+    <div class="phase"><div class="phase-h"><span class="tag">Phase 4</span><b>Tenancy tiers, identity federation and customer-hosted</b><span class="why">Decision 4 (v2): pooled default; planes for tiers 2-3. Plus the OIDC broker.</span></div>
+      <div class="phase-b">
+      <ul>
+        <li>Tenant plane as a reusable Terraform module: VPC, Aurora, Redis, S3, CMK, ECS services, VPC endpoints. Fleet policy: one shared plane for early tenants plus one dedicated reference plane; dedicated planes on contractual demand, not per logo &mdash; N planes = N databases to patch and N migration runs per release, the real scaling limit for a small team</li>
+        <li>Velocity control plane: tenant registry, entitlement enforcement (server-side at launch &mdash; closing the client-only tier gate), catalogue, provisioning</li>
+        <li>Cognito broker live: per-tenant IdP federation (Okta / Entra via SAML/OIDC), JIT user provisioning, SCIM-ready, MFA via the IdP; the internal JWT contract is unchanged</li>
+        <li>Per-tenant CMK; stop deriving the Fernet key from the JWT signing secret (<code>crypto.py:29</code>); re-encrypt stored credentials</li>
+        <li>Customer-hosted mode: the same module in the customer account, PrivateLink back to the control plane, local guardrails and generation quotas</li>
+        <li>Break-glass support access, time-boxed and audited</li>
+        <li>Container preview pool for <code>app_builder</code>; move all model-generated previews to an isolated origin</li>
+      </ul></div>
+    </div>
+
+        <div class="phase"><div class="phase-h"><span class="tag">Phase 5</span><b>Contract v2 and compaction</b><span class="why">The scheduled un-freeze: permanent-looking contracts get a deliberate exit.</span></div>
+      <div class="phase-b">
+      <ul>
+        <li>Negotiated SSE contract v2 (we own both ends): retire the event types still consumer-less at that point (eleven at time of writing - re-derived at execution, since Phase 0 adds them to the client union and Phase 3 gives the merge_* family real UI; recon #14 of migration-playbook.md), move <code>agent_input</code> prompt text out of <code>run_events</code> into an artifact reference, slim chunk payloads; v1 served until the frontend migrates, then retired; conformance tests per contract version</li>
+        <li>Expand/contract replaces additive-only-forever: a dedicated compaction release drops the writer-less columns, legacy chat tables and <code>deep_link_nonces</code>, gated by the advisory-locked migrate task after the last pinned release drains</li>
+        <li>deepagents becomes a pinned default with a runtime-adapter conformance test in CI; the two non-conforming handoff agents move onto the runtime or are explicitly exempted</li>
+        <li>Per-plane model-provider config: Bedrock or direct Anthropic API per tenant plane (customer planes use their own accounts); the Phase 0 cache measurement decides the SaaS default</li>
+        <li>Finish the SC-001 residue: prototype literals (task_loop / single_file defaults, ClarifyEngine maps) move into manifest declarations</li>
+      </ul></div>
+    </div>
+
+<div class="callout"><strong>Where the value lands.</strong> Phase 0 makes the product feel fast on the
+    hardware already paid for, and produces the first real measurements. Phase 1 ends the
+    one-instance-failure-from-losing-an-environment situation. Phase 2 is the point at which the platform is
+    genuinely scalable and deployable without killing work in flight. Phases 3 and 4 are the two large
+    elective programmes chosen for v1 &mdash; and the two that can be re-sequenced without invalidating anything below them. Phase 5 is the scheduled un-freeze: the contracts that would otherwise be permanent (event vocabulary, schema growth) get a deliberate exit.</div>
+  </div>
+</section>
+<!-- ============================ C. VERIFICATION STRATEGY ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Verification strategy &mdash; how each phase proves nothing regressed</h2><p>The overriding concern is not wasting work that is already built and verified. Each phase therefore gates on the assets that verified the current behaviour, plus two new instruments.</p></div></div>
+  <div class="content">
+    <div class="grid grid3">
+      <div class="card k"><h3>Assets that already exist</h3><ul>
+        <li><strong>Characterisation suites</strong> asserting deterministic byte-identical output and semantic event parity for the shipped workflows (e.g. <code>backend/tests/agents/test_phase3_cutover_verify.py</code>, <code>test_manifest_coverage.py</code>, <code>test_sc001_fanout.py</code>)</li>
+        <li><strong>Import-linter architecture contract</strong> &mdash; capabilities must not import the kernel or the web layer (<code>pyproject.toml:165-169</code>); one known violation to fix (<code>task_loop.py:562</code>)</li>
+        <li><strong>Mocked end-to-end browser suite</strong> under <code>frontend/e2e/</code> covering launch, gates, clarify, revision, chaining and the run screen</li>
+      </ul></div>
+      <div class="card n"><h3>New instruments (Phase 0)</h3><ul>
+        <li><strong>SSE event-contract conformance test</strong>: extend the shipped wire-parity oracle (test_wire_parity.py + the recorded wsframes goldens): record the full event stream of a golden run (type, seq ordering, payload keys) and assert it unchanged after every transport re-implementation. Precondition: extend the existing vocabulary allowlist, which today omits at least 15 genuinely emitted types (<code>test_phase3_cutover_verify.py:182</code>)</li>
+        <li><strong>Load-test harness</strong>: N concurrent runs + M SSE viewers with production-shaped contexts; measures loop stall, stream lag, dispatch latency. No load test has ever been run against this system</li>
+      </ul></div>
+      <div class="card m"><h3>Standing rule</h3><ul>
+        <li>Re-measure the suite baseline on the integration branch before gating any phase on it &mdash; do not assume green</li>
+        <li>A phase is complete only when the characterisation suite, the import contract, the e2e suite and the event-contract test all pass on the phase's infrastructure</li>
+        <li>Never weaken or delete a failing characterisation test to make a phase pass; reconcile it explicitly</li>
+      </ul></div>
+    </div>
+    <div class="sub-table">
+      <table>
+        <thead><tr><th>Phase</th><th>What could regress</th><th>Proof it did not</th></tr></thead>
+        <tbody>
+          <tr><td>0 &mdash; feel fast</td><td>Event batching changes ordering or drops events; fan-out changes delivery semantics</td><td>Event-contract test: identical type/seq/payload sequence for a golden run before and after batching. Multi-tab e2e: two browsers each receive the complete stream including the terminal event. Characterisation suite byte-identical. Latency probe shows loop stall reduced, not moved</td></tr>
+          <tr><td>1 &mdash; managed data</td><td>Aurora behaves differently from host Postgres; artifact reads change content; retention deletes live data</td><td>Cutover rehearsal on a production-shaped copy with row-count and checksum reconciliation; characterisation suite green against Aurora; S3 artifact dual-read comparing <code>content_hash</code> for every migrated ref; retention dry-run reports before any delete; <code>alembic check</code> clean</td></tr>
+          <tr><td>2 &mdash; split the process</td><td>Redis fan-out breaks replay or ordering; gates/cancel behave differently across processes; deploys still kill runs</td><td>Event-contract test across the Redis path (same seq, same order, same payloads); gate e2e where launch, approval and stream each hit different tasks; kill-the-worker chaos test proving lease reclaim + resume; cancel-uniformity test covering launch, user resume and restart auto-resume; rolling-deploy test with a run in flight</td></tr>
+          <tr><td>3 &mdash; task graph</td><td>Scheduler dispatches wrong or duplicate tasks; isolation/merge corrupt the workspace; builds fail differently than sequential runs</td><td>A golden <code>app_builder</code> run on the task graph produces the same deliverable as the sequential baseline (characterisation); 500-task synthetic build with injected worker kills resumes to completion; write-domain conflict test (two tasks, same file, must serialise); DLQ redrive drill</td></tr>
+          <tr><td>4 &mdash; tenancy</td><td>Cross-tenant leakage; provisioning drift between tenant planes; customer-hosted plane diverges from SaaS plane</td><td>Cross-tenant probe sweep (every run/artifact/event endpoint 404s across tenants); Terraform plan drift check per tenant plane; the same characterisation + e2e suites run inside a freshly provisioned tenant plane and inside the customer-hosted reference account; quota starvation test between two tenants</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout"><strong>Why this works as a no-waste guarantee.</strong> The suites listed above are
+    the ones that verified the product as it stands. Because the event contract, the kernel and the agents
+    are frozen, those suites remain valid oracles at every phase &mdash; each phase only swaps what sits
+    behind a seam, and the suites sit in front of the seams.</div>
+  </div>
+</section>
+<!-- ============================ D. DATA MIGRATION ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Data migration plan</h2><p>Not just schema. Content moves, keys tighten, growth gets a policy, and the database moves hosts &mdash; each step with a rehearsal and a rollback.</p></div></div>
+  <div class="content">
+    <div class="sub-table">
+      <table>
+        <thead><tr><th>Migration</th><th>Mechanics</th><th>Verification</th><th>Rollback</th></tr></thead>
+        <tbody>
+          <tr><td>Inline artifact content &rarr; S3</td><td>Backfill job walks <code>artifact_refs</code>, writes each body to S3 at <code>tenant/run/kind/version</code>, sets the existing (currently unused) <code>location</code> column. Read path becomes location-first with inline fallback (dual-read window). Only after read metrics show zero inline hits is <code>content</code> nulled in batches. All schema changes additive</td><td>Per-row <code>content_hash</code> (already stored) compared against the S3 object; dual-read hit counters; row counts</td><td>During dual-read: ignore <code>location</code>, content still inline. After nulling: restore from S3 (the object is now the authority) &mdash; the null pass is the only irreversible step and is gated last</td></tr>
+          <tr><td>Tenancy keys &rarr; NOT NULL</td><td>Backfill <code>workflow_runs.owner_id</code>/<code>workspace_id</code> from <code>user_id</code> and the per-run <code>workspaces</code> row (rows caught in the launch-time NULL window); add <code>workspace_id</code> to <code>workflow_memory</code> (additive) and backfill from <code>user_id</code>; move scope stamping to the INSERT (<code>run_commands.py:1752</code>); then enforce NOT NULL as a validated constraint</td><td>Zero-NULL assertion per table before the constraint, validated only after the last pre-fix release has drained (old workers still write NULLs during the overlap); the SSE-attach-404 window test goes green (launch then attach immediately)</td><td>Constraint drop is a one-line down-migration; backfilled values are derivable, so re-running is idempotent</td></tr>
+          <tr><td>Event log retention</td><td>Partition <code>run_events</code> by month on Aurora. Policy: chunk-class rows (<code>agent_chunk</code> and other high-volume stream types) archived to S3 and dropped after 30 days; milestone, gate, chat and terminal events retained 13 months; archived partitions queryable offline. Convert <code>payload_json</code> to JSONB on the way (today plain JSON, non-indexable)</td><td>Replay test: a reconnect with Last-Event-ID inside the retained window replays identically; archived-run reopen renders from milestones + artifacts</td><td>Archive precedes drop; a partition can be restored from S3 before its drop is finalised</td></tr>
+          <tr><td>LangGraph checkpoint tables</td><td>Adopt <code>checkpoints</code>/<code>checkpoint_blobs</code>/<code>checkpoint_writes</code>/<code>checkpoint_migrations</code> into Alembic (stamp, do not recreate); scheduled sweep deletes threads whose run is terminal for &gt; 7 days (every task, retry, redo and worker mints a thread today and nothing ever deletes one, <code>checkpointer.py:110</code>)</td><td>Sweep dry-run lists candidate threads; resume tests on non-terminal runs unaffected</td><td>Sweep is delete-only on terminal runs; disable the job</td></tr>
+          <tr><td>Host Postgres &rarr; Aurora</td><td>Stand up Aurora; replicate with AWS DMS (or logical replication) from the host database; rehearse the full cutover on stage against a production-shaped dump; production cutover in a drained window (runs quiesced &mdash; pre-Phase-2 a deploy kills runs anyway, so the window is no worse than a deploy); repoint <code>DATABASE_URL</code>; keep the host database read-only for 14 days</td><td>Row counts and per-table checksums post-replication; <code>alembic check</code> parity; characterisation suite against Aurora; replication lag observed near zero before the switch</td><td>Repoint <code>DATABASE_URL</code> back to the host database (kept read-only, so no divergence); rollback rehearsed as part of the same drill</td></tr>
+          <tr><td>Housekeeping tables</td><td>TTL sweeps for <code>deep_link_nonces</code> (write-only today, no consumer), <code>handoff_sessions</code> (1 MiB transcripts retained forever), <code>revoked_tokens</code> (today swept probabilistically on request threads); <code>workspaces</code> rows included in the run-delete cascade (today omitted, so they accumulate forever, <code>runs.py:539</code>)</td><td>Table growth flatlines under steady load</td><td>Sweeps are independent jobs; disable individually</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn"><strong>Sequencing constraint.</strong> The event-write batching fix (Phase 0)
+    must land before the Aurora move: today one synchronous commit per streamed chunk runs on the event loop
+    (<code>authz.py:296</code>), and adding a network round trip per chunk would make every run visibly
+    slower than it is now. The seq split-brain must also close first &mdash; two allocators write the same
+    log today and a collision is silently dropped (<code>engine.py:995</code> vs <code>authz.py:373</code>),
+    which a partitioned, constrained Aurora table would turn from a silent gap into a hard error.</div>
+  </div>
+</section>
+<!-- ============================ A. COST MODEL ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Cost model &mdash; what per-tenant isolation actually costs <span class="est">ALL FIGURES ESTIMATES</span></h2><p>Decision 4 (v2) multiplies infrastructure by tenant count. This section puts a number on that so the decision survives contact with the finance team &mdash; or is consciously re-cut.</p></div></div>
+  <div class="content">
+    <div class="callout warn"><strong>Assumptions, stated up front.</strong> Reference tenant: ~25 active
+    users, ~40 runs/day (mixed prototype / revision / stories, one active multi-day build per week),
+    eu-central-1, on-demand pricing, single-region. Figures are rounded approximations of AWS list prices as
+    understood at the time of writing &mdash; they are for comparing options, not for budgeting, and must be
+    re-priced from the AWS calculator before any commitment. Bedrock token spend is excluded from the
+    infrastructure table because it is usage-driven and identical across deployment modes; at the as-is
+    observation of 5&ndash;21M tokens per prototype build it is likely to <em>exceed</em> the infrastructure
+    line for an active tenant, which is why the prompt-caching measurement in Phase 0 matters more than any
+    row below.</div>
+    <div class="sub-table">
+      <table>
+        <thead><tr><th>Component</th><th>Sizing assumption <span class="est">ESTIMATE</span></th><th>Monthly, per tenant plane <span class="est">ESTIMATE</span></th></tr></thead>
+        <tbody>
+          <tr><td>Aurora PostgreSQL (Multi-AZ)</td><td>Writer + reader, db.r6g.large class, ~50 GB, moderate I/O</td><td>~$430&ndash;520</td></tr>
+          <tr><td>RDS Proxy</td><td>Priced per vCPU of the target instances</td><td>~$40&ndash;50</td></tr>
+          <tr><td>ElastiCache Redis</td><td>cache.t4g.medium x 2 (primary + replica)</td><td>~$95&ndash;110</td></tr>
+          <tr><td>Fargate tasks</td><td>web x2 (1 vCPU/2 GB) + worker x2&ndash;6 (2 vCPU/8 GB) + scheduler x1 + headroom; ~24/7 average of ~14 vCPU / 44 GB</td><td>~$500&ndash;700</td></tr>
+          <tr><td>EFS (optional fallback)</td><td>Only if adopted; the default is task-local ephemeral storage</td><td>~$0&ndash;10</td></tr>
+          <tr><td>S3</td><td>~100 GB artifacts + checkpoints + event archive, with requests</td><td>~$5&ndash;10</td></tr>
+          <tr><td>ALB</td><td>One per tenant plane, modest LCU usage</td><td>~$25&ndash;35</td></tr>
+          <tr><td>VPC endpoints</td><td>5 interface endpoints (Bedrock, ECR x2, Secrets, Logs) &mdash; replaces most NAT traffic</td><td>~$40&ndash;55</td></tr>
+          <tr><td>NAT gateway</td><td>One, residual egress only</td><td>~$35&ndash;50</td></tr>
+          <tr><td>Data transfer</td><td>SSE egress + S3 transfer, modest</td><td>~$15&ndash;30</td></tr>
+          <tr><td>KMS + Secrets Manager</td><td>1 CMK + ~10 secrets</td><td>~$8&ndash;12</td></tr>
+          <tr><td>CloudWatch (logs, metrics, alarms)</td><td>Structured JSON at INFO, 30-day retention</td><td>~$30&ndash;60</td></tr>
+          <tr><td><strong>Total per dedicated tenant plane</strong></td><td>&mdash;</td><td><strong>~$1,250&ndash;1,650 / month</strong> <span class="est">ESTIMATE</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="sub-table">
+      <table>
+        <thead><tr><th>Deployment mode</th><th>Infra cost bearer</th><th>Marginal cost per additional tenant <span class="est">ESTIMATE</span></th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Per-tenant plane (Tiers 2-3)</td><td>Velocity</td><td>~$1,250&ndash;1,650/mo + provisioning effort</td><td>The floor is paid even by a near-idle tenant; scale-to-zero mitigations (pause worker services off-hours, Aurora Serverless v2 floor) could roughly halve the idle floor <span class="est">ESTIMATE</span></td></tr>
+          <tr><td>Pooled multi-tenant (Tier 1 &mdash; the v2 default)</td><td>Velocity</td><td>~$60&ndash;150/mo marginal on a shared plane of ~$3,000&ndash;4,500/mo <span class="est">ESTIMATE</span></td><td>Roughly 10x cheaper per tenant at 20+ tenants; requires row-level tenancy enforcement instead of physical isolation</td></tr>
+          <tr><td>Customer-hosted (Cursor model)</td><td><strong>Customer</strong></td><td>To Velocity: control-plane share + support, ~$100&ndash;200/mo. To the customer: the same ~$1,250&ndash;1,650 plus their own Bedrock spend</td><td>The per-tenant Terraform module is reused as-is; our bill is nearly flat per customer-hosted tenant</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout stop"><strong>The cost cliff, named.</strong> With these estimates, per-tenant
+    isolation costs roughly <strong>$15k&ndash;20k per tenant per year</strong> before Bedrock, versus
+    roughly $1k&ndash;2k pooled. The cliff sits where contract value per tenant drops below about
+    <strong>$3k&ndash;4k/month</strong>: above it (enterprise contracts, which the customer-hosted requirement
+    implies), per-tenant isolation is a rounding error and buys real isolation guarantees; below it, pooled
+    multi-tenancy is materially cheaper and decision 4 should be revisited for that tier. The design keeps
+    that door open deliberately: tenancy keys become NOT NULL everywhere and every query is owner-scoped
+    <em>regardless</em> of physical isolation, so a pooled tier later is a packaging change, not a schema change &mdash; and v2 adopts exactly that: pooled is now the default tier. <span class="est">ESTIMATE</span></div>
+  </div>
+</section>
+<!-- ============================ B. REJECTED ALTERNATIVES ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Rejected alternatives</h2><p>What was considered and set aside, with the reason and the trigger that would reopen it. Recorded so the next review does not re-litigate from scratch.</p></div></div>
+  <div class="content">
+
+    <div class="adr"><div class="adr-h"><span class="verdict">REJECTED</span><b>Temporal (or another durable-execution engine) instead of a custom task graph</b></div>
+      <div class="adr-b">
+        <p><strong>The honest version of this trade-off, revisited now that a durable task graph is locked
+        for v1.</strong> A large fraction of what Phase 3 builds &mdash; durable task state, leases,
+        heartbeats, bounded retries, a DLQ, worker crash recovery &mdash; is exactly what Temporal provides
+        off the shelf, battle-tested. Choosing to build it ourselves means owning the correctness of leasing
+        and scheduling code forever. That cost is real and is not being waved away.</p>
+        <p><strong>Why it is still rejected for v1.</strong> (1) The unit being orchestrated is not a free
+        function: it is a step of the existing <code>ExecutionEngine</code>, a streaming async generator with
+        mid-step human gates, cooperative cancel and an event chokepoint. Porting that into Temporal
+        workflows/activities either wraps the kernel awkwardly (activities that stream events sideways into
+        our own transport anyway) or restructures it &mdash; and restructuring the kernel is the one thing
+        this programme forbids. (2) The scheduler we need is deliberately small because six of its seven
+        concerns already exist in this codebase (parsers, strategies, isolation modes, merge strategies,
+        audit tables); the genuinely new code is task rows plus a dispatch loop. (3) Temporal adds an
+        operational surface (cluster or paid cloud, a new failure domain, a new programming model for the
+        team) inside every tenant plane and every customer account &mdash; multiplied by decision 4 (v2).
+        (4) The event history that Temporal would keep is redundant with the <code>run_events</code> log that
+        the product already depends on for replay.</p>
+        <p><strong>Reopen if:</strong> scheduler/lease correctness defects consume more than a few
+        engineer-weeks after Phase 3 ships, or cross-region orchestration or saga-style compensation appears
+        on the roadmap. The task-row schema deliberately mirrors Temporal's concepts (attempt, lease,
+        heartbeat) so a later port is a backend swap, not a redesign.</p>
+      </div>
+    </div>
+
+    <div class="adr"><div class="adr-h"><span class="verdict">REJECTED</span><b>One container per agent</b></div>
+      <div class="adr-b">
+        <p>An agent is an <code>AGENT.md</code> markdown file loaded as configuration into a
+        <code>deepagents</code> graph (<code>factory.py:186</code>) &mdash; not a process. The 86 agents in
+        one run share the run's context, sandbox and checkpointer by design. Containerising them converts
+        every reasoning step into a network hop plus a cold start, adds 86 deployables to version, and buys
+        no isolation, because the trust boundary is the <em>run</em> (whose code execution is already
+        isolated at the sandbox), not the agent. The product owner has also rejected this directly.
+        <strong>Reopen if:</strong> a capability requires per-agent resource isolation (e.g. an agent that
+        must run untrusted plugins in-process) &mdash; none exists today.</p>
+      </div>
+    </div>
+
+    <div class="adr"><div class="adr-h"><span class="verdict">REJECTED</span><b>EKS instead of ECS Fargate</b></div>
+      <div class="adr-b">
+        <p>The workload is seven long-running service roles from one image plus ephemeral preview tasks
+        &mdash; squarely inside Fargate's envelope. EKS would add cluster lifecycle, upgrade cadence,
+        node/pod security posture and a skills requirement, multiplied by every tenant plane and every
+        customer account under decisions 3 and 4. Locked decision 1 chose Fargate. <strong>Reopen
+        if:</strong> a customer mandates Kubernetes in their account, or sandbox isolation requirements
+        outgrow Fargate task boundaries (e.g. microVM-per-task control).</p>
+      </div>
+    </div>
+
+    <div class="adr"><div class="adr-h"><span class="verdict defer">REVISED (v2)</span><b>Identity: the OIDC broker moves in scope</b></div>
+      <div class="adr-b">
+        <p>The existing bcrypt + JWT path works and is verified; the defects on it are a missing refresh
+        endpoint and a 24 h token, both cheap to fix in place. Migrating credential storage to Cognito now
+        would spend a phase on undifferentiated work while the frontend contract churns. Decision 2 (v2):
+        fix refresh, shorten the token, and put an adapter behind <code>get_current_user</code> so Cognito or
+        a customer IdP is a later slot-in that touches none of the 20 routers. SSO is deferred, not
+        cancelled &mdash; enterprise deals will force it, and the adapter is the preparation. <strong>v2 revision:</strong> the lock is removed; the broker is Amazon Cognito (one user pool per control plane; per-tenant IdP federation via SAML/OIDC; hosted UI acceptable for v1; direct OIDC only if Cognito&#39;s federation limits bite) and it lands with the control plane in Phase 4 &mdash; per-tenant IdP federation, SCIM-ready provisioning, MFA via the IdP; invite/reset/tenant-admin flows land in Phase 1. The internal contract the 20 routers verify is unchanged, so this stays an edge swap, not an app change.</p>
+      </div>
+    </div>
+
+    <div class="adr"><div class="adr-h"><span class="verdict defer">REVISED (v2)</span><b>Tenancy: tiered &mdash; pooled default, isolation as a tier</b></div>
+      <div class="adr-b">
+        <p>Pooled is roughly 10x cheaper per tenant (see the cost model) and is the industry default at this
+        scale. It was still set aside for v1 (decision 4 (v2)) because: the customer-hosted requirement
+        forces the tenant-plane Terraform module to exist anyway, and per-tenant SaaS is then the same module
+        pointed at our account; physical isolation is the strongest possible answer to the enterprise
+        data-residency and blast-radius questions this product will face; and the as-is tenancy enforcement
+        is not yet strong enough to bet a pooled plane on (nullable keys, an unscoped launch window, one
+        table with no tenant key at all). The schema work in Phase 1 deliberately makes a pooled tier
+        possible later without a redesign. <strong>Reopen when:</strong> a self-serve or low-ARPU tier is
+        planned &mdash; the cost cliff in the cost model is the deciding number. <strong>v2 revision:</strong> the lock is removed and the cliff decided it &mdash; pooled becomes the default tier (row-level isolation on NOT NULL keys + ScopedStore), with dedicated planes (tier 2) and customer-hosted (tier 3) from the same module on contractual demand. Nothing in the plane module is wasted; tiers 2-3 require it regardless.</p>
+      </div>
+    </div>
+
+    <div class="adr"><div class="adr-h"><span class="verdict">REJECTED</span><b>Keeping EC2 with an autoscaling group instead of ECS</b></div>
+      <div class="adr-b">
+        <p>An ASG of the current image does not help: the application is single-process by construction, so
+        a second instance silently breaks gates, cancel and live streams rather than sharing load
+        (<code>engine.py:7573</code>). Fixing that requires exactly the Redis/Aurora externalisation this
+        document describes &mdash; after which self-managed EC2 retains only its costs: host nginx and
+        Postgres to operate, AMI patching (today's instance auto-reboots at 04:00 with runs in flight),
+        capacity planning per instance, and none of Fargate's task-scoped IAM. <strong>Reopen if:</strong>
+        sustained-load economics at large scale favour reserved EC2 capacity for the worker pool &mdash; ECS
+        on EC2 capacity providers is the path then, not a return to one box.</p>
+      </div>
+    </div>
+
+    <div class="adr"><div class="adr-h"><span class="verdict">REJECTED (in revision)</span><b>Redis Streams as the dispatch queue</b></div>
+      <div class="adr-b">
+        <p>The first draft used Redis Streams consumer groups for dispatch with leases in Aurora &mdash; two
+        overlapping coordination mechanisms with a consistency seam between them (a job visible in the
+        stream before its row commits, or vice versa). Revised to an Aurora-native queue
+        (<code>SELECT ... FOR UPDATE SKIP LOCKED</code>) with Redis reduced to wake-up nudges, fan-out and
+        quota counters. Rationale: the design&#39;s own rule is that only Aurora is truth; SKIP LOCKED is the
+        standard Postgres job-queue pattern; at 200 users the polling load is trivial; the scheduler stops
+        needing leader election; and a dual-write bug class disappears. <strong>Reopen if:</strong>
+        dispatch volume ever makes Aurora polling material &mdash; the claim loop is the only code that
+        would change.</p>
+      </div>
+    </div>
+
+    <div class="adr"><div class="adr-h"><span class="verdict defer">REVISED (v2)</span><b>The freeze-forever contracts</b></div>
+      <div class="adr-b">
+        <p>Two standing constraints functioned as unexamined locks and are replaced with disciplined exits.
+        (1) The SSE wire format: frozen <em>for v1 clients</em>, but since we own both ends, a negotiated
+        contract v2 (Phase 5) retires the dead event types and moves prompt text out of the durable log &mdash;
+        versioned conformance tests replace freeze-forever. (2) Additive-only migrations: additive within a
+        release cycle, with contraction allowed only in a dedicated compaction release under the
+        advisory-locked migrate task. Alongside these, the deepagents mandate becomes a pinned default with a
+        CI conformance test, and the model provider becomes per-plane configuration rather than a global
+        switch. <strong>Reopen if:</strong> a third-party client ever consumes the SSE stream &mdash; then v1
+        freezes for real.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+<!-- ============================ E. THREAT MODEL ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Threat model per plane</h2><p>A STRIDE-style pass over the six target planes, anchored on the specific unresolved items the as-is verified &mdash; not a generic checklist.</p></div></div>
+  <div class="content">
+    <div class="sub-table">
+      <table>
+        <thead><tr><th>Plane</th><th>Principal threats (STRIDE)</th><th>As-is exposure (verified)</th><th>Target control</th></tr></thead>
+        <tbody>
+          <tr><td>Experience</td><td>XSS / token theft (S, I); clickjacking; malicious model output executing against our origin (E)</td><td>Model-generated HTML framed with <code>sandbox="allow-scripts allow-same-origin"</code> (<code>PrototypePreview.tsx:611</code>, <code>PPTPreview.tsx:234</code>) while the JWT sits in <code>localStorage</code> and the CSP permits <code>unsafe-inline</code>/<code>unsafe-eval</code> plus two public CDNs (<code>bootstrap-ec2.sh:791-799</code>); JSZip loaded from a CDN at runtime</td><td><strong>Isolated preview origin</strong> for all model-generated content, uniform sandbox policy; tighten CSP; bundle JSZip; move toward cookie-based session storage when the identity adapter lands</td></tr>
+          <tr><td>Control plane</td><td>Spoofing / brute force (S); privilege escalation (E); repudiation (R); quota abuse (D)</td><td>Tier entitlements not enforced server-side at launch (<code>run_commands.py:1607</code>); no auth audit log at all (<code>auth.py:1</code>); no MFA/lockout; API keys never expire (SHA-256, no expiry column); rate limiting is per-instance nginx only</td><td>Server-side entitlement check at every launch; auth event audit; WAF rate rules; API key expiry + rotation; admin actions audited; login lockout</td></tr>
+          <tr><td>Tenant runtime</td><td>Prompt injection into agent context (T); gate bypass (E); cross-run information disclosure (I)</td><td>UI-attached skills/hooks interpolated into system prompts with no size cap or sanitisation (<code>run_commands.py:1457 &rarr; factory.py:362</code>); <code>PROMPT_OVERRIDE.md</code> replaces an agent body wholesale (<code>factory.py:398</code>); a bare chat message at an open gate defaults to approve (<code>chat_router.py:222</code>); tool grants not enforced at binding time (<code>factory.py:796</code>); <code>__deliverable__</code> bypasses capability trust validation (<code>engine.py:6516</code>)</td><td>Sanitise + cap all user-supplied prompt material on the UI path (the disk path already does); explicit-action gates only; enforce tool grants at bind time; route <code>__deliverable__</code> through <code>is_user_allowed</code>; treat prompt-injection as accepted-and-contained (agent output is gated, scanned and sandboxed), not as preventable</td></tr>
+          <tr><td>Tenant data</td><td>Cross-tenant access (I, E); key compromise (I); tampering with the event log (T)</td><td><code>owner_id</code>/<code>workspace_id</code> nullable on runs and absent on <code>workflow_memory</code>; Fernet key for PATs/MCP credentials derived from the same <code>SECRET_KEY</code> that signs JWTs, salt=None (<code>crypto.py:29</code>) &mdash; one secret compromise breaks both authentication and storage encryption; rotation bricks every ciphertext</td><td>NOT NULL tenancy keys + scoped queries everywhere (kept from as-is <code>ScopedStore</code>, which is well built); per-tenant KMS CMK with envelope encryption and a re-encrypt path; append-only event log with retention, per-tenant key</td></tr>
+          <tr><td>Execution</td><td>Sandbox escape (E); instance-credential theft (S, E); resource exhaustion (D); secret exfiltration in generated output (I)</td><td>LLM-authored JavaScript runs in a Node subprocess for PPTX export and <strong>can reach the instance metadata service</strong> &mdash; the bootstrap records all five candidate mitigations as rejected (<code>bootstrap-ec2.sh:360-478</code>); agent file ops run inside the backend process (FilesystemBackend is path-guardrails, not isolation, <code>deep_agent_runner.py:339</code>); GitHub PAT passed in the git child argv, visible to any process that can read <code>/proc/*/cmdline</code> (<code>handoff_github.py:225</code>); no per-agent wall-clock timeout</td><td>Code execution moves to dedicated sandbox tasks: task-scoped IAM, no route to the app database, egress allowlist, <strong>link-local/IMDS blocked at the task network</strong>; PAT via credential helper, never argv; per-task CPU/memory/time limits with forced termination; <code>secret_scan</code> kept as a screen, not trusted as DLP (its own source lists its misses)</td></tr>
+          <tr><td>External</td><td>SSRF from user-supplied URLs (S); supply-chain (T); third-party dependency loss (D)</td><td>Template URL proxy checks the original hostname only but follows redirects, so a redirect or DNS rebind to link-local is not re-validated (<code>prototype_templates.py:349</code>); production hostname depends on third-party <code>nip.io</code> wildcard DNS; ECR tags mutable, no digest pinning; install one-liner is unsigned <code>curl | bash</code></td><td>Resolve-and-pin SSRF validation on every hop; Route 53 + ACM replace <code>nip.io</code>; immutable ECR tags and digest-pinned deploys; checksummed installer</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout stop"><strong>The six named carry-overs, tracked explicitly.</strong> (1)
+    model-generated code reaching instance metadata &mdash; closed by sandbox-task network policy, verified
+    by an in-sandbox probe test; (2) <code>allow-same-origin</code> preview framing &mdash; closed by the
+    isolated origin; (3) the encryption key derived from the JWT signing secret &mdash; closed by per-tenant
+    CMKs and a re-encryption migration; (4) the credential in child-process argv &mdash; closed by a git
+    credential helper; (5) untrusted code execution generally &mdash; contained by dedicated execution tasks
+    with no data-plane reach; (6) cross-tenant isolation &mdash; enforced by NOT NULL keys, scoped stores and
+    the per-tenant plane, and proven by the cross-tenant probe sweep in the verification strategy. None of
+    these is assumed fixed by the platform change; each has an owner-phase and a test.</div>
+  </div>
+</section>
+<!-- ============================ F. SLOs ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>SLOs and the operational contract</h2><p>What the product promises and how it is measured. Targets are proposals to be ratified after the Phase 0 load-test baseline &mdash; nothing here has been measured yet.</p></div></div>
+  <div class="content">
+    <div class="sub-table">
+      <table>
+        <thead><tr><th>SLO</th><th>Definition</th><th>Target <span class="est">PROPOSED</span></th><th>Measurable today?</th><th>Instrumentation needed</th></tr></thead>
+        <tbody>
+          <tr><td>Time to first streamed token</td><td>Launch accepted &rarr; first <code>agent_chunk</code> visible in the browser, per run</td><td>p95 &le; 10 s (excluding clarify waits)</td><td>Partially &mdash; <code>run_events</code> timestamps give the server side; the browser side is uninstrumented</td><td>Client timing beacon; span from POST /api/runs to first chunk</td></tr>
+          <tr><td>Event delivery lag</td><td>Event persisted &rarr; delivered to each attached viewer</td><td>p95 &le; 500 ms</td><td>No &mdash; no delivery-side timestamp exists</td><td>Publish/deliver timestamps on the fan-out path; per-viewer lag metric</td></tr>
+          <tr><td>Loop responsiveness</td><td>Event-loop stall (max blocking time) on web and worker tasks</td><td>p99 &le; 100 ms</td><td>No &mdash; and the as-is predicts sustained stalls from the per-chunk commit (<code>authz.py:296</code>)</td><td>asyncio loop-lag probe; this is the Phase 0 before/after metric</td></tr>
+          <tr><td>Run success rate</td><td><code>completed</code> + <code>degraded</code> vs <code>failed</code> per workflow type, excluding user cancels</td><td>&ge; 99% weekly for interactive workflows</td><td>Yes &mdash; <code>workflow_runs.status</code> exists (mind the split status vocabulary until Phase 2 unifies it)</td><td>Only a dashboard; plus restart-caused failures tagged separately once leases land</td></tr>
+          <tr><td>Gate responsiveness</td><td>Approval accepted &rarr; run resumed (event emitted)</td><td>p95 &le; 2 s</td><td>Partially &mdash; derivable from <code>gate_events</code> + <code>run_events</code> timestamps</td><td>Direct span once the wake-up travels the control channel</td></tr>
+          <tr><td>Cancel honoured</td><td>Cancel acked &rarr; run actually reaches <code>cancelled</code></td><td>100% within 60 s (quiesce bound)</td><td>Yes, and it fails today: the resume tier never observes cancel (<code>engine.py:7789</code>)</td><td>Track ack-vs-terminal divergence as a first-class metric</td></tr>
+          <tr><td>Reconnect completeness</td><td>Reconnect with <code>Last-Event-ID</code> replays every missed event exactly once</td><td>100%</td><td>Structurally yes (unique <code>seq</code> + client dedup), but silently violated when the sink drops a colliding event (<code>engine.py:415</code>)</td><td>Gap detector: monotonic seq audit per run</td></tr>
+          <tr><td>Availability</td><td>Successful responses at the edge, per tenant plane</td><td>99.5% monthly (v1)</td><td>No &mdash; single instance, no external probe, one dead alarm today</td><td>ALB health + synthetic probes per tenant plane</td></tr>
+          <tr><td>Multi-day build survivability</td><td>Build runs that survive deploys/restarts without human intervention</td><td>100% of interruptions auto-recovered</td><td>No &mdash; today every restart interruption is fatal by design (<code>engine.py:5519</code>)</td><td>Lease-reclaim and resume counters from the task graph</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout"><strong>The contract behind the numbers.</strong> Three promises the product owner
+    named become standing SLOs rather than one-off fixes: <em>no lags or hangs</em> (loop responsiveness +
+    event delivery lag), <em>everything resumable</em> (build survivability + reconnect completeness), and
+    <em>controls that tell the truth</em> (cancel honoured &mdash; the UI never claims a state the system has
+    not reached). Each is wired to an alarm that is verified to fire, which today none of the 20 alarms is
+    guaranteed to do (one watches a metric that nothing publishes).</div>
+  </div>
+</section>
+<!-- ============================ H. ENVIRONMENTS & PROMOTION ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Environments and promotion under per-tenant isolation</h2><p>How dev, stage and production work when production is many tenant planes; how a plane is promoted; and how an in-flight three-day run keeps the versions it started with.</p></div></div>
+  <div class="content">
+    <div class="sub-table">
+      <table>
+        <thead><tr><th>Environment</th><th>What it is</th><th>Planes</th><th>Promotion trigger</th></tr></thead>
+        <tbody>
+          <tr><td>dev</td><td>One pooled control plane + one shared tenant plane, small sizes</td><td>1 + 1</td><td>Merge to <code>dev</code> &mdash; today's CodeBuild-per-branch flow is kept, building one image per release</td></tr>
+          <tr><td>stage</td><td>Production-shaped: control plane + one reference tenant plane + one customer-hosted reference account (the Cursor-model rehearsal)</td><td>1 + 2</td><td>Promotion of a release candidate after dev soak; the full verification suite runs here per phase</td></tr>
+          <tr><td>production</td><td>One control plane + N tenant planes (ours and customer-owned), all instantiated from the same Terraform module at a pinned release</td><td>1 + N</td><td>Ring-based: canary tenant plane first, then general availability ring, then customer-hosted planes in agreed windows</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="sub-table">
+      <table>
+        <thead><tr><th>Concern</th><th>Mechanism</th></tr></thead>
+        <tbody>
+          <tr><td>What a release is</td><td>One image digest + the manifest/agent bundle hash + the Terraform module version, recorded as a single release id. ECR tags become immutable and deploys pin by digest (today tags are mutable and nothing pins, <code>ecr/main.tf:53</code>)</td></tr>
+          <tr><td>Promoting a tenant plane</td><td>The control plane's provisioning service updates the plane's pinned release: <code>migrate</code> task runs first (advisory-locked, additive-only per the standing constraint), then services roll with drain-and-checkpoint. A failed health gate rolls the pin back; additive migrations make old-image-on-new-schema safe</td></tr>
+          <tr><td>Version pinning for in-flight long runs</td><td>Every run records at launch: engine image digest, compiled-manifest hash, agent-bundle hash (extending <code>run_capabilities</code>, which already snapshots runtime and model config per run). During a rolling deploy, old-release workers finish draining their claimed runs; a run resumed after an interruption is claimed only by a worker whose release matches its pin. During the overlap window both worker sets run side by side &mdash; this is the mechanism that keeps a three-day build on the versions it started with, and it is why <code>compile_for_run</code>'s process-lifetime cache stops being a hazard (a worker process only ever serves one release)</td></tr>
+          <tr><td>Customer-hosted upgrades</td><td>The control plane proposes; the customer's connector applies in an agreed window. Frontend and control plane are centrally upgraded (the Cursor split); the customer plane can lag by up to one minor release, bounded by a compatibility contract on the control-plane API</td></tr>
+          <tr><td>Guardrails and quotas per plane</td><td>Entitlements (max concurrent generations, token budget, sandbox count) are control-plane configuration enforced locally by the plane's admission layer &mdash; enforcement is inside the plane so a customer-hosted deployment is protected even if the control-plane link is down</td></tr>
+          <tr><td>Configuration</td><td>Per-plane parameters move from host-composed <code>app.env</code> to task definitions + Secrets Manager; <code>extra="ignore"</code> on settings becomes fail-fast validation so a mistyped variable no longer silently disappears (<code>config.py</code>)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn"><strong>Today, for contrast.</strong> Three environments are three single
+    instances differing only by tfvars. A push to <code>dev</code>/<code>stage</code>/<code>main</code>
+    auto-fires a non-atomic deploy that replaces the process holding every run; migrations run on every
+    container start with no lock; SSM parameter changes do not reach the running container until a systemd
+    restart; and nothing pins an in-flight run to anything.</div>
+  </div>
+</section>
+<!-- ============================ COVERAGE ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Coverage and honesty matrix</h2><p>What this document actually establishes, and what is still open. A row marked &ldquo;decision&rdquo; is a decision, not a design.</p></div></div>
+  <div class="content">
+    <div class="sub-table">
+    <table>
+      <thead><tr><th>Domain</th><th>State today (verified)</th><th>Where depicted</th><th>Still open</th></tr></thead>
+      <tbody>
+        <tr><td>Experience</td><td>Built and verified: run screen, chat lane, gates, preview; event contract frozen</td><td><span class="pill l1">L1</span></td><td class="gap">Deliverable routing still branches on hardcoded workflow names in the client; not addressed here</td></tr>
+        <tr><td>Identity</td><td>bcrypt + 24 h JWT, no refresh, admin-only registration</td><td><span class="pill l1">L1</span> + delta map</td><td class="gap">OIDC broker + invite/tenant-admin flows now in scope (Phases 1 and 4); MFA via the IdP; cookie storage migration remains a follow-up</td></tr>
+        <tr><td>Realtime</td><td>SSE only; exclusive-consumer queue; durable replay by <code>seq</code> works</td><td><span class="pill both">L1 + L2</span></td><td class="gap">Resolved in revision: fan-out over Redis pub/sub, dispatch queue in Aurora (SKIP LOCKED); remaining spike is slow-viewer handling</td></tr>
+        <tr><td>Workflow runtime</td><td>Manifests, compiler, kernel, 68 capabilities, 86 agents &mdash; built and frozen</td><td><span class="pill both">L1 + L2</span></td><td class="gap none">&mdash;</td></tr>
+        <tr><td>Workflow control</td><td>Resume works on the owning process; cancel is a no-op on the resume tier; no pause</td><td><span class="pill both">L1 + L2</span></td><td class="gap">Quiesce timeout values are unset; per-command authorisation matrix (who may pause whose run) undecided</td></tr>
+        <tr><td>Long-running orchestration</td><td>Sequential default; flat fan-out user-composable and live-proven (capped at 4); waves sample-only; no durable tasks</td><td><span class="pill both">L1 + L2</span> + timeline</td><td class="gap">Write-domain model unproven in production; merge strategies never exercised under load; <strong>DLQ redrive UX undesigned</strong></td></tr>
+        <tr><td>Execution</td><td>Local per-run disk, 7-day TTL; isolation modes dormant; exec tier unexercised</td><td><span class="pill both">L1 + L2</span></td><td class="gap">Checkpoint-restore latency not benchmarked (EFS is the fallback if restore proves too slow); forced-termination policy on resource breach is stated but not designed</td></tr>
+        <tr><td>Model access</td><td>Bedrock via instance role; retries + fallback built; caching configured but unmeasured</td><td><span class="pill l1">L1</span></td><td class="gap">Whether prompt caching registers cache reads has never been observed &mdash; Phase 0 measurement; quota-lease sizing needs the same data</td></tr>
+        <tr><td>Preview</td><td>Client-side iframe only; <code>allow-same-origin</code> on two renderers; no container preview exists</td><td><span class="pill l1">L1</span></td><td class="gap">Isolated-origin serving design (subdomain vs separate distribution) is a decision, not yet a design</td></tr>
+        <tr><td>Governance</td><td>Default hooks fire on every step; audit tables populated and tenancy-keyed</td><td><span class="pill l1">L1</span></td><td class="gap">Approval-wait/deny branches unsurfaced in the UI; <code>secret_scan</code> coverage gaps are documented and accepted, not closed</td></tr>
+        <tr><td>Data</td><td>Host Postgres; inline artifact content; no S3 use by the app; no Redis; unbounded logs</td><td><span class="pill l2">L2</span> + data migration</td><td class="gap">Retention windows (30 d / 13 mo) are proposals pending compliance review</td></tr>
+        <tr><td>Tenancy</td><td>Keys exist but nullable on runs, absent on memory; scope stamped mid-engine</td><td><span class="pill both">L1 + L2</span> + cost model</td><td class="gap">AWS Organizations/OU layout and account-vending flow undesigned; noisy-neighbour limits inside the pooled control plane unquantified</td></tr>
+        <tr><td>Operations</td><td>No correlation ids, unstructured DEBUG logs, no global handler, one alarm dead</td><td><span class="pill l2">L2</span></td><td class="gap">On-call model and support SLAs are organisational decisions outside this document</td></tr>
+        <tr><td>Resilience</td><td>Restart orphan-fails runs with no event; single AZ; RPO up to one hour</td><td><span class="pill l2">L2</span> + timeline</td><td class="gap">All RPO/RTO figures are design intent, unvalidated by game-day</td></tr>
+        <tr><td>Cost</td><td>No tenant attribution today; unknown models price at the cheapest tier silently</td><td>Cost model</td><td class="gap"><strong>Every figure is an estimate</strong>; re-price before commitment; Bedrock spend dominates and is unmodelled per tenant</td></tr>
+        <tr><td>Capacity</td><td>Never load tested; nothing in the as-is was executed</td><td><span class="pill only">Estimate</span></td><td class="gap">All sizing pending the Phase 0 harness; the worked example is a shape, not a plan</td></tr>
+        <tr><td>Customer-hosted</td><td>Does not exist today in any form</td><td><span class="pill l1">L1</span> + environments</td><td class="gap"><span class="pill only">decision</span> PrivateLink topology and the connector's offline-behaviour contract are decisions recorded here, not yet designs</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="callout warn"><strong>The honest limit of this document.</strong> Every as-is claim behind it
+    was read from source at <code>dev @ 2d8d9f60</code> by the sixteen-investigator review, but nothing was
+    executed &mdash; no load test, no profiling, no measured latency, and the as-is itself warns that its
+    line anchors may drift by a few lines. The target sizing inherits that: it is a shape, not a capacity
+    plan. The first deliverable of Phase 0, alongside the fixes, is the load-test harness &mdash; so Phase 2
+    sizing comes from data rather than from this page.</div>
+  </div>
+</section>
+<!-- ============================ OPERATIONAL & SECURITY REQUIREMENTS ============================ -->
+<section class="panel">
+  <div class="panel-head"><div><h2>Operational and security requirements</h2><p>The standing requirements the target must satisfy, with the as-is condition each one corrects.</p></div></div>
+  <div class="content">
+    <details open><summary>Network and execution isolation</summary><div class="inside">Private subnets, no
+    public IPs on runtime or execution tasks, task-scoped IAM roles, controlled egress, VPC endpoints for
+    Bedrock, S3, ECR, Secrets and Logs. Code execution and previews run in dedicated tasks with no route to
+    the application database and an egress allowlist; CPU, memory, disk and runtime limits with automatic
+    termination.<br><br><strong>Carried over from the as-is and closed explicitly, not assumed:</strong>
+    LLM-generated Node code spawned by the PPTX exporter can reach the instance metadata service from inside
+    the backend container, and the bootstrap records all five candidate mitigations as rejected
+    (<code>bootstrap-ec2.sh:360-478</code>). On Fargate the equivalent risk is the task credential endpoint;
+    the sandbox task's network policy blocks link-local addresses and the verification suite carries an
+    in-sandbox probe that must fail.</div></details>
+    <details><summary>Content isolation for model-generated output</summary><div class="inside">All
+    model-generated previews (prototype HTML, deck HTML, app previews) are served from an isolated origin so
+    that same-origin access grants nothing, with one uniform sandbox policy across the three renderers.
+    Today two of the three use <code>sandbox="allow-scripts allow-same-origin"</code>
+    (<code>PrototypePreview.tsx:611</code>, <code>PPTPreview.tsx:234</code>) against the app origin while the
+    bearer token sits in <code>localStorage</code> &mdash; the combination this requirement exists to
+    eliminate.</div></details>
+    <details><summary>Secrets and keys</summary><div class="inside">Per-tenant CMK for data at rest, envelope
+    encryption for stored credentials, and a re-encryption path so key rotation is an operation rather than
+    an outage. Stop deriving the Fernet key from the JWT signing <code>SECRET_KEY</code>
+    (<code>crypto.py:29</code>) &mdash; today rotating the signing key would brick every stored PAT and MCP
+    credential. Stop passing the GitHub PAT in child-process argv (<code>handoff_github.py:225</code>).
+    Signing keys rotate; API keys carry an expiry; secrets live in Secrets Manager with per-role access, not
+    in a host-composed env file.</div></details>
+    <details><summary>Observability</summary><div class="inside">Correlation identifiers (tenant, session,
+    run, step, agent invocation, task, sandbox) on every log record and span; structured JSON logs at INFO;
+    a global exception handler returning typed, renderable errors (today there is none,
+    <code>main.py:245</code>); distributed traces across web &rarr; worker &rarr; model; per-tenant cost
+    attribution; and alarms that are proven to fire &mdash; the as-is ships an alarm on a metric nothing
+    publishes (<code>monitoring/main.tf:727</code>) and another on a transport that no longer exists.</div></details>
+    <details><summary>Backup and recovery</summary><div class="inside">Aurora Multi-AZ with PITR (replacing
+    an hourly logical dump and an RPO of up to one hour), S3 versioning and lifecycle for artifacts,
+    checkpoints and the event archive, immutable audit retention, and restoration procedures that are
+    rehearsed &mdash; including the sandbox-tree restore path, since today run sandboxes live on an
+    unbacked-up root volume with <code>delete_on_termination=true</code>. Cross-region DR only for
+    contracted tiers. Every RPO/RTO figure is validated by game-day before appearing in a contract.</div></details>
+    <details><summary>Upgrade safety</summary><div class="inside">Version-pinned releases (image digest +
+    manifest/agent bundle hash) so an active run keeps the versions it started with; migrations as a gated,
+    advisory-locked pre-deploy task, never on container start (<code>docker-entrypoint.sh:22</code>);
+    additive-only schema changes as a standing rule; rolling deploys that drain and checkpoint instead of
+    terminating work in flight; and no unattended host reboots with runs live &mdash; today
+    unattended-upgrades reboots the single host at 04:00 with no drain (<code>bootstrap-ec2.sh:163</code>).</div></details>
+  </div>
+</section>
+
+<footer style="max-width:1760px;margin:0 auto;padding:0 22px 40px;color:#64748b;font-size:12.5px;line-height:1.6">
+  Derived from <code>as-is-architecture.html</code> (sixteen-investigator read of <code>dev @ 2d8d9f60</code>,
+  arbitrated; 12 planes / 36 flows / 641 steps / 296 findings). Every as-is claim in this document carries its
+  repository locator; every forward-looking figure is labelled an estimate. Locked decisions honoured:
+  ECS Fargate + ALB; JWT now with an identity adapter; durable task graph in v1; full per-tenant isolation in v1.
+  Generated 2026-08-02.
+</footer>
+</main>
+<script>
+/* ==================================================================
+   Boards are data. node: [lane, column, step, title, description, class]
+   class encodes the change budget: keep | mod | new | secure
+   edge: [fromStep, toStep, kind, bias?]   kind = flow | call | return | fail
+   Where a node corresponds to something that exists today, its
+   description carries the repository path (approximate line anchors,
+   inherited from the as-is record).
+================================================================== */
+
+const PLANES = [
+ ["experience","Experience Plane","Browser, run screen, chat, gates and preview"],
+ ["control","Velocity Control Plane","Identity, tenant, entitlement, catalogue, edge"],
+ ["runtime","Tenant Runtime Plane","Web, worker, scheduler - the kernel runs here"],
+ ["data","Tenant Data Plane","Aurora, Redis, S3, CMK and audit"],
+ ["execution","Tenant Execution Plane","Sandboxes, build workers and previews"],
+ ["external","External Plane","Bedrock, Git, IdP and customer systems"]
+];
+
+const boards = {
+
+/* ---------------- LEVEL 1 ---------------- */
+
+rapid:{ lanes:PLANES, title:"Rapid Prototype",
+ nodes:[
+  ["experience",0,"1","Launch Wizard","Template, design system and brief chosen; POST /api/runs. dashboard/page.tsx:1400","keep"],
+  ["control",1,"2","ALB + WAF","TLS, tenant routing, per-path rate budgets - replaces host nginx zones. bootstrap-ec2.sh:706 today","new"],
+  ["runtime",2,"3","Web Role","Auth + pre-mint validation kept; tenancy stamped at INSERT. run_commands.py:1628","mod"],
+  ["data",3,"4","Run Row + Dispatch","INSERT run + dispatch row, one transaction; SKIP LOCKED claim. run_commands.py:1779","new"],
+  ["runtime",4,"5","Worker Claims Lease","A worker claims the run; ExecutionEngine.execute begins there","new"],
+  ["runtime",5,"6","Compile + Kernel","resolve_alias, workflow.yaml, CompiledWorkflow, the 5-step loop - unchanged. engine.py:575","keep"],
+  ["external",6,"7","Bedrock","Streaming invoke via VPC endpoint, under a tenant quota lease. model_factory.py:104","mod"],
+  ["execution",7,"8","Run Sandbox","Agent writes prototype.html; task-local tree + S3 step checkpoint. sandbox.py:81","mod"],
+  ["data",8,"9","Event Sink","seq-stamped run_events, batched off the loop, then published. engine.py:1032, authz.py:296 today","mod"],
+  ["control",9,"10","SSE Fan-out","Every viewer replays by seq, then joins the live channel. run_stream.py:154","mod"],
+  ["experience",10,"11","Live Run Screen","Steps, chat, gates and preview - the event contract is unchanged","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","flow"],
+        ["6","7","call"],["7","6","return",9],["6","8","flow"],["8","9","flow"],["9","10","flow"],["10","11","return"]]},
+
+revision:{ lanes:PLANES, title:"Revision",
+ nodes:[
+  ["experience",0,"1","Change Request","Free text on a settled run; classify-intent returns revise. RunChatLane.tsx:1169","keep"],
+  ["runtime",1,"2","Confirm + Mint Child","Run-refinement chip confirms; child run with parent_run_id. run_commands.py:2225","keep"],
+  ["data",2,"3","Lineage Read","Parent artifact via the 3-link fallback chain. engine.py:5759","keep"],
+  ["execution",3,"4","Restore Parent Tree","Parent spec/design/tasks seeded; tree rehydrated from its S3 checkpoint. engine.py:1149","mod"],
+  ["runtime",4,"5","previous_run Provider","Parent outputs injected as declared context - unchanged","keep"],
+  ["external",5,"6","Bedrock","The revision agent generates the change on the unchanged kernel","keep"],
+  ["execution",6,"7","Validate + Fix Loop","html_static + html_render with the bounded fix loop. task_loop.py:380","keep"],
+  ["data",7,"8","New Version","Deliverable persisted under the target kind, derived_from the parent. engine.py:5959","keep"],
+  ["experience",8,"9","Same Chat, New Version","Compare versions; revisions now emit milestone cards too","mod"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","call"],
+        ["6","7","return"],["7","8","flow"],["8","9","return"]]},
+
+chain:{ lanes:PLANES, title:"Workflow Chaining",
+ nodes:[
+  ["experience",0,"1","Chain Into","Chips above the chat input select the next workflow. RunChatLane.tsx:1114","keep"],
+  ["runtime",1,"2","Chain Matched","matchChainTarget routes to a chain, not a revision - no model call","keep"],
+  ["data",2,"3","Chain Context","Parent deliverable and outputs read from Aurora; chain_hints kept","mod"],
+  ["runtime",3,"4","Child Run Dispatched","An ordinary run: same admission, tenancy and leasing","new"],
+  ["external",4,"5","Bedrock","The child workflow executes on the unchanged kernel","keep"],
+  ["data",5,"6","Lineage Recorded","Parent-child artifact references persisted, as today","keep"],
+  ["experience",6,"7","Same Session","The linked output lands in the originating chat","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","call"],["5","6","return"],["6","7","return"]]},
+
+build:{ lanes:PLANES, title:"Multi-day App Build",
+ nodes:[
+  ["experience",0,"1","Build Request","app_builder launched - today 15 agents strictly serial in one coroutine. engine.py:2276","keep"],
+  ["runtime",1,"2","Admission + Budget","Tenant quota, concurrency and cost ceiling checked - none exists today","new"],
+  ["runtime",2,"3","Plan Decomposed","The existing parsers produce the keyed task list. heading_tasks / json_tasks","keep"],
+  ["data",3,"4","Durable Task Graph","Task rows with dependency edges, attempts, leases, heartbeats - a 500-task build is 500 rows","new"],
+  ["runtime",4,"5","Scheduler Role","Dispatches only ready tasks, within the tenant cap and write domains","new"],
+  ["execution",5,"6","Build Worker Pool","Isolated sandbox per task - activates the dormant isolation modes. kernel_services.py:645","new"],
+  ["external",6,"7","Bedrock + Git","Reasoning and source control per task, quota-leased","keep"],
+  ["data",7,"8","Heartbeat + Checkpoint","Lease renewed; result, diff and evidence persisted. subagent_runs / wave_runs reused","new"],
+  ["execution",8,"9","Write Domain + Merge","Lane lock released; the existing merge strategies run. fanout.py:846","mod"],
+  ["runtime",9,"10","Unlock Dependents","The next ready wave is dispatched","new"],
+  ["experience",10,"11","Durable Build Console","Progress survives restarts, deploys and reconnects","mod"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","flow"],
+        ["6","7","call"],["7","8","return"],["8","9","flow"],["9","10","flow"],["10","5","return",26],["10","11","return"]]},
+
+status:{ lanes:PLANES, title:"Concierge / Status",
+ nodes:[
+  ["experience",0,"1","Question Asked","What is step 3 doing - mid-run or after; the run continues","keep"],
+  ["runtime",1,"2","Classified as Ask","Read-only intent; zero interruption to execution. chat_router.py:203","keep"],
+  ["data",2,"3","Read Run State","Owner-scoped read tools over events, artifacts, gates. concierge.py:431","mod"],
+  ["external",3,"4","Bedrock","The Concierge composes its answer from real run data","keep"],
+  ["runtime",4,"5","Stream Reply","chat_reply_chunk streamed as it is generated. run_commands.py:1332","keep"],
+  ["experience",5,"6","Answer In Chat","Published to every viewer - today only the posting tab sees it. run_commands.py:1319","mod"],
+  ["execution",6,"7","Run Unaffected","The owning worker never sees the question","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","call"],["4","5","return"],["5","6","return"],["6","7","flow"]]},
+
+hitl:{ lanes:PLANES, title:"Gate and Clarify",
+ nodes:[
+  ["runtime",0,"1","Gate Reached","A step declares a human gate; review_gate_ready emitted. engine.py:5129","keep"],
+  ["data",1,"2","Gate Persisted","The open gate is a durable row - today an asyncio.Event in a dict. store.py:42","new"],
+  ["experience",2,"3","User Sees Gate","Inline approve / reject / redo; the browser may then close entirely","keep"],
+  ["control",3,"4","Answer On Any Task","POST /gate lands on any web task; explicit action required - bare text no longer approves. chat_router.py:222 today","mod"],
+  ["data",4,"5","Answer Durable","The decision is written, then published on the control channel","new"],
+  ["runtime",5,"6","Owning Worker Woken","The worker resumes the step wherever the run lease lives","mod"],
+  ["execution",6,"7","Run Continues","The next step dispatches on the unchanged kernel","keep"],
+  ["experience",7,"8","Progress Everywhere","review_gate_approved reaches every viewer","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","return"],["3","4","flow"],["4","5","flow"],["5","6","flow"],
+        ["6","7","flow"],["7","8","return"]]},
+
+identity:{ lanes:PLANES, title:"Login",
+ nodes:[
+  ["experience",0,"1","Sign-in Started","Redirect to the tenant sign-in: Cognito hosted UI or the tenant IdP. login/page.tsx:23 today","mod"],
+  ["control",1,"2","WAF + ALB","Login rate-limited at the edge, not per instance","new"],
+  ["control",2,"3","Cognito Broker","User pool + per-tenant IdP federation (SAML/OIDC); MFA at the IdP; password fallback","new"],
+  ["data",3,"4","User + Tenant Resolved","PKCE code exchange; JIT-provision on first login; tier + tenant-admin from Aurora. auth.py:73","mod"],
+  ["control",4,"5","Internal JWT Minted","Cognito tokens validated; our short-lived JWT + rotating refresh minted - the contract the routers verify","mod"],
+  ["experience",5,"6","Dashboard","Silent refresh keeps 1-3 day runs streaming past 24h. useRunStream.ts:204","mod"],
+  ["runtime",6,"7","Per-request Auth","get_current_user unchanged for all 20 routers. dependencies.py:153","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","return"],["6","7","flow"]]},
+
+sse:{ lanes:PLANES, title:"SSE and Multi-tab",
+ nodes:[
+  ["experience",0,"1","Two Viewers Attach","Two tabs, or laptop and phone, open the same run","keep"],
+  ["control",1,"2","Any Web Task","Either connection may land on any task behind the ALB","new"],
+  ["data",2,"3","Replay By Seq","The durable log replays from each viewer's own cursor - unchanged. run_stream.py:154","keep"],
+  ["data",3,"4","Subscribe To Run","Publish/subscribe replaces the exclusive queue.get. run_stream.py:200 today","new"],
+  ["runtime",4,"5","Worker Publishes","Persist once, publish once per event; order preserved by seq","mod"],
+  ["experience",5,"6","Both Fully Live","No frame stealing; both receive the terminal event","mod"],
+  ["experience",6,"7","Drop and Reconnect","Last-Event-ID resumes exactly - kept; the stream gets its own rate budget. useRunStream.ts:334","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","return"],["6","7","flow"]]},
+
+control:{ lanes:PLANES, title:"Stop / Resume / Pause",
+ nodes:[
+  ["experience",0,"1","Stop Pressed","During an agent turn, a clarify prompt or an open gate. api.ts:727","keep"],
+  ["control",1,"2","Command Authorised","Any web task accepts it; an audit row is written","mod"],
+  ["data",2,"3","Intent Persisted","The cancel intent is durable before anything is signalled","new"],
+  ["data",3,"4","Control Channel","Published to the worker holding the lease - fixes the resume-tier no-op. engine.py:7789 today","new"],
+  ["runtime",4,"5","Worker Cancels","Cooperative checks per chunk and pre-step - unchanged. engine.py:3621","keep"],
+  ["execution",5,"6","Drain + Checkpoint","Output flushed; the working tree checkpointed to S3","mod"],
+  ["runtime",6,"7","Terminal State","pipeline_cancelled through the normal seq path. engine.py:2491","keep"],
+  ["experience",7,"8","Screen Repaints","Every viewer sees the state actually reached - fixes the cancel-at-clarify stale screen","mod"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","flow"],
+        ["6","7","flow"],["7","8","return"]]},
+
+sandbox:{ lanes:PLANES, title:"Sandbox Lifecycle",
+ nodes:[
+  ["runtime",0,"1","Tool Call","write_file / edit_file / grep / glob from the agent - unchanged. deep_agent_runner.py:339","keep"],
+  ["data",1,"2","Hooks Fire","secret_scan and audit_logger by compiled default. compiler.py:401","keep"],
+  ["execution",2,"3","Mount Working Tree","Task-local ephemeral tree; restored from the S3 checkpoint on a new task","mod"],
+  ["execution",3,"4","Write Lands","Traversal containment unchanged. sandbox.py:79","keep"],
+  ["data",4,"5","Step Checkpoint","Tree snapshot to versioned S3 at step boundaries","new"],
+  ["runtime",5,"6","Result Returned","The agent continues; the filesystem contract is identical","keep"],
+  ["execution",6,"7","End-of-run Cleanup","Explicit release at terminal; the TTL sweep stays as backstop. sandbox.py:152","mod"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","return"],["6","7","flow"]]},
+
+bedrock:{ lanes:PLANES, title:"Bedrock Invocation",
+ nodes:[
+  ["runtime",0,"1","Model Request","Composed prompt and per-step model policy - unchanged. engine.py:1683","keep"],
+  ["data",1,"2","Quota Lease","Per-tenant token and concurrency lease - no admission exists today","new"],
+  ["runtime",2,"3","Model Client","Provider select, 600s read timeout, adaptive retries, fallback chain. model_factory.py:104","keep"],
+  ["external",3,"4","Bedrock Endpoint","Invoked through the VPC endpoint, never via NAT. compute/main.tf:85","mod"],
+  ["runtime",4,"5","Stream Tokens","Chunks to the engine sink - unchanged. deep_agent_runner.py:486","keep"],
+  ["data",5,"6","Usage + Cost","Tokens, cache reads, latency and cost, attributed per tenant","mod"],
+  ["experience",6,"7","Live Output","Streamed to every viewer of the run","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","call"],["4","5","return"],["5","6","flow"],["6","7","return"]]},
+
+preview:{ lanes:PLANES, title:"Preview and Deliverable",
+ nodes:[
+  ["runtime",0,"1","Deliverable Resolved","single_file / ppt / serialized_sandbox / streamed_text - unchanged. engine.py:2635","keep"],
+  ["data",1,"2","Stored In S3","Content leaves the inline column via the existing location field. artifact_ref.py:40","mod"],
+  ["experience",2,"3","Isolated-origin Preview","Framed from a separate origin - ends allow-same-origin. PrototypePreview.tsx:611","secure"],
+  ["execution",3,"4","App Build Image","app_builder only: build, scan and push to tenant ECR","new"],
+  ["execution",4,"5","Ephemeral Service","A short-lived preview task with a TTL","new"],
+  ["control",5,"6","Preview Gateway","Authenticated per-tenant routing to the preview","new"],
+  ["experience",6,"7","Version Switcher","Compare revisions of one deliverable - lineage already exists","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","return"],["2","4","flow"],["4","5","flow"],["5","6","flow"],["6","7","return"]]},
+
+governance:{ lanes:PLANES, title:"Governance Hooks",
+ nodes:[
+  ["experience",0,"1","User Operation","Launch, revise, approve a gate, or export","keep"],
+  ["control",1,"2","Admission","Identity, tenant, entitlement - now enforced server-side. run_commands.py:1607","mod"],
+  ["runtime",2,"3","Step Hooks","audit_logger and secret_scan on every step by compiled default. compiler.py:401","keep"],
+  ["data",3,"4","Model Policy","Allowed models, cost class and fallback per step - unchanged","keep"],
+  ["execution",4,"5","Write Scan","secret_scan may block a write before it lands. engine.py:3999","keep"],
+  ["experience",5,"6","Block Surfaced","A blocked write emits a visible event instead of a silent stall","mod"],
+  ["data",6,"7","Immutable Audit","Audit tables kept; hook_run now seq-stamped and replayable. kernel_services.py:387","mod"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","return"],["5","7","flow"]]},
+
+tenant:{ lanes:PLANES, title:"Tenant Provisioning",
+ nodes:[
+  ["control",0,"1","Tenant Created","The control plane registers the tenant and its entitlements","new"],
+  ["control",1,"2","Tier Decided","Tier 1 pooled: entitlements + invites only, no infra; tiers 2-3 invoke the plane module","new"],
+  ["data",2,"3","Tenant Data Plane","Aurora, Redis, S3 and a dedicated CMK","new"],
+  ["runtime",3,"4","Tenant Services","web, worker and scheduler tasks in the tenant VPC","new"],
+  ["execution",4,"5","Tenant Execution","Sandboxes and previews, private subnets only","new"],
+  ["external",5,"6","Tenant Bedrock","Model access scoped to the plane and its CMK","new"],
+  ["control",6,"7","Routing Activated","The edge routes the tenant hostname to its plane - real DNS and ACM","new"],
+  ["experience",7,"8","Tenant Live","The identical product; isolated data, keys and residency","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","flow"],
+        ["6","7","flow"],["7","8","return"]]},
+
+customer:{ lanes:PLANES, title:"Customer-hosted Run",
+ nodes:[
+  ["experience",0,"1","Velocity Web App","The frontend stays with us and is centrally upgraded","keep"],
+  ["control",1,"2","Identity + Entitlement","A short-lived signed run permission is issued centrally","new"],
+  ["external",2,"3","PrivateLink","Private cross-account path; nothing publicly exposed","secure"],
+  ["runtime",3,"4","Customer Connector","Validates every command against local policy and quotas - e.g. max concurrent generations","new"],
+  ["runtime",4,"5","Local Runtime","web, worker and scheduler inside the customer account - the same module","new"],
+  ["data",5,"6","Customer Data Plane","Aurora, S3, Redis, CMK and audit never leave the VPC","secure"],
+  ["execution",6,"7","Customer Sandbox","Untrusted code and previews stay in the customer VPC","new"],
+  ["experience",7,"8","Metadata Returns","Status and stream events come back; source code never does","new"]
+ ],
+ edges:[["1","2","flow"],["2","3","call"],["3","4","flow"],["4","5","flow"],["5","6","flow"],
+        ["6","7","flow"],["7","8","return"]]},
+
+failure:{ lanes:PLANES, title:"Failure Recovery",
+ nodes:[
+  ["runtime",0,"1","Worker Lost","A task dies mid-run; lease renewal stops","keep"],
+  ["data",1,"2","Lease Expires","The reaper marks the run reclaimable - today it is written failed with no event. engine.py:5519","new"],
+  ["runtime",2,"3","Replacement Claims","Single claimant by lease - closes the double-drive gap. engine.py:7576 today","new"],
+  ["execution",3,"4","Tree Restored","Remounted, or rebuilt from the last S3 checkpoint","mod"],
+  ["runtime",4,"5","Resume From Step","The existing resume-offset computation, unchanged. engine.py:7645","keep"],
+  ["data",5,"6","Attempts Bounded","Repeated failure routes to the DLQ, never an infinite retry","new"],
+  ["experience",6,"7","Honest Status","Recovering, retrying or failed - always an emitted event","mod"]
+ ],
+ edges:[["1","2","fail"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","flow"],["6","7","return"]]},
+
+/* ---------------- LEVEL 2 ---------------- */
+
+l2delta:{ title:"As-is to To-be Delta",
+ lanes:[
+  ["tone-a","Experience","Browser and run screen"],
+  ["tone-b","Web / API role","Request handling and the SSE down-channel"],
+  ["tone-c","Worker role","Where the unchanged kernel executes"],
+  ["tone-d","Aurora","Authoritative state - the rule that enables scale-out"],
+  ["tone-f","Redis","Bus and cache - never authoritative"],
+  ["tone-e","Ephemeral + S3","Working tree and durable content"]
+ ],
+ nodes:[
+  ["tone-a",0,"1","Unchanged Client","Same events, same wire format, same reducers","keep"],
+  ["tone-b",1,"2","Stateless Web","No run state in the process; any task serves any request","mod"],
+  ["tone-f",2,"3","Dispatch Nudge","Redis nudges claims; the queue itself is Aurora SKIP LOCKED. run_commands.py:1779 today","new"],
+  ["tone-c",3,"4","Worker Claims Lease","Replaces the in-process task handle. run_engine.py:40 today","new"],
+  ["tone-d",3,"5","Durable Run State","Replaces StateMachine._states as the authority. state_machine.py:60 today","mod"],
+  ["tone-c",4,"6","Unchanged Kernel","_execute_impl, capabilities, agents - untouched","keep"],
+  ["tone-e",5,"7","Tree + Checkpoint","Replaces local disk pinned to one instance. sandbox.py:81 today","mod"],
+  ["tone-d",5,"8","Batched Event Write","Replaces one synchronous commit per streamed chunk. authz.py:296 today","mod"],
+  ["tone-f",6,"9","Fan-out Publish","Replaces one exclusive queue consumer per run. run_stream.py:200 today","mod"],
+  ["tone-b",7,"10","Any Task Streams","Replay by seq, then join live - the client cannot tell the difference","mod"],
+  ["tone-a",8,"11","Smooth, Multi-tab","No stolen frames, no loop stalls, no phantom runs","mod"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","flow"],
+        ["6","7","flow"],["7","8","flow"],["8","9","flow"],["9","10","flow"],["10","11","return"]]},
+
+l2ux:{ title:"Latency and Smoothness",
+ lanes:[
+  ["tone-a","Perceived symptom","What the user actually reports"],
+  ["tone-b","Event loop","The single biggest source of stall today"],
+  ["tone-f","Stream delivery","Fan-out, replay and reconnect"],
+  ["tone-c","State honesty","Showing only states the system has reached"],
+  ["tone-e","Cold path","First paint, deploys and migrations"]
+ ],
+ nodes:[
+  ["tone-a",0,"1","Feels Laggy","Stutter during any active run; the whole app affected","keep"],
+  ["tone-b",1,"2","Blocking Commit","Sync commit per chunk inside async def blocks the loop. authz.py:296","mod"],
+  ["tone-b",2,"3","Batched Off-loop","One commit per flush window, on an executor","new"],
+  ["tone-f",2,"4","Exclusive Consumer","A second tab steals frames and never terminates. run_stream.py:200","mod"],
+  ["tone-f",3,"5","Publish To All","Every viewer gets a full copy plus its own cursor","new"],
+  ["tone-c",3,"6","Phantom Running","A failed launch still shows a running pipeline. RunConnectionProvider.tsx:468","mod"],
+  ["tone-c",4,"7","Terminal Always Emitted","Orphan-fail and blocked writes emit real events. engine.py:5519, 3999","mod"],
+  ["tone-e",4,"8","2.25 MB Bundle","The skills catalogue is compiled into the client JS. src/data/skills.ts","mod"],
+  ["tone-e",5,"9","Served, Not Bundled","Catalogue behind an endpoint; faster first paint","new"],
+  ["tone-a",6,"10","Feels Instant","No stalls, honest state, deploys that do not kill runs","keep"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["1","4","flow"],["4","5","flow"],
+        ["1","6","flow"],["6","7","flow"],["1","8","flow"],["8","9","flow"],
+        ["3","10","return"],["5","10","return"],["7","10","return"],["9","10","return"]]},
+
+l2data:{ title:"Data Plane",
+ lanes:[
+  ["tone-a","Producers","Kernel steps, agents, sandboxes and chat"],
+  ["tone-f","Redis","Bus, leases and cache - never authoritative"],
+  ["tone-b","Aurora PostgreSQL","Authoritative structured state"],
+  ["tone-d","Amazon S3","Durable content, versioned"],
+  ["tone-e","Ephemeral tree","Active working tree, rebuildable"],
+  ["tone-c","KMS and Audit","Tenant keys and immutable evidence"]
+ ],
+ nodes:[
+  ["tone-a",0,"1","Step Produces","Agent output, event, file write or tool result","keep"],
+  ["tone-c",1,"2","Classify + Encrypt","Tenant CMK and retention class applied","new"],
+  ["tone-b",2,"3","Authoritative Write","Runs, events, artifact metadata, tasks, leases, approvals","mod"],
+  ["tone-f",3,"4","Bus + Leases","Fan-out, control channel, run and quota leases","new"],
+  ["tone-d",3,"5","Durable Content","Artifact bodies, bundles, exports - via the location column","mod"],
+  ["tone-e",4,"6","Working Tree","What the agent filesystem tools actually see","mod"],
+  ["tone-d",5,"7","Checkpoint","The tree snapshotted at step boundaries","new"],
+  ["tone-c",5,"8","Immutable Audit","gate_events, hook_runs, exec_runs, lineage - already tenancy-keyed","keep"],
+  ["tone-b",6,"9","Retention","run_events partitions, checkpoint sweep, tenant purge","new"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["3","5","flow"],
+        ["5","6","flow"],["6","7","return"],["7","8","flow"],["8","9","return"]]},
+
+l2deploy:{ title:"Deployment Topology",
+ lanes:[
+  ["tone-a","Internet edge","DNS, CloudFront and WAF"],
+  ["tone-b","Velocity control account","Pooled, shared across all tenants"],
+  ["tone-f","Tenant VPC - edge","ALB, NAT and VPC endpoints"],
+  ["tone-c","Tenant VPC - app subnets","web, worker, scheduler - no public IPs"],
+  ["tone-d","Tenant VPC - data subnets","Aurora, Redis - no internet route"],
+  ["tone-e","Tenant execution subnets","Sandboxes, build workers and previews"]
+ ],
+ nodes:[
+  ["tone-a",0,"1","Tenant Hostname","Real DNS and an ACM certificate - replaces nip.io. prod.tfvars:23 today","new"],
+  ["tone-a",1,"2","CloudFront + WAF","TLS, geo and IP rules, managed rule sets","new"],
+  ["tone-b",2,"3","Control Plane","Identity, tenant, entitlement, catalogue, provisioning","new"],
+  ["tone-f",3,"4","Tenant ALB","Targets private-subnet tasks only","new"],
+  ["tone-c",4,"5","web + worker","One image, ROLE-gated, task-scoped IAM. main.py:260 today mounts everything everywhere","new"],
+  ["tone-c",5,"6","scheduler","Any instance dispatches safely via SKIP LOCKED","new"],
+  ["tone-d",5,"7","Aurora + Redis","Multi-AZ, no egress; Aurora is also the dispatch queue","new"],
+  ["tone-f",6,"8","VPC Endpoints","Bedrock, S3, ECR, Secrets, Logs - without NAT","new"],
+  ["tone-e",6,"9","Sandboxes + Preview","Private subnets, no public IP, task-scoped roles","new"],
+  ["tone-b",7,"10","Migrate Task","alembic under an advisory lock; gates rollout. docker-entrypoint.sh:22 today","new"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],
+        ["5","6","flow"],["5","7","flow"],["6","8","flow"],["6","9","flow"],["3","10","call"]]},
+
+inframap:{ title:"Full Infrastructure Map",
+ lanes:[
+  ["tone-a","Internet edge","DNS, CloudFront, WAF and sign-in"],
+  ["tone-b","Velocity control account","Pooled control plane, CI and observability"],
+  ["tone-f","Tenant VPC - edge","ALB and VPC endpoints"],
+  ["tone-c","Tenant VPC - app subnets","The one image in five roles"],
+  ["tone-d","Tenant VPC - data subnets","Truth, cache, objects, secrets"],
+  ["tone-e","Execution + external","Sandboxes, previews, models, planes"]
+ ],
+ nodes:[
+  ["tone-a",0,"1","DNS + ACM","Tenant hostname, real certificate - replaces nip.io","new"],
+  ["tone-a",1,"2","CloudFront + WAF","TLS, managed rules, geo and IP controls","new"],
+  ["tone-a",2,"3","Cognito + IdPs","Hosted UI; per-tenant Okta/Entra federation (SAML/OIDC)","new"],
+  ["tone-b",0,"4","control-api","Identity, tenant, entitlement, catalogue, provisioning","new"],
+  ["tone-b",1,"5","Control DB","Tenants, tiers, entitlements - pooled account","new"],
+  ["tone-b",2,"6","Terraform Plane Module","Stamps dedicated and customer-hosted planes","new"],
+  ["tone-b",3,"7","GitLab CI + ECR","Build, scan, sign ONE image; digest-pinned releases","mod"],
+  ["tone-b",4,"8","CloudWatch","Correlation ids, traces, alarms that actually fire","new"],
+  ["tone-f",3,"9","Tenant ALB","Private targets; SSE idle-timeout aligned; /ws/handoff passes","new"],
+  ["tone-f",4,"10","VPC Endpoints","Bedrock, S3, ECR, Secrets, Logs - no NAT path","new"],
+  ["tone-c",4,"11","web (SSE + REST)","Streams and commands; any task serves any run","new"],
+  ["tone-c",5,"12","worker","Claims runs by SKIP LOCKED lease; runs the unchanged kernel","new"],
+  ["tone-c",6,"13","scheduler","Dispatches ready tasks within tenant caps + write domains","new"],
+  ["tone-c",7,"14","build-worker","Long builds; version-pinned for the run lifetime","new"],
+  ["tone-c",8,"15","migrate","alembic under an advisory lock; gates rollout","new"],
+  ["tone-d",5,"16","Aurora + RDS Proxy","Multi-AZ truth: runs, events, tasks, dispatch queue","new"],
+  ["tone-d",6,"17","Redis","Fan-out, nudges, quota leases - never truth","new"],
+  ["tone-d",7,"18","S3","Artifacts, step checkpoints, uploads, backups, event archive","new"],
+  ["tone-d",8,"19","Secrets + CMK","Secrets Manager per role; per-tenant KMS envelope","secure"],
+  ["tone-e",0,"20","Sandbox Tasks","exec-gated; no DB route; IMDS blocked; egress allowlist","secure"],
+  ["tone-e",1,"21","Preview Origin","Separate origin for generated HTML - no same-origin reach","secure"],
+  ["tone-e",2,"22","Bedrock","Models via VPC endpoint; quota-leased per tenant","keep"],
+  ["tone-e",3,"23","GitHub + Tenant IdPs","Handoff PRs (PAT via helper); IdPs federate into Cognito","mod"],
+  ["tone-e",5,"24","Tier 2/3 Planes","Dedicated or customer-hosted - same module, swapped account","new"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["23","3","flow"],["4","5","flow"],
+        ["4","6","call"],["6","24","call"],["7","15","call"],["2","9","flow"],["9","11","flow"],
+        ["11","16","flow"],["12","16","flow"],["13","16","flow"],["15","16","call"],["12","17","flow"],
+        ["17","11","return"],["12","18","flow"],["14","20","call"],["20","18","flow"],["18","21","flow"],
+        ["12","22","call",9],["14","22","call"],["12","19","call"],["12","8","flow"]]},
+l2capacity:{ title:"Capacity at 200 Users",
+ lanes:[
+  ["tone-a","Interactive load","What 200 concurrent users actually generate"],
+  ["tone-b","web role","REST and the SSE down-channel"],
+  ["tone-c","worker role","Where agent turns are executed"],
+  ["tone-d","scheduler + build pool","Long-running task dispatch"],
+  ["tone-e","Execution","Sandboxes and previews"],
+  ["tone-f","Shared ceilings","Limits nobody can scale past"]
+ ],
+ nodes:[
+  ["tone-a",0,"1","200 Concurrent Users","Mixed prototype, revision, stories and build runs - ESTIMATE","keep"],
+  ["tone-b",1,"2","200-400 SSE Streams","Including multi-tab, plus reconnect churn - ESTIMATE","new"],
+  ["tone-b",2,"3","Scale On Connections","Connections and memory per task, not request rate","new"],
+  ["tone-c",3,"4","~40 Agent Turns","Simultaneous model-driven turns across all runs - ESTIMATE","new"],
+  ["tone-c",4,"5","Scale On Claimed Runs","Dispatch-to-claim latency is the signal","new"],
+  ["tone-d",5,"6","Ready-task Backlog","Build tasks queued behind per-tenant caps; age not size","new"],
+  ["tone-e",6,"7","~30 + ~20 Sandboxes","Interactive plus background build trees - ESTIMATE","new"],
+  ["tone-f",7,"8","Bedrock Quota","Per-tenant leases stop one tenant starving the rest","new"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],
+        ["5","6","flow"],["6","7","flow"],["7","8","flow"]]},
+
+l2control:{ title:"Workflow Control",
+ lanes:[
+  ["tone-a","User and experience","Chat command, console button, status display"],
+  ["tone-b","Control API","Authorisation, audit and durable intent"],
+  ["tone-c","Owning worker","Run state machine and quiesce coordination"],
+  ["tone-d","Scheduler and queue","Dispatch and ready-task backlog"],
+  ["tone-e","Execution sandbox","In-flight commands and the working tree"],
+  ["tone-f","Model gateway","In-flight invocations and quota leases"]
+ ],
+ nodes:[
+  ["tone-a",0,"1","Control Command","Pause, resume, cancel or retry - from chat or console","keep"],
+  ["tone-b",1,"2","Authorise + Record","Any web task; audit row and durable intent written first","mod"],
+  ["tone-c",2,"3","Broadcast Intent","The owning worker sets state and stops accepting new steps","new"],
+  ["tone-d",3,"4","Drain Queue","Stop dispatch; hold ready tasks and their dependencies","new"],
+  ["tone-e",3,"5","Signal Sandbox","Flush output, checkpoint the working tree","new"],
+  ["tone-f",3,"6","Close Model Stream","Abort the in-flight invoke; release the quota lease","new"],
+  ["tone-c",4,"7","Await Quiesce","Collect acknowledgements; force-transition on timeout","new"],
+  ["tone-c",5,"8","Durable Control Point","Persist state and resume token BEFORE confirming","new"],
+  ["tone-a",6,"9","State Confirmed","The user only ever sees a state actually reached","mod"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],
+        ["3","4","flow"],["3","5","flow"],["3","6","flow"],
+        ["4","7","return"],["5","7","return"],["6","7","return"],
+        ["7","8","flow"],["8","9","return"]]},
+
+l2orch:{ title:"Task Graph Internals",
+ lanes:[
+  ["tone-c","Scheduler","Dependency evaluation and bounded dispatch"],
+  ["tone-b","Task store (Aurora)","Tasks, dependencies, attempts and leases"],
+  ["tone-e","Worker pool","Isolated task execution on the unchanged kernel"],
+  ["tone-d","Workspace and write domains","Lane locks, worktrees and merge"],
+  ["tone-a","Existing capabilities","What we already have and simply reuse"],
+  ["tone-f","Audit","Evidence, attempts and approval state"]
+ ],
+ nodes:[
+  ["tone-a",0,"1","Task Parsers","heading_tasks and json_tasks already produce the keyed list","keep"],
+  ["tone-b",1,"2","Durable Task Rows","Dependency edges, attempt count, lease columns - net new","new"],
+  ["tone-c",2,"3","Select Ready","Dependencies met, write domain free, within the tenant cap","new"],
+  ["tone-b",3,"4","Acquire Lease","Atomic claim with owner and expiry","new"],
+  ["tone-e",4,"5","Worker Executes","Through the existing step machinery, unchanged","keep"],
+  ["tone-b",5,"6","Heartbeat","Lease renewed; expiry returns the task to ready","new"],
+  ["tone-d",5,"7","Claim Write Domain","Activates the dormant isolation modes. kernel_services.py:645 today","mod"],
+  ["tone-d",6,"8","Merge Lane","copy_disjoint, git_3way, html_fragment, json_merge - built. fanout.py:846","keep"],
+  ["tone-f",6,"9","Evidence","subagent_runs and wave_runs already carry tenancy keys","keep"],
+  ["tone-c",7,"10","Unlock Dependents","Release the cap and dispatch the next wave","new"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],
+        ["5","6","flow",-8],["6","5","return",8],
+        ["5","7","flow"],["7","8","flow"],["8","9","flow"],["9","10","return"]]},
+
+l2ops:{ title:"Operations",
+ lanes:[
+  ["tone-a","Emission","Every role, every record"],
+  ["tone-b","Collection","Agents, exporters and streams"],
+  ["tone-c","Store and query","Logs, metrics and traces"],
+  ["tone-d","Detection","SLOs, alarms and capacity"],
+  ["tone-e","Response","On-call and support"],
+  ["tone-f","Tenant-facing","What the customer sees"]
+ ],
+ nodes:[
+  ["tone-a",0,"1","Correlated Records","tenant, run, step, agent, task and sandbox ids - none exist today","new"],
+  ["tone-a",1,"2","Structured JSON","Replaces pipe-delimited DEBUG text. main.py:39 today","mod"],
+  ["tone-b",2,"3","Collectors","CloudWatch agent, OTel collector, ECS and Aurora metrics","new"],
+  ["tone-c",3,"4","Logs, Metrics, Traces","Spans for run, step, agent turn, model and tool call","new"],
+  ["tone-d",4,"5","SLO + Alarms","Stream lag, dispatch latency, error rate, cost burn - each proven to fire","new"],
+  ["tone-e",5,"6","Incident Response","Page, classify, runbook, review","new"],
+  ["tone-c",5,"7","Cost Attribution","Tokens, sandbox minutes and storage per tenant","new"],
+  ["tone-e",6,"8","Break-glass","Time-boxed, approved and fully audited","new"],
+  ["tone-f",6,"9","Tenant Status","Run health, quota use and spend","new"],
+  ["tone-d",7,"10","Capacity","Headroom per role sets desired task counts","new"]
+ ],
+ edges:[["1","2","flow"],["2","3","flow"],["3","4","flow"],["4","5","flow"],["5","6","flow"],
+        ["4","7","flow"],["7","9","flow"],["6","8","flow"],["8","9","flow"],["5","10","flow"]]},
+
+l2failure:{ title:"Failure and DR Matrix",
+ lanes:[
+  ["tone-a","Detection","How the condition is noticed"],
+  ["tone-b","Containment","What stops immediately"],
+  ["tone-c","Recovery","How normal service returns"],
+  ["tone-d","Data impact (RPO)","What, if anything, is lost - design targets, not measurements"],
+  ["tone-e","Today","What happens on the current single instance"]
+ ],
+ nodes:[
+  ["tone-a",0,"D1","Worker task lost","Detected: the lease stops being renewed","new"],
+  ["tone-b",0,"C1","Run reclaimable","Not marked failed; no new steps dispatched","secure"],
+  ["tone-c",0,"R1","Replacement claims","Reads durable state, remounts the tree, resumes","new"],
+  ["tone-d",0,"P1","RPO ~0","The last completed step boundary is durable - ESTIMATE","new"],
+  ["tone-e",0,"X1","Orphan-failed","Run written failed at startup, no event emitted. engine.py:5519","mod"],
+
+  ["tone-a",1,"D2","Sandbox lost","Detected: non-zero exit or heartbeat gap","new"],
+  ["tone-b",1,"C2","Step failed","The write domain is released","secure"],
+  ["tone-c",1,"R2","Idempotent rerun","A fresh tree from the last checkpoint","new"],
+  ["tone-d",1,"P2","RPO = checkpoint","Only uncheckpointed edits are replayed - ESTIMATE","new"],
+  ["tone-e",1,"X2","Run fails","No checkpoint exists to rerun from","mod"],
+
+  ["tone-a",2,"D3","Aurora failover","Detected: writer endpoint failover event","new"],
+  ["tone-b",2,"C3","Dispatch paused","Commands queue rather than fail","secure"],
+  ["tone-c",2,"R3","Replica promoted","Multi-AZ promotion via RDS Proxy","new"],
+  ["tone-d",2,"P3","RPO ~0","Synchronous standby - ESTIMATE","new"],
+  ["tone-e",2,"X3","Total outage","The database is on the app host; no standby; hourly dump","mod"],
+
+  ["tone-a",3,"D4","Redis loss","Detected: bus and lease operations time out","new"],
+  ["tone-b",3,"C4","Fall back to Aurora","Aurora is the only source of truth, by rule","secure"],
+  ["tone-c",3,"R4","Lazy rebuild","Subscriptions and leases repopulate on demand","new"],
+  ["tone-d",3,"P4","RPO 0","Redis holds nothing authoritative","new"],
+  ["tone-e",3,"X4","n/a","Redis does not exist today; the equivalents die with the process","keep"],
+
+  ["tone-a",4,"D5","Bedrock throttling","Detected: throttle responses - classifier exists. model_policy.py:227","keep"],
+  ["tone-b",4,"C5","Lease refused","Tasks held ready rather than failed","secure"],
+  ["tone-c",4,"R5","Backoff or fallback","Retry, then the allowed alternate model. engine.py:3830","keep"],
+  ["tone-d",4,"P5","RPO 0","No partial generation persisted as final","keep"],
+  ["tone-e",4,"X5","Mostly handled","Retries and the fallback chain already exist; a task-level gap remains","keep"],
+
+  ["tone-a",5,"D6","Deploy during a run","Detected: a rolling deployment begins","new"],
+  ["tone-b",5,"C6","Drain + checkpoint","Workers stop taking steps and checkpoint","new"],
+  ["tone-c",5,"R6","Version-pinned resume","Active runs keep the versions they started with","new"],
+  ["tone-d",5,"P6","RPO ~0","Checkpoint written before the drain completes - ESTIMATE","new"],
+  ["tone-e",5,"X6","Runs die","The deploy replaces the process holding every run","mod"],
+
+  ["tone-a",6,"D7","AZ or region loss","Detected: Multi-AZ health checks fail","new"],
+  ["tone-b",6,"C7","Traffic withdrawn","The edge pulls back; runs quiesce","secure"],
+  ["tone-c",6,"R7","AZ automatic","Multi-AZ absorbs an AZ; region needs contracted DR","new"],
+  ["tone-d",6,"P7","RPO 0 / 5-15 min","Zero within region; cross-region by tier - ESTIMATE","new"],
+  ["tone-e",6,"X7","Total loss","Single instance, single AZ, hourly dump","mod"]
+ ],
+ edges:[
+  ["D1","C1","flow"],["C1","R1","flow"],["R1","P1","flow"],["P1","X1","flow"],
+  ["D2","C2","flow"],["C2","R2","flow"],["R2","P2","flow"],["P2","X2","flow"],
+  ["D3","C3","flow"],["C3","R3","flow"],["R3","P3","flow"],["P3","X3","flow"],
+  ["D4","C4","flow"],["C4","R4","flow"],["R4","P4","flow"],["P4","X4","flow"],
+  ["D5","C5","flow"],["C5","R5","flow"],["R5","P5","flow"],["P5","X5","flow"],
+  ["D6","C6","flow"],["C6","R6","flow"],["R6","P6","flow"],["P6","X6","flow"],
+  ["D7","C7","flow"],["C7","R7","flow"],["R7","P7","flow"],["P7","X7","flow"]
+ ]},
+
+/* ---------------- LONG-RUN TIMELINE ---------------- */
+
+timeline:{ title:"A Three-day Build Timeline",
+ lanes:[
+  ["tone-a","User sees","The run screen, chat and phone notifications"],
+  ["tone-b","Web + control","Any web task; gates and commands land anywhere"],
+  ["tone-c","Scheduler + graph","Durable task rows decide what runs next"],
+  ["tone-d","Worker + kernel","Claimed runs on the unchanged engine"],
+  ["tone-e","Sandbox + checkpoint","Task-local tree; S3 snapshots at step boundaries"],
+  ["tone-f","Bedrock + quota","Model calls under tenant leases"]
+ ],
+ nodes:[
+  ["tone-a",0,"T1","Day 1, 09:00 - Launch","A ~500-task app_builder run is accepted; the task graph is persisted","keep"],
+  ["tone-c",1,"T2","Tasks Flowing","The first ready wave dispatches inside the tenant cap; write lanes locked","new"],
+  ["tone-f",2,"T3","Steady Reasoning","Quota-leased model turns all day; usage attributed per tenant","keep"],
+  ["tone-b",3,"T4","Day 1, 18:00 - Deploy","A rolling deploy: workers drain and checkpoint; the run keeps its pinned release. Today this kills the run","new"],
+  ["tone-d",4,"T5","Evening Gate","A review gate opens and parks durably; the user closes the laptop","mod"],
+  ["tone-a",5,"T6","Day 2, 08:30 - Approve","The approval from a phone lands on any web task; the owning worker is woken","mod"],
+  ["tone-f",6,"T7","Day 2, 13:00 - Throttled","Bedrock throttles: leases refused, tasks HELD ready - not failed. Today the step fails permanently","new"],
+  ["tone-d",7,"T8","Day 2, 23:00 - Worker Dies","Lease expires; a replacement claims and resumes. Today: orphan-failed, no event","new"],
+  ["tone-e",8,"T9","Day 3, 09:00 - Reconnect","User reopens; replay by seq from the durable log - already works today","keep"],
+  ["tone-c",9,"T10","Merge + Final Waves","Write lanes merge with copy_disjoint; dependents unlock","mod"],
+  ["tone-a",10,"T11","Day 3, 16:00 - Done","pipeline_complete; the bundle in S3; a full audit trail per task","keep"]
+ ],
+ edges:[["T1","T2","flow"],["T2","T3","flow"],["T3","T4","flow"],["T4","T5","flow"],["T5","T6","flow"],
+        ["T6","T7","fail"],["T7","T8","fail"],["T8","T9","return"],["T9","T10","flow"],["T10","T11","return"]]}
+
+};
+
+/* ---------------- geometry ---------------- */
+
+const GEO = { col0:40, pitch:200, nodeW:168, nodeTop:26, label:190, pad:60 };
+
+const WIRE = {
+  flow:   { stroke:"#475569", width:2, dash:null,  marker:"vg-flow"   },
+  call:   { stroke:"#2563eb", width:2, dash:"7 5", marker:"vg-call"   },
+  return: { stroke:"#0f766e", width:2, dash:null,  marker:"vg-return" },
+  fail:   { stroke:"#b91c1c", width:2, dash:"3 4", marker:"vg-fail"   }
+};
+
+const NS = "http://www.w3.org/2000/svg";
+const svgEl = (n,a)=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;};
+
+function renderBoard(id, spec){
+  const cols  = Math.max(...spec.nodes.map(n=>n[1])) + 1;
+  const width = GEO.label + GEO.col0 + (cols-1)*GEO.pitch + GEO.nodeW + GEO.pad;
+
+  let html = `<div class="diagram-wrap"><div class="diagram" id="dg-${id}" style="min-width:${width}px">`;
+  html += `<svg class="wires" aria-hidden="true"></svg>`;
+  for (const [cls,title,sub] of spec.lanes){
+    html += `<div class="lane ${cls}"><div class="lane-label">${title}<small>${sub}</small></div><div class="lane-canvas">`;
+    for (const n of spec.nodes.filter(x=>x[0]===cls)){
+      const left = GEO.col0 + n[1]*GEO.pitch;
+      html += `<div class="node ${n[5]}" id="n-${id}-${n[2]}" style="left:${left}px;top:${GEO.nodeTop}px">`
+           +  `<span class="num">${n[2]}</span><h4>${n[3]}</h4><p>${n[4]}</p></div>`;
+    }
+    html += '</div></div>';
+  }
+  html += '</div></div>';
+  const panel = document.getElementById(id);
+  const slot  = panel.querySelector('.board-slot') || panel;
+  slot.innerHTML = html;
+}
+
+function rectIn(node, board){
+  const a = node.getBoundingClientRect(), b = board.getBoundingClientRect();
+  let k = board.offsetWidth ? b.width / board.offsetWidth : 1;
+  if (!k || !isFinite(k)) k = 1;
+  const x=(a.left-b.left)/k, y=(a.top-b.top)/k, w=a.width/k, h=a.height/k;
+  return { x, y, w, h, right:x+w, bottom:y+h, cx:x+w/2, cy:y+h/2 };
+}
+
+const GAP = 5, RADIUS = 12, TWIN = 13;
+
+function route(S, T, bias){
+  bias = bias || 0;
+  const clamp = (v, room) => Math.max(-room, Math.min(room, v));
+  const sameRow = Math.abs(S.cy - T.cy) < 6;
+  const sameCol = Math.abs(S.cx - T.cx) < 6;
+
+  if (sameRow && T.x > S.right) return `M${S.right+GAP},${S.cy} L${T.x-GAP},${T.cy}`;
+  if (sameRow && T.right < S.x) return `M${S.x-GAP},${S.cy} L${T.right+GAP},${T.cy}`;
+
+  if (sameCol){
+    const down = T.cy > S.cy;
+    const x  = S.cx + (bias || (down ? -TWIN : TWIN));
+    const y1 = down ? S.bottom+GAP : S.y-GAP;
+    const y2 = down ? T.y-GAP      : T.bottom+GAP;
+    return `M${x},${y1} L${x},${y2}`;
+  }
+
+  if (T.x > S.right){
+    const x1=S.right+GAP, y1=S.cy, x2=T.x-GAP, y2=T.cy;
+    const mx=(S.right+T.x)/2 + clamp(bias, Math.max(0,(T.x-S.right)/2-8)), down=y2>y1, s=down?1:-1;
+    const r=Math.max(0,Math.min(RADIUS, Math.abs(mx-x1), Math.abs(x2-mx), Math.abs(y2-y1)/2));
+    return `M${x1},${y1} H${mx-r} Q${mx},${y1} ${mx},${y1+s*r} V${y2-s*r} Q${mx},${y2} ${mx+r},${y2} H${x2}`;
+  }
+
+  if (T.right < S.x){
+    const x1=S.x-GAP, y1=S.cy, x2=T.right+GAP, y2=T.cy;
+    const mx=(S.x+T.right)/2 + clamp(bias, Math.max(0,(S.x-T.right)/2-8)), down=y2>y1, s=down?1:-1;
+    const r=Math.max(0,Math.min(RADIUS, Math.abs(x1-mx), Math.abs(mx-x2), Math.abs(y2-y1)/2));
+    return `M${x1},${y1} H${mx+r} Q${mx},${y1} ${mx},${y1+s*r} V${y2-s*r} Q${mx},${y2} ${mx-r},${y2} H${x2}`;
+  }
+
+  const down = T.cy > S.cy, s = down ? 1 : -1;
+  const y1 = down ? S.bottom+GAP : S.y-GAP;
+  const y2 = down ? T.y-GAP      : T.bottom+GAP;
+  const my = (y1+y2)/2 + bias;
+  const r  = Math.max(0, Math.min(RADIUS, Math.abs(my-y1), Math.abs(y2-my), Math.abs(T.cx-S.cx)/2));
+  const dir = T.cx > S.cx ? 1 : -1;
+  return `M${S.cx},${y1} V${my-s*r} Q${S.cx},${my} ${S.cx+dir*r},${my} H${T.cx-dir*r} Q${T.cx},${my} ${T.cx},${my+s*r} V${y2}`;
+}
+
+function drawWires(id, spec){
+  const board = document.getElementById('dg-'+id);
+  if (!board || !board.offsetWidth) return;
+  const svg = board.querySelector('.wires');
+  const w = board.scrollWidth, h = board.scrollHeight;
+  svg.setAttribute('width', w); svg.setAttribute('height', h);
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  const defs = svgEl('defs',{});
+  for (const k in WIRE){
+    const m = svgEl('marker',{ id:`${WIRE[k].marker}-${id}`, viewBox:"0 0 12 12", refX:"10.5", refY:"6",
+      markerWidth:"10", markerHeight:"10", markerUnits:"userSpaceOnUse", orient:"auto" });
+    m.appendChild(svgEl('path',{ d:"M1.5,1.5 L11,6 L1.5,10.5 Z", fill:WIRE[k].stroke }));
+    defs.appendChild(m);
+  }
+  svg.appendChild(defs);
+
+  for (const [from,to,kind,bias] of spec.edges){
+    const a = document.getElementById(`n-${id}-${from}`);
+    const b = document.getElementById(`n-${id}-${to}`);
+    if (!a || !b) continue;
+    const cfg = WIRE[kind] || WIRE.flow;
+    const attrs = {
+      d: route(rectIn(a,board), rectIn(b,board), bias),
+      fill:"none", stroke:cfg.stroke, "stroke-width":cfg.width,
+      "stroke-linecap":"round", "stroke-linejoin":"round",
+      "marker-end":`url(#${cfg.marker}-${id})`
+    };
+    if (cfg.dash) attrs["stroke-dasharray"] = cfg.dash;
+    svg.appendChild(svgEl('path', attrs));
+  }
+}
+
+function redraw(){
+  for (const id in boards){
+    const panel = document.getElementById(id);
+    if (panel && panel.classList.contains('active') && panel.offsetParent !== null)
+      drawWires(id, boards[id]);
+  }
+}
+
+Object.entries(boards).forEach(([id,s]) => renderBoard(id,s));
+
+document.querySelectorAll('.tabs').forEach(strip=>{
+  const buttons = [...strip.querySelectorAll('.tab')];
+  const panels  = buttons.map(btn=>document.getElementById(btn.dataset.target));
+  buttons.forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      buttons.forEach(b=>{b.classList.remove('active');b.setAttribute('aria-selected','false');});
+      panels.forEach(p=>p && p.classList.remove('active'));
+      btn.classList.add('active'); btn.setAttribute('aria-selected','true');
+      document.getElementById(btn.dataset.target).classList.add('active');
+      requestAnimationFrame(redraw);
+    });
+  });
+});
+
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(redraw);
+window.addEventListener('load', redraw);
+let wireTimer;
+window.addEventListener('resize', ()=>{ clearTimeout(wireTimer); wireTimer=setTimeout(redraw,120); });
+window.addEventListener('beforeprint', redraw);
+window.addEventListener('afterprint', redraw);
+if (window.ResizeObserver){
+  const ro = new ResizeObserver(()=>{ clearTimeout(wireTimer); wireTimer=setTimeout(redraw,60); });
+  for (const id in boards){ const p=document.getElementById(id); if(p) ro.observe(p); }
+}
+redraw();
+</script>
+</body>
+</html>

@@ -124,12 +124,13 @@ def test_run_folder_is_idempotent(tmp_path):
     assert (run_dir / "logs" / "keep.log").read_text(encoding="utf-8") == "x"
 
 
-def test_log_path_is_agent_and_row(tmp_path):
-    """Logs are `logs/<agent_token>_<row_id>.log`."""
+def test_log_path_is_a_row_folder(tmp_path):
+    """Logs are `logs/<row_id>/<agent_token>.log` — one brief's transcripts together."""
     run_dir = run_folder("260729-083126-ds", workflow_dir=tmp_path)
-    assert log_path(run_dir, TOKEN, "billing_console").name == (
-        "prototype_specify_billing_console.log"
-    )
+    path = log_path(run_dir, TOKEN, "billing_console")
+    assert path.name == "prototype_specify.log"
+    assert path.parent.name == "billing_console"
+    assert path.parent.parent.name == "logs"
 
 
 def test_system_prompt_hash_format_and_sensitivity():
@@ -222,6 +223,7 @@ def test_output_matches_dataset_envelope(tmp_path):
     assert written["rows"][0]["upstream_precheck_passed"] is True
 
 
+@pytest.mark.skipif(not REAL_OUTPUT.exists(), reason="the committed example-run fixture is not on disk")
 def test_real_example_run_output_matches_same_envelope():
     """The committed example run satisfies the identical shape checks."""
     assert_dataset_envelope(json.loads(REAL_OUTPUT.read_text(encoding="utf-8")))

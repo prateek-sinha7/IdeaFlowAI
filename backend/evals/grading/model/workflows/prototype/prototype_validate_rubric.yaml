@@ -142,7 +142,11 @@ dimensions:
       behaviour here and must not be penalised.
 
 anchors:
-  90: >
+  95: >
+    Reference quality — you hunted for a weakness and found none worth
+    reporting. Every named defect is repaired, nothing working was lost, every
+    page is genuinely usable, and the file is coherent enough to demo as-is.
+  85: >
     Every page is a page a user could actually use — real components, tables with
     enough realistic rows to read as an export. The diff against the pre-fix file
     shows named defects repaired and working content untouched. One coherent
@@ -193,26 +197,52 @@ rubric: |
   read the same for a different prototype is not a rationale and will be treated
   as a non-answer.
 
+  REPORTING FINDINGS. Everything you find wrong goes in that dimension's
+  `findings`, each tagged `blocking`, `major` or `minor` — the definitions are
+  in the scoring-discipline block above. The tag is what decides the cost, so a
+  nit is cheap and a real gap is not: report freely and tag honestly rather than
+  withholding a criticism to protect a number. Score the dimension for the
+  quality you actually see and let the findings do the deducting; do not
+  pre-deduct for them yourself.
+
 
 # ── BASELINE ──────────────────────────────────────────────────────────────
 # Excluded from the rubric hash.
 #
-# NOT YET CALIBRATED, and doubly so here: this stage has never been run at all,
-# and its input quality depends entirely on prototype-build, which is itself not
-# yet onboarded. Until both have run clean once, these numbers are intent only.
+# CALIBRATED AGAINST THE GOLDEN ARTIFACTS (2026-07-30). golden/<brief>/ holds
+# hand-written reference outputs that pass every precheck and score 100 on the
+# code track — proof these thresholds are satisfiable, not aspiration. The
+# thresholds are floors a competent run must clear, not the golden ceiling:
+#
+#   min_precheck_pass_rate 1.0 — the golden proves flawless structure is
+#     achievable; any malformed row fails the stage.
+#   min_average_score 70 — RE-DERIVED from `grade.sh calibrate` (2026-07-30)
+#     under severity pricing: the worst golden brief scored 90.96, and the floor
+#     sits ~20 below that observed ceiling. It lands on the same 70 the retired
+#     cap scale used, which is a coincidence of arithmetic, not a carry-over —
+#     the number was recomputed from a live run, not kept. Previously: the
+#     golden ceiling sits in the high 80s-to-95 band.
+#
+# set_from pins ONLY the rubric hash and the judge: config_hash and
+# dataset_hash are deliberately omitted so any dataset and any agent under
+# test evaluates against this baseline. Editing the rubric (anchors,
+# dimensions, precheck) changes the hash and correctly flips runs back to
+# REFUSED until this block is re-pinned.
 baseline:
-  min_precheck_pass_rate: 0.90
-  min_average_score: 80
+  min_precheck_pass_rate: 1.0
+  min_average_score: 70
 
-  # No negative row reaches this stage — stage_input.py never propagates an
-  # `expect: fail` row past the root — so this asserts nothing here until a
-  # deliberately-defective seeded prototype exists as a negative fixture.
+  # The negative-test row must actually be rejected wherever the dataset
+  # carries one; a dataset with no negatives skips this check.
   min_negative_correct: 1.0
 
-  # TWO-SIDED SIGNAL GUARD, as on prototype-specify: a judge returning the same
-  # number every row is dead, and a suspiciously tight spread is dying. Both hide
-  # regressions inside an average that looks fine.
+  # THE DEAD-JUDGE GUARD (the constant-95 run). Sample-size gated in scoring:
+  # it arms only when judged rows >= 2x this value, so a 1-2 row debug run is
+  # never failed over a tie while an 11-row constant still is.
   min_distinct_scores: 3
-  max_expected_stddev: null       # set from the calibration run's observed spread
+  max_expected_stddev: null
 
-  set_from: "NOT CALIBRATED — pending one clean run once prototype-build is onboarded"
+  set_from:
+    rubric_hash: "sha256:517b5162c2bff86495d620664f8b2faf237cc92b6b235e92252e89b15a60b605"
+    judge_resolved_model_id: "mistral-large-latest"
+    calibrated: "grade.sh calibrate, 2026-07-30 — golden ceiling 90.96 (worst of 6 briefs), hollow fixture 53.62, separation 37.34; severity pricing per spec 008-grading-calibration"

@@ -13,7 +13,7 @@ import math
 import pytest
 
 from evals.grading.compare import compare_runs, group_by_prompt, noise_band
-from evals.grading.scoring import summarize_stage
+from evals.grading.model.scoring import summarize_stage
 
 RUBRIC = {
     "dimensions": [

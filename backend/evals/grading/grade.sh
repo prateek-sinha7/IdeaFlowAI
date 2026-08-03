@@ -17,15 +17,40 @@
 #   ./grade.sh smoke                   # 2 rows, no judge — cheapest real run
 #   ./grade.sh small                   # 3 short rows, judged — the debug loop
 #   ./grade.sh full                    # every stage, every row, judged  [LIVE]
+#   ./grade.sh all                     # the complex dataset (limit 1)   [LIVE]
 #   ./grade.sh partial                 # the one you edit: pick agents/rows
 #
 #   ./grade.sh plan <config>           # any of the above, dispatch nothing (free)
 #   ./grade.sh run <config>            # any config by name or path       [LIVE]
 #
+#   ./grade.sh rejudge <run-id>        # re-score stored outputs, judge only [LIVE]
+#   ./grade.sh advise <run-id>         # propose prompt edits from a run  [LIVE]
+#                                      # (also runs automatically after a live run;
+#                                      #  disable there with --no-advise)
+#
+#   ./grade.sh apply-advice <run-id> --agent <id>
+#                                      # apply that advice to AGENT.md    (free)
+#                                      # archives the old body to AGENT.vN.md first
+#   ./grade.sh revert <agent>          # restore the newest archive       (free)
+#
+# ONE PASS, EVERYTHING. A live run does the whole loop without a second command:
+#   dispatch the agents -> judge -> deterministic code checks -> prompt advice
+#   -> reports/. Everything lands in the run folder: reports/report.md is the
+#   headline, reports/<phase>_report.md the detail, reports/code_report.md the
+#   browser findings, reports/prompt_advice_<phase>.md the proposed prompt edits.
+#
+#   ./grade.sh dashboard               # every run as one browsable site   (free)
+#                                      #  .runs/index.html -> run -> stage -> row,
+#                                      #  with trends, prompt versions and previews.
+#                                      #  --force  --export <run-id>  --open
 #   ./grade.sh report <run-id> [-w N]  # per-dimension scores + weaknesses (free)
 #   ./grade.sh compare <a> <b>         # deltas between two runs, noise-guarded
 #   ./grade.sh history <agent>         # every run grouped by prompt version
-#   ./grade.sh code <run-id>           # deterministic HTML checks       (free)
+#   ./grade.sh calibrate               # is the scale inverted?          (LIVE)
+#                                      #  golden vs known-bad fixtures
+#   ./grade.sh code <run-id>           # HTML checks: static + browser    (free)
+#                                      # (also runs automatically after a live run;
+#                                      #  disable there with --no-code)
 #
 #   ./grade.sh runs                    # list run folders               (free)
 #   ./grade.sh configs                 # list run configs               (free)
@@ -42,6 +67,8 @@
 #
 # Exit codes: 0 ok · 2 usage/config · 3 baseline FAIL · 4 judge preflight
 #             5 no credentials · 6 run did not complete
+#             9 an edit could not be applied (nothing written)
+#            10 every proposed edit targeted the frontmatter and was refused
 set -euo pipefail
 
 GRADING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,6 +106,16 @@ _config_path() {
     [[ -f "$candidate" ]] && { echo "$candidate"; return 0; }
   done
 
+  # Exact-suffix match BEFORE the substring glob: "all" must resolve to
+  # prototype_all.yaml even though the substring also occurs in
+  # prototype_smALL.yaml. A suffix can only be ambiguous across workflows.
+  local suffixes=()
+  while IFS= read -r m; do suffixes+=("$m"); done \
+    < <(find "$CONFIGS" -maxdepth 1 -name "*_${want}.yaml" 2>/dev/null | sort)
+  if [[ ${#suffixes[@]} -eq 1 ]]; then
+    echo "${suffixes[0]}"; return 0
+  fi
+
   # Fragment match — only accept it when exactly one config matches, so an
   # ambiguous shortcut never silently picks the wrong (token-spending) run.
   local matches=()
@@ -107,7 +144,7 @@ _warn_live() {
 case "${1:-help}" in
   help|-h|--help)
     # Absolute path: we have already cd'd to the backend root by now.
-    sed -n '2,42p' "$GRADING_DIR/grade.sh" | sed 's/^# \{0,1\}//'
+    sed -n '2,61p' "$GRADING_DIR/grade.sh" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
 
@@ -126,8 +163,8 @@ case "${1:-help}" in
     _runner --config "$cfg" --dry-run "$@"
     ;;
 
-  smoke|small|full|partial)
-    # The four shipped configs, each reachable by its own name.
+  smoke|small|full|partial|all)
+    # The shipped configs, each reachable by its own name.
     name="$1"; shift
     # `$name`, not `$name.yaml`: _config_path tries an exact match first, so
     # this is identical today — but it also lets the fragment matcher find a
@@ -145,6 +182,15 @@ case "${1:-help}" in
     _runner report "$@"
     ;;
 
+  dashboard)
+    # Rebuild the HTML site over every run folder. Free: reads the artifacts
+    # already on disk, calls no model and dispatches nothing. Also runs
+    # automatically at the end of any run/rejudge/code pass, so this is for
+    # when you want it rebuilt on demand — or when you want its errors.
+    shift
+    _runner dashboard "$@"
+    ;;
+
   compare)
     shift
     _runner compare "$@"
@@ -159,9 +205,57 @@ case "${1:-help}" in
     _runner compare --by-prompt --agent "$agent" "$@"
     ;;
 
+  rejudge)
+    # The main run minus the generation: stored responses go straight to the
+    # judge, artifacts are superseded in place and the reports regenerate.
+    shift
+    [[ -z "${1:-}" ]] && { echo "usage: ./grade.sh rejudge <dataset_run_id> [--agents a,b] [--judge-model M]" >&2; exit 2; }
+    echo "" >&2
+    echo "  LIVE — re-scores stored outputs with the judge. No agent is dispatched;" >&2
+    echo "  judge tokens are the only spend." >&2
+    _runner rejudge "$@"
+    ;;
+
+  advise)
+    # Ingest one run's reports + the captured prompt and propose a prompt
+    # delta per agent. One model call per advised stage.
+    shift
+    [[ -z "${1:-}" ]] && { echo "usage: ./grade.sh advise <dataset_run_id> [--agents a,b]" >&2; exit 2; }
+    echo "" >&2
+    echo "  LIVE — one model call per advised stage." >&2
+    _runner advise "$@"
+    ;;
+
+  apply-advice)
+    # Apply the advisor's structured edits to the agent's AGENT.md. Free: the
+    # advice was written by a run that already happened. The old body is archived
+    # to AGENT.vN.md first, so `revert` is always one command away.
+    shift
+    [[ -z "${1:-}" ]] && { echo "usage: ./grade.sh apply-advice <dataset_run_id> --agent <agent-id>" >&2; exit 2; }
+    _runner apply-advice "$@"
+    ;;
+
+  revert)
+    # Undo the last apply-advice: restore the newest archived body and delete it.
+    shift
+    [[ -z "${1:-}" ]] && { echo "usage: ./grade.sh revert <agent-id>" >&2; exit 2; }
+    _runner revert "$@"
+    ;;
+
+  calibrate)
+    # Does the scale still rank known-good above known-bad? Grades the committed
+    # golden briefs and the known-bad fixtures and asserts the invariants
+    # between them. Reads checked-in files only — never a .runs/ folder.
+    shift
+    echo "" >&2
+    echo "  LIVE — grades every golden brief and both fail fixtures with the judge." >&2
+    echo "  Run this after ANY rubric, anchor, pricing or prompt edit." >&2
+    _runner calibrate "$@"
+    ;;
+
   code)
     shift
-    [[ -z "${1:-}" ]] && { echo "usage: ./grade.sh code <dataset_run_id>" >&2; exit 2; }
+    [[ -z "${1:-}" ]] && { echo "usage: ./grade.sh code <dataset_run_id> [--no-render] [--no-interactions]" >&2; exit 2; }
     run_id="$1"; shift
     _runner code prototype --from-run "$run_id" "$@"
     ;;
@@ -249,7 +343,8 @@ for rub in sorted(root.glob("model/workflows/*/*_rubric.yaml")):
 # would not pass that agent's OWN precheck, it is not real-shaped, and the
 # preview quietly stops representing the run it is previewing.
 sys.path.insert(0, str(pathlib.Path.cwd()))
-from evals.grading import config as _cfg, precheck as _pre
+from evals.grading import config as _cfg
+from evals.grading.model import precheck as _pre
 for wf_path in sorted(root.glob("model/workflows/*/workflow.yaml")):
     wf_dir = wf_path.parent
     for stage in yaml.safe_load(wf_path.read_text())["stages"]:

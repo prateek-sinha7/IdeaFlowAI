@@ -12,7 +12,10 @@ import asyncio
 import os
 import sys
 import textwrap
+import webbrowser
 from pathlib import Path
+
+import frontmatter
 
 _BACKEND = Path(__file__).resolve().parents[2]
 if str(_BACKEND) not in sys.path:
@@ -22,13 +25,18 @@ import app.core.config  # noqa: E402
 
 from evals.grading import (  # noqa: E402
     artifacts,
-    code_grader,
+    calibrate,
     compare,
     config,
-    judge,
     markdown_report,
-    model_grader,
     render,
+)
+from evals.grading.code import code_grader  # noqa: E402
+from evals.grading.model import (  # noqa: E402
+    judge,
+    model_grader,
+    prompt_advisor,
+    prompt_edits,
 )
 
 # Column layouts, so a width change is one edit and the two tables stay aligned
@@ -64,6 +72,16 @@ EXIT_BASELINE_FAIL = 3
 EXIT_JUDGE_PREFLIGHT = 4
 EXIT_NO_CREDENTIALS = 5
 EXIT_RUN_FAILED = 6
+# apply-advice only. 9 and 10 differ on purpose: an edit that cannot be applied
+# aborts everything, because the other edits may depend on text it would have
+# changed; a refused frontmatter edit is skipped and the rest still apply,
+# because it was never going to touch the body.
+EXIT_EDIT_FAILED = 9
+EXIT_ALL_REFUSED = 10
+
+# `backend/agents/prompts/` — the live prompts. Module-level so a test can point
+# it somewhere harmless; nothing else in this package writes outside `.runs/`.
+AGENTS_PROMPTS_DIR = Path(__file__).resolve().parents[2] / "agents" / "prompts"
 
 # Every run-config key a CLI flag can override, and the section it belongs to.
 # `--provider/--model` are the AGENT UNDER TEST; `--judge-*` are the GRADER.
@@ -92,8 +110,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_model_parser(subparsers)
     _add_code_parser(subparsers)
+    _add_rejudge_parser(subparsers)
+    _add_advise_parser(subparsers)
+    _add_apply_advice_parser(subparsers)
+    _add_revert_parser(subparsers)
+    _add_calibrate_parser(subparsers)
     _add_report_parser(subparsers)
     _add_compare_parser(subparsers)
+    _add_dashboard_parser(subparsers)
     return parser
 
 
@@ -119,6 +143,14 @@ def _add_model_flags(parser, *, suppress: bool) -> None:
     parser.add_argument("--limit", type=int, default=value, help="first N rows only")
     parser.add_argument("--no-judge", dest="no_judge", action="store_true", default=flag,
                         help="precheck only")
+    parser.add_argument("--no-code", dest="no_code", action="store_true", default=flag,
+                        help="skip the automatic post-run code checks")
+    parser.add_argument("--no-advise", dest="no_advise", action="store_true", default=flag,
+                        help="skip the automatic post-run prompt advice (one model call per stage)")
+    parser.add_argument("--propagate-negative", dest="propagate_negative",
+                        action="store_true", default=flag,
+                        help="let expect:fail rows flow through the whole chain "
+                             "(generated and prechecked at every stage, never judged)")
     parser.add_argument("--dry-run", dest="dry_run", action="store_true", default=flag,
                         help="print the plan and stop, no model calls")
     parser.add_argument("--concurrency", type=int, default=value,
@@ -146,6 +178,68 @@ def _add_code_parser(subparsers) -> None:
     code = subparsers.add_parser("code", help="run the code track over a run folder (free)")
     code.add_argument("workflow", help="workflow id, e.g. prototype")
     code.add_argument("--from-run", dest="from_run", metavar="ID", required=True)
+    code.add_argument("--no-render", dest="no_render", action="store_true",
+                      help="skip the headless-Chromium render + nav checks")
+    code.add_argument("--no-interactions", dest="no_interactions", action="store_true",
+                      help="skip the button/filter interaction sweep")
+
+
+def _add_rejudge_parser(subparsers) -> None:
+    """Re-judge a run's stored responses: judge tokens only, no agent dispatch."""
+    parser = subparsers.add_parser(
+        "rejudge", help="re-score a run's stored outputs with the judge (judge tokens only)"
+    )
+    parser.add_argument("dataset_run_id")
+    parser.add_argument("--workflow", default=config.DEFAULTS["workflow"])
+    parser.add_argument("--agents", default=None,
+                        help="comma-separated agent ids (default: every captured stage)")
+    parser.add_argument("--concurrency", type=int, default=None,
+                        help="rows in flight (default: the run's own setting)")
+    parser.add_argument("--judge-provider", dest="judge_provider", default=None)
+    parser.add_argument("--judge-model", dest="judge_model", default=None)
+    parser.add_argument("--judge-threshold", dest="judge_threshold", type=float, default=None)
+
+
+def _add_advise_parser(subparsers) -> None:
+    """Ingest a run's reports and propose prompt deltas — one model call per stage."""
+    parser = subparsers.add_parser(
+        "advise", help="propose prompt edits from a run's evidence (one model call per stage)"
+    )
+    parser.add_argument("dataset_run_id")
+    parser.add_argument("--workflow", default=config.DEFAULTS["workflow"])
+    parser.add_argument("--agents", default=None,
+                        help="comma-separated agent ids (default: every graded stage)")
+    parser.add_argument("--judge-provider", dest="judge_provider", default=None)
+    parser.add_argument("--judge-model", dest="judge_model", default=None)
+
+
+def _add_apply_advice_parser(subparsers) -> None:
+    """Apply a run's advice to the agent's AGENT.md. Free — no model call."""
+    parser = subparsers.add_parser(
+        "apply-advice",
+        help="apply a run's prompt advice to AGENT.md, archiving the old body (free)",
+    )
+    parser.add_argument("dataset_run_id")
+    parser.add_argument("--agent", required=True, help="the agent whose prompt to edit")
+    parser.add_argument("--workflow", default=config.DEFAULTS["workflow"])
+
+
+def _add_revert_parser(subparsers) -> None:
+    """Undo the last apply-advice by restoring the newest archived body. Free."""
+    parser = subparsers.add_parser(
+        "revert", help="restore an agent's previous prompt from its newest archive (free)"
+    )
+    parser.add_argument("agent")
+    parser.add_argument("--workflow", default=config.DEFAULTS["workflow"])
+
+
+def _add_calibrate_parser(subparsers) -> None:
+    """Prove the scale still ranks known-good above known-bad (LIVE judge calls)."""
+    parser = subparsers.add_parser(
+        "calibrate",
+        help="grade the golden + fail fixtures and assert the scale is not inverted (LIVE)",
+    )
+    parser.add_argument("--workflow", default=config.DEFAULTS["workflow"])
 
 
 def _add_report_parser(subparsers) -> None:
@@ -154,6 +248,24 @@ def _add_report_parser(subparsers) -> None:
     report.add_argument("dataset_run_id")
     report.add_argument("--workflow", default=config.DEFAULTS["workflow"])
     report.add_argument("--worst", type=int, metavar="N", help="also print the N lowest rows")
+
+
+def _add_dashboard_parser(subparsers) -> None:
+    """Render every run folder as one browsable static site. Free, no model."""
+    dashboard = subparsers.add_parser(
+        "dashboard", help="rebuild the HTML dashboard over every run (free)"
+    )
+    dashboard.add_argument("--workflow", default=config.DEFAULTS["workflow"])
+    dashboard.add_argument(
+        "--force", action="store_true", help="re-render every run, ignoring the mtime skip"
+    )
+    dashboard.add_argument(
+        "--export", metavar="RUN_ID", help="also write that run's single-file export"
+    )
+    dashboard.add_argument(
+        "--open", dest="open_browser", action="store_true",
+        help="open the dashboard in the default browser when it is built",
+    )
 
 
 def _add_compare_parser(subparsers) -> None:
@@ -228,6 +340,12 @@ def cli_overrides(args) -> dict:
         options["concurrency"] = args.concurrency
     if _flag(args, "no_judge"):
         options["no_judge"] = True
+    if _flag(args, "no_code"):
+        options["code_grading"] = False
+    if _flag(args, "no_advise"):
+        options["advise"] = False
+    if _flag(args, "propagate_negative"):
+        options["propagate_negative"] = True
     if options:
         overrides["options"] = options
     return overrides
@@ -399,9 +517,11 @@ def _stage_note(stage: dict, first: dict) -> str:
 def _estimate_line(plan: dict) -> str:
     """`N agent + M judge = T model calls` — the number that costs money."""
     estimate = plan["dispatch_estimate"]
+    advice = estimate.get("advice_calls") or 0
+    advice_part = f" + {advice} to advise on the prompts" if advice else ""
     return (
         f"{estimate['agent_calls']} AI calls to do the work + "
-        f"{estimate['judge_calls']} to grade it "
+        f"{estimate['judge_calls']} to grade it{advice_part} "
         f"= {render.plural(estimate['total'], 'AI call')} in total"
     )
 
@@ -434,6 +554,78 @@ def print_progress(event: dict) -> None:
         print(f"  ⋯ {_position(event)} {event['row_id']:<24}{event['phase']}…", flush=True)
     elif kind == "row_done":
         print(_row_line(event), flush=True)
+    elif kind == "phase_start":
+        _print_phase_start(event)
+    elif kind == "phase_done":
+        _print_phase_done(event)
+    elif kind == "advice_stage_start":
+        # The advisor runs one stage at a time and each is a full model call;
+        # without this the terminal sits blank between the code checks and the
+        # results table.
+        print(f"  ⋯ {event.get('agent_id', ''):<24}advising…", flush=True)
+    elif kind == "advice_stage_done":
+        print(_advice_line(event), flush=True)
+
+
+# What each post-model phase is called on screen, and the one line explaining
+# what it is about to do. Both phases were previously silent — the code checks
+# for minutes while a browser ran, the advisor while it called a model.
+PHASE_TITLES = {
+    "code": (
+        "code checks",
+        "static analysis + a real browser: every nav link clicked, every visible "
+        "button and filter exercised",
+    ),
+    "advice": (
+        "prompt advice",
+        "one model call per phase, reading its judge weaknesses and code findings "
+        "to propose a prompt delta",
+    ),
+}
+
+
+def _print_phase_start(event: dict) -> None:
+    """Announce a post-model phase before it runs, naming what it will cover."""
+    phase = str(event.get("phase") or "")
+    title, explanation = PHASE_TITLES.get(phase, (phase, ""))
+    agent_ids = event.get("agent_ids") or []
+    _print_rule(f"{title}  ·  {render.plural(len(agent_ids), 'phase')}")
+    if explanation:
+        print(_wrapped_note(explanation))
+    if event.get("phase") == "code":
+        # The code grader has no per-stage callback, so this is the only chance
+        # to say WHICH stages are being checked before the wait starts.
+        print(f"  ⋯ checking {', '.join(agent_ids)}…", flush=True)
+
+
+def _print_phase_done(event: dict) -> None:
+    """Close a post-model phase — the code track's results land here in one go."""
+    if event.get("phase") != "code":
+        return
+    result = event.get("result") or {}
+    if result.get("status") == "errored":
+        print(_wrapped_note(f"✖  did not run: {result.get('reason')}"), flush=True)
+        return
+    for stage in result.get("stages") or []:
+        print(
+            f"  ✔ {stage['agent_id']:<24}"
+            f"{render.score(stage.get('average_code_score')):>6}   "
+            f"rows ok {stage.get('rows_ok')} / {stage.get('rows_checked')}",
+            flush=True,
+        )
+
+
+def _advice_line(event: dict) -> str:
+    """One advised phase: what it proposed, or why it produced nothing."""
+    agent_id = event.get("agent_id", "")
+    if event.get("status") == "errored":
+        return f"  ✖ {agent_id:<24}ERROR {render.truncate(event.get('error_reason'), 40)}"
+    tokens = (event.get("tokens_in") or 0) + (event.get("tokens_out") or 0)
+    return (
+        f"  ✔ {agent_id:<24}"
+        f"{event.get('edits', 0)} edit(s) · {event.get('deviations', 0)} deviation(s)"
+        f"   {render.tokens(tokens)} tokens"
+    )
 
 
 def _position(event: dict) -> str:
@@ -501,6 +693,9 @@ def print_run_result(result: dict) -> None:
     _print_verdict_key(stages)
     _print_signals(stages)
     _print_warnings(stages)
+    _print_code_grades(result)
+    _print_advice(result)
+    _print_grade(result)
     _print_spend(result)
     print(f"  status     {summary['status']}")
     if result.get("report_path"):
@@ -589,6 +784,65 @@ def _stage_counts(stage: dict, result: dict) -> dict:
         if entry.get("agent_id") == stage.get("agent_id"):
             return (entry.get("score") or {}).get("counts") or {}
     return {}
+
+
+def _print_code_grades(result: dict) -> None:
+    """The automatic post-run code checks, one line per HTML stage.
+
+    One line, not a table: the full findings are in reports/code_report.md and
+    the blended columns are in the top report — this is just the heads-up that
+    the free track ran and what it thought.
+    """
+    code = result.get("code") or {}
+    stages = code.get("stages") or []
+    if not stages:
+        # A failure is said out loud: a silently absent code column reads as
+        # "the checks passed with nothing to say", which is the opposite.
+        if code.get("status") == "errored":
+            print(_wrapped_note(f"⚠  code checks did not run: {code.get('reason')}"))
+        return
+    parts = [
+        f"{stage['agent_id']} {render.score(stage.get('average_code_score'))}"
+        for stage in stages
+    ]
+    print(f"\n  code       {'  ·  '.join(parts)}   (deterministic checks, free)")
+
+
+def _print_advice(result: dict) -> None:
+    """The automatic prompt advice, one line per advised stage.
+
+    Same rule as the code checks: a failure is said out loud rather than
+    leaving an absent line to read as "nothing to suggest".
+    """
+    advice = result.get("advice") or {}
+    stages = advice.get("stages") or []
+    if not stages:
+        if advice.get("status") == "errored":
+            print(_wrapped_note(f"⚠  prompt advice did not run: {advice.get('reason')}"))
+        return
+    parts = []
+    for stage in stages:
+        if stage.get("errored"):
+            parts.append(f"{stage['agent_id']} FAILED")
+        else:
+            parts.append(f"{stage['agent_id']} {stage.get('edits', 0)} edit(s)")
+    print(f"\n  advice     {'  ·  '.join(parts)}   (proposals, in reports/)")
+
+
+def _print_grade(result: dict) -> None:
+    """The run's headline: blended score and letter grade, same as report.md."""
+    run_dir = result.get("run_dir")
+    if not run_dir:
+        return
+    try:
+        overall = markdown_report.compute_overall(Path(run_dir))
+    except Exception:  # noqa: BLE001 - the grade is derived, never load-bearing
+        return
+    if overall is None:
+        return
+    failed = overall["failed_cells"]
+    note = f"  ·  {failed} cell(s) failed outright" if failed else ""
+    print(f"\n  grade      {overall['grade']}  ·  {overall['score']:.1f} / 100{note}")
 
 
 def _print_spend(result: dict) -> None:
@@ -934,6 +1188,10 @@ def run_model_track(args) -> int:
             run_config,
             replace=bool(_flag(args, "replace")),
             on_event=print_progress,
+            # The id the plan header just printed, so the run folder IS the run
+            # the user was shown. Re-minting it here drifted the two apart by
+            # the seconds the judge preflight took.
+            dataset_run_id=plan["dataset_run_id"],
         )
     )
     print_run_result(result)
@@ -971,24 +1229,334 @@ def _stage_with_dead_judge(result: dict) -> str | None:
     return None
 
 
-def run_code_track(workflow_name: str, dataset_run_id: str | None) -> int:
+def run_code_track(
+    workflow_name: str,
+    dataset_run_id: str | None,
+    *,
+    render_pages: bool = True,
+    interactions: bool = True,
+) -> int:
     """Run the free deterministic checks over an existing run folder."""
     if not dataset_run_id:
         raise ValueError("the code track needs --from-run <dataset_run_id> to read")
     workflow = config.load_workflow(workflow_name)
-    _existing_run_folder(dataset_run_id, workflow)
+    run_dir = _existing_run_folder(dataset_run_id, workflow)
     result = code_grader.grade_run_folder(
-        dataset_run_id, workflow_dir=Path(workflow["workflow_dir"])
+        dataset_run_id,
+        workflow_dir=Path(workflow["workflow_dir"]),
+        render=render_pages,
+        interactions=interactions,
     )
     _print_rule("code track")
-    print(f"  stage      {result['agent_id']}  ·  {result['dataset_run_id']}")
-    print(f"  status     {result['status']}")
-    print(f"  rows ok    {result['rows_ok']} / {result['rows_checked']}")
+    print(f"  run        {result['dataset_run_id']}  ·  status {result['status']}")
     if result.get("reason"):
         print(_wrapped_note(result["reason"]))
-    for row_id, finding in result["findings"].items():
-        if not finding["ok"]:
-            print(f"    {row_id}: {'; '.join(finding['issues'])}")
+    for stage in result["stages"]:
+        print(
+            f"\n  {stage['agent_id']}  ·  {stage['deliverable_file']}"
+            f"  ·  code score {render.score(stage.get('average_code_score'))}"
+            f"  ·  rows ok {stage['rows_ok']} / {stage['rows_checked']}"
+        )
+        if stage.get("reason"):
+            print(_wrapped_note(stage["reason"]))
+        for row_id, finding in stage["findings"].items():
+            problems = _code_row_problems(finding)
+            if problems:
+                print(f"    {row_id} ({render.score(finding.get('code_score'))}): "
+                      f"{'; '.join(problems[:4])}")
+    # Fold the findings into the reports/ set so the blended columns appear.
+    if result["stages"]:
+        try:
+            top = markdown_report.write_report(run_dir)
+            print(f"\n  report     {top.parent / markdown_report.CODE_REPORT_NAME}")
+            print(f"  scores     {top}  (code + combined columns updated)")
+        except Exception as error:  # noqa: BLE001 - rendering is never load-bearing
+            print(f"\n  report     not written: {error}", file=sys.stderr)
+    return EXIT_OK
+
+
+def _code_row_problems(finding: dict) -> list[str]:
+    """One row's findings flattened to short strings for the terminal."""
+    problems = list(finding.get("issues") or [])
+    rendered = finding.get("render") or {}
+    problems += [render.truncate(e, 60) for e in rendered.get("console_errors") or []]
+    problems += [render.truncate(e, 60) for e in rendered.get("page_errors") or []]
+    problems += [
+        f"dead nav {nav.get('href')}"
+        for nav in rendered.get("nav_results") or []
+        if not nav.get("ok")
+    ]
+    problems += [render.truncate(e, 60) for e in rendered.get("coverage_errors") or []]
+    interactions = finding.get("interactions") or {}
+    problems += [
+        f"{failure.get('action')} {failure.get('target')} failed"
+        for failure in interactions.get("failures") or []
+    ]
+    return problems
+
+
+def run_rejudge_track(args) -> int:
+    """Re-judge one run folder's stored responses — judge tokens only.
+
+    Not a separate pipeline: it is `run_workflow` on the run's OWN resolved
+    config with the generation step answered from the captured artifacts, so
+    scoring, run_summary and the reports/ set are produced by exactly the code
+    a live run uses — regenerated in place, never duplicated.
+    """
+    workflow = config.load_workflow(args.workflow)
+    run_dir = _existing_run_folder(args.dataset_run_id, workflow)
+
+    overrides: dict = {
+        "from_run": args.dataset_run_id,
+        # A folder judged with `no_judge` is exactly what a rejudge exists to fix.
+        "options": {"no_judge": False},
+    }
+    agents = _split(args.agents)
+    if agents:
+        overrides["agents"] = agents
+    if _flag(args, "concurrency") is not None:
+        overrides["options"]["concurrency"] = args.concurrency
+    judge_overrides = _section(JUDGE_FLAGS, args)
+    if judge_overrides:
+        overrides["judge"] = judge_overrides
+    run_config = config.load_run_config(run_dir / "grade_config.resolved.yaml", overrides)
+
+    _print_rule("rejudge", 88)
+    print(f"  run        {args.dataset_run_id}  ·  {run_config.workflow}")
+    print("  mode       stored responses re-scored — no agent is dispatched; "
+          "judge tokens are the only spend")
+
+    failure = _preflight_rejudge(run_config, workflow)
+    if failure:
+        print(failure, file=sys.stderr)
+        return EXIT_JUDGE_PREFLIGHT
+    if not has_judge_credentials():
+        print(
+            "no provider credential is set — looked for "
+            f"{', '.join(JUDGE_CREDENTIAL_ENV)}",
+            file=sys.stderr,
+        )
+        return EXIT_NO_CREDENTIALS
+
+    result = asyncio.run(
+        model_grader.run_workflow(run_config, rejudge=True, on_event=print_progress)
+    )
+    print_run_result(result)
+    status = result["summary"]["status"]
+    if status != "completed":
+        print(f"\nrejudge did not complete: status {status}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+    dead_judge = _stage_with_dead_judge(result)
+    if dead_judge:
+        print(
+            f"\njudge produced no usable verdict for ANY row of '{dead_judge}' — "
+            "nothing was re-graded",
+            file=sys.stderr,
+        )
+        return EXIT_RUN_FAILED
+
+    # Regenerate reports/ from the artifacts we just rewrote. Without this the
+    # terminal shows the new grade while reports/report.md still holds the old
+    # one — the run folder disagreeing with itself, and the file is what gets
+    # read later. Done before the baseline verdict, so a FAIL still leaves the
+    # reports describing what was actually scored. The code track already does
+    # this; rejudge did not.
+    try:
+        top = markdown_report.write_report(run_dir)
+        print(f"\n  report     {top}  (regenerated from the new scores)")
+    except Exception as error:  # noqa: BLE001 - rendering is never load-bearing
+        print(f"\n  report     not written: {error}", file=sys.stderr)
+
+    failed = _baseline_failures(result)
+    if failed:
+        print(f"\nbaseline FAIL: {', '.join(failed)}", file=sys.stderr)
+        return EXIT_BASELINE_FAIL
+    return EXIT_OK
+
+
+def _preflight_rejudge(run_config, workflow: dict) -> str | None:
+    """Resolve every rejudged stage's judge BEFORE touching the artifacts.
+
+    A misconfigured judge inside the run would be caught per-row by the guarded
+    loop and written out as errored rows — superseding a real verdict with
+    garbage. Asserted here, for free, instead.
+    """
+    workflow_dir = Path(workflow["workflow_dir"])
+    cli_judge = {key: value for key, value in run_config.judge.items() if value is not None}
+    for stage in workflow["stages"]:
+        if run_config.agents != "all" and stage["agent_id"] not in run_config.agents:
+            continue
+        try:
+            rubric = config.load_rubric(workflow_dir, stage["agent_id"])
+        except ValueError:
+            continue  # a stage with no rubric is not judged, so nothing to preflight
+        merged = {**(rubric.get("judge") or {}), **cli_judge}
+        try:
+            judge.resolve_judge_model(merged)
+        except Exception as error:  # noqa: BLE001 - any judge build failure must stop the run
+            return _preflight_message({"agent_id": stage["agent_id"], "judge": merged}, error)
+    return None
+
+
+def run_advise_track(args) -> int:
+    """Ingest a run's evidence and write per-agent prompt advice — LIVE."""
+    if not has_judge_credentials():
+        print(
+            "no provider credential is set — looked for "
+            f"{', '.join(JUDGE_CREDENTIAL_ENV)}",
+            file=sys.stderr,
+        )
+        return EXIT_NO_CREDENTIALS
+    try:
+        result = asyncio.run(
+            prompt_advisor.advise_run(
+                args.dataset_run_id,
+                workflow_name=args.workflow,
+                agents=_split(args.agents),
+                judge_overrides=_section(JUDGE_FLAGS, args),
+            )
+        )
+    except judge.JudgeConfigurationError as error:
+        print(f"judge preflight FAILED — nothing was spent: {error}", file=sys.stderr)
+        return EXIT_JUDGE_PREFLIGHT
+
+    _print_rule("advise")
+    print(f"  run        {result['dataset_run_id']}")
+    errored = False
+    tokens = 0
+    for stage in result["stages"]:
+        tokens += (stage.get("tokens_in") or 0) + (stage.get("tokens_out") or 0)
+        if stage.get("errored"):
+            errored = True
+            print(f"  ✖ {stage['agent_id']:<24}ERROR {render.truncate(stage.get('error_reason'), 50)}")
+        else:
+            print(
+                f"  ✔ {stage['agent_id']:<24}"
+                f"{stage.get('edits', 0)} edit(s), {stage.get('deviations', 0)} deviation(s)"
+                f"   {stage.get('advice_path')}"
+            )
+    print(f"\n  AI usage   {render.tokens(tokens)} tokens")
+    return EXIT_RUN_FAILED if errored else EXIT_OK
+
+
+def _agent_dir(agent_id: str) -> Path:
+    """The agent's prompt folder — raises if there is no such agent."""
+    agent_dir = AGENTS_PROMPTS_DIR / agent_id
+    if not (agent_dir / "AGENT.md").is_file():
+        raise ValueError(f"no AGENT.md for agent '{agent_id}' under {AGENTS_PROMPTS_DIR}")
+    return agent_dir
+
+
+def _archive_names(agent_dir: Path) -> list[str]:
+    """Existing `AGENT.vN.md` filenames in an agent folder."""
+    return sorted(path.name for path in agent_dir.glob("AGENT.v*.md"))
+
+
+def run_apply_advice(args) -> int:
+    """Apply the advisor's edits to an agent's prompt, archiving the old body.
+
+    Order matters: the new body is computed entirely in memory first, so a failed
+    edit writes nothing; then the archive is written BEFORE AGENT.md, so an
+    interruption between the two leaves the previous body recoverable. The
+    reverse order has a window in which both copies are gone.
+
+    Costs nothing — the advice was written by a run that already happened.
+    """
+    workflow = config.load_workflow(args.workflow)
+    try:
+        run_dir = _existing_run_folder(args.dataset_run_id, workflow)
+        agent_dir = _agent_dir(args.agent)
+        advice = artifacts.read_advice_json(run_dir, prompt_advisor._token(args.agent))
+    except (ValueError, FileNotFoundError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return EXIT_USAGE
+
+    edits = advice.get("edits") or []
+    agent_file = agent_dir / "AGENT.md"
+    original = agent_file.read_text(encoding="utf-8")
+
+    try:
+        frontmatter_block, body = prompt_edits.split_agent_file(original)
+        new_body, refused = prompt_edits.apply_edits(frontmatter_block, body, edits)
+    except (prompt_edits.PromptFileError, prompt_edits.EditError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return EXIT_EDIT_FAILED
+
+    _print_rule("apply-advice")
+    if edits and len(refused) == len(edits):
+        print(prompt_edits.render_diff(edits, refused))
+        print("\n  every proposed edit targets the frontmatter — nothing applied", file=sys.stderr)
+        return EXIT_ALL_REFUSED
+
+    archive = agent_dir / prompt_edits.archive_name(
+        prompt_edits.next_archive_number(_archive_names(agent_dir))
+    )
+    archive.write_text(body, encoding="utf-8")
+    agent_file.write_text(frontmatter_block + new_body, encoding="utf-8")
+
+    written_prefix, _ = prompt_edits.split_agent_file(
+        agent_file.read_text(encoding="utf-8")
+    )
+    if written_prefix != frontmatter_block:
+        print(
+            f"error: frontmatter changed on write — the old body is safe in {archive.name}",
+            file=sys.stderr,
+        )
+        return EXIT_EDIT_FAILED
+
+    fields = len(frontmatter.loads(original).metadata)
+    print(f"  saved old body  -> {archive}")
+    print(f"  applied {len(edits) - len(refused)} edit(s) -> {agent_file}\n")
+    print(prompt_edits.render_diff(edits, refused))
+    print(f"\n  frontmatter unchanged ({fields} fields)")
+    print(f"\n  revert with:  ./evals/grading/grade.sh revert {args.agent}")
+    return EXIT_OK
+
+
+def run_revert(args) -> int:
+    """Restore the most recent archived body; repeated calls walk back.
+
+    The current body is NOT re-archived — revert is an undo, not another edit.
+    Re-archiving would grow the archive list while walking backwards through it,
+    and the next revert would restore what was just reverted away from.
+    """
+    try:
+        agent_dir = _agent_dir(args.agent)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return EXIT_USAGE
+
+    names = _archive_names(agent_dir)
+    if not names:
+        print(
+            f"error: no archived prompt for '{args.agent}' — nothing to revert to",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    latest = agent_dir / prompt_edits.archive_name(
+        prompt_edits.next_archive_number(names) - 1
+    )
+    archived_body = latest.read_text(encoding="utf-8")
+    if not archived_body.strip():
+        print(
+            f"error: {latest.name} is empty — restoring it would leave an AGENT.md the "
+            "loader rejects. Delete it if it is leftover scaffolding",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    agent_file = agent_dir / "AGENT.md"
+    frontmatter_block, _ = prompt_edits.split_agent_file(
+        agent_file.read_text(encoding="utf-8")
+    )
+    agent_file.write_text(frontmatter_block + archived_body, encoding="utf-8")
+    latest.unlink()
+
+    _print_rule("revert")
+    print(f"  restored   {latest.name} -> {agent_file}")
+    remaining = _archive_names(agent_dir)
+    print(f"  archives   {len(remaining)} remaining")
     return EXIT_OK
 
 
@@ -1055,6 +1623,38 @@ def _run_by_prompt(args) -> int:
     return EXIT_OK
 
 
+def run_dashboard(args) -> int:
+    """Rebuild the one evals report over every run folder. Free — no model, no dispatch.
+
+    Errors surface here, unlike the automatic rebuild that runs at the end of a
+    grading pass: this command exists to be told when something is wrong.
+    """
+    from evals.grading.site import builder, export as site_export
+
+    workflow = config.load_workflow(args.workflow)
+    runs_root = _runs_root(workflow).parent  # `.runs/`, across every workflow
+
+    _print_rule("dashboard")
+    if not runs_root.is_dir():
+        print(f"  no runs yet under {runs_root}")
+        return EXIT_OK
+
+    result = builder.build(runs_root, force=args.force)
+    print(f"  {result.line()}")
+    for failure in result.errors:
+        print(f"  unreadable  {failure}", file=sys.stderr)
+    print(f"  data        {result.data}")
+    print(f"  report      {result.report}")
+
+    if args.export:
+        run_dir = _existing_run_folder(args.export, workflow)
+        print(f"  export      {site_export.export_run(run_dir)}")
+
+    if args.open_browser and result.report is not None:
+        webbrowser.open(result.report.resolve().as_uri())
+    return EXIT_OK
+
+
 def _config_path(args) -> Path | None:
     """The --config path, wherever on the command line it was given."""
     value = _flag(args, "config")
@@ -1063,12 +1663,29 @@ def _config_path(args) -> Path | None:
 
 def _dispatch(args) -> int:
     """Route one parsed command to its track."""
+    if args.command == "calibrate":
+        return calibrate.run_calibration(args.workflow)
     if args.command == "report":
         return run_report(args)
     if args.command == "compare":
         return run_compare(args)
+    if args.command == "dashboard":
+        return run_dashboard(args)
+    if args.command == "rejudge":
+        return run_rejudge_track(args)
+    if args.command == "advise":
+        return run_advise_track(args)
+    if args.command == "apply-advice":
+        return run_apply_advice(args)
+    if args.command == "revert":
+        return run_revert(args)
     if args.command == "code":
-        return run_code_track(args.workflow, args.from_run)
+        return run_code_track(
+            args.workflow,
+            args.from_run,
+            render_pages=not args.no_render,
+            interactions=not args.no_interactions,
+        )
     return run_model_track(args)
 
 

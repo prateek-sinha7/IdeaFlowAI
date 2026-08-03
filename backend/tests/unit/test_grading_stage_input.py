@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from evals.grading.stage_input import StageInput, build_stage_inputs
+from evals.grading.model.stage_input import StageInput, build_stage_inputs
 
 WORKFLOW_DIR = (
     Path(__file__).resolve().parents[2]
@@ -23,6 +23,10 @@ WORKFLOW_DIR = (
     / "workflows"
     / "prototype"
 )
+
+# The committed 11-row run the "real artifacts" tests read. It is not currently
+# on disk, so those tests skip rather than fail — regenerating it re-arms them.
+EXAMPLE_RUN = WORKFLOW_DIR / "example-run"
 
 ADAPTER_SOURCE = """
 def build_prompt(row, upstreams):
@@ -135,6 +139,7 @@ def test_dataset_source_carries_row_metadata():
 # ── shape 2: single upstream ─────────────────────────────────────────────
 
 
+@pytest.mark.skipif(not EXAMPLE_RUN.exists(), reason="the committed example-run fixture is not on disk")
 def test_single_upstream_prompt_is_the_response_verbatim():
     """A linear hop forwards the upstream response with no wrapping."""
     data = real_dataset()
@@ -382,6 +387,7 @@ def test_seed_files_resolved_through_a_derivation_hook(adapter_dir: Path):
 # ── skip policy ──────────────────────────────────────────────────────────
 
 
+@pytest.mark.skipif(not EXAMPLE_RUN.exists(), reason="the committed example-run fixture is not on disk")
 def test_expect_fail_row_runs_at_the_root_and_is_skipped_downstream():
     """A row meant to be rejected must never propagate into a later stage."""
     data = real_dataset()
@@ -509,3 +515,39 @@ def test_blank_upstream_text_is_treated_as_no_text_to_forward():
     )
 
     assert inputs[0].skip_reason == "upstream 'up' produced no text"
+
+
+def test_propagate_expected_fail_lets_the_negative_row_flow_downstream():
+    """Opt-in observation mode: the bad brief runs every stage, even though its
+    own upstream output failed precheck (that failure is the eval working)."""
+    data = dataset(
+        row("good_row"),
+        row("underspecified_brief", expect="fail", prompt="Build me an app."),
+    )
+    upstream = output(
+        "prototype-specify",
+        upstream_row("good_row", "<spec>a real spec</spec>"),
+        upstream_row(
+            "underspecified_brief",
+            "I need more detail before I can specify this.",
+            upstream_precheck_passed=False,
+        ),
+    )
+
+    held = build_stage_inputs(
+        stage_for("prototype-plan"), dataset=data,
+        upstream_outputs={"prototype-specify": upstream},
+    )
+    flowing = build_stage_inputs(
+        stage_for("prototype-plan"), dataset=data,
+        upstream_outputs={"prototype-specify": upstream},
+        propagate_expected_fail=True,
+    )
+
+    assert next(i for i in held if i.row_id == "underspecified_brief").skip_reason
+    negative = next(i for i in flowing if i.row_id == "underspecified_brief")
+    assert negative.skip_reason is None
+    assert negative.prompt == "I need more detail before I can specify this."
+    assert negative.expect == "fail"
+    # The positive row's policy is untouched by the flag.
+    assert next(i for i in flowing if i.row_id == "good_row").skip_reason is None

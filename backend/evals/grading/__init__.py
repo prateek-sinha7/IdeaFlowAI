@@ -1,8 +1,11 @@
 """Agent output grading — is this agent's output good?
 
-Two tracks: `model_grader` (LLM-as-judge, for prose) and `code_grader`
-(deterministic checks, for built HTML), both driven by `grade_runner`. Config and
-run artifacts live under `model/` and `code/`; see PLAN.md and TASKS.md.
+Two tracks, each in its own subpackage: `model/` (dispatch agents, LLM-as-judge,
+prompt advice — everything that touches a model) and `code/` (deterministic
+checks over built HTML, never a model). Both are driven by `grade_runner`, and
+the shared plumbing — `artifacts`, `config`, `render`, `hooks`,
+`markdown_report`, `compare` — lives at this level. The model track's config
+tree (workflows, rubrics, datasets) sits inside `model/` beside its code.
 
 Conventions, binding for every module here:
 

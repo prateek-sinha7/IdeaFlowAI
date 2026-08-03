@@ -48,7 +48,17 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
             "build_model: ChatMistralAI (explicit provider) model=%s max_tokens=%d",
             model_id, max_tokens,
         )
-        return ChatMistralAI(model=model_id, api_key=settings.MISTRAL_API_KEY)
+        # ChatMistralAI's own default is timeout=120, which cannot deliver a
+        # MAX_OUTPUT_TOKENS (32768) generation and silently truncates long ones
+        # into an httpx.ReadTimeout mid-stream. Seen on the first
+        # mistral-large-latest prototype build: 18176 tokens in, 26 out, then
+        # ReadTimeout. LLM_CALL_TIMEOUT_SECONDS is this project's declared
+        # budget for one streaming call — the 120 was an unstated default
+        # nobody chose, not a policy.
+        return ChatMistralAI(
+            model=model_id, api_key=settings.MISTRAL_API_KEY,
+            timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
+        )
 
     # Extended thinking, default OFF. At 0 neither provider branch adds a thinking
     # field or touches temperature. The budget is clamped below THIS call's
@@ -98,7 +108,11 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
                 "build_model: ChatMistralAI (fallback) model=%s max_tokens=%d",
                 mistral_model_id, max_tokens,
             )
-            return ChatMistralAI(model=mistral_model_id, api_key=settings.MISTRAL_API_KEY)
+            # Same 120s-default problem as the explicit-provider branch above.
+            return ChatMistralAI(
+                model=mistral_model_id, api_key=settings.MISTRAL_API_KEY,
+                timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
+            )
         raise ModelConfigurationError(
             "No LLM configured. Set ANTHROPIC_API_KEY for local dev, "
             "BEDROCK_INFERENCE_PROFILE_ID + AWS_REGION for production, "

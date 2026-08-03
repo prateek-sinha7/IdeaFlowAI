@@ -1,0 +1,1021 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Process Canvas — reimagined process review</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  a { color: #2563eb; text-decoration: none; }
+  a:hover { color: #1d4ed8; }
+  button { font-family: inherit; }
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-thumb { background: #d0d4da; border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: #b7bcc4; background-clip: padding-box; border: 3px solid transparent; }
+  @keyframes acPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(15,138,83,.5); } 50% { box-shadow: 0 0 0 4px rgba(15,138,83,0); } }
+  @keyframes acFadeUp { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+  @keyframes acFade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes acDash { to { stroke-dashoffset: -14; } }
+</style>
+</head>
+<body>
+<div style="display:flex; height:100vh; overflow:hidden; background-color:#f4f5f7; background-image:radial-gradient(rgba(26,34,51,.045) 1px, transparent 1px); background-size:22px 22px; font-family:system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside data-od-id="sidebar" style="width:252px; flex:none; height:100%; background:#ffffff; border-right:1px solid #e6e8ec; display:flex; flex-direction:column; overflow-y:auto;">
+    <div style="padding:20px 18px 16px; border-bottom:1px solid #eef0f3;">
+      <div style="display:flex; align-items:center; gap:11px;">
+        <div style="width:30px; height:30px; flex:none; border-radius:8px; background:#2563eb; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(37,99,235,.28);">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#ffffff" stroke-width="1.5"><path d="M8 1.6 14.4 8 8 14.4 1.6 8Z"/><circle cx="8" cy="8" r="1.7" fill="#ffffff" stroke="none"/></svg>
+        </div>
+        <div style="min-width:0;">
+          <div style="font:600 15px/1.05 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233; letter-spacing:-.01em;">Flowline</div>
+          <div style="font:500 11px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280; margin-top:1px;">Process Studio</div>
+        </div>
+      </div>
+      <div style="margin-top:11px; font:500 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.12em; text-transform:uppercase; color:#9aa1ab;">Process Canvas</div>
+    </div>
+
+    <nav style="padding:12px 10px 6px; display:flex; flex-direction:column; gap:2px;">
+      <button id="nav-overview" style="">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2.6 7.4 8 3l5.4 4.4V13a.4.4 0 0 1-.4.4H3a.4.4 0 0 1-.4-.4Z"/></svg>
+        <span>Overview</span>
+      </button>
+      <button id="nav-connections" style="">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5.6" cy="8" r="3.1"/><circle cx="10.4" cy="8" r="3.1"/></svg>
+        <span>Connections</span>
+      </button>
+      <button id="nav-recommendation" style="">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.4" y="3" width="4" height="4" rx="1"/><rect x="9.6" y="9" width="4" height="4" rx="1"/><path d="M6.4 5h2.1a1 1 0 0 1 1 1v3"/></svg>
+        <span>Recommendation</span>
+      </button>
+      <button id="nav-signoff" style="">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 8.4 6.2 12 13.4 4.2"/></svg>
+        <span>Sign-off</span>
+      </button>
+    </nav>
+
+    <div style="margin:14px 18px 8px; height:1px; background:#eef0f3;"></div>
+    <div style="padding:2px 18px 8px; display:flex; align-items:center; justify-content:space-between;">
+      <span style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.12em; text-transform:uppercase; color:#9aa1ab;">Connected systems</span>
+      <span style="font:500 10px/1 ui-monospace,'SF Mono',Menlo,monospace; color:#0f8a53;">5 live</span>
+    </div>
+    <div id="sidebar-systems" style="padding:2px 12px 10px; display:flex; flex-direction:column; gap:1px;"></div>
+
+    <div style="margin-top:auto; padding:12px 18px 16px; border-top:1px solid #eef0f3;">
+      <div style="display:flex; align-items:center; gap:7px;">
+        <span style="width:7px; height:7px; border-radius:50%; background:#0f8a53; animation:acPulse 2.2s ease-out infinite;"></span>
+        <span style="font:600 11px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#0f8a53;">Live</span>
+      </div>
+      <div style="margin-top:6px; font:400 10.5px/1.45 ui-monospace,'SF Mono',Menlo,monospace; color:#9aa1ab;">re-grounded ~2d ago<br>next cycle ~38h</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div style="flex:1; min-width:0; height:100%; display:flex; flex-direction:column; overflow:hidden;">
+
+    <!-- top strip -->
+    <header style="flex:none; padding:12px 30px; background:rgba(255,255,255,.86); backdrop-filter:blur(8px); border-bottom:1px solid #e6e8ec; display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+        <div style="min-width:0;">
+          <div style="font:600 14px/1.1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Northwind Operations</div>
+          <div style="font:450 11.5px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">Process Review</div>
+        </div>
+        <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:999px; background:#e2f3ea; border:1px solid #bfe4cf;">
+          <span style="width:6px; height:6px; border-radius:50%; background:#0f8a53; animation:acPulse 2.2s ease-out infinite;"></span>
+          <span style="font:600 11px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#0f8a53;">Live</span>
+        </span>
+      </div>
+
+      <div style="flex:1;"></div>
+
+      <div style="display:flex; align-items:center; gap:2px;">
+        <span style="font:500 11.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#9aa1ab; padding:5px 8px;">Diagnosis</span>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#c3c8cf" stroke-width="1.4"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+        <span style="display:inline-flex; align-items:center; gap:6px; font:600 11.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#2563eb; padding:5px 10px; background:#eaf0ff; border:1px solid #cdddff; border-radius:999px;"><span style="width:5px;height:5px;border-radius:50%;background:#2563eb;"></span>Future state</span>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#c3c8cf" stroke-width="1.4"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+        <span style="font:500 11.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#9aa1ab; padding:5px 8px;">Deliverable</span>
+      </div>
+    </header>
+
+    <!-- scroll content -->
+    <main style="flex:1; min-width:0; overflow-y:auto; overflow-x:hidden;">
+
+      <!-- ============ OVERVIEW ============ -->
+      <section id="screen-overview" data-od-id="overview" style="max-width:1140px; margin:0 auto; padding:44px 44px 72px;">
+        <div style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.16em; text-transform:uppercase; color:#2563eb;">Future-state deliverable · Northwind Operations</div>
+        <h1 style="margin:16px 0 0; font:600 44px/1.05 system-ui,-apple-system,'Segoe UI',sans-serif; letter-spacing:-.022em; color:#1a2233; max-width:760px;">Reimagined Process&nbsp;Review</h1>
+        <p style="margin:16px 0 0; font:400 17px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d; max-width:660px;">The end-to-end <strong style="font-weight:600;">Assess → Resolve</strong> process, reimagined by Process Studio. The change is designed to be legible at a glance — what stays the same, what changed, and what's new.</p>
+
+        <div style="margin-top:28px; display:inline-flex; align-items:center; gap:14px; padding:14px 20px; border-radius:14px; background:#1a2233; box-shadow:0 6px 20px rgba(26,34,51,.16);">
+          <span style="width:34px; height:34px; border-radius:9px; background:rgba(37,99,235,.22); display:flex; align-items:center; justify-content:center;">
+            <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#8ab0ff" stroke-width="1.5"><path d="M8 1.6 14.4 8 8 14.4 1.6 8Z"/></svg>
+          </span>
+          <span>
+            <span style="display:block; font:600 17px/1.15 system-ui,-apple-system,'Segoe UI',sans-serif; color:#ffffff;">1 step automated · effort removed</span>
+            <span style="display:block; margin-top:2px; font:450 12px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; color:#aab3c4;">Insert one new step · update the minimum · remove nothing</span>
+          </span>
+        </div>
+
+        <!-- delta counts -->
+        <div style="margin-top:34px; display:grid; grid-template-columns:repeat(4, 1fr); gap:14px;">
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 18px 16px; box-shadow:0 1px 2px rgba(16,24,32,.04); position:relative; overflow:hidden;">
+            <span style="position:absolute; top:0; left:0; width:4px; height:100%; background:#2563eb;"></span>
+            <div style="display:flex; align-items:center; gap:7px;"><span style="width:9px; height:9px; border-radius:2px; background:#2563eb;"></span><span style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; color:#6b7280;">New</span></div>
+            <div style="margin-top:12px; font:600 34px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">1</div>
+            <div style="margin-top:6px; font:450 12px/1.35 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">decision step<br><span style="color:#9aa1ab;">+ draft-handoff action</span></div>
+          </div>
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 18px 16px; box-shadow:0 1px 2px rgba(16,24,32,.04); position:relative; overflow:hidden;">
+            <span style="position:absolute; top:0; left:0; width:4px; height:100%; background:#b5810a;"></span>
+            <div style="display:flex; align-items:center; gap:7px;"><span style="width:9px; height:9px; border-radius:2px; background:#b5810a;"></span><span style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; color:#6b7280;">Updated</span></div>
+            <div style="margin-top:12px; font:600 34px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">2</div>
+            <div style="margin-top:6px; font:450 12px/1.35 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">Assess &amp; review<br>Complete &amp; close</div>
+          </div>
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 18px 16px; box-shadow:0 1px 2px rgba(16,24,32,.04); position:relative; overflow:hidden;">
+            <span style="position:absolute; top:0; left:0; width:4px; height:100%; background:#c3c8cf;"></span>
+            <div style="display:flex; align-items:center; gap:7px;"><span style="width:9px; height:9px; border-radius:2px; background:#fff; border:1.5px solid #c3c8cf;"></span><span style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; color:#6b7280;">Unchanged</span></div>
+            <div style="margin-top:12px; font:600 34px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">7</div>
+            <div style="margin-top:6px; font:450 12px/1.35 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">steps across both lanes</div>
+          </div>
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 18px 16px; box-shadow:0 1px 2px rgba(16,24,32,.04); position:relative; overflow:hidden;">
+            <span style="position:absolute; top:0; left:0; width:4px; height:100%; background:#0f8a53;"></span>
+            <div style="display:flex; align-items:center; gap:7px;"><span style="width:9px; height:9px; border-radius:2px; background:#0f8a53;"></span><span style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; color:#6b7280;">Removed</span></div>
+            <div style="margin-top:12px; font:600 34px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">0</div>
+            <div style="margin-top:6px; font:450 12px/1.35 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">nothing taken away</div>
+          </div>
+        </div>
+
+        <!-- objectives -->
+        <h2 style="margin:44px 0 0; font:600 13px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#9aa1ab;">Introduction &amp; objectives</h2>
+        <div style="margin-top:16px; display:grid; grid-template-columns:repeat(3, 1fr); gap:14px;">
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:20px; box-shadow:0 1px 2px rgba(16,24,32,.04);">
+            <div style="font:600 12px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; color:#2563eb;">Purpose</div>
+            <p style="margin:12px 0 0; font:400 14px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d;">Demonstrate the reimagined process and make the delta obvious — what stays the same, what changed, and what's new.</p>
+          </div>
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:20px; box-shadow:0 1px 2px rgba(16,24,32,.04);">
+            <div style="font:600 12px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; color:#0f8a53;">Goal</div>
+            <p style="margin:12px 0 0; font:400 14px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d;">Surface actionable items <strong style="font-weight:600;">pre-close</strong> and route them <strong style="font-weight:600;">warm</strong> to the Resolve track — closing the handoff gap.</p>
+          </div>
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:20px; box-shadow:0 1px 2px rgba(16,24,32,.04);">
+            <div style="font:600 12px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; color:#6b7280;">Rationale</div>
+            <p style="margin:12px 0 0; font:400 14px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d;">The signal is created during assessment but was historically acted on only after close. The reimagined process moves that action <strong style="font-weight:600;">upstream, into the open work item</strong>.</p>
+          </div>
+        </div>
+
+        <!-- owner + directional preview -->
+        <div style="margin-top:30px; display:flex; gap:14px; flex-wrap:wrap; align-items:stretch;">
+          <div style="flex:1; min-width:280px; background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 20px; box-shadow:0 1px 2px rgba(16,24,32,.04); display:flex; align-items:center; gap:16px;">
+            <span style="width:42px; height:42px; flex:none; border-radius:10px; background:#f1f3f6; border:1px solid #e6e8ec; display:flex; align-items:center; justify-content:center;"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="#333c4d" stroke-width="1.4"><circle cx="8" cy="5" r="2.6"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg></span>
+            <div>
+              <div style="font:600 12px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; color:#9aa1ab;">Audience &amp; owner</div>
+              <div style="margin-top:7px; font:600 16px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">VP, Operations</div>
+              <div style="margin-top:3px; font:450 12.5px/1.3 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">Executive-ready · approvable change</div>
+            </div>
+          </div>
+          <a href="#" id="overview-directional" style="flex:1; min-width:280px; text-decoration:none; background:#fbfbfc; border:1.5px dashed #b7bdc7; border-radius:14px; padding:18px 20px; display:flex; align-items:center; gap:16px; cursor:pointer;">
+            <span style="width:42px; height:42px; flex:none; border-radius:10px; background:#f1f3f6; border:1px dashed #b7bdc7; display:flex; align-items:center; justify-content:center;"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="#6b7280" stroke-width="1.4"><path d="M2.5 11 6 7l2.6 2.3L13.5 4"/><path d="M10.5 4h3v3"/></svg></span>
+            <div style="min-width:0;">
+              <div style="display:inline-flex; align-items:center; gap:6px;"><span style="width:6px; height:6px; border-radius:50%; border:1.5px solid #6b7280;"></span><span style="font:600 10.5px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; color:#6b7280;">Directional projection</span></div>
+              <div style="margin-top:8px; font:600 16px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d;">42% / yr · 6 items caught / wk</div>
+              <div style="margin-top:3px; font:450 12.5px/1.3 system-ui,-apple-system,'Segoe UI',sans-serif; color:#9aa1ab;">Inferred — not observed. See Simulate &amp; outcome →</div>
+            </div>
+          </a>
+        </div>
+
+        <!-- CTAs -->
+        <div style="margin-top:30px; display:flex; gap:12px; flex-wrap:wrap;">
+          <button id="overview-cta-process" style="display:inline-flex; align-items:center; gap:9px; padding:12px 18px; border-radius:11px; border:0; background:#2563eb; color:#fff; font:600 14px/1 system-ui,-apple-system,'Segoe UI',sans-serif; cursor:pointer; box-shadow:0 2px 8px rgba(37,99,235,.28);">See the reimagined process <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6"><path d="M3 8h9M9 4.5 12.5 8 9 11.5"/></svg></button>
+          <button id="overview-cta-gate" style="display:inline-flex; align-items:center; gap:9px; padding:12px 18px; border-radius:11px; border:1px solid #d7dbe1; background:#fff; color:#1a2233; font:600 14px/1 system-ui,-apple-system,'Segoe UI',sans-serif; cursor:pointer;">Drill into the new step <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#1a2233" stroke-width="1.6"><path d="M3 8h9M9 4.5 12.5 8 9 11.5"/></svg></button>
+        </div>
+      </section>
+
+      <!-- ============ CONNECTIONS ============ -->
+      <section id="screen-connections" data-od-id="connections" style="max-width:1140px; margin:0 auto; padding:40px 44px 72px;">
+        <div style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.16em; text-transform:uppercase; color:#2563eb;">Grounding · Signal mapping &amp; ideation</div>
+        <h1 style="margin:14px 0 0; font:600 34px/1.08 system-ui,-apple-system,'Segoe UI',sans-serif; letter-spacing:-.02em; color:#1a2233; max-width:680px;">Grounded in the live work — not assumption</h1>
+        <p style="margin:14px 0 0; font:400 16px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d; max-width:660px;">The reimagined process is derived from <strong style="font-weight:600;">connected observation</strong> of the actual work across the connected systems. Every step, status, and the matching signature itself is learned from what the connectors see the work do.</p>
+
+        <!-- how grounded: 3 principles -->
+        <div style="margin-top:30px; display:grid; grid-template-columns:repeat(3,1fr); gap:14px;">
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 20px; box-shadow:0 1px 2px rgba(16,24,32,.04);">
+            <div style="width:34px; height:34px; border-radius:9px; background:#eef4ff; display:flex; align-items:center; justify-content:center;"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#2563eb" stroke-width="1.4"><circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="6.2" opacity=".5"/></svg></div>
+            <div style="margin-top:12px; font:600 14px/1.25 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Observed, then connected</div>
+            <p style="margin:7px 0 0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">Connectors mirror the real steps the team performs — the process spine is measured, not imagined.</p>
+          </div>
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 20px; box-shadow:0 1px 2px rgba(16,24,32,.04);">
+            <div style="width:34px; height:34px; border-radius:9px; background:#eef4ff; display:flex; align-items:center; justify-content:center;"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#2563eb" stroke-width="1.4"><path d="M8 1.6 14.4 8 8 14.4 1.6 8Z"/></svg></div>
+            <div style="margin-top:12px; font:600 14px/1.25 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Signature is learned</div>
+            <p style="margin:7px 0 0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">The matching signature — the pattern of an actionable item — is derived from historical outcomes, not a hand-written rule.</p>
+          </div>
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 20px; box-shadow:0 1px 2px rgba(16,24,32,.04);">
+            <div style="width:34px; height:34px; border-radius:9px; background:#eef4ff; display:flex; align-items:center; justify-content:center;"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#2563eb" stroke-width="1.4"><path d="M2.5 11 6 7l2.6 2.3L13.5 4"/><path d="M10.5 4h3v3"/></svg></div>
+            <div style="margin-top:12px; font:600 14px/1.25 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">A diff, not a rebuild</div>
+            <p style="margin:7px 0 0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">The future state is expressed as a clean diff over the observed baseline — one new step, two updates, nothing removed.</p>
+          </div>
+        </div>
+
+        <!-- connected systems detail -->
+        <h2 style="margin:40px 0 0; font:600 13px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#9aa1ab;">Connected systems · what each grounds</h2>
+        <div id="connections-systems" style="margin-top:16px; display:grid; grid-template-columns:repeat(2,1fr); gap:12px;"></div>
+
+        <!-- version diff -->
+        <h2 style="margin:40px 0 0; font:600 13px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#9aa1ab;">A clean diff, in versions</h2>
+        <div style="margin-top:16px; display:flex; align-items:stretch; gap:10px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:200px; background:#fff; border:1px solid #e6e8ec; border-radius:13px; padding:17px 18px;">
+            <span style="font:600 9.5px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; color:#6b7280; background:#eef0f3; padding:4px 8px; border-radius:5px;">BASELINE</span>
+            <p style="margin:11px 0 0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;">The observed current state. Action is taken only after close — the signal goes cold.</p>
+          </div>
+          <div style="display:flex; align-items:center; color:#c3c8cf;"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8h9M9 4.5 12.5 8 9 11.5"/></svg></div>
+          <div style="flex:1; min-width:200px; background:#fff; border:1px solid #eeddb8; border-radius:13px; padding:17px 18px;">
+            <span style="font:600 9.5px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; color:#b5810a; background:#fbf1d7; padding:4px 8px; border-radius:5px;">VERSION 1</span>
+            <p style="margin:11px 0 0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;">The new decision step is inserted and the handoff drafted — but routing still waits for close.</p>
+          </div>
+          <div style="display:flex; align-items:center; color:#c3c8cf;"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8h9M9 4.5 12.5 8 9 11.5"/></svg></div>
+          <div style="flex:1; min-width:200px; background:#eefaf3; border:1px solid #bfe4cf; border-radius:13px; padding:17px 18px;">
+            <span style="font:600 9.5px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; color:#0f8a53; background:#dcf0e5; padding:4px 8px; border-radius:5px;">VERSION 2</span>
+            <p style="margin:11px 0 0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#33604a;">The approved future state. The draft handoff routes warm · pre-close, into the open work item.</p>
+          </div>
+        </div>
+        <button id="connections-compare" style="margin-top:16px; display:inline-flex; align-items:center; gap:8px; padding:10px 15px; border-radius:9px; border:1px solid #d7dbe1; background:#fff; color:#1a2233; font:600 13px/1 system-ui,-apple-system,'Segoe UI',sans-serif; cursor:pointer;">Compare in the swimlane <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#1a2233" stroke-width="1.6"><path d="M3 8h9M9 4.5 12.5 8 9 11.5"/></svg></button>
+
+        <!-- live + feedback -->
+        <div style="margin-top:36px; display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:20px; box-shadow:0 1px 2px rgba(16,24,32,.04);">
+            <div style="display:flex; align-items:center; gap:9px;"><span style="width:8px; height:8px; border-radius:50%; background:#0f8a53; animation:acPulse 2.2s ease-out infinite;"></span><span style="font:600 13px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Continuously re-grounded</span></div>
+            <p style="margin:10px 0 0; font:400 13px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">The connectors re-ground on a rolling <strong style="font-weight:600; color:#4b5563;">~38h cycle</strong>, so step behavior and the matching signature stay current with the live work. Last re-grounded ~2 days ago.</p>
+          </div>
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:20px; box-shadow:0 1px 2px rgba(16,24,32,.04);">
+            <div style="display:flex; align-items:center; gap:9px;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#2563eb" stroke-width="1.4"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2v3h-3"/></svg><span style="font:600 13px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">The feedback loop</span></div>
+            <p style="margin:10px 0 0; font:400 13px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">Outcomes from routed handoffs feed back and <strong style="font-weight:600; color:#4b5563;">sharpen the matching signature</strong> over time. The 60-day pilot is the validation window.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ RECOMMENDATION ============ -->
+      <section id="screen-recommendation" data-od-id="recommendation" style="max-width:1300px; margin:0 auto; padding:32px 40px 72px;">
+        <!-- sub-header -->
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap;">
+          <div>
+            <div style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.16em; text-transform:uppercase; color:#2563eb;">Recommendation · Future state</div>
+            <h1 style="margin:12px 0 0; font:600 30px/1.1 system-ui,-apple-system,'Segoe UI',sans-serif; letter-spacing:-.018em; color:#1a2233;">The reimagined process</h1>
+            <p style="margin:8px 0 0; font:450 13.5px/1.4 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">Owner: <strong style="font-weight:600; color:#333c4d;">VP, Operations</strong> · executive-ready · a clean, approvable change</p>
+          </div>
+          <div style="text-align:right;">
+            <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.12em; text-transform:uppercase; color:#9aa1ab;">Levers applied</div>
+            <div style="margin-top:8px; display:flex; gap:7px; justify-content:flex-end;">
+              <span style="display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:8px; background:#eef4ff; border:1px solid #cdddff; font:600 12px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#2563eb;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#2563eb" stroke-width="1.6"><path d="M3 12 8 4l5 8"/><path d="M4.6 9.4h6.8"/></svg>Process</span>
+              <span style="display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:8px; background:#eef4ff; border:1px solid #cdddff; font:600 12px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#2563eb;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#2563eb" stroke-width="1.5"><path d="M8 1.6 14.4 8 8 14.4 1.6 8Z"/></svg>AI</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- sub-tabs -->
+        <div style="margin-top:22px; border-bottom:1px solid #e6e8ec; display:flex; gap:26px;">
+          <button id="tab-btn-process" style="">Process</button>
+          <button id="tab-btn-gate" style="">Decision gate</button>
+          <button id="tab-btn-simulate" style="">Simulate &amp; outcome</button>
+        </div>
+
+        <!-- ===== PROCESS ===== -->
+        <div id="panel-process">
+          <div style="margin-top:22px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;">
+            <div>
+              <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#9aa1ab; margin-bottom:7px;">Compare versions</div>
+              <div style="display:inline-flex; padding:3px; background:#eef0f3; border-radius:10px; gap:2px;">
+                <button id="seg-baseline" style="">Baseline</button>
+                <button id="seg-v1" style="">Version 1</button>
+                <button id="seg-v2" style="">Version 2</button>
+              </div>
+            </div>
+            <div>
+              <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#9aa1ab; margin-bottom:7px;">Legend</div>
+              <div style="display:flex; align-items:center; gap:15px; flex-wrap:wrap;">
+                <span style="display:inline-flex; align-items:center; gap:7px; font:500 12px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d;"><span style="width:13px; height:13px; border-radius:4px; background:#eaf0ff; border:1.5px solid #2563eb;"></span>New step</span>
+                <span style="display:inline-flex; align-items:center; gap:7px; font:500 12px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d;"><span style="width:13px; height:13px; border-radius:4px; background:#fdf3d9; border:1.5px solid #b5810a;"></span>Updated</span>
+                <span style="display:inline-flex; align-items:center; gap:7px; font:500 12px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d;"><span style="width:13px; height:13px; border-radius:4px; background:#fff; border:1.5px solid #d7dbe1;"></span>Unchanged</span>
+                <span style="width:1px; height:16px; background:#e6e8ec;"></span>
+                <span style="display:inline-flex; align-items:center; gap:7px; font:500 12px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#0f8a53;"><svg width="20" height="10" viewBox="0 0 20 10"><line x1="1" y1="5" x2="15" y2="5" stroke="#0f8a53" stroke-width="2.4"/><path d="M13 2 17 5 13 8" fill="none" stroke="#0f8a53" stroke-width="2.4"/></svg>routed warm · pre-close</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- version note -->
+          <div id="version-note"></div>
+
+          <!-- swimlane -->
+          <div style="margin-top:16px; background:#fff; border:1px solid #e6e8ec; border-radius:16px; padding:16px; box-shadow:0 1px 3px rgba(16,24,32,.05); overflow-x:auto;">
+            <div style="position:relative; width:1200px; height:460px; margin:0 auto;">
+              <!-- lane bands -->
+              <div style="position:absolute; left:6px; top:56px; width:1188px; height:108px; background:#fbfcfe; border:1px solid #eef0f3; border-radius:14px;"></div>
+              <div style="position:absolute; left:6px; top:300px; width:1188px; height:104px; background:#fbfcfe; border:1px solid #eef0f3; border-radius:14px;"></div>
+              <div style="position:absolute; left:12px; top:33px; display:inline-flex; align-items:center; gap:7px; padding:5px 10px; background:#fff; border:1px solid #e6e8ec; border-radius:7px; font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#333c4d;"><span style="width:6px; height:6px; border-radius:50%; background:#2563eb;"></span>Assess</div>
+              <div style="position:absolute; left:12px; top:277px; display:inline-flex; align-items:center; gap:7px; padding:5px 10px; background:#fff; border:1px solid #e6e8ec; border-radius:7px; font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#333c4d;"><span style="width:6px; height:6px; border-radius:50%; background:#0f8a53;"></span>Resolve</div>
+
+              <!-- connectors -->
+              <svg viewBox="0 0 1200 460" width="1200" height="460" style="position:absolute; inset:0; overflow:visible;">
+                <defs>
+                  <marker id="acArrGrey" markerWidth="10" markerHeight="10" refX="7" refY="4.5" orient="auto"><path d="M1.2 1.2 8 4.5 1.2 7.8" fill="none" stroke="#a2a9b3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
+                  <marker id="acArrGreen" markerWidth="11" markerHeight="11" refX="7" refY="4.5" orient="auto"><path d="M1.2 1 8 4.5 1.2 8" fill="none" stroke="#0f8a53" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+                  <marker id="acArrBlue" markerWidth="11" markerHeight="11" refX="7" refY="4.5" orient="auto"><path d="M1.2 1 8 4.5 1.2 8" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+                </defs>
+                <path d="M159 110 H191" style="fill:none; stroke:#b0b6bf; stroke-width:1.6;" marker-end="url(#acArrGrey)"></path>
+                <path d="M327 110 H357" style="fill:none; stroke:#b0b6bf; stroke-width:1.6;" marker-end="url(#acArrGrey)"></path>
+                <path id="cInvDiamond" d="M501 110 H544" style="fill:none; stroke:#b0b6bf; stroke-width:1.6;" marker-end="url(#acArrGrey)"></path>
+                <path id="cInvReserve" d="M501 110 H691" style="fill:none; stroke:#b0b6bf; stroke-width:1.6;" marker-end="url(#acArrGrey)"></path>
+                <path id="cDiaReserve" d="M648 110 H691" style="fill:none; stroke:#b0b6bf; stroke-width:1.6;" marker-end="url(#acArrGrey)"></path>
+                <path d="M827 110 H865" style="fill:none; stroke:#b0b6bf; stroke-width:1.6;" marker-end="url(#acArrGrey)"></path>
+                <path id="cDiaFlag" d="M596 160 V205" style="fill:none; stroke:#2563eb; stroke-width:2;" marker-end="url(#acArrBlue)"></path>
+                <path id="cFlagReserve" d="M689 224 C 742 214, 748 148, 762 140" style="fill:none; stroke:#cbd0d7; stroke-width:1.4; stroke-dasharray:4 4;" marker-end="url(#acArrGrey)"></path>
+                <path id="cRoute" d="M596 266 V320" marker-end="url(#acArrGreen)"></path>
+                <path id="cCold" d="M936 138 C 936 250, 720 305, 678 348" style="fill:none; stroke:#b0b6bf; stroke-width:1.6; stroke-dasharray:5 4;" marker-end="url(#acArrGrey)"></path>
+                <path d="M674 352 H703" style="fill:none; stroke:#b0b6bf; stroke-width:1.6;" marker-end="url(#acArrGrey)"></path>
+                <path d="M855 352 H875" style="fill:none; stroke:#b0b6bf; stroke-width:1.6;" marker-end="url(#acArrGrey)"></path>
+                <path d="M1027 352 H1051" style="fill:none; stroke:#b0b6bf; stroke-width:1.6;" marker-end="url(#acArrGrey)"></path>
+                <path id="cFeeds" d="M1120 322 C 1120 22, 1120 20, 1082 20 L 618 20 C 596 20, 596 30, 596 58" style="fill:none; stroke:#cbd0d7; stroke-width:1.4; stroke-dasharray:5 5; animation:acDash 1s linear infinite;" marker-end="url(#acArrGrey)"></path>
+              </svg>
+
+              <!-- connector labels -->
+              <div id="lblNoContinue" style="position:absolute; left:642px; top:80px; font:600 9.5px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.05em; color:#6b7280; background:#fff; border:1px solid #e6e8ec; padding:3px 6px; border-radius:5px;">NO · continue</div>
+              <div id="lblYesMatch" style="position:absolute; left:606px; top:170px; font:600 9.5px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.05em; color:#2563eb; background:#eaf0ff; border:1px solid #cdddff; padding:3px 6px; border-radius:5px;">YES · match</div>
+              <div id="lblRoutedWarm" style="position:absolute; left:614px; top:277px; font:600 9px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.06em; color:#0f8a53; background:#e2f3ea; border:1px solid #bfe4cf; padding:4px 7px; border-radius:5px; white-space:nowrap;">ROUTED WARM · PRE-CLOSE</div>
+              <div id="lblRoutedClosure" style="position:absolute; left:614px; top:280px; font:600 9px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.06em; color:#6b7280; background:#f1f3f6; border:1px solid #dfe2e7; padding:4px 7px; border-radius:5px; white-space:nowrap;">routed at close</div>
+              <div id="lblReferredCold" style="position:absolute; left:735px; top:250px; font:600 9px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.05em; color:#6b7280; background:#f1f3f6; border:1px dashed #c3c8cf; padding:4px 7px; border-radius:5px; white-space:nowrap;">handed off post-close · cold</div>
+              <div id="lblOutcomesFeed" style="position:absolute; left:770px; top:6px; font:500 9.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#9aa1ab; background:#fff; padding:2px 5px; border-radius:4px;">outcomes feed the matching signature</div>
+
+              <!-- nodes -->
+              <div id="nodes"></div>
+            </div>
+          </div>
+
+          <!-- detail panel -->
+          <div id="detail-panel"></div>
+        </div>
+
+        <!-- ===== DECISION GATE ===== -->
+        <div id="panel-gate">
+          <div style="margin-top:24px; display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:22px; align-items:start;">
+
+            <!-- LEFT: interactive evaluation -->
+            <div>
+              <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:16px;">
+                <div>
+                  <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.12em; text-transform:uppercase; color:#2563eb;">Behind &ldquo;Capture &amp; flag&rdquo;</div>
+                  <h3 style="margin:9px 0 0; font:600 21px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; letter-spacing:-.01em; color:#1a2233;">The matching-signature gate</h3>
+                  <p style="margin:6px 0 0; font:450 13px/1.45 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280; max-width:440px;">The Assess connector scores the open item. Three criteria are checked in sequence — <strong style="font-weight:600; color:#333c4d;">all must hold</strong> before a handoff is created.</p>
+                </div>
+              </div>
+
+              <!-- controls -->
+              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:18px; padding:11px 14px; background:#f6f7f9; border:1px solid #e6e8ec; border-radius:11px;">
+                <span id="gate-progress" style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; color:#333c4d; background:#fff; border:1px solid #e6e8ec; border-radius:7px; padding:6px 9px;">0 / 3 evaluated</span>
+                <div style="flex:1;"></div>
+                <button id="gate-prev" style="">Back</button>
+                <button id="gate-next" style="">Evaluate next <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.7"><path d="M3 8h9M9 4.5 12.5 8 9 11.5"/></svg></button>
+                <button id="gate-play" style="display:inline-flex; align-items:center; gap:6px; padding:9px 13px; border-radius:9px; border:1px solid #cdddff; background:#eef4ff; color:#2563eb; font:600 12.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; cursor:pointer;">Auto-play</button>
+                <button id="gate-reset" style="padding:9px 12px; border-radius:9px; border:1px solid #e6e8ec; background:#fff; color:#9aa1ab; font:600 12.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; cursor:pointer;">Reset</button>
+              </div>
+
+              <!-- sample item -->
+              <div style="background:#1a2233; border-radius:13px; padding:15px 18px; display:flex; align-items:center; gap:14px;">
+                <span style="width:34px; height:34px; flex:none; border-radius:9px; background:rgba(255,255,255,.08); display:flex; align-items:center; justify-content:center;"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#8ab0ff" stroke-width="1.4"><path d="M3 5.5 8 3l5 2.5v5L8 13l-5-2.5Z"/><path d="M8 3v10M3 5.5 13 5.5" opacity=".5"/></svg></span>
+                <div style="flex:1; min-width:0;">
+                  <div style="font:600 14px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; color:#fff;">Item A-4821 · <span style="font-weight:450; color:#c3cbd8;">Sample work item</span></div>
+                  <div style="margin-top:4px; font:500 11px/1 ui-monospace,'SF Mono',Menlo,monospace; color:#8ea0bd;">Illustrative open item · worked example</div>
+                </div>
+                <div style="text-align:right; flex:none;">
+                  <span style="display:inline-flex; align-items:center; gap:6px; font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.06em; color:#7fd6a8; background:rgba(15,138,83,.18); padding:5px 9px; border-radius:6px;"><span style="width:6px; height:6px; border-radius:50%; background:#33c07f;"></span>OPEN</span>
+                  <div style="margin-top:5px; font:450 10.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#8ea0bd;">~6 days to expected close</div>
+                </div>
+              </div>
+
+              <!-- connector -->
+              <div style="display:flex; justify-content:center; padding:5px 0;"><svg width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="#c3c8cf" stroke-width="1.5"><path d="M8 1v14M4.5 12 8 15.5 11.5 12"/></svg></div>
+
+              <!-- connector scores -->
+              <div style="background:#eef4ff; border:1px solid #cdddff; border-radius:12px; padding:13px 16px; display:flex; align-items:center; gap:12px;">
+                <span style="width:30px; height:30px; flex:none; border-radius:8px; background:#dbe7ff; display:flex; align-items:center; justify-content:center;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#2563eb" stroke-width="1.4"><circle cx="5.6" cy="8" r="2.7"/><circle cx="10.4" cy="8" r="2.7"/></svg></span>
+                <div>
+                  <div style="font:600 13px/1.25 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Assess connector scores the open item</div>
+                  <div style="margin-top:2px; font:450 12px/1.35 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;">Measured against the learned matching signature.</div>
+                </div>
+              </div>
+
+              <!-- criteria + outcome -->
+              <div id="gate-criteria"></div>
+            </div>
+
+            <!-- RIGHT: spec + guardrails -->
+            <div style="display:flex; flex-direction:column; gap:16px;">
+              <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 20px; box-shadow:0 1px 3px rgba(16,24,32,.05);">
+                <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#9aa1ab;">Gate logic</div>
+                <div style="margin-top:14px; padding:11px 14px; background:#eef4ff; border:1px solid #cdddff; border-radius:9px; font:600 12.5px/1.3 system-ui,-apple-system,'Segoe UI',sans-serif; color:#2563eb; text-align:center;">Connector scores open item</div>
+                <div style="display:flex; justify-content:center; padding:4px 0;"><svg width="12" height="16" viewBox="0 0 12 16" fill="none" stroke="#c3c8cf" stroke-width="1.4"><path d="M6 1v11M3 9.5 6 12.5 9 9.5"/></svg></div>
+                <div style="padding:11px 14px; background:#f8f9fb; border:1px solid #e6e8ec; border-radius:9px; font:600 12.5px/1.35 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233; text-align:center;">C1 <span style="color:#9aa1ab;">and</span> C2 <span style="color:#9aa1ab;">and</span> C3<div style="margin-top:3px; font:450 11px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">all must hold</div></div>
+                <div style="margin-top:12px; display:flex; gap:10px;">
+                  <div style="flex:1; padding:11px 12px; background:#eefaf3; border:1px solid #bfe4cf; border-radius:9px;">
+                    <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; color:#0f8a53; letter-spacing:.05em;">ALL YES →</div>
+                    <div style="margin-top:6px; font:450 11.5px/1.4 system-ui,-apple-system,'Segoe UI',sans-serif; color:#33604a;">Flag + draft handoff · confirm · route warm</div>
+                  </div>
+                  <div style="flex:1; padding:11px 12px; background:#f6f7f9; border:1px solid #e6e8ec; border-radius:9px;">
+                    <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; color:#6b7280; letter-spacing:.05em;">ANY NO →</div>
+                    <div style="margin-top:6px; font:450 11.5px/1.4 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;">Continue normal review &amp; close · no handoff</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 20px; box-shadow:0 1px 3px rgba(16,24,32,.05);">
+                <div style="display:flex; align-items:center; gap:8px;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#0f8a53" stroke-width="1.4"><path d="M8 1.6 13.6 4v4c0 3.3-2.3 5.6-5.6 6.4C4.7 13.6 2.4 11.3 2.4 8V4Z"/><path d="M5.8 8 7.4 9.6 10.4 6.4"/></svg><div style="font:600 12.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Guardrail against over-routing</div></div>
+                <p style="margin:10px 0 0; font:450 12.5px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;">All three criteria must hold <strong style="font-weight:600;">and</strong> the owner confirms in-line before any handoff routes. The match is scored automatically and the draft prepared — the human only confirms.</p>
+              </div>
+
+              <div style="background:#fbfbfc; border:1px dashed #b7bdc7; border-radius:14px; padding:16px 18px;">
+                <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; color:#6b7280;">Observed vs directional</div>
+                <p style="margin:9px 0 0; font:450 12px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;"><strong style="font-weight:600; color:#333c4d;">Observed —</strong> the three-criteria gate, the step classifications, and warm pre-close routing.</p>
+                <p style="margin:7px 0 0; font:450 12px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;"><strong style="font-weight:600;">Directional —</strong> the 42% / 6-per-week yield. <a href="#" id="gate-see-sim">See Simulate &amp; outcome →</a></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== SIMULATE & OUTCOME ===== -->
+        <div id="panel-simulate">
+          <div style="margin-top:24px;">
+            <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+              <div>
+                <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.12em; text-transform:uppercase; color:#2563eb;">Tracking &amp; performance</div>
+                <h3 style="margin:9px 0 0; font:600 21px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; letter-spacing:-.01em; color:#1a2233;">Simulate on open items</h3>
+                <p style="margin:6px 0 0; font:450 13px/1.45 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280; max-width:460px;">Re-run the matching-signature test across a live 40-open-item sample, then read the projected outcome.</p>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span id="sim-status" style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; color:#333c4d; background:#f1f3f6; border:1px solid #e6e8ec; border-radius:7px; padding:7px 10px;">Ready · 40 open items</span>
+                <button id="sim-run" style="">Run signature test</button>
+                <button id="sim-reset" style="padding:10px 12px; border-radius:9px; border:1px solid #e6e8ec; background:#fff; color:#9aa1ab; font:600 12.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; cursor:pointer;">Reset</button>
+              </div>
+            </div>
+
+            <div style="margin-top:20px; display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:20px; align-items:start;">
+              <!-- LEFT: 40-item grid -->
+              <div style="background:#fff; border:1px solid #e6e8ec; border-radius:16px; padding:20px; box-shadow:0 1px 3px rgba(16,24,32,.05);">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+                  <span style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#9aa1ab;">Open-item sample</span>
+                  <span style="font:600 11px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">40 items</span>
+                </div>
+                <div id="sim-cells" style="display:grid; grid-template-columns:repeat(8, 1fr); gap:8px;"></div>
+                <div style="margin-top:16px; display:flex; align-items:center; gap:18px; flex-wrap:wrap;">
+                  <span style="display:inline-flex; align-items:center; gap:7px; font:500 11.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;"><span style="width:14px; height:14px; border-radius:4px; background:#eaf0ff; border:1.5px solid #2563eb;"></span>Signature match → routed warm</span>
+                  <span style="display:inline-flex; align-items:center; gap:7px; font:500 11.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;"><span style="width:14px; height:14px; border-radius:4px; background:#f6f7f9; border:1.5px solid #e6e8ec;"></span>Tested · no match</span>
+                </div>
+                <div style="margin-top:14px; padding:10px 13px; background:#fbfbfc; border:1px dashed #cdd2d9; border-radius:9px; font:450 11.5px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">This run is illustrative. The match rate that drives the annual figure is a <strong style="font-weight:600; color:#4b5563;">directional projection</strong>, not a measured outcome.</div>
+              </div>
+
+              <!-- RIGHT: projected outcome -->
+              <div style="display:flex; flex-direction:column; gap:14px;">
+                <div style="display:inline-flex; align-items:center; gap:7px; align-self:flex-start; padding:6px 11px; border-radius:999px; background:#fff; border:1.5px dashed #b7bdc7;"><span style="width:7px; height:7px; border-radius:50%; border:1.5px solid #6b7280;"></span><span style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; color:#6b7280;">Projected outcome · directional</span></div>
+
+                <div style="background:#fbfbfc; border:1.5px dashed #b7bdc7; border-radius:14px; padding:20px 22px;">
+                  <div style="font:600 40px/1 system-ui,-apple-system,'Segoe UI',sans-serif; letter-spacing:-.02em; color:#333c4d;">42%</div>
+                  <div style="margin-top:8px; font:500 13px/1.3 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">annual efficiency uplift <span style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; color:#9aa1ab; border:1px solid #d7dbe1; border-radius:5px; padding:2px 5px; margin-left:4px;">DIRECTIONAL</span></div>
+                </div>
+
+                <div style="background:#fbfbfc; border:1.5px dashed #b7bdc7; border-radius:14px; padding:20px 22px;">
+                  <div style="font:600 40px/1 system-ui,-apple-system,'Segoe UI',sans-serif; letter-spacing:-.02em; color:#333c4d;">6<span style="font-size:20px; color:#9aa1ab; font-weight:500;"> / week</span></div>
+                  <div style="margin-top:8px; font:500 13px/1.3 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">items caught pre-close <span style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; color:#9aa1ab; border:1px solid #d7dbe1; border-radius:5px; padding:2px 5px; margin-left:4px;">DIRECTIONAL</span></div>
+                </div>
+
+                <div style="background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:16px 18px; box-shadow:0 1px 3px rgba(16,24,32,.05);">
+                  <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; color:#9aa1ab;">Attributed to</div>
+                  <div style="margin-top:10px; display:flex; gap:7px;">
+                    <span style="font:600 11.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#2563eb; background:#eef4ff; border:1px solid #cdddff; border-radius:7px; padding:6px 10px;">Process lever</span>
+                    <span style="font:600 11.5px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#2563eb; background:#eef4ff; border:1px solid #cdddff; border-radius:7px; padding:6px 10px;">AI lever</span>
+                  </div>
+                  <p style="margin:12px 0 0; font:450 12.5px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;">The single automated step scores the match automatically and prepares the draft handoff — <strong style="font-weight:600; color:#333c4d;">the human only confirms in-line</strong>. Effort is removed, not added.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- observed vs directional -->
+            <div style="margin-top:16px; background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:18px 22px; box-shadow:0 1px 3px rgba(16,24,32,.05); display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+              <div>
+                <div style="display:flex; align-items:center; gap:8px;"><span style="width:10px; height:10px; border-radius:50%; background:#0f8a53;"></span><span style="font:600 12px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Observed &amp; asserted</span></div>
+                <p style="margin:9px 0 0; font:450 12.5px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;">The step classifications, the warm pre-close routing, and the three-criteria gate — grounded in connected observation of the live work.</p>
+              </div>
+              <div>
+                <div style="display:flex; align-items:center; gap:8px;"><span style="width:10px; height:10px; border-radius:50%; border:1.5px dashed #9aa1ab;"></span><span style="font:600 12px/1 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">Inferred &amp; directional</span></div>
+                <p style="margin:9px 0 0; font:450 12.5px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">The <strong style="font-weight:600;">42%</strong> efficiency uplift and <strong style="font-weight:600;">6 items/week</strong> — projections to validate against the system of record in the pilot.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ SIGN-OFF ============ -->
+      <section id="screen-signoff" data-od-id="signoff" style="max-width:1060px; margin:0 auto; padding:40px 44px 72px;">
+        <div style="font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.16em; text-transform:uppercase; color:#2563eb;">Deliverable → Sign-off · Conclusion</div>
+        <h1 style="margin:14px 0 0; font:600 34px/1.08 system-ui,-apple-system,'Segoe UI',sans-serif; letter-spacing:-.02em; color:#1a2233; max-width:680px;">A clean, approvable change</h1>
+        <p style="margin:14px 0 0; font:400 16px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif; color:#333c4d; max-width:640px;">One new decision step, two minimal updates, and warm pre-close routing — with nothing removed. The reimagined process closes the handoff gap by moving action upstream into the open work item.</p>
+
+        <!-- recap -->
+        <div style="margin-top:26px; background:#fff; border:1px solid #e6e8ec; border-radius:16px; padding:8px; box-shadow:0 1px 3px rgba(16,24,32,.05); overflow:hidden;">
+          <div style="display:flex; align-items:center; gap:13px; padding:14px 16px; background:#1a2233; border-radius:11px;">
+            <span style="width:30px; height:30px; flex:none; border-radius:8px; background:rgba(37,99,235,.22); display:flex; align-items:center; justify-content:center;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#8ab0ff" stroke-width="1.5"><path d="M8 1.6 14.4 8 8 14.4 1.6 8Z"/></svg></span>
+            <span style="font:600 16px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif; color:#fff;">1 step automated · effort removed</span>
+          </div>
+          <div style="padding:6px 6px 4px;">
+            <div style="display:flex; gap:13px; padding:14px 12px; border-bottom:1px solid #f1f3f5;">
+              <span style="width:11px; height:11px; flex:none; margin-top:3px; border-radius:3px; background:#2563eb;"></span>
+              <div><span style="font:600 13px/1.3 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">New · 1 decision step </span><span style="font:400 13px/1.4 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">— Capture &amp; flag (matching-signature check), plus its draft-handoff action.</span></div>
+            </div>
+            <div style="display:flex; gap:13px; padding:14px 12px; border-bottom:1px solid #f1f3f5;">
+              <span style="width:11px; height:11px; flex:none; margin-top:3px; border-radius:3px; background:#b5810a;"></span>
+              <div><span style="font:600 13px/1.3 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Updated · 2 steps </span><span style="font:400 13px/1.4 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">— Assess &amp; review (connector scores the open item) and Complete &amp; close (handoffs already routed).</span></div>
+            </div>
+            <div style="display:flex; gap:13px; padding:14px 12px; border-bottom:1px solid #f1f3f5;">
+              <span style="width:11px; height:11px; flex:none; margin-top:3px; border-radius:3px; background:#fff; border:1.5px solid #c3c8cf;"></span>
+              <div><span style="font:600 13px/1.3 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Unchanged </span><span style="font:400 13px/1.4 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">— Intake, Eligibility check, Prepare &amp; resolve, and the entire Resolve lane (Handoff intake, now fed warm).</span></div>
+            </div>
+            <div style="display:flex; gap:13px; padding:14px 12px;">
+              <span style="width:11px; height:11px; flex:none; margin-top:3px; border-radius:3px; background:#0f8a53;"></span>
+              <div><span style="font:600 13px/1.3 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Removed · nothing </span><span style="font:400 13px/1.4 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">— the change is additive and approvable.</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- sign-off + next steps -->
+        <div style="margin-top:20px; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.15fr); gap:16px; align-items:stretch;">
+          <!-- sign-off action -->
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(16,24,32,.05); display:flex; flex-direction:column;">
+            <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#9aa1ab;">Deliverable → Sign-off</div>
+            <div style="margin-top:12px; font:600 18px/1.25 system-ui,-apple-system,'Segoe UI',sans-serif; color:#1a2233;">Approve the future state</div>
+            <p style="margin:9px 0 0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#6b7280;">Approving routes this deliverable into the 60-day pilot for validation against the system of record.</p>
+            <div style="flex:1;"></div>
+            <div id="signoff-action"></div>
+          </div>
+
+          <!-- next steps -->
+          <div style="background:#fff; border:1px solid #e6e8ec; border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(16,24,32,.05);">
+            <div style="font:600 10px/1 ui-monospace,'SF Mono',Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; color:#9aa1ab;">Next steps · 60-day pilot</div>
+            <div style="margin-top:14px; display:flex; flex-direction:column; gap:2px;">
+              <div style="display:flex; gap:13px; padding:11px 0; border-bottom:1px solid #f1f3f5;">
+                <span style="width:22px; height:22px; flex:none; border-radius:6px; background:#eef4ff; color:#2563eb; display:flex; align-items:center; justify-content:center; font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace;">1</span>
+                <p style="margin:0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;"><strong style="font-weight:600; color:#1a2233;">Validate the directional numbers</strong> — test the 42% and 6/week against the system of record in the pilot.</p>
+              </div>
+              <div style="display:flex; gap:13px; padding:11px 0; border-bottom:1px solid #f1f3f5;">
+                <span style="width:22px; height:22px; flex:none; border-radius:6px; background:#eef4ff; color:#2563eb; display:flex; align-items:center; justify-content:center; font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace;">2</span>
+                <p style="margin:0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;"><strong style="font-weight:600; color:#1a2233;">Connect the agent to live systems</strong> — move from connected observation to acting in the open work item.</p>
+              </div>
+              <div style="display:flex; gap:13px; padding:11px 0;">
+                <span style="width:22px; height:22px; flex:none; border-radius:6px; background:#eef4ff; color:#2563eb; display:flex; align-items:center; justify-content:center; font:600 11px/1 ui-monospace,'SF Mono',Menlo,monospace;">3</span>
+                <p style="margin:0; font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif; color:#4b5563;"><strong style="font-weight:600; color:#1a2233;">Extend continuous detection</strong> — learn further matching-signature variants beyond this one.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var SANS = "system-ui,-apple-system,'Segoe UI',sans-serif";
+  var MONO = "ui-monospace,'SF Mono',Menlo,monospace";
+
+  var state = {
+    view: 'overview',
+    recoTab: 'process',
+    version: 'v2',
+    selectedStepId: null,
+    gateStep: 0,
+    simState: 'idle',
+    scanIndex: 0,
+    signed: false
+  };
+  var gateT = null, simT = null;
+
+  // ---- data ----
+  var SYSTEMS = [
+    { code: 'SR', name: 'System of record', role: 'Primary records · system of record' },
+    { code: 'MS', name: 'Messaging', role: 'Team correspondence' },
+    { code: 'FD', name: 'Field data', role: 'Field observations' },
+    { code: 'CT', name: 'Case tracker', role: 'Case tracking & resolution' },
+    { code: 'VL', name: 'Valuation', role: 'Value assessment' }
+  ];
+  var SYS_DETAIL = [
+    { code: 'SR', name: 'System of record', text: 'Primary records &amp; system of record. Grounds the process spine and the <strong style="font-weight:600; color:#4b5563;">counterparty named in the intake record</strong> (criterion 1).' },
+    { code: 'FD', name: 'Field data', text: 'Field observations. Grounds the physical evidence — <strong style="font-weight:600; color:#4b5563;">supporting field signal</strong> (criterion 2).' },
+    { code: 'VL', name: 'Valuation', text: 'Value assessment. Grounds the value used to test <strong style="font-weight:600; color:#4b5563;">value above cost-to-act</strong> (criterion 3).' },
+    { code: 'CT', name: 'Case tracker', text: 'Case tracking &amp; resolution. Grounds the Resolve lane — intake, viability, action, and outcomes.' },
+    { code: 'MS', name: 'Messaging', text: 'Team correspondence. Grounds how the work is actually coordinated around the open item.', span: true }
+  ];
+  var STEPS = [
+    { id: 'intake',   lane: 'assess', kind: 'unchanged', shape: 'rect', x: 112, y: 116, w: 152, title: 'Intake', sys: ['SR'], desc: 'Record the request and open the work item. The counterparty is often named in the intake notes.' },
+    { id: 'eligible', lane: 'assess', kind: 'unchanged', shape: 'rect', x: 306, y: 116, w: 152, title: 'Eligibility check', sys: ['SR'], desc: 'Verify the item is in scope and route it under the correct track.' },
+    { id: 'review',   lane: 'assess', kind: 'updated', shape: 'rect', x: 500, y: 116, w: 158, title: 'Assess & review', sys: ['FD'], desc: 'Review the item and record findings. The signal is now captured warm, and the Assess connector scores the open item against the learned matching signature.', change: 'Same review work — the connector now scores the open item in-line and captures the signal warm, pre-close.' },
+    { id: 'capture',  lane: 'assess', kind: 'new', shape: 'diamond', x: 690, y: 116, w: 116, title: 'Capture & flag', sys: ['SR', 'FD', 'VL'], desc: 'A pre-close decision point that evaluates the open item against the learned matching signature — three criteria, all must hold.', change: 'The single inserted step. Scored automatically, pre-close — the human only confirms.' },
+    { id: 'prepare',  lane: 'assess', kind: 'unchanged', shape: 'rect', x: 892, y: 116, w: 152, title: 'Prepare & resolve', sys: ['SR', 'VL'], desc: 'Set the plan, value the item, and resolve.' },
+    { id: 'close',    lane: 'assess', kind: 'updated', shape: 'rect', x: 1088, y: 116, w: 152, title: 'Complete & close', sys: ['SR'], desc: 'Complete and close. Handoffs are already routed — there is no post-close hand-off to reconstruct.', change: 'Close effort is unchanged; handoffs were already routed warm, pre-close.' },
+    { id: 'flag',     lane: 'mid', kind: 'new', shape: 'rect', x: 690, y: 238, w: 198, title: 'Flag + create draft handoff', sys: ['CT'], desc: 'On a signature match, the handoff is drafted automatically and the owner confirms in-line. Routed warm · pre-close to the Resolve track.', change: 'New action on the YES branch — draft prepared automatically; the human only confirms.' },
+    { id: 'handoff',  lane: 'resolve', kind: 'unchanged', shape: 'rect', x: 690, y: 360, w: 172, title: 'Handoff intake', sys: ['CT', 'SR'], desc: 'The front door to the Resolve track. Now receives items routed warm · pre-close, with the draft handoff and evidence attached.', warm: true, change: 'Unchanged step — now fed warm. The beneficiary of the change.' },
+    { id: 'viability', lane: 'resolve', kind: 'unchanged', shape: 'rect', x: 892, y: 360, w: 158, title: 'Route viability', sys: ['CT'], desc: 'Decide whether a routed item is worth pursuing.' },
+    { id: 'action',   lane: 'resolve', kind: 'unchanged', shape: 'rect', x: 1082, y: 360, w: 158, title: 'Action & follow-through', sys: ['CT'], desc: 'Assemble and take the action, coordinate, and follow through — escalate if unresolved.' },
+    { id: 'outcome',  lane: 'resolve', kind: 'unchanged', shape: 'rect', x: 1266, y: 360, w: 150, title: 'Outcome & record', sys: ['CT', 'SR'], desc: 'Record the outcome. This feeds back into the matching signature.' }
+  ];
+  var CRITERIA = [
+    { n: 1, title: 'Counterparty named in the intake record', sys: 'SR', sysName: 'System of record · primary record', evidence: 'Intake record names an external counterparty; reference logged.' },
+    { n: 2, title: 'Supporting field evidence on file', sys: 'FD', sysName: 'Field data · field observations', evidence: 'Field observations show a distinct external factor consistent with an external cause.' },
+    { n: 3, title: 'Value above cost-to-act threshold', sys: 'VL', sysName: 'Valuation · value assessment', evidence: 'Assessed value above the cost-to-act threshold.' }
+  ];
+  var CAUGHT = { 4: 1, 11: 1, 18: 1, 25: 1, 31: 1, 37: 1 };
+  var KINDS = {
+    'new':       { label: 'New',       fill: '#eaf0ff', border: '#2563eb', text: '#2563eb', dot: '#2563eb' },
+    'updated':   { label: 'Updated',   fill: '#fdf3d9', border: '#b5810a', text: '#8a6208', dot: '#b5810a' },
+    'unchanged': { label: 'Unchanged', fill: '#ffffff', border: '#d7dbe1', text: '#6b7280', dot: '#c3c8cf' }
+  };
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function show(el, on) { if (el) el.style.display = on ? '' : 'none'; }
+
+  function navStyle(active) {
+    return "display:flex; align-items:center; gap:11px; width:100%; text-align:left; border:0; border-left:3px solid " + (active ? '#2563eb' : 'transparent') +
+      "; background:" + (active ? '#eef4ff' : 'transparent') + "; padding:9px 12px 9px 14px; border-radius:0 9px 9px 0; cursor:pointer; font:" +
+      (active ? 600 : 500) + " 13px/1.2 " + SANS + "; color:" + (active ? '#2563eb' : '#4b5563') + "; transition:background .14s, color .14s;";
+  }
+  function segStyle(a) {
+    return "border:0; background:" + (a ? '#fff' : 'transparent') + "; color:" + (a ? '#1a2233' : '#6b7280') +
+      "; box-shadow:" + (a ? '0 1px 3px rgba(16,24,32,.12)' : 'none') + "; padding:6px 14px; border-radius:8px; font:600 12.5px/1 " + SANS + "; cursor:pointer; transition:background .14s,color .14s;";
+  }
+  function tabStyle(a) {
+    return "border:0; background:transparent; color:" + (a ? '#2563eb' : '#6b7280') + "; border-bottom:2px solid " + (a ? '#2563eb' : 'transparent') +
+      "; padding:11px 2px; margin:0; font:600 13.5px/1 " + SANS + "; cursor:pointer;";
+  }
+  function sysChip(code) {
+    return "<span style=\"font:600 9px/1 " + MONO + "; color:#4b5563; background:#eef1f5; border-radius:4px; padding:2px 4px;\">" + esc(code) + "</span>";
+  }
+
+  // ---- sidebar systems ----
+  function renderSidebar() {
+    var html = '';
+    for (var i = 0; i < SYSTEMS.length; i++) {
+      var s = SYSTEMS[i];
+      html += '<div style="display:flex; align-items:center; gap:10px; padding:7px 6px; border-radius:8px;">' +
+        '<span style="width:26px; height:22px; flex:none; border-radius:6px; background:#f1f3f6; border:1px solid #e6e8ec; display:flex; align-items:center; justify-content:center; font:600 10px/1 ' + MONO + '; color:#333c4d;">' + esc(s.code) + '</span>' +
+        '<span style="flex:1; min-width:0;">' +
+        '<span style="display:block; font:500 12px/1.15 ' + SANS + '; color:#1a2233;">' + esc(s.name) + '</span>' +
+        '<span style="display:block; font:400 10.5px/1.2 ' + SANS + '; color:#9aa1ab; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(s.role) + '</span>' +
+        '</span>' +
+        '<span style="width:6px; height:6px; flex:none; border-radius:50%; background:#0f8a53;"></span>' +
+        '</div>';
+    }
+    $('sidebar-systems').innerHTML = html;
+  }
+
+  function renderConnectionsSystems() {
+    var html = '';
+    for (var i = 0; i < SYS_DETAIL.length; i++) {
+      var s = SYS_DETAIL[i];
+      html += '<div style="background:#fff; border:1px solid #e6e8ec; border-radius:12px; padding:15px 17px; display:flex; gap:13px; align-items:flex-start; box-shadow:0 1px 2px rgba(16,24,32,.04);' + (s.span ? ' grid-column:span 2;' : '') + '">' +
+        '<span style="width:34px; height:28px; flex:none; border-radius:7px; background:#f1f3f6; border:1px solid #e6e8ec; display:flex; align-items:center; justify-content:center; font:600 11px/1 ' + MONO + '; color:#333c4d;">' + esc(s.code) + '</span>' +
+        '<div><div style="font:600 13.5px/1.2 ' + SANS + '; color:#1a2233;">' + esc(s.name) + '</div>' +
+        '<p style="margin:5px 0 0; font:400 12.5px/1.45 ' + SANS + '; color:#6b7280;">' + s.text + '</p></div></div>';
+    }
+    $('connections-systems').innerHTML = html;
+  }
+
+  // ---- process / swimlane ----
+  function decorate(s) {
+    var isBaseline = state.version === 'baseline';
+    var isV2 = state.version === 'v2';
+    var effKind = s.kind, visible = true;
+    if (isBaseline) {
+      if (s.id === 'capture' || s.id === 'flag') visible = false;
+      if (s.id === 'review' || s.id === 'close') effKind = 'unchanged';
+    }
+    var k = KINDS[effKind];
+    var h = s.shape === 'diamond' ? 100 : 56;
+    var w = s.w;
+    var sel = state.selectedStepId === s.id;
+    var ring = sel ? '0 0 0 3px rgba(37,99,235,.20), 0 8px 18px rgba(16,24,32,.13)' : '0 1px 2px rgba(16,24,32,.05)';
+    return {
+      step: s, effKind: effKind, visible: visible, k: k, h: h, w: w, sel: sel,
+      posStyle: "position:absolute; left:" + (s.x - w / 2) + "px; top:" + (s.y - h / 2) + "px; width:" + w + "px; height:" + h + "px; display:" + (visible ? 'block' : 'none') + "; z-index:" + (sel ? 5 : 3) + ";",
+      cardStyle: "height:100%; box-sizing:border-box; background:" + k.fill + "; border:1.5px solid " + k.border + "; border-radius:11px; padding:7px 10px; cursor:pointer; display:flex; flex-direction:column; justify-content:center; gap:5px; box-shadow:" + ring + ";",
+      diamondShape: "position:absolute; left:50%; top:50%; width:70px; height:70px; transform:translate(-50%,-50%) rotate(45deg); background:" + k.fill + "; border:1.5px solid " + k.border + "; border-radius:13px; box-shadow:" + (sel ? '0 0 0 3px rgba(37,99,235,.22)' : '0 2px 8px rgba(37,99,235,.16)') + ";",
+      warmFed: !!s.warm && isV2
+    };
+  }
+
+  function renderNodes() {
+    var isV2 = state.version === 'v2';
+    var html = '';
+    for (var i = 0; i < STEPS.length; i++) {
+      var d = decorate(STEPS[i]);
+      var s = d.step;
+      html += '<div style="' + d.posStyle + '">';
+      if (s.shape === 'diamond') {
+        html += '<div data-step="' + s.id + '" style="position:relative; width:100%; height:100%; cursor:pointer;">' +
+          '<div style="' + d.diamondShape + '"></div>' +
+          '<div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; pointer-events:none;">' +
+          '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#2563eb" stroke-width="1.5"><path d="M8 2.4 13.6 8 8 13.6 2.4 8Z"/><path d="M6.4 8 7.6 9.2 9.8 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+          '<div style="font:600 10px/1.15 ' + SANS + '; color:#2563eb; text-align:center; width:66px;">' + esc(s.title) + '</div></div>' +
+          '<div style="position:absolute; top:-15px; left:50%; transform:translateX(-50%); white-space:nowrap; font:600 8px/1 ' + MONO + '; letter-spacing:.05em; color:#2563eb; background:#eaf0ff; border:1px solid #cdddff; border-radius:5px; padding:3px 6px;">NEW · PRE-CLOSE</div>' +
+          '</div>';
+      } else {
+        var chips = '';
+        for (var j = 0; j < s.sys.length; j++) chips += sysChip(s.sys[j]);
+        var warm = d.warmFed ? '<span style="font:600 8.5px/1 ' + MONO + '; color:#0f8a53; background:#e2f3ea; border:1px solid #bfe4cf; border-radius:4px; padding:2px 5px; margin-left:auto;">fed warm</span>' : '';
+        html += '<div data-step="' + s.id + '" style="' + d.cardStyle + '">' +
+          '<div style="font:600 12px/1.2 ' + SANS + '; color:#1a2233;">' + esc(s.title) + '</div>' +
+          '<div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">' +
+          '<span style="width:8px; height:8px; border-radius:2px; background:' + d.k.dot + '; flex:none;"></span>' +
+          chips + warm + '</div></div>';
+      }
+      html += '</div>';
+    }
+    $('nodes').innerHTML = html;
+  }
+
+  function renderVersionNote() {
+    var v = state.version, html = '';
+    if (v === 'baseline') {
+      html = noteBox('#f6f7f9', '#e6e8ec', '#6b7280', '#e9ebef', 'BASELINE', '#4b5563',
+        'The current-state process as observed by the connectors. Items are acted on only <strong style="font-weight:600;">after close</strong> — the signal created during review goes cold.');
+    } else if (v === 'v1') {
+      html = noteBox('#fdf9ef', '#eeddb8', '#b5810a', '#fbf1d7', 'VERSION 1', '#4b5563',
+        'The single new decision step is inserted and the handoff is drafted — but routing still happens at close <em style="color:#6b7280;">(interim design iteration)</em>. The value of moving upstream is not yet captured.');
+    } else {
+      html = noteBox('#eefaf3', '#bfe4cf', '#0f8a53', '#dcf0e5', 'VERSION 2', '#33604a',
+        'The approved future state. The draft handoff is routed <strong style="font-weight:600; color:#0f8a53;">warm · pre-close</strong> — moving action into the open work item.');
+    }
+    $('version-note').innerHTML = html;
+  }
+  function noteBox(bg, bd, badgeColor, badgeBg, badge, textColor, body) {
+    return '<div style="margin-top:16px; display:flex; align-items:center; gap:11px; padding:11px 15px; background:' + bg + '; border:1px solid ' + bd + '; border-radius:10px; font:450 13px/1.45 ' + SANS + '; color:' + textColor + ';">' +
+      '<span style="font:600 9.5px/1 ' + MONO + '; letter-spacing:.08em; color:' + badgeColor + '; background:' + badgeBg + '; padding:4px 7px; border-radius:5px; white-space:nowrap;">' + badge + '</span>' +
+      '<span style="flex:1;">' + body + '</span></div>';
+  }
+
+  function renderConnectors() {
+    var isBaseline = state.version === 'baseline', isV1 = state.version === 'v1', isV2 = state.version === 'v2';
+    show($('cInvDiamond'), !isBaseline);
+    show($('cInvReserve'), isBaseline);
+    show($('cDiaReserve'), !isBaseline);
+    show($('cDiaFlag'), !isBaseline);
+    show($('cFlagReserve'), !isBaseline);
+    show($('cCold'), isBaseline);
+    show($('cFeeds'), isV2);
+    var route = $('cRoute');
+    show(route, !isBaseline);
+    if (route) {
+      route.style.cssText = isV2
+        ? 'fill:none; stroke:#0f8a53; stroke-width:2.6;'
+        : 'fill:none; stroke:#9aa1ab; stroke-width:1.8; stroke-dasharray:5 4;';
+      route.setAttribute('marker-end', isV2 ? 'url(#acArrGreen)' : 'url(#acArrGrey)');
+      route.style.display = isBaseline ? 'none' : '';
+    }
+    show($('lblNoContinue'), !isBaseline);
+    show($('lblYesMatch'), !isBaseline);
+    show($('lblRoutedWarm'), isV2);
+    show($('lblRoutedClosure'), isV1);
+    show($('lblReferredCold'), isBaseline);
+    show($('lblOutcomesFeed'), isV2);
+  }
+
+  function renderDetail() {
+    var sel = null;
+    for (var i = 0; i < STEPS.length; i++) if (STEPS[i].id === state.selectedStepId) sel = STEPS[i];
+    var el = $('detail-panel');
+    if (!sel) {
+      el.innerHTML = '<div style="margin-top:16px; padding:14px 18px; border:1px dashed #d7dbe1; border-radius:12px; background:#fbfcfe; display:flex; align-items:center; gap:10px; color:#6b7280; font:450 13px/1.4 ' + SANS + ';">' +
+        '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9aa1ab" stroke-width="1.4"><path d="M3 3.5 7 13l1.8-4.2L13 7Z"/></svg>' +
+        'Select any step in the swimlane to see its classification, feeding systems, and what changed. The blue diamond opens the decision gate.</div>';
+      return;
+    }
+    var d = decorate(sel);
+    var k = d.k;
+    var chips = '';
+    for (var j = 0; j < sel.sys.length; j++) {
+      chips += '<span style="font:600 10px/1 ' + MONO + '; color:#333c4d; background:#f1f3f6; border:1px solid #e6e8ec; border-radius:5px; padding:4px 7px;">' + esc(sel.sys[j]) + '</span>';
+    }
+    var changeBlock = sel.change ? '<div style="margin-top:12px; padding:11px 14px; background:#f8f9fb; border-left:3px solid #b5810a; border-radius:0 8px 8px 0; font:450 13px/1.5 ' + SANS + '; color:#4b5563;"><strong style="font-weight:600; color:#b5810a;">What changed · </strong>' + esc(sel.change) + '</div>' : '';
+    var gateBtn = sel.id === 'capture' ? '<button id="detail-open-gate" style="margin-top:16px; display:inline-flex; align-items:center; gap:8px; padding:10px 15px; border-radius:9px; border:0; background:#2563eb; color:#fff; font:600 13px/1 ' + SANS + '; cursor:pointer;">Open the decision gate <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6"><path d="M3 8h9M9 4.5 12.5 8 9 11.5"/></svg></button>' : '';
+    el.innerHTML = '<div style="margin-top:16px; background:#fff; border:1px solid #e6e8ec; border-radius:14px; padding:20px 22px; display:flex; gap:20px; align-items:flex-start; box-shadow:0 1px 3px rgba(16,24,32,.05); animation:acFadeUp .22s ease;">' +
+      '<div style="flex:1; min-width:0;">' +
+      '<div style="display:flex; align-items:center; gap:11px; flex-wrap:wrap;">' +
+      '<span style="font:600 10.5px/1 ' + MONO + '; letter-spacing:.06em; text-transform:uppercase; padding:4px 8px; border-radius:6px; background:' + k.fill + '; border:1px solid ' + k.border + '; color:' + k.text + ';">' + esc(k.label) + '</span>' +
+      '<h3 style="margin:0; font:600 18px/1.2 ' + SANS + '; color:#1a2233;">' + esc(sel.title) + '</h3></div>' +
+      '<p style="margin:12px 0 0; font:400 14px/1.55 ' + SANS + '; color:#333c4d; max-width:680px;">' + esc(sel.desc) + '</p>' +
+      changeBlock +
+      '<div style="margin-top:14px; display:flex; align-items:center; gap:9px; flex-wrap:wrap;">' +
+      '<span style="font:600 10px/1 ' + MONO + '; letter-spacing:.08em; text-transform:uppercase; color:#9aa1ab;">Feeds from</span>' + chips + '</div>' +
+      gateBtn +
+      '</div>' +
+      '<button id="detail-close" style="flex:none; width:30px; height:30px; border-radius:8px; border:1px solid #e6e8ec; background:#fff; color:#6b7280; cursor:pointer; font:400 16px/1 ' + SANS + ';">&times;</button>' +
+      '</div>';
+    $('detail-close').addEventListener('click', function () { state.selectedStepId = null; render(); });
+    var og = $('detail-open-gate');
+    if (og) og.addEventListener('click', function () { goTab('gate'); });
+  }
+
+  // ---- gate ----
+  function renderGate() {
+    var gateStep = state.gateStep;
+    $('gate-progress').textContent = gateStep + ' / 3 evaluated';
+    var gnBase = "display:inline-flex; align-items:center; gap:7px; padding:9px 14px; border-radius:9px; font:600 12.5px/1 " + SANS + "; cursor:pointer;";
+    $('gate-next').style.cssText = gnBase + " border:0; background:#2563eb; color:#fff;" + (gateStep >= 3 ? ' opacity:.45; pointer-events:none;' : '');
+    $('gate-prev').style.cssText = gnBase + " border:1px solid #d7dbe1; background:#fff; color:#4b5563;" + (gateStep <= 0 ? ' opacity:.45; pointer-events:none;' : '');
+    $('gate-play').textContent = gateT ? 'Pause' : (gateStep >= 3 ? 'Replay' : 'Auto-play');
+
+    var html = '';
+    for (var i = 0; i < CRITERIA.length; i++) {
+      var c = CRITERIA[i];
+      var revealed = c.n <= gateStep;
+      html += '<div style="display:flex; justify-content:center; padding:5px 0;"><svg width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="#c3c8cf" stroke-width="1.5"><path d="M8 1v14M4.5 12 8 15.5 11.5 12"/></svg></div>';
+      if (revealed) {
+        html += '<div style="background:#fff; border:1px solid #e6e8ec; border-left:3px solid #0f8a53; border-radius:0 12px 12px 0; padding:15px 18px; box-shadow:0 1px 3px rgba(16,24,32,.05); animation:acFadeUp .32s ease;">' +
+          '<div style="display:flex; align-items:flex-start; gap:12px;">' +
+          '<span style="width:24px; height:24px; flex:none; border-radius:50%; background:#1a2233; color:#fff; display:flex; align-items:center; justify-content:center; font:600 12px/1 ' + MONO + ';">' + c.n + '</span>' +
+          '<div style="flex:1; min-width:0;">' +
+          '<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">' +
+          '<div style="font:600 14px/1.35 ' + SANS + '; color:#1a2233; max-width:340px;">' + esc(c.title) + '</div>' +
+          '<span style="display:inline-flex; align-items:center; gap:6px; font:600 10.5px/1 ' + MONO + '; letter-spacing:.05em; color:#0f8a53; background:#e2f3ea; border:1px solid #bfe4cf; padding:5px 9px; border-radius:6px; flex:none;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#0f8a53" stroke-width="2"><path d="M3 8.5 6.5 12 13 4.5"/></svg>HOLDS</span></div>' +
+          '<div style="margin-top:10px; display:flex; align-items:center; gap:8px;">' +
+          '<span style="font:600 9.5px/1 ' + MONO + '; color:#4b5563; background:#eef1f5; border:1px solid #e0e4e9; border-radius:5px; padding:3px 6px;">' + esc(c.sys) + '</span>' +
+          '<span style="font:500 11.5px/1 ' + SANS + '; color:#6b7280;">' + esc(c.sysName) + '</span></div>' +
+          '<div style="margin-top:10px; padding:10px 13px; background:#f8f9fb; border:1px solid #eef0f3; border-radius:8px; font:450 12.5px/1.5 ' + MONO + '; color:#333c4d;">' + esc(c.evidence) + '</div>' +
+          '</div></div></div>';
+      } else {
+        html += '<div style="background:#fafbfc; border:1px dashed #dfe2e7; border-radius:12px; padding:14px 18px; display:flex; align-items:center; gap:12px; opacity:.75;">' +
+          '<span style="width:24px; height:24px; flex:none; border-radius:50%; background:#eef0f3; color:#9aa1ab; display:flex; align-items:center; justify-content:center; font:600 12px/1 ' + MONO + ';">' + c.n + '</span>' +
+          '<div style="font:500 13px/1.35 ' + SANS + '; color:#9aa1ab;">' + esc(c.title) + '</div>' +
+          '<svg style="margin-left:auto; flex:none;" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#c3c8cf" stroke-width="1.4"><rect x="3.5" y="7" width="9" height="6" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg></div>';
+      }
+    }
+    html += '<div style="display:flex; justify-content:center; padding:5px 0;"><svg width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="#c3c8cf" stroke-width="1.5"><path d="M8 1v14M4.5 12 8 15.5 11.5 12"/></svg></div>';
+    if (gateStep >= 3) {
+      html += '<div style="background:#eefaf3; border:1.5px solid #bfe4cf; border-radius:13px; padding:17px 20px; animation:acFadeUp .35s ease;">' +
+        '<div style="display:flex; align-items:center; gap:10px;">' +
+        '<span style="width:28px; height:28px; flex:none; border-radius:8px; background:#0f8a53; display:flex; align-items:center; justify-content:center;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2"><path d="M3 8.5 6.5 12 13 4.5"/></svg></span>' +
+        '<div style="font:600 15px/1.2 ' + SANS + '; color:#0f6b41;">All three criteria hold — matching signature confirmed</div></div>' +
+        '<p style="margin:11px 0 0; font:450 13.5px/1.5 ' + SANS + '; color:#33604a;"><strong style="font-weight:600;">Flag + create draft handoff.</strong> The owner confirms in-line, and the item is routed <strong style="font-weight:600;">warm · pre-close</strong> to the Resolve track — with the evidence packet attached.</p></div>';
+    }
+    $('gate-criteria').innerHTML = html;
+  }
+
+  function gateStop() { if (gateT) { clearInterval(gateT); gateT = null; } }
+  function gateNext() { gateStop(); state.gateStep = Math.min(state.gateStep + 1, 3); render(); }
+  function gatePrev() { gateStop(); state.gateStep = Math.max(state.gateStep - 1, 0); render(); }
+  function gateReset() { gateStop(); state.gateStep = 0; render(); }
+  function gatePlay() {
+    if (gateT) { gateStop(); render(); return; }
+    if (state.gateStep >= 3) state.gateStep = 0;
+    gateT = setInterval(function () {
+      var n = state.gateStep + 1;
+      if (n >= 3) { gateStop(); state.gateStep = 3; render(); return; }
+      state.gateStep = n; render();
+    }, 1150);
+    render();
+  }
+
+  // ---- simulate ----
+  function renderSim() {
+    var st = state.simState, scan = state.scanIndex;
+    var html = '';
+    for (var i = 0; i < 40; i++) {
+      var isCaught = !!CAUGHT[i];
+      var scanned = st !== 'idle' && i < scan;
+      var revealed = st === 'done';
+      var bg = '#eef1f5', bd = '#e3e6ea', check = false;
+      if (revealed && isCaught) { bg = '#eaf0ff'; bd = '#2563eb'; check = true; }
+      else if (revealed) { bg = '#f6f7f9'; bd = '#e6e8ec'; }
+      else if (scanned) { bg = '#dbe7ff'; bd = '#9cbdf5'; }
+      html += '<div style="aspect-ratio:1; border-radius:7px; background:' + bg + '; border:1.5px solid ' + bd + '; display:flex; align-items:center; justify-content:center; transition:background .12s, border-color .12s;">' +
+        (check ? '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#2563eb" stroke-width="2"><path d="M3 8.5 6.5 12 13 4.5"/></svg>' : '') + '</div>';
+    }
+    $('sim-cells').innerHTML = html;
+    $('sim-status').textContent = st === 'idle' ? 'Ready · 40 open items' : (st === 'running' ? 'Scanning… ' + scan + ' / 40' : '6 of 40 matched this run');
+    var label = st === 'running' ? 'Scanning…' : (st === 'done' ? 'Re-run signature test' : 'Run signature test');
+    var runBtn = $('sim-run');
+    runBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6"><path d="M4 3.5 12.5 8 4 12.5Z" fill="#fff"/></svg>' + label;
+    runBtn.style.cssText = "display:inline-flex; align-items:center; gap:8px; padding:10px 16px; border-radius:9px; border:0; background:#2563eb; color:#fff; font:600 13px/1 " + SANS + "; cursor:pointer;" + (st === 'running' ? ' opacity:.55; pointer-events:none;' : '');
+  }
+  function simRun() {
+    if (simT) return;
+    state.simState = 'running'; state.scanIndex = 0; render();
+    simT = setInterval(function () {
+      var n = state.scanIndex + 1;
+      if (n >= 40) { clearInterval(simT); simT = null; state.scanIndex = 40; state.simState = 'done'; render(); return; }
+      state.scanIndex = n; render();
+    }, 34);
+  }
+  function simReset() { if (simT) { clearInterval(simT); simT = null; } state.simState = 'idle'; state.scanIndex = 0; render(); }
+
+  // ---- sign-off ----
+  function renderSignoff() {
+    var el = $('signoff-action');
+    if (!state.signed) {
+      el.innerHTML = '<button id="do-sign" style="margin-top:18px; display:inline-flex; align-items:center; justify-content:center; gap:9px; padding:13px 18px; border-radius:11px; border:0; background:#0f8a53; color:#fff; font:600 14px/1 ' + SANS + '; cursor:pointer; box-shadow:0 2px 8px rgba(15,138,83,.28);"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.8"><path d="M3 8.5 6.5 12 13 4.5"/></svg>Sign off on the future state</button>';
+      $('do-sign').addEventListener('click', function () { state.signed = true; render(); });
+    } else {
+      el.innerHTML = '<div style="margin-top:18px; padding:15px 17px; background:#eefaf3; border:1.5px solid #bfe4cf; border-radius:12px; animation:acFadeUp .3s ease;">' +
+        '<div style="display:flex; align-items:center; gap:10px;"><span style="width:26px; height:26px; flex:none; border-radius:7px; background:#0f8a53; display:flex; align-items:center; justify-content:center;"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2"><path d="M3 8.5 6.5 12 13 4.5"/></svg></span><div style="font:600 14px/1.2 ' + SANS + '; color:#0f6b41;">Signed off · routed to the 60-day pilot</div></div>' +
+        '<a href="#" id="do-unsign" style="display:inline-block; margin-top:10px; font:500 12px/1 ' + SANS + '; color:#6b7280;">Undo sign-off</a></div>';
+      $('do-unsign').addEventListener('click', function (e) { e.preventDefault(); state.signed = false; render(); });
+    }
+  }
+
+  // ---- navigation ----
+  function go(view) { state.view = view; state.selectedStepId = null; render(); }
+  function goTab(tab) { state.view = 'recommendation'; state.recoTab = tab; state.selectedStepId = null; render(); }
+  function setVersion(v) { state.version = v; render(); }
+
+  // ---- master render ----
+  function render() {
+    // nav
+    $('nav-overview').style.cssText = navStyle(state.view === 'overview');
+    $('nav-connections').style.cssText = navStyle(state.view === 'connections');
+    $('nav-recommendation').style.cssText = navStyle(state.view === 'recommendation');
+    $('nav-signoff').style.cssText = navStyle(state.view === 'signoff');
+    // screens
+    show($('screen-overview'), state.view === 'overview');
+    show($('screen-connections'), state.view === 'connections');
+    show($('screen-recommendation'), state.view === 'recommendation');
+    show($('screen-signoff'), state.view === 'signoff');
+
+    if (state.view === 'recommendation') {
+      $('tab-btn-process').style.cssText = tabStyle(state.recoTab === 'process');
+      $('tab-btn-gate').style.cssText = tabStyle(state.recoTab === 'gate');
+      $('tab-btn-simulate').style.cssText = tabStyle(state.recoTab === 'simulate');
+      show($('panel-process'), state.recoTab === 'process');
+      show($('panel-gate'), state.recoTab === 'gate');
+      show($('panel-simulate'), state.recoTab === 'simulate');
+
+      if (state.recoTab === 'process') {
+        $('seg-baseline').style.cssText = segStyle(state.version === 'baseline');
+        $('seg-v1').style.cssText = segStyle(state.version === 'v1');
+        $('seg-v2').style.cssText = segStyle(state.version === 'v2');
+        renderVersionNote();
+        renderConnectors();
+        renderNodes();
+        renderDetail();
+      } else if (state.recoTab === 'gate') {
+        renderGate();
+      } else {
+        renderSim();
+      }
+    }
+    if (state.view === 'signoff') renderSignoff();
+  }
+
+  // ---- wiring ----
+  function wire() {
+    $('nav-overview').addEventListener('click', function () { go('overview'); });
+    $('nav-connections').addEventListener('click', function () { go('connections'); });
+    $('nav-recommendation').addEventListener('click', function () { go('recommendation'); });
+    $('nav-signoff').addEventListener('click', function () { go('signoff'); });
+
+    $('overview-cta-process').addEventListener('click', function () { goTab('process'); });
+    $('overview-cta-gate').addEventListener('click', function () { goTab('gate'); });
+    $('overview-directional').addEventListener('click', function (e) { e.preventDefault(); goTab('simulate'); });
+    $('connections-compare').addEventListener('click', function () { goTab('process'); });
+
+    $('tab-btn-process').addEventListener('click', function () { goTab('process'); });
+    $('tab-btn-gate').addEventListener('click', function () { goTab('gate'); });
+    $('tab-btn-simulate').addEventListener('click', function () { goTab('simulate'); });
+
+    $('seg-baseline').addEventListener('click', function () { setVersion('baseline'); });
+    $('seg-v1').addEventListener('click', function () { setVersion('v1'); });
+    $('seg-v2').addEventListener('click', function () { setVersion('v2'); });
+
+    $('nodes').addEventListener('click', function (e) {
+      var t = e.target;
+      while (t && t !== this && !t.getAttribute('data-step')) t = t.parentNode;
+      if (t && t.getAttribute && t.getAttribute('data-step')) {
+        var id = t.getAttribute('data-step');
+        state.selectedStepId = state.selectedStepId === id ? null : id;
+        render();
+      }
+    });
+
+    $('gate-next').addEventListener('click', gateNext);
+    $('gate-prev').addEventListener('click', gatePrev);
+    $('gate-play').addEventListener('click', gatePlay);
+    $('gate-reset').addEventListener('click', gateReset);
+    $('gate-see-sim').addEventListener('click', function (e) { e.preventDefault(); goTab('simulate'); });
+
+    $('sim-run').addEventListener('click', simRun);
+    $('sim-reset').addEventListener('click', simReset);
+  }
+
+  renderSidebar();
+  renderConnectionsSystems();
+  wire();
+  render();
+})();
+</script>
+</body>
+</html>

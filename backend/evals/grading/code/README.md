@@ -5,8 +5,14 @@ The second grading track, which runs **after the build stage**. Where
 built `prototype.html` with executable checks — no judge model, no tokens, a
 binary verdict with a machine-readable reason.
 
-**Status: defined, not yet populated.** This README fixes the contract so the
-first agent added here has somewhere to land.
+**Status: live.** `code_grader.py` here grades both HTML deliverables
+(`prototype.html` from build, `prototype.final.html` from validate): the
+runtime's own `static_check` and `render_check` (every nav target clicked in
+headless Chromium) plus an interaction sweep over visible buttons and filter
+inputs. Each row gets a deterministic 0-100 `code_score`, blended
+`0.7·judge + 0.3·code` in the reports. It runs automatically after a live
+run's HTML stages (`--no-code` to skip) and by hand via `grade.sh code
+<run-id>`. Per-row transcripts land in `logs/<row_id>/<stage>_code_checks.log`.
 
 ## Why it is a separate track
 

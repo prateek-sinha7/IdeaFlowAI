@@ -12,13 +12,12 @@ run_id: smoke
 track: model
 workflow: prototype
 
-dataset: datasets/small.json
+dataset: datasets/prototype_small.json
 agents: all
 from_run: null
 
-# Every row of the small dataset: two narrow briefs plus the negative-test row,
-# so a smoke run exercises both the pass and the deliberate-fail path.
-rows: [tiny_inventory]
+# One row of the small dataset — the cheapest real end-to-end pass.
+rows: [clinic_scheduler]
 limit: null
 
 # PINNED, not left to the implicit chain. `provider: null` means "walk

@@ -1,0 +1,20 @@
+{
+  "fixture": "fail",
+  "name": "hollow_console",
+  "source": "hand-authored 2026-07-30 for spec 008-grading-calibration (C4)",
+  "why": "The real broken fixture (clinic_scheduler_broken) FAILS the precheck, so the judge never sees it — it only ever tests the deterministic half of the scale. This one passes every structural check and is empty inside: generic round numbers, no records, no domain, every page a heading over a sentence. It is the only fixture that tests the half no automated check can see, and the one that keeps the severity pricing honest — a judge SHOULD report majors here with nothing deterministic to back it up.",
+  "bytes": 6817,
+  "sha256": "3d9a7ab04b1174454a40c79f89bc1fff596fe960c85f484b4ee0087bcb6519df",
+  "code_score": 100.0,
+  "static_issues": [],
+  "static_warnings": [],
+  "precheck_passed": true,
+  "precheck_reason": "generic gate + prototype_build_validate hook both clean, 5 page sections",
+  "render_clean": true,
+  "expected_band": {
+    "overall_max": 55,
+    "code_score_min": 90,
+    "note": "code_score must stay >= 90: if it drops, this has become a STRUCTURAL fixture and no longer tests the judgement half — rewrite it. If its overall score ever approaches the golden, the rubric has stopped reading content.",
+    "arithmetic_note": "A document with code_score 100 can never blend below 30 (0.3 * 100), so an overall <= 50 would require a judge sub-score under 28.6. The build rubric's own `30` anchor — 'data interchangeable with any other industry, most pages a heading over a near-empty shell' — describes THIS file, and 0.7*30 + 30 = 51. The band is 55 so a correctly-anchored judge passes it; materially above that means the rubric has stopped reading content."
+  }
+}

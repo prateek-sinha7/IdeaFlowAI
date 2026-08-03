@@ -45,7 +45,14 @@ DEFAULTS: dict = {
     "limit": None,
     "agent_under_test": {"provider": None, "model": None},
     "judge": {"provider": None, "model": None, "threshold": None},
-    "options": {"concurrency": 3, "no_judge": False, "repeats": 1},
+    "options": {
+        "concurrency": 3,
+        "no_judge": False,
+        "repeats": 1,
+        "code_grading": True,
+        "advise": True,
+        "propagate_negative": False,
+    },
 }
 
 SECTIONS = ("agent_under_test", "judge", "options")
@@ -265,6 +272,12 @@ def _validate_run_config(merged: dict) -> None:
     _validate_positive(merged["options"]["repeats"], "options.repeats", allow_none=False)
     if not isinstance(merged["options"]["no_judge"], bool):
         raise ValueError("run config: options.no_judge must be true or false")
+    if not isinstance(merged["options"]["code_grading"], bool):
+        raise ValueError("run config: options.code_grading must be true or false")
+    if not isinstance(merged["options"]["advise"], bool):
+        raise ValueError("run config: options.advise must be true or false")
+    if not isinstance(merged["options"]["propagate_negative"], bool):
+        raise ValueError("run config: options.propagate_negative must be true or false")
 
 
 def _validate_positive(value, name: str, *, allow_none: bool) -> None:

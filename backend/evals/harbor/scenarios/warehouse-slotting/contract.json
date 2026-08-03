@@ -1,0 +1,38 @@
+{
+  "_comment": "Derived from the BRIEF (datasets/prototype.json row warehouse_slotting), never from solution/spec.md. A contract read off the reference answer would make the oracle pass by construction and prove nothing. Everything gating here is a noun the brief states verbatim.",
+  "pages": [
+    "Slot Grid",
+    "SKU Detail",
+    "Replenishment",
+    "Velocity Report",
+    "Moves",
+    "Settings"
+  ],
+  "routes": [
+    "#/sku/:id"
+  ],
+  "entities": [
+    "slot",
+    "sku",
+    "move"
+  ],
+  "fields": [
+    "on-hand",
+    "daily picks",
+    "fill",
+    "reorder point",
+    "case",
+    "velocity"
+  ],
+  "formats": [
+    "A-07-2"
+  ],
+  "row_id": "warehouse_slotting",
+  "min_tasks": 6,
+  "interactions": [
+    "queue move",
+    "filter by aisle",
+    "sku search",
+    "top-10"
+  ]
+}

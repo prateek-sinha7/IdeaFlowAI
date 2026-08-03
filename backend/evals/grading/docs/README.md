@@ -58,6 +58,8 @@ errors, because silently picking one of two token-spending runs is not a conveni
 | `grade.sh prototype_small` | **yes** (5 calls) | 3 short rows, judged — the debugging loop. **Scores not comparable to `full`.** |
 | `grade.sh prototype_full` | **yes** (111 calls) | All 5 stages, every row, judged |
 | `grade.sh prototype_partial` | **yes** | The config you edit — pick agents/rows |
+| `grade.sh apply-advice <run-id> --agent <id>` | no | Apply that run's advice to `AGENT.md`, archiving the old body to `AGENT.vN.md` |
+| `grade.sh revert <agent>` | no | Restore the newest archived body; repeated calls walk back |
 | `grade.sh report <run-id> [--worst N]` | no | Per-dimension scores + recurring weaknesses |
 | `grade.sh compare <a> <b>` | no | Deltas between two runs, with the noise guard |
 | `grade.sh history <agent>` | no | Every run grouped by prompt version |
@@ -285,18 +287,36 @@ because the model is not deterministic. That is worth measuring, not engineering
 
 The whole reason this exists:
 
-1. **Run** a config. The full report prints when the run finishes, and is also written to
-   **`.runs/<workflow>/<id>/REPORT.md`** — every table in one readable file: the per-stage
-   overview, token spend split agent-vs-judge, the dimension aggregates, a row-by-row table
-   with each row's sub-scores, the clustered weaknesses, and a collapsible per-row block
-   holding the judge's rationale and quoted evidence. Use `grade.sh report <run-id> --worst 3`
-   to re-print it (and regenerate the markdown) at any time, for free.
+1. **Run** a config. One command does the whole loop — dispatch, judge, code checks, prompt
+   advice — and leaves all of it under **`.runs/<workflow>/<id>/reports/`**: `report.md` for the
+   headline grade and per-phase scores, `<agent>_report.md` for one phase in full (dimension
+   aggregates, every row's sub-scores, the judge's rationale and quoted evidence),
+   `code_report.md` for the browser findings, and `prompt_advice_<agent>.md` for the proposed
+   prompt delta. `grade.sh report <run-id> --worst 3` re-prints and regenerates it all, free.
 2. **Diagnose** with the per-dimension scores. "`data_realism` averages 62 while
    `brief_intent_match` averages 88" tells you *which paragraph* of the `AGENT.md` to rewrite;
    an overall average of 74 tells you nothing. `recurring_weaknesses` clusters the judge's
    complaints across rows — "7 of 12 rows marked down for round-number invented data" is a
-   prompt fix.
-3. **Edit** `agents/prompts/<agent-id>/AGENT.md`.
+   prompt fix. The advice file has already done this pass for you and proposed wording; treat
+   it as a starting point to review, not an instruction to apply.
+3. **Edit** `agents/prompts/<agent-id>/AGENT.md` — by hand, or let the advice apply itself:
+
+   ```bash
+   ./evals/grading/grade.sh apply-advice <run-id> --agent prototype-build
+   ```
+
+   Free — the advice was written by a run that already happened. The current body is archived
+   to `AGENT.vN.md` **before** `AGENT.md` is touched, the edits are applied, and the diff is
+   printed. Review it with `git diff`; if it reads badly,
+   `grade.sh revert prototype-build` puts it back.
+
+   Three things it will not do. It never edits the **frontmatter** — that is the engine's
+   contract (`pipeline_type`, `order`, `produces`/`consumes`, `tools`, `gate`), and an advisor
+   edit aimed at it is refused by name while the rest still apply. It never applies an edit
+   whose quoted text is missing or appears twice — the command fails, exit 9, and **nothing is
+   written**. And it never appends to the end of the file when it cannot place an addition: a
+   misplaced edit looks applied and is invisible to a skimmed diff.
+
 4. **Re-run** the identical config, so the prompt is the only variable.
 5. **Compare** — `./evals/grading/grade.sh compare <old> <new>`, or
    `grade.sh history <agent>` to see every version as a trend.
@@ -338,11 +358,14 @@ checked-in config; mixing gitignored artifacts into it would force every loader,
 tool to special-case skipping `.runs`. It also gives the code track somewhere to write, since
 both tracks share a run folder keyed by `dataset_run_id`.
 
-The runner itself is fourteen flat modules at the top of this folder, read in execution order:
-`grade_runner` → `model_grader`/`code_grader` → `config`, `hooks`, `stage_input`, `dispatch`,
-`precheck`, `judge`, `scoring`, `compare`, `artifacts`, plus two presentation leaves —
-`render` (how every value and table looks) and `markdown_report` (the run folder's REPORT.md). See [`build-summary.md`](../../../../specs/005-prompt-eval-scoring/build-summary.md) for what
-each does and [`plan.md`](../../../../specs/005-prompt-eval-scoring/plan.md) for why.
+The runner is split by track. Everything that touches a model lives in `model/`
+(`model_grader` the orchestrator, `dispatch`, `judge`, `precheck`, `stage_input`, `scoring`,
+`prompt_advisor`) beside the model track's config tree; the free deterministic track lives in
+`code/` (`code_grader`). The shared plumbing stays flat at the grading root: `grade_runner`
+(the only entry point), `config`, `hooks`, `artifacts`, `compare`, plus two presentation
+leaves — `render` (how every value and table looks) and `markdown_report` (the run folder's
+`reports/` set). See [`build-summary.md`](../../../../specs/005-prompt-eval-scoring/build-summary.md)
+for what each does and [`plan.md`](../../../../specs/005-prompt-eval-scoring/plan.md) for why.
 
 ## Naming rules
 

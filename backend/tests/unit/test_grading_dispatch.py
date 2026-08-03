@@ -15,8 +15,8 @@ import pytest
 import agents.factory
 from app.agents.sandbox import RunSandbox
 from app.core.config import settings
-from evals.grading import dispatch
-from evals.grading.stage_input import StageInput
+from evals.grading.model import dispatch
+from evals.grading.model.stage_input import StageInput
 
 AGENT_ID = "prototype-specify"
 DISPATCH_PATH = Path(dispatch.__file__)

@@ -1,0 +1,21 @@
+.venv/
+**/__pycache__/
+jobs/
+
+# Everything sync_common.sh assembles into a task directory. The sources are
+# common/ and scenarios/; these are copies regenerated before every run, and
+# committing them would reintroduce exactly the duplication the split removed.
+# task.toml is NOT ignored — it is the one hand-written file per task.
+*-specify/tests/
+*-specify/environment/
+*-specify/solution/
+*-specify/instruction.md
+*-specify/.gitignore
+*-plan/tests/
+*-plan/environment/
+*-plan/solution/
+*-plan/instruction.md
+*-plan/.gitignore
+
+# Composed prompt + its sha, written by eval.sh step 1 from the live AGENT.md.
+*/agent/
