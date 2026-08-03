@@ -315,6 +315,98 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # ── TEMPORARY DIAGNOSTIC — remove once dev deploys cleanly ────────
+      # Runs BEFORE configure-aws-credentials so it still reports when the OIDC
+      # step is the thing that fails. `configure-aws-credentials` omits an input
+      # it resolves to "" and then reports the generic "Could not load
+      # credentials from any providers", which does not distinguish "the role
+      # ARN is missing" from "STS refused the assume". This step names the
+      # difference and fails fast on an unset ARN.
+      #
+      # Values arrive via `env:` rather than being interpolated into the script
+      # body: a `${{ vars.X }}` spliced into `run:` is evaluated as shell source
+      # before bash sees it, so a value containing shell metacharacters would
+      # execute. Every other step in this workflow uses the same env: mapping.
+      - name: Preflight — resolved GitHub config (build job)
+        env:
+          V_AWS_BUILD_ROLE_ARN: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          V_AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          V_AWS_REGION: ${{ vars.AWS_REGION }}
+          V_ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          V_EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          V_PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+          V_CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          V_ACCESS_TOKEN_EXPIRE_HOURS: ${{ vars.ACCESS_TOKEN_EXPIRE_HOURS }}
+          V_HANDOFF_MAX_TRANSCRIPT_BYTES: ${{ vars.HANDOFF_MAX_TRANSCRIPT_BYTES }}
+          V_LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
+          V_LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
+          V_BEDROCK_MODEL_ID: ${{ vars.BEDROCK_MODEL_ID }}
+          V_BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
+          V_BEDROCK_CODING_MODEL_ID: ${{ vars.BEDROCK_CODING_MODEL_ID }}
+          # Secrets are only reported as set/unset — never echoed.
+          S_SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          S_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          RESOLVED_ENV: ${{ needs.resolve.outputs.environment }}
+          RESOLVED_TAG: ${{ needs.resolve.outputs.image_tag }}
+        run: |
+          set -uo pipefail
+
+          echo "GitHub Environment attached to this job: '${RESOLVED_ENV}'"
+          echo "Resolved image tag: '${RESOLVED_TAG}'"
+          echo "OIDC subject STS will receive:"
+          echo "  repo:${GITHUB_REPOSITORY}:environment:${RESOLVED_ENV}"
+          echo
+
+          # Report a variable without printing anything that could be a secret.
+          # An UNSET line means the name is absent from this Environment (or is
+          # stored as a Secret, which `vars.` cannot read).
+          show() {
+            local name="$1" value="$2"
+            if [[ -z "$value" ]]; then
+              printf '  %-32s UNSET\n' "$name"
+            else
+              printf '  %-32s %s\n' "$name" "$value"
+            fi
+          }
+
+          echo "Variables (vars.*):"
+          show AWS_BUILD_ROLE_ARN           "$V_AWS_BUILD_ROLE_ARN"
+          show AWS_DEPLOY_ROLE_ARN          "$V_AWS_DEPLOY_ROLE_ARN"
+          show AWS_REGION                   "$V_AWS_REGION"
+          show ECR_REGISTRY                 "$V_ECR_REGISTRY"
+          show EC2_INSTANCE_ID              "$V_EC2_INSTANCE_ID"
+          show PUBLIC_BASE_URL              "$V_PUBLIC_BASE_URL"
+          show CORS_ORIGINS                 "$V_CORS_ORIGINS"
+          show ACCESS_TOKEN_EXPIRE_HOURS    "$V_ACCESS_TOKEN_EXPIRE_HOURS"
+          show HANDOFF_MAX_TRANSCRIPT_BYTES "$V_HANDOFF_MAX_TRANSCRIPT_BYTES"
+          show LANGSMITH_TRACING            "$V_LANGSMITH_TRACING"
+          show LANGSMITH_PROJECT            "$V_LANGSMITH_PROJECT"
+          show BEDROCK_MODEL_ID             "$V_BEDROCK_MODEL_ID"
+          show BEDROCK_INFERENCE_PROFILE_ID "$V_BEDROCK_INFERENCE_PROFILE_ID"
+          show BEDROCK_CODING_MODEL_ID      "$V_BEDROCK_CODING_MODEL_ID"
+          echo
+
+          echo "Secrets (presence only):"
+          printf '  %-32s %s\n' SECRET_KEY \
+            "$( [[ -n "$S_SECRET_KEY" ]] && echo SET || echo UNSET )"
+          printf '  %-32s %s\n' LANGSMITH_API_KEY \
+            "$( [[ -n "$S_LANGSMITH_API_KEY" ]] && echo SET || echo UNSET )"
+          echo
+
+          echo "Region the AWS steps will use: '${V_AWS_REGION:-$AWS_REGION_DEFAULT}'"
+          if [[ -z "$V_AWS_REGION" ]]; then
+            echo "  (falling back to the workflow default — vars.AWS_REGION is unset)"
+          fi
+          echo
+
+          # Fail here rather than at configure-aws-credentials: the same
+          # underlying problem, but with an actionable message.
+          if [[ -z "$V_AWS_BUILD_ROLE_ARN" ]]; then
+            echo "::error::AWS_BUILD_ROLE_ARN is not set for the '${RESOLVED_ENV}' Environment. Set it under Settings -> Environments -> ${RESOLVED_ENV} -> Environment variables (a value stored as a Secret is NOT readable via vars.). Expected the ARN of velocityai-gha-deploy-build."
+            exit 1
+          fi
+          echo "Preflight OK — AWS_BUILD_ROLE_ARN is present."
+
       # The BUILD role: ECR push/pull only. It holds no SSM, KMS or EC2
       # permissions, so a compromised build step cannot write an environment's
       # config or reach a host — that authority lives only in the per-env
@@ -325,31 +417,15 @@ jobs:
           role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
 
-      - name: Debug — print all environment variables (build job)
+      # Confirms the assume actually happened and reports WHICH identity —
+      # a wrong-ARN-but-assumable case would otherwise surface much later as a
+      # confusing ECR permission error.
+      - name: Preflight — confirm assumed identity (build job)
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
         run: |
-          echo "=== BUILD JOB ENVIRONMENT VARIABLES ==="
-          echo "AWS_BUILD_ROLE_ARN=${{ vars.AWS_BUILD_ROLE_ARN }}"
-          echo "AWS_REGION_DEFAULT=$AWS_REGION_DEFAULT"
-          echo "AWS_REGION=${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}"
-          echo "ECR_REGISTRY=${{ vars.ECR_REGISTRY }}"
-          echo "EC2_INSTANCE_ID=${{ vars.EC2_INSTANCE_ID }}"
-          echo "PUBLIC_BASE_URL=${{ vars.PUBLIC_BASE_URL }}"
-          echo "CORS_ORIGINS=${{ vars.CORS_ORIGINS }}"
-          echo "ACCESS_TOKEN_EXPIRE_HOURS=${{ vars.ACCESS_TOKEN_EXPIRE_HOURS }}"
-          echo "BEDROCK_MODEL_ID=${{ vars.BEDROCK_MODEL_ID }}"
-          echo "BEDROCK_INFERENCE_PROFILE_ID=${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}"
-          echo "BEDROCK_CODING_MODEL_ID=${{ vars.BEDROCK_CODING_MODEL_ID }}"
-          echo "HANDOFF_MAX_TRANSCRIPT_BYTES=${{ vars.HANDOFF_MAX_TRANSCRIPT_BYTES }}"
-          echo "LANGSMITH_TRACING=${{ vars.LANGSMITH_TRACING }}"
-          echo "LANGSMITH_PROJECT=${{ vars.LANGSMITH_PROJECT }}"
-          echo "IMAGE_TAG=${{ needs.resolve.outputs.image_tag }}"
-          echo "ENVIRONMENT=${{ needs.resolve.outputs.environment }}"
-          echo "SHA_SHORT=${{ needs.resolve.outputs.sha_short }}"
-          echo "AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID:-not-set}"
-          echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:+***}"
-          echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:+***}"
-          echo "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:+***}"
-          echo "=== END BUILD JOB ENVIRONMENT VARIABLES ==="
+          set -euo pipefail
+          aws sts get-caller-identity --output json
 
       - name: Login to ECR
         id: ecr-login
@@ -580,37 +656,135 @@ jobs:
       #     instead of quietly deploying with someone else's authority.
       # It holds no ECR permissions: the box pulls images with its instance
       # role (remote-deploy.sh §8).
+      # ── TEMPORARY DIAGNOSTIC — remove once dev deploys cleanly ────────
+      # Mirror of the build job's preflight. Runs BEFORE the assume so it still
+      # reports when that is what fails. See the build job for the rationale on
+      # the env: mapping and on failing here instead of at the AWS action.
+      - name: Preflight — resolved GitHub config (deploy job)
+        env:
+          V_AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          V_AWS_REGION: ${{ vars.AWS_REGION }}
+          V_ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          V_EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          V_PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+          V_CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          V_ACCESS_TOKEN_EXPIRE_HOURS: ${{ vars.ACCESS_TOKEN_EXPIRE_HOURS }}
+          V_HANDOFF_MAX_TRANSCRIPT_BYTES: ${{ vars.HANDOFF_MAX_TRANSCRIPT_BYTES }}
+          V_LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
+          V_LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
+          V_BEDROCK_MODEL_ID: ${{ vars.BEDROCK_MODEL_ID }}
+          V_BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
+          V_BEDROCK_CODING_MODEL_ID: ${{ vars.BEDROCK_CODING_MODEL_ID }}
+          S_SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          S_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          RESOLVED_ENV: ${{ needs.resolve.outputs.environment }}
+          RESOLVED_TAG: ${{ needs.resolve.outputs.image_tag }}
+          BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ needs.build.outputs.frontend_digest }}
+        run: |
+          set -uo pipefail
+
+          echo "GitHub Environment attached to this job: '${RESOLVED_ENV}'"
+          echo "Resolved image tag: '${RESOLVED_TAG}'"
+          echo "OIDC subject STS will receive:"
+          echo "  repo:${GITHUB_REPOSITORY}:environment:${RESOLVED_ENV}"
+          echo "SSM prefix this run will write: /velocityai/${RESOLVED_ENV}"
+          echo
+
+          show() {
+            local name="$1" value="$2"
+            if [[ -z "$value" ]]; then
+              printf '  %-32s UNSET\n' "$name"
+            else
+              printf '  %-32s %s\n' "$name" "$value"
+            fi
+          }
+
+          echo "Variables (vars.*):"
+          show AWS_DEPLOY_ROLE_ARN          "$V_AWS_DEPLOY_ROLE_ARN"
+          show AWS_REGION                   "$V_AWS_REGION"
+          show ECR_REGISTRY                 "$V_ECR_REGISTRY"
+          show EC2_INSTANCE_ID              "$V_EC2_INSTANCE_ID"
+          show PUBLIC_BASE_URL              "$V_PUBLIC_BASE_URL"
+          show CORS_ORIGINS                 "$V_CORS_ORIGINS"
+          show ACCESS_TOKEN_EXPIRE_HOURS    "$V_ACCESS_TOKEN_EXPIRE_HOURS"
+          show HANDOFF_MAX_TRANSCRIPT_BYTES "$V_HANDOFF_MAX_TRANSCRIPT_BYTES"
+          show LANGSMITH_TRACING            "$V_LANGSMITH_TRACING"
+          show LANGSMITH_PROJECT            "$V_LANGSMITH_PROJECT"
+          show BEDROCK_MODEL_ID             "$V_BEDROCK_MODEL_ID"
+          show BEDROCK_INFERENCE_PROFILE_ID "$V_BEDROCK_INFERENCE_PROFILE_ID"
+          show BEDROCK_CODING_MODEL_ID      "$V_BEDROCK_CODING_MODEL_ID"
+          echo
+
+          echo "Secrets (presence only):"
+          printf '  %-32s %s\n' SECRET_KEY \
+            "$( [[ -n "$S_SECRET_KEY" ]] && echo SET || echo UNSET )"
+          printf '  %-32s %s\n' LANGSMITH_API_KEY \
+            "$( [[ -n "$S_LANGSMITH_API_KEY" ]] && echo SET || echo UNSET )"
+          echo
+
+          echo "Digests inherited from the build job:"
+          show backend_digest  "$BACKEND_DIGEST"
+          show frontend_digest "$FRONTEND_DIGEST"
+          echo
+
+          # SECRET_KEY has no host-side fallback — velocityai-load-secrets needs
+          # it in SSM or the backend refuses to start under ENV=production.
+          # Reported, not fatal: the box may already hold a seeded value from
+          # §2.4 of docs/GITHUB_CICD_SETUP.md.
+          if [[ -z "$S_SECRET_KEY" ]]; then
+            echo "::warning::SECRET_KEY is not set for the '${RESOLVED_ENV}' Environment; this run will not push it. The deploy only succeeds if SSM already holds a seeded value."
+          fi
+
+          fatal=0
+          if [[ -z "$V_AWS_DEPLOY_ROLE_ARN" ]]; then
+            echo "::error::AWS_DEPLOY_ROLE_ARN is not set for the '${RESOLVED_ENV}' Environment. Expected the ARN of velocityai-gha-deploy-${RESOLVED_ENV}."
+            fatal=1
+          fi
+          # Both are dereferenced with `:?` further down (Redeploy via SSM
+          # RunCommand), which would fail there anyway — but after the config
+          # push has already written to SSM. Catch them before that side effect.
+          if [[ -z "$V_EC2_INSTANCE_ID" ]]; then
+            echo "::error::EC2_INSTANCE_ID is not set for the '${RESOLVED_ENV}' Environment."
+            fatal=1
+          fi
+          if [[ -z "$V_ECR_REGISTRY" ]]; then
+            echo "::error::ECR_REGISTRY is not set for the '${RESOLVED_ENV}' Environment."
+            fatal=1
+          fi
+          if [[ "$fatal" -ne 0 ]]; then
+            echo "::error::Set the missing values under Settings -> Environments -> ${RESOLVED_ENV} -> Environment variables. A value stored as a Secret is NOT readable via vars."
+            exit 1
+          fi
+          echo "Preflight OK."
+
+      # The PER-ENVIRONMENT deploy role. AWS_DEPLOY_ROLE_ARN is set on each
+      # GitHub Environment to that environment's own role
+      # (velocityai-gha-deploy-<env>), whose trust policy names exactly one
+      # OIDC subject and whose permissions name exactly one SSM prefix and one
+      # EC2 `Environment` tag value. Consequences worth stating plainly:
+      #   * a dev run physically cannot write /velocityai/prod/* or command a
+      #     prod-tagged box, even with a wrong EC2_INSTANCE_ID;
+      #   * pasting the wrong environment's role ARN into an Environment fails
+      #     at STS with "Not authorized to perform sts:AssumeRoleWithWebIdentity"
+      #     instead of quietly deploying with someone else's authority.
+      # It holds no ECR permissions: the box pulls images with its instance
+      # role (remote-deploy.sh §8).
       - name: Configure AWS credentials (OIDC — per-env deploy role)
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
 
-      - name: Debug — print all environment variables (deploy job)
+      # TEMPORARY DIAGNOSTIC — confirms which role was actually assumed. A dev
+      # job that somehow assumed another environment's role shows up here rather
+      # than as a puzzling AccessDenied during the SSM push.
+      - name: Preflight — confirm assumed identity (deploy job)
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
         run: |
-          echo "=== DEPLOY JOB ENVIRONMENT VARIABLES ==="
-          echo "AWS_DEPLOY_ROLE_ARN=${{ vars.AWS_DEPLOY_ROLE_ARN }}"
-          echo "AWS_REGION_DEFAULT=$AWS_REGION_DEFAULT"
-          echo "AWS_REGION=${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}"
-          echo "ECR_REGISTRY=${{ vars.ECR_REGISTRY }}"
-          echo "EC2_INSTANCE_ID=${{ vars.EC2_INSTANCE_ID }}"
-          echo "PUBLIC_BASE_URL=${{ vars.PUBLIC_BASE_URL }}"
-          echo "CORS_ORIGINS=${{ vars.CORS_ORIGINS }}"
-          echo "ACCESS_TOKEN_EXPIRE_HOURS=${{ vars.ACCESS_TOKEN_EXPIRE_HOURS }}"
-          echo "BEDROCK_MODEL_ID=${{ vars.BEDROCK_MODEL_ID }}"
-          echo "BEDROCK_INFERENCE_PROFILE_ID=${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}"
-          echo "BEDROCK_CODING_MODEL_ID=${{ vars.BEDROCK_CODING_MODEL_ID }}"
-          echo "HANDOFF_MAX_TRANSCRIPT_BYTES=${{ vars.HANDOFF_MAX_TRANSCRIPT_BYTES }}"
-          echo "LANGSMITH_TRACING=${{ vars.LANGSMITH_TRACING }}"
-          echo "LANGSMITH_PROJECT=${{ vars.LANGSMITH_PROJECT }}"
-          echo "ENVIRONMENT=${{ needs.resolve.outputs.environment }}"
-          echo "IMAGE_TAG=${{ needs.resolve.outputs.image_tag }}"
-          echo "SHA_SHORT=${{ needs.resolve.outputs.sha_short }}"
-          echo "AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID:-not-set}"
-          echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:+***}"
-          echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:+***}"
-          echo "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:+***}"
-          echo "=== END DEPLOY JOB ENVIRONMENT VARIABLES ==="
+          set -euo pipefail
+          aws sts get-caller-identity --output json
 
       # ── Push config from GitHub variables/secrets to SSM ──────────────
       # Only parameters with non-empty values are pushed. The on-host
