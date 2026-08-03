@@ -650,6 +650,16 @@ export interface PipelineRunState {
   unresolvedEdges?: Array<{ consuming_agent_id: string; artifact_type: string }>;
   protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
   protoCompletedTaskCount?: number;
+  // KAN-153 — total task count known as soon as the first task_loop_progress fires.
+  // Sourced from the `total_tasks` field the backend emits on every task_loop_progress
+  // event (task_loop.py). Lets the ConstructionBlock render ALL tasks as "pending"
+  // upfront rather than one-by-one. Optional so history/reopen callers are unchanged.
+  protoTotalTasks?: number;
+  // KAN-153 — task titles parsed from the planner agent's output the moment
+  // the first task_loop_progress fires. Indexed by 1-based task number so the
+  // ConstructionBlock can show "Task 1 · HTML Shell & Navigation" upfront.
+  // Optional; falls back to "Task N" placeholder when absent.
+  protoPlannedTasks?: Array<{ number: number; title: string }>;
   // Phase 13
   degraded?: boolean;
   degradedFailedAgents?: string[];

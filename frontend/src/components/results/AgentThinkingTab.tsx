@@ -123,7 +123,14 @@ export function AgentThinkingTab({
   const resolvedWaves = waves ?? [];
   const completedTaskCount = pipelineState?.protoCompletedTaskCount ?? 0;
   const waveTaskUniverse = new Set(resolvedWaves.flatMap(w => w.taskIds));
-  const totalTasks = waveTaskUniverse.size > 0 ? waveTaskUniverse.size : completedTaskCount;
+  // KAN-153: prefer the authoritative total from task_loop_progress events
+  // (protoTotalTasks), which is known as soon as the build loop starts its
+  // first iteration — before any task completes. Falls back to wave universe
+  // size (from fan-out events) or the running completed count for non-task_loop
+  // pipelines. This makes ALL tasks visible upfront as "pending".
+  const totalTasks = (pipelineState?.protoTotalTasks ?? 0) > 0
+    ? pipelineState!.protoTotalTasks!
+    : waveTaskUniverse.size > 0 ? waveTaskUniverse.size : completedTaskCount;
   const constructionIdx = agents.findIndex(a => /build|construct/i.test(a.id));
   const constructionAgent = constructionIdx >= 0 ? agents[constructionIdx] : undefined;
   const laterAgentStarted = constructionIdx >= 0 &&
@@ -166,7 +173,19 @@ export function AgentThinkingTab({
               totalTasks,
               isComplete: constructionComplete,
               waves: resolvedWaves,
-              tasks: pipelineState?.protoCompletedTasks,
+              // KAN-153: merge planned titles (from protoPlannedTasks) with completed
+              // task data (from protoCompletedTasks). Completed data wins for tasks
+              // that have already finished (carries summary etc.). Planned data fills
+              // in titles for tasks not yet complete, so they show their real name
+              // instead of "Task N" placeholder.
+              tasks: (() => {
+                const planned = pipelineState?.protoPlannedTasks ?? [];
+                const completed = pipelineState?.protoCompletedTasks ?? [];
+                if (planned.length === 0) return completed;
+                if (completed.length === 0) return planned.map(p => ({ ...p, summary: "" }));
+                const completedByNum = new Map(completed.map(t => [t.number, t]));
+                return planned.map(p => completedByNum.get(p.number) ?? { number: p.number, title: p.title, summary: "" });
+              })(),
             } : undefined}
             onOpenTask={isConstructionSelected ? (i) => setSelectedTaskIndex(i) : undefined}
             agents={agents}
