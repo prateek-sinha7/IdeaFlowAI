@@ -547,20 +547,70 @@ aws s3 cp "s3://${BACKUP_BUCKET}/config/docker-compose.prod.yml" \
 chown "$APP_USER:$APP_USER" /opt/velocityai/docker-compose.yml /opt/velocityai/docker-compose.prod.yml
 chmod 0644 /opt/velocityai/docker-compose.yml /opt/velocityai/docker-compose.prod.yml
 
-# deploy.env (aws_s3_object.deploy_env, app layer) carries the resolved image
-# URIs for the deployed tag against the SHARED repos (velocityai/backend +
-# velocityai/frontend — built once, promoted by tag). It is authoritative; the
-# CI redeploy and this bootstrap both read it. Fall back to constructing the
-# refs from VELOCITYAI_IMAGE_TAG on a very first boot before the first apply.
+# ── 10b. Resolve which images this host should run ─────────────────────────
+# Precedence, most authoritative first:
+#
+#   1. SSM ${PARAM_PREFIX}/deploy/{backend,frontend}_image — digest-pinned refs
+#      written by .github/workflows/deploy.yml AFTER its health gate passed, so
+#      they name the last version that provably served traffic in this
+#      environment. This is what lets a REPLACED / REBUILT instance return to
+#      the current release on its own, without waiting for a pipeline run.
+#      Before this existed, the deployed version lived ONLY in this box's
+#      /etc/velocityai/app.env and died with the instance, so a rebuild fell
+#      back to (2) and tried to pull a tag CI had never built.
+#
+#   2. s3://$BACKUP_BUCKET/config/deploy.env — Terraform's var.image_tag
+#      (aws_s3_object.deploy_env, app layer). Only meaningful before the first
+#      CI deploy: Terraform is deliberately not in the deploy loop, so this
+#      object goes stale the moment CI ships anything. Kept as the pre-first-
+#      deploy seed, NOT as a source of truth.
+#
+#   3. ${ECR_REGISTRY}/velocityai/<component>:${IMAGE_TAG} — last-resort
+#      construction. Frequently a tag that does not exist in ECR at all.
+#
+# Only (1) is accepted when BOTH refs are present: a half-written pair would
+# otherwise run a backend and frontend from different releases.
 DEPLOY_BACKEND_IMAGE=""
 DEPLOY_FRONTEND_IMAGE=""
-if aws s3 cp "s3://${BACKUP_BUCKET}/config/deploy.env" /tmp/deploy.env --region "$REGION" 2>/dev/null; then
-    DEPLOY_BACKEND_IMAGE="$(grep -E '^BACKEND_IMAGE=' /tmp/deploy.env | cut -d= -f2-)"
-    DEPLOY_FRONTEND_IMAGE="$(grep -E '^FRONTEND_IMAGE=' /tmp/deploy.env | cut -d= -f2-)"
+IMAGE_PIN_SOURCE=""
+
+# `|| true` inside the substitution: a missing parameter makes the CLI exit
+# non-zero, and a bare assignment would abort the whole script under `set -e`.
+ssm_deploy_param() {
+    aws ssm get-parameter \
+        --name "${PARAM_PREFIX}/deploy/$1" \
+        --region "$REGION" \
+        --query 'Parameter.Value' --output text 2>/dev/null || true
+}
+
+_ssm_backend="$(ssm_deploy_param backend_image)"
+_ssm_frontend="$(ssm_deploy_param frontend_image)"
+# `--output text` renders a JSON null as the literal string "None"; treat that
+# as absent rather than letting it become an image reference.
+if [[ "$_ssm_backend" == "None" ]]; then _ssm_backend=""; fi
+if [[ "$_ssm_frontend" == "None" ]]; then _ssm_frontend=""; fi
+
+if [[ -n "$_ssm_backend" && -n "$_ssm_frontend" ]]; then
+    DEPLOY_BACKEND_IMAGE="$_ssm_backend"
+    DEPLOY_FRONTEND_IMAGE="$_ssm_frontend"
+    IMAGE_PIN_SOURCE="SSM ${PARAM_PREFIX}/deploy/* (last known-good deploy)"
+elif aws s3 cp "s3://${BACKUP_BUCKET}/config/deploy.env" /tmp/deploy.env --region "$REGION" 2>/dev/null; then
+    # Same `|| true` reasoning: grep exits 1 when the key is absent, and under
+    # `pipefail` that would propagate out of the command substitution.
+    DEPLOY_BACKEND_IMAGE="$(grep -E '^BACKEND_IMAGE=' /tmp/deploy.env | cut -d= -f2- || true)"
+    DEPLOY_FRONTEND_IMAGE="$(grep -E '^FRONTEND_IMAGE=' /tmp/deploy.env | cut -d= -f2- || true)"
     rm -f /tmp/deploy.env
+    IMAGE_PIN_SOURCE="s3://${BACKUP_BUCKET}/config/deploy.env (Terraform var.image_tag — may be stale)"
 fi
+
 BACKEND_IMAGE_REF="${DEPLOY_BACKEND_IMAGE:-${ECR_REGISTRY}/velocityai/backend:${IMAGE_TAG}}"
 FRONTEND_IMAGE_REF="${DEPLOY_FRONTEND_IMAGE:-${ECR_REGISTRY}/velocityai/frontend:${IMAGE_TAG}}"
+if [[ -z "$IMAGE_PIN_SOURCE" ]]; then
+    IMAGE_PIN_SOURCE="constructed from VELOCITYAI_IMAGE_TAG=${IMAGE_TAG} (no deploy record found)"
+fi
+echo "[bootstrap] image pins resolved from: ${IMAGE_PIN_SOURCE}"
+echo "[bootstrap]   backend  ${BACKEND_IMAGE_REF}"
+echo "[bootstrap]   frontend ${FRONTEND_IMAGE_REF}"
 
 # ── 11. /etc/velocityai/app.env image-tag pin ──────────────────────────────
 # ECR repos are IMMUTABLE — deploy.sh pushes :<git-sha> (never :latest).
@@ -667,6 +717,14 @@ while IFS=$'\t' read -r name value; do
         llm/model_id)             emit BEDROCK_MODEL_ID            "$value" ;;
         llm/inference_profile_id) emit BEDROCK_INFERENCE_PROFILE_ID "$value" ;;
         llm/coding_model_id)      emit BEDROCK_CODING_MODEL_ID     "$value" ;;
+        deploy/*)
+            # Deploy coordinates, not app config: deploy/{backend,frontend}_image
+            # (read by bootstrap-ec2.sh §10b to recover the last known-good
+            # release on a rebuilt host) and deploy/instance_id. These must NOT
+            # reach app.env — the image pins are host-anchored and re-asserted
+            # from the preserve list above. Skipped silently rather than falling
+            # through to the WARN below, which would fire on every app start.
+            ;;
         *)
             echo "[velocityai-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;
     esac
@@ -1149,14 +1207,60 @@ systemctl enable --now \
 # rare case where the unit file's ExecStop has been edited away from
 # what we expect.
 systemctl enable velocityai-app.service
-systemctl restart velocityai-app.service
 
-# ── 19. Smoke test ─────────────────────────────────────────────────────
-sleep 15
-if ! curl -fsS http://127.0.0.1:8000/health; then
-    echo "[bootstrap] WARN: /health probe failed — velocityai-app.service may still be starting"
-    echo "[bootstrap]       check: sudo systemctl status velocityai-app.service"
-    echo "[bootstrap]       check: sudo docker compose -f /opt/velocityai/docker-compose.yml -f /opt/velocityai/docker-compose.prod.yml logs --tail=200"
+# ── 18b. Start the app ONLY if its images actually exist in ECR ────────────
+# `systemctl restart` on a unit whose images cannot be pulled does not fail
+# quietly: velocityai-app.service declares Restart=on-failure / RestartSec=30s,
+# so the ExecStartPre `docker compose pull` fails, systemd retries forever, and
+# the box sits in a permanent 30-second crash loop. Worse, this section runs
+# under `set -e`, so the failed `restart` ABORTED the whole bootstrap before
+# §20 could write /var/lib/velocityai/.bootstrap-done — and because
+# velocityai-firstboot.service is gated on that sentinel's ABSENCE, every
+# subsequent reboot re-ran the entire provision and failed at exactly this
+# point again.
+#
+# A host with no deployable image yet is a LEGITIMATE state, not a defect: on a
+# brand-new environment nothing has been built, and the documented contract is
+# that a Deploy workflow run starts the application. So this is a clean skip —
+# NOT appended to BOOTSTRAP_DEGRADED — and provisioning completes normally so
+# the sentinel is written and firstboot stops re-running. The unit stays
+# `enable`d, so once images exist it comes up on boot; the GitHub deploy
+# (.github/scripts/remote-deploy.sh) drives `docker compose` directly and does
+# not depend on this start having succeeded.
+#
+# The probe is a real `docker pull` rather than a registry metadata query
+# because pullability by THIS host's credentials is the property that actually
+# matters, and it warms the local cache so the unit's own pull is a cache hit.
+# §9's ECR login is still valid here.
+APP_IMAGES_AVAILABLE=1
+for _image_ref in "$BACKEND_IMAGE_REF" "$FRONTEND_IMAGE_REF"; do
+    if docker pull "$_image_ref" >/dev/null 2>&1; then
+        echo "[bootstrap] image available: ${_image_ref}"
+    else
+        echo "[bootstrap] image NOT available: ${_image_ref}" >&2
+        APP_IMAGES_AVAILABLE=0
+    fi
+done
+
+if [[ "$APP_IMAGES_AVAILABLE" -eq 1 ]]; then
+    systemctl restart velocityai-app.service
+
+    # ── 19. Smoke test ─────────────────────────────────────────────────
+    sleep 15
+    if ! curl -fsS http://127.0.0.1:8000/health; then
+        echo "[bootstrap] WARN: /health probe failed — velocityai-app.service may still be starting"
+        echo "[bootstrap]       check: sudo systemctl status velocityai-app.service"
+        echo "[bootstrap]       check: sudo docker compose -f /opt/velocityai/docker-compose.yml -f /opt/velocityai/docker-compose.prod.yml logs --tail=200"
+    fi
+else
+    # Clear any crash loop left by an earlier run before leaving the unit idle,
+    # so `systemctl status` reflects "not started yet" rather than "failed".
+    systemctl stop velocityai-app.service >/dev/null 2>&1 || true
+    systemctl reset-failed velocityai-app.service >/dev/null 2>&1 || true
+    echo "[bootstrap] SKIP: not starting velocityai-app.service — the pinned images are not in ECR yet."
+    echo "[bootstrap]       pins came from: ${IMAGE_PIN_SOURCE}"
+    echo "[bootstrap]       This is expected before the first successful Deploy workflow run."
+    echo "[bootstrap]       Run the GitHub 'Deploy' workflow for this environment to build, push and start the app."
 fi
 # ── 20. Completion sentinel ────────────────────────────────────────────
 # Signals that the full host bootstrap finished. Consumed by:
