@@ -569,7 +569,6 @@ if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
     fi
     
     if [[ "$CW_AGENT_OK" -eq 1 ]]; then
-    if [[ "$CW_AGENT_OK" -eq 1 ]]; then
         if ! gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --import "$_cw_key" >/dev/null 2>&1 \
             || ! gpg --no-default-keyring --keyring "$_cw_tmpdir/keyring.gpg" --verify "$_cw_sig" "$_cw_deb" >/dev/null 2>&1; then
             degrade_agent "amazon-cloudwatch-agent.deb v${CW_AGENT_VERSION} FAILED signature verification — refusing to install a package that does not match AWS's published signature" "cwagent-signature"

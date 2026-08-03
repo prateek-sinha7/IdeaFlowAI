@@ -543,6 +543,7 @@ jobs:
             docker-compose.yml
             docker-compose.prod.yml
             infra/scripts/reconcile-host-config.sh
+            infra/scripts/post-deploy-verify-users.py
             .github/scripts/remote-deploy.sh
           sparse-checkout-cone-mode: false
 
