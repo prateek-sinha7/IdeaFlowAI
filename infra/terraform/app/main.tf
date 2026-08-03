@@ -160,8 +160,15 @@ resource "aws_s3_object" "compose_yaml" {
 # CloudWatch stream instead of the CloudWatch agent's undifferentiated
 # {instance_id}/docker stream. Applied alongside docker-compose.yml via
 # `docker compose -f docker-compose.yml -f docker-compose.prod.yml` (both the
-# systemd unit in bootstrap-ec2.sh and the CI redeploy in buildspec.yml pass
-# both files). Same delivery mechanism/bucket/KMS key as compose_yaml.
+# systemd unit in bootstrap-ec2.sh and the CI redeploy in
+# .github/workflows/deploy.yml + .github/scripts/remote-deploy.sh pass both
+# files). Same delivery mechanism/bucket/KMS key as compose_yaml.
+#
+# NOTE: CI no longer READS this S3 object (deploy.yml ships docker-compose.yml
+# / docker-compose.prod.yml inline from the checkout, gzip+base64, in the SSM
+# payload — see remote-deploy.sh's header). This upload stays because
+# bootstrap-ec2.sh §10 and velocityai-firstboot.service still fetch it on
+# first boot, before any CI deploy has ever run.
 resource "aws_s3_object" "compose_prod_yaml" {
   bucket = local.fnd.backup_bucket_name
   key    = "config/docker-compose.prod.yml"
@@ -182,9 +189,15 @@ resource "aws_s3_object" "compose_prod_yaml" {
 # --- Deploy env (image tag) hosted in S3 -----------------------------------
 # This is what makes the app layer the "deployable unit": the resolved image
 # URIs for var.image_tag. Changing image_tag changes this object's content, so
-# `app apply` re-uploads it and the on-host redeploy (SSM RunCommand in
-# infra/buildspec.yml) reads it to `docker compose pull` the new tag. The
+# `app apply` re-uploads it and bootstrap-ec2.sh §10 reads it on first boot to
+# seed BACKEND_IMAGE/FRONTEND_IMAGE before any CI deploy has run. The
 # docker-compose.yml interpolates ${BACKEND_IMAGE}/${FRONTEND_IMAGE} from here.
+#
+# NOTE: steady-state CI redeploys (.github/workflows/deploy.yml) do NOT read
+# this object — GitHub Actions computes the image tag itself and pins it
+# directly into /etc/velocityai/app.env via remote-deploy.sh, with no
+# Terraform apply in the loop. This S3 object is retained purely for the
+# first-boot bootstrap path described above.
 resource "aws_s3_object" "deploy_env" {
   bucket = local.fnd.backup_bucket_name
   key    = "config/deploy.env"

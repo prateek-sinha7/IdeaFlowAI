@@ -47,7 +47,7 @@ Verify: `terraform version`, `aws --version`, `session-manager-plugin`.
 
 | Layer | Cadence | Creates | Applied by |
 |---|---|---|---|
-| `bootstrap` | once/account | State bucket + DynamoDB lock + bootstrap KMS; optionally the CI/CD IAM (GitLab runners and/or GitHub OIDC role) | a human admin |
+| `bootstrap` | once/account | State bucket + DynamoDB lock + bootstrap KMS; optionally the GitHub Actions OIDC provider + shared deploy role | a human admin |
 | `shared` | once/account | ECR repos (`velocityai/backend`, `velocityai/frontend`) | human, then CI |
 | `foundation(<env>)` | once/env | VPC, KMS CMK, IAM instance role, secrets (SSM), backups | human first, then CI |
 | `app(<env>)` | every deploy | EC2 + EBS + EIP, DNS, monitoring, config objects in S3 | human first, then CI |
@@ -132,20 +132,34 @@ terraform apply -var-file=bootstrap.tfvars
 
 Note the `state_bucket` output (call it `$B` below).
 
-### 1a. GitHub Actions CI/CD (OIDC + deploy role)
+### 1a. GitHub Actions CI/CD (OIDC + build role + per-env deploy roles)
 
 The GitHub Actions pipeline (`ci.yml` + `deploy.yml`) is the **only** CI/CD
-path. Its AWS side — the OIDC identity provider, one shared deploy role, the
-OIDC trust relationship, and the least-privilege permissions — is codified in
-`bootstrap/github_oidc.tf` and is **opt-in** (off by default so a
-state-backend-only bootstrap still works). The full operator guide is
+path. Its AWS side is codified in `bootstrap/github_oidc.tf` and is **opt-in**
+(off by default so a state-backend-only bootstrap still works). It creates:
+
+| Role | Trusted subjects | Can do | Cannot do |
+|---|---|---|---|
+| `<name>-build` | `environment:dev`, `environment:stage`, `environment:prod` for this repo | ECR auth, push, pull, DescribeImages on the two shared repos | Touch SSM, KMS, or any EC2 instance |
+| `<name>-dev` | `environment:dev` **only** | Write `/velocityai/dev/*`, SendCommand to `Environment=dev` instances | Reach stage/prod parameters or hosts; push images |
+| `<name>-stage` | `environment:stage` **only** | Same, scoped to `stage` | Reach dev/prod; push images |
+| `<name>-prod` | `environment:prod` **only** | Same, scoped to `prod` | Reach dev/stage; push images |
+
+**Why one role per environment.** The OIDC `sub` claim is checked exactly once,
+by `sts:AssumeRoleWithWebIdentity` — never again on subsequent API calls. A
+single role trusted by all three environments therefore gives a `dev` job real
+authority over `prod`, no matter what conditions the policy carries, because the
+job has already satisfied them. Baking the environment into the *identity* is
+the only way to make the boundary hold inside one account.
+
+The full operator guide is
 [`../../docs/GITHUB_CICD_SETUP.md`](../../docs/GITHUB_CICD_SETUP.md).
 
 Enable it in `bootstrap.tfvars`:
 
 ```hcl
 create_github_oidc = true
-github_org_repo    = "Hexaware-Kiro-Power*/flowin*"
+github_org_repo    = "Hexaware-HnI/velocityai"   # EXACT owner/repo — wildcards are rejected
 ```
 
 then re-apply the bootstrap:
@@ -157,21 +171,26 @@ terraform -chdir=infra/terraform/bootstrap apply -var-file=bootstrap.tfvars
 Note the outputs and hand them to GitHub:
 
 ```bash
-terraform -chdir=infra/terraform/bootstrap output github_cicd_role_arn      # → AWS_ROLE_ARN variable per environment
+terraform -chdir=infra/terraform/bootstrap output github_build_role_arn    # → AWS_BUILD_ROLE_ARN  (same value in EVERY environment)
+terraform -chdir=infra/terraform/bootstrap output github_deploy_role_arns  # → AWS_DEPLOY_ROLE_ARN (the MATCHING value per environment)
 terraform -chdir=infra/terraform/bootstrap output github_oidc_provider_arn
 ```
 
-Set `github_cicd_role_arn` as the `AWS_ROLE_ARN` variable in each GitHub
-Environment (`dev`/`stage`/`prod`), per `GITHUB_CICD_SETUP.md` §3.2. Remaining
+In each GitHub Environment (`dev`/`stage`/`prod`) set **two** variables:
+`AWS_BUILD_ROLE_ARN` (identical everywhere) and `AWS_DEPLOY_ROLE_ARN` (that
+environment's own role from the map). Crossing them over fails at STS rather
+than deploying with the wrong authority — that is intended. Remaining
 non-Terraform setup — creating the GitHub Environments, per-env variables/
 secrets, tagging each EC2 `Environment=<env>`, and seeding SSM parameters —
 stays in that doc (§2.2–§3).
 
 **Notes / gotchas:**
 
-- The trust policy uses `StringLike` with `repo:Hexaware-Kiro-Power*/flowin*:environment:<env>`. A slug mismatch makes every deploy fail at OIDC auth.
+- Trust is `StringEquals` on the **exact** `repo:<owner>/<repo>:environment:<env>`. No wildcards: a glob like `my-org*/my-repo*` also admits any other GitHub owner/repository sharing that prefix. An org/repo rename means updating `github_org_repo` and re-applying — deliberately a conscious change.
+- A slug or environment-name mismatch makes deploys fail at OIDC auth with `Not authorized to perform sts:AssumeRoleWithWebIdentity`.
 - `ssm:SendCommand` is split into two statements (document + tag-conditioned instance) by design — do not "simplify" it.
-- SecureStrings are encrypted with the per-env project CMK (`alias/velocityai` for prod, `alias/velocityai-<env>` otherwise). The instance role can only decrypt that key.
+- SecureStrings are encrypted with the per-env project CMK (`alias/velocityai` for prod, `alias/velocityai-<env>` otherwise). Each deploy role holds `kms:Encrypt` only, conditioned on `kms:ViaService=ssm.<region>.amazonaws.com` **and** an encryption context matching its own `/velocityai/<env>/*` prefix — so it cannot encrypt under another environment's key. The instance role does the decrypting.
+- Leaving `deploy_permissions_boundary_arn` empty is allowed but raises a `check` warning on every plan/apply (see §0).
 
 ---
 

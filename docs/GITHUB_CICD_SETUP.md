@@ -105,10 +105,14 @@ below. Do **dev first**, validate it end-to-end, then repeat for `stage` and
 
 ### Decisions you must confirm before Stage 2
 
-- **GitHub org/repo slug** — the OIDC trust policies and `deploy.yml` use
-  `Hexaware-Kiro-Power/flowin`. If the real GitHub slug differs, update the trust
-  policy `sub` condition (§2.1) and tell the maintainer to update `deploy.yml`.
-  A mismatch means **every deploy fails at the OIDC auth step**.
+- **GitHub org/repo slug** — `Hexaware-HnI/velocityai`. This lives in exactly one
+  place: the OIDC trust policies' `sub` condition (§2.1), set via Terraform's
+  `github_org_repo`. `deploy.yml` does **not** hardcode the slug. The trust
+  condition is an exact `StringEquals` match with no wildcards, so a slug
+  mismatch — or an org/repo rename — means **every deploy fails at the OIDC auth
+  step** until the trust policy is updated. That is intentional: a wildcard that
+  absorbed renames would also admit any similarly-named repository in any
+  organisation.
 - **OIDC thumbprint** (§1.1) — verify it is current if setting up after mid-2026.
 - **AWS region** — this guide uses `eu-central-1` throughout. Change everywhere
   if your account uses a different region.
@@ -154,23 +158,35 @@ Runs on push to the `dev`/`staging` branches, on `v*` tags, or via manual
 dispatch. Four jobs:
 
 1. **gate** — calls `ci.yml` as a reusable workflow (lint + test + scan on the
-   same commit). Runs in parallel with `build`; `deploy` waits for both.
+   same commit). **Blocks `build`**, so nothing is published to the shared ECR
+   registry until CI is green on that commit.
 2. **resolve** — computes the target environment (`dev`/`stage`/`prod`) and
    image tag from the trigger, per the branch/tag → environment mapping above.
-   Enforces prod = `v*` tag (hard fail unless `allow_untagged_prod` override).
-3. **build** — OIDC-assumes the env's role, logs into ECR, builds the backend
-   (with the `opendesign` named build context) and frontend images, pushes them
-   to the shared `velocityai/{backend,frontend}` repos with `:<tag>` +
-   `:<env>-latest`. Then scans both images with trivy (warn-only until
-   2026-08-01).
-4. **deploy** — OIDC-assumes the role again, pushes config from GitHub
-   variables/secrets to SSM Parameter Store (SecureStrings encrypted with the
-   per-env project CMK alias), then runs an SSM RunCommand on the
-   tagged EC2 instance that: asserts preconditions, writes `docker-compose.yml`
-   (inline, base64), pins the new image tags in `/etc/velocityai/app.env`,
-   runs a pre-deploy `pg_dump` (stage/prod — blocks on failure), and restarts
-   `velocityai-app.service`. It then polls the command to completion and the
-   service health-checks itself via `curl /health`.
+   Enforces prod = `v*` tag (hard fail unless `allow_untagged_prod` override)
+   **and** that the commit is an ancestor of `main` — a `v*` tag can be created
+   on any commit, so the tag name alone proves nothing about what is shipping.
+3. **build** — OIDC-assumes the shared **build** role (`AWS_BUILD_ROLE_ARN`;
+   ECR-only, no SSM/KMS/EC2 reach), logs into ECR, and first *probes* for an
+   existing image with this tag: on a re-run it adopts that image's digest
+   instead of re-pushing, which is what keeps `IMMUTABLE` repositories
+   compatible with retries. Otherwise it builds the backend (with the
+   `opendesign` named build context) and frontend images and pushes them to the
+   shared `velocityai/{backend,frontend}` repos under a single `:<tag>` — there
+   is no `:<env>-latest` alias. It then scans both images **by digest** with
+   trivy at HIGH,CRITICAL and **fails the build** on any fixable finding, and
+   outputs the two digests for the deploy job.
+4. **deploy** — OIDC-assumes **that environment's own deploy role**
+   (`AWS_DEPLOY_ROLE_ARN`), pushes config from GitHub variables/secrets to SSM
+   Parameter Store (SecureStrings encrypted with the per-env project CMK alias),
+   then runs an SSM RunCommand on the tagged EC2 instance that: asserts
+   preconditions (**including that the host's own environment matches the deploy
+   target — a mismatch aborts**), writes `docker-compose.yml` (inline, base64),
+   pins the images **by digest** (`repo@sha256:...`) in
+   `/etc/velocityai/app.env`, runs a pre-deploy `pg_dump` (stage/prod — blocks
+   on failure), and recreates the stack. It then health-checks the backend, the
+   frontend and the nginx ingress; on failure it **rolls back** to the
+   previously pinned digests and verifies service was restored. The workflow
+   polls the command to completion either way.
 
 Migrations (`alembic upgrade head`) run automatically inside
 `backend/docker-entrypoint.sh` when the container starts — the deploy does not
@@ -272,15 +288,41 @@ live infra's EC2 tags and SSM prefixes (see the naming callout above). Replace
 `<ENV>` and `<ACCOUNT_ID>` throughout. **Start with dev, validate end-to-end,
 then repeat.**
 
-### 2.1 IAM Deploy Role
+### 2.1 IAM Roles: one build role + one deploy role PER ENVIRONMENT
 
-Create `velocityai-gha-deploy-<ENV>` with the OIDC trust policy below (one role
-per environment), or use a single shared role (e.g. `github-cicd`) whose trust
-policy admits all three environments and whose permissions scope by env via the
-resource ARNs / tag conditions below — either pattern works, the important part
-is the `SendCommand` split explained next. The `sub` condition binds the role
-to exactly one repo + environment (if using per-env roles), so a `dev` job can
-never assume the `prod` role.
+> **This is the recommended and Terraform-implemented shape** (see
+> `infra/terraform/bootstrap/github_oidc.tf`, which builds all of it for you).
+> Earlier revisions of this guide offered "or use a single shared role" as an
+> equivalent option. **It is not equivalent — do not use it.** The OIDC `sub`
+> claim is evaluated exactly once, by `sts:AssumeRoleWithWebIdentity`, and is
+> never re-checked on subsequent API calls. A role whose trust admits
+> `environment:dev`, `environment:stage` and `environment:prod` therefore hands
+> a `dev` job credentials that can write `/velocityai/prod/*` and
+> `ssm:SendCommand` a prod-tagged instance. Per-environment tag conditions do
+> not prevent this, because the dev job satisfies them for prod too. The
+> environment has to be part of the *identity*.
+
+Create:
+
+- **`velocityai-gha-deploy-build`** — trusted for all three environments (the
+  artifact is environment-agnostic), holding **only** ECR auth/push/pull/describe
+  on the two shared repositories. No SSM, no KMS, no EC2.
+- **`velocityai-gha-deploy-<ENV>`** — one per environment, trusted for **exactly
+  one** `sub`, holding only that environment's SSM prefix, that environment's
+  tagged instances, and `kms:Encrypt` for that environment's parameters. **No ECR
+  permissions**: the box pulls images with its own instance role.
+
+Two properties follow, and both are load-bearing:
+
+- A `dev` job cannot assume the `prod` role — STS refuses, because the `sub`
+  does not match.
+- Even a wrong `EC2_INSTANCE_ID` variable cannot cross environments, because
+  `ssm:SendCommand` is restricted to instances tagged for the role's own
+  environment.
+
+Because each deploy role is reachable only from its named GitHub Environment,
+that Environment's **required reviewers and deployment branch/tag rules become
+the access-control boundary** — configure them (§3.1).
 
 > #### ⚠️ Critical: `ssm:SendCommand` must be split into two statements
 >
@@ -301,7 +343,12 @@ never assume the `prod` role.
 > instance with the tag condition. This is already reflected in the policy
 > JSON below (`SSMSendCommandDocument` + `SSMSendCommandInstance`).
 
-**Trust policy:**
+**Trust policy (per-environment deploy role):**
+
+Note `StringEquals` and the **exact** `<OWNER>/<REPO>` — no wildcards. A glob
+such as `repo:my-org*/my-repo*:...` also matches any other GitHub owner or
+repository sharing that prefix, in any organisation, which is a
+repo-impersonation path into this AWS account.
 
 ```json
 {
@@ -316,7 +363,7 @@ never assume the `prod` role.
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:Hexaware-Kiro-Power*/flowin*:environment:<ENV>"
+          "token.actions.githubusercontent.com:sub": "repo:<OWNER>/<REPO>:environment:<ENV>"
         }
       }
     }
@@ -324,7 +371,19 @@ never assume the `prod` role.
 }
 ```
 
-**Create it via CLI:**
+The **build** role's trust policy is the same except that its `sub` condition
+lists all three environment subjects as an array (still `StringEquals`, still
+exact):
+
+```json
+"token.actions.githubusercontent.com:sub": [
+  "repo:<OWNER>/<REPO>:environment:dev",
+  "repo:<OWNER>/<REPO>:environment:stage",
+  "repo:<OWNER>/<REPO>:environment:prod"
+]
+```
+
+**Create them via CLI:**
 
 ```bash
 # Save the trust policy above to trust-<ENV>.json first, then:
@@ -332,11 +391,20 @@ aws iam create-role \
   --role-name velocityai-gha-deploy-<ENV> \
   --assume-role-policy-document file://trust-<ENV>.json \
   --description "GitHub Actions OIDC deploy role for VelocityAI <ENV>"
+
+# ...and once, for the shared build role:
+aws iam create-role \
+  --role-name velocityai-gha-deploy-build \
+  --assume-role-policy-document file://trust-build.json \
+  --description "GitHub Actions OIDC build role for VelocityAI (ECR only)"
 ```
 
-**Inline permissions policy** (least-privilege, mirrors the retired
-`velocityai-codebuild-deploy-<ENV>` role from `infra/terraform/bootstrap/cicd.tf`).
-Save as `deploy-policy-<ENV>.json`:
+In a shared account, attach a permissions boundary scoped to `velocityai-*` to
+every one of these roles (`--permissions-boundary`), so a compromised CI role
+cannot create IAM identities or touch resources outside the project namespace.
+
+**Inline permissions policy — BUILD role** (ECR only). Save as
+`build-policy.json`:
 
 ```json
 {
@@ -355,6 +423,7 @@ Save as `deploy-policy-<ENV>.json`:
         "ecr:BatchCheckLayerAvailability",
         "ecr:GetDownloadUrlForLayer",
         "ecr:BatchGetImage",
+        "ecr:DescribeImages",
         "ecr:PutImage",
         "ecr:InitiateLayerUpload",
         "ecr:UploadLayerPart",
@@ -364,7 +433,25 @@ Save as `deploy-policy-<ENV>.json`:
         "arn:aws:ecr:eu-central-1:<ACCOUNT_ID>:repository/velocityai/backend",
         "arn:aws:ecr:eu-central-1:<ACCOUNT_ID>:repository/velocityai/frontend"
       ]
-    },
+    }
+  ]
+}
+```
+
+`ecr:DescribeImages` is required, not optional: it is how the workflow resolves
+a tag to the digest it deploys, and how a re-run detects an already-pushed image
+instead of failing against the `IMMUTABLE` repository.
+
+**Inline permissions policy — DEPLOY role for `<ENV>`.** Save as
+`deploy-policy-<ENV>.json`. Note what is *absent*: no ECR (the box pulls with
+its instance role), no `kms:Decrypt`/`GenerateDataKey` (the workflow only
+writes), no `ssm:ListCommandInvocations` (never called), no
+`sts:GetCallerIdentity` (never called).
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
     {
       "Sid": "SSMPutParameters",
       "Effect": "Allow",
@@ -391,41 +478,52 @@ Save as `deploy-policy-<ENV>.json`:
     {
       "Sid": "SSMCommandStatus",
       "Effect": "Allow",
-      "Action": [
-        "ssm:GetCommandInvocation",
-        "ssm:ListCommandInvocations"
-      ],
+      "Action": "ssm:GetCommandInvocation",
       "Resource": "*"
     },
     {
-      "Sid": "KMSForSecureString",
+      "Sid": "KMSEncryptSecureStringViaSSM",
       "Effect": "Allow",
-      "Action": [
-        "kms:Encrypt",
-        "kms:Decrypt",
-        "kms:GenerateDataKey"
-      ],
-      "Resource": "arn:aws:kms:eu-central-1:<ACCOUNT_ID>:key/<KMS_KEY_ID>"
-    },
-    {
-      "Sid": "STSIdentity",
-      "Effect": "Allow",
-      "Action": "sts:GetCallerIdentity",
-      "Resource": "*"
+      "Action": "kms:Encrypt",
+      "Resource": "arn:aws:kms:eu-central-1:<ACCOUNT_ID>:key/<KMS_KEY_ID>",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "ssm.eu-central-1.amazonaws.com"
+        },
+        "StringLike": {
+          "kms:EncryptionContext:PARAMETER_ARN": "arn:aws:ssm:eu-central-1:<ACCOUNT_ID>:parameter/velocityai/<ENV>/*"
+        }
+      }
     }
   ]
 }
 ```
 
+The two KMS conditions matter: `kms:ViaService` means the grant is usable only
+through SSM, and the `PARAMETER_ARN` encryption context means it is usable only
+for this environment's own parameters — so even if the `Resource` were widened
+to several keys, a `dev` role still could not encrypt a `prod` parameter.
+
+> If you switch parameters to the **Advanced** tier, add `kms:GenerateDataKey`:
+> advanced-tier SecureStrings use envelope encryption rather than a direct
+> `kms:Encrypt` call, and the put will fail with `AccessDeniedException` without
+> it.
+
 ```bash
+aws iam put-role-policy \
+  --role-name velocityai-gha-deploy-build \
+  --policy-name velocityai-gha-deploy-build-inline \
+  --policy-document file://build-policy.json
+
 aws iam put-role-policy \
   --role-name velocityai-gha-deploy-<ENV> \
   --policy-name velocityai-gha-deploy-<ENV>-inline \
   --policy-document file://deploy-policy-<ENV>.json
 ```
 
-Note the resulting role ARN — you set it as the `AWS_ROLE_ARN` GitHub variable
-in §3.2.
+Note the resulting role ARNs — in §3.2 you set the build role as
+`AWS_BUILD_ROLE_ARN` (the same value in every Environment) and each per-env role
+as `AWS_DEPLOY_ROLE_ARN` in its matching Environment.
 
 ### 2.2 EC2 Instance Tag
 
@@ -433,6 +531,11 @@ The `SSMSendCommandInstance` condition scopes commands to only instances tagged
 with the matching `Environment`. **Without this tag the deploy step fails**
 with an access-denied error, which is the intended safety mechanism (a dev
 deploy cannot reach a prod box). Use the short env name (`dev`/`stage`/`prod`):
+
+A mis-tagged instance is caught twice: IAM refuses the `SendCommand`, and if a
+command does arrive (e.g. sent by a human), `remote-deploy.sh` compares the
+host's own `VELOCITYAI_ENVIRONMENT` against the deploy target and aborts on a
+mismatch rather than deploying one environment's images onto another's host.
 
 ```bash
 aws ec2 create-tags --resources <INSTANCE_ID> \
@@ -471,7 +574,11 @@ aws iam simulate-principal-policy \
 Create (or reuse) a symmetric KMS key for encrypting SSM SecureString parameters
 and EBS snapshots. Grant:
 
-- the **deploy role** → `kms:Encrypt` + `kms:GenerateDataKey` (to put SecureStrings)
+- the **per-environment deploy role** → `kms:Encrypt` only, conditioned on
+  `kms:ViaService=ssm.<region>.amazonaws.com` and an encryption context matching
+  its own `/velocityai/<ENV>/*` prefix (to put SecureStrings). It never reads
+  them back, so it needs no `kms:Decrypt`. Add `kms:GenerateDataKey` **only** if
+  you move to Advanced-tier parameters.
 - the **EC2 instance role** → `kms:Decrypt` (to read them via `velocityai-load-secrets`)
 
 Note the key ID/ARN — it's referenced in the deploy role policy (§2.1) and the
@@ -554,6 +661,23 @@ The `prod` reviewer requirement is the human approval gate — `deploy.yml`
 pauses at the `build`/`deploy` jobs until a reviewer approves, because both jobs
 declare `environment: prod` when the resolved environment is `prod`.
 
+> **These rules are now an AWS access-control boundary, not just workflow
+> hygiene.** Each environment's deploy role trusts exactly one OIDC subject
+> (`repo:<owner>/<repo>:environment:<env>`), so anything that can run a job in
+> the `prod` Environment can obtain prod AWS credentials. Configure, and keep
+> configured:
+>
+> - **Required reviewers** on `prod` (and ideally `stage`).
+> - **Deployment tag rule** `v*` on `prod`, so an arbitrary branch cannot select
+>   that Environment.
+> - **Protected tags** matching `v*` at the repository/ruleset level, so only
+>   authorised people can create a release tag in the first place.
+>
+> The workflow additionally refuses a prod deploy whose commit is not an ancestor
+> of `main`. That check is necessary but not sufficient on its own — it lives in
+> the workflow file, which a commit on the deployed ref could modify. The
+> GitHub-side rules above are what make it trustworthy.
+
 ### 3.2 Per-Environment Variables and Secrets
 
 For **each** environment, set the following. Variables are visible in logs;
@@ -563,7 +687,8 @@ secrets are masked.
 
 | Name | Example value | Notes |
 |---|---|---|
-| `AWS_ROLE_ARN` | `arn:aws:iam::<ACCOUNT>:role/velocityai-gha-deploy-dev` (or your shared role's ARN) | From §2.1 |
+| `AWS_BUILD_ROLE_ARN` | `arn:aws:iam::<ACCOUNT>:role/velocityai-gha-deploy-build` | From §2.1. **Same value in all three environments** — the build role is shared. |
+| `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::<ACCOUNT>:role/velocityai-gha-deploy-dev` | From §2.1. **Environment-specific — must be this environment's own role.** Pasting another environment's ARN fails at STS (by design) rather than deploying with the wrong authority. |
 | `AWS_REGION` | `eu-central-1` | |
 | `ECR_REGISTRY` | `<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com` | |
 | `EC2_INSTANCE_ID` | `i-0abc123def456` | The tagged instance from §2.2 |
@@ -610,6 +735,23 @@ diverge for the second row — this is intentional (see the naming callout at
 the top of this doc). The `resolve` job in `deploy.yml` computes these values;
 see the `How the Pipeline Works` section for the flow.
 
+Three things about this table are enforced, not conventional:
+
+- **Every ref is matched explicitly.** There is no "anything else is dev"
+  fallback, so adding a branch to the `on:` push filter without adding it here
+  fails the run instead of quietly deploying it to dev.
+- **`Tag v* (from main)` really means from `main`.** A `v*` tag can be created on
+  any commit, so `resolve` verifies the tagged commit is an ancestor of
+  `origin/main` and refuses the deploy otherwise. The break-glass override is
+  `workflow_dispatch` with `allow_untagged_prod=true`, which is reviewer-gated
+  and logged as a warning.
+- **The image tag names the artifact; the digest deploys it.** The tag in this
+  table is what gets pushed to ECR and what appears in logs. The host is pinned
+  to `repo@sha256:...` for the image that tag resolved to, so the bytes that were
+  built and scanned are provably the bytes that run. `dev-<sha12>` /
+  `stage-<sha12>` are unique per commit, and release tags are immutable in ECR,
+  so a tag can never be re-pointed at different content.
+
 ---
 
 ## 5. First Deploy and Validation
@@ -654,16 +796,24 @@ Do this for **dev** first.
 - [ ] SSM command succeeded (the poll step ended with `Deploy succeeded.`)
 - [ ] App healthy from the box: `curl -fsS http://127.0.0.1:8000/health`
 - [ ] App healthy from the internet: `curl -fsS https://<FQDN>/health`
-- [ ] Correct image tag is live:
-      `grep IMAGE /etc/velocityai/app.env` (on the box) shows the new `<env>-<sha>` tag
+- [ ] Correct image **digest** is live: `grep IMAGE /etc/velocityai/app.env` on
+      the box shows `…/velocityai/backend@sha256:…` matching the digest printed
+      by the `build` job's "Resolve image digests" step
 - [ ] Migrations ran: backend logs show `alembic upgrade head` completed at start
 
 ### OIDC / IAM sanity
 
 - [ ] The `build` job's "Configure AWS credentials" step succeeds (proves OIDC
-      trust + `AWS_ROLE_ARN` are correct).
+      trust + `AWS_BUILD_ROLE_ARN` are correct).
+- [ ] The `deploy` job's "Configure AWS credentials" step succeeds (proves this
+      environment's `AWS_DEPLOY_ROLE_ARN` trusts *this* environment's subject).
 - [ ] No `AccessDenied` on `ssm:SendCommand` (proves the EC2 `Environment` tag
       matches the role's condition).
+- [ ] **Negative check, once per account:** temporarily set `dev`'s
+      `AWS_DEPLOY_ROLE_ARN` to the *prod* role ARN and run a dev deploy — it
+      must fail at STS with `Not authorized to perform
+      sts:AssumeRoleWithWebIdentity`. That failure is the proof that environments
+      are actually isolated. Revert the variable afterwards.
 
 ---
 
@@ -678,8 +828,13 @@ Do this for **dev** first.
 | SSM command fails immediately with `_script.sh: 1: set: Illegal option -o pipefail` / `failed to run commands: exit status 2` | The generated `remote.sh` has no shebang, so `AWS-RunShellScript` executed it with the box's default `/bin/sh` (dash) instead of bash — dash doesn't support `set -o pipefail` | Confirmed fixed in `deploy.yml`: the heredoc now starts with `#!/bin/bash` before `set -euo pipefail` so SSM always runs it under bash regardless of the instance's default shell |
 | Health check times out | Image tag not in ECR yet, or app boot error (bad `SECRET_KEY`, DB unreachable) | Confirm `build` pushed the tag; check backend logs; verify `SECRET_KEY` is set and non-default in SSM |
 | Config value not reaching the app | Wrong SSM key name — `velocityai-load-secrets` silently drops unknown keys | Use the exact names in [§10](#10-reference-config-key-mapping); Bedrock keys live under `llm/*` |
-| `docker compose pull` fails with `manifest unknown` | The `<env>-<sha>` tag wasn't pushed (build job skipped/failed) | Re-run the workflow; confirm the `build` job completed |
-| Push to ECR fails with `denied` | Deploy role missing ECR push actions, or repo ARN mismatch | Re-check the `ECRPushPull` statement resource ARNs (§2.1) |
+| `docker compose pull` fails with `manifest unknown` | The digest isn't in the repo the box is pulling from (build job skipped/failed, or `ECR_REGISTRY` points at another account) | Re-run the workflow; confirm the `build` job completed and compare its digests with `/etc/velocityai/app.env` |
+| Push to ECR fails with `denied` | Build role missing ECR push actions, or repo ARN mismatch | Re-check the `ECRPushPull` statement resource ARNs (§2.1) |
+| Push to ECR fails with `ImagePushNotAllowedException` / `cannot be overwritten because the repository is configured as immutable` | The tag already exists and the "Probe ECR for an existing image" step didn't adopt it — usually because the build role lacks `ecr:DescribeImages` | Add `ecr:DescribeImages` to the build policy (§2.1). Never "fix" this by flipping the repository to `MUTABLE`. |
+| Image scan step fails the build on a CVE | The scan is blocking at HIGH,CRITICAL for **fixable** findings | Rebuild on a patched base image or bump the dependency. If genuinely unfixable, add a dated, justified entry to `.trivyignore.images`. |
+| `deploy` job fails with `environment mismatch — this host is 'X', the deploy targets 'Y'` | `EC2_INSTANCE_ID` on this Environment points at another environment's box, or the instance's `Environment` tag / `VELOCITYAI_ENVIRONMENT` is wrong | Fix the variable or the tag. This is a deliberate hard stop: continuing would put one environment's images on another's host, and skip that host's pre-deploy backup. |
+| `resolve` job fails with `commit … is not an ancestor of origin/main` | A `v*` tag was cut on a commit that isn't merged to `main` | Merge to `main` and re-tag. For a genuine emergency use `workflow_dispatch` with `allow_untagged_prod=true` (reviewer-gated, logged as a warning). |
+| Deploy reports `ROLLBACK SUCCEEDED` | The new images failed the health gate; the box was returned to the previous digests | Investigate the printed backend/frontend logs. Note that **migrations are not rolled back** — if the failed release migrated the schema, restore the pre-deploy `pg_dump` (§ backups). |
 
 **Reading a failed SSM command manually:**
 
@@ -885,10 +1040,19 @@ aws iam create-open-id-connect-provider \
 aws iam list-open-id-connect-providers
 ```
 
-### A.3 Step 2 — Create the IAM role + trust policy
+### A.3 Step 2 — Create the IAM roles + trust policies
 
-One **shared role** (e.g. `github-cicd`) whose trust admits all three GitHub
-Environments. Save as `trust-policy.json`:
+> **Do not create one shared role for all three environments.** A previous
+> revision of this appendix showed exactly that, with a `StringLike` `sub` list
+> covering dev/stage/prod. It does not isolate environments: STS checks the `sub`
+> claim once, at AssumeRole, and no later API call re-checks it — so a `dev` job
+> ends up holding credentials that are equally valid against prod resources.
+> Use the split described in §2.1: **one ECR-only build role** (which may be
+> shared, because the artifact is environment-agnostic and the repositories are
+> shared) plus **one deploy role per environment**.
+
+The **build** role's trust policy — `StringEquals`, exact owner/repo, all three
+environment subjects. Save as `trust-build.json`:
 
 ```json
 {
@@ -902,13 +1066,11 @@ Environments. Save as `trust-policy.json`:
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-        },
-        "StringLike": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
           "token.actions.githubusercontent.com:sub": [
-            "repo:<GITHUB_ORG>/<REPO>:environment:dev",
-            "repo:<GITHUB_ORG>/<REPO>:environment:stage",
-            "repo:<GITHUB_ORG>/<REPO>:environment:prod"
+            "repo:<GITHUB_OWNER>/<REPO>:environment:dev",
+            "repo:<GITHUB_OWNER>/<REPO>:environment:stage",
+            "repo:<GITHUB_OWNER>/<REPO>:environment:prod"
           ]
         }
       }
@@ -917,14 +1079,30 @@ Environments. Save as `trust-policy.json`:
 }
 ```
 
+Each **deploy** role's trust policy is the same with a single-valued `sub`
+(`repo:<GITHUB_OWNER>/<REPO>:environment:<ENV>`) — see §2.1.
+
+> **⚠️ Use `StringEquals`, never `StringLike`, and never a wildcard in the
+> owner/repo.** `repo:my-org*/my-repo*:environment:prod` also matches any other
+> GitHub owner or repository sharing that prefix — in any organisation — so
+> anyone able to create such a repository could assume your role. Tolerating an
+> org rename is not worth that; a rename should be a deliberate policy update.
+
 > **⚠️ The `environment:` names MUST match your GitHub Environment names
 > exactly** — `dev`/`stage`/`prod`, **not** `staging`/`production`. A mismatch
 > makes assume-role fail for that environment.
 
 ```bash
-aws iam create-role --role-name <ROLE_NAME> \
-  --assume-role-policy-document file://trust-policy.json \
-  --description "GitHub Actions OIDC deploy role for VelocityAI"
+aws iam create-role --role-name velocityai-gha-deploy-build \
+  --assume-role-policy-document file://trust-build.json \
+  --permissions-boundary arn:aws:iam::<AWS_ACCOUNT_ID>:policy/velocityai-deploy-boundary \
+  --description "GitHub Actions OIDC build role for VelocityAI (ECR only)"
+
+# then once per environment, with trust-<ENV>.json from §2.1:
+aws iam create-role --role-name velocityai-gha-deploy-<ENV> \
+  --assume-role-policy-document file://trust-<ENV>.json \
+  --permissions-boundary arn:aws:iam::<AWS_ACCOUNT_ID>:policy/velocityai-deploy-boundary \
+  --description "GitHub Actions OIDC deploy role for VelocityAI <ENV>"
 ```
 
 ### A.4 Step 3 — Attach the permissions policy
@@ -982,32 +1160,48 @@ document and every deploy fails with `AccessDeniedException`.
 }
 ```
 
+> **⚠️ The policy above is the DEPRECATED single-role shape, kept only so you can
+> recognise it in an existing account. Do not create it.** Every `Resource: "*"`
+> and the three-value `Environment` tag condition are precisely what let a `dev`
+> run reach prod. It also grants three things the workflow never calls
+> (`ssm:ListCommandInvocations`, `sts:GetCallerIdentity`, `kms:Decrypt`) and
+> `kms:GenerateDataKey`, which is only needed for Advanced-tier parameters.
+>
+> **Use the two scoped policies in §2.1 instead** — a build policy with ECR only,
+> and a per-environment deploy policy whose every resource names one
+> environment. If you find a role like this in the account, migrate GitHub to the
+> new `AWS_BUILD_ROLE_ARN` / `AWS_DEPLOY_ROLE_ARN` variables and delete it.
+
+### A.5 Step 4 — Give GitHub the role ARNs
+
 ```bash
-aws iam put-role-policy --role-name <ROLE_NAME> \
-  --policy-name <ROLE_NAME>Policy \
-  --policy-document file://deploy-policy.json
+aws iam get-role --role-name velocityai-gha-deploy-build --query 'Role.Arn' --output text
+aws iam get-role --role-name velocityai-gha-deploy-<ENV> --query 'Role.Arn' --output text
 ```
 
-> For tighter scoping you can restrict the `ECRAuth`/`ECRPushPull`/
-> `SSMPutParameters` resources to specific ARNs (see §2.1). The two
-> `SendCommand` statements must stay split regardless.
-
-### A.5 Step 4 — Give GitHub the role ARN
-
-```bash
-aws iam get-role --role-name <ROLE_NAME> --query 'Role.Arn' --output text
-```
-
-Set that as the `AWS_ROLE_ARN` variable in each GitHub Environment (§3.2).
-`deploy.yml` already consumes it:
+Set the build role as `AWS_BUILD_ROLE_ARN` (the same value in every Environment)
+and each per-environment role as `AWS_DEPLOY_ROLE_ARN` in its matching
+Environment (§3.2). `deploy.yml` already consumes both:
 
 ```yaml
-- name: Configure AWS credentials (OIDC)
+# build job
+- name: Configure AWS credentials (OIDC — build role)
   uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
   with:
-    role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-    aws-region: ${{ vars.AWS_REGION || env.AWS_REGION }}
+    role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
+    aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+
+# deploy job
+- name: Configure AWS credentials (OIDC — per-env deploy role)
+  uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+  with:
+    role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+    aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
 ```
+
+Both jobs declare `permissions: id-token: write` at **job** level; the workflow
+default is `contents: read` only, so jobs that never touch AWS (`gate`,
+`resolve`) cannot mint an AWS-audience token at all.
 
 ### A.6 Do you need admin access?
 
@@ -1021,9 +1215,12 @@ You do **not** need GitHub org-owner rights to *use* OIDC.
 | Create ECR/tag EC2/KMS/SSM (AWS) | ECR/EC2/KMS/SSM write |
 | Assume the role at deploy time | Nothing extra (the OIDC token does it) |
 
-If you lack IAM admin, an AWS admin can create the provider + role and hand you
-the **role ARN**; a repo admin then sets `AWS_ROLE_ARN`. After that, anyone with
-Write can trigger deploys.
+If you lack IAM admin, an AWS admin can create the provider + roles and hand you
+the **role ARNs**; a repo admin then sets `AWS_BUILD_ROLE_ARN` and
+`AWS_DEPLOY_ROLE_ARN`. After that, anyone with Write can trigger a dev deploy —
+which is exactly why `prod` must carry required reviewers and a `v*` tag rule
+(§3.1): with per-environment roles, the ability to run a job in an Environment
+*is* the ability to obtain that environment's AWS credentials.
 
 ### A.7 Verify (optional, without a workflow)
 

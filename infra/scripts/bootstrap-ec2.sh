@@ -1155,10 +1155,11 @@ fi
 # Signals that the full host bootstrap finished. Consumed by:
 #   - velocityai-firstboot.service (its ConditionPathExists guard, so the
 #     first-boot self-provision runs exactly once per instance);
-#   - the CI redeploy in infra/buildspec.yml, which — on a freshly-created
-#     instance that is still self-provisioning — waits for this file before
-#     attempting a container redeploy (avoids racing docker compose against
-#     an install that hasn't put Docker on the box yet).
+#   - the CI redeploy in .github/scripts/remote-deploy.sh (formerly infra/
+#     buildspec.yml), which — on a freshly-created instance that is still
+#     self-provisioning — waits for this file before attempting a container
+#     redeploy (avoids racing docker compose against an install that hasn't
+#     put Docker on the box yet).
 install -d -m 0755 /var/lib/velocityai
 
 # The sentinel is written BEFORE the degraded gate on purpose: the host IS

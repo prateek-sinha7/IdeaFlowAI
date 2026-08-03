@@ -5,9 +5,9 @@ table the rest of the VelocityAI Terraform uses for remote state. It runs with
 **local state** and is committed to git so it can be re-run if the bucket is
 ever destroyed (don't actually destroy it; it's marked `prevent_destroy`).
 
-It also (optionally) provisions the per-environment CI/CD runners — see
-[`cicd.tf`](./cicd.tf). Those are gated behind `create_gitlab_runner` and are
-off by default, so a plain bootstrap creates only the state backend.
+It also (optionally) provisions the GitHub Actions CI/CD identity — see
+[`github_oidc.tf`](./github_oidc.tf). Gated behind `create_github_oidc` and off
+by default, so a plain bootstrap creates only the state backend.
 
 ## What it creates
 
@@ -15,9 +15,15 @@ off by default, so a plain bootstrap creates only the state backend.
   that encrypts the state bucket and the lock table.
 - `aws_s3_bucket` for Terraform state (versioned, SSE-KMS, TLS-only, BPA on).
 - `aws_dynamodb_table` for state locking (PITR + SSE-KMS).
-- When `create_gitlab_runner = true`: a shared GitLab CodeConnections
-  connection + default source credential, and one isolated CodeBuild runner
-  (deploy role + project + webhook + log group) per entry in `var.runners`.
+- When `create_github_oidc = true`: the GitHub Actions OIDC identity provider
+  (or an adopted existing one), **one ECR-only build role**, and **one deploy
+  role per admitted GitHub Environment** — each trusting exactly one OIDC
+  subject and scoped to only that environment's SSM prefix and
+  `Environment`-tagged instances. (A single shared role cannot isolate
+  environments: the `sub` claim is checked once at AssumeRole and never again
+  per API call — see the header of [`github_oidc.tf`](./github_oidc.tf).) See
+  [`../../../docs/GITHUB_CICD_SETUP.md`](../../../docs/GITHUB_CICD_SETUP.md)
+  for the full operator guide.
 
 It creates **nothing else**. In particular it does **not** touch any
 account-wide setting (no `aws_s3_account_public_access_block`, no

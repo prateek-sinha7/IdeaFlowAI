@@ -31,9 +31,10 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 
 # ── Degraded-completion accumulator (H-07) ─────────────────────────────
-# H-07: infra/buildspec.yml's post_build redeploy script calls this script
-# under `set -euo pipefail`, BEFORE `docker compose pull && up -d` — so a
-# non-zero exit here aborts the APPLICATION deploy, not just this script.
+# H-07: .github/scripts/remote-deploy.sh (formerly infra/buildspec.yml's
+# post_build phase) calls this script under `set -euo pipefail`, BEFORE
+# `docker compose pull && up -d` — so a non-zero exit here aborts the
+# APPLICATION deploy, not just this script.
 # nginx failures stay fail-closed (restore_and_die below still `exit 1`): a
 # bad nginx config is a live-traffic risk. The CloudWatch
 # agent section (§4) is different in kind — it is observability, not the
@@ -718,8 +719,8 @@ if [[ ${#RECONCILE_DEGRADED[@]} -gt 0 ]]; then
     # H-07: exit code 2 (never 1) for an agent-only degradation. nginx
     # failures exit 1 EARLIER, via restore_and_die/die_after_nginx's own
     # `exit 1` calls — they never reach this line. This distinction is what
-    # lets a caller (buildspec.yml's redeploy, bootstrap-ec2.sh) treat "the
-    # observability agent has a problem" (2) differently from "nginx is
+    # lets a caller (.github/scripts/remote-deploy.sh, bootstrap-ec2.sh) treat
+    # "the observability agent has a problem" (2) differently from "nginx is
     # broken, do not proceed" (1) without re-parsing this script's log.
     exit 2
 fi
