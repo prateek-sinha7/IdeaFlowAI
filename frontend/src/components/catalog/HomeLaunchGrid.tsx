@@ -179,7 +179,7 @@ export function HomeLaunchGrid({
 
     if (!hasRecents) {
       getWorkflows(jwt, { limit: RECENTS_LIMIT })
-        .then((runs) => {
+        .then(({ runs }) => {
           if (cancelled) return;
           const sliced = runs.slice(0, RECENTS_LIMIT);
           setRecents(sliced);
@@ -189,7 +189,7 @@ export function HomeLaunchGrid({
     } else {
       // Background revalidation for recents.
       getWorkflows(jwt, { limit: RECENTS_LIMIT })
-        .then((runs) => {
+        .then(({ runs }) => {
           if (cancelled) return;
           const sliced = runs.slice(0, RECENTS_LIMIT);
           setRecents(sliced);
@@ -400,7 +400,12 @@ export function HomeLaunchGrid({
                       <span className="text-[11px] text-ink-400">{relativeTime(run.createdAt)}</span>
                     </div>
                     <p className="mb-1 truncate text-[13.5px] font-semibold text-ink-900 group-hover:text-brand">{run.title}</p>
-                    <p className="truncate text-[11.5px] text-ink-400">{getWorkflowLabel(run.type)}</p>
+                    <p className="truncate text-[11.5px] text-ink-400">
+                      {/* KAN-130: append "(Chained)" when the run was launched by chaining
+                          from a prior run's output (sourceRunId non-null). SC-001: keyed
+                          on the generic sourceRunId field, never a workflow-name literal. */}
+                      {getWorkflowLabel(run.type)}{run.sourceRunId ? " (Chained)" : ""}
+                    </p>
                   </button>
                 );
               })}

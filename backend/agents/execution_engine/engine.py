@@ -5421,6 +5421,53 @@ class ExecutionEngine:
                         await self._stamp_resume_marker(wr)
                         import asyncio as _asyncio
 
+                        # D9 (KAN-139): admission-control wrapper — limit concurrent
+                        # in-flight resume drivers so N non-terminal runs at restart
+                        # do NOT fire N simultaneous Bedrock calls (saturating the
+                        # checkpointer pool and the Bedrock concurrency limit). Uses a
+                        # per-restore Semaphore (lazily created) + a time-based stagger
+                        # between batches. The port is bound (lifespan yield) BEFORE
+                        # this method returns, so tasks are created here but their
+                        # Bedrock calls are staged after the healthcheck passes.
+                        # Gate-parked runs NEVER hold the semaphore (resume_run only
+                        # acquires it around the actual model call, not the whole
+                        # lifespan), so this cannot deadlock.
+                        if not hasattr(self, "_restore_sem") or self._restore_sem is None:
+                            from app.core.config import settings as _cfg
+                            self._restore_sem = _asyncio.Semaphore(
+                                _cfg.RESTORE_ADMISSION_CONCURRENCY
+                            )
+                            self._restore_batch_count = 0
+
+                        _restore_sem = self._restore_sem
+                        _batch_idx = self._restore_batch_count
+                        _stagger_s: float
+                        try:
+                            from app.core.config import settings as _cfg2
+                            _stagger_s = _cfg2.RESTORE_ADMISSION_STAGGER_SECONDS
+                            _concurrency = _cfg2.RESTORE_ADMISSION_CONCURRENCY
+                        except Exception:
+                            _stagger_s = 15.0
+                            _concurrency = 4
+                        self._restore_batch_count += 1
+                        _batch_num = self._restore_batch_count
+
+                        async def _admitted_resume(
+                            _run_id: str = pipeline_run_id,
+                            _sem: "_asyncio.Semaphore" = _restore_sem,
+                            _batch: int = _batch_num,
+                            _stagger: float = _stagger_s,
+                            _conc: int = _concurrency,
+                        ) -> None:
+                            # Stagger: wait (batch_number // concurrency) * stagger_s
+                            # before acquiring the semaphore so consecutive batches
+                            # start RESTORE_ADMISSION_STAGGER_SECONDS apart.
+                            _wait = (_batch // _conc) * _stagger
+                            if _wait > 0:
+                                await _asyncio.sleep(_wait)
+                            async with _sem:
+                                await self.resume_run(_run_id)
+
                         # ── WR-02: register the run's LIVE queue at the SAME
                         # synchronous site as the driver task, BEFORE
                         # create_task. resume_run registers the queue again
@@ -5445,7 +5492,7 @@ class ExecutionEngine:
                                     pipeline_run_id, _q_exc,
                                 )
                         _resume_task = _asyncio.create_task(
-                            self.resume_run(pipeline_run_id)
+                            _admitted_resume()
                         )
                         # ── 12-09 Gap 2a: register the resume DRIVER task in the
                         # WS pipeline registry via the injected bridge so a
@@ -5993,7 +6040,7 @@ class ExecutionEngine:
             if user_message:
                 sources.append({
                     "type": "run_input",
-                    "label": "User brief",
+                    "label": "prompt.md",
                     "size_chars": len(user_message),
                 })
 

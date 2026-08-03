@@ -37,6 +37,8 @@ import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
+// KAN-128 (FIX-141): content-derived filename for the left chat panel deliverable card
+import { deriveDeliverableFilename } from "@/components/results/FilesTab";
 
 export interface DashboardLayoutProps {
   activeChatId: string | null;
@@ -82,6 +84,15 @@ export interface DashboardLayoutProps {
   // the viewed run's type even when it is outside the recents window.
   contentSourceRunType?: WorkflowType | null;
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
+  /**
+   * FIX-149 (Bug 2): switch the active live run view WITHOUT resetting pipeline
+   * state or fetching from the DB. Used when the user clicks a RUNNING pipeline
+   * notification — the run is live, so we must NOT call handleSelectWorkflowRun
+   * (which resets/reseeds as if it were a history reopen). Instead we just attach
+   * the SSE stream and update the content-source so the execution view reflects
+   * the selected running run.
+   */
+  onSwitchToLiveRun?: (runId: string) => void;
   // Phase 16 (ISS-017) — the persisted status of a history-reopened run. When a
   // failed/cancelled run is reopened it carries no content, so the run's
   // server-persisted status is threaded down to PreviewPanel to render the
@@ -239,6 +250,7 @@ export function DashboardLayout({
   contentSourceRunId,
   contentSourceRunType,
   onSelectWorkflowRun,
+  onSwitchToLiveRun,
   questionnaireData,
   activePipelineRunId,
   lastCancelledRunId,
@@ -331,11 +343,23 @@ export function DashboardLayout({
     markCancelled,
     markGatePaused,
     markGateResumed,
+    setNotifWorkflowRunId,
     markAllRead,
     clearAll,
   } = useNotifications();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  // FIX-155: track notif id per pipeline run (keyed by backend run id or a
+  // local placeholder) so concurrent runs (user_stories + prototype + ppt) each
+  // maintain their OWN notification entry without overwriting each other.
+  // currentPipelineNotifId tracks the CURRENTLY VIEWED run's notif for
+  // progress/gate/completion updates.
   const currentPipelineNotifId = useRef<string | null>(null);
+  // Map: local notifId → was-this-created-by-the-explicit-handler (true) or by
+  // the reactive odProtoNotifCreated effect (false). Used to prevent the reactive
+  // effect from creating a duplicate after the explicit handler already fired.
+  // keyed on pipeline type ("prototype" | "ppt") to deduplicate per concurrent run.
+  const odProtoNotifId = useRef<string | null>(null);
+  const odPptNotifId = useRef<string | null>(null);
   // KAN-90: when user explicitly cancels from the clarification step, block
   // the auto-redirect-to-execution effect for one render cycle so the home
   // navigation isn't immediately overridden by pipelineState.isRunning=true.
@@ -383,19 +407,11 @@ export function DashboardLayout({
       }
       // KAN-88 stale label fix: if currentPipelineNotifId still holds an old
       // run's id when a new pipeline starts (the previous completion effect may
-      // not have run yet), clear it so the od_prototype notification guard
-      // (!currentPipelineNotifId.current) fires correctly and creates a fresh
-      // notification with the right type. Without this, a prototype run started
-      // after a user_stories run keeps showing "User Stories" in the header.
-      // We compare against the pipelineRunId so we only reset when a genuinely
-      // NEW run starts, not on every isRunning re-render.
+      // not have run yet), clear it so subsequent notifications are created fresh.
+      // FIX-155: only reset if odProtoNotifCreated hasn't fired yet for the new
+      // run (avoids clearing a freshly-created od_prototype notification).
       const incomingRunId = pipelineState.pipelineRunId;
       if (incomingRunId && currentPipelineNotifId.current) {
-        // If the current notif was created for a different run, reset it.
-        // We detect this by checking if the notification was created for the
-        // pipeline that just started (odProtoNotifCreated resets on !isRunning).
-        // A simple guard: if isRunning just became true AND odProtoNotifCreated
-        // is false (reset after last run), we're in a new run context.
         if (!odProtoNotifCreated.current) {
           currentPipelineNotifId.current = null;
         }
@@ -407,6 +423,13 @@ export function DashboardLayout({
   // Capture output when pipeline completes (for chaining)
   useEffect(() => {
     if (pipelineState && !pipelineState.isRunning && pipelineState.agents.length > 0) {
+      // The completion notification/toast fires only once EVERY agent reached a
+      // terminal status (done/error) — an agent left `running`/`thinking`/`idle`
+      // (e.g. the build + validate pair still cycling) keeps the announcement
+      // pending. The effect re-runs on every pipelineState change and fires once
+      // they settle, because `currentPipelineNotifId` is consumed only when it
+      // actually fires. Keyed on agent status only, never on an agent or workflow
+      // name (SC-001/INV-1).
       const allDone = pipelineState.agents.every((a) => a.status === "done" || a.status === "error");
       if (allDone && pipelineState.agents.some((a) => a.status === "done")) {
         setCompletedPipelineTypes((prev) => {
@@ -478,22 +501,52 @@ export function DashboardLayout({
     if (
       pipelineState?.isRunning &&
       (pipelineState.pipeline_type === "od_prototype" || pipelineState.pipeline_type === "prototype" ||
-       pipelineState.pipeline_type === "od_ppt") &&
-      !currentPipelineNotifId.current
+       pipelineState.pipeline_type === "od_ppt")
     ) {
       if (odProtoNotifCreated.current) return;
       odProtoNotifCreated.current = true;
-      const notifId = `pipeline-${Date.now()}`;
-      currentPipelineNotifId.current = notifId;
+      // Use the stable pipelineRunId as the notification id so a second firing
+      // of this effect for the SAME run is a no-op (addRunningNotification
+      // deduplicates by id). Falls back to Date.now() only when pipelineRunId
+      // is not yet available (edge case on the very first render).
+      const notifId = pipelineState.pipelineRunId
+        ? `pipeline-${pipelineState.pipelineRunId}`
+        : `pipeline-${Date.now()}`;
       // Use correct workflowType for od_ppt vs prototype
       const wfType: WorkflowType = (pipelineState.pipeline_type === "od_ppt") ? "ppt" : "prototype";
-      const label = (pipelineState.pipeline_type === "od_ppt") ? "Presentation" : "Prototype";
-      addRunningNotification(notifId, wfType, label, 0);
+      // FIX-155: track od_prototype and od_ppt in their own refs so concurrent
+      // user_stories runs don't interfere. The currentPipelineNotifId ref still
+      // tracks the VIEWED run for progress/completion updates.
+      if (pipelineState.pipeline_type === "od_ppt") {
+        // Only create via this reactive path if the explicit handler didn't already.
+        if (!odPptNotifId.current) {
+          odPptNotifId.current = notifId;
+          currentPipelineNotifId.current = notifId;
+          // FIX-149 (Bug 1): use the user's actual brief as the title so the header
+          // dropdown shows "My interactive shopping cart" not "Prototype · Prototype".
+          const label = submittedBrief
+            ? submittedBrief.split("\n")[0].trim().slice(0, 80)
+            : "Presentation";
+          addRunningNotification(notifId, wfType, label, 0);
+        }
+      } else {
+        // od_prototype / prototype
+        if (!odProtoNotifId.current) {
+          odProtoNotifId.current = notifId;
+          currentPipelineNotifId.current = notifId;
+          const label = submittedBrief
+            ? submittedBrief.split("\n")[0].trim().slice(0, 80)
+            : "Prototype";
+          addRunningNotification(notifId, wfType, label, 0);
+        }
+      }
     }
     if (!pipelineState?.isRunning) {
       odProtoNotifCreated.current = false;
+      odProtoNotifId.current = null;
+      odPptNotifId.current = null;
     }
-  }, [pipelineState?.isRunning, pipelineState?.pipeline_type]);
+  }, [pipelineState?.isRunning, pipelineState?.pipeline_type, pipelineState?.pipelineRunId]);
 
   // Update agentsTotal when pipeline_start arrives with the real agent list
   useEffect(() => {
@@ -507,7 +560,17 @@ export function DashboardLayout({
   useEffect(() => {
     const latestRun = recentRuns?.[0];
     if (latestRun?.title && latestRun.title !== "Untitled" && currentPipelineNotifId.current) {
-      updateAgentsTotal(currentPipelineNotifId.current, pipelineState?.agents?.length ?? 0, latestRun.title);
+      const rawDbTitle = latestRun.title;
+      // FIX-130: never use a title that starts with "===" (polluted marker text).
+      // Fall back to existing notification title by not calling updateAgentsTotal.
+      if (rawDbTitle.trimStart().startsWith("===")) return;
+      let cleanDbTitle = rawDbTitle;
+      if (rawDbTitle.includes("===")) {
+        const parsed = parseRunInput(rawDbTitle);
+        cleanDbTitle = (parsed.revisionInstruction ?? parsed.brief ?? "").split("\n")[0].trim() || "";
+        if (!cleanDbTitle) return; // still polluted — skip update
+      }
+      updateAgentsTotal(currentPipelineNotifId.current, pipelineState?.agents?.length ?? 0, cleanDbTitle);
     }
   }, [recentRuns?.[0]?.title]);
 
@@ -726,7 +789,13 @@ export function DashboardLayout({
     };
 
     if (onStartPipeline) {
+      // FIX-155: always create a SEPARATE notification for the od_prototype run
+      // so it doesn't collide with a concurrently-running user_stories notification.
+      // The odProtoNotifCreated reactive effect may fire later (after pipelineState
+      // reflects the new run) — we pre-empt it by setting odProtoNotifId now so
+      // the reactive path skips the addRunningNotification call.
       const notifId = `pipeline-${Date.now()}`;
+      odProtoNotifId.current = notifId;
       currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, "prototype", pendingOdProtoParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdProtoParams.agentIds ?? [];
@@ -778,7 +847,11 @@ export function DashboardLayout({
     };
 
     if (onStartPipeline) {
+      // FIX-155: always create a SEPARATE notification for the od_ppt run so it
+      // doesn't collide with concurrently-running user_stories / od_prototype
+      // notifications. Pre-empts the odProtoNotifCreated reactive path.
       const notifId = `pipeline-${Date.now()}`;
+      odPptNotifId.current = notifId;
       currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, "ppt", pendingOdPptParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdPptParams.agentIds ?? [];
@@ -943,12 +1016,24 @@ export function DashboardLayout({
       // Strip injected context/revision markers before using as notification title
       // so the panel never shows raw "=== EXISTING PROTOTYPE HTML ===" text.
       const parsedMsg = parseRunInput(message);
-      const notifTitle = (parsedMsg.revisionInstruction ?? parsedMsg.brief ?? message).slice(0, 60);
-      addRunningNotification(notifId, resolvedType, notifTitle, 0);
+      let notifTitle = (parsedMsg.revisionInstruction ?? parsedMsg.brief ?? "").trim();
+      // FIX-130: if message is dominated by a context block, pull Original Brief from it
+      if (!notifTitle && parsedMsg.chainContext) {
+        const origBriefMatch = parsedMsg.chainContext.match(/Original Brief:\s*(.+)/);
+        notifTitle = origBriefMatch ? origBriefMatch[1].split("\n")[0].trim() : "";
+      }
+      const cleanNotifTitle = (notifTitle || message).slice(0, 60);
+      addRunningNotification(notifId, resolvedType, cleanNotifTitle, 0);
+      // FIX-130: inject _display_title so page.tsx onStartPipeline can set a
+      // clean submittedBrief even when extraParams has no _display_title yet
+      // (IdeaInputPage/LaunchWizard path never sets it directly).
+      const enrichedExtraParams = notifTitle
+        ? { ...(extraParams || {}), _display_title: notifTitle.slice(0, 60) }
+        : extraParams;
       if (connectionStatus === "connected") {
-        onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, extraParams);
+        onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, enrichedExtraParams);
       } else {
-        pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams };
+        pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams: enrichedExtraParams };
       }
     }
   }, [onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
@@ -979,16 +1064,19 @@ export function DashboardLayout({
     // Check if this chain target requires a wizard (prototype, ppt)
     const option = CHAIN_OPTIONS.find((o) => o.type === nextType);
 
-    // Find the source run ID for context fetching
-    // Match on the BASE pipeline type so a completed `od_ppt`/`od_prototype`
-    // run is found when chaining from the normalized `ppt`/`prototype` state
-    // (baseWorkflowType maps od_ppt→ppt, od_prototype→prototype, and strips
-    // the _revision suffix). Without this, the source run is never found and
-    // getChainContext is skipped, so the next pipeline starts with no context.
-    const sourceRun = recentRuns?.find(
-      r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(workflowType) && r.status === "completed"
-    );
-    const sourceRunId = sourceRun?.id;
+    // Find the source run ID for context fetching.
+    // FIX-139: always prefer contentSourceRunId (the explicit "run currently on
+    // screen") over a recentRuns type-scan. The type-scan is unreliable when
+    // multiple completed runs of the same type exist — it returns whichever
+    // matches first (which can be an older run). contentSourceRunId is set by
+    // page.tsx on pipeline_complete and on history-reopen, so it always points
+    // at the run the user is CURRENTLY viewing. Fall back to the type-scan only
+    // when contentSourceRunId is absent (e.g. initial state).
+    const sourceRunId: string | undefined =
+      contentSourceRunId ??
+      recentRuns?.find(
+        r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(workflowType) && r.status === "completed"
+      )?.id;
 
     if (option?.requiresWizard && option.wizardPath) {
       // Store the current brief so the wizard can pre-fill it
@@ -1063,7 +1151,7 @@ export function DashboardLayout({
         pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [], extraParams: { _display_title: chainBrief } };
       }
     }
-  }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, contentSourceRunId, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Chain to another pipeline starting from a historical run. The user is
   // viewing a past WorkflowRun in the history view; they pick a next
@@ -1493,6 +1581,28 @@ export function DashboardLayout({
     laneHasDeliverable ? "complete" :
     "idle";
 
+  // KAN-128 (FIX-143): content-derived deliverable filename for the left chat
+  // panel "Run summary" DeliverableCard. Uses deriveDeliverableFilename (FIX-140,
+  // FilesTab.tsx) so the chat card always agrees with the Files tab and Preview
+  // URL bar. The active content slot is selected by effectiveReviseType (the same
+  // value PreviewPanel uses for workflowType) — NOT the local workflowType state,
+  // which is stale on history-reopened runs (it stays "user_stories" by default
+  // until a wizard runs, while effectiveReviseType correctly reflects
+  // contentSourceRunType e.g. "od_ppt" or "od_prototype").
+  const laneActiveContent =
+    effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision" ||
+    effectiveReviseType === "od_ppt" || effectiveReviseType === "od_ppt_revision"
+      ? pptContent
+      : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" ||
+        effectiveReviseType === "od_prototype"
+        ? prototypeContent
+        : userStoryContent; // user_stories, custom, app_builder, and revision variants
+  const laneDerivedFilename = deriveDeliverableFilename(
+    effectiveReviseType || workflowType || "user_stories",
+    laneActiveContent || undefined,
+    pipelineState?.deliverableFilename,
+  );
+
   // Phase 39 (RUNUI-06) — the live run title for the lane header. BUG-001: bind
   // it to the VIEWED run (contentSourceRunId), not recentRuns[0] (the most-recent
   // run). On a fresh launch contentSourceRunId is null → recentRuns[0] = the
@@ -1507,13 +1617,35 @@ export function DashboardLayout({
       ? recentRuns?.find((r) => r.id === contentSourceRunId)
       : undefined;
   const latestRunTitle = viewedRun?.title;
-  const runHeaderTitle =
-    latestRunTitle && latestRunTitle !== "Untitled" ? latestRunTitle : submittedBrief;
+  // FIX-130: strip any === marker text from the DB title before displaying.
+  // DB titles may be polluted (truncated at 60 chars so closing markers are missing,
+  // defeating parseRunInput's regex). Use a simple line-scan: if the first non-empty
+  // line starts with "===", the title is polluted — fall through to submittedBrief.
+  const cleanLatestTitle = (() => {
+    if (!latestRunTitle || latestRunTitle === "Untitled") return undefined;
+    // If the title starts with "===" it's a raw marker line — discard entirely.
+    if (latestRunTitle.trimStart().startsWith("===")) return undefined;
+    // Strip "Title: " prefix from cascading context pollution
+    const stripped = latestRunTitle.startsWith("Title: ")
+      ? latestRunTitle.slice("Title: ".length).trim()
+      : latestRunTitle;
+    // If it contains "===" anywhere, run it through parseRunInput as a safety net.
+    if (stripped.includes("===")) {
+      const _p = parseRunInput(stripped);
+      const _clean = (_p.revisionInstruction ?? _p.brief ?? "").split("\n")[0].trim();
+      return _clean || undefined;
+    }
+    return stripped || undefined;
+  })();
+  const runHeaderTitle = cleanLatestTitle ?? submittedBrief;
 
   // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props). The
   // KAN-101 spec-loop affordance + approve relabel are mapped off the declared
   // reviewGateData flags (SC-001) — mirrors the redoable mapping, no literal.
-  const laneGate: GateContext | undefined = reviewGateData
+  // KAN-146: when the clarify questionnaire is open (laneClarifyOpen), suppress
+  // the gate so the two panels are never shown simultaneously. The gate is still
+  // armed on the backend; it will re-surface after the questionnaire resolves.
+  const laneGate: GateContext | undefined = reviewGateData && !laneClarifyOpen
     ? {
         agentId: reviewGateData.agentId,
         agentName: reviewGateData.agentName,
@@ -1521,6 +1653,10 @@ export function DashboardLayout({
         gateKey: reviewGateData.gateKey,
         redoable: reviewGateData.redoable,
         updateSpecsEligible: reviewGateData.updateSpecsEligible,
+        // Pass the backend's artifact_kind so discriminateArtifact() can render
+        // the correct preview for agents whose output has no XML wrapper tags
+        // (e.g. user_stories domain-analyst produces plain markdown, kind="summary").
+        artifactKind: reviewGateData.artifactKind,
         approveLabel: reviewGateData.artifactKind
           ? `Approve the ${reviewGateData.artifactKind.replace(/_/g, " ")}`
           : undefined,
@@ -1546,9 +1682,12 @@ export function DashboardLayout({
   );
 
   // Suggested next steps (absorbed) — the chainable workflows as generic chips.
-  const laneSuggestions: LaneSuggestion[] = canChainFrom(workflowType)
+  // Use effectiveReviseType (the type of the run currently on screen) so the filter
+  // correctly excludes the VIEWED pipeline type, not the last-launched type.
+  const chainFromType = (effectiveReviseType ?? workflowType) as WorkflowType;
+  const laneSuggestions: LaneSuggestion[] = canChainFrom(chainFromType)
     ? CHAIN_OPTIONS
-        .filter((o) => baseWorkflowType(o.type) !== baseWorkflowType(workflowType))
+        .filter((o) => baseWorkflowType(o.type) !== baseWorkflowType(chainFromType))
         .map((o) => ({ id: o.type, label: o.label }))
     : [];
   const handleLaneSuggestion = useCallback(
@@ -1605,13 +1744,42 @@ export function DashboardLayout({
         pipelineType={effectiveReviseType}
         pipelineAgentsCompleted={pipelineState?.completedCount ?? 0}
         pipelineAgentsTotal={pipelineState?.agents?.length ?? 0}
+        activePipelineRunId={pipelineState?.pipelineRunId ?? null}
         onGoToPipeline={() => setMainView("execution")}
+        recentRuns={recentRuns}
+        onSwitchToLiveRun={onSwitchToLiveRun}
+        onSelectWorkflowRun={(run) => {
+          onSelectWorkflowRun?.(run);
+          setMainView("execution");
+        }}
         notifications={notifications}
         unreadCount={unreadCount}
         onMarkAllRead={markAllRead}
         onClearNotifications={clearAll}
         onViewResults={(n) => {
-          if (n.status === "running" || n.status === "completed") {
+          if (n.status === "running" || n.status === "gate") {
+            // FIX-149 (Bug 2): for RUNNING/GATE pipelines, switch to the live
+            // run view WITHOUT resetting pipeline state (calling onSelectWorkflowRun
+            // is wrong — it triggers handleSelectWorkflowRun which is a history-reopen
+            // function that calls resetPipeline(), getWorkflow() fetch, resetReplayState(),
+            // and wipes the live Steps trace). Instead use onSwitchToLiveRun which
+            // only updates the content-source and attaches the SSE stream.
+            // FIX-157: expand the recentRuns status filter from === "running" to any
+            // live status (planning, generating, clarifying, etc.) so runs in any
+            // in-flight state are correctly located — not just those with status="running".
+            const LIVE_RUN_STATUSES = new Set(["running", "revising", "planning", "generating", "waiting_for_user", "clarifying", "analyzing"]);
+            const targetRunId = n.workflowRunId ?? recentRuns?.find(
+              (r) =>
+                LIVE_RUN_STATUSES.has(r.status) &&
+                (r.type === n.workflowType ||
+                  (n.workflowType === "ppt" && (r.type === "od_ppt" || r.type === "ppt")) ||
+                  (n.workflowType === "prototype" && (r.type === "od_prototype" || r.type === "prototype"))),
+            )?.id;
+            if (targetRunId && onSwitchToLiveRun) {
+              onSwitchToLiveRun(targetRunId);
+            }
+            setMainView("execution");
+          } else if (n.status === "completed") {
             setMainView("execution");
           } else {
             setMainView("history");
@@ -1908,6 +2076,11 @@ export function DashboardLayout({
                       onBackToHistory={() => setMainView("history")}
                       runTitle={runHeaderTitle}
                       runType={effectiveReviseType || pipelineState?.pipeline_type}
+                      // KAN-128 (FIX-141): pass the content-derived filename so the
+                      // left chat panel "Run summary" DeliverableCard shows the same
+                      // name as the Files tab and Preview URL bar (not the static
+                      // manifest name from pipelineState.deliverableFilename).
+                      deliverableFilename={laneDerivedFilename || undefined}
                       // Absorbed AgentProgressPanel controls (Stop / revise / suggestions).
                       onStop={handleStopPipeline}
                       onRevise={activeReviseHandler}

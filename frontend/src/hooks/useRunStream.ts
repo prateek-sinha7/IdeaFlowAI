@@ -58,6 +58,11 @@ export type RunConnectionPhase =
 export interface RunStreamMessage {
   type: string;
   data: Record<string, unknown>;
+  /** Injected by RunConnectionProvider: the run id whose SSE stream this frame
+   *  was sourced from. Used by handleWebSocketMessage to route frames to the
+   *  correct pipelineState reducer when multiple concurrent runs are attached.
+   *  Absent on legacy WS paths and Concierge /messages streaming. */
+  _sourceRunId?: string;
 }
 
 export interface UseRunStreamConfig {
@@ -280,7 +285,10 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
         sawNonLiveAttachRef.current = true;
       }
 
-      const msg: RunStreamMessage = { type, data };
+      // Stamp the source run onto the envelope (the SINGLE stamping site for
+      // stream frames — this hook is instantiated once per run, so `runId` here is
+      // authoritative). Downstream run-scoping depends on it; see RunStreamMessage.
+      const msg: RunStreamMessage = { type, data, _sourceRunId: runId };
       setLastMessage(msg);
       onMessageRef.current?.(msg);
     };

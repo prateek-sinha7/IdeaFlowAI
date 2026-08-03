@@ -294,6 +294,9 @@ interface RawWorkflowRun {
   // Revision Families (B1 / D1-D2-D7): optional so legacy raw rows still parse.
   parent_run_id?: string | null;
   root_run_id?: string;
+  // KAN-130: chaining indicator — set when a run was launched from a prior run's
+  // output (chain into). Optional so legacy rows without it still parse.
+  source_run_id?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -330,6 +333,8 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     // root — matches the backend's "standalone run → own id" semantics.
     parentRunId: raw.parent_run_id ?? null,
     rootRunId: raw.root_run_id ?? raw.id,
+    // KAN-130: chaining indicator — non-null when launched by chaining from another run.
+    sourceRunId: raw.source_run_id ?? null,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,
@@ -340,20 +345,30 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
 
 export async function getWorkflows(
   token: string,
-  options?: { type?: WorkflowType; limit?: number }
-): Promise<WorkflowRun[]> {
+  options?: { type?: WorkflowType; limit?: number; offset?: number }
+): Promise<{ runs: WorkflowRun[]; total: number }> {
   let path = "/api/runs";
   const params = new URLSearchParams();
   if (options?.type) params.set("type", options.type);
   if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
   const qs = params.toString();
   if (qs) path += `?${qs}`;
 
-  const raw = await request<RawWorkflowRun[]>(path, {
+  const res = await fetch(`${ENV.API_URL}${path}`, {
     method: "GET",
     headers: authHeaders(token),
   });
-  return raw.map(normalizeWorkflowRun);
+
+  if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
+
+  const raw = (await res.json()) as RawWorkflowRun[];
+  const total = parseInt(res.headers.get("X-Total-Count") ?? "0", 10);
+  
+  return {
+    runs: raw.map(normalizeWorkflowRun),
+    total,
+  };
 }
 
 // --- Analytics API (SC-1) ---
@@ -750,13 +765,31 @@ export async function postResume(
   token: string,
   runId: string,
 ): Promise<{ run_id: string }> {
-  return request<{ run_id: string }>(
-    `/api/runs/${encodeURIComponent(runId)}/resume`,
-    {
+  // Use a longer AbortController timeout for resume — the backend stamps a marker
+  // and reads durable events before returning, which can take several seconds on
+  // SQLite / under load. 60s is generous vs the default 30s used by other calls.
+  const url = `${BASE_URL}/api/runs/${encodeURIComponent(runId)}/resume`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const response = await fetch(url, {
       method: "POST",
       headers: authHeaders(token),
-    },
-  );
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new ApiError(response.status, (body as Record<string, unknown>).detail ?? body);
+    }
+    return response.json() as Promise<{ run_id: string }>;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, "Resume request timed out after 60s");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

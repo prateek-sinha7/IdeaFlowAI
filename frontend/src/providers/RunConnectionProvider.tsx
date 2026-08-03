@@ -266,9 +266,32 @@ export function RunConnectionProvider({
       return;
     }
     try {
-      const runs = await getWorkflows(t, { limit: 50 });
+      const { runs } = await getWorkflows(t, { limit: 50 });
+      // KAN-125 MULTI-TAB FIX: only auto-attach runs that this browser TAB
+      // actually launched (restored from sessionStorage). A new tab has an
+      // empty sessionStorage set and should not inherit another tab's running
+      // workflows — those runs will have their SSE events blocked by the
+      // isForeignFrame guard in handleWebSocketMessage anyway, but not creating
+      // the SSE connections at all is cleaner and avoids wasting connections.
+      // Exception: the focusedRunId (set when the user explicitly attaches a
+      // run via attachRun) is always included regardless.
+      let tabOwnedIds = new Set<string>();
+      try {
+        const raw = sessionStorage.getItem("tab_launched_run_ids");
+        if (raw) {
+          const ids = JSON.parse(raw) as string[];
+          if (Array.isArray(ids)) tabOwnedIds = new Set<string>(ids);
+        }
+      } catch { /* ignore — non-fatal */ }
+
       autoIdsRef.current = runs
-        .filter((r) => AUTO_STREAM_STATUSES.has(r.status))
+        .filter((r) =>
+          AUTO_STREAM_STATUSES.has(r.status) &&
+          // Only auto-attach if this tab owns the run (has launched it previously)
+          // OR if the set is empty (e.g. a first-ever load where the active_pipeline_run_id
+          // session key is set — handled separately below).
+          (tabOwnedIds.size === 0 ? false : tabOwnedIds.has(r.id))
+        )
         .map((r) => r.id);
       recomputeLiveRunIds();
     } catch {
@@ -387,8 +410,24 @@ export function RunConnectionProvider({
       // `concierge` literal — every other /messages response stays JSON and takes
       // the unchanged `return null` path below.
       if (runId) {
+        // D2 (KAN-139): check res.ok BEFORE reading the body. A 429/404/409/5xx
+        // response previously returned null silently, leaving the chat message as
+        // an orphan optimistic bubble forever with no error shown. Throw ApiError
+        // on any non-ok response so the caller can surface it to the user.
+        if (!res.ok) {
+          let detail: unknown;
+          try {
+            const body = (await res.json()) as Record<string, unknown>;
+            detail = body.detail ?? body;
+          } catch {
+            detail = `HTTP ${res.status}`;
+          }
+          throw new Error(
+            typeof detail === "string" ? detail : JSON.stringify(detail),
+          );
+        }
         const contentType = res.headers.get("content-type") ?? "";
-        if (res.ok && res.body && contentType.includes("text/event-stream")) {
+        if (res.body && contentType.includes("text/event-stream")) {
           // Drain with the SAME reader-loop shape as useRunStream (split on
           // "\n\n", CRLF-normalized, parseSseBlock each block, drop keepalives,
           // flush the trailing block). The streamed frames reach the transcript
@@ -400,7 +439,10 @@ export function RunConnectionProvider({
             if (frame.type === "pipeline_heartbeat" || frame.type === "pong") {
               return; // keepalive — never reaches the reducer (WS parity)
             }
-            fanout(frame);
+            // Stamp the source run so these frames are run-scopable downstream,
+            // exactly like the per-run SSE stream frames (useRunStream stamps its
+            // own). `runId` is non-null in this branch.
+            fanout({ ...frame, _sourceRunId: runId });
           };
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
@@ -455,7 +497,10 @@ export function RunConnectionProvider({
               runId={runId}
               token={token}
               epoch={epoch}
-              onMessage={fanout}
+              // KAN-125 FIX: inject _sourceRunId so handleWebSocketMessage can
+              // route frames without pipeline_run_id (agent_start/agent_chunk/
+              // agent_complete etc.) to the correct pipelineState reducer.
+              onMessage={(msg) => fanout({ ...msg, _sourceRunId: runId })}
               onPhase={onPhase}
             />
           ))

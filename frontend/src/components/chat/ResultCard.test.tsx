@@ -29,11 +29,11 @@ function narrator(
 
 describe("ResultCard", () => {
   it.each([
-    ["clarify", "steps"],
-    ["gate", "steps"],
-    ["pipeline", "steps"],
+    ["clarify", "thinking"],
+    ["gate", "thinking"],
+    ["pipeline", "thinking"],
     ["deliverable", "preview"],
-    ["spec_revision", "steps"],
+    ["spec_revision", "thinking"],
   ] as const)(
     "renders the %s card with its testid + card-kind and default tab %s",
     (kind, expectedTab) => {
@@ -80,6 +80,41 @@ describe("ResultCard", () => {
     expect(onRequestOpenTab).toHaveBeenCalledWith("audit");
   });
 
+  // FIX-128 regression: the backend's `deep_link.target` anchor ("run:<id>",
+  // "deliverable:<file>", …) is a milestone REFERENCE, not a panel tab id. It must
+  // NOT be handed to the tab seam — PreviewPanel drops unknown tab ids, which is
+  // what broke "Open in Steps" / "Open in Preview". The kind's generic default wins.
+  it("ignores the milestone anchor and opens the kind's default tab (FIX-128)", () => {
+    const onSteps = vi.fn();
+    const { unmount } = render(
+      <ResultCard
+        message={narrator("pipeline", {
+          deepLink: { anchor: "run:93f7ca84-9f63-4d8a-90cf-8fbe8163d4b2", nonce: 0 },
+        })}
+        onRequestOpenTab={onSteps}
+      />,
+    );
+    expect(screen.getByTestId("chat-result-card-link")).toHaveAttribute(
+      "data-target-tab",
+      "thinking",
+    );
+    fireEvent.click(screen.getByTestId("chat-result-card-link"));
+    expect(onSteps).toHaveBeenCalledWith("thinking");
+    unmount();
+
+    const onPreview = vi.fn();
+    render(
+      <ResultCard
+        message={narrator("deliverable", {
+          deepLink: { anchor: "deliverable:index.html", nonce: 0 },
+        })}
+        onRequestOpenTab={onPreview}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("chat-result-card-link"));
+    expect(onPreview).toHaveBeenCalledWith("preview");
+  });
+
   it("degrades an unknown/absent kind to an inert generic card (T-31-04-T2)", () => {
     const onRequestOpenTab = vi.fn();
     const msg: ChatMessage = {
@@ -94,7 +129,7 @@ describe("ResultCard", () => {
     expect(card).toHaveAttribute("data-card-kind", "unknown");
     // Still safe to interact — falls back to the Steps tab, no crash.
     fireEvent.click(screen.getByTestId("chat-result-card-link"));
-    expect(onRequestOpenTab).toHaveBeenCalledWith("steps");
+    expect(onRequestOpenTab).toHaveBeenCalledWith("thinking");
   });
 
   it("SC-001: the source carries no workflow-name literal", () => {

@@ -98,6 +98,15 @@ export interface GateContext {
   /** GENERIC eligibility flag for the KAN-101 spec loop (SC-001). */
   updateSpecsEligible?: boolean;
   approveLabel?: string;
+  /**
+   * GENERIC artifact kind from _artifact_kind_for (backend) — "spec", "task_list",
+   * "summary", "html_file", etc. Passed to discriminateArtifact so agents whose
+   * output has no XML wrapper tag (e.g. user_stories domain-analyst produces plain
+   * markdown with kind="summary") still render the correct preview renderer.
+   * SC-001: never a workflow/agent-name literal — the backend derives this
+   * structurally from _AGENT_KIND_MAP (with "summary" as the generic fallback).
+   */
+  artifactKind?: string;
 }
 
 /** A generic quick-reply suggestion chip (never a workflow-name literal). */
@@ -1639,7 +1648,11 @@ export function RunChatLane({
       // pipeline_complete event carries the filename/version). The prop remains a
       // 39-05 override. This is the SINGLE deliverable card (INV-12) — the mock's
       // composition; no interim narrator ResultCard stand-in.
-      const dFilename = pipelineState?.deliverableFilename ?? deliverableFilename;
+      // KAN-128 (FIX-141): prefer the explicit deliverableFilename prop (content-derived,
+      // passed by DashboardLayout using deriveDeliverableFilename) over
+      // pipelineState?.deliverableFilename (the static manifest name). The ?? order
+      // was reversed before this fix — the static state silently won over the prop.
+      const dFilename = deliverableFilename ?? pipelineState?.deliverableFilename;
       const dVersion = pipelineState?.deliverableVersion ?? deliverableVersion;
       if (clarifyCount === 0 && agents.length === 0 && !dFilename) {
         return null;

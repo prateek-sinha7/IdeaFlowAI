@@ -41,6 +41,7 @@ function makeTemplate(partial: Partial<PrototypeTemplate> & { id: string; name: 
     craft_required: [],
     example_prompt: null,
     has_preview: true,
+    has_thumbnail: false,
     ...partial,
   };
 }

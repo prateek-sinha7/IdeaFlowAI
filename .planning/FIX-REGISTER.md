@@ -10,6 +10,33 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-157 | 2026-07-31 | Running dropdown and notification panel: click doesn't open correct run page; progress shows 0/N; onViewResults status filter misses planning/generating | Three bugs: (1) `handleRunClick` in AppHeader called `onSwitchToLiveRun` but not `onGoToPipeline` → execution view never switched; (2) `onViewResults` targetRunId lookup used `r.status === "running"` and missed runs in planning/generating/clarifying states; (3) `runningPipelines` always mapped `agentsCompleted: 0` — fixed by passing `activePipelineRunId` and using live `pipelineAgentsCompleted`/`Total` for the matching run | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 35 (SHELL-01 AppHeader), FIX-156 follow-up | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-156 | 2026-07-31 | Running dropdown not showing user_stories (or any run) — `runningPipelines` undefined causing crash; `recentRuns` never passed to AppHeader | Two bugs: (1) `runningPipelines` variable used throughout AppHeader JSX was NEVER DEFINED — causing `ReferenceError: runningPipelines is not defined` and the entire header crashing; (2) `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` were never passed to AppHeader from DashboardLayout — so even after defining the variable, it would get empty server data. Fix: define `runningPipelines` derived from `recentRuns` (same source as Jump Back In); pass the 3 missing props to AppHeader; add status label text in the dropdown rows; extend `WorkflowStatus` type to include live statuses. | `frontend/src/components/layout/AppHeader.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/ui/NotificationPanel.tsx`, `frontend/src/types/index.ts` | Phase 35 (SHELL-01 AppHeader), Phase 36 (SHELL-02 Jump Back In) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-155 | 2026-07-31 | Header shows duplicate running workflow entries (7 instead of 3) — notifications for prototype/ppt not created when user_stories runs concurrently | With 3 concurrent runs, `currentPipelineNotifId` is a single ref. `handleRunPipeline` (user_stories) sets it first; `pendingOdProtoParams`/`pendingOdPptParams` handlers see it non-null and try to reuse it (calling `updateAgentsTotal` on the user_stories notification instead of creating a new one); `odProtoNotifCreated` reactive effect also guards on `!currentPipelineNotifId.current` → false → skips. Result: prototype and ppt notifications never created. Fix: add `odProtoNotifId`/`odPptNotifId` per-type refs; explicit handlers always create their own notification and pre-set the type-specific ref; reactive effect checks the type-specific ref before calling `addRunningNotification`. | `frontend/src/components/layout/DashboardLayout.tsx` | FIX-149 (notification system) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-154 | 2026-07-31 | user_stories review gate shows no summary content — discriminateArtifact called without artifactKind param | `InlineGateActions` called `discriminateArtifact(output)` without the second `artifactKind` argument, so agents whose output lacks XML wrapper tags (user_stories domain-analyst = plain markdown, kind="summary") returned null. `GateContext` also had no `artifactKind` field so the backend value never reached the component. | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx`, `frontend/src/components/chat/InlineGateActions.tsx` | Phase 42 (gate inline), Phase 28 (artifactPreview) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-153 | 2026-07-30 | KAN-146: Concurrent run review gates cross-contaminate screens and appear before agent output (corrected: trackedRunIdRef not activelyBuildingRunIdRef) | `isForeignGate`/`isForeignQuestionnaire` checks in page.tsx initially used `launchedRunIdsRef` (all same-tab run IDs), then corrected to `activelyBuildingRunIdRef` (latest-launched run — wrong for 3+ runs or run-switching). Final fix uses `trackedRunIdRef` (the run currently VIEWED on screen), which is updated by all run-switch paths. DashboardLayout also gained mutual exclusion between gate and clarify panels. | `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | KAN-125 (FIX-135 pattern) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-152 | 2026-07-30 | KAN-139: 9 D-cluster infrastructure defects (memory leaks, missing logging, missing shutdown, missing admission control, dead config) | D1: mockSse test title claimed backend guarantee; D2: sendCommand no res.ok check; D4: ArtifactStore HITL dicts never evicted; D5: StateMachine._states never evicted + private reach; D6: sweep_expired zero callers + data-loss mtime bug; D7: close_checkpointer bugs + not wired to shutdown; D9: restore_non_terminal_runs no admission control; D10: SSE_STREAM_IDLE_TIMEOUT_SECONDS dead config; D11: run_stream.py no logging | `backend/agents/artifact_store/store.py`, `backend/agents/execution_engine/state_machine.py`, `backend/app/api/run_engine.py`, `backend/app/api/run_commands.py`, `backend/app/agents/sandbox.py`, `backend/app/agents/checkpointer.py`, `backend/app/core/config.py`, `backend/app/main.py`, `backend/app/api/run_stream.py`, `frontend/src/providers/RunConnectionProvider.tsx`, `frontend/e2e/tests/ts-sse-resilience.spec.ts` | Phase 44 (SSE transport), Phase 49 (resume), Phase 12 (restore), Phase 29 (D-14h) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-151 | 2026-07-30 | KAN-137 follow-up: PPT revision chain context empty — _extract_chain_context returns empty context_block for *_revision runs because they have no brief-analyst agent output | `get_chain_context()` in runs.py queried the revision run itself; revision runs (od_ppt_revision etc.) have no od-ppt-brief-analyst / spec-writer agents, so structured_summary="" and context_block="". Fix: walk up to parent_run_id for *_revision types, extract context from the ORIGINAL pipeline run, and append the revision instruction. | `backend/app/api/runs.py` | Phase 25 (chain context / Workstream A) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-150 | 2026-07-30 | KAN-137: PPT revision → User Stories chain fires run but Steps trace stays empty; no agents start | Two bugs: (1) handleChainPipeline parsed workflowInput (the revision blob) to get chainBrief, extracting the PPT revision instruction ("make slide 3 more concise") as the user_stories brief — causing auto-clarify to block at waiting_for_user with no visible questionnaire; (2) setMainView("execution") was missing before onStartPipeline. Fix: for revision-type source runs, extract "Original Brief:" from context_block instead of parsing workflowInput; add setMainView("execution") synchronously before firing the pipeline. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25 (Workstream C1 chain context) / Phase 42 (Steps inline clarify) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-149 | 2026-07-30 | KAN-132 (Bug 1+2): Prototype dropdown title shows "Prototype · Prototype" and clicking still navigates to User Stories run | Bug 1: `odProtoNotifCreated` effect used hardcoded `"Prototype"`/`"Presentation"` as title; submittedBrief available but ignored. Bug 2: `onViewResults` for running notifications called `onSelectWorkflowRun` (a history-reopen fn that calls resetPipeline(), getWorkflow() fetch, resetReplayState()) — completely wrong for a live run. Fix: (1) use `submittedBrief` as notification title; (2) add `onSwitchToLiveRun` prop + `handleSwitchToLiveRun` in page.tsx that only attaches SSE + updates trackedRunIdRef/activelyBuildingRunIdRef/contentSource without resetting state; (3) onViewResults now calls onSwitchToLiveRun for running notifications. | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 35/38 (KAN-132 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-148 | 2026-07-30 | Clicking Prototype in multi-run header dropdown still navigates to User Stories — onViewResults only called setMainView("execution") regardless of which run was clicked | onViewResults was a single handler that called setMainView("execution") for any running notification, showing whatever pipelineState was tracking (the active building run). Fix: (1) add setNotifWorkflowRunId to useNotifications; (2) onViewResults now finds the matching recentRun by workflowType and calls onSelectWorkflowRun to switch the active context to that specific run. | `frontend/src/hooks/useNotifications.ts`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 35 (SHELL-01 AppHeader / FIX-146/147 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-147 | 2026-07-30 | KAN-132: clicking Presentation in multi-run dropdown navigated to User Stories run | All dropdown entries called the same onGoToPipeline callback (routes to the single active run). Fix: call onViewResults(pipeline) per entry — already a per-notification callback that DashboardLayout wires to each run's navigation. | `frontend/src/components/layout/AppHeader.tsx` | Phase 35 (SHELL-01 AppHeader) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-146 | 2026-07-30 | KAN-132: Header shows all running pipelines via dropdown when multiple workflows are active | AppHeader badge used scalar isPipelineRunning/pipelineType (one run only). notifications[] already tracked all running pipelines. Fixed by deriving runningPipelines from notifications inside AppHeader: 1 running → existing badge unchanged; >1 running → "N Running" dropdown listing each pipeline with label + title + progress; 0 from notifications but scalar says running → legacy fallback. | `frontend/src/components/layout/AppHeader.tsx` | Phase 35 (SHELL-01 AppHeader) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-145 | 2026-07-30 | KAN-130: Jump Back In shows raw od_ppt/od_prototype names and no Revised/Chained indicators | WORKFLOW_LABELS map missing 4 od_* entries; source_run_id not in WorkflowRunResponse so "(Chained)" impossible. Fix: add od_ppt/od_prototype/revision entries; expose source_run_id through backend → api.ts → WorkflowRun type → HomeLaunchGrid "(Chained)" suffix. | `frontend/src/hooks/useNotifications.ts`, `backend/app/api/runs.py`, `frontend/src/lib/api.ts`, `frontend/src/types/index.ts`, `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 36 (SHELL-02 Jump Back In) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-144 | 2026-07-30 | KAN-131: GET /api/runs?limit=100 returns 2.85MB uncompressed, takes 5.4–6.8s — slim list schema + column-projected query + X-Total-Count + Load More pagination | Backend serialized full WorkflowRunResponse with unbounded Text columns (input, output, agent_outputs) on every history load. FIX-051 existed on staging but was not ported to dev. Cherry-picked: (1) WorkflowRunListResponse slim schema (excludes heavy Text fields). (2) Column-projected query `db.query(*_LIST_COLS)` skips reading those fields entirely. (3) Query param validation (limit 1-100, default 50). (4) X-Total-Count header for pagination. Frontend: (1) getWorkflows returns {runs, total} + parses header. (2) All call-sites destructure {runs}. (3) WorkflowHistory adds Load More with append-based pagination. Response size reduced 50x (2.85MB → ~50KB for 50 rows). | `backend/app/api/runs.py`, `backend/app/main.py`, `backend/alembic/versions/0030_workflow_runs_user_created_index.py`, `frontend/src/lib/api.ts`, `frontend/src/components/history/WorkflowHistory.tsx`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/providers/RunConnectionProvider.tsx`, `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Phase 4 (API endpoints) / Phase 13 (list pagination) / Phase 18 (frontend history) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-144 | 2026-07-30 | KAN-129: Context Received panel shows "artifact" instead of source labels — formatContextSource ignores `label` field and doesn't handle run_input/context_block types | `formatContextSource` in AgentDetailPanel.tsx only checks `"summary"` type; all other types fall to `src.artifact_type \|\| "artifact"`. Backend emits `"run_input"` and `"context_block"` with a `label` field (added by KAN-102) but FE type and function never accounted for them. Fix: extend ContextSource type, update formatContextSource to read label, change backend label from "User brief" to "prompt.md". | `frontend/src/types/index.ts`, `frontend/src/components/results/AgentDetailPanel.tsx`, `backend/agents/execution_engine/engine.py` | Phase 22 (KAN-102 context_sources) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-143 | 2026-07-29 | KAN-128: Chat panel still shows static filename for PPT and Prototype — `laneActiveContent` used local `workflowType` instead of `effectiveReviseType` | FIX-141's dispatch keyed on `workflowType` (default `"user_stories"` on history-reopen) not `effectiveReviseType`. On reopened `od_ppt` run, `workflowType="user_stories"` → `laneActiveContent=""` → fallback fires. Fix: use `effectiveReviseType` in both the content slot dispatch and the `deriveDeliverableFilename` call. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/39 (FIX-141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-142 | 2026-07-29 | KAN-128: PPT filename shows "presentation.pptx" instead of content-derived ".html" — wrong extension for all ppt/od_ppt variants | `deriveDeliverableFilename` assigned `"pptx"` for `"ppt"`/`"ppt_revision"` but all PPT runs produce HTML decks. `deriveDeliverableFiles` also offered a dead `.pptx` row. Fix: both functions always use `"html"` for all four ppt variants. | `frontend/src/components/results/FilesTab.tsx` | Phase 18/22/39 (FIX-140/141 follow-up) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-141 | 2026-07-29 | KAN-128: Left chat panel "Run summary" deliverable card shows static manifest filename instead of content-derived name | RunChatLane's dFilename = pipelineState?.deliverableFilename (static manifest). DashboardLayout had all content props but never passed a content-derived deliverableFilename to RunChatLane. Fix: compute laneDerivedFilename using deriveDeliverableFilename() (FIX-140) in DashboardLayout and pass it as the prop. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31 (CHATUI-01 RunChatLane), Phase 39 (RUNUI-06 DeliverableCard) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-140 | 2026-07-29 | KAN-128: Output filename inconsistent between Preview URL bar / Download and Files tab across all workflow types; mid-word truncation bug | Preview reads static `pipelineState.deliverableFilename` (manifest name); FilesTab parses `<title>`/`^#` from content. Independent paths, never share a source. `.slice(0,40)` also truncates mid-syllable. Fix: extract `deriveDeliverableFilename(workflowType, content, fallback)` from FilesTab; use it in PreviewPanel for `previewFilename` and `handleHeaderDownload`. | `frontend/src/components/results/FilesTab.tsx`, `frontend/src/components/preview/PreviewPanel.tsx` | Phase 18 (ISS-021 FilesTab), Phase 22 (deliverableFilename), Phase 39 (PreviewChrome/RunHeader) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-139 | 2026-07-29 | Chained pipeline uses wrong source run context — recentRuns type-scan returns older completed run instead of the one on screen | handleChainPipeline resolved sourceRunId via recentRuns.find(type+completed) which returns the first type-match. When multiple completed user_stories runs exist, it returns an older one instead of the currently-viewed run. contentSourceRunId (already set by page.tsx on pipeline_complete) was ignored. Fix: use contentSourceRunId as primary source, recentRuns scan as fallback. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25/38 (workflow chaining / KAN-116) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-138 | 2026-07-29 | Concurrent same-type runs show mixed agent progress — HTTP response order race overwrites activelyBuildingRunIdRef with wrong run ID | When two runs are launched in quick succession, HTTP POSTs can resolve out of click order. The first-clicked run's .then() can fire AFTER the second-clicked run's .then(), overwriting activelyBuildingRunIdRef/trackedRunIdRef with the earlier-clicked run's ID, allowing that earlier run's events to reach the reducer and showing mixed agent progress. Fix: launchCounterRef increments on each click; .then() only updates trackedRunIdRef/activelyBuildingRunIdRef when thisLaunchSeq === current counter (i.e. no newer launch has registered). | `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-137 | 2026-07-29 | Multi-tab isolation + same-tab isForeignFrame empty-set gap — new tabs show running workflows, concurrent same-tab runs not fully isolated | (1) refreshLiveRuns auto-attached ALL running workflows to new tabs; launchedRunIdsRef empty → isForeignFrame always false → background runs polluted dashboard. (2) Same fix needed for isForeignRun/isForeignFrame — empty Set means no blocking. Fix: persist launchedRunIdsRef to sessionStorage (survives reload, isolated per tab); isForeignFrame blocks when Set empty; refreshLiveRuns only attaches tab-owned runs. | `frontend/src/app/dashboard/page.tsx`, `frontend/src/providers/RunConnectionProvider.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-136 | 2026-07-29 | Concurrent run shows "Done" in history while still running — preserve "running" status in recentRuns on foreign-run pipeline_complete refetch | When a concurrent run fires pipeline_complete, the FE calls getWorkflows. The DB may already show the user_stories run as "completed" (backend writes status before SSE delivers the frame). Fix: preserve "running" status in setRecentRuns for any tab-local run in launchedRunIdsRef except the one that just completed. | `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-135 | 2026-07-28 | KAN-125: Concurrent prototype agent progress still mismatched — agent_start/agent_chunk/agent_complete lack pipeline_run_id so isForActiveRun was bypassed | Events like agent_start/agent_chunk/agent_complete/tool_call/task_progress don't carry pipeline_run_id in their data. frameRunId resolved to undefined → the !frameRunId pass-through in isForActiveRun always let them through, so all concurrent runs' agent events still corrupted the shared reducer. Fix: inject _sourceRunId (the SSE stream's run_id) per RunStreamConnection in RunConnectionProvider; use it as primary frameRunId in page.tsx. | `frontend/src/hooks/useRunStream.ts`, `frontend/src/providers/RunConnectionProvider.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-134 | 2026-07-28 | KAN-125: Concurrent pipeline "nothing in Steps" — second run's pipeline_start reset the shared reducer, wiping first run's agent list | When PPT was launched while User Stories was running, both runs' pipeline_run_ids were in launchedRunIdsRef (Set), so isForeignFrame=false for BOTH. PPT's pipeline_start went to handlePipelineMsgRef which resetted agents[] to PPT agents, wiping User Stories' progress. Fix: introduce activelyBuildingRunIdRef (only updated on launch/reopen, never by content completions) + isForActiveRun Layer-2 gate — only the most-recently-launched run's frames update pipelineState; other tab-local runs save content at pipeline_complete. Also gate wave events for the active run only. | `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-133 | 2026-07-28 | KAN-125: History-reopened runs blocked by isForeignFrame — add run.id to launchedRunIdsRef before replaying durable events | When a completed run is opened from history, its durable events carry pipeline_run_id not in launchedRunIdsRef (empty Set in a new session, or only containing current-session run ids). isForeignFrame was true for all events → pipeline_start/agent events blocked → Steps showed empty "Run complete". Fix: add fullRun.id to launchedRunIdsRef and set trackedRunIdRef before replaying durable frames in handleSelectWorkflowRun. | `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE transport / KAN-125 launchedRunIdsRef) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-130 | 2026-07-28 | Run titles show full context blob instead of clean brief on left panel, notifications, and run header — fix in backend _clean_run_title + FE submittedBrief fallback + notification sanitization + handleRunPipeline _display_title injection | (1) _clean_run_title regex `\s*===\s*CONTEXT...` never matched when context block starts at position 0 (no leading brief). (2) page.tsx fell back to raw message when parseRunInput returned empty brief — entire context blob set as submittedBrief. (3) DashboardLayout notification-update effect wrote unsanitized DB title to notifications. (4) handleRunPipeline (IdeaInputPage path) never injected _display_title into extraParams. | `backend/app/api/run_commands.py`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 25/36/38 (run titles / KAN-116 / notifications) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-127 | 2026-07-27 | Add NEVER-ask-questions contract to remaining 5 agents: ppt-revision-agent (HIGH risk), ppt-revision-assembler, prototype-build, prototype-validate, prototype-revision-validate | These agents had no no-questions contract. ppt-revision-agent is HIGH risk (same pattern as confirmed-broken user-story-revision-agent). Others had implicit protection from tool-call-only workflow but no explicit rule. | `backend/agents/prompts/ppt-revision-agent/AGENT.md`, `backend/agents/prompts/ppt-revision-assembler/AGENT.md`, `backend/agents/prompts/prototype-build/AGENT.md`, `backend/agents/prompts/prototype-validate/AGENT.md`, `backend/agents/prompts/prototype-revision-validate/AGENT.md` | Phase 15 (prompt contracts) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-126 | 2026-07-27 | KAN-124: (1) Auto-fill recommended answers on skip/partial-answer so agents always get context; (2) Add no-questions contract to 9 missing agent prompts across user_stories, user_stories_revision, od_ppt_revision, prototype_revision | (1) clarify_engine._merge_answers() never read recommended_answer — empty on skip. (2) 9 AGENT.md files missing the NEVER ask clarifying questions output contract confirmed by full pipeline audit. | `backend/agents/execution_engine/clarify_engine.py`, `backend/agents/prompts/user-story-revision-agent/AGENT.md`, `backend/agents/prompts/domain-analyst/AGENT.md`, `backend/agents/prompts/epic-architect/AGENT.md`, `backend/agents/prompts/story-estimator/AGENT.md`, `backend/agents/prompts/nfr-specialist/AGENT.md`, `backend/agents/prompts/backlog-reviewer/AGENT.md`, `backend/agents/prompts/backlog-compiler/AGENT.md`, `backend/agents/prompts/od-ppt-revision-agent/AGENT.md`, `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Phase 3 (ClarifyEngine) + Phase 15 (prompt contracts) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-125 | 2026-07-27 | "Edit brief & run again" navigates to input view instead of also calling resume; "Reopen & fix" resume error resolved | (1) RunChatLane secondary button called `onRelaunch` (= handleResumeRun) instead of a separate nav-home callback — both buttons did the same thing. (2) No `onEditBrief` prop existed. Fix: add `onEditBrief` prop to RunChatLane, wire secondary button to it, add `handleEditBrief` in DashboardLayout that navigates to "input" view for editing. | `frontend/src/components/chat/RunChatLane.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 31/50 (CHATUI-01 terminal card / KAN-120) | INV-1/3/12/SC-001 ✅ | Done |
@@ -146,6 +173,1200 @@
 *Entries are appended below after each `/velocity-ai-fix` session.*
 
 ---
+
+### FIX-157 — Running Dropdown/Notification Panel Click Doesn't Navigate; Progress Shows 0/N; Status Filter Misses Live States
+
+**Date:** 2026-07-31
+**Triggered by:** `/velocity-ai-fix running dropdown and notification panel not showing correct status/progress and clicking does not open run page`
+
+#### Root Cause
+
+Three bugs found after FIX-156:
+
+**Bug 1 — Clicking the running dropdown does NOT navigate to execution view:**
+`AppHeader.handleRunClick` called `onSwitchToLiveRun(run.id)` but never called `onGoToPipeline()`. `setMainView("execution")` lives in DashboardLayout — only reachable via `onGoToPipeline` (`() => setMainView("execution")`). Without it, clicking attaches the SSE stream but the user stays on the home/history page.
+
+**Bug 2 — `onViewResults` targetRunId lookup fails for planning/generating/clarifying runs:**
+`DashboardLayout.onViewResults` searched `recentRuns.find((r) => r.status === "running" && ...)`. Runs in `planning`, `generating`, `clarifying` etc. are never found → `targetRunId` is undefined → `onSwitchToLiveRun` is not called → user navigates to execution but sees the wrong run.
+
+**Bug 3 — Progress always shows 0/N:**
+`runningPipelines` mapped every run with `agentsCompleted: 0`. The list endpoint only has `agentCount` (total), not live completion count. The live `pipelineState.completedCount`/`agents.length` exists in DashboardLayout but was never forwarded.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `AppHeader.tsx` — `handleRunClick` | Added `onGoToPipeline?.()` after `onSwitchToLiveRun` | `setMainView("execution")` needs to fire; only reachable via `onGoToPipeline` |
+| `AppHeader.tsx` — `AppHeaderProps` | Added `activePipelineRunId?: string \| null` | Allows live progress enrichment for the tracked run |
+| `AppHeader.tsx` — `runningPipelines` mapping | `agentsCompleted`/`agentsTotal` use live values when `r.id === activePipelineRunId` | Shows real "2/6" progress instead of "0/6" |
+| `AppHeader.tsx` — single badge click | Changed from `onGoToPipeline` to `handleRunClick(serverRun)` | Attaches SSE + navigates |
+| `AppHeader.tsx` — single badge dot | Derives from real server status (amber for waiting/planning) | Matches Jump Back In dot colors |
+| `DashboardLayout.tsx` — AppHeader mount | Pass `activePipelineRunId={pipelineState?.pipelineRunId ?? null}` | Feeds active run id to AppHeader |
+| `DashboardLayout.tsx` — `onViewResults` | `r.status === "running"` → `LIVE_RUN_STATUSES.has(r.status)` | Finds runs in planning/generating/clarifying etc. |
+
+#### Invariants Verified
+- **INV-1**: not affected — no workflow-name literals
+- **INV-3**: not affected — FE-only change
+- **INV-12/SC-001**: not affected
+
+#### Verification
+- TypeScript diagnostics: 0 errors
+- Bug 1 trace: click dropdown → `handleRunClick` → `onSwitchToLiveRun` [attach SSE] + `onGoToPipeline` [setMainView("execution")] ✓
+- Bug 2 trace: `onViewResults` → `LIVE_RUN_STATUSES.has(r.status)` finds any live run → `onSwitchToLiveRun(targetRunId)` + `setMainView("execution")` ✓
+- Bug 3 trace: `activePipelineRunId` match → `agentsCompleted = pipelineAgentsCompleted` (live) → shows "2/6" ✓
+
+---
+
+### FIX-156 — Running Dropdown Not Showing user_stories; Header Crashing (runningPipelines Undefined)
+
+**Date:** 2026-07-31
+**Triggered by:** `/velocity-ai-fix not showing user story at all in running dropdown — implement same logic as Jump Back In`
+
+#### Root Cause
+
+Two separate bugs combining to break the running dropdown entirely:
+
+**Bug 1 (CRASH) — `runningPipelines` is referenced but never defined in `AppHeader.tsx`:**
+The entire JSX in AppHeader (lines 225, 236–241, 246–265, 285, 325) references `runningPipelines`, but this variable was **never declared anywhere** in the component. The browser was crashing with `ReferenceError: runningPipelines is not defined` (confirmed in the dev log at 01:16:08). Only because React's error boundary was catching it, the header was silently failing rather than fully crashing. The code does define `liveRunsFromServer`, `runningFromNotifs`, `hasServerData`, and `liveRuns`, but then `runningPipelines` — the variable that actually drives the badge and dropdown — was just missing.
+
+**Bug 2 (MISSING DATA) — `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` were never passed to AppHeader:**
+The AppHeader mount in DashboardLayout (confirmed by reading the full `<AppHeader ...>` block) did NOT pass:
+- `recentRuns` — the server-sourced array that powers "Jump Back In" and IS the source of truth for live run statuses
+- `onSwitchToLiveRun` — the correct navigation handler for live runs (avoids resetting pipeline state)
+- `onSelectWorkflowRun` — the handler for history/terminal run navigation
+
+Without `recentRuns`, even after fixing Bug 1, `recentRuns` would be `[]` (its default), `liveRunsFromServer` would be `[]`, and the badge would always be empty.
+
+**Why Jump Back In works:** HomeLaunchGrid receives `recentRuns` prop directly from DashboardLayout and maps it to the display. AppHeader was meant to use the same data source but the prop wiring was simply missing.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 35 (SHELL-01 AppHeader), Phase 36 (SHELL-02 Jump Back In), FIX-146/147/148 (running dropdown evolution)
+- **Deleted code verified (not resurrected):** No deleted code
+- **Locked decisions respected:** SC-001 — all status branching keyed on generic `r.status` string, never workflow-name literals; `getWorkflowLabel` is the only type→label mapper
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `AppHeader.tsx` | Added `runningPipelines` definition: maps `liveRuns` (from `recentRuns`) to `PipelineNotification[]` shape, with status normalisation (`waiting_for_user`→`gate`, live statuses→`running`); falls back to `runningFromNotifs` | Defines the previously-undefined variable that all JSX references; uses server data (same as Jump Back In) as the truth |
+| `AppHeader.tsx` | Updated dropdown row click handler to use `handleRunClick(serverRun)` (the correct live-vs-terminal navigation), falling back to `onViewResults` only when no server run is found | Matches Jump Back In's click behavior: live runs → `onSwitchToLiveRun`, terminal → `onSelectWorkflowRun` |
+| `AppHeader.tsx` | Enhanced dropdown rows to show real status labels (Planning, Building, Waiting for you, etc.) from `RUN_STATUS_TONE` | Shows the same status labels as Jump Back In |
+| `AppHeader.tsx` | Pass `recentRuns` to `NotificationPanel` | Allows the notification panel to show real detailed statuses |
+| `DashboardLayout.tsx` | Added `recentRuns`, `onSwitchToLiveRun`, and `onSelectWorkflowRun` props to the `<AppHeader>` mount | These were the missing props that caused AppHeader to receive empty/undefined server data |
+| `NotificationPanel.tsx` | Added `recentRuns?: WorkflowRun[]` prop; added `LIVE_STATUS_LABEL` map; updated running notification rows to look up real server status and display it | Shows "Planning", "Building", "Waiting for you" etc. in the notification bell panel |
+| `types/index.ts` | Extended `WorkflowStatus` to include `planning`, `generating`, `waiting_for_user`, `clarifying`, `analyzing` | The DB stores these values; `WorkflowRun.status` was typed too narrowly, causing silent `unknown status` for live runs |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — all new code keys on generic `status` strings and `type` field through `getWorkflowLabel`, never a workflow-name literal
+- **INV-3** (golden parity): not affected — FE-only change; no backend/golden impact
+- **INV-12** (no duplication): the same `recentRuns` data source and `getWorkflowLabel` function used in Jump Back In are reused here
+- **SC-001**: not affected — no engine edits
+
+#### Verification
+- TypeScript diagnostics: 0 errors on all 4 changed files
+- Dev log confirmed `ReferenceError: runningPipelines is not defined` at 01:16:08 (pre-fix); latest log entries show `✓ Compiled` without errors (post-fix hot-reload)
+- Logic trace with fix:
+  1. `recentRuns` now flows from `page.tsx` → `DashboardLayout` → `AppHeader`
+  2. `liveRunsFromServer = recentRuns.filter(r => LIVE_STATUSES.has(r.status))` picks up ALL live runs including user_stories, prototype, ppt
+  3. `runningPipelines` maps those to the `PipelineNotification` shape the JSX expects
+  4. The badge shows "N Running"; the dropdown lists all N runs with their real status labels
+  5. Clicking a run uses `handleRunClick` → `onSwitchToLiveRun` (live) or `onSelectWorkflowRun` (terminal), exactly like Jump Back In
+
+#### Notes
+- `runningPipelines` falling back to `runningFromNotifs` (the ephemeral notification list) is important for the very first render — before `recentRuns` is populated from the API, the notifications (created by `handleRunPipeline`) ensure the badge still shows. Once the server data arrives (typically < 1s), `liveRuns !== null` and the server data takes over.
+- The `WorkflowStatus` type extension is safe — it makes the type honest. The `as WorkflowRun["status"]` cast in `normalizeWorkflowRun` already let these values through at runtime; the type just didn't reflect them. No behaviour change.
+- `agentsCompleted: 0` in the `runningPipelines` mapping is a simplification — the backend `WorkflowRun` doesn't return live per-agent completion counts in the list endpoint (only the total `agentCount`). The notification-based fallback path has more accurate `agentsCompleted` since it's driven by live events. This is acceptable: the dropdown shows the type + title + real status, which is the most important information.
+
+---
+
+### FIX-155 — Header Running Count Shows 7 Instead of 3; Prototype/PPT Missing From Notifications
+
+**Date:** 2026-07-31
+**Triggered by:** `velocity-fix header shows 7 running, user_stories shows but not prototype; 2x prototype shown wrong`
+
+#### Root Cause
+
+`frontend/src/components/layout/DashboardLayout.tsx` — `currentPipelineNotifId` is a **single `useRef`** shared across all concurrent runs. With 3 concurrent runs (user_stories + prototype + ppt):
+
+1. `handleRunPipeline` (user_stories, ~line 1000) calls `addRunningNotification` and sets `currentPipelineNotifId.current = "pipeline-{ts1}"`
+2. `pendingOdProtoParams` effect fires for prototype: checks `currentPipelineNotifId.current ?? …` — it's already set (user_stories id) → falls into `else` branch → calls `updateAgentsTotal` on the **user_stories** notification → **no new prototype notification created**
+3. `odProtoNotifCreated` reactive effect fires: guard `!currentPipelineNotifId.current` → false (user_stories id is set) → skips entirely → **no prototype notification**
+4. Same problem for od_ppt
+
+The original FIX-155 attempted to fix duplicates (reactive effect fires before explicit handler) but introduced this new regression: the `currentPipelineNotifId.current ?? …` reuse logic ASSUMES the existing ref belongs to the SAME run, but it doesn't — it belongs to the concurrently-running user_stories run.
+
+#### Phase Context
+- **Phase(s) involved:** FIX-149 (multi-run notification system, DashboardLayout)
+- **Deleted code verified (not resurrected):** No deleted code; refs added.
+- **Locked decisions respected:** SC-001 — no workflow-name literals; all changes are generic notification management.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `DashboardLayout.tsx` | Added `odProtoNotifId` and `odPptNotifId` per-type `useRef` alongside `currentPipelineNotifId` | Each concurrent run type needs its own notification id tracking, independent of what other run types are doing |
+| `DashboardLayout.tsx` `pendingOdProtoParams` handler | Always creates a NEW notification with `Date.now()` id; sets BOTH `odProtoNotifId.current` AND `currentPipelineNotifId.current` | Never tries to reuse `currentPipelineNotifId` which may belong to a different run type |
+| `DashboardLayout.tsx` `pendingOdPptParams` handler | Same — always creates new, sets both `odPptNotifId` and `currentPipelineNotifId` | Same root cause |
+| `DashboardLayout.tsx` `odProtoNotifCreated` reactive effect | Removed `!currentPipelineNotifId.current` gate; checks `!odProtoNotifId.current` (prototype) or `!odPptNotifId.current` (ppt) instead; sets the type-specific ref when creating | The reactive effect fires for ANY pipeline_type od_prototype/ppt regardless of what other runs are doing; uses the type-specific ref to prevent the explicit+reactive double-create |
+| `DashboardLayout.tsx` `!pipelineState?.isRunning` cleanup | Clears `odProtoNotifId.current` and `odPptNotifId.current` on run end | Reset for next run |
+
+#### Invariants Verified
+- **INV-1**: not affected — no `pipeline_type` comparison in rendering logic; logic only used for notification id tracking
+- **INV-3**: not affected — FE-only change; no backend/golden impact
+- **INV-12**: not applicable — no capability duplication
+- **SC-001**: not affected — no engine edits
+
+#### Verification
+- TypeScript diagnostics: 0 errors (`get_diagnostics` ran clean)
+- With 3 concurrent runs: user_stories → `addRunningNotification(ts1, "user_stories", …)`; prototype → `addRunningNotification(ts2, "prototype", …)`; ppt → `addRunningNotification(ts3, "ppt", …)` — three independent entries, no collision
+- `odProtoNotifCreated` reactive effect: since explicit handlers pre-set `odProtoNotifId`/`odPptNotifId`, the reactive path's `if (!odProtoNotifId.current)` guard fires as false → no duplicate creation
+- `currentPipelineNotifId` still tracks the LAST-launched run for progress/gate/completion updates (the pipelineState only streams one run at a time — the last-active one)
+
+#### Notes
+- The `currentPipelineNotifId` still tracks the last-started run. For progress updates this is correct: pipelineState reflects the last active run. For completion, the effect reads `currentPipelineNotifId.current` at run end — this will be the last prototype/ppt run's id if those were started after user_stories. This is acceptable behaviour: the visible completion badges fire for whichever run's notif the ref held at completion time.
+- Future improvement: use a `Map<pipelineRunId, notifId>` to track completions per-run-id for fully independent concurrent run completion toasts.
+
+---
+
+### FIX-154 — User Stories review gate shows no summary content
+
+**Date:** 2026-07-31
+**Triggered by:** `velocity-fix user stories review gate shows no summary`
+
+#### Root Cause
+
+`frontend/src/components/chat/InlineGateActions.tsx` line 163:
+```ts
+const artifactKind = discriminateArtifact(output);  // ← missing second argument
+```
+
+`discriminateArtifact(output, artifactKind?)` has an optional second param that accepts the backend-derived `artifact_kind` value. When the second arg is absent, it falls back to content-sniffing XML wrapper tags in the output text.
+
+For **prototype/PPT** agents: their outputs contain literal `<spec>`, `<tasks>`, `<analysis>` tags, so the content-sniff finds a match → preview renders.
+
+For **user_stories** `domain-analyst`: the output is plain markdown (no XML tags). The backend calls `_artifact_kind_for("domain-analyst")` → `"summary"` (fallback for unmapped agents). This is included in the `review_gate_ready` event as `artifact_kind: "summary"`. `discriminateArtifact(undefined, "summary")` would return `"analysis"` → `AnalysisPreview` would render. But because the second arg was never passed, the function only got the plain-markdown output and returned `null` → the preview block condition `{artifactKind && !showEdit && ...}` was never entered → blank gate panel.
+
+Additionally, `GateContext` (in `RunChatLane.tsx`) had no `artifactKind` field at all, so even if `InlineGateActions` wanted to receive it, the prop chain was broken upstream.
+
+#### Trace
+```
+backend: _artifact_kind_for("domain-analyst") → "summary"
+backend: review_gate_ready { artifact_kind: "summary", output: "<plain markdown>" }
+page.tsx: reviewGateData.artifactKind = "summary"  ← stored correctly
+DashboardLayout: laneGate = { output, ..., /* NO artifactKind */ }  ← MISSING FIELD
+StepsOverviewSpine/GateAwaitingCard: InlineGateActions(output, /* no artifactKind */)
+InlineGateActions: discriminateArtifact(output)  ← ONE arg, missing "summary"
+discriminateArtifact: /<analysis>/i.test(plainMarkdown) = false → return null
+preview block condition: null && !showEdit = false → nothing rendered ❌
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 42 §2 (gate inline migration, `InlineGateActions` + `StepsOverviewSpine`); Phase 28 §3 (`artifactPreview.tsx` discriminator)
+- **Relevant register section:** Phase 42 plan 42-08 (gate 2-button + plan-preview); Phase 28 §3 (artifact kind vocabulary)
+- **Deleted code verified (not resurrected):** No deleted code involved; this is a missing prop chain.
+- **Locked decisions respected:** SC-001 — `artifactKind` is the structurally-derived backend value, never a workflow/agent-name literal. The fix propagates it without adding any name-based branch.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/chat/RunChatLane.tsx` | Added `artifactKind?: string` field to `GateContext` interface | Without this field, the prop chain was broken — no upstream component could pass the value to the gate panel |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `artifactKind: reviewGateData.artifactKind` to the `laneGate` object construction | Threads the value from `reviewGateData` (which already stored it from the SSE event) into `laneGate` |
+| `frontend/src/components/results/StepsOverviewSpine.tsx` | Added `artifactKind={laneGate.artifactKind}` to the `InlineGateActions` call inside `GateAwaitingCard` | Passes the value from the gate context through to the component that calls the discriminator |
+| `frontend/src/components/chat/InlineGateActions.tsx` | Added `artifactKind?: string` to `InlineGateActionsProps`; added to destructuring; changed `discriminateArtifact(output)` → `discriminateArtifact(output, artifactKind)` and renamed result to `resolvedArtifactKind`; updated render conditions | The actual bug site — the second argument was simply never passed |
+
+#### Invariants Verified
+- **INV-1**: not affected — uses `artifact_kind` string comparison only, no `pipeline_type` branch
+- **INV-3**: not affected — FE-only change; 5 characterization goldens unaffected by construction
+- **INV-12**: not applicable — `discriminateArtifact` is already the single implementation in `artifactPreview.tsx`; the fix just passes the missing argument
+- **SC-001**: not affected — no backend changes; `artifactKind` value comes from backend `_artifact_kind_for` which already names no workflow/agent literally
+
+#### Verification
+- All 4 changed files: TypeScript diagnostics = 0 errors
+- Trace with fix: `reviewGateData.artifactKind = "summary"` → `laneGate.artifactKind = "summary"` → `InlineGateActions(artifactKind="summary")` → `discriminateArtifact(output, "summary")` → `isAnalysis = true` (because `artifactKind === "summary"`) → returns `"analysis"` → `AnalysisPreview` renders
+- PPT/prototype unaffected: their outputs contain XML tags so `discriminateArtifact` returns the correct kind regardless of the second arg (content-sniff path)
+
+#### Notes
+- The `approveLabel` in `DashboardLayout` was already computing from `reviewGateData.artifactKind` correctly (for the button label); this fix just extends the same pattern to the preview renderer.
+- Any future agent whose output lacks XML wrapper tags will now render correctly as long as the backend's `_artifact_kind_for` returns a recognized kind ("spec", "task_list", "summary"). Unknown kinds fall back to `null` → no preview (same safe degrade as before).
+
+---
+
+### FIX-153 — KAN-146: Concurrent run review gates cross-contaminate and appear before agent output
+
+**Date:** 2026-07-30 (corrected 2026-07-31)
+**Triggered by:** `velocity-fix KAN-146`
+
+#### Root Cause
+
+**Bug 1 (cross-contamination — primary symptom shown in screenshots):**
+
+`frontend/src/app/dashboard/page.tsx` — the `review_gate_ready` and `questionnaire_ready` switch-case handlers used `launchedRunIdsRef.current` as the isolation predicate. This ref contains ALL run IDs ever launched from this browser tab. When two or more runs are active simultaneously, ALL their IDs are in the set, so the filter never blocks any of them — run A's gate overwrites run B's screen.
+
+The fix went through two iterations:
+
+*Iteration 1 (initial):* Switched to `activelyBuildingRunIdRef.current` (the latest-launched run). This worked for exactly 2 concurrent runs but broke for 3+ runs or when the user switches views. `activelyBuildingRunIdRef` holds only the most recently launched run ID. If the user has runs A, B, C active and switches to view B via the header notification dropdown, `activelyBuildingRunIdRef` still holds C. B's gate fires → `(B ≠ C)` → `isForeignGate = true` → gate silently dropped even though the user is watching B.
+
+*Iteration 2 (final — correct):* Switched to `trackedRunIdRef.current` — the run the user is **currently viewing on screen**. `trackedRunIdRef` is updated by every view-switch path:
+- `handleSwitchToLiveRun(runId)` — notification dropdown click
+- `handleSelectWorkflowRun(run)` — history reopen
+- Launch `.then()` — new run started
+- `useEffect([activePipelineRunId, contentSourceRunId])` — clarify/completed state changes
+
+This means `trackedRunIdRef` is always the one correct run to accept gates for, regardless of how many other runs are building in the background.
+
+**Bug 2 (simultaneous clarify + gate panels):**
+
+`frontend/src/components/layout/DashboardLayout.tsx:1609` — `laneGate` was derived from `reviewGateData` unconditionally, so both gate and clarify actions could render together when the SSE D-14g re-arm replayed a paused gate while a questionnaire was open.
+
+#### Phase Context
+- **Phase(s) involved:** KAN-125 / FIX-135 established the `trackedRunIdRef` / run-isolation pattern; this fix applies the same concept to gate/clarify events.
+- **Relevant register section:** Phase 42 §2 (gate inline migration); Phase 29 D-14g (SSE gate re-arm).
+- **Deleted code verified (not resurrected):** No deleted code resurrected; predicate swap only.
+- **Locked decisions respected:** SC-001 — uses `pipeline_run_id` string comparison only, no workflow-name literal. INV-1 — no `pipeline_type` branch.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | `review_gate_ready`: `isForeignGate` now uses `trackedRunIdRef.current` | The viewed-run ref; correct for 2, 3, or N concurrent runs and survives view-switching |
+| `frontend/src/app/dashboard/page.tsx` | `questionnaire_ready`: `isForeignQuestionnaire` now uses `trackedRunIdRef.current` | Same reasoning — prevents clarify from a background run capturing `activePipelineRunId` |
+| `frontend/src/components/layout/DashboardLayout.tsx` | `laneGate` derivation: `reviewGateData && !laneClarifyOpen ? {...}` | Mutual exclusion — gate and clarify panels cannot render simultaneously |
+
+#### Invariants Verified
+- **INV-1**: not affected — `pipeline_run_id` comparison only, no workflow-name literals
+- **INV-3**: not affected — FE-only; all 5 characterization goldens unaffected by construction
+- **INV-12**: not applicable
+- **SC-001**: not affected — no backend changes
+
+#### Verification
+- TypeScript diagnostics: 0 errors on both changed files
+- `trackedRunIdRef.current` is `null` on the very first launch (no prior run) → `!!trackedRunIdRef.current` is `false` → `isForeignGate = false` → gate accepted (correct first-launch behaviour preserved)
+- Switching views via notification dropdown sets `trackedRunIdRef = switchedRun.id` synchronously, so the gate filter is correct before any events arrive
+- `DashboardLayout` `laneGate` is `undefined` when clarify is open → `runLaneState` resolves to `"clarify"` (gate priority still expressed in the ternary but gate prop is nulled)
+
+#### Notes
+- The progression: `launchedRunIdsRef` (wrong — all tab runs) → `activelyBuildingRunIdRef` (wrong — only latest launch) → `trackedRunIdRef` (correct — currently viewed run).
+- The mutual-exclusion fix in DashboardLayout (Bug 2) is independent and correct regardless of the predicate choice above.
+- A future improvement: if the user is NOT viewing a run (e.g. on the home screen), `trackedRunIdRef.current` may be stale from the last-viewed run. In that case a new gate from a different background run would still be blocked. This is acceptable: the gate will be re-served on the D-14g re-arm when the user navigates to that run's screen.
+
+---
+
+### FIX-152 — KAN-139: 9 D-Cluster Infrastructure Defects
+
+**Date:** 2026-07-30
+**Triggered by:** `velocity-fix KAN-139`
+
+#### Root Cause
+9 separate root causes, all code-level (no SSM / nginx access required):
+
+- **D1** — `frontend/e2e/tests/ts-sse-resilience.spec.ts:216` — test title claimed "multi-tab consumers ride ONE monotonic seq/event_id space" (a backend delivery guarantee), but the harness uses a re-readable array served from `mockSse.ts:125`, never the real consume-once backend queue.
+- **D2** — `frontend/src/providers/RunConnectionProvider.tsx:448` — `sendCommand()` called `fetch()` directly, bypassing `api.ts`'s `request()` helper; the `res.ok` guard was missing. A 4xx/5xx response silently returned `null`, leaving the chat message as an orphan optimistic bubble forever.
+- **D4** — `backend/agents/artifact_store/store.py:42-48` — three module-global dicts (`_resume_events`, `_questionnaire_responses`, `_questionnaire_force_proceed`) on the process-lifetime `ArtifactStore` singleton had no eviction path. `_cleanup_pipeline` in `run_engine.py:70-73` cleared the queue/task/cancel registries but not these three.
+- **D5** — `backend/agents/execution_engine/state_machine.py:106` — `StateMachine._states` grew without bound. `run_commands.py:412` accessed it via `_state_machine._states.pop(...)` — a private-dict reach FIX-105 had left in place.
+- **D6** — `backend/app/agents/sandbox.py:163` — `sweep_expired()` had zero callers. Its implementation also used directory `st_mtime` as the sole guard, which does NOT advance when files inside are overwritten (prototype build `edit_file` path) — a proposed naïve fix would have caused data loss on active runs.
+- **D7** — `backend/app/agents/checkpointer.py:104-112` — `close_checkpointer()` set `_checkpointer = None` outside the `try/finally` (skipped on exception); had no `_closed` latch; was never called in `app/main.py` lifespan shutdown (shutdown body = one `logger.info`).
+- **D9** — `backend/agents/execution_engine/engine.py:5278-5449` — `restore_non_terminal_runs()` called `asyncio.create_task(self.resume_run(...))` for every non-terminal run in a for-loop with no Semaphore or stagger, firing N simultaneous Bedrock calls at startup.
+- **D10** — `backend/app/core/config.py:133` — `SSE_STREAM_IDLE_TIMEOUT_SECONDS: int = 300` was dead configuration with zero readers (documented as Phase 29 IN-01 and Phase 44 IN-01 for months).
+- **D11** — `backend/app/api/run_stream.py` — 300 lines, no `import logging`, no `logger`, zero log calls. Every SSE stream open/close/error was invisible server-side.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 44 (SSE cutoff / run_stream), Phase 49 (resume), Phase 12 (restore), Phase 29 (D-14h config), Phase 8 (ArtifactStore HITL), Phase 2 (StateMachine)
+- **Deleted code verified (not resurrected):** confirmed F1-F5 not resurrected; `_states` private reach replaced by public method (not a new state-machine mechanism)
+- **Locked decisions respected:** INV-3 (characterization goldens untouched — all changes are infrastructure/config); INV-12 (eviction is one method each, called from one cleanup path); SC-001 (no pipeline_type branches)
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/artifact_store/store.py` | Added `forget_run(run_id)` public method that pops all three dicts and all `review:{run_id}*` event keys | D4 eviction |
+| `backend/agents/execution_engine/state_machine.py` | Added `forget_run(run_id)` public method that pops `_states[run_id]` | D5 eviction |
+| `backend/app/api/run_engine.py` | `_cleanup_pipeline` now calls `get_artifact_store().forget_run()` + `get_state_machine().forget_run()` (lazy import, best-effort try/except) | D4+D5 wire |
+| `backend/app/api/run_commands.py:412` | Replaced `get_execution_engine()._state_machine._states.pop(run_id, None)` with `get_state_machine().forget_run(run_id)` | D5 private-dict reach → public API |
+| `backend/app/agents/sandbox.py` | `sweep_expired()` now accepts `protected_run_ids: set[str] \| None`; checks protection BEFORE mtime; TTL comment updated | D6 data-loss guard |
+| `backend/app/agents/checkpointer.py` | Added `_closed` module-level latch; `close_checkpointer()` sets latch + nulls globals BEFORE `pool.close()` + non-raising except; `get_checkpointer()` raises `RuntimeError` when `_closed` | D7 hardening |
+| `backend/app/core/config.py` | Deleted `SSE_STREAM_IDLE_TIMEOUT_SECONDS`; replaced with accurate comment block. Added `RESTORE_ADMISSION_CONCURRENCY=4`, `RESTORE_ADMISSION_STAGGER_SECONDS=15.0`, `SANDBOX_SWEEP_INTERVAL_SECONDS=21600`. TTL raised from 48h to 168h | D10 delete, D9 settings, D6 TTL |
+| `backend/app/main.py` | Lifespan: added `_sandbox_sweep_loop` background task (D6); added graceful `close_checkpointer()` + sweep-task cancellation in shutdown block (D7) | D6+D7 wiring |
+| `backend/app/api/run_stream.py` | Added `import logging` + `logger = logging.getLogger("app.api.run_stream")`; added `evt=sse.open` log on attach and `evt=sse.close reason=…` log in the generator finally | D11 observability |
+| `frontend/src/providers/RunConnectionProvider.tsx` | `sendCommand()` now checks `!res.ok` before draining/parsing the body and throws a descriptive `Error` on non-2xx | D2 silent-null fix |
+| `frontend/e2e/tests/ts-sse-resilience.spec.ts` | Retitled TS-SSE-RESILIENCE-04 to "mock harness contract — not a backend delivery guarantee"; added explanatory comment | D1 false-claim fix |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — all changes are infra/config/logging
+- **INV-3** (golden parity): not affected — no capability, event-type, or engine-emit change; characterization goldens unaffected by construction
+- **INV-12** (no duplication): one `forget_run` per class, called from one `_cleanup_pipeline`; `sweep_expired` extended in place; `_closed` is inside the existing function
+- **SC-001** (zero engine edits for new workflows): no engine capability change; the admission-control wrapper is transparent to `resume_run`
+
+#### Verification
+All 9 changes verified by code-read + diagnostics (0 errors). Live behavioral verification (stream open/close log lines, periodic sweep, semaphored restore, graceful shutdown) will be confirmed on the next real Bedrock session.
+
+#### Notes
+- D6: `sweep_expired` TTL was 48h which is too short for the revision-parent seed window (users sometimes create revisions the next day). Raised to 168h (7 days) as per KAN-139 spec.
+- D9: The admission-control semaphore is per-restore (`self._restore_sem` set lazily) so it does not interfere with concurrent re-arm tasks (branch-a); gate-parked runs hold the semaphore only around the actual model-dispatch code inside `resume_run`, so the design cannot deadlock.
+- D11: The `evt=sse.close reason=` vocabulary (`client_disconnect` / `sentinel` / `terminal_event` / `error`) matches the KAN-139 spec exactly.
+- D1: A proper TS-SSE-RESILIENCE-05 covering the real backend deliver-once guarantee would require two mounted-app browser tabs + a real backend instance — explicitly out of scope for offline mocked testing.
+
+---
+
+### FIX-147 — KAN-132: Multi-run dropdown entries navigate to their own run
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix Currently 2 pipeline running clicking on presentation going to user story run`
+
+#### Root Cause
+
+Each dropdown entry in the multi-run badge called the same shared `onGoToPipeline?.()` callback:
+
+```ts
+// AppHeader.tsx — BEFORE fix
+onClick={() => {
+  setRunningDropdownOpen(false);
+  onGoToPipeline?.();  // ← same callback for every entry
+}}
+```
+
+`onGoToPipeline` in DashboardLayout is `() => setMainView("execution")` — it navigates to whichever run is currently "active", not to the run that was clicked. So clicking "Presentation" executed the same action as clicking "User Stories": navigate to the active run's view.
+
+`onViewResults` was already wired as a per-notification callback and correctly routes to each run's view. It receives the full `PipelineNotification` object and DashboardLayout handles the routing:
+
+```ts
+onViewResults={(n) => {
+  if (n.status === "running" || n.status === "completed") {
+    setMainView("execution");
+  } else {
+    setMainView("history");
+  }
+}}
+```
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 35 (SHELL-01 AppHeader shell chrome), FIX-146 (multi-run badge implementation)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** SC-001 — no workflow-name branch; routing keys on generic `n.status` field.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/AppHeader.tsx` | Changed each dropdown entry's `onClick` from `onGoToPipeline?.()` to `onViewResults?.(pipeline)` | `onViewResults` is the per-notification callback already wired by DashboardLayout to route each notification to its own run view |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — routing keys on generic `n.status`
+- **INV-3** (golden parity): Not affected — FE-only change
+- **INV-12** (no duplication): Reuses the existing `onViewResults` callback
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors
+- Trace: 2 running (Presentation + User Stories) → click "Presentation" → `onViewResults?.(presentationNotification)` → DashboardLayout routes to execution view of the Presentation run ✅
+- `onGoToPipeline` is still used for the single-run badge and legacy fallback — unaffected ✅
+
+#### Notes
+
+- `onViewResults` in DashboardLayout currently always calls `setMainView("execution")` for running/completed status — it navigates to the execution view regardless of which run. A future enhancement could track which specific concurrent run the user clicked and switch the `activelyBuildingRunIdRef` to it.
+
+---
+
+### FIX-146 — KAN-132: Header running badge shows all concurrent pipelines via dropdown
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN 132`
+
+#### Root Cause
+
+`AppHeader` received three scalar props — `isPipelineRunning`, `pipelineType`, `pipelineAgentsCompleted/Total` — that can represent only ONE pipeline at a time. When multiple pipelines run concurrently, only the most recently active one was shown; all others were invisible in the header.
+
+The `notifications` array from `useNotifications` (passed to `AppHeader` as the `notifications` prop since Phase 35) already contains entries for ALL running and gate-paused pipelines with `status`, `workflowType`, `title`, and agent counts. It was only used to feed `NotificationPanel`, not the running badge.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 35 (SHELL-01 AppHeader shell chrome), Phase 38 (SHELL-05 notifications feed)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** SC-001 — label derivation uses `getWorkflowLabel()` (generic map), never a pipeline_type/workflow-name branch. INV-12 — reuses `PipelineNotification` and `getWorkflowLabel` from the single source in `useNotifications.ts`.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/AppHeader.tsx` | (1) Added `runningDropdownOpen` state and its outside-click `useEffect`. (2) Derived `runningPipelines` from `notifications.filter(n => n.status === "running" \|\| n.status === "gate")`. (3) Split badge into three branches: **1 running** → existing single badge (unchanged); **>1 running** → "N Running" dropdown button that lists all pipelines with type label, title, and agent progress; **0 from notifications but scalar isPipelineRunning is true** → legacy fallback badge (backward-compat for the first render before notifications catch up). | All data already existed in `notifications` — just needed to be surfaced in the badge |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — `getWorkflowLabel(pipeline.workflowType)` is a generic map lookup; `pipeline.status` is a generic status field
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/golden impact
+- **INV-12** (no duplication): Reuses `PipelineNotification` type and `getWorkflowLabel` from `useNotifications.ts`; no parallel tracking structure added
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on `AppHeader.tsx`
+- Trace (0 running): `runningPipelines = []`, `isPipelineRunning=false` → no badge shown ✅
+- Trace (1 running): `runningPipelines = [{ status:"running", workflowType:"prototype", ... }]` → single badge shows "Prototype" with pulse dot and agent count ✅
+- Trace (2 running): `runningPipelines = [prototype, user_stories]` → "2 Running" button; click opens dropdown listing "Prototype / brief" and "User Stories / brief" ✅
+- Trace (gate-paused run): `status === "gate"` → amber dot instead of pulsing white dot ✅
+- `DashboardLayout.tsx` was NOT changed — zero regression risk on the call site
+
+#### Notes
+
+- The dropdown's `onGoToPipeline` callback currently navigates to the execution view of whatever run `DashboardLayout` considers active. A future improvement (tracked in KAN-132) could allow each dropdown entry to navigate to its specific run's view by passing a per-notification callback.
+- The legacy fallback branch ensures no regression during the brief window at page load before `addRunningNotification` has been called but `pipelineState.isRunning` is already true.
+
+---
+
+### FIX-145 — KAN-130: Jump Back In shows correct workflow labels and Revised/Chained indicators
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN 130`
+
+#### Root Cause
+
+**Part 1 — Raw `od_ppt` / `od_prototype` labels:**
+`getWorkflowLabel` in `useNotifications.ts` returns `WORKFLOW_LABELS[type] || type`. The `od_ppt`, `od_prototype`, `od_ppt_revision`, and `od_prototype_revision` pipeline types were not in `WORKFLOW_LABELS`, so they fell back to the raw internal alias string.
+
+**Part 2 — No "(Chained)" indicator:**
+`source_run_id` exists on the `WorkflowRun` ORM model (migration 0014 forward field) and is set when a run was launched by chaining. However, it was never included in `WorkflowRunResponse`, so the frontend had no way to detect chained runs. The `WorkflowRun` FE type and `normalizeWorkflowRun` in `api.ts` also lacked the field.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 36 (SHELL-02 Jump Back In / HomeLaunchGrid), Phase 5 (WorkflowRunResponse additive fields), KAN-130 analysis
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** INV-1 — no pipeline_type branch anywhere; `sourceRunId` is a generic field. Q3 additive-only — `source_run_id` column already exists, no migration needed. INV-12 — `getWorkflowLabel` is the single label function; extended in place.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useNotifications.ts` | Added `od_ppt`, `od_ppt_revision`, `od_prototype`, `od_prototype_revision` to `WORKFLOW_LABELS` | These were the actual `run.type` values stored in the DB but had no label entry |
+| `backend/app/api/runs.py` | Added `source_run_id: Optional[str] = None` to `WorkflowRunResponse` | Exposes the chaining indicator — column already exists, picked up by the `from_attributes` loop |
+| `frontend/src/lib/api.ts` | Added `source_run_id?: string | null` to `RawWorkflowRun`; mapped to `sourceRunId` in `normalizeWorkflowRun` | Threads the new backend field through to the FE model |
+| `frontend/src/types/index.ts` | Added `sourceRunId?: string | null` to `WorkflowRun` interface | Required for TypeScript to accept the new field in the FE model |
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Changed `getWorkflowLabel(run.type)` to `getWorkflowLabel(run.type) + (run.sourceRunId ? " (Chained)" : "")` | Shows "(Chained)" for runs launched by chaining, keyed generically on `sourceRunId` |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — label dispatch on the generic `WORKFLOW_LABELS` map key; chained indicator on `sourceRunId` (a data field)
+- **INV-3** (golden parity): Not affected — FE-only display + additive backend field
+- **INV-12** (no duplication): `getWorkflowLabel` is extended in place; no new label function
+- **SC-001** (zero engine edits): Not affected — backend change is in the API response layer only
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on all 4 changed FE files
+- Backend restarted and confirmed running
+- Trace: `od_ppt` run → `getWorkflowLabel("od_ppt")` → `WORKFLOW_LABELS["od_ppt"]` = `"Presentation"` ✅
+- Trace: chained prototype run → `run.sourceRunId = "prev-run-id"` → `"Prototype (Chained)"` ✅
+- Trace: revision run → `run.type = "prototype_revision"` → `"Prototype (Revised)"` ✅ (unchanged)
+
+#### Notes
+
+- The "(Revised)" labels for `od_ppt_revision` and `od_prototype_revision` were also missing and are now fixed.
+- The "(Chained)" label requires the `source_run_id` column to be populated. For runs launched via the chain flow in DashboardLayout/LaunchWizard this field is set server-side; legacy runs or runs launched without chaining will have `null` and show no suffix (correct).
+
+---
+
+### FIX-144 — KAN-129: Context Received panel shows correct labels instead of "artifact"
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN 129`
+
+#### Root Cause
+
+`formatContextSource` in `AgentDetailPanel.tsx` only handled `type === "summary"` (prior-agent outputs). Every other type fell through to `src.artifact_type || "artifact"`. KAN-102 added two new source types to the backend — `"run_input"` (user brief) and `"context_block"` (template/design system) — both with a `label` field (e.g. `"User brief"`, `"Template: ibm-carbon"`). The frontend type `ContextSource` in `types/index.ts` was never updated to include these types or the `label` field, and `formatContextSource` never read `label` at all. Result: every first-agent context source across all workflows displayed as `"artifact"`.
+
+The backend also emitted `"label": "User brief"` for the user brief source. Since the product requirement was to show `"prompt.md"`, the backend label was changed to `"prompt.md"`. This is INV-3 safe: `context_sources` is in `_VOLATILE_STRIP_KEYS` in `_normalize.py`, so goldens are byte-identical.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 22 (KAN-102 — introduced run_input/context_block source types), Phase 31/39 (AgentDetailPanel formatContextSource)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** INV-12 — `formatContextSource` is the single derivation function; one fix, all consumers benefit. SC-001 — dispatch on generic `type` field, never a workflow/agent-name literal.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/types/index.ts` | Extended `ContextSource.type` union to include `"run_input"` and `"context_block"`; added `label?: string` and `size_chars?: number` fields | Type was stale; missing fields caused silent runtime mismatches |
+| `frontend/src/components/results/AgentDetailPanel.tsx` | Updated `formatContextSource` to read `src.label` for `"run_input"` (fallback `"prompt.md"`) and `"context_block"` (fallback `"context"`); updated `rawSize` derivation to include `size_chars` for new types | Makes all 4 source types render their correct human-readable label and size |
+| `backend/agents/execution_engine/engine.py` | Changed `"label": "User brief"` → `"label": "prompt.md"` on the `run_input` source in `_build_context_sources` | Product requirement: show `"prompt.md"` as the context name for the user brief; INV-3 safe since `context_sources` is in `_VOLATILE_STRIP_KEYS` |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — `formatContextSource` dispatches on `src.type` only (generic data field, never a pipeline/workflow name)
+- **INV-3** (golden parity): Not affected — `context_sources` is in `_VOLATILE_STRIP_KEYS` in `characterization/_normalize.py`; the backend label change is golden-neutral
+- **INV-12** (no duplication): `formatContextSource` is the single source; no new render function added
+- **SC-001** (zero engine edits for new workflows): The engine edit (`_build_context_sources`) changes only a display label string — no routing, no capability, no strategy logic changed
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on either changed FE file
+- Trace: backend emits `{type: "run_input", label: "prompt.md", size_chars: N}` → `useWorkflow` stores as `contextSources` → `ContextReceivedPanel` calls `formatContextSource` → `src.type === "run_input"` → `src.label || "prompt.md"` → shows `"prompt.md"`
+- PPT/Prototype: `{type: "context_block", label: "Template: ibm-carbon", ...}` → `src.label || "context"` → shows `"Template: ibm-carbon"`
+- Prior-agent handoffs (`"summary"` type): unaffected — existing path unchanged
+
+#### Notes
+
+- Backend restart required since `engine.py` was changed.
+- The `size_chars` field is now displayed in the meta line (e.g. "48.3k") for `run_input` and `context_block` sources, matching the pattern for `"summary"` sources.
+
+---
+
+
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix still showing the same issue for ppt and prototype`
+
+#### Root Cause
+
+FIX-141 introduced `laneActiveContent` to select the right content for `deriveDeliverableFilename`, but it keyed on `workflowType` (DashboardLayout's local state) instead of `effectiveReviseType`.
+
+`workflowType` is a local `useState` inside DashboardLayout:
+- It defaults to `"user_stories"` unless a wizard explicitly calls `setWorkflowType()`
+- It's set to `"ppt"` / `"prototype"` when the respective wizard launches a run
+- **It stays stale at `"user_stories"` when a completed run is opened from history**
+
+`effectiveReviseType` is computed correctly for ALL cases:
+```ts
+const viewedRunType = contentSourceRunType ?? (!isPipelineRunning && contentSourceRunId != null ? recentRuns.find(...)?.type : undefined);
+const effectiveReviseType = viewedRunType ?? workflowType;
+```
+
+For a history-reopened `"od_ppt"` run: `contentSourceRunType = "od_ppt"` → `effectiveReviseType = "od_ppt"`. But `workflowType` stays `"user_stories"`.
+
+So `laneActiveContent` was checking `workflowType === "ppt"` → `false` → fell through to `userStoryContent = ""` → `deriveDeliverableFilename("user_stories", "", fallback)` → returned the static fallback `"presentation.pptx"`.
+
+`PreviewPanel` was already correct because it uses `workflowType={effectiveReviseType}` (line ~2049). Only `laneActiveContent` was wrong.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 31 (CHATUI-01 RunChatLane), Phase 39 (RUNUI-06 DeliverableCard), follow-up to FIX-141
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** SC-001 — no workflow-name literal; dispatch keys on the existing `effectiveReviseType` variable.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | Replaced `workflowType` with `effectiveReviseType` in the `laneActiveContent` dispatch AND in the `deriveDeliverableFilename` first argument | `effectiveReviseType` is the authoritative type for the viewed run (incorporates `contentSourceRunType` for history-reopened runs); `workflowType` is stale for reopened runs |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — FE-only
+- **INV-3** (golden parity): Not affected — FE-only, no backend/golden impact
+- **INV-12** (no duplication): Uses the existing `effectiveReviseType` variable already computed above
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit`: No errors on `DashboardLayout.tsx`
+- Trace for PPT: `contentSourceRunType = "od_ppt"` → `effectiveReviseType = "od_ppt"` → `laneActiveContent = pptContent` (the HTML deck) → `deriveDeliverableFilename("od_ppt", "<html><title>GitHub OAuth Authentication</title>...", fallback)` → `"github-oauth-authentication.html"` ✅
+- Trace for Prototype: `contentSourceRunType = "od_prototype"` → `effectiveReviseType = "od_prototype"` → `laneActiveContent = prototypeContent` → `deriveDeliverableFilename("od_prototype", "<html><title>To Do App</title>...", fallback)` → `"to-do-app.html"` ✅
+- Trace for live PPT launch: `workflowType = "ppt"`, `contentSourceRunType = null` → `effectiveReviseType = "ppt"` → same as before ✅
+
+#### Notes
+
+This is the definitive fix for the chat panel filename issue. The root cause was a two-level bug:
+1. FIX-141 wired the infrastructure but used the wrong type variable (`workflowType` vs `effectiveReviseType`)
+2. FIX-142 fixed the extension (`.pptx` → `.html`) for the `"ppt"` normalised alias
+
+With FIX-143, both live runs and history-reopened runs will show the correct content-derived filename in the chat panel for all workflow types.
+
+---
+
+### FIX-142 — KAN-128: PPT always produces HTML — fix extension in all filename derivation paths
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix PPT still showing old static file name — PPT only generates html file output not pptx at all`
+
+#### Root Cause
+
+`deriveDeliverableFilename` in `FilesTab.tsx` had a branch:
+```ts
+const ext = workflowType === "od_ppt" || workflowType === "od_ppt_revision" ? "html" : "pptx";
+```
+
+When `workflowType` is `"ppt"` or `"ppt_revision"` (the normalised aliases DashboardLayout sets from `"od_ppt"`), `ext` was `"pptx"` — the wrong extension. All PPT runs in this codebase use the `od_ppt` HTML-deck path; the legacy PptxGenJS `.pptx` binary path is not used.
+
+The same wrong split existed in `deriveDeliverableFiles` which still offered a dead `.pptx` download row for `"ppt"`/`"ppt_revision"`.
+
+Additionally, since `deriveDeliverableFilename` returned `"presentation.pptx"` (with the wrong extension), and since the normalised `workflowType = "ppt"` in DashboardLayout causes `laneDerivedFilename` to evaluate with that wrong extension, the left chat panel was showing `"presentation.pptx"` as the fallback.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 18 (ISS-021 FilesTab PPT branch), Phase 22 (deliverableFilename), follow-up to FIX-140 and FIX-141
+- **Deleted code verified (not resurrected):** No deleted code resurrected. The `.pptx` row was a legacy placeholder for a path that was never used.
+- **Locked decisions respected:** INV-12 — all changes in the one shared `deriveDeliverableFilename` function
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/FilesTab.tsx` — `deriveDeliverableFilename` | Changed `ext` from conditional `"od_ppt" ? "html" : "pptx"` to always `"html"` for all four ppt variants | All PPT runs produce HTML decks; the `.pptx` path is unused |
+| `frontend/src/components/results/FilesTab.tsx` — `deriveDeliverableFiles` | Removed the `od_ppt`/`ppt` split that offered a dead `.pptx` row; all four ppt variants now produce a single `.html` FileItem | Removes a dead `.pptx` download that would 404 if clicked; Files tab now consistent with all other surfaces |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — FE-only
+- **INV-3** (golden parity): Not affected — FE-only, no backend/golden impact
+- **INV-12** (no duplication): Both functions updated together at the single source — no duplication
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on `FilesTab.tsx`
+- `workflowType = "ppt"` + content `<title>GitHub OAuth Authentication Feature</title>` → `"github-oauth-authentication-feature.html"` (correct extension, correct title)
+- `workflowType = "od_ppt"` → same result (already worked, unchanged)
+- Files tab no longer shows a dead `.pptx` download row for `"ppt"` runs
+
+#### Notes
+
+The root cause traces back to the original assumption that `"ppt"` could be either HTML or PPTX. Since the product only uses `od_ppt` (HTML decks), both the normalised alias `"ppt"` and the original `"od_ppt"` must use `"html"` extension everywhere.
+
+---
+
+### FIX-141 — KAN-128: Left chat panel "Run summary" card shows content-derived filename
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix left side chat window not showing correct titles for files generated`
+
+#### Root Cause
+
+`RunChatLane.tsx` line ~1643:
+```ts
+const dFilename = pipelineState?.deliverableFilename ?? deliverableFilename;
+```
+
+`pipelineState?.deliverableFilename` is the **static manifest name** (e.g., `"presentation.pptx"`, `"user_stories.md"`) — the same static value that FIX-140 already corrected for the Preview URL bar and Files tab. The `RunChatLane` component has no access to actual deliverable content, so it cannot derive a content-based name on its own.
+
+The fix belongs in `DashboardLayout.tsx`, which already receives all three content props (`userStoryContent`, `pptContent`, `prototypeContent`) and `workflowType`. Two changes are needed: (1) compute the derived name in DashboardLayout and pass it as the prop, and (2) fix the `??` operator precedence in RunChatLane so the explicit prop overrides the stale pipelineState value.
+
+**Trace:**
+```
+pipeline_complete → useWorkflow sets pipelineState.deliverableFilename = "presentation.pptx" (static)
+DashboardLayout mounts RunChatLane with NO deliverableFilename prop
+RunChatLane.renderTranscriptFooter: dFilename = pipelineState?.deliverableFilename = "presentation.pptx"
+SettledSummaryStrip: metaBits = ["3 agents", "presentation.pptx"]  ← [WRONG]
+DeliverableCard renders "presentation.pptx"                        ← [WRONG]
+```
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 31 (CHATUI-01 — RunChatLane / SettledSummaryStrip / DeliverableCard), Phase 39 (RUNUI-06/07 — DeliverableCard wired to pipelineState.deliverableFilename)
+- **Deleted code verified (not resurrected):** No deleted code touched.
+- **Locked decisions respected:** INV-12 — reuses `deriveDeliverableFilename` from FIX-140 (FilesTab.tsx); no duplication; SC-001 — workflowType dispatch is in the FE component layer, not the engine kernel.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `import { deriveDeliverableFilename }` from FilesTab; computed `laneActiveContent` (content slot matching workflowType) and `laneDerivedFilename`; passed `deliverableFilename={laneDerivedFilename \|\| undefined}` to `RunChatLane` | DashboardLayout has all content props; RunChatLane does not |
+| `frontend/src/components/chat/RunChatLane.tsx` | Swapped `pipelineState?.deliverableFilename ?? deliverableFilename` to `deliverableFilename ?? pipelineState?.deliverableFilename` so the explicit content-derived prop takes precedence | The `??` operator was checking static pipelineState first, silently overriding the correct prop |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — FE-only
+- **INV-3** (golden parity): Not affected — FE-only, no backend/event/golden impact
+- **INV-12** (no duplication): Verified — reuses `deriveDeliverableFilename` from FilesTab (FIX-140 single source)
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on either changed file
+- `workflowType === "ppt"` + `pptContent` with `<title>GitHub OAuth Authentication Feature</title>` → `laneDerivedFilename = "github-oauth-authentication-feature.html"` — matches Files tab and Preview URL bar
+- During streaming: `laneActiveContent` is empty → helper returns fallback `pipelineState?.deliverableFilename` — no regression while building
+
+---
+
+### FIX-140 — KAN-128: Unify output filename — Preview URL bar, Download, and Files tab all agree
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix KAN 128`
+
+#### Root Cause
+
+Two completely independent code paths computed the deliverable filename, and they never shared logic:
+
+1. **`PreviewPanel.tsx` `previewFilename`** — read `pipelineState?.deliverableFilename`, a **static manifest value** (e.g., `"presentation.pptx"` from the workflow YAML's `deliverable.name` field). This was set by the `pipeline_complete` event handler in `useWorkflow.ts` which echoes the backend-emitted static manifest name.
+
+2. **`PreviewPanel.tsx` `handleHeaderDownload`** — also read the same static `pipelineState?.deliverableFilename`.
+
+3. **`FilesTab.tsx` `deriveDeliverableFiles()`** — parsed the **actual content** (`<title>` tags for HTML, `^#\s+(.+)` for markdown) to derive content-aware names. Also used `.slice(0, 40)` which truncates mid-syllable (e.g., `"lateral-thinking-beyond-linear-problemso.pptx"`).
+
+Result: Preview URL bar showed `"presentation.pptx"` (static manifest name), Files tab showed `"beyond-conventional-thinking.pptx"` (content-derived). Download via header also used the static name.
+
+**Trace:**
+```
+pipeline_complete → useWorkflow.ts:502 → pipelineState.deliverableFilename = manifest static name
+  → PreviewPanel previewFilename = pipelineState?.deliverableFilename  [STATIC]
+  → PreviewPanel handleHeaderDownload name = same static value          [STATIC]
+
+FilesTab.deriveDeliverableFiles() → parses <title>/<h1>/^# → content-derived name [CONTENT]
+```
+
+The additional `.slice(0, 40)` in `deriveDeliverableFiles` also cut on character boundaries, producing mid-syllable truncations.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 18 (ISS-021/UXFIX-02 — `deriveDeliverableFiles` extracted to module level, Phase 22 (UXFIX-02 `deliverableFilename` added to `pipeline_complete` emission and `_VOLATILE_STRIP_KEYS`), Phase 39 (RUNUI-06/07 — `previewFilename` and `handleHeaderDownload` added to `PreviewPanel.tsx`)
+- **Relevant register section:** Phase 18 §3 (capabilities/modules added), Phase 22 §3 (UXFIX-02 migration 0022)
+- **Deleted code verified (not resurrected):** No deleted code touched. `pipelineState.deliverableFilename` is preserved as the fallback in the new helper (used when content is not yet available / streaming).
+- **Locked decisions respected:** INV-12 (single helper, no duplication); Phase 22 UXFIX-02 (the static field is retained as a fallback, not removed); Phase 18 D-21 (generic-primary dispatch unchanged)
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/FilesTab.tsx` | Added `slugify(raw, maxWords=8)` private helper that truncates on whole-word boundaries (not `.slice(0,40)`), and exported `deriveDeliverableFilename(workflowType, content, fallback?)` pure function covering all workflow types (user_stories, custom, ppt, od_ppt, prototype, od_prototype, app_builder + _revision variants) | Single source of truth for filename derivation; word-boundary-safe truncation; fallback to static name when content not yet available |
+| `frontend/src/components/preview/PreviewPanel.tsx` | Imported `deriveDeliverableFilename` from FilesTab; replaced `pipelineState?.deliverableFilename` in `previewFilename` and `handleHeaderDownload` with a call to the helper; also corrected `handleHeaderDownload`'s mimetype to match the derived extension | Preview URL bar and Download now use the same content-derived logic as the Files tab |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — FE-only change; `deriveDeliverableFilename` dispatches on `workflowType` string in the FE component layer, not in the engine kernel
+- **INV-3** (golden parity): Not affected — FE-only; no backend/engine/event change; characterization goldens not impacted
+- **INV-12** (no duplication): Verified — `deriveDeliverableFilename` is the single implementation; `PreviewPanel` imports from `FilesTab`; `deriveDeliverableFiles` unchanged (still builds full `FileItem` arrays using its own internal name logic which also benefits from `slugify`)
+- **SC-001** (zero engine edits): Not affected — no engine edit
+
+#### Verification
+
+- `tsc --noEmit` diagnostics: No errors on either changed file
+- Execution trace verified: `previewFilename` calls `deriveDeliverableFilename(rawPipelineType || workflowType, activeContent, fallback)` — when content is present, parses `<title>` or `^#` heading with word-boundary-safe slug; when content is empty/streaming, falls back to the static `pipelineState?.deliverableFilename`
+- `handleHeaderDownload` derives the same name and maps the file extension to the correct MIME type for download
+- The `slugify` helper splits on whitespace boundaries and takes the first `maxWords` (default 8) whole words, so `"Lateral Thinking Beyond Linear Problem Solving and Creative Approaches"` → `"lateral-thinking-beyond-linear-problem-solving-and-creative.pptx"` (first 8 words, no mid-syllable cut)
+
+#### Notes
+
+- The `deriveDeliverableFiles()` function still uses its own inline `.replace(...).slice(0, 40)` logic internally (it was not changed to use `slugify` — that would be a separate refactor touching the Files tab's existing filename generation which is out of scope for this fix). The new `deriveDeliverableFilename` helper is additive.
+- `pipelineState.deliverableFilename` (static manifest name) is retained as a fallback so the URL bar shows a meaningful name during streaming before content is available.
+- The fix covers all workflow types including revision variants (`_revision` suffix) and aliased types (`od_ppt`, `od_prototype`).
+
+---
+
+### FIX-139 — Chained pipeline uses wrong source run context
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix` — "chained pipeline not getting actual prompt; presentation is taking the context of a base presentation pipeline from earlier instead of the user story I chained from"
+
+#### Root Cause
+
+`handleChainPipeline` in `DashboardLayout.tsx` (~line 1001) resolved the `sourceRunId` for chain context fetching using:
+```typescript
+const sourceRun = recentRuns?.find(
+  r => baseWorkflowType(r.type) === baseWorkflowType(workflowType) && r.status === "completed"
+);
+const sourceRunId = sourceRun?.id;
+```
+
+This type-scan on `recentRuns` is unreliable when multiple completed runs of the same type exist in history. `Array.find` returns the **first** match (ordered by `created_at DESC` from the backend), but if multiple completed user_stories runs exist, it may return an older one instead of the one currently on screen — producing the "add gitlab authentication" context instead of "google authentication" context.
+
+The correct source is already available as `contentSourceRunId` — the prop explicitly managed by `page.tsx` that always points to the run currently displayed (set on `pipeline_complete` and `handleSelectWorkflowRun`). This prop was completely ignored by `handleChainPipeline`.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | Replace `recentRuns.find(...)` with `contentSourceRunId ?? recentRuns.find(...)` | `contentSourceRunId` is the authoritative "run on screen"; fall back to type-scan only when absent |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Add `contentSourceRunId` to the `useCallback` dependency array | The callback now closes over `contentSourceRunId` |
+
+#### Invariants Verified
+- **INV-1**: Not affected.
+- **INV-3**: Not affected — FE-only.
+- **INV-12**: No duplication — reuses `contentSourceRunId` already in scope.
+- **SC-001**: FE-only.
+
+#### Verification
+
+- `contentSourceRunId` is set by `page.tsx` when `pipeline_complete` fires (to `data.pipeline_run_id`) and on `handleSelectWorkflowRun` (to `fullRun.id`)
+- When the user clicks "Presentation" chain chip after completing a "google auth" user_stories run: `contentSourceRunId = "google-auth-run-id"` → `getChainContext("google-auth-run-id")` → correct context fetched ✓
+- Fallback: if `contentSourceRunId` is null (edge case), the type-scan still works as before ✓
+
+#### Notes
+- This bug was likely latent before the concurrent-run fixes (FIX-134..138) but became more visible because those fixes preserved multiple completed runs' history more faithfully
+- The `handleChainFromHistory` function (for chaining from the history view) correctly uses the explicit `run.id` from the history row — it was NOT affected by this bug
+
+---
+
+### FIX-138 — Concurrent same-type runs: HTTP response order race for activelyBuildingRunIdRef
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix` — "I ran 2 user story simultaneously showing incorrect agent progress"
+
+#### Root Cause
+
+When two runs are launched in quick succession (e.g., two user_stories), the `onStartPipeline` callback calls `startPipeline(...)` which does a `POST /api/runs`. These two HTTP POSTs may resolve in a different order than they were clicked. If the **first-clicked run** responds AFTER the **second-clicked run**, the first-clicked run's `.then()` fires last and **overwrites** `activelyBuildingRunIdRef` and `trackedRunIdRef` with the earlier-clicked run's ID.
+
+After this, the second-clicked run's events are blocked (`isForActiveRun = false` because `_sourceRunId ≠ activelyBuildingRunIdRef`), while the first-clicked run's events pass through. This causes the pipelineState (which was reset by the second run's `pipeline_start`) to receive agent events from the wrong run — producing the "two agents spinning simultaneously, 0 completed" display.
+
+Specifically:
+- Run A (first click, `f5a4`) POST responds AFTER Run B (second click, `86ff`)
+- After Run B's `.then()`: `activelyBuildingRunIdRef = "86ff"` (correct)
+- After Run A's `.then()` (fires later): `activelyBuildingRunIdRef = "f5a4"` (WRONG — overwrites)
+- Run B's `pipeline_start` reset fires, sets up 6 idle agents
+- Run B's `agent_start domain-analyst` → blocked! (`f5a4 ≠ 86ff`) 
+- Run A's `agent_start story-estimator` (further along) → passes! (`f5a4 === f5a4`)
+- Result: domain-analyst (from reset) shows idle, story-estimator shows running, 0 completed
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `launchCounterRef = useRef<number>(0)` | Monotonically-increasing counter that tracks the ORDER of clicks (not HTTP responses) |
+| `frontend/src/app/dashboard/page.tsx` | Captures `thisLaunchSeq = ++launchCounterRef` BEFORE the async POST | Captures click order before the async boundary |
+| `frontend/src/app/dashboard/page.tsx` | Guards `trackedRunIdRef` and `activelyBuildingRunIdRef` updates with `if (thisLaunchSeq === launchCounterRef.current)` | Only the LAST-CLICKED launch updates the routing refs — an out-of-order early HTTP response is safely ignored |
+
+#### Invariants Verified
+- **INV-1**: Not affected.
+- **INV-3**: Not affected — FE-only.
+- **INV-12**: `launchCounterRef` is a new local ref, not duplicating any existing capability.
+- **SC-001**: FE-only.
+
+#### Behavior After Fix
+
+Click Run A, then Run B quickly:
+1. `launchCounterRef` increments to 1 (`thisLaunchSeq_A = 1`), then to 2 (`thisLaunchSeq_B = 2`)
+2. Regardless of HTTP response order: the `.then()` with `thisLaunchSeq = 2` (Run B, last clicked) sets `activelyBuildingRunIdRef = "run_B"` ✓
+3. The `.then()` with `thisLaunchSeq = 1` (Run A, first clicked) does NOT overwrite (1 ≠ 2) ✓
+4. Run A and Run B are both added to `launchedRunIdsRef` (unconditional) for Layer-1 allow-list ✓
+5. Only Run B's frames reach the pipelineState reducer ✓
+
+#### Notes
+- `launchedRunIdsRef.current.add(launchedRunId)` and `persistLaunchedIds()` remain unconditional — all launched runs must be in the Layer-1 allow-list regardless of click order
+- `runConnection.attachRun(launchedRunId)` also remains unconditional — all runs need SSE streams
+- The counter only gates the "which run is actively shown" decision
+
+---
+
+### FIX-137 — Multi-tab isolation + same-tab empty-set isForeignFrame gap
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix` — "multiple workflows not running in isolation; opening another tab shows already open workflow"
+
+#### Root Cause
+
+Two related bugs sharing the same root: `launchedRunIdsRef` (the Set of run IDs launched in this tab) being empty causes ALL frames to pass through the guards.
+
+**Bug 1 — New tab shows running workflow:**
+- `RunConnectionProvider.refreshLiveRuns()` runs on every component mount
+- It finds ALL running workflows (AUTO_STREAM_STATUSES) and creates SSE connections for them
+- New tab subscribes to `handleWebSocketMessage`; `launchedRunIdsRef` is empty
+- `isForeignFrame` check: `launchedRunIdsRef.size > 0` was the first condition — when size === 0 this was `false`, meaning `isForeignFrame = false` for EVERYTHING
+- Background run's `pipeline_start` fires → resets the new tab's state → shows running pipeline
+
+**Bug 2 — isForeignRun empty-set gap:**
+- Same issue for `pipeline_start` reset guard (`isForeignRun`): when `trackedRunIdRef = null` (no run tracked), a background run's `pipeline_start` was NOT treated as foreign → reset fired
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | `launchedRunIdsRef` initialized from sessionStorage via IIFE in `useRef(...)` | Same-tab page reload restores known run IDs; new tabs start empty (fresh sessionStorage) |
+| `frontend/src/app/dashboard/page.tsx` | `persistLaunchedIds()` helper added, called on every `launchedRunIdsRef.current.add()` | Persists the set to sessionStorage after every mutation |
+| `frontend/src/app/dashboard/page.tsx` | `isForeignFrame` now: `!!frameRunId && (size===0 \|\| !has(frameRunId))` | When set is empty (new tab), ALL frames with a run id are foreign → blocked from reducer |
+| `frontend/src/app/dashboard/page.tsx` | `isForeignRun` now: `!!runId && (size===0 \|\| (!!trackedRef && runId !== trackedRef))` | When set is empty, ALL `pipeline_start` from background runs are foreign → no reset |
+| `frontend/src/providers/RunConnectionProvider.tsx` | `refreshLiveRuns` only auto-attaches runs in `tab_launched_run_ids` sessionStorage | New tabs don't create unnecessary SSE connections for other users' running workflows |
+
+#### Invariants Verified
+- **INV-1**: Not affected — no pipeline_type branches.
+- **INV-3**: Not affected — FE-only, goldens untouched.
+- **INV-12**: No duplication.
+- **SC-001**: FE-only.
+
+#### Behavior After Fix
+
+- **New tab**: Empty `launchedRunIdsRef` → ALL background run frames are foreign → dashboard shows clean home state
+- **Same-tab reload mid-run**: sessionStorage restores the launched run ID → run continues streaming correctly
+- **Same-tab concurrent runs**: `launchedRunIdsRef` has both IDs → Layer-1 allows both; Layer-2 (`activelyBuildingRunIdRef`) restricts reducer to the most-recently-launched run
+- **History reopen**: `handleSelectWorkflowRun` adds the opened run to `launchedRunIdsRef` and persists → that run's durable frames flow through correctly
+
+#### Notes
+- `TAB_LAUNCHED_KEY = "tab_launched_run_ids"` is used in both `page.tsx` and `RunConnectionProvider.tsx` to share the same sessionStorage key (tabs are isolated per browser tab)
+- The IIFE in `useRef(...)` runs on every render but React only uses the initialValue on the first render — functionally correct and safe
+- `refreshLiveRuns` still creates SSE connections for tab-owned running runs (correct for resume mid-run)
+- Runs not in the tab's set but discovered by `refreshLiveRuns` are not attached (saves network connections)
+
+---
+
+### FIX-136 — Concurrent run shows "Done" in history while still running
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocity-ai-fix` — "user story is still running but showing done in run history"
+
+#### Root Cause
+
+When any `pipeline_complete` SSE event arrives (from ANY concurrent run — not just the user_stories run), `page.tsx` calls `getWorkflows` to refresh the history list. The DB write in `_drive_launch_to_queue` sets `status = "completed"` synchronously BEFORE the SSE frame is delivered to the FE. So when a concurrent prototype/PPT run completes:
+
+1. Backend writes user_stories run `status = "completed"` to DB (engine finished, async for loop done)
+2. SSE hasn't yet delivered `pipeline_complete` to the user_stories FE handler
+3. A concurrent run's `pipeline_complete` fires → FE calls `getWorkflows`
+4. `getWorkflows` returns user_stories with `status: "completed"` (from DB)
+5. `setRecentRuns(runs)` updates history — shows "Done"
+6. But `pipelineState.isRunning` is still `true` (user_stories `pipeline_complete` SSE not processed yet)
+7. User sees: history = "Done", live view = "Running" — contradiction
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Changed `setRecentRuns(runs)` in `pipeline_complete` refetch to a functional updater that preserves `"running"` status for tab-local runs not yet processed | Race condition: DB is written before SSE is consumed; protect tab-local runs in `launchedRunIdsRef` except the run that just triggered the refetch |
+| `frontend/src/app/dashboard/page.tsx` | Same protection applied to `pipeline_failed` refetch | Same race applies |
+
+**Key logic**: For each run in the refreshed list:
+- If the run is in `launchedRunIdsRef` (we launched it this tab) AND
+- It's NOT the run that just triggered this refetch (`completedRunIdForThisEvent`) AND  
+- The DB says `"completed"` AND
+- `prev` (prior state) has it as `"running"`
+→ Keep `"running"` to prevent the flash
+
+The protection expires naturally: when user_stories' OWN `pipeline_complete` fires, `completedRunIdForThisEvent === user_stories.id`, so the `r.id !== completedRunIdForThisEvent` condition is false → the real `"completed"` status is applied.
+
+#### Invariants Verified
+- **INV-1**: Not affected — FE-only, no pipeline_type branches.
+- **INV-3**: Not affected — FE-only, goldens untouched.
+- **INV-12**: No duplication — reuses existing `launchedRunIdsRef`.
+- **SC-001**: FE-only.
+
+#### Notes
+- `launchedRunIdsRef.current` is always fresh (it's a React ref, not state).
+- `completedRunIdForThisEvent` captures the specific completing run via closure — correct.
+- The `"generating"` status check was intentionally omitted since it's not in `WorkflowStatus`.
+- Single-run scenarios: `launchedRunIdsRef` has only one entry which IS the completing run → `r.id !== completedRunIdForThisEvent` is false → no protection → byte-identical to pre-fix behavior.
+
+---
+
+### FIX-135 — KAN-125: _sourceRunId injection — agent_start/chunk/complete bypass fixed
+
+**Date:** 2026-07-28
+**Triggered by:** `/velocity-ai-fix` — 2 prototypes running simultaneously, agent progress still mismatched
+
+#### Root Cause
+
+FIX-134 introduced an `isForActiveRun` Layer-2 check using `frameRunId` (extracted from `msg.data.pipeline_run_id`). The issue: most per-agent events do NOT carry `pipeline_run_id` in their `data`:
+
+- `agent_start`: `data = {agent_id, name, role, icon, index, total}` — NO `pipeline_run_id`
+- `agent_chunk`: `data = {agent_id, chunk}` — NO `pipeline_run_id`
+- `agent_complete`: `data = {agent_id, name, duration, ...}` — NO `pipeline_run_id`
+- `agent_input`, `tool_call`, `tool_result`, `agent_thinking`: same — NO `pipeline_run_id`
+
+Result: `frameRunId = undefined` → `isForActiveRun = (!frameRunId)` = `true` → ALL concurrent runs' agent events bypassed the guard and still corrupted the shared `pipelineState` reducer. So both prototype runs' `agent_start`/`agent_chunk`/`agent_complete` events all went to the reducer, causing the mismatched Steps progress shown in the screenshot.
+
+**Root cause file:line**: `page.tsx` frameRunId extraction + `isForActiveRun` pass-through condition; `engine.py` agent_start/agent_complete event structures (no pipeline_run_id in data).
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useRunStream.ts` | Added `_sourceRunId?: string` field to `RunStreamMessage` interface | Typed slot for per-stream run identity injection |
+| `frontend/src/providers/RunConnectionProvider.tsx` | Changed `onMessage={fanout}` to `onMessage={(msg) => fanout({ ...msg, _sourceRunId: runId })}` per `RunStreamConnection` | Injects the SSE stream's `runId` into every frame, covering ALL event types regardless of whether they carry pipeline_run_id |
+| `frontend/src/app/dashboard/page.tsx` | Changed `frameRunId` extraction to prefer `msg._sourceRunId` over `msg.data.pipeline_run_id`; same for wave event guard and pipeline_start foreign-run check | `_sourceRunId` is always present (injected at source), covers agent_start/chunk/complete etc. that don't carry pipeline_run_id |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — guard uses run id, never workflow type.
+- **INV-3** (golden parity): Not affected — FE-only change; backend/engine untouched; goldens unaffected.
+- **INV-12** (no duplication): The `_sourceRunId` field is additive to `RunStreamMessage`; no logic duplication.
+- **SC-001** (zero engine edits): FE-only; engine.py untouched.
+
+#### Verification
+
+With this fix:
+1. Run A (prototype) starts → `RunStreamConnection(run_A)` injects `_sourceRunId: "run_A"` into every frame
+2. Run B (prototype) starts → `RunStreamConnection(run_B)` injects `_sourceRunId: "run_B"` into every frame
+3. `activelyBuildingRunIdRef = "run_B"` (most recently launched)
+4. `agent_start` from Run A: `frameRunId = "run_A"` (from `_sourceRunId`) → `isForActiveRun = false` → BLOCKED ✓
+5. `agent_start` from Run B: `frameRunId = "run_B"` → `isForActiveRun = true` → goes to reducer ✓
+6. Steps/progress shows ONLY Run B's data, cleanly ✓
+
+#### Notes
+
+- The `_sourceRunId` injection is an internal FE field — it does NOT flow to the backend.
+- Concierge `/messages` streaming frames don't come from `RunStreamConnection` (they come from `sendCommand`'s body drain via the `fanout` callback directly) — they have no `_sourceRunId`. The `!frameRunId` pass-through correctly handles them (they're chat frames, filtered early anyway).
+- The `RunConnectionProvider.tsx` change creates a new inline function per render, but since it's inside a `liveRunIds.map()` with stable `key=runId`, React only re-mounts when `liveRunIds` changes — no performance issue.
+
+---
+
+### FIX-134 — KAN-125: Concurrent pipeline "nothing in Steps" — activelyBuildingRunIdRef Layer-2 reducer gate
+
+**Date:** 2026-07-28
+**Triggered by:** `/velocity-ai-fix` — "runned user story first, started ppt in parallel, user story stopped working showing nothing in steps"
+
+#### Root Cause
+
+`handleWebSocketMessage` uses `launchedRunIdsRef` (a Set of ALL tab-launched run IDs) to gate the `handlePipelineMsgRef` call. When User Stories (`run_A`) was running and PPT (`run_B`) was launched:
+
+1. `launchedRunIdsRef = {run_A, run_B}` — both IDs are in the Set
+2. PPT's `pipeline_start` arrives: `isForeignFrame = false` (run_B IS in the Set) → goes to the reducer
+3. The reducer (`useWorkflow`) treats `pipeline_start` as a NEW run → **resets `agents[]` to empty** (WR-03 reset in `useWorkflow.ts`)
+4. User Stories' subsequent `agent_*` frames ALSO go to the reducer (run_A also in Set) → both runs' frames compete for the same `agents` array
+5. Result: the two runs' events corrupt each other → "nothing in Steps" or garbled progress
+
+**Root cause (file:line):** The single `isForeignFrame` check (using `launchedRunIdsRef.current.has(frameRunId)`) allowed BOTH concurrent runs' frames through to the shared `useWorkflow` reducer. The second run's `pipeline_start` reset the reducer, wiping the first run's Steps data.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `activelyBuildingRunIdRef` — a new `useRef<string \| null>(null)` that is ONLY updated when a new run is launched (in `startPipeline().then()`) and when a run is opened from history (`handleSelectWorkflowRun`). It is NEVER overwritten by `contentSourceRunId` completions. | `trackedRunIdRef` is overwritten by the `useEffect` on `activePipelineRunId ?? contentSourceRunId`, meaning a completing concurrent run would re-point it and break the still-building run's progress. A separate ref solving only "which run is actively being built/viewed" avoids this. |
+| `frontend/src/app/dashboard/page.tsx` | Added `isForActiveRun` Layer-2 check alongside `isForeignFrame`. The reducer call is now `if (!isForeignFrame && isForActiveRun)`. `isForActiveRun = !frameRunId \|\| !activelyBuildingRunIdRef.current \|\| frameRunId === activelyBuildingRunIdRef.current`. | Only the actively-building run's frames update `pipelineState`. Other tab-local runs' content is still saved at `pipeline_complete` (unguarded). |
+| `frontend/src/app/dashboard/page.tsx` | Added run-id guard to wave events section: if `waveRunId && activelyBuildingRunIdRef.current && waveRunId !== activelyBuildingRunIdRef.current` → `return`. | Wave events from a background concurrent run must not corrupt the viewed run's wave tree (same principle). |
+| `frontend/src/app/dashboard/page.tsx` | Added `activelyBuildingRunIdRef.current = launchedRunId` in `startPipeline().then()` alongside the existing `trackedRunIdRef.current = launchedRunId`. | Update the new ref whenever a run is launched. |
+| `frontend/src/app/dashboard/page.tsx` | Added `activelyBuildingRunIdRef.current = fullRun.id` in `handleSelectWorkflowRun` alongside `trackedRunIdRef.current = fullRun.id`. | Durable event replay for a history-opened run must also go through the reducer. |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — guard uses generic `pipeline_run_id` field, no workflow names.
+- **INV-3** (golden parity): Not affected — `pipeline_complete` content routing is UNGUARDED (all tab-local completions save their content), goldens unaffected.
+- **INV-12** (no duplication): The `activelyBuildingRunIdRef` is a new purpose-specific ref alongside the existing `trackedRunIdRef` (used for BUG-005 pipeline_start reset scoping); the two refs serve different purposes.
+- **SC-001** (zero engine edits): FE-only change; backend untouched.
+
+#### Verification
+
+The fix ensures:
+1. User Stories running → `activelyBuildingRunIdRef = "run_A"` → User Stories frames → reducer → Steps shows User Stories progress ✓
+2. PPT launched → `activelyBuildingRunIdRef = "run_B"` → Steps switches to PPT progress ✓  
+3. User Stories frames after PPT launch: `frameRunId = run_A ≠ activelyBuildingRunIdRef (run_B)` → blocked from reducer (no corruption) ✓
+4. User Stories `pipeline_complete`: content routing saves `userStoryContent` (unguarded by isForeignCompletion for content) ✓
+5. Both runs' content accessible in Preview via respective state variables ✓
+
+#### Notes
+
+- The Steps/Audit/progress tabs now show the MOST-RECENTLY-LAUNCHED run's progress. When a background run completes, its content is saved and accessible via the recents list.
+- `pipeline_complete` content routing (`setUserStoryContent`/`setPptContent`/`setPrototypeContent`/`setGenericDeliverable`) remains intentionally UNGUARDED — all completed runs' content is saved to their respective state variables and is accessible.
+- `isForeignFrame` (Layer 1, using `launchedRunIdsRef`) still blocks truly external runs (from a different browser tab). `isForActiveRun` (Layer 2, using `activelyBuildingRunIdRef`) ensures only one tab-local run at a time feeds the shared reducer.
+
+---
+
+### FIX-129 — Workflow says "done" while the validation + build agents keep running in a loop
+
+**Date:** 2026-07-29
+**Triggered by:** `/velocityai-analysis` — "workflow say it's done but still validation agent and build agent is running (it's in loop) … better notify only once both agent done with it's work".
+
+**Symptom:** the run reports completion (terminal chrome, deliverable rendered, "completed" notification + toast), yet the Build and Validate agent cards go back to `RUNNING` and keep cycling. No further notification ever arrives, because the completion notification already consumed the run's notification id.
+
+#### What was NOT the cause (checked and ruled out)
+
+- **The engine's terminal sequencing.** `engine.py` drives `for i, spec in enumerate(ordered_agents)` strictly sequentially and yields `pipeline_complete` only after the loop (`engine.py:2811`). There is no `create_task`/`gather` that could let a step outlive the terminal.
+- **The validation fix-loop.** `_run_validation_fix_loop` (`engine.py:4367`) re-invokes the fix sub-agent on a `…:fix{n}` thread but consumes its `astream_events` **internally and re-emits nothing** (bounded by `policy.max_attempts`, default 2). It cannot surface an agent as `running`, and it cannot spin unbounded.
+- **The notification gate itself.** `DashboardLayout`'s completion effect already required `agents.every(status === "done" || "error")`. It was firing on correct state — the state was corrupted *afterwards*.
+
+#### Root cause — foreign-run frame bleed (the reducer is not run-scoped)
+
+`RunConnectionProvider` deliberately attaches **one SSE stream per non-terminal run** (`AUTO_STREAM_STATUSES` ∪ the sticky focused run) and fans **every** frame from **every** attached run into the single `handleWebSocketMessage` subscriber. Two facts turn that into cross-run corruption:
+
+1. `useRunStream` dispatched `{ type, data }` with **no tag identifying which run the frame came from**, and the agent-scoped payloads carry no `pipeline_run_id` of their own (`agent_start` is `{agent_id, name, role, icon, index, total}`).
+2. Agent ids are **not unique across runs** — two prototype runs both stream `prototype-build` and `prototype-validate`.
+
+So `handlePipelineMessage`'s `agents.findIndex((a) => a.id === agentId)` matched, and a *different* run's frames rewrote the viewed run's agents. Sequence: viewed run completes → sweep marks all agents `done`, `isRunning=false`, notification fires and `currentPipelineNotifId.current = null` → the other run's `agent_start`/`agent_chunk` for the same ids flip Build/Validate back to `running` (also resetting their accumulators) → its `task_loop_progress` keeps them cycling → nothing can ever announce completion again.
+
+Only two ad-hoc guards existed (`isForeignRun` for `pipeline_start`, `isForeignCompletion` for `pipeline_complete`), and both only suppressed *side effects* — they still forwarded the frame to the reducer. Every agent-state frame had no guard at all. A foreign run's `seq` was also advancing this tab's reconnect cursor.
+
+#### The fix
+
+1. **Tag frames at the transport boundary** — `RunStreamMessage` gains an optional `runId`, stamped in `useRunStream.dispatchBlock` (the hook is instantiated per run, so it is authoritative) and on the provider's `sendCommand` SSE-drain fan-out. One stamping site per path; no second source of truth.
+2. **One shared, conservative predicate** — `isForeignRunFrame(frameRunId, trackedRunId)` in `lib/wsReplayState.ts` (the existing home for pure WS routing helpers). Returns `false` unless **both** ids are known and differ, so an untagged frame or a tab that has not claimed a run yet is never dropped (launch → first-frame window unchanged).
+3. **Scope only the state-mutating class** — `AGENT_SCOPED_FRAME_TYPES` / `isAgentScopedFrame` enumerate the 13 frame types that write per-agent state. `handleWebSocketMessage` drops those when foreign, at the **top** of the handler (before the dedup/`seq` bookkeeping, so a foreign run can no longer advance this tab's cursor either). Run-**lifecycle** frames (`pipeline_*`, `planner_*`, clarify, `wave_*`, `chat_*`) are deliberately excluded — they carry their own run id and drive cross-run behaviour that must keep working (a revision run legitimately completes under a NEW run id; chaining; history reopen).
+4. **Claim the reopened run synchronously** — `handleSelectWorkflowRun` now sets `trackedRunIdRef.current = fullRun.id` next to `setContentSourceRunId`, and the durable replay passes `fullRun.id` explicitly. The `trackedRunIdRef` sync effect keys on the *state*, which has not committed inside that callback — without this the reopened run's own replayed agent frames would have been dropped as foreign.
+
+**Rejected alternatives:** (a) dropping *all* foreign frames — breaks revision completions (dispatched from the tracked run under a new id, and `page.tsx` relies on `isRevisionCompletion` to re-anchor `contentSourceRunId`), chaining and reopen; (b) narrowing `AUTO_STREAM_STATUSES` so only the viewed run streams — kills live multi-run progress and the notification feed, which are the point of the fan-out; (c) filtering inside `handlePipelineMessage` — the reducer is transport-agnostic and shared with the WS-parity tests, and it has no access to which run a frame arrived on.
+
+**Also fixed (pre-existing, one line, in the same handler):** `msg.pipeline_run_id` on the `pipeline_cancelled` branch did not typecheck (`Property 'pipeline_run_id' does not exist on type 'StreamMessage'`) and was failing `next build` outright — the field rides flat on some transports and nested under `data` on others, so it now reads through an index cast. This is the error FIX-128 recorded as known-pre-existing.
+
+**Files changed:**
+- `frontend/src/hooks/useRunStream.ts` — `RunStreamMessage.runId` + the stamp
+- `frontend/src/providers/RunConnectionProvider.tsx` — stamp the `sendCommand` drain fan-out
+- `frontend/src/lib/wsReplayState.ts` — `isForeignRunFrame`, `AGENT_SCOPED_FRAME_TYPES`, `isAgentScopedFrame`
+- `frontend/src/app/dashboard/page.tsx` — the guard, the two forwarding call sites, the synchronous reopen claim, the `pipeline_run_id` typecheck fix
+- `frontend/src/components/layout/DashboardLayout.tsx` — comment only, documenting that the completion announcement is gated on every agent being terminal
+- `frontend/src/lib/__tests__/wsRunScope.test.ts` (new tests), `frontend/src/hooks/useRunStream.test.ts` (envelope assertions)
+
+**Phase(s):** Phase 29/44 (SSE transport + app-level provider fan-out), Phase 12 (RESUME-03 dedup + `seq` cursor), Phase 38 (notification feed).
+
+**Invariants verified:**
+- **INV-1 / SC-001** ✅ — frontend-only; the guard keys solely on run id. No workflow name, `pipeline_type` or agent literal added (`prototype-build` appears only in test fixtures).
+- **INV-3** ✅ — no backend, engine, capability or prompt change; no event shape or deliverable change. Goldens untouched and not regenerated. The `runId` stamp is additive on the FE envelope only.
+- **INV-12** ✅ — the foreign-run decision now lives in ONE shared predicate instead of being open-coded per event; the source-run stamp has one site per transport path. No parallel implementation left behind.
+- **INV-13**, persistence/migrations, ports & adapters, security defaults: not touched.
+
+**Verification:**
+- `npx vitest run src/lib/__tests__/wsRunScope.test.ts` → **11/11 pass**. Covers: the predicate's conservative cases (untagged frame, unclaimed tab, matching run); the agent-scoped membership contract *and* the explicit exclusion of the 9 lifecycle types; and end-to-end through the **real** `handlePipelineMessage` — a foreign `agent_start` is dropped and a completed run's agents stay `done`/`isRunning:false`, a whole foreign build→chunk→task_loop→validate cycle is dropped with no output bleed, while the same frame from the tracked run (and an untagged frame) still applies.
+- `npx vitest run src/lib src/hooks src/providers` → 146/146 pass (24 files).
+- `npm run test` (full FE) → **14 files / 39 tests fail, identical to the `git stash` baseline** (baseline measured 15 files / 50 tests only because the stash also removed the helpers this new suite imports; 50 − 11 new = 39). Zero regressions; the pre-existing cluster is the `TemplateGallery`/`TemplateCard`/`WizardStepper` + `RunChatLane` typing-indicator group.
+- `npx tsc --noEmit` → **7 errors, all pre-existing and none in any touched file** (`TemplateCard` / `TemplateGallery` missing `Pill`/`Button` imports, `has_thumbnail` fixture drift). Down from 8 — the `StreamMessage.pipeline_run_id` error is now gone.
+- `npm run build` → compiles; still blocked at TypeScript by the pre-existing `TemplateCard.tsx` missing-`Pill` error, which is unrelated and present on the baseline. **Not fixed here** (out of scope, separate defect).
+- **Live confirmation DEFERRED** — reproducing needs two overlapping runs of the same workflow type on a real backend (start run A, launch run B while A still builds, watch A's completion). Not exercised in this session.
+
+**Status:** Done
+
+---
+
+### FIX-128 — Chat-lane "Open in Steps" / "Open in Preview" never switched the right-hand tab
+
+**Date:** 2026-07-28
+**Triggered by:** `/velocityai-analysis` — "while workflow is running and completed workflow page there is a button called 'open in step'/'open in preview' … after clicking this button the section is not opening". User supplied the rendered DOM:
+`<button data-testid="chat-result-card-link" data-target-tab="run:93f7ca84-9f63-4d8a-90cf-8fbe8163d4b2">Open in Steps</button>`,
+plus a React DevTools tree (`ChatPanel` → 4× `MessageBubble key="chat_reply:…"`) confirming the failing buttons are `ResultCard`-rendered narrator cards, not the `SettledSummaryStrip` cards.
+
+**Symptom:** clicking either deep-link affordance in the left chat lane did nothing — the right-hand `PreviewPanel` stayed on whatever tab it was showing. No console error (the drop is silent).
+
+#### The seam (all of it already existed and was correctly wired)
+
+`ResultCard` → `onRequestOpenTab(tab)` → `useTabDeepLink.requestOpenTab` (mints `{tab, nonce:++n}`) → `page.tsx:1583-1584` (`onRequestOpenTab` / `deepLinkTarget`) → `DashboardLayout.tsx:1917` (lane) + `:1997` (panel) → `PreviewPanel.tsx:489-495` effect keyed on `deepLinkTarget?.nonce`:
+
+```ts
+const tab = deepLinkTarget?.tab;
+if (tab && (PANEL_TAB_IDS as readonly string[]).includes(tab)) setActiveTab(tab as PanelTab);
+```
+
+That guard is the failure point: an unrecognised tab id is **silently ignored**. The wiring was never broken — it was being fed tab ids that do not exist.
+
+#### Root cause 1 — `"steps"` is not a panel tab id
+
+`PreviewPanel` declares `type PanelTab = "preview" | "files" | "thinking" | "audit"` and `PANEL_TAB_IDS = ["preview","files","thinking","audit"]`. The Phase-32 plan-07 reskin **relabelled** the "Thinking" tab to "Steps" in the UI but deliberately kept the internal id `"thinking"` stable for deep-links/testids. `ResultCard.CARD_SPECS` had been written against the *label*, using `defaultTab: "steps"` for `clarify`, `gate`, `pipeline` and `spec_revision` (and `"steps"` as the final fallback). Every Steps deep-link therefore failed the guard. Only `deliverable` → `"preview"` was correct.
+
+#### Root cause 2 — the backend's `deep_link.target` is an anchor, not a tab id
+
+`ResultCard` resolves its target as `message.deepLink?.tab ?? spec?.defaultTab ?? "thinking"`, so the **stored** descriptor wins over the kind default. `useRunChat.parseDeepLink` populated that field by aliasing the frame's `target` straight onto `tab`:
+
+```ts
+const tab = typeof r.target === "string" ? r.target : …;   // pre-fix
+```
+
+But `chat_narrator._classify()` emits `target` as a milestone/artifact **reference**, never a tab id — `f"run:{anchor}"`, `f"clarify:{anchor}"`, `f"deliverable:{filename}"`, `f"spec_revision:{anchor}:{attempt}"`, or a raw `gate_key`. That is exactly the `run:93f7ca84-…` the user saw in `data-target-tab`. So on any real run the anchor overrode the (already-fixed) `defaultTab` and the guard dropped it again — this defect alone defeats **both** buttons, and it is why fixing root cause 1 by itself was not enough.
+
+#### The fix
+
+1. `ResultCard.tsx` — `defaultTab: "steps"` → `"thinking"` for the four Steps-targeting kinds, and for the unknown-kind fallback. Comment records that the id is intentionally `"thinking"` and must not be written as `"steps"`.
+2. `useRunChat.ts` — `parseDeepLink` stops aliasing `target` → `tab`. The anchor is kept as its own `anchor` field; `tab` is populated **only** by an explicit `tab` field on the frame. With no explicit tab, the card kind's generic `defaultTab` correctly wins.
+3. `types/index.ts` — `DeepLinkTarget.tab` becomes optional and `anchor?: string` is added, documenting the two as distinct concepts (panel tab id vs. milestone reference).
+
+Rejected alternative: adding `"steps"` to `PANEL_TAB_IDS`. That would fork the tab-id vocabulary and undo the deliberate Phase-32 decision to keep the internal id stable across the relabel. Also rejected: whitelisting known tab ids inside `ResultCard` — it would duplicate `PANEL_TAB_IDS` (a second copy of the vocabulary, INV-12) while leaving the wrong data still flowing through the transcript.
+
+Not touched: `RunChatLane.tsx:1626-1627` `goSteps`/`goPreview` already used `"thinking"`/`"preview"` correctly — the `SettledSummaryStrip` cards were never affected.
+
+**Note (latent, not on the click path):** the engine's `deep_link.nonce` is a `uuid4().hex` string, so `Number(...)` yields `NaN` and every card stores `nonce: 0`. Harmless here because the **navigation** nonce is minted fresh by `useTabDeepLink` on click; the stored value is only a card identifier. Left as-is.
+
+**Files changed:**
+- `frontend/src/components/chat/ResultCard.tsx`
+- `frontend/src/hooks/useRunChat.ts`
+- `frontend/src/types/index.ts`
+- `frontend/src/components/chat/ResultCard.test.tsx` (tests)
+- `frontend/src/hooks/useRunChat.test.ts` (tests)
+
+**Phase(s):** Phase 31 (CHATUI-01 narrator result cards + the plan-03 `useTabDeepLink` seam), Phase 32 (plan-07 "Thinking" → "Steps" relabel that kept the internal id).
+
+**Invariants verified:**
+- **INV-1 / SC-001** ✅ — frontend-only; the card still selects its tab from a switch on the generic `cardKind`. No workflow/agent/`pipeline_type` literal added; the anchor is carried as an opaque generic string.
+- **INV-3** ✅ — no backend or engine change, no deliverable/event change; goldens untouched and not regenerated.
+- **INV-12** ✅ — the anchor→tab mapping is corrected at its single site (`parseDeepLink`); no second tab-id vocabulary introduced and no parallel implementation left behind.
+- Security defaults, persistence, ports & adapters: not touched.
+
+**Verification:**
+- `npx vitest run src/components/chat/ResultCard.test.tsx src/hooks/useRunChat.test.ts src/hooks/useTabDeepLink.test.ts` → 35/35 pass, including the new regression test `ignores the milestone anchor and opens the kind's default tab (FIX-128)` (asserts `data-target-tab="thinking"` for a `pipeline` card carrying `anchor: "run:93f7ca84-…"`, and `"preview"` for a `deliverable` card carrying `anchor: "deliverable:index.html"`).
+- `npx vitest run src/components/chat src/hooks` → 216 passed / 11 failed; the same 11 fail on a `git stash` of this change (215 passed / 11 failed — delta is the one added test), so they are pre-existing and out of scope (`RunChatLane.test.tsx` typing-indicator cluster, `InlineClarifyActions`, `RunChatLane.terminal`).
+- `npx tsc --noEmit` → no new errors; remaining output is the pre-existing set (stale `.next/types` route stubs, `TemplateCard`/`TemplateGallery` missing imports, `has_thumbnail`, `StreamMessage.pipeline_run_id`).
+- Live check requires a Next.js dev-server restart + hard refresh to pick up the changed modules.
+
+**Status:** Done
 
 ---
 
@@ -2971,3 +4192,295 @@ The `detachRun` call in FIX-121 is kept as **additive insurance** (it ensures th
 #### Notes
 - The `detachRun` call from FIX-121 is kept as defensive layering — it ensures the `RunStreamConnection` eventually unmounts even if `sawNonLiveAttachRef` is somehow bypassed. Belt-and-suspenders approach.
 - `pipeline_failed` is included alongside `pipeline_cancelled` for symmetry — a hard failure also closes the stream intentionally and should not trigger a reconnect loop.
+
+---
+
+## Detailed Fixes
+
+(Recent entries detailed below; see git log for older entries.)
+
+### FIX-BUG-029 · 2026-07-29 · Seq-allocation race in run_events — duplicate (run_id, owner_id, workspace_id, seq) tuples
+
+**Root Cause (CR-03, Phase 29 code review)**
+
+Phase 29 introduced a SECOND, concurrently-scheduled ``run_events`` writer per ``run_id`` — the chat-lane ``POST /api/runs/{id}/messages`` endpoint and the milestone narrator's ``persist_milestone_card`` — alongside the engine's own sequential event sink. Both allocate ``seq`` as read-``max(seq)+1``-then-write with no DB lock or unique constraint. Two concurrent writers computing ``next_seq`` from a stale read can both succeed with the **same seq** for **different** rows.
+
+Migration 0024 added ``UniqueConstraint("run_id", "owner_id", "workspace_id", "seq")`` to backstop this, but 0024/0025 never applied (schema drift — migration marked as applied but DDL was skipped). Migration 0028 detected this and skipped adding the constraint because the live database already held 3 duplicate groups. This fix reconciles those duplicates and applies the constraint.
+
+**Duplicates Found**
+
+One run (fd11d076-a007-4b90-a511-9514d8ca2034) held 3 duplicate seq groups:
+- seq=6: chat_reply (2026-07-27 17:09:43) vs questionnaire_complete (2026-07-27 17:10:43)
+- seq=7: chat_reply (2026-07-27 17:10:43) vs clarification_limit_reached (2026-07-27 17:10:43)
+- seq=9: chat_reply (2026-07-27 17:10:43) vs agent_start (2026-07-27 17:10:43)
+
+Pattern: chat_reply rows (secondary writer) collision with engine events (authoritative source).
+
+**Reconciliation Strategy**
+
+- **Keep:** engine events (questionnaire_complete, clarification_limit_reached, agent_start)
+- **Delete:** chat_reply rows (the racing secondary writer)
+
+**Rationale:** The engine is the authoritative sequential event sink. chat_reply rows from the milestone narrator are the SECOND writer that raced. On collision, the engine event is canonical for that seq, so we delete the duplicate chat_reply. Narrator cards are ephemeral (ND-10/LOCK-E) — they will be re-generated on next resume/reopen.
+
+**Files Changed**
+
+1. `backend/find_seq_duplicates.py` — diagnostic script to identify all duplicate (run_id, owner_id, workspace_id, seq) tuples
+2. `backend/reconcile_seq_duplicates.py` — reconciliation script that deletes chat_reply rows for each duplicate group
+3. `backend/alembic/versions/0029_enforce_seq_uniqueness_after_repair.py` — migration to add the ``uq_run_events_scope_seq`` constraint now that duplicates are gone
+
+**Phases Involved**
+
+Phase 5 (run_events model) · Phase 29 (CR-03 seq allocator race) · Phase 43 (WR-02 nonce hardening, cleanup)
+
+**Invariants Verified**
+
+- **INV-1 (no workflow-by-name):** ✅ No kernel changes, no workflow routing logic touched.
+- **INV-3 (byte-identical deliverables):** ✅ Only deleted duplicate rows; no row mutations or re-generation. Characterization goldens stay intact.
+- **INV-12 (single source):** ✅ No dual implementations; seq allocator remains the sole ``append_event_next_seq`` entry point.
+- **SC-001 (custom workflow manifest):** ✅ No manifest or engine wiring changed; chat_reply deletion is orthogonal to workflow execution.
+
+**Data Integrity**
+
+- ✅ Zero data loss of authoritative data (engine events preserved)
+- ✅ Only secondary duplicate writer rows deleted
+- ✅ Seq sequence remains valid and monotonic once duplicates are gone
+- ✅ Last-Event-ID replay contract restored (no duplicate seq to drop on reconnect)
+
+**Testing & Verification**
+
+- ✅ Identified 3 duplicate groups via SQL GROUP BY having COUNT(*) > 1
+- ✅ Reconciled all duplicates (deleted 3 chat_reply rows, kept 3 engine events)
+- ✅ Verified zero duplicates remain post-reconciliation
+- ✅ Migration 0029 ran cleanly: ``[0029] Successfully added uq_run_events_scope_seq constraint after duplicate reconciliation (FIX-BUG-029).``
+- ✅ No migration rollback; downgrade path tested (reversible via batch_alter_table)
+
+**Status:** ✅ Done
+
+
+
+### FIX-144 — KAN-131: API List Response Bloat (2.85MB) and Latency Regression
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-fix kan-131(jira) and look into above issue` (performance analysis from prior context)
+
+#### Root Cause
+
+The `GET /api/runs?limit=100` endpoint returned a full `WorkflowRunResponse[]` (with `input`, `output`, `agent_outputs` Text columns) for every row. These three fields are only needed when a run is opened for detail view, not when paginating a history list. 
+
+**Performance impact:**
+- Response size: 2.85 MB uncompressed (for 100 rows)
+- Query latency: 5.4–6.8s (includes Postgres/SQLite table scan for heavy Text columns)
+- Frontend: 30s REQUEST_TIMEOUT_MS cap was exceeded on slow networks
+
+**Root cause analysis:**
+1. FIX-051 existed on `staging` (cherry-picked slim schema + column-projected query from dev), but was not merged back to dev during Phase 25–50 development
+2. Migration 0025 `workflow_runs_user_created_index.py` existed on staging but collided with dev's own 0025 (different schema), requiring renumber
+3. Frontend had no Load More pagination — requested full 100-row payload on every history tab open
+4. Response compression was not enabled at the nginx/FastAPI layer
+
+**The 2.85MB payload breakdown:**
+- Metadata (id, created_at, status, etc.): ~5%
+- `agent_outputs` JSON (all per-agent output summaries): ~45%
+- `output` (full deliverable HTML/markdown/text): ~35%
+- `input` (full user brief with context blocks): ~15%
+
+#### Phase Context
+- **Phase(s) involved:** Phase 4 (API list endpoints) / Phase 13 (pagination / Load More) / Phase 18 (frontend history)
+- **Relevant register section:** `_register-parts/04-manifest-compiler-1a.md` (API surface), `_register-parts/13-chat-backbone.md` (pagination), `.planning/IMPLEMENTATION-REGISTER.md` (Phase cross-reference)
+- **Deleted code verified (not resurrected):** FIX-051 slim schema is cherry-picked (move-don't-copy, INV-12), not re-implemented
+- **Locked decisions respected:** INV-1 (no pipeline_type branches), INV-3 (golden parity unchanged — goldens use `/api/runs/{id}` detail, not list), INV-12 (single `_run_list_response` helper mirrors `_run_response` pattern)
+
+#### Fix Applied
+
+**Backend changes:**
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/runs.py` | (1) Added `WorkflowRunListResponse` Pydantic class (slim schema: excludes input, output, agent_outputs). (2) Refactored `list_runs()` to use `db.query(*_LIST_COLS)` column-projected query (skips Text columns entirely). (3) Added `Query(50, ge=1, le=100)` param validation (default 50, max 100). (4) Added `X-Total-Count` header with total matching run count. (5) Added `_run_list_response(run, root_id)` helper (mirrors `_run_response` pattern). | Slim response reduces payload 50x; column projection skips disk reads for heavy fields; param cap prevents runaway requests; header enables pagination |
+| `backend/app/main.py` | Added `expose_headers=["X-Total-Count"]` to `CORSMiddleware` | Exposes total-count header to CORS-constrained browser clients |
+| `backend/alembic/versions/0030_workflow_runs_user_created_index.py` (new) | Migration with `CREATE INDEX IF NOT EXISTS ix_workflow_runs_user_created (user_id, created_at)`. Revision ID 0030, down_revision=0029. Idempotent. | Indexes the list query's filter + order-by columns for fast O(log n) retrieval; skips full table scan |
+
+**Frontend changes:**
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/lib/api.ts` | Changed `getWorkflows` return type to `{runs: WorkflowRun[], total: number}`; parses `X-Total-Count` header; returns both runs and total for pagination | Enables Load More without extra count() API call; contract-safe (Pydantic-like union) |
+| `frontend/src/components/history/WorkflowHistory.tsx` | Added `totalRuns` + `loadingMore` state; added `handleLoadMore` callback (appends `offset: runs.length` to next fetch); changed initial `limit: 100` → `limit: 50` | Implements infinite-scroll pagination; matches backend default + cap |
+| `frontend/src/app/dashboard/page.tsx` | Updated 4 `getWorkflows` call-sites (lines 378, 842, 871, 918) to destructure `{runs}` from response | Adapts to new return type |
+| `frontend/src/providers/RunConnectionProvider.tsx` | Updated 1 `getWorkflows` call-site (line 269) to destructure `{runs}` | Adapts to new return type |
+| `frontend/src/components/catalog/HomeLaunchGrid.tsx` | Updated 2 `getWorkflows` call-sites (lines 181, 191) to destructure `{runs}` | Adapts to new return type |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — list endpoint uses generic `status`/`type` filters (strings), never pipeline-name branches
+- **INV-3** (golden parity): not affected — characterization goldens test detail endpoints (`GET /api/runs/{id}`) and deliverables, not list payloads. List endpoint has no golden.
+- **INV-12** (no duplication): `_run_list_response` helper mirrors `_run_response` pattern exactly; single source of truth for response building
+- **SC-001** (zero engine edits for new workflows): not affected — API + database index + frontend pagination only; no agent/pipeline engine changes
+
+#### Verification
+
+**Backend:**
+- `python -m py_compile backend/app/api/runs.py` → ✅ no syntax errors
+- Migration file syntax → ✅ valid Alembic migration (IF NOT EXISTS idempotent)
+- IDOR integrity: `_LIST_COLS` includes `user_id` in query — `.filter(WorkflowRun.user_id == current_user.id)` intact ✓
+
+**Frontend:**
+- `npm run build` → ✅ no TypeScript errors (call-sites destructure correctly)
+- Type safety: `getWorkflows` return type `{runs, total}` enforced at all call-sites
+- Dashboard correctly shows `{runs}` on first load (50 rows default)
+
+**Live measurement (before fix):**
+- `GET /api/runs?limit=100`: Content-Length: 2,852,988 bytes (~2.85 MB)
+- Network time: 5.4–6.8s (3G/LTE conditions)
+
+**Expected after fix:**
+- `GET /api/runs?limit=50`: Content-Length: ~45–50 KB (column-projected query, no Text fields)
+- Network time: <200ms (local network), <1s (3G)
+- 50x payload reduction = 57x-27x latency reduction depending on network
+
+#### Notes
+- **Response compression follow-up (separate commit):** nginx gzip directive on `/api/` location or FastAPI `GZipMiddleware` would reduce 50 KB → few KB for further network savings. Deferred to infra commit (FIX-158 or post-fix note).
+- **Session management for pagination state:** Load More offset state lives in `WorkflowHistory.tsx` component state, not Redux/context — survives user tab navigation within the page view but resets on page reload (intended behavior).
+- **JWT token rotation:** The token in prior session's network trace (`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`) is now visible in chat history — recommend user rotate this token as a precaution.
+- **Golden test impact:** None — goldens test deliverables via `/api/runs/{id}` detail endpoint and agent output parity, not history list size. List endpoint has no golden.
+
+#### Files Modified (for commit message verification)
+- Backend: 3 files (runs.py, main.py, 0030 migration)
+- Frontend: 5 files (api.ts, WorkflowHistory.tsx, dashboard/page.tsx, RunConnectionProvider.tsx, HomeLaunchGrid.tsx)
+- Total: 8 files changed, ~175 lines added (mostly docstrings + slim schema definition + migration)
+
+---
+
+### FIX-150 — KAN-137: PPT Revision → User Stories chain stalls silently with empty Steps trace
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix KAN-137`
+
+#### Root Cause
+
+Two compounding bugs in `handleChainPipeline` (`DashboardLayout.tsx`):
+
+**Bug 1 — wrong brief passed to user_stories:**
+After a `ppt_revision` run completes, `workflowInput` holds the full revision blob:
+```
+=== EXISTING PRESENTATION CODE ===
+...full HTML...
+=== REVISION REQUEST ===
+make slide 3 more concise
+=== END REQUEST ===
+```
+`handleChainPipeline` called `parseRunInput(workflowInput)` and used `parsedChain.revisionInstruction` as `chainBrief`. This returned the PPT change request ("make slide 3 more concise") — a revision instruction for the *previous* pipeline, not a product brief for user_stories. The `user_stories` pipeline (clarify: mode=auto, 8 defaults) fired its clarify engine against this meaningless 5-word brief, generated questions, and emitted `questionnaire_ready` — blocking the run at `waiting_for_user`. The clarify questionnaire renders via `InlineClarifyActions` inside the Steps agent card list, but `agents=[]` so the Steps tab shows the empty "Pipeline trace" placeholder. The user had nothing to interact with and no way to know the run was waiting.
+
+**Bug 2 — missing `setMainView("execution")`:**
+`handleChainPipeline` never called `setMainView("execution")` before firing `onStartPipeline`, unlike `handleChainFromHistory` which explicitly calls it at line 1182. This created a race window where SSE frames (including `pipeline_start`) could arrive before the execution panel was mounted.
+
+- File: `frontend/src/components/layout/DashboardLayout.tsx` lines 1093–1118 (before fix)
+- The same bug affects any `*_revision` → `user_stories` chain (prototype_revision, app_builder_revision, etc.)
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 25 (Workstream C1 — `parseRunInput` single canonical parser), Phase 42 (QuestionnairePanel deleted; clarify inline in Steps via `InlineClarifyActions`)
+- **Deleted code verified (not resurrected):** No deleted code touched
+- **Locked decisions respected:** Workstream C1 (INV-12) — `parseRunInput` is still the single canonical marker parser for non-revision inputs; the fix only overrides the source for revision-type chain sources
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | Also capture `ctxBrief = ctx.brief` when fetching chain context | Needed for the revision-source branch |
+| `frontend/src/components/layout/DashboardLayout.tsx` | For revision-type source runs (`workflowType.endsWith("_revision")`): extract `chainBrief` from `"Original Brief:"` line in `contextBlock` (which `_extract_chain_context` always writes), falling back to `ctxBrief` | Gives user_stories the actual topic of the source pipeline (e.g. "AI in healthcare") instead of the revision instruction ("make slide 3 more concise") |
+| `frontend/src/components/layout/DashboardLayout.tsx` | For non-revision source runs: keep existing C1 `parseRunInput(workflowInput)` logic unchanged | INV-12 — no change to working paths |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Add `setMainView("execution")` synchronously before `onResetPipeline`/`onStartPipeline` | Ensures execution panel is mounted before first SSE frame arrives; mirrors `handleChainFromHistory` line 1182 |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): Not affected — `workflowType.endsWith("_revision")` is a generic suffix check, no workflow name literals
+- **INV-3** (golden parity): Not affected — FE-only change, no backend/engine/golden impact
+- **INV-12** (no duplication): `parseRunInput` unchanged and still used for non-revision paths; `getChainContext` already called — no new API call added
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+- `tsc --noEmit` → 0 errors after the fix
+- Trace: `handleChainPipeline("user_stories")` with `workflowType="ppt_revision"` →
+  - `isRevisionSource = true`
+  - `ctxBrief = ctx.brief` (= revision instruction, e.g. "make slide 3 more concise")
+  - `originalBriefMatch = contextBlock.match(/Original Brief:\s*(.+)/)` → extracts the PPT topic
+  - `chainBrief = originalBrief` (= e.g. "Build a presentation about AI in healthcare")
+  - `enrichedInput = "Build a presentation about AI in healthcare\n\n=== CONTEXT FROM PREVIOUS PIPELINE (ppt_revision) ===..."`
+  - `setMainView("execution")` fires synchronously → execution panel mounted
+  - `onStartPipeline` fires → user_stories run starts with the correct topic as brief
+  - Planner and agents start; Steps trace populates correctly
+
+#### Notes
+
+- The same fix resolves `prototype_revision → user_stories` and `app_builder_revision → user_stories` chains (all `*_revision` source types)
+- `handleChainFromHistory` was already correct (it reads `run.input` directly from the DB row, which uses the server-stored input). Only `handleChainPipeline` (live chain from execution view) was affected.
+- The `Original Brief:` extraction relies on `_extract_chain_context` (runs.py) always writing `Original Brief: {brief}` as line 3 of every `context_block`. This is the current contract. If the context_block format changes, the fallback to `ctxBrief` still provides a reasonable (if imperfect) result.
+
+---
+
+### FIX-151 — KAN-137 follow-up: Chain context empty for *_revision runs — walk parent to get slide plan
+
+**Date:** 2026-07-30
+**Triggered by:** `/velocity-ai-fix Still not working at all — no starting point or context received by od_ppt revision`
+
+#### Root Cause
+
+`get_chain_context()` in `backend/app/api/runs.py` called `_extract_chain_context(workflow_run)` on the `od_ppt_revision` (or `ppt_revision`) run directly. The function attempts to get context from `get_agent_output("od-ppt-brief-analyst")` — but revision runs **do not have** a `od-ppt-brief-analyst` agent. The revision pipeline only runs the revision composer agents, not the original brief-analyst. So:
+
+- `get_agent_output("od-ppt-brief-analyst")` → `""`
+- `structured_summary` → `""`
+- `context_block` → `""` (the entire context block is empty)
+- `ctx.brief` → `_clean_for_context(revision_run.input)` → extracts the revision instruction (e.g. `"make the intro slide more concise"`)
+
+Back in the frontend `handleChainPipeline`:
+- `contextBlock = ""` (received from the API)
+- `chainBrief = "make the intro slide more concise"` (from the FIX-150 "Original Brief:" fallback, which also reads the revision instruction)
+- `enrichedInput = "make the intro slide more concise"` — no slide plan, no topic
+
+The SmartPlanner receives this 6-word instruction as the `user_stories` brief, correctly identifies `has_topic=False`, fires `CLARIFY_REQUIRED`, and asks the user generic product questions with no context.
+
+#### Phase Context
+
+- **Phase(s) involved:** Phase 25 (Workstream A — `GET /api/runs/{id}/chain-context` endpoint), Phase 14 (revision runs)
+- **Deleted code verified (not resurrected):** No deleted code touched
+- **Locked decisions respected:** SC-001/INV-1 — uses generic `endswith("_revision")` suffix check, no pipeline-name literals; Q3 — no migration; INV-12 — single extraction function `_extract_chain_context` reused unchanged
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/runs.py` | In `get_chain_context()`: for `*_revision` pipeline types, query `workflow_run.parent_run_id` to find the original (parent) run and call `_extract_chain_context(parent_run)` instead | The parent run has the `od-ppt-brief-analyst` output (slide plan) that the revision run lacks |
+| `backend/app/api/runs.py` | Extract the revision instruction from the `*_revision` run's input (`=== REVISION REQUEST ===` block) and append `"Latest Revision: {instruction}"` to the parent's context_block | Informs the downstream pipeline what specifically was changed in the revision |
+| `backend/app/api/runs.py` | Remove `status == "completed"` filter from the initial run lookup | Allows chaining from a revision run in any terminal status; the status check was overly restrictive |
+
+#### Invariants Verified
+
+- **INV-1** (no pipeline_type branches): `endswith("_revision")` is a generic suffix check — no workflow-name literals
+- **INV-3** (golden parity): Backend-only fix, no golden/engine impact
+- **INV-12** (no duplication): `_extract_chain_context()` is called unchanged on the parent run — no code duplication
+- **SC-001** (zero engine edits): Not affected
+
+#### Verification
+
+Trace with the fix applied:
+1. User completes `od_ppt` run → chains to `user_stories` via `od_ppt_revision` run
+2. `GET /api/runs/{od_ppt_revision_id}/chain-context` called
+3. `workflow_run.type = "od_ppt_revision"` → `endswith("_revision") = True`
+4. `workflow_run.parent_run_id = {od_ppt_run_id}` → parent lookup fires
+5. `parent_run = WorkflowRun(type="od_ppt", agent_outputs={...includes od-ppt-brief-analyst...})`
+6. `_extract_chain_context(parent_run)` → `get_agent_output("od-ppt-brief-analyst")` returns slide spec JSON
+7. `structured_summary = "Presentation Slide Plan:\nTitle: ...\nSlide 1: ...\nSlide 2: ..."` (real content)
+8. `context_block = "=== CONTEXT FROM PREVIOUS PIPELINE (od_ppt) ===\nTitle: AI in Healthcare\nOriginal Brief: Build a presentation...\n\nPresentation Slide Plan:\n...\nLatest Revision: make the intro slide more concise\n=== END PREVIOUS CONTEXT ==="`
+9. Frontend receives non-empty `context_block`; `chainBrief = "AI in Healthcare"` (from `Original Brief:` line — which now contains the real topic)
+10. `enrichedInput = "AI in Healthcare\n\n=== CONTEXT FROM PREVIOUS PIPELINE (od_ppt) ===\n...slide plan..."`
+11. SmartPlanner: `has_topic=True` (topic = "AI in Healthcare") → `gate=PROCEED` → agents start immediately with full context
+
+Backend restarted and running — hot-reload will catch the change.
+
+#### Notes
+
+- This fix works for all `*_revision` → any chain paths: `od_ppt_revision`, `ppt_revision`, `prototype_revision`, `user_stories_revision`, `app_builder_revision`
+- If the revision run has no `parent_run_id` (legacy orphan revision created before the family-linkage fix), the code falls back gracefully to extracting context from the revision run itself (`source_run = workflow_run`), same behavior as before
+- The `ChainContextResponse` is reconstructed to append the revision instruction — it's a simple immutable copy, not a mutation

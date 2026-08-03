@@ -45,7 +45,19 @@ export interface ChatAttachment {
 // navigation seam: this is the stored descriptor on the message, the seam mints
 // the navigation nonce when the card is actually clicked.
 export interface DeepLinkTarget {
-  tab: string;
+  /**
+   * Generic panel tab id — present ONLY when the frame explicitly names one.
+   * Absent for engine-emitted cards (they carry `anchor` instead), so the card
+   * kind's own generic default tab decides where the deep-link lands.
+   */
+  tab?: string;
+  /**
+   * The narrator's milestone/artifact ANCHOR as emitted by the backend
+   * (`run:<id>` / `clarify:<id>` / `deliverable:<file>` / `spec_revision:<id>:<n>`
+   * / a `gate_key`). A semantic reference to WHAT the card reports — never a tab
+   * id, and never a workflow/agent name (SC-001).
+   */
+  anchor?: string;
   nonce: number;
 }
 
@@ -314,7 +326,7 @@ export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "p
 // run (websocket.py), and the revision drainer can persist "revising". The raw
 // status is cast through this union at api.ts:288 (`raw.status as ...`); include
 // both so the cast is honest and the history-reopen comparisons type-check.
-export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising";
+export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising" | "planning" | "generating" | "waiting_for_user" | "clarifying" | "analyzing";
 
 export interface WorkflowRun {
   id: string;
@@ -351,6 +363,10 @@ export interface WorkflowRun {
   // run is its own root).
   parentRunId: string | null;
   rootRunId: string;
+  // KAN-130: chaining indicator — non-null when this run was launched by chaining
+  // from a prior run's output (e.g. User Stories → Prototype chain).
+  // Used to show "(Chained)" in the Jump Back In section.
+  sourceRunId?: string | null;
   createdAt: string;
   completedAt?: string;
   duration?: number;
@@ -545,8 +561,10 @@ export interface AgentRunState {
   validationPassed?: boolean;
 }
 
-/** A source of context for an agent — either a summarized prior-agent output
- *  or a typed Artifact from the Artifact_Store. */
+/** A source of context for an agent — either a summarized prior-agent output,
+ *  a typed Artifact from the Artifact_Store, or a run-originating source
+ *  (user brief / template / design system). KAN-129: added "run_input" and
+ *  "context_block" types + `label` field to match what the backend emits. */
 export interface ContextSource {
   type: "summary" | "artifact" | "run_input" | "context_block";
   // For type="summary":
@@ -557,7 +575,9 @@ export interface ContextSource {
   // For type="artifact":
   artifact_type?: string;
   artifact_size_chars?: number;
-  // For type="run_input" | "context_block" (KAN-102):
+  // For type="run_input" and type="context_block" (KAN-129):
+  // Human-readable label emitted by the backend (e.g. "prompt.md",
+  // "Template: ibm-carbon", "Design system: ibm-carbon").
   label?: string;
   size_chars?: number;
 }

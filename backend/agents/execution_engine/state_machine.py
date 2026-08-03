@@ -125,6 +125,18 @@ class StateMachine:
                 "StateMachine._persist DB write failed (non-fatal): %s", exc
             )
 
+    def forget_run(self, run_id: str) -> None:
+        """Evict the state-machine entry for a completed/terminal run (D5 fix — KAN-139).
+
+        Removes ``run_id`` from the in-memory ``_states`` dict so the process-lifetime
+        dict does not grow unbounded. Called by ``_cleanup_pipeline`` (run_engine.py)
+        so run-end and state-machine cleanup are one atomic operation. Replaces the
+        private-dict reach at ``run_commands.py:412`` (the FIX-105 workaround) — that
+        site can use this public method instead. Idempotent (pop with default).
+        """
+        self._states.pop(run_id, None)
+        logger.debug("StateMachine: evicted state entry for run=%s", run_id)
+
 
 # ------------------------------------------------------------------
 # Module-level singleton

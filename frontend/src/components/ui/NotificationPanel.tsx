@@ -7,6 +7,20 @@ import type { PipelineNotification } from "@/hooks/useNotifications";
 import { getWorkflowLabel } from "@/hooks/useNotifications";
 import { Badge } from "@/components/ui/Badge";
 import { Pill } from "@/components/ui/Pill";
+import { parseRunInput } from "@/lib/runInput";
+
+// Mirror of AppHeader's RUN_STATUS_TONE — shows "Planning", "Generating",
+// "Waiting for you" etc. in the notification panel just like Jump Back In.
+const LIVE_STATUS_LABEL: Record<string, string> = {
+  running:          "Running",
+  revising:         "Revising",
+  planning:         "Planning",
+  generating:       "Building",
+  analyzing:        "Analyzing",
+  waiting_for_user: "Waiting for you",
+  clarifying:       "Clarifying",
+  gate:             "Awaiting review",
+};
 
 interface NotificationPanelProps {
   notifications: PipelineNotification[];
@@ -15,6 +29,9 @@ interface NotificationPanelProps {
   onClearAll: () => void;
   onGoToPipeline: () => void;       // navigate to execution view
   onViewResults: (n: PipelineNotification) => void; // navigate to history detail
+  // Live runs from server — used to show detailed status labels (Planning,
+  // Building, Waiting for you, etc.) matching the Jump Back In section.
+  recentRuns?: import("@/types/index").WorkflowRun[];
 }
 
 function formatRelativeTime(date: Date): string {
@@ -45,6 +62,7 @@ export function NotificationPanel({
   onClearAll,
   onGoToPipeline,
   onViewResults,
+  recentRuns = [],
 }: NotificationPanelProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -167,7 +185,16 @@ export function NotificationPanel({
                               {formatRelativeTime(n.createdAt)}
                             </span>
                           </div>
-                          <p className="text-[11px] text-ink-500 truncate mt-0.5">{n.title}</p>
+                          <p className="text-[11px] text-ink-500 truncate mt-0.5">{(() => {
+                              const t = n.title;
+                              if (!t) return t;
+                              // Strip "Title: " prefix from cascading context pollution
+                              const stripped = t.startsWith("Title: ") ? t.slice("Title: ".length).trim() : t;
+                              if (!stripped.includes("===")) return stripped;
+                              if (stripped.trimStart().startsWith("===")) return getWorkflowLabel(n.workflowType);
+                              const p = parseRunInput(stripped);
+                              return (p.revisionInstruction ?? p.brief ?? stripped).split("\n")[0].trim() || getWorkflowLabel(n.workflowType);
+                            })()}</p>
 
                           {/* Progress bar for running */}
                           {n.status === "running" && (n.agentsTotal ?? 0) > 0 && (
@@ -195,14 +222,31 @@ export function NotificationPanel({
                             </div>
                           )}
 
-                          {/* Status label */}
+                          {/* Status label — enhanced with real server status when available */}
                           <div className="flex items-center justify-between mt-2">
-                            <Badge status={n.status} />
+                            {n.status === "running" || n.status === "gate" ? (() => {
+                              // Look up the real detailed status from the server run
+                              const serverRun = recentRuns.find(r =>
+                                r.id === n.workflowRunId ||
+                                (r.status !== "completed" && r.status !== "failed" && r.status !== "cancelled" &&
+                                  (r.type === n.workflowType ||
+                                    (n.workflowType === "ppt" && (r.type === "od_ppt" || r.type === "ppt")) ||
+                                    (n.workflowType === "prototype" && (r.type === "od_prototype" || r.type === "prototype"))))
+                              );
+                              const rawStatus = serverRun?.status ?? (n.status === "gate" ? "waiting_for_user" : "running");
+                              const statusLabel = LIVE_STATUS_LABEL[rawStatus] ?? LIVE_STATUS_LABEL["running"];
+                              const isGate = rawStatus === "waiting_for_user" || n.status === "gate";
+                              return (
+                                <span className={`text-[10px] font-semibold uppercase tracking-[0.06em] ${isGate ? "text-status-amber" : "text-status-running"}`}>
+                                  {statusLabel}
+                                </span>
+                              );
+                            })() : <Badge status={n.status} />}
 
                             {/* CTA */}
-                            {n.status === "running" ? (
+                            {n.status === "running" || n.status === "gate" ? (
                               <button
-                                onClick={() => { setOpen(false); onGoToPipeline(); }}
+                                onClick={() => { setOpen(false); onViewResults(n); }}
                                 className="flex items-center gap-1 text-[10px] font-medium text-brand hover:underline"
                               >
                                 View progress <ArrowRight className="h-3 w-3" />
