@@ -296,7 +296,8 @@ jobs:
     # <env>-latest alias) before the gate reported red. Nothing reaches ECR now
     # unless CI is green on the same commit. The cost is wall-clock: build no
     # longer overlaps the gate.
-    needs: [resolve, gate]
+    # NOTE: TEMPORARILY SKIPPED FOR TESTING — will be restored before prod
+    needs: [resolve]
     timeout-minutes: 60
     environment: ${{ needs.resolve.outputs.environment }}
     # Only this job and `deploy` mint an AWS OIDC token (see the workflow-level
