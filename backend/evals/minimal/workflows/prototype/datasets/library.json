@@ -1,0 +1,364 @@
+{
+  "dataset_id": "prototype_library",
+  "for_agent": "prototype-specify",
+  "description": "Twenty-four demanding briefs, one per industry. Each requires 5-6 pages, at least one dynamic #/…/:id detail route rendering distinct records, working filters or search, at least one state-changing action visible across pages, and cross-page data consistency — the behaviours the code track verifies in a real browser and the judge grades under the consistency caps. These are production-shaped asks, not warm-ups: scores here are the number that matters. Row ids are stable across every stage.",
+  "rows": [
+    {
+      "id": "fleet_dispatch",
+      "industry": "Logistics",
+      "tags": [
+        "ops-console",
+        "map-adjacent",
+        "state-change"
+      ],
+      "prompt": "Build an internal dispatch console for Harbor Line Freight's 18-truck regional fleet. Pages: Board (live trip table), Trip Detail via #/trip/:id, Drivers, Vehicles, Exceptions, Settings. The Board needs a text search over driver and destination plus status filter buttons (All / En route / Loading / Delayed / Delivered) that actually filter; each row opens its own trip detail with stops, cargo weight, and an ETA. Trip Detail has a 'Mark delivered' button that updates the status badge in place and on the Board after navigating back. Exceptions lists only Delayed trips and must stay consistent with the Board's data. Realistic freight data: trailer numbers, lane names like 'Oakland → Reno', weights in lbs, timestamped check-ins. No template or design system selected — plain and functional."
+    },
+    {
+      "id": "er_bed_board",
+      "industry": "Healthcare",
+      "tags": [
+        "ops-console",
+        "capacity",
+        "state-change"
+      ],
+      "prompt": "Build an emergency-department bed board for St. Aldric Medical Center (24 beds across 3 pods). Pages: Bed Board, Patient Detail via #/patient/:id, Incoming (ambulance pre-arrivals), Staff, Reports, Settings. The Bed Board shows every bed as a card with pod, bed number, patient (or Open), acuity 1-5 and time-in-bed; filter buttons by pod and by acuity band must work together. Clicking an occupied bed opens that patient's detail — chief complaint, vitals trend as a small table, orders — and a 'Mark for discharge' action that flips the bed to Cleaning state, visible back on the board. Reports totals (occupancy %, median wait) must be computable from the board's own data. Realistic clinical data, no lorem."
+    },
+    {
+      "id": "fraud_review_queue",
+      "industry": "Banking",
+      "tags": [
+        "review-queue",
+        "state-change",
+        "table-heavy"
+      ],
+      "prompt": "Build a card-fraud review console for Meridian Bank's risk team. Pages: Queue, Case Detail via #/case/:id, Rules, Analytics, Audit Log, Settings. The Queue lists flagged transactions (card last-4, merchant, amount, country, risk score 0-100, status) with a risk-band filter (High ≥80 / Medium 50-79 / Low <50) and a text search over merchant; both must actually filter. Case Detail shows the transaction, the cardholder's last 5 transactions for context, and the triggering rule, with 'Confirm fraud' and 'Mark legitimate' buttons that update the case status badge in place and back on the Queue. The Audit Log appends one line per decision taken this session. Analytics totals must agree with the Queue data. Realistic amounts, merchants, BIN-plausible card fragments."
+    },
+    {
+      "id": "airline_crew_ops",
+      "industry": "Aviation",
+      "tags": [
+        "scheduling",
+        "compliance",
+        "detail-route"
+      ],
+      "prompt": "Build a crew-scheduling day-of-operations tool for Cascadia Air's Portland base. Pages: Roster (today's pairings), Crew Detail via #/crew/:id, Flights, Legality Alerts, Reserve Pool, Settings. Roster rows: pairing code, captain, first officer, aircraft, report time, duty hours, legality status — filterable by fleet (E175 / 737) and by legality (Legal / Caution / Illegal), plus name search. Crew Detail shows that crew member's duty-time ledger for the week and their assignments; a 'Assign from reserve' action on an Illegal pairing swaps in a named reserve pilot and updates both the Roster row and the Reserve Pool count. Legality Alerts must list exactly the Caution and Illegal rows from the Roster. Realistic pairing codes, FAR-117-flavoured duty numbers."
+    },
+    {
+      "id": "claims_triage",
+      "industry": "Insurance",
+      "tags": [
+        "review-queue",
+        "documents",
+        "state-change"
+      ],
+      "prompt": "Build a property-claims triage console for Stonebridge Mutual after a hail event. Pages: Intake Queue, Claim Detail via #/claim/:id, Adjusters, Severity Map (a table-based severity-by-zip summary), Payments, Settings. Intake Queue: claim number, policyholder, zip, roof type, est. damage $, severity (Minor/Moderate/Severe), status — with severity filter buttons and a policyholder search that work. Claim Detail renders the clicked claim with a photos-received checklist and coverage summary, plus 'Fast-track' and 'Assign adjuster' actions; assigning picks a named adjuster and decrements that adjuster's open-capacity count on the Adjusters page. Severity Map and Payments totals must reconcile with the queue rows. Realistic policy numbers, zips, dollar estimates — never round placeholders."
+    },
+    {
+      "id": "warehouse_slotting",
+      "industry": "Warehouse Ops",
+      "tags": [
+        "inventory",
+        "table-heavy",
+        "detail-route"
+      ],
+      "prompt": "Build a slotting-optimisation workbench for Granite Peak Distribution's pick floor. Pages: Slot Grid, SKU Detail via #/sku/:id, Replenishment, Velocity Report, Moves, Settings. Slot Grid lists 20 pick slots (aisle-bay-level code, SKU, on-hand, daily picks, fill %) filterable by aisle and by a 'below reorder point' toggle, with SKU text search. SKU Detail shows the clicked SKU's velocity history table, current slot, and a 'Queue move' action selecting a suggested better slot — queued moves appear on the Moves page and flag the source row on the Slot Grid. Velocity Report's top-10 must be derivable from the grid data. Realistic SKUs, case quantities, aisle codes like A-07-2."
+    },
+    {
+      "id": "restaurant_reservations",
+      "industry": "Hospitality",
+      "tags": [
+        "booking",
+        "calendar",
+        "state-change"
+      ],
+      "prompt": "Build the host-stand console for Verdello, a 14-table Italian restaurant. Pages: Tonight (service timeline), Reservation Detail via #/reservation/:id, Floor Plan (table-state list), Waitlist, Guests, Settings. Tonight lists reservations (time, party name, covers, table, occasion, status Booked/Seated/Finished/No-show) with a service-period filter (5:00 / 6:30 / 8:00 seatings) and party-name search. Reservation Detail shows guest notes and allergy flags with 'Seat party' and 'No-show' actions that update the status on Tonight and flip the table's state on the Floor Plan. Waitlist has a 'Convert to reservation' action that inserts a row into Tonight. Guest history counts must match Tonight's data. Realistic Italian-restaurant names, tables T1-T14, covers, times."
+    },
+    {
+      "id": "hospital_pharmacy_recalls",
+      "industry": "Pharmacy",
+      "tags": [
+        "compliance",
+        "inventory",
+        "detail-route"
+      ],
+      "prompt": "Build a recall-response console for the inpatient pharmacy at Halloran General. Pages: Active Recalls, Recall Detail via #/recall/:id, Lot Search, Affected Units, Dispensing Holds, Settings. Active Recalls: recall id, drug, class (I/II/III), lots affected, units on hand, status — filterable by class and by open/closed. Recall Detail renders the clicked recall with its lot table and ward-level unit locations, plus a 'Place dispensing hold' action that adds the drug to Dispensing Holds and stamps the recall row Contained. Lot Search filters a lot table as you type. Affected Units totals must agree with the recall detail tables. Realistic NDC-shaped codes, drug names, lot numbers, ward names."
+    },
+    {
+      "id": "campus_course_admin",
+      "industry": "Education",
+      "tags": [
+        "admin-console",
+        "enrollment",
+        "state-change"
+      ],
+      "prompt": "Build the registrar's section-management console for Ridgewater College's fall term. Pages: Sections, Section Detail via #/section/:id, Waitlists, Instructors, Rooms, Settings. Sections table: course code, title, instructor, room, cap, enrolled, waitlist, status (Open/Full/Cancelled) with department filter buttons (BIO / CS / ECON / ENG) and a title search that work together. Section Detail shows the clicked section's roster summary and meeting pattern, with 'Raise cap by 5' and 'Cancel section' actions that update its row in Sections (and move its waitlisted students count to the Waitlists page total when cancelled). Rooms page must show each room's sections consistent with the Sections table. Realistic course codes like CS-214, MWF times, room codes."
+    },
+    {
+      "id": "site_safety_inspections",
+      "industry": "Construction",
+      "tags": [
+        "field-ops",
+        "checklist",
+        "detail-route"
+      ],
+      "prompt": "Build a safety-inspection tracker for Corvid Build Group across 6 active sites. Pages: Findings, Finding Detail via #/finding/:id, Sites, Inspections Calendar (table form), Contractors, Settings. Findings: finding id, site, category (Fall protection / Electrical / Scaffolding / Housekeeping / PPE), severity (Stop-work / Major / Minor), raised date, assignee, status — filterable by severity and by site, with free-text search over description. Finding Detail renders the clicked finding with its photo checklist, OSHA reference and remediation steps, plus 'Verify fixed' and 'Escalate to stop-work' actions that update the row in Findings and the site's open-count on Sites. Contractor scorecards must sum from findings data. Realistic site names, OSHA 1926 references, dates."
+    },
+    {
+      "id": "saas_billing_ops",
+      "industry": "SaaS Finance",
+      "tags": [
+        "billing",
+        "dunning",
+        "state-change"
+      ],
+      "prompt": "Build a subscription-billing operations console for Northlight, a B2B analytics SaaS. Pages: Accounts, Account Detail via #/account/:id, Dunning Queue, Invoices, Revenue Report, Settings. Accounts: company, plan (Starter/Growth/Scale), MRR, seats, renewal date, payment state (Current / Past due / Churn risk) — with payment-state filters and company search. Account Detail shows the clicked account's invoice history, usage-vs-seats table, and contacts, with 'Retry charge' (flips Past due → Current on success message) and 'Apply 10% save offer' actions reflected on the Accounts row. Dunning Queue must contain exactly the Past-due accounts. Revenue Report's MRR-by-plan must sum from the Accounts data. Realistic company names, non-round MRR figures, dates."
+    },
+    {
+      "id": "utility_outage_monitor",
+      "industry": "Energy",
+      "tags": [
+        "monitoring",
+        "incident",
+        "detail-route"
+      ],
+      "prompt": "Build a distribution-outage monitor for Bluegrass Electric Co-op's control room. Pages: Outages, Outage Detail via #/outage/:id, Crews, Substations, Customer Impact, Settings. Outages: outage id, feeder, substation, customers out, cause (Vegetation / Equipment / Weather / Animal / Unknown), start time, ETR, status — with cause filters and a feeder search. Outage Detail shows the clicked outage's switching log, assigned crew and affected customer count, with 'Dispatch crew' (assigns a named available crew, updating the Crews page) and 'Confirm restored' (zeroes its customers-out on Outages and Customer Impact). Substation rollups must agree with the Outages table. Realistic feeder codes, ETR timestamps, customer counts."
+    },
+    {
+      "id": "ats_hiring_pipeline",
+      "industry": "Recruiting",
+      "tags": [
+        "pipeline",
+        "kanban-adjacent",
+        "state-change"
+      ],
+      "prompt": "Build a hiring-pipeline console for Foxglove Robotics' 4 open engineering roles. Pages: Pipeline, Candidate Detail via #/candidate/:id, Roles, Interviews This Week, Offers, Settings. Pipeline lists candidates (name, role, stage: Screen / Tech / Onsite / Offer / Hired-Rejected, recruiter, days-in-stage) with stage filter buttons and a name search. Candidate Detail renders the clicked candidate's interview feedback table and resume summary, with 'Advance stage' and 'Reject' actions that update the Pipeline row and the per-role funnel counts on Roles. Interviews This Week must list only candidates in Tech or Onsite stages consistent with the Pipeline. Offers page totals must match candidates at Offer stage. Realistic names, role titles, feedback scores."
+    },
+    {
+      "id": "court_docket_manager",
+      "industry": "Legal",
+      "tags": [
+        "case-management",
+        "calendar",
+        "detail-route"
+      ],
+      "prompt": "Build a civil-docket management tool for the clerk's office of Alder County Superior Court. Pages: Docket, Case Detail via #/case/:id, Hearings Today, Judges, Filings Inbox, Settings. Docket: case number, caption (Smith v. Hartwell Logistics style), type (Contract / Tort / Landlord-tenant / Small claims), judge, next hearing, status — with type filters and caption search. Case Detail shows the clicked case's party list, filing history table and upcoming deadlines, with 'Grant continuance' (pushes next-hearing date, visible on Docket and Hearings Today) and 'Mark disposed' actions. Filings Inbox has an 'Accept filing' action appending to that case's filing history. Judges' caseload counts must sum from the Docket. Realistic case numbers like 26-CV-01472, dates, captions."
+    },
+    {
+      "id": "hotel_housekeeping",
+      "industry": "Hotels",
+      "tags": [
+        "ops-console",
+        "rooms",
+        "state-change"
+      ],
+      "prompt": "Build the housekeeping operations board for The Meridian Grand (9 floors, 180 rooms — show floors 4 and 5 in full). Pages: Room Board, Room Detail via #/room/:id, Assignments, Rush Queue, Supplies, Settings. Room Board lists rooms (number, floor, type, occupancy state Checked-out / Stayover / Vacant-clean / Out-of-order, assigned attendant, priority) with floor filter buttons, state filters, and room-number search working together. Room Detail shows the clicked room's checklist and notes with 'Mark inspected-clean' and 'Report maintenance issue' actions that update the board row (maintenance flips it Out-of-order and adds a row to a maintenance list on that page). Rush Queue must contain exactly rooms flagged priority. Attendant workload counts on Assignments must match the board. Realistic room numbers, attendant names."
+    },
+    {
+      "id": "retail_returns_center",
+      "industry": "Retail",
+      "tags": [
+        "returns",
+        "disposition",
+        "detail-route"
+      ],
+      "prompt": "Build a returns-processing console for Juniper & Co's regional returns center. Pages: Inbox, Return Detail via #/return/:id, Dispositions, Refunds, Fraud Flags, Settings. Inbox: RMA number, order, customer, item, reason (Doesn't fit / Damaged / Not as described / Changed mind), condition grade (A/B/C/Unsellable), refund $, status — with reason filters and RMA/customer search. Return Detail renders the clicked RMA with item photos checklist, original order context and inspector notes, plus disposition actions 'Restock', 'Liquidate', 'Destroy' — the chosen one stamps the Inbox row and increments the matching Dispositions counter. Refund totals by day must sum from Inbox rows; Fraud Flags lists customers with 3+ returns consistent with the data. Realistic RMA/order numbers, garment names, non-round refund amounts."
+    },
+    {
+      "id": "farm_field_ops",
+      "industry": "Agriculture",
+      "tags": [
+        "field-ops",
+        "sensors",
+        "detail-route"
+      ],
+      "prompt": "Build a field-operations dashboard for Tallgrass Farms' 12-field corn and soy operation. Pages: Fields, Field Detail via #/field/:id, Irrigation Runs, Scouting Reports, Equipment, Settings. Fields: field name, crop, acres, growth stage, soil moisture %, last scouted, alert state (OK / Dry / Pest pressure) — with crop filters and an alert-only toggle, plus name search. Field Detail shows the clicked field's moisture readings table (7 daily readings), scouting notes and applied inputs, with 'Schedule irrigation run' (adds a row to Irrigation Runs and clears the Dry alert) and 'Log scouting report' actions. Equipment page's assignment column must agree with scheduled runs. Realistic field names like 'North Quarter', moisture percentages, hybrid seed codes."
+    },
+    {
+      "id": "support_sla_command",
+      "industry": "Customer Support",
+      "tags": [
+        "sla",
+        "escalation",
+        "state-change"
+      ],
+      "prompt": "Build an SLA command center for Driftwood Software's support org. Pages: Breach Risk, Ticket Detail via #/ticket/:id, Teams, Escalations, Trends, Settings. Breach Risk lists open tickets (id, customer, tier Gold/Silver/Bronze, severity S1-S4, time-to-breach countdown, owner, status) sorted by time-to-breach, with tier and severity filters plus customer search — all functional. Ticket Detail shows the clicked ticket's timeline, customer context and SLA clock, with 'Escalate to engineering' (adds it to Escalations and stamps the row) and 'Mark resolved' actions reflected on Breach Risk. Team load counts on Teams must sum from ticket owners. Trends' breach counts by week must be consistent with visible data. Realistic ticket ids, company names, countdown values."
+    },
+    {
+      "id": "municipal_permits",
+      "industry": "Government",
+      "tags": [
+        "workflow",
+        "review-stages",
+        "detail-route"
+      ],
+      "prompt": "Build a building-permit review console for the City of Marlowe's planning department. Pages: Applications, Application Detail via #/application/:id, Review Queues (by discipline), Inspections, Fees, Settings. Applications: permit number, address, type (Residential remodel / New commercial / Sign / Demolition), submitted date, current review stage (Intake / Zoning / Structural / Fire / Issued), days in stage — with type filters and address search. Application Detail renders the clicked application's document checklist, reviewer comments per discipline, and 'Approve current stage' (advances the stage, visible on Applications and moving it between Review Queues) and 'Request corrections' actions. Fees page totals must sum from application valuations. Realistic permit numbers like BLD-2026-0341, addresses, valuations."
+    },
+    {
+      "id": "venue_event_booking",
+      "industry": "Events",
+      "tags": [
+        "booking",
+        "calendar",
+        "state-change"
+      ],
+      "prompt": "Build the booking-operations console for The Foundry, a 3-hall event venue. Pages: Calendar (month as a table of holds and confirms), Event Detail via #/event/:id, Holds Pipeline, Vendors, Invoices, Settings. Calendar rows: date, hall (Main / Loft / Garden), event name, type (Wedding / Corporate / Concert / Private), status (Hold-1 / Hold-2 / Confirmed / Settled), guest count — with hall filters and event-name search. Event Detail shows the clicked event's run-of-show outline, vendor assignments and payment schedule, with 'Confirm booking' (Hold → Confirmed, releasing any Hold-2 on that date/hall shown on the Holds Pipeline) and 'Record payment' actions reflected on Invoices. Vendor utilisation counts must agree with event assignments. Realistic event names, dates, deposit amounts."
+    },
+    {
+      "id": "elearning_cohort_ops",
+      "industry": "EdTech",
+      "tags": [
+        "cohorts",
+        "progress",
+        "detail-route"
+      ],
+      "prompt": "Build a cohort-operations dashboard for Lanternfish Academy's 6-week data-analytics bootcamp. Pages: Cohorts, Learner Detail via #/learner/:id, At-Risk Queue, Graders, Curriculum, Settings. Cohorts view lists learners of the current cohort (name, track Full-time/Part-time, module progress 1-6, last active, assignment average, risk flag) with track filters, a risk-only toggle and name search. Learner Detail renders the clicked learner's per-module scores table, attendance streak and mentor notes, with 'Send nudge' (stamps last-nudged on the row) and 'Move to at-risk' / 'Clear risk flag' actions that keep the At-Risk Queue exactly consistent with flagged learners. Grader workload on Graders must sum from ungraded-assignment counts. Realistic learner names, module titles, percentage scores."
+    },
+    {
+      "id": "property_ops",
+      "industry": "Property Management",
+      "tags": [
+        "ops-console",
+        "crud",
+        "multi-entity",
+        "detail-route",
+        "state-change"
+      ],
+      "prompt": "Build the operations console for Ridgeline Residential, which manages a 12-unit, three-building portfolio (Alder, Birch, Cedar). Exactly 10 pages: Dashboard, Units, Unit Detail via a dynamic route #/unit/:id, Tenants, Tenant Detail via #/tenant/:id, Work Orders, New Work Order via #/workorders/new, Work Order Detail via #/workorder/:id, Vendors, Settings. This is a full CRUD console and every behaviour must WORK: the Dashboard shows KPI tiles (occupancy, rent outstanding, open work orders, vacant units) computed from the data, plus urgent-work-order and move-out/vacancy lists linking into the detail pages; Units combines building filter buttons, status filter buttons (Occupied / Vacant / Notice) and a text search, all working together with an empty state; Unit Detail renders the clicked unit with its tenant link and that unit's work-order history; Tenants has payment-status filters (Paid / Partial / Overdue) computed from each tenant's March payments versus rent; Tenant Detail shows the lease, a payment history table and a Record-payment form that ADDS a payment row, recomputes the balance and flips the status badge — with inline validation for a bad amount; the New Work Order page is a form that CREATES a work order with the next sequential id and navigates to its detail; Work Order Detail supports Assign-vendor (updates the vendor's open-assignment count on Vendors), Mark-complete, and Cancel — which DELETES the work order so it disappears from every list and its old link falls back to a friendly not-found card, as must any unknown id on all three dynamic routes; Vendors shows open-assignment counts derived from live work orders; Settings is a preferences form with an inline save confirmation. All cross-page numbers (KPIs, counts, balances) must stay consistent because they derive from one store. Use realistic property data — unit codes like B-102, tenant and vendor names, non-round rents, plausible dates — never lorem ipsum or filler rows. No template or design system has been selected; use your own judgment, plain and functional."
+    },
+    {
+      "id": "shelter_ops",
+      "industry": "Animal Welfare",
+      "tags": [
+        "ops-console",
+        "crud",
+        "detail-route",
+        "state-change",
+        "pipeline-generated-golden"
+      ],
+      "prompt": "Build the intake-and-adoption console for Harborview Animal Shelter, a 40-kennel municipal shelter. Exactly 7 pages: Dashboard, Animals, Animal Detail via a dynamic route #/animal/:id, New Intake, Applications, Application Detail via #/application/:id, Settings. Everything must WORK, not just render: the Dashboard shows KPI tiles (animals in care, available for adoption, pending applications, kennels free) computed from the data, plus an attention list linking into the detail pages; Animals combines species filter buttons (All / Dogs / Cats / Small mammals), status filter buttons (All / Available / Hold / Adopted) and a name search, all working together with an empty-state row; Animal Detail renders the clicked animal — never one hardcoded record — with an intake/medical timeline and its kennel assignment; New Intake is a form that ADDS an animal to the store with the next sequential id and navigates to its new detail page, with inline validation for an empty name; Applications lists adoption applications with status filter buttons; Application Detail shows the applicant and the animal applied for, with an Approve action (marks the application Approved AND the animal Adopted AND frees its kennel — all visible on the Dashboard, the Animals roster and that animal's detail on next visit) and a Deny action; Settings is a small shelter-preferences form with an inline save confirmation. An unknown id on either dynamic route must render a friendly not-found card, never crash. Use realistic shelter data — animal names, breeds, ages, kennel codes like K-12, applicant names, plausible dates — never lorem ipsum or filler rows. No template or design system has been selected; use your own judgment, plain and functional."
+    },
+    {
+      "id": "mission_control",
+      "industry": "Program Management",
+      "tags": [
+        "diagram-first",
+        "svg-canvas",
+        "gantt",
+        "state-change",
+        "detail-route",
+        "pipeline-generated-golden"
+      ],
+      "prompt": "Build Mission Control, the program-transformation suite for Atlas Consumer Bank's 'Meridian' core-banking modernization program. Exactly 7 pages: Dashboard, Program Canvas, Workstreams, Workstream Detail via a dynamic route #/workstream/:id, Gates, Gate Detail via #/gate/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render: the Dashboard shows executive KPI tiles (program health, % complete, open risks, next gate date) computed from the data, a current-stage chip, and an attention list linking into workstream and gate detail pages; the Program Canvas is an inline-SVG operating-model process canvas — two lanes (Business, Technology) of connected step nodes with arrow connectors, animated dashed flow edges, decision diamonds, and New / Updated / Unchanged delta badges on each node showing what the transformation changes, with a legend, and clicking any canvas node navigates to its owning workstream's detail; Workstreams shows a CSS/SVG Gantt timeline of 6 workstreams across program months with today marker, milestone diamonds and dependency arrows, plus a 'Shift milestone +2 weeks' action on a selected workstream that visibly ripples the dependent workstreams' bars and updates the Dashboard's next-gate KPI; Workstream Detail renders the clicked workstream — never one hardcoded record — with its own mini-Gantt of activities, an activity checklist with statuses, its risks, and its canvas steps; Gates shows the stage-gate approval chain as a diagram — approver nodes (with role and name) joined by connectors, each gate's status ringed (Approved / In review / Not started) — plus an animated step-through walkthrough player (Play / Next / Reset) that advances a highlight along the chain; Gate Detail renders the clicked gate with its criteria checklist, evidence list and an Approve action that marks the gate Approved, advances the program's current stage on the Dashboard, and updates the chain diagram on Gates — plus a 'Send back' action; Settings is a small program-preferences form with an inline save confirmation. An unknown id on either dynamic route must render a friendly not-found card, never crash. All numbers, chains and canvases must derive from one store so every action propagates. Use realistic program data — workstream names, owner names, milestone dates, gate names like 'G2 — Design Complete', risk titles — never lorem ipsum or filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "port_berth_ops",
+      "industry": "Maritime",
+      "tags": [
+        "diagram-first",
+        "svg-canvas",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build Harbourmaster, for the Port of Halvorsen container terminal. Exactly 5 pages: Dashboard, Berth Canvas, Vessels, Vessel Detail via a dynamic route #/vessel/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (berth occupancy %, vessels at anchor, mean turnaround hours, next tide window) computed from the data, plus an attention list linking into vessel detail. Berth Canvas is an inline-SVG quay schematic — 12 berth bays drawn to scale along a quay line, each holding a vessel block sized by LOA, draft-vs-depth warning rings, animated dashed approach arrows for inbound vessels, and New / Shifted / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Vessels shows a CSS/SVG 72-hour berth timeline of all calls with a now marker, tide-window bands and dependency arrows between linked shifts, plus a 'Shift call +6 hours' action that visibly ripples the vessels queued behind it on the timeline and updates a Dashboard KPI. Vessel Detail renders the clicked record — never one hardcoded record — with its manifest breakdown, a draft/LOA gauge against the assigned berth's limits, its crane allocation and its conflict list. Settings is a preferences form with a tide-window select, a max-overlap tolerance input the canvas conflict rings read, and an auto-book-pilots toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic call signs like MV Kestrel Bay, IMO numbers and cargo tonnages — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "film_call_sheets",
+      "industry": "Film Production",
+      "tags": [
+        "diagram-first",
+        "strip-board",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build Callsheet, for Northgate Pictures' feature 'Ash Harbour'. Exactly 5 pages: Dashboard, Strip Board, Schedule, Scene Detail via a dynamic route #/scene/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (pages shot vs total, days remaining, company moves this week, cast overage risk) computed from the data, plus an attention list linking into scene detail. Strip Board is an inline-SVG production strip board — coloured strips grouped into day banners, strip height proportional to page eighths, INT/EXT and day/night encoded as glyphs, connector lines joining scenes sharing a location, and New / Moved / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Schedule shows a CSS/SVG shoot-day Gantt across production weeks with a today marker, wrap-date milestone diamonds and dependency arrows between location blocks, plus a 'Move scene to another day' action that visibly ripples the affected days' page counts on the Gantt and updates a Dashboard KPI. Scene Detail renders the clicked record — never one hardcoded record — with its slugline, required cast with call times, props and a weather-cover note. Settings is a preferences form with a shoot-day-length select, an overtime threshold input the Dashboard reads, and a weather-cover flags toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic scene numbers like 47A, sluglines and page eighths — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "trial_site_monitor",
+      "industry": "Clinical Research",
+      "tags": [
+        "diagram-first",
+        "funnel",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build SiteWatch, for Peralta Clinical Research's phase-II study PX-214. Exactly 5 pages: Dashboard, Enrolment Canvas, Sites, Site Detail via a dynamic route #/site/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (enrolment vs target %, sites at risk, open queries, days to database lock) computed from the data, plus an attention list linking into site detail. Enrolment Canvas is an inline-SVG subject-flow funnel — screened, screen-failed, enrolled, withdrawn and completed stages as connected nodes with proportional widths, arrow connectors carrying counts, a decision diamond at eligibility, and New / Changed / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Sites shows a CSS/SVG monitoring timeline of 16 investigator sites across study months with a today marker, visit milestone diamonds and dependency arrows to database lock, plus a 'Schedule monitoring visit' action that visibly clears that site's overdue state on the timeline and updates a Dashboard KPI. Site Detail renders the clicked record — never one hardcoded record — with its enrolment sparkline, principal investigator, deviation log and open queries. Settings is a preferences form with a monitoring-interval select, a risk-band threshold input the timeline reads, and a blinded-view toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic site codes like PX214-041, investigator names and visit dates — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "athlete_load_mgmt",
+      "industry": "Pro Sports",
+      "tags": [
+        "diagram-first",
+        "heatmap",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build LoadDesk, for Hartwell City FC's sports-science staff. Exactly 5 pages: Dashboard, Load Canvas, Squad, Player Detail via a dynamic route #/player/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (squad availability %, players at risk, mean acute:chronic ratio, days to next fixture) computed from the data, plus an attention list linking into player detail. Load Canvas is an inline-SVG training-load heatmap — a 26-player by 14-day grid shaded by session load, a threshold contour marking the at-risk band, glyphs for match and rest days, and New / Escalated / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Squad shows a CSS/SVG periodisation timeline across fixtures with a today marker, match milestone diamonds and dependency arrows into recovery windows, plus a 'Set training status' action that visibly recolours that player's Load Canvas row and updates a Dashboard KPI. Player Detail renders the clicked record — never one hardcoded record — with their acute:chronic trend as an SVG line chart, RPE history, injury timeline and current status. Settings is a preferences form with an at-risk ratio threshold input the heatmap contour reads, a load-window select, and an include-academy toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic player names, positions and load units — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "museum_loans",
+      "industry": "Museums",
+      "tags": [
+        "diagram-first",
+        "floorplan",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build Registrar, for the Varnholt Museum of Applied Art. Exactly 5 pages: Dashboard, Gallery Plan, Loans, Object Detail via a dynamic route #/object/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (objects on loan, total insured value out, overdue returns, next courier date) computed from the data, plus an attention list linking into object detail. Gallery Plan is an inline-SVG floor plan — six gallery rooms as connected spaces with doorway connectors, each display case a node ringed by occupancy (On display / On loan / In conservation), gap markers where loaned objects have left, and New / Returned / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Loans shows a CSS/SVG loan timeline of 22 outbound loans across the year with a today marker, due-date milestone diamonds and dependency arrows into conservation windows, plus a 'Extend loan' action that visibly pushes the object's bar and clears its overdue flag and updates a Dashboard KPI. Object Detail renders the clicked record — never one hardcoded record — with its provenance chain, condition-report history, display requirements and current location. Settings is a preferences form with a default loan-period select, an insurance-value threshold input flagging high-value loans, and a courier-required toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic accession numbers like 1974.221.3, object titles and institutions — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "waste_route_ops",
+      "industry": "Waste Management",
+      "tags": [
+        "diagram-first",
+        "route-map",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build RouteRoom, for Brightwater Municipal Waste. Exactly 5 pages: Dashboard, Route Canvas, Schedule, Route Detail via a dynamic route #/route/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (routes completed %, missed stops, tonnage collected, next depot cut-off) computed from the data, plus an attention list linking into route detail. Route Canvas is an inline-SVG district schematic — 18 routes as polylines radiating from two depot nodes, stop clusters as beads sized by tonnage, missed stops flagged with warning glyphs, animated dashed segments for in-progress routes, and New / Rerouted / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Schedule shows a CSS/SVG shift timeline of all routes with a now marker, depot cut-off milestone diamonds and dependency arrows where vehicles are shared, plus a 'Reassign vehicle' action that visibly moves the route's bar into the new vehicle's lane and updates a Dashboard KPI. Route Detail renders the clicked record — never one hardcoded record — with its ordered stop list, a tonnage profile as a small SVG bar chart, missed-stop reasons and assigned crew. Settings is a preferences form with a shift-start select, a capacity-margin input the reassign action honours, and a recycling-only toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic route codes like BW-14N, street names and tonnages — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "fab_lot_dispatch",
+      "industry": "Semiconductor",
+      "tags": [
+        "diagram-first",
+        "process-flow",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build FabFloor, for Kessler Microelectronics' 200mm fab. Exactly 5 pages: Dashboard, Process Canvas, Lots, Lot Detail via a dynamic route #/lot/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (WIP by stage, lots on hold, mean queue hours, next shift changeover) computed from the data, plus an attention list linking into lot detail. Process Canvas is an inline-SVG routing flow — photolithography, etch, implant, diffusion and metrology stages as connected step nodes with arrow connectors, rework loops as return edges, decision diamonds at metrology gates, WIP counts on each node, and New / Held / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Lots shows a CSS/SVG queue timeline of 20 active lots across the shift with a now marker, commit-date milestone diamonds and dependency arrows where lots share a tool, plus a 'Dispatch to tool' action that offers only qualified tools and visibly moves the lot into that tool's lane and updates a Dashboard KPI. Lot Detail renders the clicked record — never one hardcoded record — with its routing steps, yield history as an SVG trend, engineering holds and priority tier. Settings is a preferences form with a priority-tier select, a max-queue-time input the canvas hot-lot flags read, and an exclude-lots-on-hold toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic lot ids like K7-2841, step names and yield percentages — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "festival_stage_ops",
+      "industry": "Live Music",
+      "tags": [
+        "diagram-first",
+        "site-plan",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build StageOps, for the Rill Valley Festival (4 stages, 3 days). Exactly 5 pages: Dashboard, Site Canvas, Run Sheet, Act Detail via a dynamic route #/act/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (acts confirmed %, changeover risks, crew hours committed, minutes to next set) computed from the data, plus an attention list linking into act detail. Site Canvas is an inline-SVG festival site plan — four stage nodes positioned on the field joined by walking-route connectors with travel-time labels, backline stores as satellite nodes, crew crossing paths animated as dashed edges, and New / Moved / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Run Sheet shows a CSS/SVG four-lane timeline of 24 slots across the day with a now marker, set-time milestone diamonds, changeover gaps shaded by risk and dependency arrows where crews are shared, plus a 'Reassign act to another stage' action that visibly moves the slot between lanes and recomputes both stages' changeover gaps and updates a Dashboard KPI. Act Detail renders the clicked record — never one hardcoded record — with its input list, backline requirements, soundcheck window and assigned crew. Settings is a preferences form with a minimum-changeover input the risk shading reads, a curfew-time select, and a shared-backline toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic act names, stage names and set times — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "tower_maintenance",
+      "industry": "Telecom",
+      "tags": [
+        "diagram-first",
+        "topology",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build SiteGrid, for Cairn Networks' regional estate. Exactly 5 pages: Dashboard, Network Canvas, Sites, Site Detail via a dynamic route #/site/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (sites with open faults, mean time-to-repair, coverage degradation %, next inspection due) computed from the data, plus an attention list linking into site detail. Network Canvas is an inline-SVG topology map — 20 tower nodes joined by backhaul link connectors with capacity labels, each tower ringed by health (Healthy / Degraded / Fault), affected coverage cells as translucent sectors, animated dashed links for backhaul under strain, and New / Restored / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Sites shows a CSS/SVG maintenance timeline across the quarter with a today marker, inspection milestone diamonds and dependency arrows where a climb blocks a neighbouring cutover, plus a 'Assign climb crew' action that offers only currently certified crews and visibly moves the site into that crew's lane and updates a Dashboard KPI. Site Detail renders the clicked record — never one hardcoded record — with its fault list by severity, antenna inventory, structural type and inspection history. Settings is a preferences form with an inspection-interval select, a degradation threshold input the canvas health rings read, and a certified-crews-only toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic site ids like CN-4472-N, antenna models and fault codes — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    },
+    {
+      "id": "coldchain_vaccines",
+      "industry": "Public Health",
+      "tags": [
+        "diagram-first",
+        "chain-of-custody",
+        "state-change",
+        "detail-route"
+      ],
+      "prompt": "Build ColdChain, for the Ardenne Regional Health Authority. Exactly 5 pages: Dashboard, Custody Canvas, Shipments, Consignment Detail via a dynamic route #/consignment/:id, Settings. This is a visually complex, diagram-first product — tables alone are not acceptable — and everything must WORK, not just render. Dashboard shows KPI tiles (doses in transit, consignments in excursion, wastage rate %, next delivery window) computed from the data, plus an attention list linking into consignment detail. Custody Canvas is an inline-SVG chain-of-custody flow — central store, regional hub, courier and clinic stages as connected nodes with arrow connectors carrying dose counts, a decision diamond at the excursion check, quarantine branches as diverted edges, and New / Quarantined / Unchanged delta badges with a legend; clicking any node navigates to that record's detail. Shipments shows a CSS/SVG delivery timeline of 20 consignments across the week with a now marker, expiry milestone diamonds and dependency arrows where consignments share a courier, plus a 'Quarantine consignment' action that requires a reason and visibly diverts its bar out of the delivery lane and updates a Dashboard KPI. Consignment Detail renders the clicked record — never one hardcoded record — with its logger temperature trace as an SVG line chart against the allowed band, custody handoffs, dose accountability and disposition. Settings is a preferences form with an allowed temperature-band select, an excursion-duration input the canvas decision diamond reads, and an auto-quarantine toggle, each with an inline save confirmation. There is NO separate not-found page: the detail page itself renders a friendly not-found card when the id is unknown, never crashing. Settings is a real page — it must specify its own form controls and their behaviour, not a placeholder. All numbers and diagrams derive from one store so every action propagates. Use realistic consignment ids like ARH-2291, vaccine products and dose counts — no lorem, no filler. No template or design system has been selected; use your own judgment."
+    }
+  ]
+}

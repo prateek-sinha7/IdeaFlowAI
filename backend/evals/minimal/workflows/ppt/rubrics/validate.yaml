@@ -1,0 +1,87 @@
+# Grading config for od-ppt-validator — the workflow's FINAL gate. It re-emits
+# the deck, corrected if it found structural defects, byte-identical otherwise.
+#
+# The only stage graded on a DELTA rather than an artifact: `repair_delta`
+# compares the pre-fix deck (in the prompt block) against the post-fix deck, so
+# an agent that returned its input unchanged is separable from one that
+# actually repaired it — and, just as important, from one that rewrote working
+# slides it was never asked to touch.
+
+# `presentation.html` is the PRE-repair deck and is what `repair_delta` diffs
+# against. `slide-plan.json` backs `deck_completeness`.
+upstream:
+  - slide-plan.json
+  - presentation.html
+
+judge:
+  provider: mistral
+  model: mistral-large-latest
+
+scoring: severity_priced
+
+dimensions:
+  - id: deck_completeness
+    weight: 45
+    description: >
+      Is every slide a real, presentable slide — a headline, substantive
+      content, charts and tables carrying enough real values to make their
+      point? A slide holding nothing but a title is the #1 structural defect.
+
+  - id: repair_delta
+    weight: 35
+    description: >
+      Compare the PRE-FIX deck in the prompt against the POST-FIX deck in the
+      response — the same file before and after this agent edited it. Did it
+      repair what was broken (thin slides filled, malformed markup fixed,
+      missing content supplied) AND preserve what already worked? Returning the
+      input essentially unchanged while real defects remain scores very low.
+      Rewriting or deleting working slides is equally a defect. If the input
+      was genuinely already clean, say so and judge the preservation half alone.
+
+  - id: token_and_chrome_consistency
+    weight: 20
+    description: >
+      Is the deck internally consistent as one artifact — one type scale, one
+      slide chrome, colours applied through the deck's own theme variables
+      rather than raw hex? INTERNAL consistency only: no design system is
+      injected during evals, so keeping the seed theme values is correct and
+      must not be penalised.
+
+rubric: |
+  Grading the FINAL QUALITY GATE of a deck pipeline. The agent was given a
+  built HTML deck, told to fix every problem it found, and the FIXED FILE is
+  what you are looking at.
+
+  The prompt block holds the deck BEFORE this agent touched it; the response
+  holds the SAME FILE AFTER. Read them as a before/after pair — this stage's
+  job is an improvement, not an artifact.
+
+  Its job stated plainly: LEAVE NO P0 DEFECTS BEHIND. A P0 is anything making
+  the deck unpresentable — an empty slide, placeholder text, a truncated
+  document, a chart with no data. Any P0 surviving into the response is this
+  agent's failure regardless of who introduced it, and polish elsewhere does
+  not compensate.
+
+  Nothing has been pre-screened: no structural or render check runs on this
+  stage. Report a malformed or truncated document yourself.
+
+  Return an entry for EVERY dimension listed. A partial list is discarded in
+  full.
+
+  FINDINGS ARE THE SCORE. Per dimension, list every real defect in
+  `weaknesses` as a string PREFIXED with its severity — `"blocking: ..."`,
+  `"major: ..."`, `"minor: ..."`:
+  - blocking — a P0 survived, or the agent regressed working content.
+  - major — a real gap that degrades the result: a thin slide left thin, a
+    defect partly repaired, raw hex replacing theme usage.
+  - minor — nit; nobody in the audience would notice.
+
+  The tag IS the deduction. Tag honestly: never withhold a finding to protect
+  a score, never inflate a nit. No real defects = empty `weaknesses` = a
+  legitimate 100. Do not invent a flaw to avoid giving one.
+
+  `score`: your own 0-100. Recorded for comparison, NOT the score of record.
+
+  `evidence`: quote specific slides or data points from THIS response, and for
+  `repair_delta` name at least one concrete difference (or state concretely
+  that there is none). Text that would fit any other deck is a non-answer.

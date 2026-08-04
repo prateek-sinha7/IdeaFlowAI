@@ -162,7 +162,7 @@
   const COLUMN_INFO = {
     run: "Run id: the UTC timestamp the run started, plus its dataset. Newest first.",
     stages: "How many pipeline stages this run has stored data for.",
-    workflow: "Which agent pipeline this run exercised, from its own config's agent ids (prototype-specify -> prototype). Not the dataset name — a dataset can be pointed at any pipeline.",
+    workflow: "Which workflow this run exercised, from its own config snapshot (`workflow:`, or the agent-id prefix for runs stored before workflows were declared). Not the dataset name — a dataset can be pointed at any pipeline.",
     dataset: "The dataset this run dispatched.",
     adviceStages: "Stages in this workflow that have at least one advisor proposal.",
     adviceUnique: "Distinct proposals after de-duplicating identical text across runs. A proposal seen in several runs is a standing gap in the prompt, not a one-off.",

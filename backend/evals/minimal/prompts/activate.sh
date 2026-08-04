@@ -12,6 +12,7 @@
 #   ./activate.sh prototype v2            # EVERY agent in the prototype workflow
 #   ./activate.sh prototype-build reset   # one agent -> canonical AGENT.md
 #   ./activate.sh prototype reset         # whole workflow -> canonical
+#   ./activate.sh reset                   # EVERY override, whatever workflow
 #   ./activate.sh status                  # prototype's agents (default)
 #   ./activate.sh status app_builder      # another workflow's agents
 #
@@ -26,7 +27,9 @@ target="${1:-}"
 version="${2:-}"
 
 if [[ -z "$target" ]]; then
-  echo "usage: activate.sh <agent-id|workflow> <version|reset>   (or: activate.sh status [workflow])" >&2
+  echo "usage: activate.sh <agent-id|workflow> <version|reset>" >&2
+  echo "       activate.sh status [workflow]     # what is active now" >&2
+  echo "       activate.sh reset                 # clear EVERY override" >&2
   exit 1
 fi
 
@@ -57,6 +60,21 @@ def agents_of(workflow: str) -> list[str] | None:
         return None
     return [spec.id for spec in found] or None
 
+
+if target == "reset" and not version:
+    # `activate.sh reset` with no target. It used to print usage and exit 1,
+    # which is the wrong answer to an unambiguous request: there is exactly
+    # one thing "reset everything" can mean, and leaving overrides active
+    # because the argument shape was wrong is how a measured run ends up
+    # dispatching a prompt version nobody remembers activating.
+    cleared = 0
+    for path in sorted(Path("skills/users") .glob(f"{USER_ID}/*/PROMPT_OVERRIDE.md")):
+        agent_id = path.parent.name
+        if po.delete_user_prompt_override(agent_id, user_id=USER_ID):
+            print(f"  {agent_id:<24} reverted to canonical")
+            cleared += 1
+    print(f"reset {cleared} override(s)" if cleared else "nothing to reset — all canonical")
+    sys.exit(0)
 
 if target == "status":
     workflow = version or "prototype"

@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from evals.minimal import score, store
+from evals.minimal.workflow import workflow_of
 
 HERE = Path(__file__).resolve().parent
 REPORT_PATH = HERE / "report.html"
@@ -369,29 +370,10 @@ def _summarize_run(run_id: str, warnings: list[str]) -> dict | None:
     return {
         "run_id": run_id,
         "dataset_id": config.get("dataset_id"),
-        "workflow": _workflow_of(config),
+        "workflow": workflow_of(config),
         "stages": per_stage,
         "totals": _run_totals(per_stage),
     }
-
-
-def _workflow_of(config: dict) -> str | None:
-    """Which agent pipeline this run exercised, from its own config snapshot.
-
-    Taken from the agent ids (`prototype-specify` -> `prototype`), which is
-    where production's `pipeline_type` lives too, rather than from the
-    dataset name — a dataset can be pointed at any pipeline, so its name is
-    a label, not a fact. Mixed prefixes report as-is rather than picking one.
-    """
-    prefixes = {
-        str(defn.get("agent_id", "")).split("-")[0]
-        for defn in (config.get("agents") or {}).values()
-        if defn and defn.get("agent_id")
-    }
-    prefixes.discard("")
-    if not prefixes:
-        return None
-    return "+".join(sorted(prefixes))
 
 
 def _run_totals(per_stage: dict) -> dict:
@@ -489,18 +471,23 @@ def _inherited_names(run_id: str, stage: str) -> set[str]:
 
 
 def _artifact_href(run_id: str, stage: str) -> str | None:
-    """`.runs/<run>/artifacts/<stage>.<ext>` if that file exists, else None.
+    """This stage's saved artifact, as a path relative to report.html.
 
-    Probed on disk rather than derived from the config: `run.py` picks the
-    extension from the RESPONSE (`_artifact_ext`), so a stage that was
-    supposed to emit HTML but returned prose has a `.md` here, and guessing
-    would produce a dead link.
+    Probed on disk rather than derived from the config, because the filename
+    records what was actually produced. Artifacts are saved as
+    `<stage>-<declared name>` (`build-prototype.html`,
+    `brief-slide-plan.json`), with the older flat `<stage>.<ext>` still
+    matched so runs stored before that change keep working links.
     """
     folder = store.run_dir(run_id) / "artifacts"
-    for ext in ("html", "md"):
-        candidate = folder / f"{stage}.{ext}"
-        if candidate.exists():
-            return f".runs/{run_id}/artifacts/{stage}.{ext}"
+    if not folder.is_dir():
+        return None
+    candidates = sorted(folder.glob(f"{stage}-*")) + [
+        folder / f"{stage}.{ext}" for ext in ("html", "md")
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return f".runs/{run_id}/artifacts/{candidate.name}"
     return None
 
 

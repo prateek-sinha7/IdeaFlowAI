@@ -50,6 +50,9 @@ current system prompt, and proposes an edit. Opt-in only —
 `eval score <run> --stage X --advise` — one extra model call, never run
 automatically by `score` or `eval.sh`.
 
+Pool every run's advisor output into `advices.json` with
+`python3.11 -m evals.minimal.cli advice [--summary]` — free, no model call.
+
 ## The free "Advice" card is separate
 
 The report's own "Advice" card (every stage page, always there) makes **zero

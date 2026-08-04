@@ -1,9 +1,20 @@
-"""Deterministic checks over built HTML deliverables. Free — no model call.
+"""Deterministic checks over a stage's deliverable. Free — no model call.
 
-Reuses the runtime's own validators (`app.agents.static_check`,
-`app.agents.render_check`) so a check measures exactly what production enforces,
-never a reimplementation of it. Must never import `judge.py` — the cheap checks
-stay independent of the expensive one.
+WHICH checker runs is the workflow's decision, not this module's: a stage
+declares `checks: <name>` in its workflow.yaml and `CHECKERS` maps that name
+to a function. `prototype` build/validate declare `html_prototype`; `ppt`
+declares `none`, because the prototype checker lints a hash-routed multi-page
+app and would fail every valid deck for lacking a router it should not have.
+
+That indirection is the whole reason a second workflow needs no Python. A
+checker inferred from the deliverable's file EXTENSION cannot make this
+distinction — both deliverables are `.html`, and only one of them is a
+prototype.
+
+`html_prototype` reuses the runtime's own validators
+(`app.agents.static_check`, `app.agents.render_check`) so a check measures
+exactly what production enforces, never a reimplementation of it. Must never
+import `judge.py` — the cheap checks stay independent of the expensive one.
 """
 
 from __future__ import annotations
@@ -15,7 +26,7 @@ from pathlib import Path
 import app.agents.render_check
 import app.agents.static_check
 
-from evals.minimal import store
+from evals.minimal import store, workflow
 
 
 def check_html(html: str) -> dict:
@@ -42,12 +53,20 @@ def check_html(html: str) -> dict:
     return finding
 
 
+# Checker name (a stage's `checks:` in workflow.yaml) -> the function that
+# grades one deliverable. `none` is a real, declarable choice, not an
+# oversight: it says "nothing here can be checked deterministically, and the
+# judge is the only signal", which the report then prints as `checks n/a`
+# rather than as a pass.
+CHECKERS = {"html_prototype": check_html}
+
+
 def check_run(run_id: str, stage: str) -> dict:
     """Check every stored row's `response` for one `(run_id, stage)`.
 
-    ONLY for stages whose config declares an HTML deliverable. specify / plan
-    / analyze emit prose, and HTML-checking prose is not a weak signal, it is
-    a wrong one: in run 260731-131245 the plan was failed for "no active page:
+    ONLY for stages whose workflow declares a checker. specify / plan /
+    analyze emit prose, and HTML-checking prose is not a weak signal, it is a
+    wrong one: in run 260731-131245 the plan was failed for "no active page:
     expected one <section data-page> with class='is-active'" because it quotes
     `section data-page="{id}"` once, as the TEMPLATE it is instructing the
     build agent to write. specify and analyze passed the same check only
@@ -56,9 +75,10 @@ def check_run(run_id: str, stage: str) -> dict:
     A skipped stage reports `rows_checked: 0` so it reads as "not applicable"
     rather than as a pass, which would be its own lie.
     """
-    if not _has_html_deliverable(run_id, stage):
+    checker = _checker_for(run_id, stage)
+    if checker is None:
         return {"run_id": run_id, "stage": stage, "rows_checked": 0, "rows_ok": 0,
-                "findings": {}, "skipped": "stage has no HTML deliverable"}
+                "findings": {}, "skipped": "stage declares no deterministic checker"}
     rows = store.read_phase(run_id, "run", stage)
     findings: dict[str, dict] = {}
     rows_checked = 0
@@ -67,9 +87,20 @@ def check_run(run_id: str, stage: str) -> dict:
     rows_render_ok = 0
     reasons: list[str] = []
     advisories: list[str] = []
+    rows_errored = 0
     for row in rows:
         row_id = row.get("row_id") or "unknown"
         html = row.get("response") or ""
+        # A row whose DISPATCH failed is not checkable, and checking it
+        # anyway produces a number that means the opposite of what it says.
+        # Run 260804-155741: `build` hit a rate limit mid-run, the partial
+        # `prototype.html` it had written so far was read back, and it passed
+        # static + render — so the stage reported `checks 100.0 (n=1)`
+        # alongside `completed 0/1`. A fragment of a crashed build scoring a
+        # perfect check is worse than no check at all.
+        if row.get("errored"):
+            rows_errored += 1
+            continue
         if not html.strip():
             # Counted as checked-and-failed, not skipped. It used to `continue`
             # before incrementing, so a stage whose every dispatch errored
@@ -84,7 +115,7 @@ def check_run(run_id: str, stage: str) -> dict:
             rows_checked += 1
             reasons.append(f"{row_id}: empty response — nothing was produced to check")
             continue
-        finding = check_html(html)
+        finding = checker(html)
         findings[row_id] = finding
         rows_checked += 1
         static_ok = bool(finding["ok"])
@@ -110,11 +141,15 @@ def check_run(run_id: str, stage: str) -> dict:
             reasons.append(f"{row_id}: render — {summary}")
         if not static_ok:
             advisories += [f"{row_id}: {issue}" for issue in (finding.get("issues") or [])]
-    return {
+    result = {
         "run_id": run_id,
         "stage": stage,
         "rows_checked": rows_checked,
         "rows_ok": rows_ok,
+        # Dispatch failures, excluded from the pass rate above and reported
+        # separately: `completed 0/1` already says the stage did not run, and
+        # the checks column must not appear to contradict it.
+        "rows_errored": rows_errored,
         # Split out, because the two say different things and only one of
         # them ran the page. `render` is ground truth — headless Chromium
         # actually loaded it and walked every nav link. `static` is a
@@ -129,21 +164,40 @@ def check_run(run_id: str, stage: str) -> dict:
         "advisories": advisories,    # static lint — reported, never gating
         "findings": findings,
     }
+    if not rows_checked and rows_errored:
+        result["skipped"] = f"{rows_errored} row(s) errored during dispatch — nothing to check"
+    return result
 
 
-def _has_html_deliverable(run_id: str, stage: str) -> bool:
-    """Does this stage's config name an HTML file as its deliverable?
+def _checker_for(run_id: str, stage: str):
+    """The checker function this stage declared, or None to check nothing.
 
-    The run's own config snapshot is the source of truth — the same field
-    `run.py` reads back from the sandbox — so this can never disagree with
-    what was actually produced. An unreadable config means check nothing
-    rather than check wrongly.
+    Read from the RUN's own config snapshot, not from the workflow file on
+    disk: the snapshot is what actually ran, so editing a workflow later can
+    never retroactively change what an old run claims to have checked. An
+    unreadable config means check nothing rather than check wrongly.
+
+    A stage with no `checks:` at all falls back to the old rule — an `.html`
+    deliverable gets `html_prototype` — so every run stored before checkers
+    were declarable still re-checks identically. New workflows should say what
+    they mean instead of relying on it.
     """
     try:
-        deliverable = (store.read_config(run_id)["agents"][stage] or {}).get("deliverable")
-    except (FileNotFoundError, KeyError, TypeError):
-        return False
-    return bool(deliverable) and str(deliverable).lower().endswith((".html", ".htm"))
+        stage_def = workflow.stage_def(store.read_config(run_id), stage)
+    except FileNotFoundError:
+        return None
+    declared = stage_def.get("checks")
+    if declared is None:
+        deliverable = str(stage_def.get("deliverable") or "").lower()
+        declared = "html_prototype" if deliverable.endswith((".html", ".htm")) else "none"
+    if declared in ("none", None, False):
+        return None
+    if declared not in CHECKERS:
+        raise ValueError(
+            f"stage {stage!r} declares unknown checker {declared!r}; "
+            f"known checkers: {sorted(CHECKERS)} (or 'none')"
+        )
+    return CHECKERS[declared]
 
 
 def _render_findings(html: str) -> dict:

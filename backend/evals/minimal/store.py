@@ -200,16 +200,35 @@ def read_calls(run_id: str, phase: str | None = None) -> list[dict]:
     return [r for r in records if phase is None or r.get("stage") == phase]
 
 
-def artifact_path(run_id: str, phase: str, ext: str, *, suffix: str = "") -> Path:
-    """`artifacts/<phase><suffix>.<ext>` — a real, openable file, not JSON."""
-    path = run_dir(run_id) / "artifacts" / f"{phase}{suffix}.{ext}"
+def artifact_path(
+    run_id: str, phase: str, filename: str, *, suffix: str = "", bare: bool = False,
+) -> Path:
+    """`artifacts/<phase>-<filename>` — a real, openable file, not JSON.
+
+    `filename` is the name the WORKFLOW gave this artifact (`spec.md`,
+    `prototype.html`, `slide-plan.json`), so the file on disk is called what
+    the thing actually is; the `<phase>-` prefix keeps the pipeline position
+    readable and stops two stages sharing one deliverable name from colliding
+    (prototype's build and validate both produce `prototype.html`).
+
+    `suffix` disambiguates rows in a multi-row dataset and goes before the
+    extension. `bare=True` uses `filename` as the whole name, for the fallback
+    case where a stage declared no artifact name.
+    """
+    name = Path(filename).name
+    stem, extension = Path(name).stem, Path(name).suffix or ".md"
+    leaf = f"{stem}{suffix}{extension}" if bare else f"{phase}-{stem}{suffix}{extension}"
+    path = run_dir(run_id) / "artifacts" / leaf
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def write_artifact(run_id: str, phase: str, ext: str, content: str, *, suffix: str = "") -> Path:
+def write_artifact(
+    run_id: str, phase: str, filename: str, content: str, *, suffix: str = "",
+    bare: bool = False,
+) -> Path:
     """Write one phase's own output as a real file — `cat` it, don't unpack JSON."""
-    path = artifact_path(run_id, phase, ext, suffix=suffix)
+    path = artifact_path(run_id, phase, filename, suffix=suffix, bare=bare)
     path.write_text(content, encoding="utf-8")
     return path
 
