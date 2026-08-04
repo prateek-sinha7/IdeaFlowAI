@@ -49,6 +49,9 @@ CARD_KINDS = frozenset(
 # event types the milestones project from — never a workflow name.
 _CLARIFY_EVENTS = frozenset({"questionnaire_ready", "questionnaire_complete"})
 _GATE_EVENTS = frozenset({"review_gate_ready"})
+# KAN-154: gate-resolution events — the user's approval/reject action surfaced in chat.
+# Generic: keyed on event type only (SC-001/INV-1).
+_GATE_RESOLVED_EVENTS = frozenset({"review_gate_approved"})
 
 # The persisted run-chat card type — ALREADY in the Phase-28 vocab
 # (_DOCUMENTED_EVENT_TYPES); reused verbatim, never re-added / drifted.
@@ -169,6 +172,19 @@ def _classify(
         gate_key = data.get("gate_key")
         return CARD_GATE, "Paused — needs approval", gate_key or f"gate:{anchor}"
 
+    # KAN-154: gate-resolved events — surfaces the user's approve/reject action as an
+    # inline clarify-style note in the transcript. Generic: keyed on event type only
+    # (SC-001/INV-1). Action "reject" ends the pipeline (pipeline_cancelled follows);
+    # "approve" advances it. We emit the same CARD_CLARIFY kind so the FE renders it
+    # as a lightweight inline link matching the "Clarifications answered" pattern.
+    if etype in _GATE_RESOLVED_EVENTS:
+        action = data.get("action", "approve")
+        if action in ("redo", "update_specs"):
+            text = "Redo requested" if action == "redo" else "Updating the specs"
+        else:
+            text = "Approved — build continues"
+        return CARD_CLARIFY, text, f"gate:{anchor}"
+
     if etype == "pipeline_complete":
         # A completion carrying deliverable metadata is a DELIVERABLE milestone
         # ("Delivered as vN — open in Preview →"); otherwise the plain pipeline summary.
@@ -179,6 +195,13 @@ def _classify(
         return CARD_PIPELINE, "Run complete", f"run:{anchor}"
 
     if etype == "pipeline_start":
+        # KAN-154: *_revision pipeline_start surfaces as an inline clarify-style note
+        # ("Revision started") so the user can see when a revision run launched in the
+        # shared family transcript. Generic: keyed on the "_revision" suffix, never the
+        # full pipeline_type literal (SC-001/INV-1).
+        pipeline_type = data.get("pipeline_type", "")
+        if isinstance(pipeline_type, str) and pipeline_type.endswith("_revision"):
+            return CARD_CLARIFY, "Revision started", f"run:{anchor}"
         return CARD_PIPELINE, "Run started", f"run:{anchor}"
     if etype == "pipeline_failed":
         return CARD_PIPELINE, "What went wrong", f"run:{anchor}"
@@ -254,16 +277,21 @@ def _reply_event_id(source_event_id: str | None, card: dict) -> str:
 
 async def persist_milestone_card(
     store: Any, run_id: str, event: Any
-) -> tuple[bool, int, dict] | None:
+) -> tuple[bool, int, dict, str] | None:
     """Project ``event`` and persist the card as a ``chat_reply`` ``run_events`` row.
 
-    Returns ``(created, seq, card)`` — or ``None`` when the event is not a projectable
-    milestone (nothing persisted). ``created=False`` marks an idempotent no-op (a row for
-    the same source milestone already exists). The row is appended through the SINGLE
-    ``ScopedStore.append_event`` stamping boundary (evidence 03 §6): family-anchored on
-    ``run_id``, owner+workspace default-deny (the ``store`` carries the scope), with the
-    contiguous per-run ``seq`` (max persisted + 1) the engine sink itself computes — so the
-    card inherits seq/event_id replay + reopen for free, with **zero new tables**.
+    Returns ``(created, seq, card, reply_eid)`` — or ``None`` when the event is not a
+    projectable milestone (nothing persisted). ``created=False`` marks an idempotent no-op
+    (a row for the same source milestone already exists). ``reply_eid`` is the DB row's
+    ``event_id`` — returned so the engine can stamp the SAME value on the live SSE yield,
+    ensuring the FE's ``seenRef`` dedup recognises the DB-fetched frame as a duplicate
+    (FIX-175: the idempotency key for "Run started" differs from the source event UUID).
+
+    The row is appended through the SINGLE ``ScopedStore.append_event`` stamping boundary
+    (evidence 03 §6): family-anchored on ``run_id``, owner+workspace default-deny (the
+    ``store`` carries the scope), with the contiguous per-run ``seq`` (max persisted + 1)
+    the engine sink itself computes — so the card inherits seq/event_id replay + reopen for
+    free, with **zero new tables**.
 
     The projection reads only the run's OWN scoped events (``store.read_events``), so a
     card can never leak or resolve a cross-owner milestone (T-29-10-1).
@@ -294,7 +322,13 @@ async def persist_milestone_card(
             run_id=run_id,
             target=card["deep_link"]["target"],
         )
-    return created, seq, card
+    # FIX-175: return reply_eid alongside (created, seq, card) so the engine can
+    # stamp the SAME event_id on the live SSE yield.  Using the raw
+    # f"chat_reply:{source_uuid}" on the live frame but a different idempotency key
+    # in the DB row (e.g. "chat_reply:pipeline_start:run:{run_id}" for "Run started")
+    # caused the FE seenRef dedup to miss the match — appendFrames (FIX-172) would
+    # add the card a second time as a "new" event, producing duplicate chat cards.
+    return created, seq, card, reply_eid
 
 
 __all__ = [

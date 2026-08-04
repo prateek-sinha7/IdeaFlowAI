@@ -125,11 +125,17 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
   // KAN-114: clarify kind renders as a plain text bubble (no styled card chrome).
   // The AwaitingCard in the transcript footer handles the "Paused — N questions"
   // status affordance; this narrator turn is just the conversational message.
-  if (kind === "clarify") {
+  //
+  // KAN-154: pipeline and deliverable also render as inline links (no box chrome)
+  // — the same lightweight "guideline-style" pattern as clarify. A pipeline update
+  // ("Run started", "Run complete") is informational, not a decision point; a
+  // deliverable card is a single call-to-action link. Box chrome is kept for gate
+  // and spec_revision which ARE decision/status cards requiring visual weight.
+  if (kind === "clarify" || kind === "pipeline" || kind === "deliverable") {
     return (
       <div
         data-testid="chat-result-card"
-        data-card-kind="clarify"
+        data-card-kind={kind}
         className="my-1"
       >
         <p className="font-serif text-[13px] leading-relaxed text-ink-900">

@@ -10,6 +10,16 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-176 | 2026-08-04 | "Revision started" and "Delivered" still showing twice after FIX-175 | FIX-172's `appendRunChatFrames` fetched ALL events from seq 0 — including already-delivered chat_reply cards like "Revision started". While seenRef dedup should catch these, the dedup can fail when `seedRunChatTranscript` clears seenRef in a race window. Fix: expose `getLastSeq()` from `useRunChat` and pass it as `afterSeq` to `getRunEvents` in FIX-172, so only events AFTER what was last delivered are fetched | `frontend/src/hooks/useRunChat.ts`, `frontend/src/app/dashboard/page.tsx` | Phase 31 (CHATUI-01), FIX-172 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-175 | 2026-08-04 | 2x "Run started" and 2x "Delivered" on single od_ppt run | Event_id mismatch between live SSE delivery and DB-fetched delivery. The engine yielded live chat_reply with `event_id="chat_reply:{source_uuid}"` but the DB stored `event_id="chat_reply:pipeline_start:run:{run_id}"` for "Run started" cards. FIX-172's appendFrames saw a different event_id than what seenRef tracked from the live SSE → dedup miss → duplicate added | `backend/app/agents/chat_narrator.py`, `backend/agents/execution_engine/engine.py`, `backend/tests/unit/test_chat_narrator.py`, `backend/tests/agents/test_restart_resume.py` | Phase 43 (DEF-43-03-1 narrator), FIX-172 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-174 | 2026-08-04 | "Revision started" appearing at top of chat; "Delivered" shown twice on history-reopen | Family chat seed used `sort by data.seq` to merge frames across runs — but seq is per-run-scoped (starts at 1 for each run). Revision run's seq 1 sorted before parent run's seq 200, so "Revision started" appeared first. Same sort also caused each run's "Delivered" card to appear at wrong position (all revision runs' seq 1-5 sorted before parent seq 200). Fix: replace flat seq-sort with family-order-aware merge using `family.members` (already created_at ASC) to determine run ordering | `frontend/src/app/dashboard/page.tsx` | Phase 31 (CHATUI-01/02/03), FIX-167 (KAN-154 gap 1 family seed) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-173 | 2026-08-04 | 4-issue revision system: (1) version family cross-contamination; (2) execution page not loading on revision start; (3) duplicate "Delivered" cards; (4) run history chat missing | (1) `_owned_family_members` BFS had no pipeline-type filter — concurrent PPT + prototype revisions cross-pollinated families. (2) `handleRevisePpt` postRevision path never called `setMainView("execution")`. (3) FIX-172 async fetch wasn't guarded: stale concurrent revisions appended their "Delivered" card to the current transcript after trackedRunIdRef had moved on. (4) Fixed by (1) — correct family members seeded to transcript | `backend/app/api/runs.py`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/app/dashboard/page.tsx` | Phase 29/44 (SSE), Phase 25 (Revision Families B2), Phase 43 (FIX-172) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-172 | 2026-08-03 | "Delivered — open in Preview" card missing after revision completes | SSE race: execute() yields `pipeline_complete` then yields the narrator's `chat_reply` card. FE receives `pipeline_complete` → calls `detachRun(runId)` → React unmounts `RunStreamConnection` → SSE closes before the `chat_reply` arrives. Card IS persisted to DB but never reaches the transcript live. Fix: after `pipeline_complete` + detach, fetch the run's durable events from DB and fold `chat_reply` frames via new `appendFrames` (no reset, idempotent) | `frontend/src/hooks/useRunChat.ts`, `frontend/src/app/dashboard/page.tsx` | Phase 29/43/44 (narrator/SSE/BUG-015 detachRun) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-171 | 2026-08-03 | Duplicate user message in chat; no "Revision started"/"Delivered" cards for revision runs | (1) `confirmRefinement` called `addOptimisticMessage` (FIX-168) but `handleFreeText` already called it when user typed — double bubble. (2) `_drive_revision_to_queue` called `engine._handle_revision()` without `milestone_sink` so the narrator never fired for revision runs — no chat_reply cards persisted | `frontend/src/components/chat/RunChatLane.tsx`, `backend/agents/execution_engine/engine.py`, `backend/app/api/run_commands.py` | Phase 29/43 (narrator/chat_reply), Phase 31 (CHATUI-01 transcript) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-170 | 2026-08-03 | Revision UI frozen after launch — pipeline_start/agent events discarded as foreign; revision message not shown; no "Revision started" card | `handleRevisePpt`'s `postRevision` path (od_ppt/od_prototype) called `runConnection.attachRun(run_id)` but never updated `trackedRunIdRef`, `activelyBuildingRunIdRef`, or `launchedRunIdsRef` in page.tsx. `isForeignRunFrame` blocked ALL revision run events → UI frozen, no agent progress, must refresh. Fix: new `handleRevisionLaunched` callback in page.tsx updates the 3 refs; `onRevisionLaunched` prop wires it into `handleRevisePpt`'s `.then()` | `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 29/44 (SSE transport / KAN-125 ref-gating) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-169 | 2026-08-03 | Run history: no delete option on revision member rows — only the base run can be deleted | Expanded member rows in `FamilyGroupCard` were plain `<button>` elements with no `RowMenu` attached. The `RowMenu` (with Delete) was only on the multi-member root header and single-member root rows. Fix: wrap each member row in a `<div>` flex container, split it into a `<button>` for row-click + a `<RowMenu>` with `runId={member.id}` that fades in on row hover | `frontend/src/components/history/RevisionFamilyView.tsx` | Phase Revision Families (B2 / POR §5 D3+D4) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-168 | 2026-08-03 | KAN-154: Revision instruction text never appears in chat — addOptimisticMessage missing in confirmRefinement and handleTerminalRevise | `confirmRefinement` called `onRevise(heldRefinement)` directly without first calling `addOptimisticMessage(heldRefinement)`, so the user's revision text was never echoed into the transcript. Same gap in `handleTerminalRevise` for the terminal-state revise path. Fix: call `addOptimisticMessage` before `onRevise` in both paths | `frontend/src/components/chat/RunChatLane.tsx` | Phase 31 (CHATUI-01 RunChatLane), Phase 33 (FIX-119 optimistic echo pattern) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-167 | 2026-08-03 | KAN-154: Unified Family Chat Panel — 3 gaps: (1) family transcript not seeded on reopen; (2) pipeline/deliverable cards had box chrome; (3) narrator missing revision-started and gate-approved projections | Gap 1: `seedRunChatTranscript` never called `getRunFamily` — only seeded the single viewed run's events. Gap 2: `ResultCard` rendered all card kinds with box chrome; `clarify` was already inline-link. Gap 3: `chat_narrator.py` had no `review_gate_approved` projection and no `*_revision pipeline_start` projection | `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/chat/ResultCard.tsx`, `backend/app/agents/chat_narrator.py` | Phase 31 (CHATUI-01/D-02 family transcript), Phase 29 (chat_narrator milestone projections) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-166 | 2026-08-03 | KAN-153: Build Agent task list shows all tasks upfront — store total_tasks from task_loop_progress | Frontend task_loop_progress handler read task_number but discarded total_tasks (present in backend payload since task_loop.py Phase 7). AgentThinkingTab derived totalTasks from wave universe/completed count (both 0 at build start). Fix: add protoTotalTasks to PipelineRunState, store it in task_loop_progress handler, prefer it in AgentThinkingTab totalTasks derivation | `frontend/src/types/index.ts`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/results/AgentThinkingTab.tsx` | Phase 7 (task_loop strategy), Phase 42 (ConstructionBlock) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-165 | 2026-08-03 | Analyze gate approve requires 2 clicks — first click disables button but does nothing visible | `onApproveReview` in page.tsx never called `setReviewGateData(null)` after the POST, so `InlineGateActions` stayed mounted with unchanged props, `useEffect([output,gateKey])` never fired, `submitted` stayed `true`, button remained disabled. All other gate handlers (reject/redo/update_specs) had the clear — approve was missing it | `frontend/src/app/dashboard/page.tsx` | Phase 8 (GATE-01/02), Phase 42 (inline gate) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-164 | 2026-08-03 | KAN-101: specRevisionCount over-counting — shows "Cycle 6" after 1 update_specs click | Detection incremented counter for EVERY agent_start of a "done" agent; update_specs re-runs 3 agents so 1 click = +3 (or more). Fix: arm/consume pattern — counter only increments once per revision cycle (when first agent re-starts), not once per agent | `frontend/src/app/dashboard/page.tsx` | Phase 27 (FIX-048/FIX-163 KAN-101) | INV-1/3/12/SC-001 ✅ | Done |
@@ -4542,3 +4552,423 @@ Detection approach: `handleWebSocketMessage` is `useCallback([])` and cannot rea
 - The `setSpecRevisionCountRef.current` pattern (storing the setter in a ref) is used so the `useCallback([])` closure can call it without a stale-closure issue — same class as `handlePipelineMsgRef`.
 - ISS-039's warning "fix MUST preserve the FIX-039 unconditional-reset block" is fully honored: `useWorkflow.ts` was NOT modified.
 - `approveLabel` special-case uses `=== "summary"` (strict equality on the server-derived `artifactKind` string). All other gate kinds fall through to the existing per-kind label or `undefined`.
+
+| FIX-167 | 2026-08-03 | KAN-154: unified family chat — inline pipeline/deliverable cards, gate-approval/revision narrator projections, family-aware transcript seed | 3 gaps: ResultCard rendered pipeline/deliverable as boxes (extended inline-link path); chat_narrator had no projection for review_gate_approved or revision pipeline_start; seedRunChatTranscript fetched single-run only (now aggregates family via getRunFamily) | `frontend/src/components/chat/ResultCard.tsx`, `backend/app/agents/chat_narrator.py`, `frontend/src/app/dashboard/page.tsx` | Phase 31/43 (ResultCard/chat_narrator), Phase 36 (family API) | INV-1/3/12/SC-001 ✅ | Done |
+
+---
+
+## Detailed Fix Entries
+
+### FIX-167 — KAN-154: Unified Family Chat Panel (3 gaps)
+
+**Date:** 2026-08-03
+**Triggered by:** `#velocity-ai-fix KAN-154 unified family chat panel`
+
+#### Root Cause
+Three independent gaps in the unified family chat panel:
+
+**Gap 1** (`page.tsx`): `seedRunChatTranscript` only fetched the single run's events via `getRunEvents(runId)`. It never called `getRunFamily(runId)` to discover sibling/child revision runs, so the full family transcript was never seeded on reopen.
+
+**Gap 2** (`ResultCard.tsx`): All card kinds except `clarify` were rendered with heavy box chrome (border + shadow + markdown body). `pipeline` (informational: "Run started", "Run complete") and `deliverable` (single CTA) don't need box weight — they should match the lightweight inline-link pattern already used for `clarify`.
+
+**Gap 3** (`chat_narrator.py`): Two milestone projections were missing: (a) `review_gate_approved` events were not projected — the user's approval/reject action was never surfaced in the transcript; (b) `pipeline_start` events for `*_revision` pipeline types were not projected as "Revision started" cards.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31 (CHATUI-01/D-02 family transcript), Phase 29 (chat_narrator)
+- **Deleted code verified (not resurrected):** Yes — no Phase 8 deleted code touched
+- **Locked decisions respected:** SC-001/INV-1 — narrator keys on generic `_revision` suffix, not literal type names; `review_gate_approved` action string is generic
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | `seedRunChatTranscript` now calls `getRunFamily(runId)` and seeds all family member run events in addition to the directly-viewed run | Family transcript was never populated on reopen |
+| `frontend/src/components/chat/ResultCard.tsx` | `pipeline` and `deliverable` card kinds now render as inline links (same as `clarify`) — no box chrome | These are informational/single-CTA — box weight is reserved for gate/spec_revision which require decision-point prominence |
+| `backend/app/agents/chat_narrator.py` | Added `_GATE_RESOLVED_EVENTS = frozenset({"review_gate_approved"})` and projection branch in `_classify`; added `*_revision` pipeline_start branch projecting "Revision started" as `CARD_CLARIFY` | Gate-approved and revision-started milestones were not surfaced in chat |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ narrator keys on `_revision` suffix (generic) not the full type literal
+- **INV-3** (golden parity): ✅ not affected — narrator dormant on scripted golden runs
+- **INV-12** (no duplication): ✅ existing `CARD_CLARIFY` kind reused for new projections
+- **SC-001** (zero engine edits for new workflows): ✅ app-layer only, no engine import
+
+#### Verification
+Backend restarted after narrator changes. Frontend changes verified in context — `getRunFamily` import confirmed in page.tsx, inline-link pattern in ResultCard matches existing `clarify` path.
+
+---
+
+### FIX-168 — KAN-154: Revision instruction text missing from chat transcript
+
+**Date:** 2026-08-03
+**Triggered by:** `#velocity-ai-fix after the revision run, there is no user message, the user has requested for revision`
+
+#### Root Cause
+Two callsites in `RunChatLane.tsx` that fire revision launches never called `addOptimisticMessage` first:
+
+1. **`confirmRefinement`** (~line 1193): The user types a revision request → `handleFreeText` classifies it as "change" and parks it in `heldRefinement`. When the user confirms the chip, `confirmRefinement()` fires `onRevise(heldRefinement)` directly — no call to `addOptimisticMessage`. The user's revision text never appears as a user bubble in the transcript.
+
+2. **`handleTerminalRevise`** (~line 1207): The terminal-state revise composer calls `onRevise(text)` / `sendMessage(text)` directly — same gap, no `addOptimisticMessage` call.
+
+The `addOptimisticMessage` pattern was already established by FIX-119 for the `handleFreeText` "ask" path — it was simply never applied to the revision confirmation paths.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31 (CHATUI-01 RunChatLane), Phase 33 (FIX-119 optimistic echo pattern)
+- **Deleted code verified (not resurrected):** Yes — no deleted code affected
+- **Locked decisions respected:** `addOptimisticMessage` is the established FIX-119 echo pattern; no new mechanism introduced
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/chat/RunChatLane.tsx` | `confirmRefinement`: call `addOptimisticMessage(heldRefinement)` before `onRevise(heldRefinement)`; add `addOptimisticMessage` to useCallback deps | User's confirmed revision instruction must appear as a user bubble immediately |
+| `frontend/src/components/chat/RunChatLane.tsx` | `handleTerminalRevise`: call `addOptimisticMessage(text)` before `onRevise(text)` / `sendMessage`; add `addOptimisticMessage` to useCallback deps | Terminal-state revise instruction must also appear in transcript |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ not affected — pure UI echo, no pipeline discriminator
+- **INV-3** (golden parity): ✅ not affected — frontend-only optimistic bubble, no backend event
+- **INV-12** (no duplication): ✅ reuses existing `addOptimisticMessage` seam (FIX-119 pattern)
+- **SC-001** (zero engine edits for new workflows): ✅ frontend component only
+
+#### Verification
+Both changes verified by reading the modified file — `addOptimisticMessage` called before `onRevise` in both paths. `addOptimisticMessage` is typed as optional and guarded with `if (addOptimisticMessage)` so non-live callers/tests are unaffected.
+
+#### Notes
+The "Revision started" narrator card (from FIX-167 Gap 3) arrives asynchronously via the SSE stream once the revision run's `pipeline_start` is emitted. The optimistic bubble from FIX-168 provides the synchronous echo so the user sees their message immediately — the narrator card then follows as the pipeline kicks off.
+
+### FIX-169 — Run History: Delete option missing on revision member rows
+
+**Date:** 2026-08-03
+**Triggered by:** `#velocity-ai-fix on run history page there is no option to delete revisions apart from the base pipeline`
+
+#### Root Cause
+In `RevisionFamilyView.tsx`, the expanded child (member) rows of a multi-member family were rendered as plain `<button>` elements with no `RowMenu` attached. The `RowMenu` (with its Delete action) was only wired to:
+1. The multi-member root header row (`RowMenu runId={group.root.id}`) — deletes only the base run
+2. Single-member flat rows — their root row has `RowMenu runId={run.id}`
+
+When the user expanded the "v{N}" pill to see individual revisions, each member row showed:
+`v1 · status-dot · title · date · ↳ revises vN` — but no `⋯` overflow menu, making it impossible to delete individual revisions from the history list.
+
+The `RowMenu` component was already designed to take any `runId` — it was simply never placed on the expanded member rows.
+
+#### Phase Context
+- **Phase(s) involved:** Revision Families (B2 / POR §5 D3+D4)
+- **Deleted code verified (not resurrected):** Yes — no deleted code affected
+- **Locked decisions respected:** REUSE-FIRST — `RowMenu` reused as-is; no new component
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/history/RevisionFamilyView.tsx` | Converted each expanded member `<button>` to a `<div key={member.id} className="flex items-center hover:bg-surface-warm group/member">` wrapper containing a flex-1 `<button>` for row navigation and a trailing `<RowMenu runId={member.id} ...>` that fades in on hover (`opacity-0 group-hover/member:opacity-100`) | Gives each revision member its own delete affordance; hover-reveal keeps the compact row appearance at rest; `runId={member.id}` routes the delete to the correct revision run |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ not affected — delete keyed on `run.id`, no type discriminator
+- **INV-3** (golden parity): ✅ not affected — frontend-only presentation change
+- **INV-12** (no duplication): ✅ `RowMenu` reused as-is; `handleDeleteConfirm` in WorkflowHistory already works for any runId
+- **SC-001** (zero engine edits for new workflows): ✅ frontend component only
+
+#### Verification
+Diagnostics clean. The `group/member` Tailwind variant drives the hover-reveal on the `RowMenu` wrapper — the same hover-on-group pattern used throughout the codebase. The `RowMenu` `onToggleMenu`/`onDeleteClick` callbacks are the same ones threaded through `FamilyGroupCard` props from `WorkflowHistory`, so the existing delete confirm modal flow is triggered unchanged.
+
+#### Notes
+The root card's `RowMenu` still targets `group.root.id` (deletes the entire base run). The member rows' menus target `member.id` (delete that specific revision). If the user deletes the base run, its revision members remain in the list as orphan rows (existing behaviour — a family-cascade delete is a separate enhancement).
+
+### FIX-170 — Revision UI frozen: pipeline_start/agent events blocked as foreign after postRevision launch
+
+**Date:** 2026-08-03
+**Triggered by:** `#velocity-ai-fix user message of revision still not appear. also there is no revision started or revision completed message showing. when the revision starts, there is no indication on the UI, user not able to know if the revision has started.`
+
+#### Root Cause
+Two revision launch paths exist in `DashboardLayout`:
+
+1. **`onStartPipeline` path** (user_stories, prototype, app_builder revisions): goes through `page.tsx`'s `onStartPipeline` handler → its `.then()` updates `trackedRunIdRef`, `activelyBuildingRunIdRef`, `launchedRunIdsRef`. Events accepted. ✅
+
+2. **`postRevision` path** (od_ppt/od_prototype with `contentSourceRunId`): calls `runConnection.attachRun(run_id)` directly from `DashboardLayout` but **never** calls back into `page.tsx` to update the 3 routing refs. ❌
+
+`page.tsx`'s `handleWebSocketMessage` gates every incoming SSE event at the top:
+```
+if (isAgentScopedFrame(msg.type) && isForeignRunFrame(frameRunId, trackedRunIdRef.current)) return;
+```
+Since `trackedRunIdRef.current` still points to the OLD completed parent run, ALL of the new revision run's events (`pipeline_start`, `agent_start`, `agent_chunk`, `agent_complete`, `pipeline_complete`) are dropped as "foreign". The UI shows the old completed state with no agent progress. The user must navigate away and back (or refresh) to see the revision.
+
+Additionally, `launchedRunIdsRef` doesn't contain the new run id, so even the lifecycle frames (which have their own guard) are blocked.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 29/44 (SSE transport / KAN-125 ref-gating pattern)
+- **Deleted code verified (not resurrected):** Yes — no deleted code affected
+- **Locked decisions respected:** KAN-125 ref-gating pattern: exact same 3 ref updates as the `onStartPipeline .then()` block
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `handleRevisionLaunched(runId)` callback: updates `launchedRunIdsRef`, `trackedRunIdRef`, `activelyBuildingRunIdRef`, and bumps `launchCounterRef` — exactly the KAN-125 pattern from `onStartPipeline .then()` | Updates the routing refs so the new revision run's SSE events pass `isForeignRunFrame` |
+| `frontend/src/app/dashboard/page.tsx` | Passes `onRevisionLaunched={handleRevisionLaunched}` to `DashboardLayout` | Wires the callback into DashboardLayout |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `onRevisionLaunched?: (runId: string) => void` to `DashboardLayoutProps`; destructured it; called `onRevisionLaunched?.(run_id)` inside `handleRevisePpt`'s `postRevision .then()` after `runConnection.attachRun(run_id)` | Triggers the ref-update callback when the revision run_id is known |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ not affected — keyed on run.id, not workflow type
+- **INV-3** (golden parity): ✅ not affected — frontend-only routing refs change
+- **INV-12** (no duplication): ✅ exact same 3-ref pattern from `onStartPipeline .then()` reused — no new mechanism
+- **SC-001** (zero engine edits for new workflows): ✅ frontend component only
+
+#### Verification
+TypeScript diagnostics clean on both changed files. The fix mirrors the existing `onStartPipeline .then()` pattern exactly — same 3 ref updates, same `launchCounterRef` bump — so no new edge cases are introduced.
+
+#### Notes
+- The user message bubble (FIX-168) should now appear correctly since the transcript is no longer in a broken state waiting for events.
+- The "Revision started" narrator card (FIX-167 Gap 3) will now flow through since `pipeline_start` for the revision run is no longer blocked.
+- The `onStartPipeline` revision paths (user_stories, prototype, app_builder) were already correct — they go through `onStartPipeline` which does the ref updates. Only the `postRevision` path was affected.
+
+### FIX-171 — Duplicate user message + missing narrator cards for revision runs
+
+**Date:** 2026-08-03
+**Triggered by:** `#velocity-ai-fix showing user message 2 times in chat. Also, There is no indication in chat that revision has started or completed.`
+
+#### Root Cause
+
+**Bug 1 — Duplicate user message bubble:**
+
+`handleFreeText` (RunChatLane.tsx) already calls `addOptimisticMessage(text)` (FIX-119 pattern) to echo the user's text immediately before the classify-intent LLM call. This produces bubble #1. The intent classifies as "revise" → `setHeldRefinement(text)` — bubble #1 stays visible.
+
+When the user confirms the chip, `confirmRefinement` (FIX-168) called `addOptimisticMessage(heldRefinement)` again, producing bubble #2 for the same text. Net result: two identical user bubbles.
+
+Fix: remove the `addOptimisticMessage` call from `confirmRefinement` — the bubble was already added in `handleFreeText`.
+
+**Bug 2 — No narrator cards for revision runs:**
+
+The REST revision path (`_drive_revision_to_queue` in `run_commands.py`) calls `engine._handle_revision()` which calls `engine.execute()` internally. The Phase-43 narrator wiring passes `milestone_sink=persist_milestone_card` into `execute()` only from `_run_workflow_to_queue` (fresh runs). `_handle_revision` did not accept or forward a `milestone_sink` parameter, so `execute()` received `milestone_sink=None` → narrator DORMANT → no `chat_reply` rows persisted for revision runs → no "Revision started" card, no "Delivered" card.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 43 (DEF-43-03-1 narrator/milestone_sink wiring), Phase 31 (CHATUI-01 transcript)
+- **Deleted code verified (not resurrected):** Yes — no deleted code affected
+- **Locked decisions respected:** INV-3 — `milestone_sink=None` default on `_handle_revision` keeps the WS path and all golden runs DORMANT (byte/event-identical)
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/chat/RunChatLane.tsx` | Removed `addOptimisticMessage(heldRefinement)` from `confirmRefinement`; also removed `addOptimisticMessage` from its `useCallback` deps | `handleFreeText` already added the bubble — calling it again in `confirmRefinement` produced a duplicate |
+| `backend/agents/execution_engine/engine.py` | Added `milestone_sink=None` keyword arg to `_handle_revision` signature; passed it to the internal `self.execute()` call | Allows the app-layer narrator to be wired into revision runs |
+| `backend/app/api/run_commands.py` | In `_drive_revision_to_queue`: added `from app.agents.chat_narrator import persist_milestone_card` import; passed `milestone_sink=persist_milestone_card` to `_handle_revision` | Activates the narrator for the REST revision path — same wiring as `_run_workflow_to_queue` |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ not affected
+- **INV-3** (golden parity): ✅ `milestone_sink` defaults to `None` on `_handle_revision`; WS callers that don't pass it keep the DORMANT seam; goldens byte-identical
+- **INV-12** (no duplication): ✅ reuses existing `persist_milestone_card` and `execute(milestone_sink=...)` seam — no new mechanism
+- **SC-001** (zero engine edits for new workflows): ✅ `milestone_sink` is a generic keyword arg, no workflow-name branch
+
+#### Verification
+Backend restarted cleanly. Frontend diagnostics clean. The `milestone_sink` parameter is already fully implemented in `execute()` (Phase 43 DEF-43-03-1) — `_handle_revision` was simply not forwarding it.
+
+#### Notes
+- The WS `_run_revision_to_queue` in `websocket.py` (LOCK-B — not modified) also calls `_handle_revision` without `milestone_sink`. Since `milestone_sink=None` is the default, the WS path stays dormant (no regression, no narrator cards on WS revisions — acceptable since WS is the legacy/retiring path per 44-06).
+- After this fix, revision runs will emit "Revision started" (CARD_CLARIFY inline) and "Delivered — open in Preview →" (CARD_DELIVERABLE) narrator cards live in the chat transcript.
+
+### FIX-172 — "Delivered — open in Preview" card missing after revision completes
+
+**Date:** 2026-08-03
+**Triggered by:** `#velocity-ai-fix after revision completed there is no message like revision delivered open in preview etc.`
+
+#### Root Cause
+**SSE timing race between `pipeline_complete` and the narrator `chat_reply` card.**
+
+In `execute()`, the event loop yields events in this order:
+1. `pipeline_complete` event
+2. `chat_reply` narrator card (yielded synchronously after, from `sink.emit_milestone_card`)
+
+Both go into `event_queue` → SSE stream → FE. When the FE's `handleWebSocketMessage` receives `pipeline_complete`, it calls `detachRun(completingRunId)`. `detachRun` → `recomputeLiveRunIds()` → `setLiveRunIds()` (React state update). React re-renders and unmounts the `RunStreamConnection` component, which aborts the SSE `fetch`. The `chat_reply` event that was next in the queue is IN-FLIGHT but the connection just closed → the FE never receives it.
+
+The narrator card IS persisted to the DB (by `persist_milestone_card` before the engine yields it), but the live SSE delivery race means it's lost. The card appears on the next explicit reopen (`handleSelectWorkflowRun` seeds from DB), but not during the live run.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 43 (DEF-43-03-1 narrator/milestone_sink), Phase 44 (BUG-015 detachRun)
+- **Deleted code verified (not resurrected):** Yes
+- **Locked decisions respected:** BUG-015 detachRun MUST fire on pipeline_complete (prevents reconnect loop on a terminal stream). The fix does not change when detachRun fires.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useRunChat.ts` | Added `appendFrames(frames)` to `UseRunChatReturn` interface and implementation — folds frames through `handleFrame` WITHOUT resetting seen-set/messages (unlike `seedTranscript`) | Provides a reset-free, idempotent frame injection path |
+| `frontend/src/app/dashboard/page.tsx` | Added `appendRunChatFramesRef` (synced from `appendRunChatFrames`); after `detachRun`, async-fetches durable events for the completing run and folds `chat_reply` frames via `appendRunChatFramesRef.current?.()` with 400ms delay | Recovers narrator cards that SSE race dropped; 400ms gives narrator DB commit time before fetch |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ not affected
+- **INV-3** (golden parity): ✅ not affected — frontend-only transcript recovery
+- **INV-12** (no duplication): ✅ `getRunEvents` and `handleFrame` already exist; no new mechanism
+- **SC-001** (zero engine edits for new workflows): ✅ frontend only
+
+#### Verification
+TypeScript diagnostics clean on both files.
+
+#### Notes
+- The 400ms delay is a pragmatic guard to ensure the narrator's `append_event_next_seq` DB commit lands before the `getRunEvents` fetch fires. The narrator card is persisted BEFORE execute() yields it (WR-02 guarantee), so the delay just accounts for transaction propagation latency.
+- `appendFrames` is idempotent by `event_id` via `seenRef` in `useRunChat` — re-fetching already-seen frames produces no duplicates.
+- This fix also benefits fresh runs (not just revisions) since all `pipeline_complete` completions now have their narrator cards recovered if the SSE race occurs.
+
+### FIX-173 — Revision system 4-bug cluster: family contamination, missing execution view, duplicate Delivered, missing history chat
+
+**Date:** 2026-08-04
+**Triggered by:** `#velocity-ai-fix run history shows prototype revisions in PPT version dropdown (7 instead of 3); no indication on UI while revision starts; correct chats not showing; prototype revisions visible in PPT revision versions`
+
+#### Root Cause
+
+**Bug 1 — Version family cross-contamination (the primary defect):**
+`backend/app/api/runs.py` `_owned_family_members`: The BFS-down walk collected ALL owned children with `parent_run_id.in_(frontier)` with NO type filter. When the user ran PPT revisions and prototype revisions simultaneously in the same session, `contentSourceRunId` could transiently point to a prototype run when a PPT revision's `postRevision` was called — making the prototype run the parent of a PPT revision. The backend BFS then walked down from the PPT root and found both PPT children AND prototype children, mixing them into the same family response. The frontend `groupRunsByFamily` groups by `rootRunId` correctly but `rootRunId` is computed by the ancestor walk which returned the shared contaminated root.
+
+**Bug 2 — Execution page not loading immediately:**
+`frontend/src/components/layout/DashboardLayout.tsx` `handleRevisePpt`: the `postRevision` path (for od_ppt/od_prototype runs with `contentSourceRunId`) called `postRevision` and then `onResetPipeline()` but **never called `setMainView("execution")`**. The execution view only switched reactively after `pipeline_start` arrived over SSE — leaving the user on the old completed run's screen for several seconds.
+
+**Bug 3 — Duplicate "Delivered" cards:**
+`frontend/src/app/dashboard/page.tsx` FIX-172 block: the async `getRunEvents` fetch ran for EVERY `pipeline_complete` where `isRevisionCompletion === true`, including stale/superseded revisions. With concurrent PPT revisions, revision A completing fires the fetch. Then revision B fires another fetch. By the time B's fetch resolves, `trackedRunIdRef` has moved to revision B, but revision A's fetch also still resolves and appends its own "Delivered" card. The `seenRef` event_id dedup prevents exact duplicates for the SAME revision, but each revision has its own distinct `event_id` — so all concurrent revisions' "Delivered" cards were appended to the same transcript.
+
+**Bug 4 — Run history chat missing revision chats:**
+Downstream of Bug 1: `handleSelectWorkflowRun` calls `getRunFamily` which calls `_owned_family_members` — with family contamination, wrong members' events were seeded into the transcript. Fixing Bug 1 fixes this.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 25 (Revision Families B2 / `_owned_family_members`), Phase 43/44 (FIX-172 async fetch), Phase 44 (postRevision + handleRevisionLaunched)
+- **Deleted code verified (not resurrected):** Yes — no deleted code affected
+- **Locked decisions respected:** SC-001/INV-1 — BFS type filter uses generic `_revision` suffix strip, no literal pipeline name
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/runs.py` | Added `root_base_type` derivation (`root_row.type.removesuffix("_revision")`); added cross-family guard in BFS loop: `if root_base_type is not None and child.type.removesuffix("_revision") != root_base_type: continue` | Prevents prototype revisions from being included in PPT families and vice-versa. SC-001: keyed only on the generic `_revision` suffix, no literal pipeline name |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `setMainView("execution")` immediately before `void postRevision(...)` in `handleRevisePpt`'s `if (contentSourceRunId)` block | User sees execution view immediately when revision starts, not after SSE pipeline_start arrives |
+| `frontend/src/app/dashboard/page.tsx` | Added stale-completion guard in FIX-172 async block: `if (trackedRunIdRef.current !== _completingRunId) return;` after the 400ms delay | Prevents superseded concurrent revisions from appending their "Delivered" card to the current (newer) revision's transcript |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ BFS filter uses `removesuffix("_revision")` — generic suffix, no literal
+- **INV-3** (golden parity): ✅ not affected — backend read-only endpoint change; FE-only transcript changes
+- **INV-12** (no duplication): ✅ reuses existing `_owned_family_members` BFS, adds one guard
+- **SC-001** (zero engine edits for new workflows): ✅ all changes in app-layer / FE
+
+#### Verification
+TypeScript diagnostics clean on both FE files. Backend restarted successfully. The BFS guard correctly strips `_revision` so both `od_ppt` and `od_ppt_revision` map to `od_ppt`, and both `prototype` and `prototype_revision` map to `prototype` — ensuring only same-type-family members are returned.
+
+#### Notes
+- The `root_base_type` derivation correctly handles the case where the root itself is a revision run (e.g. `od_ppt_revision.removesuffix("_revision") = "od_ppt"`) — it compares children's base type against the root's base type.
+- The stale-completion guard reads `trackedRunIdRef.current` (not `contentSourceRunId` state) because the handler is a `useCallback([])` — refs are the correct tool here.
+- When isolation is maintained: a PPT v3 dropdown will only show PPT v1/v2/v3, never prototype revisions running concurrently.
+
+### FIX-174 — Family chat seed: wrong ordering (Revision started at top) + duplicate Delivered
+
+**Date:** 2026-08-04
+**Triggered by:** `#velocity-ai-fix Revision started appearing at the top in the chat panel; Delivered open in preview is showing twice`
+
+#### Root Cause
+Both bugs have the same root cause: `handleSelectWorkflowRun` in `page.tsx` seeded the family transcript using `sort by data.seq` to merge frames from multiple family runs. But `seq` is **per-run-scoped** — each run's `run_events` table has its own seq counter starting at 1.
+
+When you open revision v3 from history, the family seed merges:
+- Primary run (v3): `durableFrames` — all events, seq 1-N
+- Parent run (v1): chat-only frames, seq 1-M (its own seq space)
+- Revision v2: chat-only frames, seq 1-K (its own seq space)
+
+The old sort `sort((a, b) => getSeq(a) - getSeq(b))` compared seq values ACROSS different runs. Result:
+- "Revision started" (revision run seq 1) sorted before "Run started" (parent seq 3), "Clarifications answered" (parent seq 8), etc. → "Revision started" appeared at TOP
+- All revision runs' "Delivered" cards (seq ~2) sorted before parent "Delivered" (seq ~200) → multiple "Delivered" cards at wrong positions (appeared as "duplicates" visually)
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31 (CHATUI-01/02/03), FIX-167 (KAN-154 gap 1 family seed)
+- **Deleted code verified (not resurrected):** Yes — no deleted code affected
+- **Locked decisions respected:** D-02 (family-anchored transcript accumulates), transcript never wipes on revision
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Replaced flat seq-sort with family-order-aware merge: builds `memberFramesByMemberId` map, uses `family.members` index to determine `openedRunIndex`, then constructs `familyChatFrames = [...priorChatFrames, ...durableFrames, ...laterChatFrames]` | `family.members` is already `created_at ASC` (authoritative chronological order). Prior members' chat frames go before the opened run's frames; later members' chat frames go after. This preserves correct ordering without mixing per-run seq numbers. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ not affected — ordering logic is generic (run positions only)
+- **INV-3** (golden parity): ✅ not affected — frontend-only transcript ordering change
+- **INV-12** (no duplication): ✅ reuses existing `getRunFamily`, `getRunEvents`, `seedRunChatTranscript`
+- **SC-001** (zero engine edits for new workflows): ✅ frontend only
+
+#### Verification
+TypeScript diagnostics clean. The fix correctly handles all cases:
+- Viewing root v1: `openedRunIndex = 0`, no priorChatFrames, laterChatFrames = v2+v3 chats → parent transcript first, then revisions
+- Viewing revision v3: priorChatFrames = v1+v2 chats, laterChatFrames = [] → history then current
+- Single-member family (no revisions): `otherMembers.length === 0` path unchanged
+
+#### Notes
+- The live pipeline path is NOT affected — live events arrive one-by-one via SSE and are appended in emission order, which is already correct chronological order
+- The `Promise.allSettled` call preserves the correct index alignment: `memberFrameArrays[i]` corresponds to `otherMembers[i]`, so the `memberFramesByMemberId` map is built correctly
+- The `openedRunIndex` correctly handles the case where `fullRun.id` is not found in `allMemberIds` (returns -1, so loop `i < -1` doesn't execute and priorChatFrames stays empty — safe fallback)
+
+### FIX-175 — Live run shows 2x "Run started" and 2x "Delivered" on single od_ppt run
+
+**Date:** 2026-08-04
+**Triggered by:** `#velocity-ai-fix Still have issue. i ran od ppt pipeline. it still shows 2 run started and 2 delivered in chat panel`
+
+#### Root Cause
+Event_id mismatch between the live SSE-delivered `chat_reply` frame and the DB-fetched `chat_reply` row.
+
+When the engine's `execute()` loop processes a source event (e.g. `pipeline_start`):
+1. `persist_milestone_card` computes `reply_eid = _reply_event_id(source_uuid, card)` and stores the DB row with that as its `event_id`. For "Run started" cards: `reply_eid = "chat_reply:pipeline_start:run:{run_id}"` (special idempotency key to handle resume scenarios).
+2. The engine then yielded the live SSE `chat_reply` frame with `event_id = f"chat_reply:{source_uuid}"` (the raw source event UUID) — a DIFFERENT value.
+
+The FE's `useRunChat.handleFrame` tracks delivered frames in `seenRef` by `data.event_id`. When the live SSE delivered "Run started", `seenRef` got `"chat_reply:{pipeline_start_UUID}"`. Then FIX-172's `appendRunChatFrames` (fired after pipeline_complete) fetched the DB row with `event_id = "chat_reply:pipeline_start:run:{run_id}"` — NOT in seenRef — so it added a second "Run started" card.
+
+For "Delivered" cards: `_reply_event_id` returns `f"chat_reply:{source_uuid}"` (the regular path) which DOES match the live SSE value. So "Delivered" duplication was rarer/timing-dependent.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 43 (DEF-43-03-1 narrator milestone_sink), FIX-172 (appendRunChatFrames)
+- **Deleted code verified (not resurrected):** Yes — no deleted code affected
+- **Locked decisions respected:** INV-3 — `persist_milestone_card` return signature change is backward-compatible (new 4th value, existing code now uses `[:3]` slicing in tests)
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/agents/chat_narrator.py` | `persist_milestone_card` now returns `(created, seq, card, reply_eid)` 4-tuple instead of 3-tuple | Exposes the actual DB row event_id so callers can use the consistent value |
+| `backend/agents/execution_engine/engine.py` | `execute()` and resume path unpack 4-tuple `(_created, _card_seq, _card, _reply_eid)` and use `_reply_eid` as the live SSE `event_id` | Makes live SSE event_id match DB row event_id → seenRef dedup correctly identifies DB-fetched frames as already-seen |
+| `backend/tests/unit/test_chat_narrator.py` | Updated test unpackings to 4-tuple or `[:3]` slice | Backward-compatible test updates |
+| `backend/tests/agents/test_restart_resume.py` | Updated unpacking to 4-tuple | Backward-compatible test update |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ not affected
+- **INV-3** (golden parity): ✅ not affected — narrator is dormant on scripted golden runs; return type change is backward-compatible
+- **INV-12** (no duplication): ✅ no new mechanism; fixes consistency of existing `_reply_event_id` usage
+- **SC-001** (zero engine edits for new workflows): ✅ engine edit is justified — corrects a bug in the live SSE stamping
+
+#### Verification
+Backend restarted cleanly. After the fix: the live SSE `chat_reply` for "Run started" will carry `event_id = "chat_reply:pipeline_start:run:{run_id}"` (matching the DB row). When FIX-172's `appendRunChatFrames` fires and fetches the DB row, `seenRef.has("chat_reply:pipeline_start:run:{run_id}")` = TRUE → correctly skipped. No duplicate "Run started" card.
+
+#### Notes
+- The "Delivered" duplicate was less consistent because for non-"Run started" cards, `_reply_event_id` returns `f"chat_reply:{source_uuid}"` which DID match the old live SSE value. The mismatch was specific to "Run started" (and would affect "Revision started" from the same special-case path, though that's a CARD_CLARIFY not CARD_PIPELINE — need to verify if "Revision started" has its own idempotency key or uses source_uuid).
+- Actually "Revision started" returns `CARD_CLARIFY` not `CARD_PIPELINE`, so `_reply_event_id` uses the regular `f"chat_reply:{source_uuid}"` path — no mismatch there.
+- The resume-path code in `engine.py` that pushes cards onto `live_queue` had the same bug and was fixed simultaneously.
+
+### FIX-176 — FIX-172 fetches from seq 0 causing duplicate chat cards
+
+**Date:** 2026-08-04
+**Triggered by:** `#velocity-ai-fix Revision started is showing 2 times. not just revision started delivered is also showing 2 times.`
+
+#### Root Cause
+FIX-172's `appendRunChatFrames` called `getRunEvents(tok, runId)` with NO `afterSeq` argument, fetching ALL events from seq 0. This means ALL chat_reply cards for the run (including "Revision started" at the beginning and "Delivered" at the end) were passed to `appendFrames`.
+
+The `seenRef` dedup in `useRunChat.handleFrame` should prevent re-adding already-seen cards. But there's a race condition: `seedRunChatTranscript` (called when opening a run from history) calls `seenRef.current.clear()` synchronously. If FIX-172's async timer (400ms after pipeline_complete) fires at the wrong moment relative to a `seedRunChatTranscript` call, the seenRef is temporarily empty and "Revision started" gets re-added as a duplicate.
+
+Additionally, with older runs (before FIX-175), the event_id mismatch for "Run started" meant the seenRef could never deduplicate it, causing unconditional duplicates.
+
+The root fix: FIX-172's purpose is to recover ONLY the "Delivered" card (the LAST narrator card, emitted right after `pipeline_complete`) that may have been missed due to the SSE stream closing before it arrived. It should NOT re-process all earlier cards. By passing `afterSeq = lastSeqRef.current` (the last seq the hook has seen), FIX-172 only fetches events that arrived AFTER the live SSE delivered them — specifically only the "Delivered" card that raced with `detachRun`.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 31 (CHATUI-01), FIX-172, FIX-173
+- **Deleted code verified (not resurrected):** Yes — no deleted code affected
+- **Locked decisions respected:** Transcript ACCUMULATES, never resets on revision (D-02)
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/hooks/useRunChat.ts` | Added `getLastSeq: () => number` to `UseRunChatReturn` interface and implementation (`getLastSeq` returns `lastSeqRef.current`) | Exposes the last-seen seq so callers can request only NEW events |
+| `frontend/src/app/dashboard/page.tsx` | Destructured `getRunChatLastSeq` from `useRunChat`; added `getRunChatLastSeqRef` synced via `useEffect`; in FIX-172's async block, pass `afterSeq = getRunChatLastSeqRef.current?.() ?? 0` to `getRunEvents` | Only fetch events AFTER last known seq — prevents re-processing already-delivered cards |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): ✅ not affected
+- **INV-3** (golden parity): ✅ not affected — frontend-only change
+- **INV-12** (no duplication): ✅ reuses existing `lastSeqRef` from `useRunChat`, exposed via simple getter
+- **SC-001** (zero engine edits): ✅ frontend only
+
+#### Verification
+TypeScript diagnostics clean on both files. The fix ensures FIX-172 only fetches new events after the last known seq, which is exactly the set of narrator cards that may have been missed due to the SSE race. "Revision started" (delivered early in the run, long before pipeline_complete) will have a seq well below `lastSeqRef.current` at the time of pipeline_complete, so it won't be re-fetched.
+
+#### Notes
+- `getLastSeq()` is a simple getter over `lastSeqRef.current` (a ref, not state), so it's always current at call time even though FIX-172 is in a `useCallback([])` closure
+- `afterSeq = 0` fallback (when `getRunChatLastSeqRef.current` is null) preserves the original FIX-172 behavior for edge cases
+- The `getRunEvents` API already supports `afterSeq` parameter — no backend change needed
+- This fix also helps with the "Delivered" showing twice: if "Delivered" arrived via live SSE (before stream closed), its seq would be in `lastSeqRef` and FIX-172 would skip it; only if it DIDN'T arrive (the race) would FIX-172 fetch it (via afterSeq being slightly less than the "Delivered" card's seq)

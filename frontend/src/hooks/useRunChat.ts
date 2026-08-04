@@ -163,6 +163,22 @@ export interface UseRunChatReturn {
    */
   replyStreaming: ReplyStreamingState | null;
   /**
+   * FIX-172: Fold frames into the transcript WITHOUT resetting — used to recover
+   * narrator chat_reply cards that the SSE race drops (pipeline_complete detaches
+   * the stream before the narrator card arrives). Idempotent: the per-hook seenRef
+   * deduplicates frames already processed, so calling this with already-seen frames
+   * is safe. Does NOT clear messages or the seen-set (unlike seedTranscript).
+   */
+  appendFrames: (frames: RunChatFrame[]) => void;
+  /**
+   * FIX-176: The last-seen seq from the chat transcript hook — used by FIX-172's
+   * appendRunChatFrames caller to fetch only NEWLY-arrived events (after lastSeq)
+   * rather than ALL events from seq 0. This prevents duplicate chat_reply cards
+   * (e.g. "Revision started") from being re-added by FIX-172 when the seenRef
+   * dedup might be racing with seedRunChatTranscript's seenRef.clear().
+   */
+  getLastSeq: () => number;
+  /**
    * DEF-44-12-4 (Piece 3) — IMPERATIVE prior-transcript seed, fired ONLY from
    * the explicit history-open action. Clears the per-hook seen-set + seq cursor,
    * resets `messages` to empty, then folds each frame through `handleFrame` (so
@@ -573,5 +589,27 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
     [runId],
   );
 
-  return { messages, sendMessage, addOptimisticMessage, streamAttached, replyStreaming, seedTranscript };
+  /**
+   * FIX-172: Fold frames into the transcript without resetting the seen-set or
+   * messages state. Used after pipeline_complete to recover narrator chat_reply
+   * cards that the SSE race may have dropped. Idempotent: seenRef deduplicates
+   * already-processed frames so re-folding a durable log replay is safe.
+   */
+  const appendFrames = useCallback(
+    (frames: RunChatFrame[]) => {
+      for (const f of frames) handleFrame(f);
+    },
+    [handleFrame],
+  );
+
+  /**
+   * FIX-176: Expose the last-seen seq so FIX-172's appendRunChatFrames caller
+   * can fetch only events AFTER the last delivered seq, preventing duplicate
+   * chat_reply cards (e.g. "Revision started") from re-appearing.
+   */
+  const getLastSeq = useCallback((): number => {
+    return lastSeqRef.current;
+  }, []);
+
+  return { messages, sendMessage, addOptimisticMessage, streamAttached, replyStreaming, seedTranscript, appendFrames, getLastSeq };
 }

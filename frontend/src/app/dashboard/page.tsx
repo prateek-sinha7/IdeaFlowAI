@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions } from "@/lib/api";
+import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions, getRunFamily } from "@/lib/api";
 import type { WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
@@ -216,6 +216,10 @@ export default function DashboardPage() {
   // WITHOUT closing over `runConnection` (declared later, which would break the
   // stale-closure design). Synced from runConnection.detachRun in a useEffect below.
   const detachRunRef = useRef<((runId: string) => void) | null>(null);
+  // FIX-172: a ref to appendRunChatFrames (from useRunChat) so the empty-deps
+  // handleWebSocketMessage can fold completion narrator cards without closing over
+  // the live hook value. Synced after useRunChat is called below.
+  const appendRunChatFramesRef = useRef<((frames: import("@/hooks/useRunChat").RunChatFrame[]) => void) | null>(null);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
@@ -803,6 +807,55 @@ export default function DashboardPage() {
           // runConnection reference). The rendered preview/content is already in
           // state, so unmounting the connection does not remove it.
           detachRunRef.current?.(completingRunId);
+          // FIX-172: the narrator's "Delivered" chat_reply card is yielded by
+          // execute() AFTER pipeline_complete. Both go into the SSE queue, but
+          // detachRun above unmounts the RunStreamConnection before the chat_reply
+          // arrives — causing a race where the card is persisted to the DB but
+          // never reaches the transcript via SSE. Fix: after detach, fetch the
+          // completing run's durable events from the DB and fold any new chat_reply
+          // frames into the transcript via appendRunChatFrames (no reset, idempotent
+          // by event_id via useRunChat's seenRef dedup).
+          // FIX-173: capture the current contentSourceRunId BEFORE the async gap
+          // so we can guard against stale completions: with concurrent revisions
+          // a superseded run's pipeline_complete can arrive AFTER a newer revision
+          // has already set a different contentSourceRunId — without the guard its
+          // "Delivered" card would be appended to the NEW run's transcript,
+          // producing a duplicate. Re-read contentSourceRunIdRef inside the async
+          // body (it's set synchronously two lines above).
+          const _completingRunId = completingRunId;
+          void (async () => {
+            try {
+              const tok = getToken();
+              if (!tok || !_completingRunId) return;
+              // Brief yield so the narrator's DB commit lands before we read.
+              await new Promise<void>((res) => setTimeout(res, 400));
+              // FIX-173: if contentSourceRunId has been superseded by a newer
+              // revision, skip — the new run's completion will handle its own card.
+              // We read from contentSourceRunId state via trackedRunIdRef (the
+              // closest stable ref pointing at the viewed run); if it has moved on,
+              // the frames are irrelevant to the current transcript.
+              if (trackedRunIdRef.current !== _completingRunId) return;
+              // FIX-176: fetch ONLY events after the last seq the chat hook has
+              // seen — not from seq 0. This prevents already-delivered chat_reply
+              // cards (e.g. "Revision started", "Run started") from being
+              // re-added as duplicates. FIX-172's purpose is ONLY to recover the
+              // "Delivered" card that raced with detachRun; the last event in a
+              // run is pipeline_complete and its chat_reply, both of which arrive
+              // after all other chat events and therefore after lastSeq.
+              const afterSeq = getRunChatLastSeqRef.current?.() ?? 0;
+              const frames = await getRunEvents(tok, _completingRunId, afterSeq);
+              // Only forward chat frames — pipeline/agent frames for a completed
+              // run must not re-trigger the reducer (they'd re-fire agent state).
+              const chatFrames = frames.filter(
+                (f) => f.type === "chat_message" || f.type === "chat_reply",
+              );
+              if (chatFrames.length > 0) {
+                appendRunChatFramesRef.current?.(chatFrames);
+              }
+            } catch {
+              // Non-fatal: if the fetch fails the card is absent until reopen
+            }
+          })();
         }
         const finalOutput = data.final_output as string;
         const pipelineType = data.pipeline_type as string;
@@ -1421,7 +1474,7 @@ export default function DashboardPage() {
     [runConnection],
   );
 
-  const { messages: runChatMessages, sendMessage: sendRunChatMessage, addOptimisticMessage: addRunChatOptimisticMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript } = useRunChat({
+  const { messages: runChatMessages, sendMessage: sendRunChatMessage, addOptimisticMessage: addRunChatOptimisticMessage, replyStreaming: runChatReplyStreaming, seedTranscript: seedRunChatTranscript, appendFrames: appendRunChatFrames, getLastSeq: getRunChatLastSeq } = useRunChat({
     // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
     // path hits the in-flight run instead of null-then-fresh-POST; fall back to
     // the clarify-only activePipelineRunId when the build id is not yet set.
@@ -1450,6 +1503,19 @@ export default function DashboardPage() {
     fetchEvents: (runId, afterSeq) =>
       getRunEvents(getToken() ?? "", runId ?? "", afterSeq),
   });
+
+  // FIX-172: sync appendRunChatFramesRef after useRunChat so the empty-deps
+  // handleWebSocketMessage can fold completion narrator cards without closing
+  // over the live hook value. Must be AFTER the useRunChat call above.
+  useEffect(() => {
+    appendRunChatFramesRef.current = appendRunChatFrames;
+  }, [appendRunChatFrames]);
+
+  // FIX-176: sync getRunChatLastSeqRef so FIX-172 can fetch only new events.
+  const getRunChatLastSeqRef = useRef<(() => number) | null>(null);
+  useEffect(() => {
+    getRunChatLastSeqRef.current = getRunChatLastSeq;
+  }, [getRunChatLastSeq]);
 
   // The nonce'd deep-link seam (borrow #6): the lane's result cards call
   // requestOpenTab; PreviewPanel consumes the pending {tab, nonce} (all tabs).
@@ -1703,6 +1769,27 @@ export default function DashboardPage() {
     [recentRuns, runConnection],
   );
 
+  // FIX-170: called by DashboardLayout's postRevision path when the REST revision
+  // launch resolves to a run_id. Updates the 3 page-level routing refs that gate
+  // ALL incoming SSE pipeline events so the revision run's frames are accepted
+  // instead of discarded as "foreign". Also adds the run to launchedRunIdsRef
+  // so the full isForeignFrame allow-list is consistent with a normal launch.
+  // Mirrors the .then() block in the onStartPipeline handler exactly.
+  const handleRevisionLaunched = useCallback(
+    (runId: string) => {
+      launchedRunIdsRef.current.add(runId);
+      persistLaunchedIds();
+      launchCounterRef.current += 1;
+      trackedRunIdRef.current = runId;
+      activelyBuildingRunIdRef.current = runId;
+    },
+    // persistLaunchedIds is a stable function defined at component scope — not a
+    // dep. All other refs are stable. No reactive deps needed (mirrors the
+    // onStartPipeline .then() which also captures refs without listing them).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   // Handle selecting a workflow run from sidebar/hub
   const handleSelectWorkflowRun = useCallback(
     async (run: WorkflowRun) => {
@@ -1810,14 +1897,101 @@ export default function DashboardPage() {
                 fullRun.id,
               );
             }
-            // DEF-44-12-4 (Piece 3) — seed the prior chat turns from the SAME
-            // once-fetched frames (do not fetch twice). The page router early-
-            // returns chat_message/chat_reply frames, so the transcript needs
-            // them folded through the hook's imperative seed. seedTranscript
-            // resets the hook's seen-set + seq cursor so Piece 2's re-fetch-after-
-            // send then pulls only newer events. Only fired on this deliberate
-            // view-change, so a live revision's family anchoring is preserved.
-            seedRunChatTranscript(durableFrames);
+            // KAN-154 (Gap 1): family-aware chat seed — also fetch chat_reply rows
+            // from the run's revision family so the transcript shows the full history
+            // of all versions, not just the selected run. getRunFamily returns members
+            // ordered by created_at (root first); we fetch each PRIOR member's events
+            // and seed only the chat frames. Best-effort: any per-member fetch failure
+            // is tolerated so the primary run's seed is never blocked.
+            // DEF-44-12-4 (Piece 3) — seed the prior chat turns. For the PRIMARY run
+            // we reuse the already-fetched durableFrames (no second fetch). Family
+            // members are fetched cheaply in parallel; their events are merged
+            // chronologically by family order before seeding so the transcript reads
+            // in the correct run-creation order.
+            let familyChatFrames = [...durableFrames];
+            try {
+              const family = await getRunFamily(currentToken, fullRun.id);
+              // family.members is ordered by created_at ASC (root first, then
+              // revisions in chronological order). fullRun.id is already covered
+              // by durableFrames — fetch the OTHER members only.
+              const otherMembers = (family?.members ?? []).filter(
+                (m: { id: string }) => m.id !== fullRun.id,
+              );
+              if (otherMembers.length > 0) {
+                const memberFrameArrays = await Promise.allSettled(
+                  otherMembers.map((m: { id: string }) =>
+                    getRunEvents(currentToken, m.id),
+                  ),
+                );
+                // FIX-174: build an ordered map: family member id → its chat frames.
+                // family.members is created_at ASC so we can reconstruct the correct
+                // chronological order across runs. We MUST NOT sort by raw `seq`
+                // values here because seq is per-run-scoped (each run starts at 1),
+                // so a revision run's seq 1 would sort before the parent run's
+                // seq 200, placing "Revision started" at the top of the transcript.
+                const memberFramesByMemberId = new Map<string, (typeof durableFrames)>();
+                otherMembers.forEach((m, i) => {
+                  const result = memberFrameArrays[i];
+                  if (result.status === "fulfilled") {
+                    // Keep only chat frames — pipeline reducer frames for other members
+                    // are intentionally excluded (they'd overwrite pipelineState which
+                    // should reflect the OPENED run, not every family member's agents).
+                    memberFramesByMemberId.set(
+                      m.id,
+                      result.value.filter(
+                        (f) => f.type === "chat_message" || f.type === "chat_reply",
+                      ),
+                    );
+                  }
+                });
+
+                // Build the ordered transcript: interleave runs in the family's
+                // chronological order (family.members is created_at ASC). For each
+                // family member that is NOT the currently-opened run, append its chat
+                // frames in their own within-run seq order. The opened run's frames
+                // (durableFrames) are included as non-chat + chat — they anchor the
+                // pipeline state seed. We place each member's frames relative to the
+                // opened run by family position.
+                //
+                // Strategy: determine where fullRun.id sits in the ordered members
+                // list; prepend earlier members' frames and append later members'
+                // frames around the primary run's frames.
+                const allMemberIds = (family?.members ?? []).map(
+                  (m: { id: string }) => m.id,
+                );
+                const openedRunIndex = allMemberIds.indexOf(fullRun.id);
+
+                // Frames from members BEFORE the opened run (earlier in time) go first
+                const priorChatFrames: (typeof durableFrames) = [];
+                for (let i = 0; i < openedRunIndex; i++) {
+                  const mid = allMemberIds[i];
+                  const mFrames = memberFramesByMemberId.get(mid);
+                  if (mFrames) priorChatFrames.push(...mFrames);
+                }
+                // Frames from members AFTER the opened run (later in time) go last
+                const laterChatFrames: (typeof durableFrames) = [];
+                for (let i = openedRunIndex + 1; i < allMemberIds.length; i++) {
+                  const mid = allMemberIds[i];
+                  const mFrames = memberFramesByMemberId.get(mid);
+                  if (mFrames) laterChatFrames.push(...mFrames);
+                }
+
+                // Final order: earlier-run chats → opened run's full frames (pipeline
+                // seed + chat) → later-run chats. This preserves chronological order
+                // across the family without mixing per-run seq numbers.
+                familyChatFrames = [
+                  ...priorChatFrames,
+                  ...durableFrames,
+                  ...laterChatFrames,
+                ];
+              }
+            } catch {
+              // Family fetch failed — fall back to single-run transcript (no crash).
+              familyChatFrames = [...durableFrames];
+            }
+            // seedTranscript resets the hook's seen-set + seq cursor so the
+            // re-fetch-after-send (DEF-44-12-2) pulls only newer events.
+            seedRunChatTranscript(familyChatFrames);
           } catch (seedErr) {
             // Log-and-continue: a seed fetch failure must not break the reopen
             // content path already set above.
@@ -1992,6 +2166,7 @@ export default function DashboardPage() {
       runChatReplyStreaming={runChatReplyStreaming}
       onRunChatSend={sendRunChatMessage}
       addOptimisticMessage={addRunChatOptimisticMessage}
+      onRevisionLaunched={handleRevisionLaunched}
       onRequestOpenTab={runTabDeepLink.requestOpenTab}
       deepLinkTarget={runTabDeepLink.pending}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {

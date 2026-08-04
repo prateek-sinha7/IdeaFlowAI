@@ -200,6 +200,16 @@ export interface DashboardLayoutProps {
     options?: SendMessageOptions,
   ) => void;
   /**
+   * FIX-170: Called by the postRevision path (od_ppt/od_prototype REST launch)
+   * when the created revision run_id is known. Updates page.tsx's routing refs
+   * (trackedRunIdRef, activelyBuildingRunIdRef, launchedRunIdsRef) so the new
+   * revision run's SSE events are not blocked by isForeignRunFrame. Without this,
+   * the revision starts but pipeline_start/agent events are all discarded as
+   * foreign — the UI stays frozen showing the completed parent run's state until
+   * the user refreshes.
+   */
+  onRevisionLaunched?: (runId: string) => void;
+  /**
    * FIX-119: Optimistically add a user bubble to the transcript without posting
    * to the backend. Passed from page.tsx's `useRunChat.addOptimisticMessage` to
    * the `RunChatLane` so `handleFreeText` can echo the user's text immediately
@@ -279,6 +289,7 @@ export function DashboardLayout({
   runChatReplyStreaming,
   onRunChatSend,
   addOptimisticMessage,
+  onRevisionLaunched,
   onRequestOpenTab,
   deepLinkTarget,
 }: DashboardLayoutProps) {
@@ -633,12 +644,24 @@ export function DashboardLayout({
     // written server-side from it).
     if (contentSourceRunId) {
       const targetType = isOdPpt ? "od_ppt_output" : "ppt_output";
+      // FIX-173: switch to the execution view IMMEDIATELY so the user sees the
+      // revision progress screen rather than the old completed run's content
+      // until the first pipeline_start event arrives (the same pattern the
+      // onStartPipeline path and the wizard launch path already follow).
+      setMainView("execution");
       void postRevision(getToken() ?? "", contentSourceRunId, {
         target_artifact_type: targetType,
         instruction,
       })
         .then(({ run_id }) => {
-          if (run_id) runConnection.attachRun(run_id);
+          if (run_id) {
+            runConnection.attachRun(run_id);
+            // FIX-170: update page.tsx's routing refs so the new revision run's
+            // SSE events (pipeline_start, agent_*) are NOT blocked by
+            // isForeignRunFrame. Without this, trackedRunIdRef still points to
+            // the old completed run → all revision events discarded → UI frozen.
+            onRevisionLaunched?.(run_id);
+          }
         })
         .catch((e) => console.error("postRevision failed", e));
       setWorkflowType((isOdPpt ? "od_ppt_revision" : "ppt_revision") as WorkflowType);
@@ -664,7 +687,7 @@ export function DashboardLayout({
         onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
       }
     }
-  }, [workflowType, pptxCode, pptContent, contentSourceRunId, runConnection, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [workflowType, pptxCode, pptContent, contentSourceRunId, runConnection, onStartPipeline, onResetPipeline, onRevisionLaunched, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {

@@ -1188,8 +1188,13 @@ export function RunChatLane({
 
   // Confirm the held refinement → launch the revision (the ONLY path that fires
   // onRevise on a settled run). Dismiss clears the hold and launches nothing.
+  // The user's revision text was already echoed as an optimistic bubble in
+  // handleFreeText via addOptimisticMessage (FIX-119 pattern) — do NOT call it
+  // again here or the same text appears twice (FIX-171 duplicate-bubble fix).
   const confirmRefinement = useCallback(() => {
-    if (heldRefinement !== null && onRevise) onRevise(heldRefinement);
+    if (heldRefinement !== null && onRevise) {
+      onRevise(heldRefinement);
+    }
     setHeldRefinement(null);
   }, [heldRefinement, onRevise]);
 
@@ -1203,12 +1208,15 @@ export function RunChatLane({
 
   // Failed-lane composer send — a change instruction that feeds the reopen /
   // edit-brief flow (the mock's "Tell the agents what to change, then reopen…").
+  // FIX-168: echo the user's instruction as an optimistic bubble before firing
+  // onRevise so the terminal-state revision request also appears in the transcript.
   const handleTerminalRevise = useCallback(
     (text: string, attachments: ChatAttachment[]) => {
+      if (addOptimisticMessage) addOptimisticMessage(text);
       if (onRevise) onRevise(text);
       else sendMessage(text, attachments);
     },
-    [onRevise, sendMessage],
+    [onRevise, sendMessage, addOptimisticMessage],
   );
 
   // Consequential Concierge proposals held behind a confirm chip (33-03/D-05).

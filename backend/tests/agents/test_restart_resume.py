@@ -2660,7 +2660,7 @@ async def test_resumed_run_is_wired_live_ectx_and_milestone_cards():
         "resume_run must build _RunEventSink(milestone_sink=...) and emit_milestone_card "
         "per event so narrator cards reach a resumed run"
     )
-    _created, _card_seq, _ = emitted_cards[0]
+    _created, _card_seq, _, _reply_eid = emitted_cards[0]
     assert _card_seq > N, (
         f"the milestone card seq must continue past the durable tail (> {N}); "
         f"got {_card_seq}"
