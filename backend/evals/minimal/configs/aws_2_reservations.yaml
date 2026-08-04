@@ -1,0 +1,41 @@
+# AWS run 2 of 3 — ONE row, all 5 stages, dispatched on Bedrock.
+#
+#   ./eval.sh configs/aws_2_reservations.yaml --advise
+#
+# Run this AFTER reading run 1's report (configs/aws_1_fraud_review.yaml).
+#
+# THIS ROW: restaurant_reservations (Hospitality) — a floor plan and a time
+# grid rather than a list-and-detail table. Chosen because it is the row in
+# the library that stresses the two v4 additions a table-shaped brief barely
+# touches: the responsive breakpoint block (no `@media` at all in 73% of the
+# 49 prototypes surveyed) and date/time anchoring, since every booking has a
+# time that must stay plausible against every other and against service hours.
+#
+# Provider/judge/cost rationale: see configs/ten_aws.yaml.
+dataset_id: prototype_aws_2_reservations
+dataset: aws_restaurant_reservations.json
+
+provider: bedrock
+
+order: [specify, plan, analyze, build, validate]
+
+# `seed_as` is the filename each stage's output is written to in the shared
+# sandbox, so the next agent finds it where its AGENT.md says to look.
+agents:
+  specify:
+    agent_id: prototype-specify
+    seed_as: spec.md
+  plan:
+    agent_id: prototype-plan
+    seed_as: tasks.md
+  analyze:
+    agent_id: prototype-analyze
+    seed_as: analysis.md
+  build:
+    agent_id: prototype-build
+    deliverable: prototype.html
+  validate:
+    # One global deliverable, as production does — validate edits build's file
+    # in place. See configs/small.yaml for why a separate filename broke this.
+    agent_id: prototype-validate
+    deliverable: prototype.html

@@ -3,11 +3,18 @@
 # `## Task N:` block, so structure is load-bearing and the output is
 # machine-parsed, not read by a human.
 #
-# Only `judge`, `scoring`, `dimensions` and `rubric` are read. The removed
+# Only `judge`, `scoring`, `dimensions`, `rubric` and `upstream` are read. The removed
 # `precheck`/`baseline`/`threshold`/`agent_id` blocks were carried over from
 # the retired evals/grading system and were never read here — dead config
 # whose `rubric` text actively told the judge a precheck had verified
 # structure when none ever ran. See rubrics/specify.yaml for the full note.
+
+# Upstream artifacts handed to the judge as evidence. `page_coverage` counts
+# this plan's tasks against the spec's pages, so the spec must be present — it
+# was not, and that dimension (40% of the stage) was scored by guessing what
+# the spec had asked for.
+upstream:
+  - spec.md
 
 judge:
   provider: mistral

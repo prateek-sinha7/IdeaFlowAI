@@ -12,6 +12,10 @@
 #   ./eval.sh configs/small.yaml --stage specify --advise   # one stage; prints RUN_ID
 #   ./eval.sh configs/small.yaml --stage plan --into RUN_ID --advise
 #   ./eval.sh configs/ten.yaml --advise --concurrency 4     # 10 rows, 4 judges at once
+#   ./eval.sh configs/ten_aws.yaml --advise --concurrency 4 # same 10 rows, on AWS Bedrock
+#
+# PROVIDER: a config may pin its own (`provider: bedrock` in ten_aws.yaml);
+# an explicit --provider on the command line still overrides it.
 #
 # LOCATION-INDEPENDENT: resolves its own directory and runs from `backend/`
 # (the CLI is invoked as `python3.11 -m evals.minimal.cli`, which requires cwd

@@ -1,0 +1,2449 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Northwind Logistics — Fleet Maintenance Console</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-light: #f5f5f7;
+      --fg: #1d1d1f;
+      --fg-secondary: #6e6e73;
+      --accent: #0071e3;
+      --accent-link: #0066cc;
+      --surface: #f5f5f7;
+      --border: #d2d2d7;
+      --border-strong: #86868b;
+      --bg-dark: #1d1d1f;
+      --status-available: #34c759;
+      --status-in-shop: #ff9500;
+      --status-awaiting-parts: #ff3b30;
+      --status-road-test: #0071e3;
+      --status-out-of-service: #8e8e93;
+      --font-display: 'SF Pro Display', 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      --font-text: 'SF Pro Text', 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-text);
+      font-size: 17px;
+      line-height: 1.47;
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: 100vh;
+    }
+
+    /* Sidebar Navigation */
+    .app-shell {
+      display: contents;
+    }
+
+    .sidebar {
+      background: var(--bg);
+      border-right: 1px solid var(--border);
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      z-index: 100;
+    }
+
+    .sidebar-brand {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 32px;
+      padding: 8px 12px;
+      color: var(--fg);
+    }
+
+    .sidebar-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--fg);
+      font-size: 15px;
+      font-weight: 400;
+      line-height: 1.4;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-light);
+    }
+
+    .nav-item.nav-item--active {
+      background: var(--bg-light);
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .nav-item-icon {
+      font-size: 16px;
+      width: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sidebar-bottom {
+      margin-top: auto;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+      color: var(--fg-secondary);
+    }
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--bg-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      color: var(--fg);
+      font-size: 13px;
+    }
+
+    /* Topbar */
+    .topbar {
+      grid-column: 2;
+      grid-row: 1;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 99;
+    }
+
+    .topbar-title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin: 0;
+      color: var(--fg);
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .topbar-search {
+      padding: 8px 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-text);
+      font-size: 15px;
+      width: 240px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .topbar-search::placeholder {
+      color: var(--fg-secondary);
+    }
+
+    .topbar-search:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.1);
+    }
+
+    .topbar-user {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--bg-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      color: var(--fg);
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    /* Main Content */
+    .main {
+      grid-column: 2;
+      grid-row: 2;
+      background: var(--bg);
+      padding: 28px;
+      overflow-y: auto;
+      max-width: 100%;
+    }
+
+    .page {
+      display: none;
+      animation: fadeIn 0.15s ease-in;
+    }
+
+    .page.is-active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    .page-title {
+      font-family: var(--font-display);
+      font-size: 48px;
+      font-weight: 600;
+      line-height: 1.08;
+      letter-spacing: -0.02em;
+      margin: 0 0 28px 0;
+      color: var(--fg);
+    }
+
+    .page-subtitle {
+      font-size: 15px;
+      color: var(--fg-secondary);
+      margin: 0 0 28px 0;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 15px;
+      border-radius: 8px;
+      font-family: var(--font-text);
+      font-size: 15px;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #0056b3;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--fg);
+      border: 1px solid var(--border-strong);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-light);
+    }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    /* Table */
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 15px;
+    }
+
+    .table thead {
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table th {
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--fg-secondary);
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .table tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+    }
+
+    .table tbody tr:hover {
+      background: var(--bg-light);
+    }
+
+    .table tbody tr:nth-child(even) {
+      background: var(--bg);
+    }
+
+    .table td {
+      padding: 12px;
+      color: var(--fg);
+    }
+
+    /* Status Badge */
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .badge--available {
+      background: rgba(52, 199, 89, 0.15);
+      color: #34c759;
+    }
+
+    .badge--in-shop {
+      background: rgba(255, 149, 0, 0.15);
+      color: #ff9500;
+    }
+
+    .badge--awaiting-parts {
+      background: rgba(255, 59, 48, 0.15);
+      color: #ff3b30;
+    }
+
+    .badge--road-test {
+      background: rgba(0, 113, 227, 0.15);
+      color: #0071e3;
+    }
+
+    .badge--out-of-service {
+      background: rgba(142, 142, 147, 0.15);
+      color: #8e8e93;
+    }
+
+    /* Filter Group */
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .filter-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-right: 8px;
+    }
+
+    .filter-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filter-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--fg);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .filter-pill:hover {
+      background: var(--bg-light);
+    }
+
+    .filter-pill.filter-pill--active {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+
+    /* KPI Cards */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--fg-secondary);
+      margin-bottom: 8px;
+    }
+
+    .kpi-value {
+      font-family: var(--font-display);
+      font-size: 32px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--fg);
+      margin-bottom: 4px;
+    }
+
+    .kpi-delta {
+      font-size: 12px;
+      color: var(--fg-secondary);
+    }
+
+    .kpi-delta.up {
+      color: var(--status-available);
+    }
+
+    .kpi-delta.down {
+      color: var(--status-awaiting-parts);
+    }
+
+    /* Placeholder Section */
+    .placeholder {
+      padding: 40px;
+      text-align: center;
+      color: var(--fg-secondary);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-top: 40px;
+    }
+
+    .placeholder-text {
+      font-size: 16px;
+      margin: 0;
+    }
+
+    .chart-section {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 32px;
+    }
+
+    .cost-trend-chart {
+      width: 100%;
+      height: auto;
+      max-height: 400px;
+      margin-top: 16px;
+    }
+
+    .chart-section text {
+      font-family: var(--font-text);
+      fill: var(--fg-secondary);
+    }
+
+    .link-subtle {
+      color: var(--accent-link);
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .link-subtle:hover {
+      text-decoration: underline;
+    }
+
+    .table-subtotal-row {
+      background: var(--bg-light) !important;
+      border-top: 2px solid var(--border);
+      font-weight: 600;
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      body {
+        grid-template-columns: 220px 1fr;
+      }
+
+      .topbar {
+        padding: 0 20px;
+      }
+
+      .main {
+        padding: 20px;
+      }
+
+      .topbar-search {
+        width: 180px;
+      }
+
+      .kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 768px) {
+      body {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+      }
+
+      .sidebar {
+        grid-column: 1;
+        grid-row: 1;
+        height: auto;
+        position: static;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 16px;
+      }
+
+      .sidebar-nav {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+
+      .nav-item {
+        flex: 0 1 auto;
+        padding: 8px 10px;
+      }
+
+      .topbar {
+        grid-column: 1;
+        grid-row: 2;
+        position: static;
+      }
+
+      .main {
+        grid-column: 1;
+        grid-row: 3;
+      }
+
+      .page-title {
+        font-size: 32px;
+        margin-bottom: 20px;
+      }
+
+      .kpi-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar-search {
+        width: 140px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" data-od-id="sidebar">
+    <div class="sidebar-brand">◐ Northwind</div>
+    <nav class="sidebar-nav">
+      <a href="#/" class="nav-item nav-item--active" data-page-link="vehicles">
+        <span class="nav-item-icon">🚚</span>
+        <span>Vehicles</span>
+      </a>
+      <a href="#/work-orders" class="nav-item" data-page-link="work-orders">
+        <span class="nav-item-icon">📋</span>
+        <span>Work Orders</span>
+      </a>
+      <a href="#/inspections" class="nav-item" data-page-link="inspections">
+        <span class="nav-item-icon">✓</span>
+        <span>Inspections</span>
+      </a>
+      <a href="#/parts-costs" class="nav-item" data-page-link="parts-costs">
+        <span class="nav-item-icon">💰</span>
+        <span>Parts & Costs</span>
+      </a>
+      <a href="#/settings" class="nav-item" data-page-link="settings">
+        <span class="nav-item-icon">⚙</span>
+        <span>Settings</span>
+      </a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="user-avatar">NL</div>
+      <span>Admin</span>
+    </div>
+  </aside>
+
+  <header class="topbar" data-od-id="topbar">
+    <div class="topbar-title" id="topbarTitle">Vehicles</div>
+    <div class="topbar-actions">
+      <input type="text" class="topbar-search" id="vehicleSearch" placeholder="Search by unit (e.g., TRK-2026-0184)" />
+      <div class="topbar-user" title="Admin user">NL</div>
+    </div>
+  </header>
+
+  <main class="main" data-od-id="main">
+    <!-- Vehicles Page -->
+    <section data-page="vehicles" class="page is-active">
+      <h1 class="page-title">Vehicles</h1>
+      <p class="page-subtitle">Fleet overview and management</p>
+      
+      <!-- Type Filter Controls -->
+      <div class="filter-group">
+        <span class="filter-label">Type Filter:</span>
+        <div class="filter-pills">
+          <button class="filter-pill filter-pill--active" data-type-filter="all">All</button>
+          <button class="filter-pill" data-type-filter="Box truck">Box truck</button>
+          <button class="filter-pill" data-type-filter="Tractor">Tractor</button>
+          <button class="filter-pill" data-type-filter="Cargo van">Cargo van</button>
+          <button class="filter-pill" data-type-filter="Trailer">Trailer</button>
+        </div>
+      </div>
+
+      <!-- Vehicle Table -->
+      <div class="table-container">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Unit Number</th>
+              <th>Make/Model</th>
+              <th>Type</th>
+              <th>In-Service Date</th>
+              <th>Status</th>
+              <th>Days in Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="vehicleTableBody">
+            <tr data-vehicle-id="trk-2026-0184" data-vehicle-type="Tractor" data-vehicle-status="Available">
+              <td><strong>TRK-2026-0184</strong></td>
+              <td>Volvo VNL 860</td>
+              <td>Tractor</td>
+              <td>2021-03-15</td>
+              <td><span class="status-badge badge--available">Available</span></td>
+              <td>2</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/trk-2026-0184" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="trk-2026-0184" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="bx-2024-0512" data-vehicle-type="Box truck" data-vehicle-status="In shop">
+              <td><strong>BX-2024-0512</strong></td>
+              <td>Ford F-750</td>
+              <td>Box truck</td>
+              <td>2024-01-22</td>
+              <td><span class="status-badge badge--in-shop">In shop</span></td>
+              <td>5</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/bx-2024-0512" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="bx-2024-0512" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="cg-2023-1047" data-vehicle-type="Cargo van" data-vehicle-status="Awaiting parts">
+              <td><strong>CG-2023-1047</strong></td>
+              <td>International CV</td>
+              <td>Cargo van</td>
+              <td>2023-08-10</td>
+              <td><span class="status-badge badge--awaiting-parts">Awaiting parts</span></td>
+              <td style="background: rgba(255, 59, 48, 0.1);">12</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/cg-2023-1047" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="cg-2023-1047" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="tr-2022-0091" data-vehicle-type="Trailer" data-vehicle-status="Road test">
+              <td><strong>TR-2022-0091</strong></td>
+              <td>Wabash Trailer</td>
+              <td>Trailer</td>
+              <td>2022-06-05</td>
+              <td><span class="status-badge badge--road-test">Road test</span></td>
+              <td>1</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/tr-2022-0091" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="tr-2022-0091" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="trk-2025-0203" data-vehicle-type="Tractor" data-vehicle-status="Available">
+              <td><strong>TRK-2025-0203</strong></td>
+              <td>Peterbilt 579</td>
+              <td>Tractor</td>
+              <td>2025-02-01</td>
+              <td><span class="status-badge badge--available">Available</span></td>
+              <td>0</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/trk-2025-0203" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="trk-2025-0203" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="bx-2023-0889" data-vehicle-type="Box truck" data-vehicle-status="Out of service">
+              <td><strong>BX-2023-0889</strong></td>
+              <td>Isuzu NPR-HD</td>
+              <td>Box truck</td>
+              <td>2023-11-28</td>
+              <td><span class="status-badge badge--out-of-service">Out of service</span></td>
+              <td style="background: rgba(255, 59, 48, 0.1);">45</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/bx-2023-0889" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="bx-2023-0889" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="cg-2024-0156" data-vehicle-type="Cargo van" data-vehicle-status="In shop">
+              <td><strong>CG-2024-0156</strong></td>
+              <td>Mercedes Sprinter</td>
+              <td>Cargo van</td>
+              <td>2024-05-13</td>
+              <td><span class="status-badge badge--in-shop">In shop</span></td>
+              <td>3</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/cg-2024-0156" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="cg-2024-0156" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="tr-2021-0504" data-vehicle-type="Trailer" data-vehicle-status="Available">
+              <td><strong>TR-2021-0504</strong></td>
+              <td>Great Dane Trailer</td>
+              <td>Trailer</td>
+              <td>2021-09-20</td>
+              <td><span class="status-badge badge--available">Available</span></td>
+              <td>0</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/tr-2021-0504" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="tr-2021-0504" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="trk-2026-0445" data-vehicle-type="Tractor" data-vehicle-status="Awaiting parts">
+              <td><strong>TRK-2026-0445</strong></td>
+              <td>Volvo VNL 760</td>
+              <td>Tractor</td>
+              <td>2026-01-10</td>
+              <td><span class="status-badge badge--awaiting-parts">Awaiting parts</span></td>
+              <td>8</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/trk-2026-0445" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="trk-2026-0445" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="bx-2025-0067" data-vehicle-type="Box truck" data-vehicle-status="Available">
+              <td><strong>BX-2025-0067</strong></td>
+              <td>Freightliner M2</td>
+              <td>Box truck</td>
+              <td>2025-04-03</td>
+              <td><span class="status-badge badge--available">Available</span></td>
+              <td>1</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/bx-2025-0067" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="bx-2025-0067" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="cg-2022-0733" data-vehicle-type="Cargo van" data-vehicle-status="In shop">
+              <td><strong>CG-2022-0733</strong></td>
+              <td>Ford Transit</td>
+              <td>Cargo van</td>
+              <td>2022-12-15</td>
+              <td><span class="status-badge badge--in-shop">In shop</span></td>
+              <td>7</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/cg-2022-0733" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="cg-2022-0733" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+            <tr data-vehicle-id="tr-2024-0298" data-vehicle-type="Trailer" data-vehicle-status="Available">
+              <td><strong>TR-2024-0298</strong></td>
+              <td>Kentucky Trailer</td>
+              <td>Trailer</td>
+              <td>2024-07-09</td>
+              <td><span class="status-badge badge--available">Available</span></td>
+              <td>0</td>
+              <td style="display: flex; gap: 8px;">
+                <a href="#/vehicle/tr-2024-0298" class="btn btn-link" style="color: var(--accent-link); padding: 0; border: none; background: transparent; text-decoration: underline;">Detail</a>
+                <button class="btn btn-secondary flag-parts-btn" data-vehicle-id="tr-2024-0298" style="padding: 4px 8px; font-size: 13px;">Flag Parts</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Vehicle Detail Page -->
+    <section data-page="vehicle" class="page">
+      <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+        <div>
+          <h1 class="page-title" id="vehicleDetailTitle" style="margin: 0;">Vehicle Detail</h1>
+          <a href="#/" class="btn btn-link" style="color: var(--accent-link); text-decoration: underline; margin-top: 8px; font-size: 14px;">← Back to Vehicles</a>
+        </div>
+      </div>
+
+      <!-- Vehicle Header Card -->
+      <div class="card" style="margin-bottom: 24px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px;">
+        <div>
+          <div id="vehicleUnitNumber" style="font-size: 32px; font-weight: 600; color: var(--fg); font-family: var(--font-display); margin-bottom: 8px;">TRK-2026-0184</div>
+          <div id="vehicleMakeModel" style="font-size: 18px; color: var(--fg-secondary); margin-bottom: 12px;">Volvo VNL 860</div>
+          <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+            <span id="vehicleTypeBadge" class="status-badge" style="background: var(--surface); border: 1px solid var(--border); padding: 6px 12px; border-radius: 20px; font-size: 13px;">Tractor</span>
+            <span id="vehicleStatusBadge" class="status-badge badge--available" style="padding: 6px 12px; border-radius: 20px; font-size: 13px; color: white;">Available</span>
+            <span id="vehicleDaysInStatus" style="padding: 6px 12px; border-radius: 20px; font-size: 13px; color: var(--fg-secondary);">2 days</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div>
+            <div style="font-size: 12px; color: var(--fg-secondary); font-weight: 500; margin-bottom: 4px;">VIN</div>
+            <div id="vehicleVin" style="font-size: 15px; color: var(--fg); font-family: 'Courier New', monospace;">1VUJB5B32F1234567</div>
+          </div>
+          <div>
+            <div style="font-size: 12px; color: var(--fg-secondary); font-weight: 500; margin-bottom: 4px;">Current Mileage</div>
+            <div id="vehicleMileage" style="font-size: 15px; color: var(--fg);">187,643 mi</div>
+          </div>
+          <div>
+            <div style="font-size: 12px; color: var(--fg-secondary); font-weight: 500; margin-bottom: 4px;">Last Service Date</div>
+            <div id="vehicleLastService" style="font-size: 15px; color: var(--fg);">2026-01-15</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Service Checklist Section -->
+      <div class="card" style="margin-bottom: 24px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+        <h2 style="font-size: 24px; font-weight: 600; color: var(--fg); margin: 0 0 16px 0; font-family: var(--font-display);">Service Checklist</h2>
+        <div class="table-container" style="margin-top: 12px;">
+          <table class="table" style="font-size: 14px;">
+            <thead>
+              <tr>
+                <th style="text-align: left; padding: 8px 12px;">Task</th>
+                <th style="text-align: left; padding: 8px 12px;">Last Completed</th>
+                <th style="text-align: left; padding: 8px 12px;">Interval</th>
+                <th style="text-align: left; padding: 8px 12px;">Next Due</th>
+                <th style="text-align: center; padding: 8px 12px;">Done</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Oil Change</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2026-01-15</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">15,000 mi</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2026-02-10 (202,643 mi)</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); text-align: center;"><input type="checkbox" style="width: 16px; height: 16px; cursor: pointer;"></td>
+              </tr>
+              <tr style="background: var(--bg-light);">
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Air Filter</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2025-11-20</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">20,000 mi</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2026-03-20 (207,643 mi)</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); text-align: center;"><input type="checkbox" style="width: 16px; height: 16px; cursor: pointer;"></td>
+              </tr>
+              <tr>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Brake Inspection</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2025-12-05</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">10,000 mi</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2026-01-20 (197,643 mi)</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); text-align: center;"><input type="checkbox" style="width: 16px; height: 16px; cursor: pointer;"></td>
+              </tr>
+              <tr style="background: var(--bg-light);">
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Tire Rotation</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2026-01-08</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">8,000 mi</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2026-02-08 (195,643 mi)</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); text-align: center;"><input type="checkbox" style="width: 16px; height: 16px; cursor: pointer;"></td>
+              </tr>
+              <tr>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Fluid Top-off</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2026-01-18</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2,000 mi</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2026-01-27 (189,643 mi)</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); text-align: center;"><input type="checkbox" style="width: 16px; height: 16px; cursor: pointer;"></td>
+              </tr>
+              <tr style="background: var(--bg-light);">
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Coolant Flush</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2025-06-10</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">50,000 mi</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); font-size: 13px;">2026-03-10 (237,643 mi)</td>
+                <td style="padding: 12px; text-align: center;"><input type="checkbox" style="width: 16px; height: 16px; cursor: pointer;"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Technician Notes by Shop -->
+      <div class="card" style="margin-bottom: 24px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+        <h2 style="font-size: 24px; font-weight: 600; color: var(--fg); margin: 0 0 16px 0; font-family: var(--font-display);">Technician Notes</h2>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="note-card" style="background: var(--bg-light); border: 1px solid var(--border); border-radius: 8px; padding: 12px; cursor: pointer;">
+            <div style="font-weight: 600; color: var(--fg); margin-bottom: 8px; font-size: 15px;">Downtown Bay</div>
+            <div style="color: var(--fg); font-size: 15px; line-height: 1.5; margin-bottom: 8px;">Brake lines inspected 2026-01-18, wear evident. Recommend replacement in next service cycle.</div>
+            <div style="font-size: 12px; color: var(--fg-secondary);">Tech: Mike R., verified 14:32</div>
+          </div>
+          <div class="note-card" style="background: var(--bg-light); border: 1px solid var(--border); border-radius: 8px; padding: 12px; cursor: pointer;">
+            <div style="font-weight: 600; color: var(--fg); margin-bottom: 8px; font-size: 15px;">North Warehouse</div>
+            <div style="color: var(--fg); font-size: 15px; line-height: 1.5; margin-bottom: 8px;">Routine oil change completed 2026-01-15, mileage 187,643 mi. No issues noted. All fluids topped off.</div>
+            <div style="font-size: 12px; color: var(--fg-secondary);">Tech: Sarah L., verified 09:15</div>
+          </div>
+          <div class="note-card" style="background: var(--bg-light); border: 1px solid var(--border); border-radius: 8px; padding: 12px; cursor: pointer;">
+            <div style="font-weight: 600; color: var(--fg); margin-bottom: 8px; font-size: 15px;">East Terminal</div>
+            <div style="color: var(--fg-secondary); font-size: 15px; line-height: 1.5;">No service history at this location.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Work Order History -->
+      <div class="card" style="margin-bottom: 24px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+        <h2 style="font-size: 24px; font-weight: 600; color: var(--fg); margin: 0 0 16px 0; font-family: var(--font-display);">Work Order History</h2>
+        <div class="table-container" style="margin-top: 12px;">
+          <table class="table" style="font-size: 14px;">
+            <thead>
+              <tr>
+                <th style="text-align: left; padding: 8px 12px;">WO #</th>
+                <th style="text-align: left; padding: 8px 12px;">Task</th>
+                <th style="text-align: left; padding: 8px 12px;">Shop</th>
+                <th style="text-align: left; padding: 8px 12px;">Status</th>
+                <th style="text-align: left; padding: 8px 12px;">Tech</th>
+                <th style="text-align: right; padding: 8px 12px;">Cost</th>
+              </tr>
+            </thead>
+            <tbody id="vehicleWorkOrderBody">
+              <tr>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><strong>WO-2026-0515</strong></td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Oil Change + Filter Replacement</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Downtown Bay</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: var(--status-road-test); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">In Progress</span></td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Mike R.</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); text-align: right; font-weight: 500;">$245.00</td>
+              </tr>
+              <tr style="background: var(--bg-light);">
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><strong>WO-2026-0512</strong></td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Oil Filter + Fluid Top</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Downtown Bay</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: var(--status-road-test); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">In Progress</span></td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Mike R.</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); text-align: right; font-weight: 500;">$180.00</td>
+              </tr>
+              <tr>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><strong>WO-2026-0498</strong></td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Brake Inspection</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">North Warehouse</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: var(--status-available); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">Completed</span></td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Sarah L.</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); text-align: right; font-weight: 500;">$180.00</td>
+              </tr>
+              <tr style="background: var(--bg-light);">
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><strong>WO-2026-0477</strong></td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Tire Rotation</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">East Terminal</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: var(--status-available); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">Completed</span></td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Dave T.</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border); text-align: right; font-weight: 500;">$120.00</td>
+              </tr>
+              <tr>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><strong>WO-2026-0450</strong></td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Transmission Service</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);">Downtown Bay</td>
+                <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: var(--status-available); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">Completed</span></td>
+                <td style="padding: 12px;">Mike R.</td>
+                <td style="padding: 12px; text-align: right; font-weight: 500;">$420.00</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display: flex; gap: 12px; margin-top: 32px; margin-bottom: 40px;">
+        <div style="position: relative;">
+          <button id="advanceStatusBtn" class="btn btn-primary" style="background: var(--accent); color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 15px; font-weight: 500; cursor: pointer;">Advance Status</button>
+          <div id="advanceStatusMenu" style="display: none; position: absolute; top: 100%; left: 0; background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-top: 8px; z-index: 50; min-width: 200px;">
+            <div id="statusMenuItems"></div>
+          </div>
+        </div>
+        <button id="flagForPartsBtn" class="btn btn-secondary" style="background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 12px 20px; border-radius: 8px; font-size: 15px; font-weight: 500; cursor: pointer;">Flag for Parts</button>
+      </div>
+
+      <!-- Flag for Parts Form (hidden by default) -->
+      <div id="flagPartsForm" style="display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <h3 style="font-size: 18px; font-weight: 600; color: var(--fg); margin: 0 0 16px 0;">Flag Part for Order</h3>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div>
+            <label style="display: block; font-size: 14px; font-weight: 500; color: var(--fg); margin-bottom: 6px;">Part Name</label>
+            <input id="partName" type="text" placeholder="e.g., Brake Pads, Oil Filter" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 14px; font-family: var(--font-text);">
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div>
+              <label style="display: block; font-size: 14px; font-weight: 500; color: var(--fg); margin-bottom: 6px;">Quantity</label>
+              <input id="partQty" type="number" min="1" value="1" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 14px; font-family: var(--font-text);">
+            </div>
+            <div>
+              <label style="display: block; font-size: 14px; font-weight: 500; color: var(--fg); margin-bottom: 6px;">Est. Cost</label>
+              <input id="partCost" type="number" min="0" step="0.01" placeholder="0.00" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 14px; font-family: var(--font-text);">
+            </div>
+          </div>
+          <div style="display: flex; gap: 12px;">
+            <button id="confirmPartsBtn" class="btn btn-primary" style="background: var(--accent); color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 15px; font-weight: 500; cursor: pointer;">Confirm</button>
+            <button id="cancelPartsBtn" class="btn btn-secondary" style="background: transparent; color: var(--fg); border: 1px solid var(--border); padding: 12px 20px; border-radius: 8px; font-size: 15px; font-weight: 500; cursor: pointer;">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Work Orders Page -->
+    <section data-page="work-orders" class="page">
+      <h1 class="page-title">Work Orders</h1>
+      <p class="page-subtitle">Organized by shop queue</p>
+      
+      <!-- Shop Tabs -->
+      <div class="shop-tabs" style="display: flex; gap: 24px; margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap;">
+        <button class="shop-tab shop-tab--active" data-shop-filter="all" onclick="filterByShop(event, 'all')" style="background: none; border: none; padding: 8px 0; font-size: 15px; font-weight: 600; color: var(--fg); cursor: pointer; border-bottom: 3px solid var(--accent); position: relative; bottom: -12px;">
+          All Shops
+        </button>
+        <button class="shop-tab" data-shop-filter="downtown" onclick="filterByShop(event, 'downtown')" style="background: none; border: none; padding: 8px 0; font-size: 15px; font-weight: 400; color: var(--fg); cursor: pointer; transition: all 0.15s;">
+          Downtown Bay
+        </button>
+        <button class="shop-tab" data-shop-filter="north" onclick="filterByShop(event, 'north')" style="background: none; border: none; padding: 8px 0; font-size: 15px; font-weight: 400; color: var(--fg); cursor: pointer; transition: all 0.15s;">
+          North Warehouse
+        </button>
+        <button class="shop-tab" data-shop-filter="east" onclick="filterByShop(event, 'east')" style="background: none; border: none; padding: 8px 0; font-size: 15px; font-weight: 400; color: var(--fg); cursor: pointer; transition: all 0.15s;">
+          East Terminal
+        </button>
+      </div>
+
+      <!-- Work Order Table -->
+      <div class="table-container">
+        <table class="table" id="workOrdersTable">
+          <thead>
+            <tr>
+              <th style="width: 100px;">WO #</th>
+              <th style="width: 120px;">Vehicle Unit</th>
+              <th style="width: 180px;">Task</th>
+              <th style="width: 120px;">Assigned Tech</th>
+              <th style="width: 110px;">Status</th>
+              <th style="width: 100px;">Days in Queue</th>
+              <th style="width: 80px;">Priority</th>
+              <th style="width: 100px; text-align: right;">Cost</th>
+              <th style="width: 40px;"></th>
+            </tr>
+          </thead>
+          <tbody id="workOrdersTableBody">
+            <!-- Rows filled by JavaScript -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Expandable Detail Template (hidden) -->
+      <div id="expandedDetailTemplate" style="display: none;"></div>
+    </section>
+
+    <!-- Inspections Page -->
+    <section data-page="inspections" class="page">
+      <h1 class="page-title">Inspections</h1>
+      <p class="page-subtitle">Inspection records and findings</p>
+      
+      <!-- Inspection Type Filter -->
+      <div class="filter-group" style="flex-wrap: wrap; gap: 12px;">
+        <span class="filter-label" style="width: 100%; margin-bottom: 8px;">Inspection Type Filter:</span>
+        <button class="filter-pill filter-pill--active" data-inspection-type-filter="all" style="background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500;">All Types</button>
+        <button class="filter-pill" data-inspection-type-filter="pre-trip" style="background: transparent; color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 400;">Pre-trip</button>
+        <button class="filter-pill" data-inspection-type-filter="post-trip" style="background: transparent; color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 400;">Post-trip</button>
+        <button class="filter-pill" data-inspection-type-filter="annual-safety" style="background: transparent; color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 400;">Annual Safety</button>
+        <button class="filter-pill" data-inspection-type-filter="emission" style="background: transparent; color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 400;">Emission</button>
+        <button class="filter-pill" data-inspection-type-filter="dot-compliance" style="background: transparent; color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 400;">DOT Compliance</button>
+      </div>
+      
+      <!-- Inspection Table -->
+      <div class="table-container" style="margin-top: 24px;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="text-align: left; padding: 12px;">Vehicle Unit</th>
+              <th style="text-align: left; padding: 12px;">Inspection Type</th>
+              <th style="text-align: left; padding: 12px;">Date</th>
+              <th style="text-align: left; padding: 12px;">Technician</th>
+              <th style="text-align: left; padding: 12px;">Findings</th>
+              <th style="text-align: left; padding: 12px;">Status</th>
+            </tr>
+          </thead>
+          <tbody id="inspectionTableBody">
+            <tr data-inspection-id="insp-2026-0801" data-inspection-type="Pre-trip" style="cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/trk-2026-0184" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">TRK-2026-0184</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Pre-trip</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2026-01-18</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Mike R.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">Clean, no issues noted</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(52, 199, 89, 0.15); color: #34c759; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Passed</span></td>
+            </tr>
+            <tr data-inspection-id="insp-2026-0802" data-inspection-type="DOT Compliance" style="background: var(--bg-light); cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/bx-2024-0512" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">BX-2024-0512</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">DOT Compliance</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2026-01-17</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Sarah L.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">Brake deficiency detected, flagged for repair</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(255, 59, 48, 0.15); color: #ff3b30; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Failed</span></td>
+            </tr>
+            <tr data-inspection-id="insp-2026-0803" data-inspection-type="Annual Safety" style="cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/cg-2023-1047" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">CG-2023-1047</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Annual Safety</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2026-01-16</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Dave T.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">Tire wear within limits, suspension OK</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(52, 199, 89, 0.15); color: #34c759; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Passed</span></td>
+            </tr>
+            <tr data-inspection-id="insp-2026-0804" data-inspection-type="Post-trip" style="background: var(--bg-light); cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/tr-2022-0091" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">TR-2022-0091</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Post-trip</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2026-01-18</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Mike R.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">Trailer lights functional, all connections secure</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(52, 199, 89, 0.15); color: #34c759; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Passed</span></td>
+            </tr>
+            <tr data-inspection-id="insp-2026-0805" data-inspection-type="Pre-trip" style="cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/trk-2025-0203" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">TRK-2025-0203</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Pre-trip</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2026-01-18</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Sarah L.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">Minor oil seep observed, monitor</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(52, 199, 89, 0.15); color: #34c759; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Passed</span></td>
+            </tr>
+            <tr data-inspection-id="insp-2026-0806" data-inspection-type="Annual Safety" style="background: var(--bg-light); cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/bx-2023-0889" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">BX-2023-0889</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Annual Safety</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2025-06-10</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Dave T.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">Multiple deficiencies, vehicle out of service</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(255, 59, 48, 0.15); color: #ff3b30; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Failed</span></td>
+            </tr>
+            <tr data-inspection-id="insp-2026-0807" data-inspection-type="Pre-trip" style="cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/cg-2024-0156" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">CG-2024-0156</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Pre-trip</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2026-01-18</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Mike R.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">All systems operational</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(52, 199, 89, 0.15); color: #34c759; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Passed</span></td>
+            </tr>
+            <tr data-inspection-id="insp-2026-0808" data-inspection-type="Emission" style="background: var(--bg-light); cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/tr-2021-0504" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">TR-2021-0504</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Emission</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2026-01-12</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Sarah L.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">Emissions within limits, catalyst OK</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(52, 199, 89, 0.15); color: #34c759; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Passed</span></td>
+            </tr>
+            <tr data-inspection-id="insp-2026-0809" data-inspection-type="Post-trip" style="cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/trk-2026-0445" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">TRK-2026-0445</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Post-trip</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2026-01-18</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Dave T.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">Engine knock detected, diagnostics recommended</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(255, 59, 48, 0.15); color: #ff3b30; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Failed</span></td>
+            </tr>
+            <tr data-inspection-id="insp-2026-0810" data-inspection-type="Pre-trip" style="background: var(--bg-light); cursor: pointer;">
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><a href="#/vehicle/bx-2025-0067" style="color: var(--accent-link); text-decoration: none; font-weight: 500;">BX-2025-0067</a></td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Pre-trip</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">2026-01-18</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);">Mike R.</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border); color: var(--fg-secondary);">Clean inspection, no issues</td>
+              <td style="padding: 12px; border-bottom: 1px solid var(--border);"><span class="status-badge" style="background: rgba(52, 199, 89, 0.15); color: #34c759; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;">Passed</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Parts & Costs Page -->
+    <section data-page="parts-costs" class="page">
+      <div class="page-header">
+        <h1 class="page-title">Parts & Costs</h1>
+        <p class="page-subtitle">Fleet maintenance cost aggregation and trend analysis</p>
+      </div>
+
+      <!-- KPI Card Grid -->
+      <div class="kpi-grid">
+        <!-- Card 1: Total Fleet Maintenance Cost -->
+        <div class="kpi-card">
+          <div class="kpi-value" style="color: var(--fg);">$18,947</div>
+          <div class="kpi-label">Total Fleet Maintenance (This Month)</div>
+          <div class="kpi-delta" style="color: var(--status-in-shop);">+16% ↑</div>
+          <div class="kpi-subtext">vs. $16,320 last month</div>
+        </div>
+
+        <!-- Card 2: Parts Inventory Value -->
+        <div class="kpi-card">
+          <div class="kpi-value" style="color: var(--fg);">$24,560</div>
+          <div class="kpi-label">Parts Inventory Value</div>
+          <div class="kpi-delta" style="color: var(--status-in-shop);">+12% ↑</div>
+          <div class="kpi-subtext">vs. $21,890 last month</div>
+        </div>
+
+        <!-- Card 3: Avg Cost per Vehicle -->
+        <div class="kpi-card">
+          <div class="kpi-value" style="color: var(--fg);">$1,579</div>
+          <div class="kpi-label">Average Cost per Vehicle</div>
+          <div class="kpi-delta" style="color: var(--status-in-shop);">+16% ↑</div>
+          <div class="kpi-subtext">vs. $1,361 last month</div>
+        </div>
+
+        <!-- Card 4: Open Work Order Cost -->
+        <div class="kpi-card">
+          <div class="kpi-value" style="color: var(--fg);">$6,240</div>
+          <div class="kpi-label">Open Work Order Cost</div>
+          <div class="kpi-delta" style="color: var(--status-in-shop);">+22% ↑</div>
+          <div class="kpi-subtext">vs. $5,100 last month</div>
+        </div>
+      </div>
+
+      <!-- Cost Aggregation Table -->
+      <div class="table-section">
+        <h2 class="section-heading">Cost by Vehicle (This Month)</h2>
+        <div class="table-container">
+          <table class="table">
+            <thead>
+              <tr class="table-header-row">
+                <th class="table-header-cell">Vehicle Unit</th>
+                <th class="table-header-cell">Total Cost</th>
+                <th class="table-header-cell">Labor</th>
+                <th class="table-header-cell">Parts</th>
+                <th class="table-header-cell">Parts Count</th>
+                <th class="table-header-cell">Most Recent WO</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="table-row" onclick="navigateTo('vehicle', 'trk-2026-0184')">
+                <td class="table-cell">TRK-2026-0184</td>
+                <td class="table-cell" style="text-align: right;">$1,245</td>
+                <td class="table-cell" style="text-align: right;">$420</td>
+                <td class="table-cell" style="text-align: right;">$825</td>
+                <td class="table-cell" style="text-align: right;">3</td>
+                <td class="table-cell"><a href="#" class="link-subtle" onclick="event.stopPropagation(); return false;">WO-2026-0515: Oil Change</a></td>
+              </tr>
+              <tr class="table-row" onclick="navigateTo('vehicle', 'bx-2024-0512')">
+                <td class="table-cell">BX-2024-0512</td>
+                <td class="table-cell" style="text-align: right;">$1,950</td>
+                <td class="table-cell" style="text-align: right;">$680</td>
+                <td class="table-cell" style="text-align: right;">$1,270</td>
+                <td class="table-cell" style="text-align: right;">2</td>
+                <td class="table-cell"><a href="#" class="link-subtle" onclick="event.stopPropagation(); return false;">WO-2026-0514: Brake Pads</a></td>
+              </tr>
+              <tr class="table-row" onclick="navigateTo('vehicle', 'cg-2023-1047')">
+                <td class="table-cell">CG-2023-1047</td>
+                <td class="table-cell" style="text-align: right;">$2,340</td>
+                <td class="table-cell" style="text-align: right;">$840</td>
+                <td class="table-cell" style="text-align: right;">$1,500</td>
+                <td class="table-cell" style="text-align: right;">1</td>
+                <td class="table-cell"><a href="#" class="link-subtle" onclick="event.stopPropagation(); return false;">WO-2026-0507: Tire Repl</a></td>
+              </tr>
+              <tr class="table-row" onclick="navigateTo('vehicle', 'tr-2022-0091')">
+                <td class="table-cell">TR-2022-0091</td>
+                <td class="table-cell" style="text-align: right;">$580</td>
+                <td class="table-cell" style="text-align: right;">$180</td>
+                <td class="table-cell" style="text-align: right;">$400</td>
+                <td class="table-cell" style="text-align: right;">1</td>
+                <td class="table-cell"><a href="#" class="link-subtle" onclick="event.stopPropagation(); return false;">WO-2026-0510: Trailer Light</a></td>
+              </tr>
+              <tr class="table-row" onclick="navigateTo('vehicle', 'trk-2025-0203')">
+                <td class="table-cell">TRK-2025-0203</td>
+                <td class="table-cell" style="text-align: right;">$420</td>
+                <td class="table-cell" style="text-align: right;">$240</td>
+                <td class="table-cell" style="text-align: right;">$180</td>
+                <td class="table-cell" style="text-align: right;">1</td>
+                <td class="table-cell"><a href="#" class="link-subtle" onclick="event.stopPropagation(); return false;">WO-2026-0504: Routine</a></td>
+              </tr>
+              <tr class="table-row" onclick="navigateTo('vehicle', 'bx-2023-0889')">
+                <td class="table-cell">BX-2023-0889</td>
+                <td class="table-cell" style="text-align: right;">$8,500</td>
+                <td class="table-cell" style="text-align: right;">$3,200</td>
+                <td class="table-cell" style="text-align: right;">$5,300</td>
+                <td class="table-cell" style="text-align: right;">1</td>
+                <td class="table-cell"><a href="#" class="link-subtle" onclick="event.stopPropagation(); return false;">WO-2026-0505: Full Overhaul</a></td>
+              </tr>
+              <tr class="table-row" onclick="navigateTo('vehicle', 'cg-2024-0156')">
+                <td class="table-cell">CG-2024-0156</td>
+                <td class="table-cell" style="text-align: right;">$892</td>
+                <td class="table-cell" style="text-align: right;">$340</td>
+                <td class="table-cell" style="text-align: right;">$552</td>
+                <td class="table-cell" style="text-align: right;">2</td>
+                <td class="table-cell"><a href="#" class="link-subtle" onclick="event.stopPropagation(); return false;">WO-2026-0511: Suspension</a></td>
+              </tr>
+              <tr class="table-row" onclick="navigateTo('vehicle', 'tr-2021-0504')">
+                <td class="table-cell">TR-2021-0504</td>
+                <td class="table-cell" style="text-align: right;">$320</td>
+                <td class="table-cell" style="text-align: right;">$120</td>
+                <td class="table-cell" style="text-align: right;">$200</td>
+                <td class="table-cell" style="text-align: right;">1</td>
+                <td class="table-cell"><a href="#" class="link-subtle" onclick="event.stopPropagation(); return false;">WO-2026-0506: Hitch</a></td>
+              </tr>
+              <tr class="table-subtotal-row">
+                <td class="table-cell" style="font-weight: 600;">Total</td>
+                <td class="table-cell" style="text-align: right; font-weight: 600;">$18,947</td>
+                <td class="table-cell" style="text-align: right; font-weight: 600;">$6,620</td>
+                <td class="table-cell" style="text-align: right; font-weight: 600;">$12,327</td>
+                <td class="table-cell" style="text-align: right; font-weight: 600;">12</td>
+                <td class="table-cell"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 12-Month Cost Trend Chart -->
+      <div class="chart-section">
+        <h2 class="section-heading">12-Month Cost Trend</h2>
+        <svg class="cost-trend-chart" viewBox="0 0 1100 380" xmlns="http://www.w3.org/2000/svg">
+          <!-- Y-axis labels -->
+          <text x="40" y="20" font-size="12" fill="var(--fg-secondary)" text-anchor="end">$25K</text>
+          <text x="40" y="95" font-size="12" fill="var(--fg-secondary)" text-anchor="end">$20K</text>
+          <text x="40" y="170" font-size="12" fill="var(--fg-secondary)" text-anchor="end">$15K</text>
+          <text x="40" y="245" font-size="12" fill="var(--fg-secondary)" text-anchor="end">$10K</text>
+          <text x="40" y="320" font-size="12" fill="var(--fg-secondary)" text-anchor="end">$5K</text>
+          <text x="40" y="360" font-size="12" fill="var(--fg-secondary)" text-anchor="end">$0</text>
+
+          <!-- Y-axis grid lines -->
+          <line x1="50" y1="15" x2="1080" y2="15" stroke="var(--border)" stroke-width="1" />
+          <line x1="50" y1="90" x2="1080" y2="90" stroke="var(--border)" stroke-width="1" />
+          <line x1="50" y1="165" x2="1080" y2="165" stroke="var(--border)" stroke-width="1" />
+          <line x1="50" y1="240" x2="1080" y2="240" stroke="var(--border)" stroke-width="1" />
+          <line x1="50" y1="315" x2="1080" y2="315" stroke="var(--border)" stroke-width="1" />
+
+          <!-- Bars (scaled: max $25K = 315px height from 330px baseline)
+               Jan 2025: $8,500 → 106px
+               Feb: $9,200 → 115px
+               Mar: $10,100 → 126px
+               Apr: $11,300 → 141px
+               May: $12,800 → 160px
+               Jun: $14,200 → 178px
+               Jul: $15,600 → 195px
+               Aug: $16,100 → 201px
+               Sep: $15,800 → 197px
+               Oct: $17,200 → 215px
+               Nov: $18,500 → 231px
+               Dec: $16,320 → 204px
+               Jan 2026: $18,947 → 237px (current, highlighted in accent blue)
+          -->
+          <rect x="60" y="224" width="16" height="106" fill="var(--border)" />
+          <rect x="82" y="215" width="16" height="115" fill="var(--border)" />
+          <rect x="104" y="204" width="16" height="126" fill="var(--border)" />
+          <rect x="126" y="189" width="16" height="141" fill="var(--border)" />
+          <rect x="148" y="170" width="16" height="160" fill="var(--border)" />
+          <rect x="170" y="152" width="16" height="178" fill="var(--border)" />
+          <rect x="192" y="135" width="16" height="195" fill="var(--border)" />
+          <rect x="214" y="129" width="16" height="201" fill="var(--border)" />
+          <rect x="236" y="133" width="16" height="197" fill="var(--border)" />
+          <rect x="258" y="115" width="16" height="215" fill="var(--border)" />
+          <rect x="280" y="99" width="16" height="231" fill="var(--border)" />
+          <rect x="302" y="126" width="16" height="204" fill="var(--border)" />
+          <!-- Current month (Jan 2026) in accent blue -->
+          <rect x="324" y="93" width="16" height="237" fill="var(--accent)" />
+
+          <!-- X-axis labels (months) -->
+          <text x="68" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">JAN 25</text>
+          <text x="90" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">FEB</text>
+          <text x="112" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">MAR</text>
+          <text x="134" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">APR</text>
+          <text x="156" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">MAY</text>
+          <text x="178" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">JUN</text>
+          <text x="200" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">JUL</text>
+          <text x="222" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">AUG</text>
+          <text x="244" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">SEP</text>
+          <text x="266" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">OCT</text>
+          <text x="288" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">NOV</text>
+          <text x="310" y="350" font-size="12" fill="var(--fg-secondary)" text-anchor="middle">DEC</text>
+          <text x="332" y="350" font-size="12" fill="var(--accent)" text-anchor="middle" font-weight="600">JAN 26</text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- Settings Page -->
+    <section data-page="settings" class="page">
+      <h1 class="page-title">Settings</h1>
+      <p class="page-subtitle">Fleet configuration and preferences</p>
+      
+      <!-- Fleet Settings Section -->
+      <div class="settings-group" style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+        <h2 style="font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--fg); margin: 0 0 16px 0;">Fleet Settings</h2>
+        
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">Fleet Name</label>
+          <input type="text" id="fleetNameInput" value="Northwind Logistics" placeholder="Enter fleet name" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 15px; color: var(--fg); background: var(--bg);" />
+        </div>
+        
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">Total Vehicles</label>
+          <div style="font-size: 15px; color: var(--fg-secondary);">52</div>
+        </div>
+        
+        <div>
+          <label style="display: block; font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">Headquarters Location</label>
+          <input type="text" id="hqLocationInput" value="Chicago, IL 60601" placeholder="Enter location" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 15px; color: var(--fg); background: var(--bg);" />
+        </div>
+      </div>
+
+      <!-- Shop Configuration Section -->
+      <div class="settings-group" style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+        <h2 style="font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--fg); margin: 0 0 16px 0;">Shop Configuration</h2>
+        
+        <div class="table-container" style="margin-bottom: 16px;">
+          <table class="table" style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            <thead style="background: var(--surface); border-bottom: 1px solid var(--border);">
+              <tr>
+                <th style="text-align: left; padding: 12px; font-weight: 600; color: var(--fg);">Shop Name</th>
+                <th style="text-align: left; padding: 12px; font-weight: 600; color: var(--fg);">Manager</th>
+                <th style="text-align: left; padding: 12px; font-weight: 600; color: var(--fg);">Address</th>
+                <th style="text-align: center; padding: 12px; font-weight: 600; color: var(--fg);">Action</th>
+              </tr>
+            </thead>
+            <tbody id="shopTableBody">
+              <tr style="border-bottom: 1px solid var(--border); background: var(--bg);">
+                <td style="padding: 12px; color: var(--fg);">Downtown Bay</td>
+                <td style="padding: 12px; color: var(--fg);">Mike Reynolds</td>
+                <td style="padding: 12px; color: var(--fg-secondary);">123 Main St, Chicago IL 60601</td>
+                <td style="padding: 12px; text-align: center;"><button class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;" onclick="editShop(event, 'Downtown Bay')">Edit</button></td>
+              </tr>
+              <tr style="border-bottom: 1px solid var(--border); background: var(--bg-light);">
+                <td style="padding: 12px; color: var(--fg);">North Warehouse</td>
+                <td style="padding: 12px; color: var(--fg);">Sarah Chen</td>
+                <td style="padding: 12px; color: var(--fg-secondary);">4567 Industrial Blvd, Chicago IL 60602</td>
+                <td style="padding: 12px; text-align: center;"><button class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;" onclick="editShop(event, 'North Warehouse')">Edit</button></td>
+              </tr>
+              <tr style="border-bottom: 1px solid var(--border); background: var(--bg);">
+                <td style="padding: 12px; color: var(--fg);">East Terminal</td>
+                <td style="padding: 12px; color: var(--fg);">Dave Thompson</td>
+                <td style="padding: 12px; color: var(--fg-secondary);">8910 Distribution Rd, Chicago IL 60603</td>
+                <td style="padding: 12px; text-align: center;"><button class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;" onclick="editShop(event, 'East Terminal')">Edit</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        
+        <button class="btn btn-secondary" onclick="addNewShop()" style="width: 100%; padding: 8px 12px;">+ Add New Shop</button>
+      </div>
+
+      <!-- Notification Rules Section -->
+      <div class="settings-group" style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+        <h2 style="font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--fg); margin: 0 0 16px 0;">Notification Rules</h2>
+        
+        <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px;">
+          <input type="checkbox" id="notifVehicleStatus" checked style="width: 16px; height: 16px; cursor: pointer;" />
+          <label for="notifVehicleStatus" style="font-size: 17px; color: var(--fg); cursor: pointer; margin: 0;">Alert when vehicle in same status &gt; 14 days</label>
+        </div>
+        
+        <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px;">
+          <input type="checkbox" id="notifPartsBackorder" checked style="width: 16px; height: 16px; cursor: pointer;" />
+          <label for="notifPartsBackorder" style="font-size: 17px; color: var(--fg); cursor: pointer; margin: 0;">Alert when parts on backorder</label>
+        </div>
+        
+        <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px;">
+          <input type="checkbox" id="notifInspectionFail" checked style="width: 16px; height: 16px; cursor: pointer;" />
+          <label for="notifInspectionFail" style="font-size: 17px; color: var(--fg); cursor: pointer; margin: 0;">Alert when inspection fails</label>
+        </div>
+        
+        <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px;">
+          <input type="checkbox" id="notifMaintenanceOverdue" checked style="width: 16px; height: 16px; cursor: pointer;" />
+          <label for="notifMaintenanceOverdue" style="font-size: 17px; color: var(--fg); cursor: pointer; margin: 0;">Alert when maintenance is overdue</label>
+        </div>
+        
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <input type="checkbox" id="notifCostSummary" checked style="width: 16px; height: 16px; cursor: pointer;" />
+          <label for="notifCostSummary" style="font-size: 17px; color: var(--fg); cursor: pointer; margin: 0;">Daily cost summary email (shop managers)</label>
+        </div>
+      </div>
+
+      <!-- User Preferences Section -->
+      <div class="settings-group" style="background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+        <h2 style="font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--fg); margin: 0 0 16px 0;">User Preferences</h2>
+        
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">Default Shop View</label>
+          <select id="defaultShopSelect" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 15px; color: var(--fg); background: var(--bg);">
+            <option value="All Shops">All Shops</option>
+            <option value="Downtown Bay">Downtown Bay</option>
+            <option value="North Warehouse">North Warehouse</option>
+            <option value="East Terminal">East Terminal</option>
+          </select>
+        </div>
+        
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">Cost Currency</label>
+          <select id="currencySelect" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 15px; color: var(--fg); background: var(--bg);">
+            <option value="USD">USD ($)</option>
+            <option value="EUR">EUR (€)</option>
+            <option value="GBP">GBP (£)</option>
+          </select>
+        </div>
+        
+        <div>
+          <label style="display: block; font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">Date Format</label>
+          <select id="dateFormatSelect" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 15px; color: var(--fg); background: var(--bg);">
+            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display: flex; gap: 12px; padding: 16px; background: var(--bg); position: sticky; bottom: 0; z-index: 10; border-top: 1px solid var(--border);">
+        <button class="btn btn-primary" onclick="saveSettings()" style="padding: 10px 20px; font-weight: 600;">Save Settings</button>
+        <button class="btn btn-link" onclick="cancelSettings()" style="padding: 10px 20px; color: var(--accent-link); background: transparent; border: none; cursor: pointer; font-size: 15px;">Cancel</button>
+      </div>
+
+      <!-- Success Toast -->
+      <div id="settingsToast" style="position: fixed; bottom: 20px; right: 20px; background: var(--status-available); color: white; padding: 12px 16px; border-radius: 8px; font-size: 14px; display: none; z-index: 1000; box-shadow: 0 2px 12px rgba(0,0,0,0.15);">
+        Settings saved successfully
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Global state store
+    const store = {
+      currentPage: 'vehicles',
+      currentVehicleId: null,
+      filters: {
+        type: null,
+        status: null,
+        search: ''
+      }
+    };
+
+    // Route definitions
+    const routes = {
+      vehicles: '#/',
+      'vehicle': '#/vehicle/:id',
+      'work-orders': '#/work-orders',
+      inspections: '#/inspections',
+      'parts-costs': '#/parts-costs',
+      settings: '#/settings'
+    };
+
+    // Page titles
+    const pageTitles = {
+      vehicles: 'Vehicles',
+      'vehicle': 'Vehicle Detail',
+      'work-orders': 'Work Orders',
+      inspections: 'Inspections',
+      'parts-costs': 'Parts & Costs',
+      settings: 'Settings'
+    };
+
+    // Handle route changes
+    function handleRouteChange() {
+      const hash = window.location.hash.replace(/^#\/?/, '') || '';
+      let pageId = 'vehicles';
+      let vehicleId = null;
+
+      // Parse hash to determine page and parameters
+      if (!hash || hash === '') {
+        pageId = 'vehicles';
+      } else if (hash.startsWith('vehicle/')) {
+        pageId = 'vehicle';
+        vehicleId = hash.replace('vehicle/', '');
+        store.currentVehicleId = vehicleId;
+      } else if (hash === 'work-orders') {
+        pageId = 'work-orders';
+      } else if (hash === 'inspections') {
+        pageId = 'inspections';
+      } else if (hash === 'parts-costs') {
+        pageId = 'parts-costs';
+      } else if (hash === 'settings') {
+        pageId = 'settings';
+      }
+
+      store.currentPage = pageId;
+
+      // Hide all pages
+      document.querySelectorAll('section[data-page]').forEach(section => {
+        section.classList.remove('is-active');
+      });
+
+      // Show active page
+      const activePage = document.querySelector(`section[data-page="${pageId}"]`);
+      if (activePage) {
+        activePage.classList.add('is-active');
+      }
+
+      // Update sidebar active nav item
+      document.querySelectorAll('.nav-item').forEach(link => {
+        link.classList.remove('nav-item--active');
+      });
+      // For vehicle detail, keep the vehicles nav link active
+      const navPageId = pageId === 'vehicle' ? 'vehicles' : pageId;
+      document.querySelectorAll(`[data-page-link="${navPageId}"]`).forEach(link => {
+        link.classList.add('nav-item--active');
+      });
+
+      // Update topbar title
+      const title = pageTitles[pageId] || 'Dashboard';
+      document.getElementById('topbarTitle').textContent = title;
+
+      // For vehicle detail, show vehicle ID in title (placeholder)
+      if (pageId === 'vehicle' && vehicleId) {
+        document.getElementById('vehicleDetailTitle').textContent = `Vehicle: ${vehicleId.toUpperCase()}`;
+      }
+
+      // Initialize inspection handlers when navigating to inspections page
+      if (pageId === 'inspections') {
+        setTimeout(() => {
+          initInspectionHandlers();
+        }, 0);
+      }
+
+      // Render work orders when navigating to work-orders page
+      if (pageId === 'work-orders') {
+        setTimeout(() => {
+          renderWorkOrders();
+        }, 0);
+      }
+    }
+
+    // Navigate to page
+    function navigateTo(pageId, vehicleId = null) {
+      if (vehicleId) {
+        window.location.hash = `#/vehicle/${vehicleId}`;
+      } else {
+        window.location.hash = routes[pageId] || '#/';
+      }
+    }
+
+    // Initialize on load
+    window.addEventListener('hashchange', handleRouteChange);
+    window.addEventListener('load', handleRouteChange);
+
+    // Vehicle data store
+    const vehicleStore = {
+      vehicles: [
+        { id: 'trk-2026-0184', unitNumber: 'TRK-2026-0184', make: 'Volvo', model: 'VNL 860', type: 'Tractor', inServiceDate: '2021-03-15', status: 'Available', daysInStatus: 2 },
+        { id: 'bx-2024-0512', unitNumber: 'BX-2024-0512', make: 'Ford', model: 'F-750', type: 'Box truck', inServiceDate: '2024-01-22', status: 'In shop', daysInStatus: 5 },
+        { id: 'cg-2023-1047', unitNumber: 'CG-2023-1047', make: 'International', model: 'CV', type: 'Cargo van', inServiceDate: '2023-08-10', status: 'Awaiting parts', daysInStatus: 12 },
+        { id: 'tr-2022-0091', unitNumber: 'TR-2022-0091', make: 'Wabash', model: 'Trailer', type: 'Trailer', inServiceDate: '2022-06-05', status: 'Road test', daysInStatus: 1 },
+        { id: 'trk-2025-0203', unitNumber: 'TRK-2025-0203', make: 'Peterbilt', model: '579', type: 'Tractor', inServiceDate: '2025-02-01', status: 'Available', daysInStatus: 0 },
+        { id: 'bx-2023-0889', unitNumber: 'BX-2023-0889', make: 'Isuzu', model: 'NPR-HD', type: 'Box truck', inServiceDate: '2023-11-28', status: 'Out of service', daysInStatus: 45 },
+        { id: 'cg-2024-0156', unitNumber: 'CG-2024-0156', make: 'Mercedes', model: 'Sprinter', type: 'Cargo van', inServiceDate: '2024-05-13', status: 'In shop', daysInStatus: 3 },
+        { id: 'tr-2021-0504', unitNumber: 'TR-2021-0504', make: 'Great Dane', model: 'Trailer', type: 'Trailer', inServiceDate: '2021-09-20', status: 'Available', daysInStatus: 0 },
+        { id: 'trk-2026-0445', unitNumber: 'TRK-2026-0445', make: 'Volvo', model: 'VNL 760', type: 'Tractor', inServiceDate: '2026-01-10', status: 'Awaiting parts', daysInStatus: 8 },
+        { id: 'bx-2025-0067', unitNumber: 'BX-2025-0067', make: 'Freightliner', model: 'M2', type: 'Box truck', inServiceDate: '2025-04-03', status: 'Available', daysInStatus: 1 },
+        { id: 'cg-2022-0733', unitNumber: 'CG-2022-0733', make: 'Ford', model: 'Transit', type: 'Cargo van', inServiceDate: '2022-12-15', status: 'In shop', daysInStatus: 7 },
+        { id: 'tr-2024-0298', unitNumber: 'TR-2024-0298', make: 'Kentucky', model: 'Trailer', type: 'Trailer', inServiceDate: '2024-07-09', status: 'Available', daysInStatus: 0 }
+      ],
+      currentTypeFilter: 'all',
+      currentSearchFilter: ''
+    };
+
+    // Filter and display vehicles on Vehicles page
+    function filterVehicles() {
+      const rows = document.querySelectorAll('#vehicleTableBody tr');
+      let visibleCount = 0;
+      
+      rows.forEach(row => {
+        const vehicleType = row.getAttribute('data-vehicle-type');
+        const unitNumber = row.querySelector('strong').textContent.toLowerCase();
+        
+        const typeMatch = vehicleStore.currentTypeFilter === 'all' || vehicleType === vehicleStore.currentTypeFilter;
+        const searchMatch = unitNumber.includes(vehicleStore.currentSearchFilter);
+        
+        if (typeMatch && searchMatch) {
+          row.style.display = '';
+          visibleCount++;
+        } else {
+          row.style.display = 'none';
+        }
+      });
+    }
+
+    // Type filter pills event listeners
+    document.querySelectorAll('.filter-pill').forEach(pill => {
+      pill.addEventListener('click', (e) => {
+        const filterType = e.target.getAttribute('data-type-filter');
+        vehicleStore.currentTypeFilter = filterType;
+        
+        // Update active state
+        document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('filter-pill--active'));
+        e.target.classList.add('filter-pill--active');
+        
+        filterVehicles();
+      });
+    });
+
+    // Vehicle search input
+    document.getElementById('vehicleSearch').addEventListener('input', (e) => {
+      vehicleStore.currentSearchFilter = e.target.value.toLowerCase();
+      filterVehicles();
+    });
+
+    // Flag Parts button handlers
+    document.querySelectorAll('.flag-parts-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const vehicleId = e.target.getAttribute('data-vehicle-id');
+        const vehicle = vehicleStore.vehicles.find(v => v.id === vehicleId);
+        if (vehicle) {
+          alert(`Parts flagged for ${vehicle.unitNumber}`);
+          // In a real app, this would add to a parts request queue
+        }
+      });
+    });
+
+    // ===== Vehicle Detail Page Handlers =====
+
+    // Vehicle detail data store (extended with service checklist, notes, work orders)
+    const vehicleDetailStore = {
+      vehicles: {
+        'trk-2026-0184': {
+          unitNumber: 'TRK-2026-0184',
+          make: 'Volvo',
+          model: 'VNL 860',
+          type: 'Tractor',
+          vin: '1VUJB5B32F1234567',
+          mileage: 187643,
+          lastService: '2026-01-15',
+          status: 'Available',
+          daysInStatus: 2,
+          workOrders: [
+            { id: 'WO-2026-0515', task: 'Oil Change + Filter Replacement', shop: 'Downtown Bay', status: 'In Progress', tech: 'Mike R.', cost: 245.00 },
+            { id: 'WO-2026-0512', task: 'Oil Filter + Fluid Top', shop: 'Downtown Bay', status: 'In Progress', tech: 'Mike R.', cost: 180.00 },
+            { id: 'WO-2026-0498', task: 'Brake Inspection', shop: 'North Warehouse', status: 'Completed', tech: 'Sarah L.', cost: 180.00 },
+            { id: 'WO-2026-0477', task: 'Tire Rotation', shop: 'East Terminal', status: 'Completed', tech: 'Dave T.', cost: 120.00 },
+            { id: 'WO-2026-0450', task: 'Transmission Service', shop: 'Downtown Bay', status: 'Completed', tech: 'Mike R.', cost: 420.00 }
+          ]
+        },
+        'bx-2024-0512': {
+          unitNumber: 'BX-2024-0512',
+          make: 'Ford',
+          model: 'F-750',
+          type: 'Box truck',
+          vin: '1FTPX24534NA12345',
+          mileage: 142580,
+          lastService: '2026-01-17',
+          status: 'In shop',
+          daysInStatus: 5,
+          workOrders: [
+            { id: 'WO-2026-0514', task: 'Brake Pad Replacement', shop: 'Downtown Bay', status: 'In Progress', tech: 'Sarah L.', cost: 680.00 }
+          ]
+        },
+        'cg-2023-1047': {
+          unitNumber: 'CG-2023-1047',
+          make: 'International',
+          model: 'CV',
+          type: 'Cargo van',
+          vin: '1HTGXAAV3FH123456',
+          mileage: 156230,
+          lastService: '2026-01-16',
+          status: 'Awaiting parts',
+          daysInStatus: 12,
+          workOrders: [
+            { id: 'WO-2026-0511', task: 'Suspension Inspection', shop: 'East Terminal', status: 'In Progress', tech: 'Dave T.', cost: 420.00 }
+          ]
+        },
+        'tr-2022-0091': {
+          unitNumber: 'TR-2022-0091',
+          make: 'Wabash',
+          model: 'Trailer',
+          type: 'Trailer',
+          vin: '1H2V5A2H5MK123456',
+          mileage: 98540,
+          lastService: '2026-01-18',
+          status: 'Road test',
+          daysInStatus: 1,
+          workOrders: [
+            { id: 'WO-2026-0510', task: 'Trailer Light Repair', shop: 'Downtown Bay', status: 'Completed', tech: 'Mike R.', cost: 85.00 }
+          ]
+        },
+        'trk-2025-0203': {
+          unitNumber: 'TRK-2025-0203',
+          make: 'Peterbilt',
+          model: '579',
+          type: 'Tractor',
+          vin: '1XKDD49X95J567890',
+          mileage: 64230,
+          lastService: '2026-01-15',
+          status: 'Available',
+          daysInStatus: 0,
+          workOrders: [
+            { id: 'WO-2026-0507', task: 'Battery Replacement', shop: 'North Warehouse', status: 'Queued', tech: 'Sarah L.', cost: 320.00 }
+          ]
+        },
+        'bx-2023-0889': {
+          unitNumber: 'BX-2023-0889',
+          make: 'Isuzu',
+          model: 'NPR-HD',
+          type: 'Box truck',
+          vin: '1L0AB4FB5ML234567',
+          mileage: 289560,
+          lastService: '2025-06-10',
+          status: 'Out of service',
+          daysInStatus: 45,
+          workOrders: [
+            { id: 'WO-2026-0508', task: 'Full Transmission Service', shop: 'North Warehouse', status: 'On Hold', tech: 'Dave T.', cost: 1250.00 }
+          ]
+        },
+        'cg-2024-0156': {
+          unitNumber: 'CG-2024-0156',
+          make: 'Mercedes',
+          model: 'Sprinter',
+          type: 'Cargo van',
+          vin: '1D4GP54L85B234567',
+          mileage: 31450,
+          lastService: '2026-01-17',
+          status: 'In shop',
+          daysInStatus: 3,
+          workOrders: [
+            { id: 'WO-2026-0511', task: 'Suspension Inspection', shop: 'East Terminal', status: 'In Progress', tech: 'Dave T.', cost: 420.00 }
+          ]
+        },
+        'tr-2021-0504': {
+          unitNumber: 'TR-2021-0504',
+          make: 'Great Dane',
+          model: 'Trailer',
+          type: 'Trailer',
+          vin: '1H2V5A2G2LK987654',
+          mileage: 187320,
+          lastService: '2026-01-12',
+          status: 'Available',
+          daysInStatus: 0,
+          workOrders: [
+            { id: 'WO-2026-0506', task: 'Hitch Inspection', shop: 'East Terminal', status: 'In Progress', tech: 'Mike R.', cost: 215.00 }
+          ]
+        },
+        'trk-2026-0445': {
+          unitNumber: 'TRK-2026-0445',
+          make: 'Volvo',
+          model: 'VNL 760',
+          type: 'Tractor',
+          vin: '1VUJB5B32K1234567',
+          mileage: 12340,
+          lastService: '2026-01-18',
+          status: 'Awaiting parts',
+          daysInStatus: 8,
+          workOrders: [
+            { id: 'WO-2026-0505', task: 'Windshield Replacement', shop: 'East Terminal', status: 'Queued', tech: 'Sarah L.', cost: 445.00 }
+          ]
+        },
+        'bx-2025-0067': {
+          unitNumber: 'BX-2025-0067',
+          make: 'Freightliner',
+          model: 'M2',
+          type: 'Box truck',
+          vin: '1FDX4D4F35DA56789',
+          mileage: 8760,
+          lastService: '2026-01-18',
+          status: 'Available',
+          daysInStatus: 1,
+          workOrders: [
+            { id: 'WO-2026-0500', task: 'Door Latch Repair', shop: 'East Terminal', status: 'In Progress', tech: 'Sarah L.', cost: 195.00 }
+          ]
+        },
+        'cg-2022-0733': {
+          unitNumber: 'CG-2022-0733',
+          make: 'Ford',
+          model: 'Transit',
+          type: 'Cargo van',
+          vin: '1D4GP54L75B123456',
+          mileage: 167890,
+          lastService: '2026-01-16',
+          status: 'In shop',
+          daysInStatus: 7,
+          workOrders: [
+            { id: 'WO-2026-0502', task: 'Brake Fluid Flush', shop: 'North Warehouse', status: 'Completed', tech: 'Dave T.', cost: 165.00 }
+          ]
+        },
+        'tr-2024-0298': {
+          unitNumber: 'TR-2024-0298',
+          make: 'Kentucky',
+          model: 'Trailer',
+          type: 'Trailer',
+          vin: '2H2V5A2E4MK234567',
+          mileage: 45680,
+          lastService: '2026-01-17',
+          status: 'Available',
+          daysInStatus: 0,
+          workOrders: [
+            { id: 'WO-2026-0504', task: 'Trailer Inspection', shop: 'East Terminal', status: 'Completed', tech: 'Dave T.', cost: 125.00 }
+          ]
+        }
+      }
+    };
+
+    // Status transition rules
+    const statusTransitions = {
+      'Available': ['In shop', 'Out of service'],
+      'In shop': ['Available', 'Awaiting parts', 'Road test'],
+      'Awaiting parts': ['In shop'],
+      'Road test': ['Available', 'In shop'],
+      'Out of service': ['Available', 'In shop']
+    };
+
+    // Load and display vehicle detail from URL
+    function loadVehicleDetail(vehicleId) {
+      const vehicleData = vehicleDetailStore.vehicles[vehicleId];
+      if (!vehicleData) return;
+
+      // Update header
+      document.getElementById('vehicleUnitNumber').textContent = vehicleData.unitNumber;
+      document.getElementById('vehicleMakeModel').textContent = `${vehicleData.make} ${vehicleData.model}`;
+      document.getElementById('vehicleTypeBadge').textContent = vehicleData.type;
+      document.getElementById('vehicleVin').textContent = vehicleData.vin;
+      document.getElementById('vehicleMileage').textContent = vehicleData.mileage.toLocaleString() + ' mi';
+      document.getElementById('vehicleLastService').textContent = vehicleData.lastService;
+      
+      // Update status badge
+      const statusBadge = document.getElementById('vehicleStatusBadge');
+      statusBadge.textContent = vehicleData.status;
+      statusBadge.className = 'status-badge';
+      const statusClass = 'badge--' + vehicleData.status.toLowerCase().replace(/\s+/g, '-');
+      statusBadge.classList.add(statusClass);
+      
+      document.getElementById('vehicleDaysInStatus').textContent = vehicleData.daysInStatus + ' day' + (vehicleData.daysInStatus !== 1 ? 's' : '');
+      
+      // Update page title
+      document.getElementById('vehicleDetailTitle').textContent = `Vehicle: ${vehicleData.unitNumber} — ${vehicleData.make} ${vehicleData.model}`;
+      document.getElementById('topbarTitle').textContent = `Vehicle: ${vehicleData.unitNumber}`;
+
+      // Build status menu
+      const validNextStatuses = statusTransitions[vehicleData.status] || [];
+      const menuItems = document.getElementById('statusMenuItems');
+      menuItems.innerHTML = '';
+      validNextStatuses.forEach(status => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--border); font-size: 14px; color: var(--fg);';
+        item.textContent = status;
+        item.addEventListener('mouseover', () => item.style.background = 'var(--bg-light)');
+        item.addEventListener('mouseout', () => item.style.background = 'transparent');
+        item.addEventListener('click', () => advanceVehicleStatus(vehicleId, status));
+        menuItems.appendChild(item);
+      });
+    }
+
+    // Advance vehicle status
+    function advanceVehicleStatus(vehicleId, newStatus) {
+      const vehicleData = vehicleDetailStore.vehicles[vehicleId];
+      if (!vehicleData) return;
+
+      vehicleData.status = newStatus;
+      vehicleData.daysInStatus = 0; // Reset days when status changes
+
+      // Also update in vehicleStore
+      const vehicle = vehicleStore.vehicles.find(v => v.id === vehicleId);
+      if (vehicle) {
+        vehicle.status = newStatus;
+        vehicle.daysInStatus = 0;
+      }
+
+      // Hide menu
+      document.getElementById('advanceStatusMenu').style.display = 'none';
+
+      // Reload detail
+      loadVehicleDetail(vehicleId);
+
+      // Show success message
+      showToast(`Status updated to ${newStatus}`);
+    }
+
+    // Show toast notification
+    function showToast(message) {
+      const toast = document.createElement('div');
+      toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: var(--status-available);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 1000;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      `;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    // Advance Status button handler
+    document.getElementById('advanceStatusBtn').addEventListener('click', (e) => {
+      const menu = document.getElementById('advanceStatusMenu');
+      menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // Flag for Parts button handler
+    document.getElementById('flagForPartsBtn').addEventListener('click', () => {
+      const form = document.getElementById('flagPartsForm');
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // Confirm Parts button handler
+    document.getElementById('confirmPartsBtn').addEventListener('click', () => {
+      const partName = document.getElementById('partName').value;
+      const partQty = parseInt(document.getElementById('partQty').value) || 1;
+      const partCost = parseFloat(document.getElementById('partCost').value) || 0;
+
+      if (!partName.trim()) {
+        alert('Please enter a part name');
+        return;
+      }
+
+      // Show success
+      showToast(`Parts flagged: ${partName} (Qty: ${partQty}, Est. Cost: $${partCost.toFixed(2)})`);
+
+      // Reset form
+      document.getElementById('partName').value = '';
+      document.getElementById('partQty').value = '1';
+      document.getElementById('partCost').value = '';
+      document.getElementById('flagPartsForm').style.display = 'none';
+    });
+
+    // Cancel Parts button handler
+    document.getElementById('cancelPartsBtn').addEventListener('click', () => {
+      document.getElementById('flagPartsForm').style.display = 'none';
+      document.getElementById('partName').value = '';
+      document.getElementById('partQty').value = '1';
+      document.getElementById('partCost').value = '';
+    });
+
+    // Close status menu when clicking elsewhere
+    document.addEventListener('click', (e) => {
+      const advanceBtn = document.getElementById('advanceStatusBtn');
+      const menu = document.getElementById('advanceStatusMenu');
+      if (!advanceBtn.contains(e.target) && !menu.contains(e.target)) {
+        menu.style.display = 'none';
+      }
+    });
+
+    // Hook into route change to load vehicle detail
+    const originalHandleRouteChange = handleRouteChange;
+    window.handleRouteChange = function() {
+      originalHandleRouteChange.call(this);
+      
+      // If on vehicle detail page, load the vehicle data
+      if (store.currentPage === 'vehicle' && store.currentVehicleId) {
+        loadVehicleDetail(store.currentVehicleId);
+      }
+      
+      // If on work orders page, render the table
+      if (store.currentPage === 'work-orders') {
+        renderWorkOrders();
+      }
+    };
+
+    // ===== Work Orders Page Handlers =====
+
+    const workOrdersStore = {
+      workOrders: [
+        // Downtown Bay (5 orders)
+        { id: 'WO-2026-0515', vehicleUnit: 'TRK-2026-0184', task: 'Engine Oil Change', tech: 'Mike R.', status: 'In Progress', daysInQueue: 1, priority: 'Normal', cost: 245.00, shop: 'downtown', lineItems: [{ partName: 'Synthetic Oil 15W-40', qty: 6, unitCost: 18.50, total: 111.00 }, { partName: 'Oil Filter', qty: 1, unitCost: 35.00, total: 35.00 }] },
+        { id: 'WO-2026-0514', vehicleUnit: 'BX-2024-0512', task: 'Brake Pad Replacement', tech: 'Sarah L.', status: 'Queued', daysInQueue: 2, priority: 'High', cost: 680.00, shop: 'downtown', lineItems: [{ partName: 'Front Brake Pads (Set)', qty: 1, unitCost: 285.00, total: 285.00 }, { partName: 'Brake Fluid', qty: 1, unitCost: 45.00, total: 45.00 }] },
+        { id: 'WO-2026-0512', vehicleUnit: 'TRK-2026-0184', task: 'Oil Filter + Fluid Top', tech: 'Mike R.', status: 'In Progress', daysInQueue: 1, priority: 'Normal', cost: 180.00, shop: 'downtown', lineItems: [{ partName: 'Oil Filter', qty: 1, unitCost: 35.00, total: 35.00 }, { partName: 'Coolant', qty: 1, unitCost: 25.00, total: 25.00 }, { partName: 'Labor', qty: 1, unitCost: 120.00, total: 120.00 }] },
+        { id: 'WO-2026-0510', vehicleUnit: 'TR-2022-0091', task: 'Trailer Light Repair', tech: 'Mike R.', status: 'Completed', daysInQueue: 0, priority: 'Normal', cost: 85.00, shop: 'downtown', lineItems: [{ partName: 'LED Light Fixture', qty: 2, unitCost: 28.00, total: 56.00 }, { partName: 'Labor', qty: 1, unitCost: 29.00, total: 29.00 }] },
+        { id: 'WO-2026-0503', vehicleUnit: 'TRK-2025-0203', task: 'Routine Maintenance', tech: 'Sarah L.', status: 'Queued', daysInQueue: 4, priority: 'Normal', cost: 320.00, shop: 'downtown', lineItems: [{ partName: 'Air Filter', qty: 1, unitCost: 42.00, total: 42.00 }, { partName: 'Cabin Filter', qty: 1, unitCost: 28.00, total: 28.00 }] },
+        
+        // North Warehouse (5 orders)
+        { id: 'WO-2026-0511', vehicleUnit: 'CG-2024-0156', task: 'Suspension Inspection', tech: 'Dave T.', status: 'Queued', daysInQueue: 3, priority: 'High', cost: 420.00, shop: 'north', lineItems: [{ partName: 'Shock Absorber (Front)', qty: 2, unitCost: 156.00, total: 312.00 }, { partName: 'Labor', qty: 1, unitCost: 108.00, total: 108.00 }] },
+        { id: 'WO-2026-0509', vehicleUnit: 'CG-2023-1047', task: 'Tire Replacement', tech: 'Sarah L.', status: 'In Progress', daysInQueue: 2, priority: 'Normal', cost: 890.00, shop: 'north', lineItems: [{ partName: 'Commercial Tire 225/70R19.5', qty: 4, unitCost: 185.00, total: 740.00 }, { partName: 'Tire Balancing', qty: 4, unitCost: 15.00, total: 60.00 }] },
+        { id: 'WO-2026-0508', vehicleUnit: 'BX-2023-0889', task: 'Full Transmission Service', tech: 'Dave T.', status: 'On Hold', daysInQueue: 6, priority: 'High', cost: 1250.00, shop: 'north', lineItems: [{ partName: 'Transmission Fluid', qty: 1, unitCost: 85.00, total: 85.00 }, { partName: 'Filter', qty: 1, unitCost: 42.00, total: 42.00 }] },
+        { id: 'WO-2026-0507', vehicleUnit: 'TRK-2026-0445', task: 'Battery Replacement', tech: 'Sarah L.', status: 'Queued', daysInQueue: 1, priority: 'Normal', cost: 320.00, shop: 'north', lineItems: [{ partName: 'Heavy Duty Battery 12V 200Ah', qty: 1, unitCost: 285.00, total: 285.00 }, { partName: 'Labor', qty: 1, unitCost: 35.00, total: 35.00 }] },
+        { id: 'WO-2026-0502', vehicleUnit: 'CG-2022-0733', task: 'Brake Fluid Flush', tech: 'Dave T.', status: 'Completed', daysInQueue: 0, priority: 'Normal', cost: 165.00, shop: 'north', lineItems: [{ partName: 'DOT 4 Brake Fluid', qty: 2, unitCost: 35.00, total: 70.00 }, { partName: 'Labor', qty: 1, unitCost: 95.00, total: 95.00 }] },
+        
+        // East Terminal (5 orders)
+        { id: 'WO-2026-0506', vehicleUnit: 'TR-2021-0504', task: 'Hitch Inspection', tech: 'Mike R.', status: 'In Progress', daysInQueue: 2, priority: 'Normal', cost: 215.00, shop: 'east', lineItems: [{ partName: 'Hitch Ball (2 5/16in)', qty: 1, unitCost: 65.00, total: 65.00 }, { partName: 'Hitch Pin', qty: 2, unitCost: 12.00, total: 24.00 }] },
+        { id: 'WO-2026-0505', vehicleUnit: 'BX-2025-0067', task: 'Windshield Replacement', tech: 'Sarah L.', status: 'Queued', daysInQueue: 1, priority: 'Normal', cost: 445.00, shop: 'east', lineItems: [{ partName: 'Laminated Windshield Glass', qty: 1, unitCost: 385.00, total: 385.00 }, { partName: 'Urethane Sealant', qty: 1, unitCost: 15.00, total: 15.00 }] },
+        { id: 'WO-2026-0504', vehicleUnit: 'TR-2024-0298', task: 'Trailer Inspection', tech: 'Dave T.', status: 'Completed', daysInQueue: 0, priority: 'Normal', cost: 125.00, shop: 'east', lineItems: [{ partName: 'Labor', qty: 1, unitCost: 125.00, total: 125.00 }] },
+        { id: 'WO-2026-0501', vehicleUnit: 'CG-2024-0156', task: 'HVAC System Check', tech: 'Mike R.', status: 'Queued', daysInQueue: 5, priority: 'High', cost: 285.00, shop: 'east', lineItems: [{ partName: 'Refrigerant R134a', qty: 1, unitCost: 65.00, total: 65.00 }, { partName: 'Compressor Inspection', qty: 1, unitCost: 220.00, total: 220.00 }] },
+        { id: 'WO-2026-0500', vehicleUnit: 'BX-2024-0512', task: 'Door Latch Repair', tech: 'Sarah L.', status: 'In Progress', daysInQueue: 3, priority: 'Normal', cost: 195.00, shop: 'east', lineItems: [{ partName: 'Door Latch Assembly', qty: 1, unitCost: 145.00, total: 145.00 }, { partName: 'Labor', qty: 1, unitCost: 50.00, total: 50.00 }] }
+      ],
+      currentShopFilter: 'all'
+    };
+
+    // Render work orders table
+    function renderWorkOrders() {
+      const tbody = document.getElementById('workOrdersTableBody');
+      if (!tbody) return;
+      
+      tbody.innerHTML = '';
+      
+      const filtered = workOrdersStore.workOrders.filter(wo => 
+        workOrdersStore.currentShopFilter === 'all' || wo.shop === workOrdersStore.currentShopFilter
+      );
+      
+      filtered.forEach((wo, index) => {
+        const row = document.createElement('tr');
+        row.style.cursor = 'pointer';
+        row.setAttribute('data-wo-id', wo.id);
+        
+        const statusClass = 'badge--' + wo.status.toLowerCase().replace(/\s+/g, '-');
+        const priorityBadge = wo.priority === 'High' ? `<span class="status-badge" style="background: rgba(255, 59, 48, 0.15); color: #ff3b30;">${wo.priority}</span>` : `<span style="color: var(--fg-secondary); font-size: 14px;">${wo.priority}</span>`;
+        
+        row.innerHTML = `
+          <td><strong>${wo.id}</strong></td>
+          <td><a href="#/vehicle/${wo.vehicleUnit.toLowerCase()}" style="color: var(--accent-link); text-decoration: none; cursor: pointer;">${wo.vehicleUnit}</a></td>
+          <td>${wo.task}</td>
+          <td>${wo.tech}</td>
+          <td><span class="status-badge ${statusClass}">${wo.status}</span></td>
+          <td>${wo.daysInQueue}</td>
+          <td>${priorityBadge}</td>
+          <td style="text-align: right; font-weight: 500;">$${wo.cost.toFixed(2)}</td>
+          <td style="text-align: center;">
+            <span style="font-size: 12px; color: var(--fg-secondary);">▼</span>
+          </td>
+        `;
+        
+        row.addEventListener('click', () => toggleWorkOrderDetail(wo));
+        tbody.appendChild(row);
+      });
+    }
+
+    // Toggle work order detail row
+    function toggleWorkOrderDetail(wo) {
+      const existingDetail = document.getElementById('detail-' + wo.id);
+      if (existingDetail) {
+        existingDetail.remove();
+        return;
+      }
+      
+      // Create detail row
+      const detailRow = document.createElement('tr');
+      detailRow.id = 'detail-' + wo.id;
+      detailRow.style.background = 'var(--bg-light)';
+      
+      const detailCell = document.createElement('td');
+      detailCell.colSpan = 9;
+      detailCell.style.padding = '16px';
+      
+      // Build line items table
+      let lineItemsHtml = '<div style="margin-bottom: 16px;"><strong style="font-size: 14px;">Line Items:</strong><table style="width: 100%; margin-top: 8px; font-size: 14px;"><tr style="border-bottom: 1px solid var(--border); background: var(--bg);"><th style="text-align: left; padding: 8px; font-weight: 600;">Part Name</th><th style="text-align: center; padding: 8px; font-weight: 600;">Qty</th><th style="text-align: right; padding: 8px; font-weight: 600;">Unit Cost</th><th style="text-align: right; padding: 8px; font-weight: 600;">Total</th></tr>';
+      
+      wo.lineItems.forEach(item => {
+        lineItemsHtml += `
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 8px;">${item.partName}</td>
+            <td style="text-align: center; padding: 8px;">${item.qty}</td>
+            <td style="text-align: right; padding: 8px;">$${item.unitCost.toFixed(2)}</td>
+            <td style="text-align: right; padding: 8px; font-weight: 500;">$${item.total.toFixed(2)}</td>
+          </tr>
+        `;
+      });
+      lineItemsHtml += '</table></div>';
+      
+      // Build update status dropdown
+      const statusOptions = ['Queued', 'In Progress', 'On Hold', 'Completed'];
+      let statusHtml = '<div style="margin-bottom: 12px;"><label style="font-size: 14px; font-weight: 600; display: block; margin-bottom: 8px;">Update Status:</label><select id="status-' + wo.id + '" style="padding: 6px 12px; border: 1px solid var(--border-strong); border-radius: 6px; font-size: 14px; background: var(--bg); color: var(--fg);"><option value="">— Select new status —</option>';
+      statusOptions.forEach(status => {
+        statusHtml += `<option value="${status}" ${wo.status === status ? 'selected' : ''}>${status}</option>`;
+      });
+      statusHtml += '</select></div>';
+      
+      detailCell.innerHTML = lineItemsHtml + statusHtml;
+      detailRow.appendChild(detailCell);
+      
+      // Insert detail row after current row
+      const currentRow = document.querySelector(`[data-wo-id="${wo.id}"]`);
+      if (currentRow && currentRow.nextSibling) {
+        currentRow.parentNode.insertBefore(detailRow, currentRow.nextSibling);
+      } else if (currentRow) {
+        currentRow.parentNode.appendChild(detailRow);
+      }
+      
+      // Wire up status dropdown
+      document.getElementById('status-' + wo.id).addEventListener('change', (e) => {
+        const newStatus = e.target.value;
+        if (newStatus) {
+          wo.status = newStatus;
+          renderWorkOrders();
+          showToast(`Work Order ${wo.id} updated to ${newStatus}`);
+        }
+      });
+    }
+
+    // Filter by shop tab
+    function filterByShop(event, shop) {
+      workOrdersStore.currentShopFilter = shop;
+      
+      // Update tab active state
+      document.querySelectorAll('.shop-tab').forEach(tab => {
+        tab.classList.remove('shop-tab--active');
+        tab.style.fontWeight = '400';
+        tab.style.borderBottom = 'none';
+        tab.style.bottom = '0';
+      });
+      event.target.classList.add('shop-tab--active');
+      event.target.style.fontWeight = '600';
+      event.target.style.borderBottom = '3px solid var(--accent)';
+      event.target.style.position = 'relative';
+      event.target.style.bottom = '-12px';
+      
+      renderWorkOrders();
+    }
+
+    // Inspection data store
+    const inspectionData = {
+      inspections: [
+        { id: 'insp-2026-0801', vehicleUnit: 'TRK-2026-0184', type: 'Pre-trip', date: '2026-01-18', tech: 'Mike R.', findings: 'Clean, no issues noted', status: 'Passed', deficiencies: [] },
+        { id: 'insp-2026-0802', vehicleUnit: 'BX-2024-0512', type: 'DOT Compliance', date: '2026-01-17', tech: 'Sarah L.', findings: 'Brake deficiency detected, flagged for repair', status: 'Failed', deficiencies: [{ code: 'BRK-001', desc: 'Brake system deficiency', severity: 'Critical' }, { code: 'FLD-003', desc: 'Fluid level low', severity: 'Minor' }], signOff: '2026-01-17 14:32 PM' },
+        { id: 'insp-2026-0803', vehicleUnit: 'CG-2023-1047', type: 'Annual Safety', date: '2026-01-16', tech: 'Dave T.', findings: 'Tire wear within limits, suspension OK', status: 'Passed', deficiencies: [] },
+        { id: 'insp-2026-0804', vehicleUnit: 'TR-2022-0091', type: 'Post-trip', date: '2026-01-18', tech: 'Mike R.', findings: 'Trailer lights functional, all connections secure', status: 'Passed', deficiencies: [] },
+        { id: 'insp-2026-0805', vehicleUnit: 'TRK-2025-0203', type: 'Pre-trip', date: '2026-01-18', tech: 'Sarah L.', findings: 'Minor oil seep observed, monitor', status: 'Passed', deficiencies: [] },
+        { id: 'insp-2026-0806', vehicleUnit: 'BX-2023-0889', type: 'Annual Safety', date: '2025-06-10', tech: 'Dave T.', findings: 'Multiple deficiencies, vehicle out of service', status: 'Failed', deficiencies: [{ code: 'BRK-002', desc: 'Brake pads worn', severity: 'Critical' }, { code: 'WHL-001', desc: 'Wheel bearing damage', severity: 'Critical' }, { code: 'SUS-004', desc: 'Suspension spring broken', severity: 'Critical' }], signOff: '2025-06-10 11:15 AM' },
+        { id: 'insp-2026-0807', vehicleUnit: 'CG-2024-0156', type: 'Pre-trip', date: '2026-01-18', tech: 'Mike R.', findings: 'All systems operational', status: 'Passed', deficiencies: [] },
+        { id: 'insp-2026-0808', vehicleUnit: 'TR-2021-0504', type: 'Emission', date: '2026-01-12', tech: 'Sarah L.', findings: 'Emissions within limits, catalyst OK', status: 'Passed', deficiencies: [] },
+        { id: 'insp-2026-0809', vehicleUnit: 'TRK-2026-0445', type: 'Post-trip', date: '2026-01-18', tech: 'Dave T.', findings: 'Engine knock detected, diagnostics recommended', status: 'Failed', deficiencies: [{ code: 'ENG-005', desc: 'Engine knock', severity: 'Major' }], signOff: '2026-01-18 15:45 PM' },
+        { id: 'insp-2026-0810', vehicleUnit: 'BX-2025-0067', type: 'Pre-trip', date: '2026-01-18', tech: 'Mike R.', findings: 'Clean inspection, no issues', status: 'Passed', deficiencies: [] }
+      ],
+      currentTypeFilter: 'all'
+    };
+
+    // Initialize inspection page event handlers on page load
+    function initInspectionHandlers() {
+      // Filter pills click handler
+      document.querySelectorAll('[data-inspection-type-filter]').forEach(pill => {
+        pill.addEventListener('click', (e) => {
+          e.preventDefault();
+          const filterType = e.target.getAttribute('data-inspection-type-filter');
+          inspectionData.currentTypeFilter = filterType;
+          
+          // Update active pill styling
+          document.querySelectorAll('[data-inspection-type-filter]').forEach(p => {
+            p.classList.remove('filter-pill--active');
+            p.style.background = 'transparent';
+            p.style.color = 'var(--fg)';
+            p.style.fontWeight = '400';
+            p.style.borderWidth = '1px';
+            p.style.borderStyle = 'solid';
+            p.style.borderColor = 'var(--border-strong)';
+          });
+          e.target.classList.add('filter-pill--active');
+          e.target.style.background = 'var(--accent)';
+          e.target.style.color = 'white';
+          e.target.style.fontWeight = '500';
+          e.target.style.borderWidth = '0';
+          
+          // Filter and render table
+          filterInspections();
+        });
+      });
+      
+      // Inspection row click handler for expansion
+      document.querySelectorAll('[data-inspection-id]').forEach(row => {
+        row.addEventListener('click', (e) => {
+          if (e.target.tagName === 'A') return; // Don't toggle if clicking a link
+          const inspectionId = e.currentTarget.getAttribute('data-inspection-id');
+          const inspection = inspectionData.inspections.find(i => i.id === inspectionId);
+          if (inspection) {
+            toggleInspectionDetail(inspection);
+          }
+        });
+      });
+    }
+
+    // Filter inspections by type
+    function filterInspections() {
+      const rows = document.querySelectorAll('[data-inspection-id]');
+      rows.forEach(row => {
+        const inspectionId = row.getAttribute('data-inspection-id');
+        const inspection = inspectionData.inspections.find(i => i.id === inspectionId);
+        if (!inspection) return;
+        
+        // Convert inspection type to filter key format
+        const typeKey = inspection.type.toLowerCase().replace(/\s+/g, '-');
+        const matches = inspectionData.currentTypeFilter === 'all' || typeKey === inspectionData.currentTypeFilter;
+        
+        row.style.display = matches ? '' : 'none';
+        
+        // Remove detail row if it exists
+        const detailRow = document.getElementById('detail-' + inspection.id);
+        if (detailRow) {
+          detailRow.remove();
+        }
+      });
+    }
+
+    // Toggle inspection detail row
+    function toggleInspectionDetail(inspection) {
+      const existingDetail = document.getElementById('detail-' + inspection.id);
+      if (existingDetail) {
+        existingDetail.remove();
+        return;
+      }
+      
+      // Create detail row
+      const detailRow = document.createElement('tr');
+      detailRow.id = 'detail-' + inspection.id;
+      detailRow.style.background = 'var(--bg-light)';
+      
+      const detailCell = document.createElement('td');
+      detailCell.colSpan = 6;
+      detailCell.style.padding = '16px';
+      
+      // Build findings detail HTML
+      let detailHtml = '<div style="font-size: 14px; line-height: 1.5;">';
+      detailHtml += '<div style="margin-bottom: 16px;"><strong style="color: var(--fg);">Full Findings:</strong><p style="color: var(--fg-secondary); margin: 8px 0 0 0;">' + inspection.findings + '</p></div>';
+      
+      if (inspection.deficiencies && inspection.deficiencies.length > 0) {
+        detailHtml += '<div style="margin-bottom: 16px;"><strong style="color: var(--fg);">Deficiencies Found:</strong><ul style="margin: 8px 0 0 0; padding-left: 20px; color: var(--fg-secondary);">';
+        inspection.deficiencies.forEach(def => {
+          const severityColor = def.severity === 'Critical' ? '#ff3b30' : (def.severity === 'Major' ? '#ff9500' : '#34c759');
+          detailHtml += '<li>' + def.desc + ' <span style="background: ' + severityColor + '15; color: ' + severityColor + '; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px;">(' + def.severity + ')</span></li>';
+        });
+        detailHtml += '</ul></div>';
+      }
+      
+      if (inspection.signOff) {
+        detailHtml += '<div style="margin-bottom: 12px; color: var(--fg-secondary); font-size: 12px;"><strong>Technician Sign-off:</strong> ' + inspection.signOff + '</div>';
+      }
+      
+      detailHtml += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);"><span style="font-size: 12px; color: var(--fg-secondary);">Click row again to collapse</span></div></div>';
+      
+      detailCell.innerHTML = detailHtml;
+      detailRow.appendChild(detailCell);
+      
+      // Insert detail row after current row
+      const currentRow = document.querySelector(`[data-inspection-id="${inspection.id}"]`);
+      if (currentRow && currentRow.nextSibling) {
+        currentRow.parentNode.insertBefore(detailRow, currentRow.nextSibling);
+      } else if (currentRow) {
+        currentRow.parentNode.appendChild(detailRow);
+      }
+    }
+
+    // Initialize inspection handlers when needed
+    window.addEventListener('load', () => {
+      if (store.currentPage === 'inspections') {
+        initInspectionHandlers();
+      }
+    });
+
+    // Settings page state
+    const settingsStore = {
+      fleetName: 'Northwind Logistics',
+      hqLocation: 'Chicago, IL 60601',
+      defaultShop: 'All Shops',
+      currency: 'USD',
+      dateFormat: 'MM/DD/YYYY',
+      notifications: {
+        vehicleStatus: true,
+        partsBackorder: true,
+        inspectionFail: true,
+        maintenanceOverdue: true,
+        costSummary: true
+      }
+    };
+
+    // Save settings to localStorage and show toast
+    function saveSettings() {
+      // Collect form data
+      settingsStore.fleetName = document.getElementById('fleetNameInput').value;
+      settingsStore.hqLocation = document.getElementById('hqLocationInput').value;
+      settingsStore.defaultShop = document.getElementById('defaultShopSelect').value;
+      settingsStore.currency = document.getElementById('currencySelect').value;
+      settingsStore.dateFormat = document.getElementById('dateFormatSelect').value;
+      
+      settingsStore.notifications.vehicleStatus = document.getElementById('notifVehicleStatus').checked;
+      settingsStore.notifications.partsBackorder = document.getElementById('notifPartsBackorder').checked;
+      settingsStore.notifications.inspectionFail = document.getElementById('notifInspectionFail').checked;
+      settingsStore.notifications.maintenanceOverdue = document.getElementById('notifMaintenanceOverdue').checked;
+      settingsStore.notifications.costSummary = document.getElementById('notifCostSummary').checked;
+      
+      // Save to localStorage (optional for prototype)
+      try {
+        localStorage.setItem('settingsStore', JSON.stringify(settingsStore));
+      } catch (e) {
+        console.log('localStorage not available');
+      }
+      
+      // Show success toast
+      const toast = document.getElementById('settingsToast');
+      toast.style.display = 'block';
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 3000);
+    }
+
+    // Cancel settings (revert to last saved state)
+    function cancelSettings() {
+      // Reload form from settingsStore
+      document.getElementById('fleetNameInput').value = settingsStore.fleetName;
+      document.getElementById('hqLocationInput').value = settingsStore.hqLocation;
+      document.getElementById('defaultShopSelect').value = settingsStore.defaultShop;
+      document.getElementById('currencySelect').value = settingsStore.currency;
+      document.getElementById('dateFormatSelect').value = settingsStore.dateFormat;
+      
+      document.getElementById('notifVehicleStatus').checked = settingsStore.notifications.vehicleStatus;
+      document.getElementById('notifPartsBackorder').checked = settingsStore.notifications.partsBackorder;
+      document.getElementById('notifInspectionFail').checked = settingsStore.notifications.inspectionFail;
+      document.getElementById('notifMaintenanceOverdue').checked = settingsStore.notifications.maintenanceOverdue;
+      document.getElementById('notifCostSummary').checked = settingsStore.notifications.costSummary;
+    }
+
+    // Edit shop (stub for now)
+    function editShop(event, shopName) {
+      event.preventDefault();
+      alert(`Edit form for ${shopName} shop (stub implementation)`);
+    }
+
+    // Add new shop (stub for now)
+    function addNewShop() {
+      alert('Add new shop form (stub implementation)');
+    }
+
+    // Load settings on page load
+    window.addEventListener('load', () => {
+      // Try to load from localStorage
+      try {
+        const saved = localStorage.getItem('settingsStore');
+        if (saved) {
+          Object.assign(settingsStore, JSON.parse(saved));
+        }
+      } catch (e) {
+        console.log('localStorage not available');
+      }
+      
+      // Populate form on settings page if it's active
+      if (store.currentPage === 'settings') {
+        cancelSettings();
+      }
+    });
+  </script>
+</body>
+</html>

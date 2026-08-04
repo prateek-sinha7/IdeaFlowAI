@@ -1,0 +1,105 @@
+{
+  "row_id": "northwind_fleet",
+  "score": 57.6,
+  "judge_model": "claude-opus-5 (claude code)",
+  "checks_failed": false,
+  "scoring": "severity_priced",
+  "sub_scores": {
+    "data_realism": 60,
+    "page_completeness": 56,
+    "visual_coherence": 56
+  },
+  "sub_scores_judge_self": {
+    "data_realism": 78,
+    "page_completeness": 80,
+    "visual_coherence": 72
+  },
+  "findings": {
+    "data_realism": [
+      {
+        "text": "major: Parts & Costs totals do not reconcile with the work-order data anywhere else in the document, despite the brief's explicit 'Parts & Costs totals must sum from work order line items'. The cost table claims TRK-2026-0184 = $1,245 across 3 work orders, but workOrdersStore holds only WO-2026-0515 ($245) and WO-2026-0512 ($180) for that unit = $425 over 2 orders. BX-2023-0889 is listed at $8,500 while its only work order in the store is WO-2026-0508 'Full Transmission Service' at $1,250. TR-2021-0504 shows $320 against WO-2026-0506 'Hitch Inspection' priced $215 in the Work Orders table.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: the same work-order number describes different work on different pages, so a reader cross-checking two screens gets contradictory records. Parts & Costs lists 'WO-2026-0505: Full Overhaul' against BX-2023-0889, while Work Orders renders WO-2026-0505 as 'Windshield Replacement' on BX-2025-0067 ($445, East Terminal). Parts & Costs lists 'WO-2026-0507: Tire Repl' for CG-2023-1047, while WO-2026-0507 in the store is 'Battery Replacement' on TRK-2026-0445. The Vehicle Detail work-order history cites WO-2026-0498, WO-2026-0477 and WO-2026-0450, none of which exist in the Work Orders dataset.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: several expanded work-order line-item tables sum to well under the headline cost with no labor line to explain the gap — WO-2026-0514 shows 'Front Brake Pads (Set)' $285 + 'Brake Fluid' $45 = $330 against a stated $680; WO-2026-0508 shows $85 + $42 = $127 against $1,250 — while other rows (WO-2026-0512, WO-2026-0510) do carry an explicit 'Labor' line item.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "page_completeness": [
+      {
+        "text": "major: Vehicle Detail never binds to the vehicle the user clicked. loadVehicleDetail() is only reachable through the wrapper assigned at 'window.handleRouteChange = function() {...}', but the hashchange/load listeners were registered earlier with the original function object, so the wrapper is never invoked. Two visible consequences: (1) opening #/vehicle/bx-2024-0512 updates the heading to 'Vehicle: BX-2024-0512' while the body still reads 'TRK-2026-0184 / Volvo VNL 860 / VIN 1VUJB5B32F1234567 / 187,643 mi' and the TRK checklist and notes — the same wrong record for 11 of the 12 vehicles; (2) '<div id=\"statusMenuItems\"></div>' is only populated by loadVehicleDetail, so 'Advance Status' opens an empty dropdown and the brief's headline action (move the vehicle, visible on Vehicles and between Work Orders queues) never fires.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: clicking any Inspections type pill silently empties the Vehicles table — the page the clarifications required to be fully functional. The vehicles handler binds to every '.filter-pill' ('document.querySelectorAll('.filter-pill').forEach(...)'), which includes the six inspection pills carrying data-inspection-type-filter rather than data-type-filter; getAttribute returns null, vehicleStore.currentTypeFilter becomes null, and filterVehicles() then hides all 12 rows and clears the active pill. Returning to Vehicles shows column headers over an empty table until a type pill is re-clicked.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: expandable inspection detail stops working from the second visit to the page onward. initInspectionHandlers() is re-run on every navigation to #/inspections (both from handleRouteChange's setTimeout and the load listener) without removing prior listeners, so on the second visit each row click calls toggleInspectionDetail twice — creating then immediately removing the detail row, so the deficiency list (e.g. BRK-001 Critical / FLD-003 Minor on BX-2024-0512) never appears.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "minor: 'Flag Parts' / 'Flag for Parts' terminates in an alert or toast ('Parts flagged: {name} (Qty: 1, Est. Cost: $0.00)') and never reaches the Parts & Costs figures, which stay hard-coded at $18,947 / $6,240 open-WO cost.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "visual_coherence": [
+      {
+        "text": "major: the status column of the Work Orders table — 15 of 15 rows — renders as flat unstyled text while every other table colour-codes status. renderWorkOrders builds 'badge--' + wo.status.toLowerCase().replace(/\\s+/g,'-'), yielding badge--queued / badge--in-progress / badge--completed / badge--on-hold, none of which exist in the stylesheet (only badge--available, --in-shop, --awaiting-parts, --road-test, --out-of-service are defined). The .status-badge base class sets padding and radius but no background, so 'In Progress' and 'Completed' read as bare text next to a correctly coloured red 'High' priority pill in the adjacent column.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: the 12-month cost trend chart is badly lopsided. The 13 bars are 16px wide on a 22px pitch, running x=60 to x=340 inside a 'viewBox=\"0 0 1100 380\"' whose gridlines stretch to x=1080 — so the data huddles in the left quarter of a full-width card and roughly 70% of the chart area is empty ruled space. Values and axis labels ($0–$25K, JAN 25–JAN 26, Jan 2026 highlighted in --accent) are all correct; the geometry is not.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: Parts & Costs headings and KPI subtext fall back to browser defaults because '.section-heading', '.kpi-subtext', '.table-section' and '.table-cell' are never defined in the stylesheet. 'Cost by Vehicle (This Month)' and '12-Month Cost Trend' render in the text font at default h2 size, unlike the 24px display-font h2 headings used on Vehicle Detail and Settings, and 'vs. $16,320 last month' inherits 17px body size, larger than the 12px '+16% ↑' delta directly above it.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "minor: colour values are re-typed as raw literals inline rather than referenced from :root in the Inspections table — every badge carries 'background: rgba(52, 199, 89, 0.15); color: #34c759' or 'rgba(255, 59, 48, 0.15); color: #ff3b30' — and the deficiency severity colours are hard-coded ('#ff3b30' / '#ff9500' / '#34c759') in toggleInspectionDetail. The literals happen to match --status-available / --status-awaiting-parts / --status-in-shop exactly, so nothing looks off; it is invisible to a viewer.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ]
+  },
+  "rationale": "A genuinely strong fleet-maintenance prototype that far exceeds the bar the clarifications set. Clarifications answered 'which pages are essential' with 'Vehicles (list with filters/search) — fully functional', giving explicit permission to stub the other five; instead all six pages carry real content — 12 vehicles with type pills and live unit search, 15 work orders across three shop tabs with expandable parts line-item tables and a status dropdown, 10 inspections with coded deficiencies and sign-off timestamps, four KPI cards over an 8-row cost table with a reconciling subtotal and a 13-point SVG trend chart, and a four-section Settings form with shop table, five notification rules, three selects and a save toast. The domain data is the artifact's strongest asset: 17-char VINs, credible make/models (Volvo VNL 860, Peterbilt 579, Freightliner M2, Great Dane Trailer), and parts a garage would actually order ('Commercial Tire 225/70R19.5' x4 @ $185, 'Heavy Duty Battery 12V 200Ah', 'Synthetic Oil 15W-40' x6 @ $18.50). What holds it back is cross-surface consistency rather than emptiness: the brief's mandated 'totals must sum from work order line items' does not hold, the same WO numbers describe different jobs on different pages, one listener-binding slip leaves Vehicle Detail permanently showing TRK-2026-0184 with an empty Advance Status menu, and a selector that is too broad lets the Inspections filters blank the one page that had to work. Visually the shell is consistent and token-driven, undercut by an uncoloured Work Orders status column and a chart that fills a quarter of its canvas. Deductions are for real, traced defects only — the page count itself is credited, not penalised, since five of these pages were permitted to be placeholders.",
+  "strengths": [
+    "All six pages are substantive when the clarifications only required Vehicles to be functional — Work Orders, Inspections, Parts & Costs and Settings each carry their full promised content rather than placeholders.",
+    "Domain data reads like a real garage export: 17-character VINs (1VUJB5B32F1234567, 1HTGXAAV3FH123456), unit numbers in the briefed TRK-2026-0184 / BX-2024-0512 / CG-2023-1047 / TR-2022-0091 pattern, and mileages that track vehicle age (BX-2023-0889 at 289,560 mi out of service 45 days vs BX-2025-0067 at 8,760 mi).",
+    "Work-order expansion shows genuine parts line items with qty and unit cost — 'Commercial Tire 225/70R19.5' x4 @ $185.00 = $740.00, 'Shock Absorber (Front)' x2 @ $156.00 — rather than a generic placeholder breakdown.",
+    "Inspections carry coded deficiencies with severity and sign-off ('BRK-001 Brake system deficiency, Critical'; 'SUS-004 Suspension spring broken, Critical'; signed off 2025-06-10 11:15 AM), which is exactly the DOT-compliance texture the brief implies.",
+    "The Vehicles page delivers the mandated functionality in full: type pills AND case-insensitive unit-number substring search combine, and days-in-status over 10 (CG-2023-1047 at 12, BX-2023-0889 at 45) gets the subtle red cell wash the spec asked for.",
+    "The cost table's subtotal row is internally consistent — $6,620 labor + $12,327 parts = $18,947, matching the Total Fleet Maintenance KPI exactly.",
+    "The DS tokens are transcribed completely and correctly into :root (--accent #0071e3, --status-available #34c759 … --status-out-of-service #8e8e93) and the sidebar/topbar/table chrome is identical on every page, with accent reserved for active nav, primary buttons, focus rings and the current-month bar."
+  ],
+  "weaknesses": [
+    "major: Parts & Costs totals do not reconcile with the work-order data (TRK-2026-0184 shown as $1,245 over 3 WOs; the store holds $425 over 2), despite the brief requiring totals to sum from work order line items.",
+    "major: the same WO number means different things on different pages — WO-2026-0505 is 'Full Overhaul / BX-2023-0889' on Parts & Costs but 'Windshield Replacement / BX-2025-0067' in Work Orders; Vehicle Detail cites WO-2026-0498/0477/0450, which exist nowhere else.",
+    "major: Vehicle Detail never binds to the clicked vehicle — the route wrapper at 'window.handleRouteChange = function()' is never invoked because the listeners hold the original function — so every unit shows TRK-2026-0184's body under a heading naming the clicked unit, and 'Advance Status' opens an empty menu.",
+    "major: clicking an Inspections type pill blanks the Vehicles table, because the vehicles handler binds to all '.filter-pill' elements and sets currentTypeFilter to null for pills that carry data-inspection-type-filter.",
+    "major: Work Orders status badges are unstyled — badge--queued / badge--in-progress / badge--completed / badge--on-hold are generated at runtime but never defined in CSS, so all 15 rows show flat text where every other table colour-codes status.",
+    "major: the 12-month trend chart packs its 13 bars into x=60–340 of a 1100-unit viewBox whose gridlines run to x=1080, leaving roughly 70% of the chart empty.",
+    "minor: several work-order line-item tables sum well under the headline cost with no labor line (WO-2026-0514: $330 of items against $680).",
+    "minor: expandable inspection detail stops opening after the second visit to the page, as initInspectionHandlers re-binds click listeners on every navigation.",
+    "minor: 'Flag Parts' only alerts or toasts; the Parts & Costs figures never change.",
+    "minor: '.section-heading', '.kpi-subtext', '.table-section' and '.table-cell' are undefined, so Parts & Costs headings and KPI subtext fall back to browser defaults and diverge from the 24px display-font headings used elsewhere.",
+    "minor: Inspections badges and deficiency severities re-type colour literals inline (rgba(52,199,89,0.15) / #34c759 / #ff9500) instead of referencing the :root tokens, though the values match so nothing looks off."
+  ],
+  "tokens_in": 0,
+  "tokens_out": 0
+}

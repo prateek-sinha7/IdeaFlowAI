@@ -1,0 +1,147 @@
+{
+  "row_id": "northwind_fleet",
+  "score": 52.9,
+  "judge_model": "claude-opus-5 (claude code)",
+  "checks_failed": false,
+  "scoring": "severity_priced",
+  "sub_scores": {
+    "data_realism": 78,
+    "brief_intent_match": 37,
+    "design_system_coherence": 74,
+    "spec_consistency_completeness": 34,
+    "interaction_specification": 56
+  },
+  "sub_scores_judge_self": {
+    "data_realism": 80,
+    "brief_intent_match": 55,
+    "design_system_coherence": 78,
+    "spec_consistency_completeness": 50,
+    "interaction_specification": 65
+  },
+  "findings": {
+    "data_realism": [
+      {
+        "text": "major: The brief demands \"VIN-style ids, mileages\" but the 12-row vehicle seed table has neither column — exactly one VIN (\"1VUJB5B32F1234567\") and one mileage (\"187,643 mi\") exist, both on the TRK-2026-0184 detail header, so 11 of 12 vehicles have no VIN or odometer value to render even though the Vehicle model declares `vin` and `currentMileage`.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: The WorkOrder model declares `createdDate`, `estimatedCompletion` and `laborHours`, but none of the 15 seeded work-order rows carry a date or an hour figure — only \"Days in Queue\" — so expanded-row detail (\"labor hours, ... estimated completion\") has no seeded values.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "brief_intent_match": [
+      {
+        "text": "blocking: The brief's one arithmetic requirement — \"Parts & Costs totals must sum from work order line items\" — is violated in 7 of the 8 cost rows. TRK-2026-0184 is listed at \"$1,245 | $420 | $825 | 3\" but its seeded work orders (WO-2026-0515 $245, WO-2026-0512 $180, WO-2026-0500 $120) sum to $545; TR-2021-0504 shows \"$320\" against WO-2026-0506 at $120; CG-2023-1047 shows \"$2,340\" against WO-2026-0507 at $840. Only BX-2023-0889 ($8,500) reconciles. A builder following the spec's numbers produces a page that contradicts the brief's core rule.",
+        "severity": "blocking",
+        "cost": 45
+      },
+      {
+        "text": "major: The brief requires 'Advance status' to move the vehicle \"between Work Orders queues\", but the Work Orders queues are keyed by shop (\"All Shops, Downtown Bay, North Warehouse, East Terminal\") and no rule maps any vehicle status onto a queue. The spec only asserts the effect — \"update vehicle globally, reload Vehicles table + Work Orders queues\" — with no mechanism for which queue the vehicle lands in.",
+        "severity": "major",
+        "cost": 18
+      }
+    ],
+    "design_system_coherence": [
+      {
+        "text": "major: Accessibility is left entirely silent — no focus states, no keyboard reach for the type-filter pills or shop tabs (specified as pills/tabs, not native controls), no labels for the search input beyond a placeholder (\"Search by unit (e.g., TRK-2026-0184)\"), no ARIA for the expandable table rows or the status-advance dropdown, and status is conveyed by colour alone (\"Available green, In shop orange, Awaiting parts red\").",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: Page specs reference classes absent from the declared \"CSS Class System\" list — `.vehicle-header`, `.service-checklist`, `.notes-panel`, `.work-order-history`, `.shop-tabs`, `.kpi-grid`, `.cost-table`, `.inspection-table`, `.settings-group`, `.select`, `.checkbox` — so the token/class system is extended ad hoc per page rather than defined once.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "minor: Density tokens fight the stated aesthetic: the DS is declared \"Apple — Minimal, airy, premium whitespace\" with \"Body text: SF Pro Text, 17px\" and \"Page titles ... 48px\", yet the operational tables it is applied to get \"Card padding: 12-16px\" and \"Section gaps: 16-20px\" — tighter than the 8px-base airy system claims, with no row-height or table-density token stated for the 15-row work-order grid.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "spec_consistency_completeness": [
+      {
+        "text": "major: Vehicle Detail's Work Order History cites WO-2026-0498, WO-2026-0477 and WO-2026-0450, none of which exist in the seeded dataset (\"15 work orders\", WO-2026-0500 through WO-2026-0515) — undefined references. It also contradicts Parts & Costs, which lists TRK-2026-0184 with \"WO Count 3\" while the detail page shows 5 work orders for the same vehicle.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: The Work Orders seed cannot support the page's own filter. The spec claims \"15 work orders across 3 shops (5 per shop)\" and \"individual shop shows 5\", and `WorkOrder.shop` exists in the model, but the seed table columns are [WO #, Vehicle, Task, Tech, Status, Days, Priority, Cost] — no row carries a shop, so shop-tab filtering (a brief requirement, \"Work Orders (by shop)\") is unbuildable without guessing the assignment.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: Parts & Costs KPIs contradict its own table and seed. \"Total Fleet Maintenance Cost (This Month): $18,947\" against a cost table whose 8 rows sum to $16,247 and 15 seeded work orders summing to $12,840; \"Avg Cost per Vehicle: $1,579\" implies 12 vehicles (1,579 x 12 = 18,948) while the table enumerates only 8, silently dropping TRK-2026-0445, TR-2024-0298 and BX-2025-0067 which all have seeded work orders (WO-2026-0508 $450, WO-2026-0502 $95, WO-2026-0501 $145). The declared \"Subtotal row at bottom: Total Fleet Cost\" therefore has no defined value.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: Settings displays \"Total Vehicles: 52 (display-only)\" while the data model seeds 12 vehicles and Parts & Costs derives its average from 12 — a user-visible contradiction.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "minor: The same work order is named differently across pages — \"WO-2026-0515 | Engine Oil Change\" on Work Orders vs \"WO-2026-0515: Oil Change + Filter Replacement\" on Vehicle Detail and \"WO-2026-0515: Oil Change\" on Parts & Costs.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "minor: Service checklist dates/intervals and technician notes are seeded only for TRK-2026-0184 (\"Oil Change: Last 2026-01-15, 15,000 mi interval\"; \"Downtown Bay: Brake lines inspected 2026-01-18...\"), leaving the other 11 `#/vehicle/:id` routes with structure but no content.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "interaction_specification": [
+      {
+        "text": "major: Empty and zero states are unspecified almost everywhere — no-match unit-number search on Vehicles, a type filter matching nothing, a shop tab with zero work orders, a vehicle with no work orders on Parts & Costs, a failed inspection with an empty deficiency list. The only empty state decided anywhere is the notes panel (\"No service history at this location.\").",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: 'Flag for parts' is described three incompatible ways and has no defined data effect: \"[Flag Parts] button: opens inline form/modal to select parts needed, adds to work queue\" (Vehicles), \"opens form to add parts needed (part name, qty, estimated cost), adds to Parts & Costs totals\" (Detail buttons), \"select part from dropdown or enter custom part name, qty -> confirm -> adds line item to Parts & Costs\" (Detail interactions). The part catalogue behind the dropdown is never defined, and which cost row / work order the new line item attaches to is never stated — two build agents would ship different behaviour.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: \"Clear filters link when filters applied\" never says what it resets — type pills only, or the unit-number search too — while the sidebar flows separately promise \"Clear filters, show all vehicles\" on nav.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "minor: Two conflicting stale-status thresholds with no reconciliation: the Vehicles table highlights \"Days-in-status badge: if > 10 days\" while Settings defaults the alert rule to \"Alert when vehicle in same status > 14 days\" (`vehicleInStatusDays: 14`).",
+        "severity": "minor",
+        "cost": 4
+      }
+    ]
+  },
+  "rationale": "The spec is well organised and its fleet domain data is genuinely industry-specific (Volvo VNL 860, Peterbilt 579, Wabash/Great Dane trailers, DOT Compliance and Pre-trip inspections, TRK-2026-0184 unit numbers), all six briefed pages are specified with routes, and status-transition rules and a navigation-flow table are provided. It fails on arithmetic and cross-section consistency: the brief's explicit rule that Parts & Costs totals sum from work order line items is broken in 7 of 8 rows, the KPI cards contradict the cost table and the work-order seed, the Work Orders seed carries no shop despite a shop-filtered page, Vehicle Detail cites work orders that do not exist in the dataset, and empty/no-match states plus the 'Flag for parts' data effect are left undecided.",
+  "strengths": [
+    "Domain data is specific to fleet maintenance rather than generic filler: \"Volvo VNL 860 | Tractor\", \"Wabash Trailer\", \"Isuzu NPR-HD\", inspection types \"Pre-trip, Post-trip, Annual Safety, Emission, DOT Compliance\", and unit numbers matching the brief's \"TRK-2026-0184\" pattern.",
+    "Status advancement is specified as an explicit transition table (\"Available -> In shop / Out of service\", \"Awaiting parts -> In shop\"), which two build agents would implement identically.",
+    "Honours the clarifications: \"Persistent left sidebar\" is the layout on every page and the palette is light minimal SaaS (`--bg: #ffffff`, `--bg-light: #f5f5f7`, single blue accent \"reserved for actions/links only\").",
+    "Narrow-viewport behaviour is decided rather than left silent: \"targets desktop (1024px+); sidebar collapses to icon-only on tablet (<834px); stacks to bottom tab bar on mobile (<640px)\".",
+    "A complete Navigation Flows table maps every trigger to a destination and state change, including filter preservation on \"[Back to Vehicles]\"."
+  ],
+  "weaknesses": [
+    "blocking: The brief's one arithmetic requirement — \"Parts & Costs totals must sum from work order line items\" — is violated in 7 of the 8 cost rows (TRK-2026-0184 listed at $1,245 against seeded work orders totalling $545; TR-2021-0504 at $320 against $120; CG-2023-1047 at $2,340 against $840). Only BX-2023-0889 reconciles.",
+    "major: 'Advance status' is required to move the vehicle between Work Orders queues, but queues are keyed by shop and no status-to-queue mapping is given — only the asserted effect \"reload Vehicles table + Work Orders queues\".",
+    "major: VIN and mileage are brief requirements and model fields, yet only one VIN (\"1VUJB5B32F1234567\") and one mileage (\"187,643 mi\") appear anywhere; the 12-row vehicle seed has neither column.",
+    "major: Accessibility is entirely unaddressed — no focus states, keyboard reach for filter pills/shop tabs, search labelling, ARIA for expandable rows, or non-colour status encoding.",
+    "major: Vehicle Detail cites WO-2026-0498 / 0477 / 0450, which do not exist in the seeded WO-2026-0500..0515 set, and shows 5 work orders where Parts & Costs says \"WO Count 3\" for the same vehicle.",
+    "major: The Work Orders seed assigns no shop to any row despite \"15 work orders across 3 shops (5 per shop)\" and shop-tab filtering, so the brief's \"Work Orders (by shop)\" cannot be built without guessing.",
+    "major: Parts & Costs KPIs contradict the page's own table — \"$18,947\" total vs an 8-row table summing to $16,247 and seeded work orders summing to $12,840; the average implies 12 vehicles while only 8 are listed, omitting three vehicles that do have work orders.",
+    "major: Empty, no-match and zero states are undefined — search with no match, an empty type filter, a shop tab with no orders, a vehicle with no costs.",
+    "major: 'Flag for parts' is described three inconsistent ways with no part catalogue and no defined attachment point for the created line item.",
+    "minor: Work-order seed rows carry no dates or labor hours despite `createdDate` / `estimatedCompletion` / `laborHours` in the model.",
+    "minor: Page specs reference classes never declared in the \"CSS Class System\" list (`.vehicle-header`, `.shop-tabs`, `.kpi-grid`, `.cost-table`, `.settings-group`, `.select`, `.checkbox`).",
+    "minor: Density tokens (12-16px card padding, 16-20px section gaps, no table row-height token) sit uneasily with the declared \"airy, premium whitespace\" Apple system on a dense ops grid.",
+    "minor: Settings shows \"Total Vehicles: 52\" against a 12-vehicle seed.",
+    "minor: WO-2026-0515 is named \"Engine Oil Change\", \"Oil Change + Filter Replacement\" and \"Oil Change\" on three different pages.",
+    "minor: Service checklist and technician notes are seeded only for TRK-2026-0184, leaving 11 detail routes contentless.",
+    "minor: \"Clear filters\" never states whether it also clears the unit-number search.",
+    "minor: Stale-status thresholds conflict — >10 days highlight on Vehicles vs >14 days alert rule in Settings."
+  ],
+  "tokens_in": 0,
+  "tokens_out": 0
+}

@@ -46,26 +46,6 @@ You receive two upstream artifacts in your context:
 
 ---
 
-## NAME WHAT YOU FOUND — NO BARE CATEGORY NOUNS
-
-A finding that names a category instead of an instance cannot be acted on. "Empty states are
-not covered", "error handling is missing", "some tasks lack detail", "the data model is
-incomplete" all tell the reader a class of problem exists without saying where.
-
-**Every finding names the specific page, section, task number, or field it is about**, and
-quotes the phrasing at issue where there is one to quote:
-
-- Not "empty states are not covered" → "no task covers the empty state for {the page named
-  in the spec}"
-- Not "some tasks lack validation detail" → "task {N} specifies a form with no validation rules"
-- Not "the data model is incomplete" → "{field} is declared with no stated derivation"
-
-Where the spec and a task disagree, quote **both** — the spec's wording and the task's — so
-the reader can see the mismatch rather than take your word for it. A disagreement rendered
-in your own words is usually one you have accidentally resolved.
-
----
-
 ## Analysis categories
 
 Analyze both artifacts against these 11 categories:
@@ -77,12 +57,47 @@ Analyze both artifacts against these 11 categories:
 5. **Duplications** — Are any requirements, pages, or tasks duplicated across the artifacts?
 6. **Scope creep** — Do any tasks go beyond what the spec requires?
 7. **Data model alignment** — Do the tasks handle all data entities and relationships described in the spec?
-8. **UX flow completeness** — Are all navigation flows, error states, and empty states from the spec covered by tasks? Name the pages you checked, not the category.
-9. **Design system compliance** — Are any tasks likely to deviate from the declared design system or template? Include whether the tasks define the tokens the pages will actually need — status colours, hover and focus states — since anything untokenised gets hard-coded at build time.
+8. **UX flow completeness** — Are all navigation flows, error states, and empty states from the spec covered by tasks?
+9. **Design system compliance** — Are any tasks likely to deviate from the declared design system or template?
 10. **Acceptance signals** — Does the spec define how "done" looks for the major features?
 11. **Risk items** — Which tasks are highest risk (complex, ambiguous, or likely to require rework)?
 
 For each category, assign a status: **✅ Clear**, **⚠️ Partial**, or **❌ Missing/Issue**.
+
+---
+
+## How to reach a status — the evidence rule
+
+A status is the *result* of a comparison, never a substitute for one. **A Clear status is the strongest claim on this report and needs the most evidence**: it asserts you performed the check and it passed.
+
+For every category, before you write its status:
+
+1. **Enumerate both sides and compare them item by item.** For coverage, list the spec's pages and the task that builds each. Do not conclude "all pages have tasks" without having put the two lists side by side.
+2. **Recompute every number both artifacts assert — and write the arithmetic down.**
+   You have no scratchpad and cannot add a column of figures in your head. The
+   report is your working. For every asserted total, write the addends out on one
+   line in the Detail cell before you state the verdict:
+
+   > `2 100 000 + 1 450 000 + … = 8 148 000 asserted 8 188 000 → MISMATCH −40 000`
+
+   A total you did not write the addends for is a total you did not check, and it
+   must be reported as unchecked rather than Clear. Do this even when the artifact
+   prints its own verification line — a wrong total is usually accompanied by a
+   confident one. Where a figure has a formula, apply the formula to the inputs
+   and show that substitution the same way.
+2a. **Count by listing, never by estimating.** Before asserting any count — of
+   rows, pages, entities, members of a category — write the enumerated identifiers
+   and then the count of them. "11 scheduled" written without the eleven ids beside
+   it is an assertion, not a finding, and it is where miscounts survive.
+2b. **Test every declared range, band or enum for coverage.** List the members,
+   list the buckets, and name any member that falls in no bucket and any bucket
+   with no member. Sets that partition nothing are the defect this stage most
+   often walks past.
+3. **Carry the evidence into the Detail cell.** Every Clear status states what was compared and the result — the two counts that matched, or the recomputed sum beside the asserted one. A Detail cell that only restates the category name is not a finding.
+4. **Never resolve a contradiction — report it.** When two artifacts disagree, both values go in the report with their sources. Adopting one side silently converts a defect into an assumption, and the disagreement is never checked again.
+5. **A category you did not actually check is Partial, not Clear.**
+
+An unearned Clear is the most damaging output of this stage: it ends the only review the artifacts get before implementation.
 
 ---
 
@@ -97,24 +112,6 @@ Based on your findings, suggest 2–4 concrete next actions from:
 - **Expand scope** — The spec is deliberately minimal; expand before building.
 
 Always include **Proceed** as one of the options when findings are not blockers.
-
-Between them, the actions must cover every ⚠️ and ❌ in the table. A finding that appears in
-the table but in no action is one the reader will drop.
-
----
-
-## THE SECTIONS MUST AGREE
-
-The Findings table, the Issues list, the Risk register, and the verdict are four views of one
-analysis.
-
-- **Every Risk register entry cites the Findings row it came from** — `Task 4 — {title}:
-  {reason} (finding #7)`. A risk with no traceable evidence reads as an impression, and the
-  reader cannot check it against the table.
-- Every ❌ and ⚠️ appears in **Issues requiring attention** with a specific action, including
-  medium-risk items that do not block. Non-blocking ranks lower; it does not get omitted.
-- The **verdict** follows from the table. NEEDS REVISION against an all-✅ table, or READY TO
-  BUILD with an open ❌, means either the table or the verdict is wrong.
 
 ---
 
@@ -132,16 +129,15 @@ Produce a structured analysis report in this EXACT format inside `<analysis>...<
 
 | # | Category | Status | Detail |
 |---|----------|--------|--------|
-| 1 | Consistency | ✅ Clear / ⚠️ Partial / ❌ Issue | <finding, naming the page/task/field> |
+| 1 | Consistency | ✅ Clear / ⚠️ Partial / ❌ Issue | <brief finding> |
 | 2 | Coverage gaps | ... | ... |
 | ... | ... | ... | ... |
 
 ### Issues requiring attention
-<Every ⚠️ and ❌ from the table, including non-blocking ones, each with a specific
-actionable description. If all clear, write "No blocking issues found.">
+<Only include if there are ⚠️ or ❌ items. List each issue with a specific actionable description. If all clear, write "No blocking issues found.">
 
 ### Risk register
-<1–3 highest-risk tasks. Format: "Task N — <title>: <risk reason> (finding #M)">
+<List 1–3 highest-risk tasks with a brief reason. Format: "Task N — <title>: <risk reason>">
 
 ### Suggested next actions
 1. **<Action name>** — <specific description of what this means for this prototype>
@@ -150,7 +146,7 @@ actionable description. If all clear, write "No blocking issues found.">
 
 ### Readiness verdict
 <One of: READY TO BUILD / READY WITH CAUTION / NEEDS REVISION>
-<One sentence justification, consistent with the table above>
+<One sentence justification>
 ```
 
 ---
@@ -158,7 +154,6 @@ actionable description. If all clear, write "No blocking issues found.">
 ## Constraints
 
 - This analysis is READ-ONLY. Do not suggest edits to the artifacts directly.
-- Be specific and concrete — cite actual spec sections or task numbers when identifying issues.
-- Be concise — each finding row should be 1–2 lines maximum.
-- Do not be verbose. The report should be scannable in under 60 seconds.
+- Be specific and concrete — cite actual spec sections or task numbers, and quote the conflicting values, when identifying issues.
+- Keep each finding row tight — one or two lines — but always long enough to carry the comparison that justifies its status. Where brevity and evidence conflict, evidence wins: a short row that asserts a verdict it did not check is the failure this report exists to prevent.
 - Always end with a clear verdict and suggested next actions so the user knows exactly what to do.

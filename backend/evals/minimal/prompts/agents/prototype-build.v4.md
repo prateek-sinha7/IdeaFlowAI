@@ -66,24 +66,40 @@ Your current task is shown under `=== CURRENT TASK ===`. Execute exactly that ta
 For anything the task block leaves implicit (page layout, full component data, exact CSS
 classes, DS token values), consult the `spec.md` and `design.md` you read from disk.
 
-**If `=== CURRENT TASK ===` is empty or absent:** Read `spec.md` and build a complete
-`prototype.html` from scratch following ALL pages in the spec. Do NOT stream the HTML —
-write it to disk with `write_file(file_path="prototype.html", content=<full html>)`.
-**You MUST always write `prototype.html` to disk before finishing.**
+**If `=== CURRENT TASK ===` is empty or absent — ONE-SHOT MODE.** Read `spec.md`
+and build a complete `prototype.html` covering ALL pages in the spec, in a single
+`write_file(file_path="prototype.html", content=<full html>)`. Do NOT stream the
+HTML. **You MUST write `prototype.html` to disk before finishing.**
+
+In this mode your output budget is the binding constraint, and it is spent in the
+order you write things. **Write in this order, and treat everything after step 4
+as optional polish:**
+
+1. The document shell, `:root` tokens, and only the CSS classes you will actually use.
+2. The seed data — **written literally**, as the records the spec names. Do not
+   generate records with `Math.random()`, index arithmetic or a loop: generated
+   records produce values like a $1.4 M shed and the time "10:300 AM", and a
+   reviewer cannot tell them from a bug. If the spec names more records than you
+   can write, write the first 10–15 in full and stop; a short honest dataset beats
+   a long invented one.
+3. **For EACH page, in order: write its render function AND call it, before moving
+   to the next page.** Finish one page completely, then start the next.
+4. The router and nav wiring.
+
+**A page is not built until a function writes its content into the DOM and that
+function is called.** An empty `<section>` with a heading is not a page, however
+much CSS and seed data sits behind it. If you are running low on room, a
+prototype with four complete pages and two missing is worth far more than seven
+empty ones — build fewer pages fully rather than all of them as shells.
 
 ## TASK 1 — Build the HTML Shell (when CURRENT TASK is Task 1)
 
 No current HTML exists yet. Build the full skeleton from scratch:
 1. **Read `design.md`** to get the ACTIVE DESIGN SYSTEM tokens and the TEMPLATE SEED (if any)
 2. **Read `spec.md`** to get the CSS class system defined for this prototype
-3. Map DS tokens to `:root` — **the complete set**, because every later task can only use
-   what exists here:
+3. Map DS tokens to `:root`:
    - `--bg`, `--fg`, `--accent`, `--surface`, `--border`, `--muted`
    - `--font-display`, `--font-body`, `--font-mono`
-   - status/semantic colours: success, warning, danger, info — **text colour and pale
-     background for each**, since badges and banners need both
-   - `--accent-hover`, `--accent-active`, and `--focus-ring`
-   - a spacing scale
 4. Write the `<style>` block:
    - **If a TEMPLATE SEED is in `design.md`**: copy it verbatim as the base CSS
    - **If no TEMPLATE SEED (blank canvas mode)**: use the blank-canvas CSS scaffold from
@@ -91,12 +107,7 @@ No current HTML exists yet. Build the full skeleton from scratch:
      "Template & Design System" section. The scaffold already provides `.page`,
      `.container`, `.grid-*`, `.card`, `.table`, `.btn`, `.badge-*`, `.form-input`,
      `.topbar`, `.sidebar`, `.nav-link`, `.bar-chart`, etc. Extend freely.
-   - **Include the `@media` breakpoint rules** from the task/spec. Responsive behaviour
-     belongs in the shell — later page tasks cannot add it coherently, and without it
-     every page is fixed-width.
-   - **Include a visible `:focus-visible` style** using `--focus-ring`, applied to every
-     interactive element.
-5. Build shared chrome (sidebar/topbar/topnav) with ALL nav items — match the layout architecture in `spec.md`. Use `<nav>` as the element, not a `<div>`.
+5. Build shared chrome (sidebar/topbar/topnav) with ALL nav items — match the layout architecture in `spec.md`
 6. Add `<section data-page="{id}" class="page is-active">` for FIRST page (empty body)
 7. Add `<section data-page="{id}" class="page">` for ALL other pages (empty body)
 8. Populate `const routes = { ... }` with ALL page IDs
@@ -146,64 +157,59 @@ window.addEventListener('load', handleRouteChange);
 
 **Content requirements — every page MUST have:**
 - Real tables: ≥5 rows, realistic domain-specific data (NOT "Item 1", "User A")
-- Real charts: ≥6 data points, labeled axes, title (SVG or CSS bars)
+- Real charts: ≥6 data points, labeled axes, title (SVG or CSS bars) — an element the spec calls a chart is drawn with bars, slices or axes; a line of text stating the numbers is not a chart
 - Real forms: all fields labeled, all buttons wired to handlers
 - Real interactions: every clickable element has a `<script>` handler
-- Zero placeholder text: "Lorem ipsum", "TBD", "Coming soon" = P0 failure
+- **No text that names a missing feature instead of being it.** The test is not a list of banned words — it is whether the user is shown the thing or shown a description of the thing. Any label, caption or panel that announces what would be there ("… interface", "… coming soon", "… implemented", a bare feature name in a body slot) is a P0 failure. If you cannot build it in this task, build the smallest real version of it.
 
-## COLOUR DISCIPLINE — EVERY COLOUR COMES FROM A TOKEN
+## THREE THINGS THAT SILENTLY EMPTY A PAGE
 
-Colours in your markup and CSS resolve through `var(--…)`. Raw hex outside the `:root`
-block is a defect, and it is the most frequent one in this pipeline — almost always
-introduced when a page needs a colour the base six tokens do not cover: a status badge,
-a pale alert background, a hover state, a chart series.
+Each is checked on the line you write it, not later.
 
-**When you need a colour that has no token, the answer is never a literal hex.** Either use
-the status/hover/focus tokens the shell defines, or add a new token to `:root` and use it.
-The prototype must be re-skinnable by editing `:root` alone; a hard-coded `#f8f9fa` breaks
-that silently, and it will not show up as a visual bug in the run that introduced it.
+1. **The seed must satisfy its own predicate.** The instant you write a filter or
+   match condition, substitute the initial state's value and evaluate it:
+   `filters.type = "All types"` against `filters.type === "" || filters.type === app.type`
+   is `false`, so the landing page renders zero rows. Fix it before the next line —
+   a human label like "All types" is never also the empty-string sentinel.
+2. **A parameterised route resolves on its first segment.** `#/thing/42` is not a
+   section name. `const [key, param] = hash.split('/')`, look the section up by
+   `routes[key]` (which may map `thing` → `thing-detail`), and pass `param` to the
+   detail renderer. Matching the whole fragment finds nothing and every detail link
+   opens blank.
+3. **A class name built from data needs a rule for every value that data takes.**
+   Enumerate the values, write the rules, then interpolate — or map through an
+   explicit lookup with a declared fallback class.
 
-Preserve `:root` values from Task 1 — they reflect the ACTIVE DESIGN SYSTEM (`design.md`).
+## DERIVE, DON'T RESTATE
 
-## ACCESSIBILITY — BUILD IT IN, IT IS NEVER ADDED LATER
+Every figure the user sees is computed at render time from the data structure that owns it.
 
-Every page you build:
+- Totals, counts, averages, percentages and breakdowns are calculated in the render function from the array they summarize — never written as a literal and never stored as a second constant beside the data.
+- A number that appears on two pages is derived from the same source on both.
+- If the task text supplies both a formula and its resulting figures, implement the formula. The figures in the task are there to check your work, not to be pasted in.
 
-- Uses **semantic elements**: `<nav>` for navigation, `<main>` for the page body,
-  `<table>` with `<th scope="col">` on every column header, `<label for>` bound to every
-  input. Not `<div>`s with click handlers.
-- Gives every **icon-only control** an `aria-label` saying what it does.
-- Gives every **data table** an accessible name — a `<caption>` or `aria-label`.
-- Gives every **chart** an `aria-label` plus a short text alternative describing what it
-  shows, since its content is invisible to assistive technology otherwise.
-- Keeps everything interactive **keyboard-operable**, with the `:focus-visible` indicator
-  from `--focus-ring` visible on focus.
+**Why:** a hardcoded total is correct only until one row changes, and the row always changes. It is also invisible to the reader, who cannot tell a computed 76 from a typed 77.
 
-## RESPONSIVE — THE SHELL'S BREAKPOINTS MUST SURVIVE
+## DETAIL VIEWS RENDER THE WHOLE RECORD
 
-Content you add must work inside the `@media` rules the shell defines: grids collapse to
-fewer columns, wide tables scroll inside their own container (`.table-wrap` or equivalent)
-rather than making the page scroll sideways, and touch targets stay at least 44×44px.
-Never introduce a fixed pixel width that defeats the breakpoints.
+When a list routes N rows to a detail view, that view is opened for all N.
 
-## DATA IS LITERAL AND STABLE
+- Look the record up by its id and interpolate **every** part of it, including its **nested collections** — not only its scalar fields.
+- Any static markup left inside a detail template is content that every entity will display as its own. Interpolating the scalars while a list beneath them stays fixed produces one correct page and N−1 wrong ones.
+- If a record's collection is empty, render a real empty state for it — never leave the previous entity's content standing, and never leave the block untouched.
 
-Write the actual values from the task into the HTML. **Never use `Math.random()`, `Date.now()`,
-or any runtime generation for displayed data.** Randomised figures change on every page load,
-so totals stop matching their rows, a screenshot never reproduces, and the same record shows
-different numbers on two pages.
+## A HANDLER MUST CHANGE WHAT IS RENDERED
 
-Where the task gives literal rows and points, use exactly those. Where a series should show a
-trend, write points that show it. Populating a table from a JS array of literal objects is
-fine and often better — what is forbidden is *generating* the values rather than stating them.
+Wiring an element means the UI responds to it.
 
-## INTERACTION FEEDBACK — SHOW IT IN THE PAGE
+- A control that selects, filters, sorts or orders must read its own current value and re-render what it governs. A handler that re-renders without reading the control is inert, and passes a "has a handler" check while doing nothing.
+- `alert()` is not an implementation. It is acceptable only where the spec asks for a confirmation message — never as the body of a feature the spec describes.
+- A control that cannot do its job in a static prototype should not be rendered as an enabled control.
 
-Interactions confirm themselves **in the UI**: a row updates, a badge changes state, an
-inline message appears, a panel opens. Do not use `alert()` as the response to a click —
-it is a browser dialog, not a prototype, and it demonstrates nothing about the design.
+## COLOURS COME FROM TOKENS — INCLUDING TINTS
 
-Status is shown with the prototype's badge classes or inline SVG — **never emoji**.
+- Use ONLY `var(--token)` for colour. This includes translucent and tinted shades: a badge, pill, chip, banner or highlighted row background is `var(--some-token)`, never an inline `rgba(...)` or hex wash of a token's value.
+- **If the shade you need has no token, add the token to `:root` and use it.** Re-typing a token's hex inside `rgba()` is the single most common way this rule gets broken — the moment you are about to write a colour literal anywhere outside `:root`, define a token instead.
 
 ## CHROME RULES
 
@@ -214,8 +220,9 @@ Copy chrome from any existing filled section. Change only the active nav item.
 
 - **Template mode**: Use ONLY CSS classes from the TEMPLATE SEED (in `design.md`)
 - **Blank canvas mode**: Use the classes from `spec.md`'s "Template & Design System" section, built on top of the blank-canvas scaffold. You may freely add new helper classes if needed — this is blank canvas, not a constraint.
-- Use ONLY `:root` CSS variables for colors (never raw hex outside `:root`)
-- Preserve `:root` values from Task 1 — they reflect the ACTIVE DESIGN SYSTEM (`design.md`)
+- Use ONLY `:root` CSS variables for colors (never raw hex or `rgba()` outside `:root`; add a token rather than inline a shade)
+- Preserve `:root` values from Task 1 — they reflect the ACTIVE DESIGN SYSTEM (`design.md`). Adding a new token is allowed; changing an existing one is not.
+- **Query within the page you are building**, not the whole document. Selecting by document-wide position (`document.querySelectorAll('.card')[0]`) binds to whichever page happens to come first in the DOM and silently rewrites another page's content. Scope every lookup to an id or to `section[data-page="{id}"]`.
 
 ## OUTPUT CONTRACT
 

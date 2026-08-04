@@ -37,8 +37,12 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     p_run.add_argument("--repeats", type=int, default=1)
     p_run.add_argument("--model", help="dispatch model id (default: settings.MISTRAL_MODEL_ID, "
                                         "currently mistral-small-latest). e.g. mistral-large-latest")
-    p_run.add_argument("--provider", default=run_module.DEFAULT_PROVIDER,
-                        help=f"dispatch provider (default {run_module.DEFAULT_PROVIDER})")
+    # Default is the UNSET sentinel, not DEFAULT_PROVIDER: an omitted flag must
+    # let the config's own `provider:` through (configs/ten_aws.yaml pins
+    # bedrock). Passing it explicitly still overrides the config.
+    p_run.add_argument("--provider", default=run_module.UNSET,
+                        help="dispatch provider: mistral | bedrock (aws) | anthropic. "
+                             f"Default: the config's `provider:`, else {run_module.DEFAULT_PROVIDER}")
     p_run.set_defaults(handler=_cmd_run)
 
     p_score = sub.add_parser("score", help="re-judge stored responses")
@@ -46,6 +50,17 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     p_score.add_argument("--stage")
     p_score.add_argument("--advise", action="store_true",
                           help="one extra model call proposing a prompt edit from the weaknesses")
+    # The rubric pins the judge (rubrics/*.yaml: provider mistral, model
+    # mistral-large-latest). These override it for ONE invocation, so a second
+    # opinion never means editing — and then remembering to unedit — a rubric.
+    p_score.add_argument("--judge-provider",
+                          help="override the rubric's judge provider: mistral | bedrock (aws) | "
+                               "anthropic. Alone, it also clears the rubric's judge model, since "
+                               "a Mistral model id is not a Bedrock one")
+    p_score.add_argument("--judge-model",
+                          help="override the rubric's judge model id (e.g. "
+                               "eu.anthropic.claude-sonnet-4-5-20250929-v1:0). Default with "
+                               "--judge-provider bedrock: settings.BEDROCK_INFERENCE_PROFILE_ID")
     p_score.add_argument("--concurrency", type=int, default=1,
                           help="judge N rows at once (default 1 = sequential). Mistral does not "
                                 "publish free-tier limits; check your console before raising this")
@@ -60,6 +75,14 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     p_compare.add_argument("a", help="run_id or run_id:stage")
     p_compare.add_argument("b", help="run_id or run_id:stage")
     p_compare.set_defaults(handler=_cmd_compare)
+
+    p_clone = sub.add_parser(
+        "clone", help="copy a run's artifacts into a new run id, minus the judge verdicts")
+    p_clone.add_argument("run_id")
+    p_clone.add_argument("--label", default="rejudge",
+                          help="appended to the new run id (default: rejudge). Use something "
+                               "that names the second opinion, e.g. `awsjudge`")
+    p_clone.set_defaults(handler=_cmd_clone)
 
     p_report = sub.add_parser("report", help="rebuild .runs/report.html")
     p_report.set_defaults(handler=_cmd_report)
@@ -84,15 +107,63 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_clone(args: argparse.Namespace) -> int:
+    new_run_id = store.clone_run(args.run_id, label=args.label)
+    print(new_run_id)
+    return 0
+
+
+def _same_provider(a: str | None, b: str | None) -> bool:
+    """`aws` and `bedrock` name one provider; everything else compares plainly."""
+    alias = {"aws": "bedrock"}
+    return alias.get(a or "", a) == alias.get(b or "", b)
+
+
+def _with_judge_override(rubric: dict, provider: str | None, model: str | None) -> dict:
+    """Apply --judge-provider/--judge-model over the rubric's `judge:` block.
+
+    The model is cleared ONLY when the provider actually CHANGES. Clearing it
+    unconditionally silently downgraded a same-provider rejudge: the rubric
+    pins mistral-LARGE, `--judge-provider mistral` blanked it, and build_model
+    fell back to settings.MISTRAL_MODEL_ID (mistral-SMALL) — a weaker, more
+    capacity-constrained judge that scored a whole run without saying so (run
+    260803-155330). Across providers the clear is still required: a Mistral
+    model id handed to Bedrock fails, naming a model nobody chose.
+    """
+    if not provider and not model:
+        return rubric
+    judge_config = dict(rubric.get("judge") or {})
+    if provider and _same_provider(provider, judge_config.get("provider")):
+        judge_config["provider"] = provider
+    elif provider:
+        judge_config["provider"] = provider
+        judge_config["model"] = None
+    if model:
+        judge_config["model"] = model
+    return {**rubric, "judge": judge_config}
+
+
 def _cmd_score(args: argparse.Namespace) -> int:
     for stage in [args.stage] if args.stage else store.list_phases(args.run_id):
-        rubric = _load_rubric(stage)
+        rubric = _with_judge_override(
+            _load_rubric(stage), args.judge_provider, args.judge_model)
         rows = store.read_phase(args.run_id, "run", stage)
         checks_ok = _checks_ok(args.run_id, stage)
         on_call = _call_logger(args.run_id, stage)
-        payload = asyncio.run(_judge_rows(rows, rubric, checks_ok, on_call, args.concurrency))
+        payload = asyncio.run(_judge_rows(
+            rows, rubric, checks_ok, on_call, args.concurrency,
+            upstream=_upstream_files(args.run_id, stage, rubric.get("upstream")),
+        ))
         if args.advise:
-            payload["advice"] = asyncio.run(_advise(args.run_id, stage, payload, rubric, on_call))
+            # Advice is a BONUS on top of a verdict already paid for. Letting
+            # it raise discarded that verdict — the write below never ran — so
+            # a judged stage cost full price and stored nothing. Hit for real
+            # when `_advise`'s `read_config` raised FileNotFoundError.
+            try:
+                payload["advice"] = asyncio.run(
+                    _advise(args.run_id, stage, payload, rubric, on_call))
+            except Exception as exc:  # noqa: BLE001 - never lose a paid verdict to a bonus call
+                payload["advice"] = {"text": "", "note": f"advice skipped: {exc}"}
         store.write_phase(args.run_id, "judge", stage, payload)
         print(_stage_line(args.run_id, stage))
     return 0
@@ -145,9 +216,57 @@ def _tally(lists) -> list[str]:
     return [text for text, _ in sorted(counts.items(), key=lambda kv: -kv[1])]
 
 
+def _upstream_files(
+    run_id: str, stage: str, allow: list[str] | None = None,
+) -> dict[tuple, dict[str, str]]:
+    """Every PRIOR stage's output for this run, keyed (row_id, repeat), under
+    the filename that stage was seeded into the sandbox as.
+
+    Mirrors `run._canonical_seeds` + the `upstream_artifacts` snapshot the
+    dispatcher uses, so the judge sees what the agent saw. A stage names its
+    seeded file with `seed_as` (specify -> spec.md); build has no `seed_as`,
+    only `deliverable: prototype.html`, and reaches validate through the
+    sandbox snapshot — hence `seed_as or deliverable`. Miss that and validate,
+    the one stage whose rubric is explicitly a diff, gets no prior artifact.
+
+    Deliberately rebuilt from each prior stage's stored `response` rather than
+    from the run row's own `artifacts` snapshot: that snapshot is taken AFTER
+    the stage runs, so validate's copy of `prototype.html` is validate's own
+    output, not the pre-repair build it was asked to fix. Diffing a file
+    against itself is exactly the blindness this function exists to remove.
+
+    `allow` is the rubric's `upstream:` list — the filenames some dimension of
+    THAT rubric actually reads. Omitted means every prior stage, which is
+    correct but wasteful: unscoped, validate carried `tasks.md` + `analysis.md`
+    (37k chars) that no validate dimension consults, and its judge prompt hit
+    252k chars. Evidence a rubric cannot use is not neutral — it is context the
+    judge must still read before it can score.
+    """
+    allowed = set(allow) if allow else None
+    config = store.read_config(run_id)
+    agents_cfg = config.get("agents") or {}
+    files: dict[tuple, dict[str, str]] = {}
+    for prior in config.get("order") or []:
+        if prior == stage:
+            break
+        spec = agents_cfg.get(prior) or {}
+        path = spec.get("seed_as") or spec.get("deliverable")
+        if not path or (allowed is not None and str(path) not in allowed):
+            continue
+        try:
+            prior_rows = store.read_phase(run_id, "run", prior)
+        except FileNotFoundError:
+            continue
+        for row in prior_rows:
+            text = row.get("response") or ""
+            if text and not row.get("errored"):
+                files.setdefault((row["row_id"], row.get("repeat", 0)), {})[str(path)] = text
+    return files
+
+
 async def _judge_rows(
     rows: list[dict], rubric: dict, checks_ok: dict[str, bool], on_call=None,
-    concurrency: int = 1,
+    concurrency: int = 1, upstream: dict[tuple, dict[str, str]] | None = None,
 ) -> dict:
     """Judge every non-errored row. A malformed reply drops that ROW from
     `results` (R-09) but records WHY in `errors` — a dropped row used to
@@ -186,7 +305,9 @@ async def _judge_rows(
         row_log = (lambda rec, _row=row["row_id"]: on_call({"row_id": _row, **rec})) if on_call else None
         async with semaphore:
             verdict = await judge.judge(
-                row["response"], rubric=rubric, prompt=row.get("prompt", ""), on_call=row_log,
+                row["response"], rubric=rubric, prompt=row.get("prompt", ""),
+                upstream=(upstream or {}).get((row["row_id"], row.get("repeat", 0))),
+                on_call=row_log,
             )
         if verdict.errored:
             return "error", {"row_id": row["row_id"], "reason": verdict.error_reason}
@@ -201,6 +322,10 @@ async def _judge_rows(
         return "result", {
             "row_id": row["row_id"],
             "score": _weighted_total(sub_scores, rubric),
+            # WHICH judge produced this number. Without it, two runs over
+            # byte-identical artifacts are distinguishable only by a folder
+            # name anyone can mistype.
+            "judge_model": verdict.resolved_model_id,
             "checks_failed": row_checks_failed,
             "scoring": "severity_priced" if priced else "judge_self_reported",
             "sub_scores": sub_scores,
@@ -217,6 +342,10 @@ async def _judge_rows(
     return {
         "results": [payload for kind, payload in outcomes if kind == "result"],
         "errors": [payload for kind, payload in outcomes if kind == "error"],
+        # The judge ASKED for, recorded even when every row errored — the one
+        # case where no row carries `judge_model` and the stage would
+        # otherwise look unjudged rather than judged-and-rate-limited.
+        "judge_requested": {k: (rubric.get("judge") or {}).get(k) for k in ("provider", "model")},
     }
 
 

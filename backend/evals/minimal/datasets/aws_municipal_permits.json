@@ -1,0 +1,17 @@
+{
+  "dataset_id": "prototype_aws_municipal_permits",
+  "for_agent": "prototype-specify",
+  "description": "ONE row (Government, multi-stage workflow + detail-route), full 5-stage chain, dispatched on AWS Bedrock. The staged-review shape: a record advances through named stages, so the spec must define the enum conditions and the build must keep the stage indicator, the detail route and the list in agreement.",
+  "rows": [
+    {
+      "id": "municipal_permits",
+      "industry": "Government",
+      "tags": [
+        "workflow",
+        "review-stages",
+        "detail-route"
+      ],
+      "prompt": "Build a building-permit review console for the City of Marlowe's planning department. Pages: Applications, Application Detail via #/application/:id, Review Queues (by discipline), Inspections, Fees, Settings. Applications: permit number, address, type (Residential remodel / New commercial / Sign / Demolition), submitted date, current review stage (Intake / Zoning / Structural / Fire / Issued), days in stage \u2014 with type filters and address search. Application Detail renders the clicked application's document checklist, reviewer comments per discipline, and 'Approve current stage' (advances the stage, visible on Applications and moving it between Review Queues) and 'Request corrections' actions. Fees page totals must sum from application valuations. Realistic permit numbers like BLD-2026-0341, addresses, valuations."
+    }
+  ]
+}

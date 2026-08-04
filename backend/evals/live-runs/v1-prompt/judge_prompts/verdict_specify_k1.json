@@ -1,0 +1,182 @@
+{
+  "row_id": "northwind_fleet",
+  "score": 43.1,
+  "judge_model": "claude-opus-5 (claude code)",
+  "checks_failed": false,
+  "scoring": "severity_priced",
+  "sub_scores": {
+    "data_realism": 70,
+    "brief_intent_match": 60,
+    "design_system_coherence": 70,
+    "spec_consistency_completeness": 0,
+    "interaction_specification": 24
+  },
+  "sub_scores_judge_self": {
+    "data_realism": 84,
+    "brief_intent_match": 78,
+    "design_system_coherence": 82,
+    "spec_consistency_completeness": 55,
+    "interaction_specification": 62
+  },
+  "findings": {
+    "data_realism": [
+      {
+        "text": "Parts & Costs seed figures are internally false: the 18 listed rows sum to 129 units and $7,431.50, but the declared totals row reads 'TOTAL | — | — | — | 152 | $12,847.50'. The KPI card repeats the wrong figure ('Total Parts Cost' big number '$12,847.50').",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "'TRL-2025-0336 | Hyster 40 Low Boy | Trailer' — Hyster is a forklift/materials-handling manufacturer, not a lowboy trailer builder; the other trailers (Wabash 53ft, Great Dane Dry Van) are correctly sourced, so this row reads as invented.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "The single VIN given, 'vin: \"1XPWD49X91D487426\"', ends in the same digits as that vehicle's mileage ('mileage: 487426'), which is a giveaway that the VIN was derived rather than generated; only one of 12 vehicles gets a VIN at all ('// ... 11 more vehicles with similar structure').",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "Unit-number year segments contradict the in-service dates throughout — 'TRK-2026-0184 | Freightliner Cascadia | Tractor | 2019-03-15', 'TRL-2025-0335 ... 2017-12-30' — so the numbering scheme has no stated meaning a builder can reproduce for new units.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "brief_intent_match": [
+      {
+        "text": "The brief asks for 'technician notes per shop', but the spec delivers one note for one shop with no per-shop mechanism: 'Technician Notes Card - Title: \"Technician Notes (Main Garage)\"' and a single seeded note ('technicianNotes: [ { shop: \"Main Garage\", technician: \"Marcus Chen\" ... } ]'). No tabs, grouping, or shop switcher is defined for viewing North Branch / Downtown Annex notes, so the per-shop dimension of the requirement cannot be built.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "The brief requires 'Advance status' to move the vehicle 'between Work Orders queues', but the two enums do not map: vehicle status is 'Available / In Shop / Awaiting Parts / Road Test / Out of Service' while the Kanban columns are 'Pending, In Shop, Awaiting Parts, Road Test, Complete'. 'Available' and 'Out of Service' have no column and 'Pending'/'Complete' are not vehicle statuses, so 'Drag card between columns → vehicle status updates (column defines new status)' has no defined result in four of ten cases.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "The brief's 'Parts & Costs totals must sum from work order line items' is declared but not actually satisfied by the model: the parts table aggregates only parts, while work-order line items include labour ('Labor (4 hours @ $75/hr), quantity: 4, unitCost: 75.00'), so no stated rule reconciles a work order's totalCost ($465.00) with the parts aggregate.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "design_system_coherence": [
+      {
+        "text": "Drag-to-advance is the primary status mechanism on Work Orders ('Drag card between columns → vehicle status updates'), yet keyboard reach for it is left silent — the only a11y statement is 'Focus states: blue outline (#0071e3) on keyboard focus'. No keyboard or button fallback for moving a card is decided, so the console's core action is mouse-only by default.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Components are specified that have no class in the declared 'CSS Class System' list: toasts ('Success/error toasts: positioned bottom-right, auto-dismiss after 4 seconds'), the Kanban 'Drag handle' on every card, and the 'Danger Zone' panel — the class list stops at '.kanban-container, .kanban-column, .kanban-card'.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "Control labelling is left to placeholders and bracket glyphs — 'Search input (placeholder: \"Search by unit number...\")', '[View]', '[Assign]', 'Drag handle' — with no accessible names specified for the icon/short-label controls the dimension calls out.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "Typography is pinned to 'SF Pro Display' / 'SF Pro Text' throughout with no fallback stack declared, so the prototype renders in a different face on any non-Apple viewer without a stated substitute.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "spec_consistency_completeness": [
+      {
+        "text": "The Kanban seed data contradicts the Vehicles table for five of eight active vehicles, while the spec declares 'column defines new status' and 'Drag-drop status transitions in Work Orders Kanban immediately update vehicle status on Vehicles page'. TRK-2026-0184 is 'Available | 3' in the table but sits in 'Column 2: In Shop'; TRL-2025-0334 is 'Road Test' but sits in In Shop; BXX-2024-0918 is 'Available' but sits in In Shop; VAN-2023-0452 is 'In Shop' but sits in 'Column 3: Awaiting Parts'; TRL-2025-0335 is 'Out of Service | 45' but sits in 'Column 4: Road Test'. On first load the same vehicle shows two different statuses on two pages.",
+        "severity": "blocking",
+        "cost": 45
+      },
+      {
+        "text": "The Parts & Costs totals row contradicts its own rows: 'Table totals row: TOTAL | — | — | — | 152 | $12,847.50' against 18 rows that sum to 129 units and $7,431.50 (960+570+592+1900+252+142.50+264+300+490+144+570+72+195+425+136+255+64+100). The brief makes this the one arithmetic requirement ('Parts & Costs totals must sum from work order line items'), and the KPI cards propagate the wrong number ('$12,847.50', 'Avg Cost per Order $535.31').",
+        "severity": "blocking",
+        "cost": 45
+      },
+      {
+        "text": "Work-order cardinality contradicts itself three ways: the data model says '// ... more work orders (15 total across all shops and statuses)', the parts table references WO-001 through WO-033, and the KPI card says 'Work Order Count ... 24'.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Five of six pages are marked 'Entry Point: Yes' (vehicles, work-orders, inspections, parts-costs, settings) in the Pages & Navigation table, so the route that loads first is undefined.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Work Orders and Inspections reference vehicles that do not exist in the 12-row fleet — 'TRK-2026-0187', 'BXX-2024-0920', 'VAN-2023-0454', 'TRK-2026-0188', 'BXX-2024-0921' — so 'Click on card → modal opens with work order details' and any drill to '#/vehicle/:id' resolves to an undefined vehicle.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Vehicle Detail renders 'Status history (most recent 3): Available (3 days, 2025-01-10 → present) / Road Test ... / In Shop ...', but the Vehicle type in State & Data Model has no history field (only 'currentStatus', 'statusChangedDate', 'daysInStatus').",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "The Advance Status modal offers only '○ In Shop / ○ Awaiting Parts / ○ Road Test / ○ Out of Service' — 'Available' is absent, so a vehicle that enters the shop can never be returned to service through the action the brief names.",
+        "severity": "major",
+        "cost": 18
+      }
+    ],
+    "interaction_specification": [
+      {
+        "text": "No empty or no-result state is specified anywhere: 'Search input filters table rows by partial unit number match' says nothing about a zero-match result, the Kanban columns ('Cards (1 total)' for Road Test) have no empty-column treatment, and the KPI cards ('Open/Pending Parts ... 7') have no zero-value rendering. Two build agents would render different things on the first no-match search.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Reset and persistence semantics are undefined: type chips, the 'All Status' dropdown, the days slider and the search box have no clear/reset control, and nothing states whether they survive navigating to '#/vehicle/:id' and back — while the shop selector is explicitly said to persist ('Shop selector persists across pages'), leaving the other controls' behaviour a guess.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "'Advance Status' is specified as a free radio choice with no ordering rule ('Select new status and add optional notes'), so what 'advance' means — a next-step transition or arbitrary selection — and which transitions are legal is undetermined; combined with the missing 'Available' option the outcome differs per builder.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "'Days in status range slider: 0-30 days' contradicts seeded data containing 'TRL-2025-0335 ... Out of Service | 45'; neither the default range nor whether out-of-range rows are excluded on first load is stated, so the fleet list may silently drop a vehicle.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Drag-and-drop has no rejection rules — nothing says whether a card can be dragged back out of 'Complete' (styled 'opacity 0.7'), whether drops across a shop boundary are allowed under the shop selector, or what happens on an invalid drop.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ]
+  },
+  "rationale": "The spec is broad, well-organised and industry-literate: real tractor/box-truck/van/trailer models, plausible mileages and vendors, all six briefed pages, the Kanban and left-sidebar decisions from clarifications.md honoured, and a light-SaaS token set that fits a garage ops tool. It fails on internal arithmetic and cross-page consistency, which is what a downstream build agent depends on most. Two hard contradictions dominate: the Kanban seed placements disagree with the Vehicles table statuses for five vehicles even though the spec declares the column defines vehicle status, and the Parts & Costs totals row (152 / $12,847.50) does not equal its own 18 rows (129 / $7,431.50) — the one sum the brief explicitly requires. Around those sit an undefined first-load route (five pages marked entry point), work-order counts stated as 15 / 24 / WO-033, vehicles referenced that are not in the fleet, a rendered status history absent from the data model, and an Advance Status modal with no path back to Available. Interaction coverage stops at the happy path: no empty, no-match, zero-value or reset behaviour is decided, and the days-in-status slider caps below the seeded 45-day vehicle.",
+  "strengths": [
+    "Domain-specific, non-generic fleet data: 'Freightliner Cascadia | Tractor', 'Isuzu NPR | Box Truck', 'Wabash 53ft Trailer', with mileages ('487,426 mi') and parts vendors ('Baldwin', 'FLEETGUARD', 'Gates', 'Stant') that belong to heavy-truck maintenance and would not fit another vertical.",
+    "All three clarification answers are honoured concretely: 5-column Kanban with drag-to-advance, persistent left sidebar, and a minimal light SaaS palette ('--bg=#ffffff', '--accent=#0071e3', '--surface=#f5f5f7').",
+    "Density is right for an ops console rather than a marketing page: 'Table row height: 32px (compact)', '8px base unit', 'Sidebar width: 220px', 'Top bar height: 64px'.",
+    "Responsive behaviour is decided rather than left silent, with explicit breakpoints ('Tablet (641px-1023px): ... Kanban columns scroll horizontally', 'Mobile (375px-640px): ... sticky left column').",
+    "A complete typed state model is given (Vehicle, WorkOrder, LineItem, Inspection, Part, Settings) including the aggregation rule 'totalCost: number (sum of line items)' and 'cost: number (quantity * unitCost)'."
+  ],
+  "weaknesses": [
+    "blocking: Kanban seed placements contradict the Vehicles table statuses for TRK-2026-0184, TRL-2025-0334, BXX-2024-0918, VAN-2023-0452 and TRL-2025-0335, while the spec declares 'column defines new status' — the same vehicle shows two statuses on first load.",
+    "blocking: 'Table totals row: TOTAL | ... | 152 | $12,847.50' does not equal the 18 parts rows, which sum to 129 units and $7,431.50; the KPI cards propagate the wrong figure, breaking the brief's explicit 'totals must sum from work order line items'.",
+    "major: Vehicle status enum and Kanban column enum do not map — 'Available' and 'Out of Service' have no column, 'Pending' and 'Complete' are not vehicle statuses — so the briefed 'Advance status ... moving it between Work Orders queues' has undefined outcomes.",
+    "major: 'technician notes per shop' is delivered as a single Main Garage note with no per-shop grouping or switcher.",
+    "major: Work-order count is stated three inconsistent ways ('15 total', 'Work Order Count 24', parts referencing WO-033).",
+    "major: Five of six pages are marked 'Entry Point: Yes', leaving the first-load route undefined.",
+    "major: Kanban and Inspections reference vehicles absent from the 12-vehicle fleet (TRK-2026-0187, BXX-2024-0920, VAN-2023-0454, TRK-2026-0188, BXX-2024-0921).",
+    "major: Vehicle Detail renders a three-entry 'Status history' that has no corresponding field in the Vehicle type.",
+    "major: The Advance Status modal omits 'Available', so a vehicle can never be returned to service.",
+    "major: Keyboard reach for drag-to-advance — the console's primary action — is left silent; only a focus-outline rule is given.",
+    "major: No empty, no-match, or zero-value states are specified for the search, filters, Kanban columns or KPI cards.",
+    "major: No reset or persistence semantics for the type chips, status dropdown, days slider or search box, while the shop selector alone is declared persistent.",
+    "major: 'Days in status range slider: 0-30 days' cannot reach the seeded 45-day vehicle TRL-2025-0335, and the default range is unstated.",
+    "major: 'Advance Status' is a free radio selection with no legal-transition or ordering rule, so 'advance' is builder-dependent.",
+    "minor: Parts aggregation excludes labour line items ('Labor (4 hours @ $75/hr)') with no rule reconciling work-order totalCost to the parts table.",
+    "minor: 'Hyster 40 Low Boy' attributes a lowboy trailer to a forklift manufacturer.",
+    "minor: The single VIN '1XPWD49X91D487426' ends in that vehicle's mileage digits (487426); the other 11 vehicles get no VIN.",
+    "minor: Unit-number year segments contradict in-service dates ('TRK-2026-0184 ... 2019-03-15').",
+    "minor: Toasts, drag handles and the Danger Zone panel have no class in the declared CSS class system.",
+    "minor: Control labels rely on placeholders and bracket glyphs ('[View]', '[Assign]', 'Drag handle') with no accessible names.",
+    "minor: 'SF Pro Display' / 'SF Pro Text' are specified with no fallback stack.",
+    "minor: Drag-and-drop has no rejection rules (dragging out of 'Complete', cross-shop drops, invalid drop)."
+  ],
+  "tokens_in": 0,
+  "tokens_out": 0
+}

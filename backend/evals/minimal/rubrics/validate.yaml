@@ -13,6 +13,16 @@
 # the retired evals/grading system and were never read here. See
 # rubrics/specify.yaml for the full note.
 
+# Upstream artifacts handed to the judge as evidence. `prototype.html` is the
+# PRE-repair build output and is what `defect_repair_delta` (35%) diffs against —
+# without it that dimension asked "what did you fix?" with nothing to compare to,
+# and judges priced the missing evidence as the artifact's failure. `spec.md`
+# backs `page_completeness` (45%). `tasks.md`/`analysis.md` are omitted: no
+# validate dimension reads them.
+upstream:
+  - spec.md
+  - prototype.html
+
 judge:
   provider: mistral
   model: mistral-large-latest      # identical to every other stage, so stages stay comparable

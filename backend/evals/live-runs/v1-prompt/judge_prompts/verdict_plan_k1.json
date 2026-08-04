@@ -1,0 +1,96 @@
+{
+  "row_id": "northwind_fleet",
+  "score": 71.2,
+  "judge_model": "claude-opus-5 (claude code)",
+  "checks_failed": false,
+  "scoring": "severity_priced",
+  "sub_scores": {
+    "page_coverage": 100,
+    "task_self_containment": 52,
+    "build_order_coherence": 52
+  },
+  "sub_scores_judge_self": {
+    "page_coverage": 95,
+    "task_self_containment": 78,
+    "build_order_coherence": 80
+  },
+  "findings": {
+    "page_coverage": [],
+    "task_self_containment": [
+      {
+        "text": "Task 4 Column 5 declares \"Cards (8 total, opacity 0.7 for completed state)\" but specifies only three (TRK-2026-0188, BXX-2024-0921, VAN-2023-0455) followed by \"(... 5 more completed cards)\". The isolated sub-agent has no unit numbers or completion dates for 5 of the 8 cards it is told to render.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Task 4 requires `changeShop(shopName)` — \"Shop selector onChange: re-render columns filtered by shop\" — but not one of the ~18 enumerated Kanban cards carries a shop attribution (Main Garage / North Branch / Downtown Annex). The sub-agent cannot implement the filter it is asked to build; every card would live in one shop or none.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Task 6 truncates the load-bearing \"Used in Work Orders\" column on 8 of 18 rows (\"WO-001, WO-005, WO-012, ...\", \"WO-001, WO-004, WO-007, ...\"), so `navigateToWorkOrdersForPart(workOrderIds)` has an incomplete id list to filter on.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "Task 4 Pending column says \"Cards (3 total)\" but then lists four bullets, duplicating TRK-2026-0187 (once as the styling exemplar, once as a data row).",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "Task 5's [Mark Complete] is specified as \"inline action to update status to Completed, open findings modal\", but no findings-entry modal is defined anywhere in Task 5 — only a read-only \"Modal: Inspection Details\". Fields and Pass/Fail control are left to the sub-agent.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "build_order_coherence": [
+      {
+        "text": "Task 1's Routes Map object contains only the five flat routes (vehicles, work-orders, inspections, parts-costs, settings) and omits the parameterized `#/vehicle/:id` route, yet Task 2's `navigateToVehicleDetail(vehicleId)` and all of Task 3 depend on it. The shell sub-agent, which cannot see Tasks 2-3, would ship a router that cannot resolve vehicle detail (the Pages list does name vehicle-detail, so the section itself exists).",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Task 1 declares only the shape — \"State store: global `appState` object with vehicles[], workOrders[], inspections[], parts[], settings, currentShop, uiState\" — and no task ever seeds those arrays; each page task instead hardcodes its own rows/cards. Task 8's cascade checks (\"Update vehicle status in Vehicle Detail → status updates on Vehicles page table immediately\") and the brief's \"Advance status ... visible on Vehicles and moving it between Work Orders queues\" cannot work against independently hardcoded markup.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "Task 1 says \"6 main nav items (icons + label, 14px SF Pro Text)\" and then enumerates only five (Vehicles, Work Orders, Inspections, Parts & Costs, Settings).",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "The Task 1 Routes Map code block is not valid JavaScript as written — `work-orders: '/work-orders'` and `parts-costs: '/parts-costs'` use unquoted hyphenated keys.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "Task 8 validation step \"Test all [Export] and [Import] buttons, verify file operations work (CSV, JSON downloads)\" tests an [Import] control that no earlier task creates (Tasks 2/6/7 define Export, Export CSV, Export Fleet Data only).",
+        "severity": "minor",
+        "cost": 4
+      }
+    ]
+  },
+  "rationale": "Page coverage is exact and clean: the spec's six pages (vehicles, vehicle-detail, work-orders, inspections, parts-costs, settings) map one-to-one onto Tasks 2-7, with Task 1 as shell and Task 8 as validation — 8 = 1 + 6 + 1, no page merged, no page missing. Self-containment is strong in the table-driven tasks (12 vehicle rows, 15 inspection rows, 18 parts rows all enumerated verbatim with handler lists), but the Kanban task defers 5 of 8 Complete cards and omits the shop attribution its own shop filter needs. Build order is mostly sound and the validation task is specific to this build rather than generic, but Task 1 under-delivers two things everything downstream depends on: the parameterized vehicle-detail route and a seeded shared state store, without which the plan's own cross-page cascades cannot function.",
+  "strengths": [
+    "Exact page-to-task mapping — Task 2 Vehicles, Task 3 Vehicle Detail (#/vehicle/:id), Task 4 Work Orders, Task 5 Inspections, Task 6 Parts & Costs, Task 7 Settings — with Task 1 shell and Task 8 validation, totalling the expected 1 + 6 + 1.",
+    "Data is carried inline rather than deferred to the spec: all 12 vehicle rows (TRK-2026-0184 | Freightliner Cascadia | Tractor | 2019-03-15 | Available | 3 | 487,426 mi), all 15 inspection rows, and all 18 parts rows with unit costs and totals ($12,847.50 / 152 qty totals row).",
+    "Every page task ends with an explicit 'Script handlers needed' list (e.g. `confirmAdvanceStatus(newStatus, notes)`, `dropCard(vehicleId, newStatus)`, `sortTableByColumn(columnName)`), so the isolated sub-agent knows exactly which behaviours to wire.",
+    "Task 1 front-loads the full DS token set (--accent #0071e3, --status-test #9933FF, …) and the template class list including `.kanban-container`/`.kanban-column`/`.kanban-card`, matching the spec's CSS class system.",
+    "Task 8 validates this build specifically — 12 vehicle rows, 5 Kanban columns, 18 parts rows, `#/vehicle/{unitNumber}`, the Flag-for-Parts → Parts & Costs cascade — rather than reciting a generic QA checklist."
+  ],
+  "weaknesses": [
+    "major: Task 4 Column 5 declares \"Cards (8 total)\" but names only TRK-2026-0188, BXX-2024-0921, VAN-2023-0455 and then \"(... 5 more completed cards)\" — 5 cards' data is invisible to the isolated sub-agent.",
+    "major: Task 4 asks for `changeShop(shopName)` shop-scoped Kanban filtering, but no Kanban card is assigned to Main Garage / North Branch / Downtown Annex anywhere in the task.",
+    "major: Task 1's Routes Map omits `#/vehicle/:id`, though Task 2's `navigateToVehicleDetail(vehicleId)` and the whole of Task 3 forward-reference parameterized routing.",
+    "major: Task 1 declares `appState` with empty `vehicles[] / workOrders[] / inspections[] / parts[]` and no task seeds them; page tasks hardcode their own markup, so Task 8's state-cascade checks and the brief's 'Advance status ... visible on Vehicles' requirement have no shared source of truth.",
+    "minor: Task 6 truncates \"Used in Work Orders\" ids on 8 of 18 rows (\"WO-001, WO-005, WO-012, ...\").",
+    "minor: Task 4 Pending column says \"Cards (3 total)\" but lists four, duplicating TRK-2026-0187.",
+    "minor: Task 5's [Mark Complete] opens a 'findings modal' that is never specified.",
+    "minor: Task 1 says \"6 main nav items\" and lists five.",
+    "minor: Task 1's Routes Map is invalid JS — unquoted hyphenated keys `work-orders:` / `parts-costs:`.",
+    "minor: Task 8 tests an [Import] button that no task creates."
+  ],
+  "tokens_in": 0,
+  "tokens_out": 0
+}

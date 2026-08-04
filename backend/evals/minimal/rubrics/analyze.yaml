@@ -9,6 +9,14 @@
 # the retired evals/grading system and were never read here. See
 # rubrics/specify.yaml for the full note.
 
+# Upstream artifacts handed to the judge as evidence. This stage's whole job is
+# reporting whether the spec and the task list agree, so `cross_artifact_grounding`
+# (40%) is uncheckable without both — every claim the report makes about them was
+# previously taken on trust.
+upstream:
+  - spec.md
+  - tasks.md
+
 judge:
   provider: mistral
   model: mistral-large-latest      # identical to every other stage, so stages stay comparable

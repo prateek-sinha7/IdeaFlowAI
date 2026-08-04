@@ -87,47 +87,6 @@ If the brief mentions a dashboard with sidebar navigation items (Dashboard, Issu
 - Project management: 5 pages (board, backlog, sprint, team, settings)
 - Any other app: minimum 4 pages
 
-## MANDATORY: THE COMPLETE TOKEN SET
-
-The build agent may only use colour, type, and spacing that comes from a token. Anything you leave untokenised, it will hard-code as a raw hex value, and the prototype stops matching the design system the moment a status colour or a hover state is needed.
-
-So your `:root` list is not just the six base colours. Enumerate **every** value the pages will need, including the ones that are easy to forget:
-
-- Base: `--bg`, `--fg`, `--accent`, `--surface`, `--border`, `--muted`
-- Status/semantic: success, warning, danger, info — **both** the text colour and the pale background each badge or banner uses
-- Interaction: hover and active variants of the accent, plus `--focus-ring` for the keyboard focus indicator
-- Type: `--font-display`, `--font-body`, `--font-mono`
-- Spacing scale, so padding and margins are consistent across pages built in separate steps
-
-Any colour a page needs that is not in this list is a colour the build agent will invent.
-
-## MANDATORY: ACCESSIBILITY
-
-Specify accessibility explicitly. It is never inferred — anything you do not require here will be absent from the prototype.
-
-Give every page an **Accessibility** block covering:
-- Semantic structure: which regions are `<nav>`, `<main>`, `<header>`; tables use `<th scope="col">`; inputs use real `<label for>`
-- Accessible names: every icon-only control, every data table, and every chart needs one (`aria-label` or a caption)
-- Keyboard operation: everything interactive is reachable and operable by keyboard, with a visible focus indicator drawn from `--focus-ring`
-- Charts get a one-line text alternative describing what they show, since their content is otherwise invisible to assistive technology
-
-State the target once, in Template & Design System: **WCAG 2.1 AA**, with the body/background contrast ratio the chosen tokens produce.
-
-## MANDATORY: RESPONSIVE BEHAVIOUR
-
-State the **device target** explicitly — responsive, or desktop-only. Leaving it unstated produces a fixed-width layout that breaks on any narrow viewport.
-
-- **Responsive**: declare the breakpoints once, and per page say how the layout adapts — chrome (sidebar collapsing to a rail or drawer), grid column counts, table overflow, and touch-target sizing (min 44×44px).
-- **Desktop-only**: say so and give the minimum supported width. That is a complete answer; do not then describe mobile behaviour.
-
-Either way, wide content (tables, charts) scrolls inside its own container so the page itself never scrolls sideways.
-
-## MANDATORY: DATA IS FIXED, NOT GENERATED
-
-Seed data is written into the spec as literal values. The prototype must render the same numbers on every load — a prototype whose figures change when the page is refreshed cannot be demoed, screenshotted, or reasoned about, and totals stop agreeing with the rows they summarise.
-
-Write out actual values for tables, charts, and stat figures. Never specify data as a rule to be generated at runtime. Where a series should show a trend, give the points that show it.
-
 ## OUTPUT FORMAT
 
 Emit ONE structured spec document wrapped in `<spec>...</spec>` tags.
@@ -140,15 +99,7 @@ Emit ONE structured spec document wrapped in `<spec>...</spec>` tags.
 - **Template**: {template name} — {brief description of its layout style}
 - **Design System**: {DS name} — {brief description: colors, fonts, density}
 - **CSS Class System**: {key classes from template: .section, .container, .card, .grid-3, etc.}
-- **Color Tokens**: --bg, --fg, --accent, --surface, --border, --muted, --focus-ring,
-  status colours (success/warning/danger/info, text + pale background for each),
-  accent hover/active = {values}
-- **Type & Spacing Tokens**: --font-display, --font-body, --font-mono, spacing scale = {values}
-- **Device Target**: {responsive | desktop-only} — {one line of why}
-- **Breakpoints & Adaptation**: {per breakpoint: chrome, grid columns, table overflow,
-  touch targets ≥44×44px — or, if desktop-only, the minimum supported width}
-- **Accessibility Baseline**: WCAG 2.1 AA — {body/background contrast ratio from the tokens
-  above; --focus-ring on every interactive element; tab order}
+- **Color Tokens**: --bg={value}, --fg={value}, --accent={value}, --surface={value}, --border={value}, --muted={value}
 
 ## Overview
 - **Product**: {what it is}
@@ -170,48 +121,121 @@ Emit ONE structured spec document wrapped in `<spec>...</spec>` tags.
 **Template classes**: {list the CSS classes to use: .section, .container, .grid-3, .card-flat, etc.}
 **Components**:
   - {component}: {description, exact data, interactions}
-  - {table}: columns [{col1}, {col2}, {col3}], 5+ rows of realistic data, written out as literal values
-  - {chart}: type, axes, 6+ data points, written out as literal label/value pairs
+  - {table}: columns [{col1}, {col2}, {col3}], 5+ rows of realistic data
+  - {chart}: type, axes, data range, 6+ data points
 **Interactions**:
-  - {element} → {exact behavior, and the in-page feedback that confirms it}
+  - {element} → {exact behavior}
   - {nav link} → navigates to `#/{page}`
-**Accessibility**:
-  - {semantic landmarks; th scope on tables; label for on inputs}
-  - {accessible name for each icon-only control, data table, and chart}
-  - {keyboard path; what Enter and Escape do}
-**Viewport & Responsiveness**:
-  - {how this layout adapts at each declared breakpoint — or "desktop-only, min-width {N}px"}
 
 [... repeat for EVERY page ...]
 
 ## State & Data Model
-{key}: {type} — {literal seed value — the exact data the prototype renders}
+{key}: {type} — {seed value with realistic data}
 
 ## Navigation Flows
 {trigger} → {destination}
 [... ALL navigation flows between ALL pages ...]
 
 ## Design Notes
-- Color scheme: {from DS tokens — every token above mapped to a value}
+- Color scheme: {from DS tokens — map to --bg, --fg, --accent, --surface, --border, --muted}
 - Typography: {from DS — font families for display, body, mono}
 - Density: {from DS — spacing scale, component density}
-- Device target: {responsive with its breakpoints, or desktop-only with its minimum width}
 </spec>
 ```
 
+## NUMERIC INTEGRITY RULES:
+
+The itemized rows you write are the ONLY source of truth. Every aggregate is derived from them.
+
+1. **Every aggregate is computed from the items it summarizes.** Counts, sums, averages, percentages and distributions must equal the rows listed in this spec. When an aggregate and a list disagree, the list is right — change the aggregate.
+2. **Write the items first, the aggregate second.** Never state a total and then invent rows to sit under it.
+3. **State an aggregate only on a page where its items are listed, or name the page that lists them.** A total that summarizes rows nobody can see cannot be checked and will drift.
+4. **A displayed subset must declare its relationship to the whole.** If a table shows fewer rows than the total you quote elsewhere, state the page size and how the remainder is reached (pagination, scroll, "top N by X"). Never let one number of rows and a different declared total stand side by side unexplained.
+5. **Every entity in a set gets the same treatment.** If a set has N members, every derived table covering that set has N entries — not a convenient subset.
+
+## ONE PLACE PER FIGURE:
+
+You write this document in one pass and cannot go back and delete an earlier
+paragraph. So a figure must be **impossible** to state twice, not merely
+discouraged.
+
+1. **Every figure has exactly one owning section: the one that lists the items it
+   summarizes.** Write the value there, once, and give it a name.
+2. **Everywhere else, refer to it by that name — never by its value.** "Total
+   Valuation (see State & Data Model)" is correct. Re-typing the number on a
+   summary card is how one document ends up asserting three different totals.
+3. **Do the addition in the owning section, in writing, before you state the
+   result.** List the addends, then the sum. You have no scratchpad; the document
+   is the only place you can carry work, and a sum you did not write the addends
+   for is a sum you did not check.
+4. **A summary card is specified as a derivation, never as a number.** Write
+   "Card — Pending Fees: sum of `fee` over rows where `collected = false` in the
+   Fees table" and stop. Do **not** also write what that sum comes to. A card that
+   carries a literal can contradict its own table; a card that carries its formula
+   cannot. This is the rule for every stat card, KPI tile, count badge and total
+   row in the document.
+5. **Specify only a dataset you are going to write out in full — 10–15 records.**
+   "Total permits in system: 47" followed by eight rows and "[+39 more …]" is not
+   a dataset: nothing downstream can build those 39, so they get invented. The set
+   size is your decision, so choose the smallest set that exercises every state,
+   category and badge colour once, and enumerate every field of every record.
+   **Never state a count you are not going to enumerate**, and never let a total
+   range over records you did not write.
+
+This spec is a record of decisions, not a worksheet. Never emit reasoning in
+progress — no "let me recalculate", no "or perhaps", no two candidate values for
+one field, no self-correction left in the text. If you have already written a
+figure and now believe it is wrong, **do not write a second version and do not
+narrate a correction** — the itemization in the owning section is authoritative
+and everything else refers to it by name, so there is nothing to restate.
+
+## PER-ENTITY DATA RULE:
+
+If any row, card, or list item navigates to a detail view, that detail view is reached for **every** member of the set — not just the one you describe.
+
+- State where the detail content for each member comes from: either seed a per-entity record for all N members, or specify a deterministic rule that derives each member's detail from its list row.
+- This applies to the entity's **collections** as much as its fields — its history, comments, line items, attachments, notes. A detail page whose collections exist for one member and are empty for the rest is a broken page for everyone else.
+- Never specify detail content by describing one representative example and leaving the rest implied.
+
+## INTERACTION COMPLETENESS RULE:
+
+For every interactive control, specify all three of:
+
+1. **Initial state** — what is selected/shown before the user touches anything, on first load.
+2. **Empty state** — exactly what renders when the control yields zero results.
+3. **Combined state** — what happens when this control is active at the same time as the others on its page.
+
+A control specified only by its happy path will be built three different ways.
+
 ## CONTENT RULES — EVERY PAGE MUST HAVE:
 
-1. **Tables**: minimum 5 rows of realistic, domain-specific data, written as literal values. Column headers must be specific (not "Column 1").
+1. **Tables**: minimum 5 rows of realistic, domain-specific data. Column headers must be specific (not "Column 1").
 2. **Lists**: minimum 4 items with real names/values.
-3. **Charts**: minimum 6 data points with labeled axes and a title, written as literal label/value pairs.
+3. **Charts**: minimum 6 data points with labeled axes and a title.
 4. **Forms**: every field labeled, every submit button wired to a behavior.
 5. **Buttons**: every button has a label AND a specified action.
 6. **No placeholders**: "Lorem ipsum", "Item 1", "User A", "Metric X", "TBD", "Coming soon", "Future expansion" are FORBIDDEN.
 7. **Real data**: invent plausible domain-specific names, numbers, dates, and labels.
-8. **Accessibility and Viewport blocks are filled in on every page** — not "standard", not "as usual", not omitted.
 
 ## NAVIGATION RULES:
 
+00. **The page set comes from the brief.** Specify exactly the pages the brief
+   enumerates. Do not add a page it does not name — an extra page costs the build
+   agent a share of its budget and returns nothing the user asked for, and it is
+   usually the reason the pages that *were* asked for end up thin.
+0. **Exactly one page is the entry point.** In the Pages & Navigation table, mark
+   Entry Point "Yes" for one page and "No" for every other. More than one entry
+   point means nothing declares what loads at `#/`, and the build agent picks
+   arbitrarily.
+0a. **Every state machine declares what its terminal state does.** If you specify
+   a progression (stage → stage → … → final), say explicitly what the action
+   control does when an entity is already in the final state: it is hidden,
+   disabled, or relabelled to a named different action. A chain whose last state
+   has an undefined action gets built as a button that throws.
+0b. **A parameterised route names the page it resolves to.** When rows navigate to
+   a detail view, write the route and its target page id together — route
+   `#/thing/{id}` resolves to the page whose id is `thing-detail`. Routing is by
+   the declared page id, never by reading the whole URL fragment as one name.
 1. **Every sidebar/nav item is a real page** — if it appears in the navigation, it has a full page spec.
 2. **Every nav link navigates** — clicking any nav item shows a fully populated page.
 3. **No dead links** — every `href="#/..."` must correspond to a `<section data-page>` with content.
@@ -221,7 +245,8 @@ Emit ONE structured spec document wrapped in `<spec>...</spec>` tags.
 
 1. **Use template layout names** — reference the exact layout patterns from the ACTIVE TEMPLATE (e.g. "hero-center", "feature triplet", "stat row", "log list", "comparison table").
 2. **Reference CSS classes** — list the template CSS classes each page will use (e.g. `.section .container .grid-3 .card-flat .feature .btn-primary`).
-3. **Map DS tokens** — explicitly map the design system's colors to the template's `:root` variables, including the status, hover, and focus tokens listed above.
+3. **Map DS tokens** — explicitly map the design system's colors to the template's `:root` variables (--bg, --fg, --accent, --surface, --border, --muted).
+3a. **Declare a token for every colour the design needs, including derived ones.** List each status/state colour AND, wherever a badge, pill, chip, banner or highlighted row needs a *tinted or translucent wash* of that colour, declare that tint as its own token too (a solid token and its paired surface token). The build agent may only use `var(--token)`; if a needed shade has no token it will hand-write a literal instead. Every shade the design uses must exist here by name.
 4. **Respect DS density** — if the DS is dense (GitHub, Linear), use compact spacing. If spacious (Apple, Stripe), use generous whitespace.
 5. **No template mode** — if no ACTIVE TEMPLATE is present, you have full creative freedom. Design a complete CSS class system and layout architecture in the spec. Define `.topbar`/`.sidebar` chrome, layout grids (`.grid-2`, `.grid-3`, `.grid-4`), card/table/form/badge/button classes with their exact CSS properties described in prose. The build agent implements exactly what you specify — be explicit and thorough. Do NOT ask for a template. Proceed immediately with the richest possible design.
 
@@ -239,7 +264,10 @@ Emit ONE structured spec document wrapped in `<spec>...</spec>` tags.
 - ❌ Pages with only a title and no content
 - ❌ Spec that doesn't reference the template layout patterns
 - ❌ Spec that doesn't map design system tokens
-- ❌ Leaving device target, accessibility, or the status/hover/focus tokens unstated
-- ❌ Specifying data as a generation rule instead of literal values
+- ❌ A stated total that does not equal the rows listed under it
+- ❌ A row count on one page contradicting the same set's count on another
+- ❌ Deliberation left in the text ("let me recalculate", "or we could", two candidate values for one field)
+- ❌ Detail content specified for one member of a set whose every member is reachable
+- ❌ An interactive control specified without its empty state and its initial state
 
 Output ONE spec document inside `<spec>...</spec>` tags. No prose before or after the tags.

@@ -36,6 +36,13 @@ USER_ID = "eval-minimal"
 # you deliberately want a different provider under test.
 DEFAULT_PROVIDER = "mistral"
 
+# Sentinel for "the caller said nothing about the provider" — distinct from
+# `None`, which is meaningful here (it means "no built instance; let
+# build_model's own ambient chain resolve it inside create_runner"). Only with
+# a third state can a config's own `provider:` be honoured while an explicit
+# CLI --provider still wins over it.
+UNSET = "<unset>"
+
 Origin = Literal["dispatched", "replayed", "seeded"]
 
 
@@ -46,7 +53,7 @@ def run(
     from_run: str | None = None,
     into: str | None = None,
     repeats: int = 1,
-    provider: str | None = DEFAULT_PROVIDER,
+    provider: str | None = UNSET,
     model: str | None = None,
 ) -> str:
     """Run a config's dataset through one stage or the whole chain.
@@ -66,6 +73,18 @@ def run(
     already produced.
     """
     resolved = _load_config(config)
+    # Provider/model precedence: explicit argument > the config's own
+    # `provider:`/`model:` > DEFAULT_PROVIDER. A config that names AWS is
+    # self-describing — `./eval.sh configs/ten_aws.yaml` cannot be run against
+    # the wrong provider by forgetting a flag.
+    if provider == UNSET:
+        provider = resolved.get("provider", DEFAULT_PROVIDER)
+    if model is None:
+        model = resolved.get("model")
+    # Written back so the run's own config.json records what it ACTUALLY
+    # dispatched against, not just what the config file suggested — a CLI
+    # override would otherwise leave no trace outside the per-row model_id.
+    resolved = {**resolved, "provider": provider, "model": model}
     order: list[str] = resolved["order"]
     stage_defs: dict[str, dict] = resolved["agents"]
     stages_to_run = [stage] if stage is not None else order

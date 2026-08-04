@@ -22,6 +22,7 @@ that file are carried forward unchanged into the new write.
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -100,6 +101,42 @@ def list_runs() -> list[str]:
         (p.name for p in RUNS_ROOT.iterdir() if p.is_dir() and not p.name.startswith(".")),
         reverse=True,
     )
+
+
+def clone_run(src_run_id: str, *, label: str, drop: tuple[str, ...] = ("judge.json",)) -> str:
+    """Copy a finished run into a NEW run id, dropping `drop` (default the
+    judge verdicts). Returns the new run id.
+
+    The point is a second OPINION on the same evidence: dispatch is the
+    expensive half (a 5-stage chain on Bedrock ran 2.9M input tokens), so
+    re-judging the SAME stored responses with a different judge provider must
+    not mean paying to generate them again. Everything the judge reads —
+    `run.json`'s responses, the artifacts, the config that names each stage's
+    agent — is copied verbatim, so the two runs differ in the judge and in
+    nothing else.
+
+    `score.json` is copied rather than dropped: the deterministic checks read
+    the same bytes and would return the same findings, so re-running them
+    would only cost a Chromium launch. Regenerate with `cli checks` (free) if
+    checks.py has changed since.
+    """
+    src = RUNS_ROOT / src_run_id
+    if not src.is_dir():
+        raise FileNotFoundError(f"no run at {src}")
+    config = _read_json(src / "config.json") or {}
+    dst_run_id = new_run_id(f"{config.get('dataset_id', 'eval')}-{label}")
+    dst = run_dir(dst_run_id)
+    for item in src.iterdir():
+        if item.name in drop or item.name == "superseded":
+            continue
+        if item.is_dir():
+            shutil.copytree(item, dst / item.name, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, dst / item.name)
+    # Provenance, so a clone is never mistaken for an independent sample: the
+    # two runs share every dispatched token and are NOT n=2.
+    snapshot_config(dst_run_id, {**config, "cloned_from": src_run_id, "clone_label": label})
+    return dst_run_id
 
 
 def list_phases(run_id: str) -> list[str]:

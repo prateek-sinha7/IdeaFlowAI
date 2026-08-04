@@ -1,0 +1,17 @@
+{
+  "dataset_id": "prototype_aws_fraud_review_queue",
+  "for_agent": "prototype-specify",
+  "description": "ONE row (Banking, review-queue + state-change + table-heavy), full 5-stage chain, dispatched on AWS Bedrock. The queue/disposition shape: rows move between states and the badge classes carry meaning, which is where raw-hex status colours and alert() feedback have historically shown up.",
+  "rows": [
+    {
+      "id": "fraud_review_queue",
+      "industry": "Banking",
+      "tags": [
+        "review-queue",
+        "state-change",
+        "table-heavy"
+      ],
+      "prompt": "Build a card-fraud review console for Meridian Bank's risk team. Pages: Queue, Case Detail via #/case/:id, Rules, Analytics, Audit Log, Settings. The Queue lists flagged transactions (card last-4, merchant, amount, country, risk score 0-100, status) with a risk-band filter (High \u226580 / Medium 50-79 / Low <50) and a text search over merchant; both must actually filter. Case Detail shows the transaction, the cardholder's last 5 transactions for context, and the triggering rule, with 'Confirm fraud' and 'Mark legitimate' buttons that update the case status badge in place and back on the Queue. The Audit Log appends one line per decision taken this session. Analytics totals must agree with the Queue data. Realistic amounts, merchants, BIN-plausible card fragments."
+    }
+  ]
+}

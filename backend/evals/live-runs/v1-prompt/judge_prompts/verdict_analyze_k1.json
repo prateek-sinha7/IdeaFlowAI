@@ -1,0 +1,96 @@
+{
+  "row_id": "northwind_fleet",
+  "score": 47.2,
+  "judge_model": "claude-opus-5 (claude code)",
+  "checks_failed": false,
+  "scoring": "severity_priced",
+  "sub_scores": {
+    "cross_artifact_grounding": 78,
+    "defect_detection": 0,
+    "verdict_coherence": 64
+  },
+  "sub_scores_judge_self": {
+    "cross_artifact_grounding": 72,
+    "defect_detection": 18,
+    "verdict_coherence": 60
+  },
+  "findings": {
+    "cross_artifact_grounding": [
+      {
+        "text": "major: three of the five 'Issues requiring attention' are artifact-agnostic boilerplate that would fit any prototype spec/task pair unchanged — 'State Persistence Mechanism Undefined', 'Error and Empty States Not Designed', 'Drag-Drop Implementation Library Not Specified'. Only the technicianNotes item ('Spec defines `technicianNotes: TechnicianNote[]` (array) but Vehicle Detail page example shows only 1 note') is anchored in this row's actual content. Nothing in these three cites a spec table, a data row, a unit number, or a value from the artifacts.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: miscounts the artifact it claims to have read — finding 9 says 'Task 1 explicitly maps all 11 CSS tokens with hex values', but Task 1's DS Token Mapping lists 13 (--bg, --fg, --accent, --surface, --border, --border-strong, --muted plus --status-available/-in-shop/-awaiting/-test/-out/-complete).",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "defect_detection": [
+      {
+        "text": "blocking: misses the arithmetic defect that the brief specifically calls out ('Parts & Costs totals must sum from work order line items'). The spec's Parts Cost Breakdown Table totals row reads 'TOTAL | — | — | — | 152 | $12,847.50', but the 18 listed rows sum to $7,431.50 and 129 units; the same wrong $12,847.50 is reproduced in KPI Card 1 and propagated verbatim into Task 6. Relatedly, the parts table cites WO-031/WO-032/WO-033 while the WorkOrder model says '15 total across all shops and statuses', the Kanban holds 18 cards, and KPI Card 2 says '24'. The report grades this area 'Data model alignment ✅ Clear' and 'Acceptance signals ✅ Clear'.",
+        "severity": "blocking",
+        "cost": 45
+      },
+      {
+        "text": "blocking: reports a real cross-page data contradiction as clear. Finding 1 says 'Tasks directly implement spec requirements with no contradictions… data model, and page layouts align across both artifacts' and finding 5 says cross-page vehicle data 'is correct, not duplication' — yet the Work Orders Kanban places vehicles in columns that contradict the Vehicles table's Status column, under a spec rule that 'column defines new status': TRK-2026-0184 is 'Available' in the table but sits in the In Shop column; TRL-2025-0334 is 'Road Test' in the table but in In Shop; TRL-2025-0335 is 'Out of Service' but in Road Test; BXX-2024-0918 is 'Available' but in In Shop; VAN-2023-0452 is 'In Shop' but in Awaiting Parts. Task 8's own 'Data Consistency' check would fail on the seed data the spec supplies.",
+        "severity": "blocking",
+        "cost": 45
+      },
+      {
+        "text": "major: misses the status-vocabulary mismatch between the two state machines. Vehicle currentStatus is 'Available | In Shop | Awaiting Parts | Road Test | Out of Service' while WorkOrder status is 'Pending | In Shop | Awaiting Parts | Road Test | Complete', yet spec flow 6 and Task 4's dropCard() map a Kanban column directly onto vehicle status — 'Pending' and 'Complete' are not valid vehicle statuses. Compounding it, the Advance Status modal offers only In Shop / Awaiting Parts / Road Test / Out of Service, so no flow can ever return a vehicle to 'Available'.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: misses that Task 1 drops the parameterized detail route it declares. Task 1 lists 'Pages (6 total)' including 'vehicle-detail (#/vehicle/:id)', but its Routes Map object contains only five entries (vehicles, work-orders, inspections, parts-costs, settings) with no vehicle route — the exact router gap Task 8's check 3 assumes exists. Task 1 also says '6 main nav items' and then enumerates five.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: misses that Vehicle Detail has data for exactly one vehicle. The brief requires the page to render 'the clicked vehicle's service checklist, technician notes per shop'; the spec's vehicles array gives serviceChecklist/technicianNotes for TRK-2026-0184 and elides the rest as '// ... 11 more vehicles with similar structure', and Task 3 hardcodes only TRK-2026-0184's ten checklist items, status history and single Marcus Chen note. Eleven of twelve [View] targets have no specified content.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: misses an entity/flow mismatch it explicitly claims to have checked ('All entity fields (Vehicle, WorkOrder, Inspection, Part, Settings) defined in spec are covered by tasks'). The Inspection type has no shop field, yet the spec's Vehicles interactions say the shop selector filters 'work orders and inspections by assigned shop' and Task 8's cascade check 5 requires 'Inspections page filters by shop'.",
+        "severity": "major",
+        "cost": 18
+      }
+    ],
+    "verdict_coherence": [
+      {
+        "text": "major: the Findings table contradicts itself. Row 1 'Consistency ✅ Clear' and row 7 'Data model alignment ✅ Clear' sit beside row 11 'Risk items ❌ Issue', whose own text names 'Task 3 (state cascade consistency across pages)' and 'Task 6 (parts aggregation deduplication logic)' as high risk — i.e. consistency and data-model concerns are simultaneously graded clear and flagged as the report's only ❌.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "major: the next actions contradict the issues they are supposed to resolve. Issue 1 requires 'Before Task 1 begins, decide: does this prototype persist state?' and the verdict says 'Task 1 should be refined before full-scale build', but next action 2 instructs 'Start Task 1 (HTML shell + DS tokens) immediately; this is lowest-risk' — a reader following the action list starts Task 1 with the blocking question the same report says must be answered first.",
+        "severity": "major",
+        "cost": 18
+      }
+    ]
+  },
+  "rationale": "The report is well organized and its five ambiguity items are genuine, but as a gate it fails on the dimension that matters most: it certifies as '✅ Clear' precisely the areas where the spec and task list actually disagree. The Parts & Costs totals row ($12,847.50 / 152 units) does not sum from the 18 rows it aggregates ($7,431.50 / 129) — the one arithmetic property the brief names explicitly — and the KPI card and Task 6 propagate the wrong number, while work-order counts (15 in the model, 18 Kanban cards, 24 in the KPI, WO-033 referenced) never reconcile. The Kanban seeds five vehicles into columns that contradict the Vehicles table's own Status column under a rule that says the column defines the status. The two state machines use different status vocabularies, 'Available' is unreachable from any modal, Task 1's routes map omits the #/vehicle/:id route it declares as a page, Vehicle Detail content exists for one of twelve vehicles, and Inspection carries no shop field despite two artifacts demanding shop filtering. None of this appears; instead findings 1, 5 and 7 assert 'no contradictions', 'cross-page vehicle data is correct', and full entity coverage. Grounding is mid-tier — the technicianNotes and Task 3/4/6 citations are real, but three of five issues are portable boilerplate and the token count is wrong. Verdict coherence is structurally sound in shape yet internally self-contradicting: consistency is graded clear and flagged ❌ at once, and the next actions tell the reader to start Task 1 immediately on a question the issues section says must be settled before Task 1 begins.",
+  "strengths": [
+    "Names real artifact content in places: 'Spec defines `technicianNotes: TechnicianNote[]` (array) but Vehicle Detail page example shows only 1 note' is a genuine, actionable spec/task ambiguity tied to Task 3.",
+    "Traceability sweep is correct as far as it goes — all 6 pages really do map to Tasks 2-7, Task 1 to chrome/DS tokens, Task 8 to validation, and no task is genuinely unmapped.",
+    "The risk register is task-indexed rather than generic, calling out Task 4 (drag-drop), Task 3 (status cascade) and Task 6 (aggregation) as the three highest-complexity units — which are in fact the three most defect-dense areas of the spec.",
+    "Verdict is hedged rather than a bare pass ('READY WITH CAUTION'), and the Issues, Risk register and Suggested next actions sections all address the same five items rather than drifting apart."
+  ],
+  "weaknesses": [
+    "blocking: misses the arithmetic defect the brief specifically calls out — the spec's parts totals row 'TOTAL | — | — | — | 152 | $12,847.50' does not sum from its own 18 rows ($7,431.50 / 129 units), the wrong figure is repeated in KPI Card 1 and Task 6, and work-order counts never reconcile (15 in the model, 18 Kanban cards, 24 in the KPI, WO-033 cited); graded 'Data model alignment ✅ Clear'.",
+    "blocking: reports a real cross-page contradiction as clear — finding 1 claims 'no contradictions' and finding 5 says cross-page vehicle data 'is correct', but TRK-2026-0184, TRL-2025-0334, TRL-2025-0335, BXX-2024-0918 and VAN-2023-0452 all sit in Kanban columns that disagree with their Vehicles-table Status under the spec's own 'column defines new status' rule.",
+    "major: misses the status-vocabulary mismatch — WorkOrder statuses 'Pending'/'Complete' are not valid vehicle statuses yet Task 4's dropCard maps column to vehicle status, and the Advance Status modal omits 'Available' so no flow returns a vehicle to it.",
+    "major: misses that Task 1's Routes Map contains only five routes and no '#/vehicle/:id' despite Task 1 listing 'Pages (6 total)' including vehicle-detail, and says '6 main nav items' while listing five.",
+    "major: misses that eleven of twelve vehicles have no Vehicle Detail content — the spec elides them as '// ... 11 more vehicles with similar structure' and Task 3 hardcodes only TRK-2026-0184, against a brief requiring 'the clicked vehicle's service checklist'.",
+    "major: misses that Inspection has no shop field while the spec's shop selector and Task 8 check 5 both require inspections to filter by shop — despite claiming all entity fields 'are covered by tasks'.",
+    "major: three of five 'Issues requiring attention' (state persistence, error/empty states, drag-drop library) are artifact-agnostic boilerplate that would transfer unchanged to any other spec/task pair.",
+    "major: the Findings table contradicts itself — 'Consistency ✅ Clear' and 'Data model alignment ✅ Clear' coexist with the sole ❌ row whose text cites 'state cascade consistency across pages' and 'parts aggregation deduplication logic'.",
+    "major: next action 2 says 'Start Task 1 (HTML shell + DS tokens) immediately' while issue 1 requires the state-persistence decision 'Before Task 1 begins' and the verdict says Task 1 'should be refined before full-scale build'.",
+    "minor: finding 9 says 'Task 1 explicitly maps all 11 CSS tokens with hex values'; Task 1 maps 13."
+  ],
+  "tokens_in": 0,
+  "tokens_out": 0
+}

@@ -1,0 +1,477 @@
+Grade this agent response for an automated eval. Return one entry per rubric dimension, each scored 0-100 with evidence quoted from the response. No single overall number.
+
+=== AGENT SYSTEM PROMPT ===
+
+=== END ===
+
+=== BRIEF ===
+Build a fleet maintenance console for Northwind Logistics' garage. Pages: Vehicles, Vehicle Detail via #/vehicle/:id, Work Orders (by shop), Inspections, Parts & Costs, Settings. Vehicles: unit number, make/model, type (Box truck / Tractor / Cargo van / Trailer), in-service date, current status (Available / In shop / Awaiting parts / Road test / Out of service), days in status — with type filters and unit-number search. Vehicle Detail renders the clicked vehicle's service checklist, technician notes per shop, and 'Advance status' (moves the vehicle, visible on Vehicles and moving it between Work Orders queues) and 'Flag for parts' actions. Parts & Costs totals must sum from work order line items. Realistic unit numbers like TRK-2026-0184, VIN-style ids, mileages and costs.
+=== END ===
+
+The pipeline stages that ran BEFORE this one produced the artifacts below. They were seeded into the agent's sandbox under these filenames and are the evidence for any dimension that compares this response against what came before it — coverage, grounding, completeness, and what a repair stage actually changed. Where a dimension asks what changed, diff them yourself rather than take the response's word for it.
+
+=== UPSTREAM ARTIFACT: clarifications.md ===
+# Clarifications
+
+## Round 1
+
+### How should the main navigation be structured? Given 6 pages (Vehicles, Vehicle Detail, Work Orders, Inspections, Parts & Costs, Settings), should users navigate via a persistent left sidebar, top bar with dropdown menu, bottom tab bar, or card-based single-page layout? _(high impact)_
+**Answer:** Persistent left sidebar (typical dashboard pattern)
+
+### What visual design language should the prototype follow? Should it use a minimal SaaS aesthetic (light neutral, lots of whitespace), a dark admin dashboard (dark background, high contrast), a data-visualization style (charts/graphs emphasis), or match Northwind's existing brand? _(high impact)_
+**Answer:** Minimal SaaS (light grays, clean typography, subtle accents)
+
+### Which pages are essential for the minimum viable prototype? Should all 6 (Vehicles, Vehicle Detail, Work Orders, Inspections, Parts & Costs, Settings) be fully functional, or should some be placeholder/stub pages? _(high impact)_
+**Answer:** Vehicles (list with filters/search) — fully functional
+
+=== END ===
+
+=== RESPONSE ===
+<spec>
+# Prototype Specification: Northwind Logistics Fleet Maintenance Console
+
+## Template & Design System
+- **Template**: Dashboard (sidebar + top bar + main content layout) — adapted for multi-page fleet management
+- **Design System**: Apple — Minimal, airy, premium whitespace with SF Pro typography; blue accent (`#0071e3`) reserved for actions/links only
+- **CSS Class System**: `.app-shell`, `.sidebar`, `.sidebar-nav`, `.nav-item`, `.nav-item--active`, `.topbar`, `.topbar-title`, `.topbar-actions`, `.main`, `.section`, `.container`, `.kpi-card`, `.table`, `.table-container`, `.filter-group`, `.btn`, `.btn-primary`, `.btn-secondary`, `.input`, `.badge`, `.status-badge`, `.badge--available`, `.badge--in-shop`, `.badge--awaiting-parts`, `.badge--road-test`, `.badge--out-of-service`
+- **Color Tokens**:
+  - `--bg: #ffffff` (Pure White Canvas)
+  - `--bg-light: #f5f5f7` (Pale Apple Gray — section backgrounds)
+  - `--fg: #1d1d1f` (Near-Black Ink — primary text)
+  - `--fg-secondary: #6e6e73` (Secondary Neutral Gray — secondary text)
+  - `--accent: #0071e3` (Apple Action Blue — actions, active states, highlights)
+  - `--accent-link: #0066cc` (Body Link Blue — text links)
+  - `--surface: #f5f5f7` (card/container background)
+  - `--border: #d2d2d7` (Soft Border Gray — subtle dividers)
+  - `--border-strong: #86868b` (Mid Border Gray — field outlines)
+  - `--bg-dark: #1d1d1f` (dark button background)
+  - `--status-available: #34c759` (green)
+  - `--status-in-shop: #ff9500` (orange)
+  - `--status-awaiting-parts: #ff3b30` (red)
+  - `--status-road-test: #0071e3` (blue)
+  - `--status-out-of-service: #8e8e93` (gray)
+
+## Overview
+- **Product**: Northwind Logistics Fleet Maintenance Console — a web-based garage management system for tracking vehicles, work orders, inspections, parts inventory, and maintenance costs across multiple repair shops
+- **Target audience**: Shop technicians, fleet dispatchers, shop managers, fleet maintenance administrators
+- **Core purpose**: Provide real-time visibility into vehicle status, maintenance scheduling, parts needs, and cost tracking to minimize downtime and optimize maintenance operations across distributed shop locations
+- **Total pages**: 6 (Vehicles, Vehicle Detail, Work Orders, Inspections, Parts & Costs, Settings)
+
+## Pages & Navigation
+| Page ID | Route | Purpose | Layout Pattern | Entry Point |
+|---------|-------|---------|----------------|-------------|
+| `vehicles` | `#/` | Fleet overview: vehicle list with type/status filtering, unit-number search, status badges, days-in-status metric | sidebar + topbar + filter controls + table | Yes (default) |
+| `vehicle-detail` | `#/vehicle/:id` | Single vehicle view with service checklist, technician notes per shop, work order history, status advancement action, parts flagging | sidebar + topbar + detail sections + action buttons | Via Vehicles list [Detail] button |
+| `work-orders` | `#/work-orders` | Work orders organized by shop queue (Downtown Bay / North Warehouse / East Terminal), showing task, assigned tech, status, days in queue, priority | sidebar + topbar + shop tabs + order list | Via sidebar nav |
+| `inspections` | `#/inspections` | Inspection records filtered by type (Pre-trip, Post-trip, Annual Safety, Emission, DOT Compliance), showing vehicle, date, findings, pass/fail status | sidebar + topbar + type filter + inspection table | Via sidebar nav |
+| `parts-costs` | `#/parts-costs` | Aggregated costs rolled up from work order line items, KPI cards (total fleet cost, parts inventory value, avg cost/vehicle, open WO cost), cost-by-vehicle table | sidebar + topbar + KPI cards + cost table | Via sidebar nav |
+| `settings` | `#/settings` | Fleet configuration: fleet name, shop locations, managers, notification rules, user preferences (default shop, currency, date format) | sidebar + topbar + settings form groups | Via sidebar nav |
+
+## Page Specifications
+
+### Vehicles (`#/`)
+**Layout**: sidebar + topbar (with search + filter controls) + main table
+**Template classes**: `.app-shell`, `.sidebar`, `.topbar`, `.main`, `.section`, `.filter-group`, `.table-container`, `.table`
+**Components**:
+  - **Top bar**: left side shows "Vehicles" page title, right side has unit-number search input (placeholder: "Search by unit (e.g., TRK-2026-0184)") + user avatar/status
+  - **Filter Controls** (below topbar, sticky): 
+    - Type filter pills: "All", "Box truck", "Tractor", "Cargo van", "Trailer" (active pill uses `--accent`)
+    - Clear filters link when filters applied
+  - **Vehicle Table**: columns [Unit Number, Make/Model, Type, In-Service Date, Status, Days in Status, Actions]
+    - 12 vehicles with realistic data:
+      | Unit Number | Make/Model | Type | In-Service | Status | Days | Actions |
+      |---|---|---|---|---|---|---|
+      | TRK-2026-0184 | Volvo VNL 860 | Tractor | 2021-03-15 | Available | 2 | Detail / Flag Parts |
+      | BX-2024-0512 | Ford F-750 | Box truck | 2024-01-22 | In shop | 5 | Detail / Flag Parts |
+      | CG-2023-1047 | International CV | Cargo van | 2023-08-10 | Awaiting parts | 12 | Detail / Flag Parts |
+      | TR-2022-0091 | Wabash Trailer | Trailer | 2022-06-05 | Road test | 1 | Detail / Flag Parts |
+      | TRK-2025-0203 | Peterbilt 579 | Tractor | 2025-02-01 | Available | 0 | Detail / Flag Parts |
+      | BX-2023-0889 | Isuzu NPR-HD | Box truck | 2023-11-28 | Out of service | 45 | Detail / Flag Parts |
+      | CG-2024-0156 | Mercedes Sprinter | Cargo van | 2024-05-13 | In shop | 3 | Detail / Flag Parts |
+      | TR-2021-0504 | Great Dane Trailer | Trailer | 2021-09-20 | Available | 0 | Detail / Flag Parts |
+      | TRK-2026-0445 | Volvo VNL 760 | Tractor | 2026-01-10 | Awaiting parts | 8 | Detail / Flag Parts |
+      | BX-2025-0067 | Freightliner M2 | Box truck | 2025-04-03 | Available | 1 | Detail / Flag Parts |
+      | CG-2022-0733 | Ford Transit | Cargo van | 2022-12-15 | In shop | 7 | Detail / Flag Parts |
+      | TR-2024-0298 | Kentucky Trailer | Trailer | 2024-07-09 | Available | 0 | Detail / Flag Parts |
+    - Status column uses color-coded badges (Available green, In shop orange, Awaiting parts red, Road test blue, Out of service gray)
+    - Days-in-status badge: if > 10 days, highlight with subtle background
+**Interactions**:
+  - Type filter: AND logic with search (both active simultaneously)
+  - Unit-number search: case-insensitive substring match, updates table in real-time
+  - [Detail] button: navigates to `#/vehicle/:id` (id = unit number slug, e.g., "trk-2026-0184")
+  - [Flag Parts] button: opens inline form/modal to select parts needed, adds to work queue
+
+---
+
+### Vehicle Detail (`#/vehicle/:id`)
+**Layout**: sidebar + topbar (showing "Vehicle: TRK-2026-0184 — Volvo VNL 860") + main area with tabbed/sectioned detail
+**Template classes**: `.app-shell`, `.sidebar`, `.topbar`, `.main`, `.section`, `.vehicle-header`, `.service-checklist`, `.notes-panel`, `.work-order-history`, `.action-buttons`
+**Components**:
+  - **Vehicle Header Card** (top of main): 
+    - Left: Unit Number (large, bold), Make/Model, Type badge, Current Status badge (color-coded), Days in Status
+    - Right: VIN (1VUJB5B32F1234567), Current Mileage (187,643 mi), Last Service Date (2026-01-15)
+  - **Service Checklist Section**: 
+    - Rows for Oil Change, Air Filter, Brake Inspection, Tire Rotation, Fluid Top-off, Coolant Flush
+    - Each row: task name | last completed (date) | interval (miles) | next due (date + estimated miles) | checkbox [Completed in this visit]
+    - Data:
+      - Oil Change: Last 2026-01-15, 15,000 mi interval, due ~2026-02-10 (or 187,643 + 15,000 = 202,643 mi)
+      - Air Filter: Last 2025-11-20, 20,000 mi interval, due ~2026-03-20
+      - Brake Inspection: Last 2025-12-05, 10,000 mi interval, due ~2026-01-20
+      - Tire Rotation: Last 2026-01-08, 8,000 mi interval, due ~2026-02-08
+      - Fluid Top-off: Last 2026-01-18, 2,000 mi interval, due ~2026-01-27
+      - Coolant Flush: Last 2025-06-10, 50,000 mi interval, due ~2026-03-10
+  - **Technician Notes by Shop** (collapsible sections):
+    - **Downtown Bay**: "Brake lines inspected 2026-01-18, wear evident. Recommend replacement in next service cycle. — Tech: Mike R., verified 14:32"
+    - **North Warehouse**: "Routine oil change completed 2026-01-15, mileage 187,643 mi. No issues noted. All fluids topped off. — Tech: Sarah L., verified 09:15"
+    - **East Terminal**: (no notes if never serviced there) "No service history at this location."
+  - **Work Order History** (expandable table):
+    - WO-2026-0515: Oil Change + Filter Replacement | Downtown Bay | In Progress | Mike R. | $245.00
+    - WO-2026-0512: Oil Filter + Fluid Top | Downtown Bay | In Progress | Mike R. | $180.00
+    - WO-2026-0498: Brake Inspection | North Warehouse | Completed | Sarah L. | $180.00
+    - WO-2026-0477: Tire Rotation | East Terminal | Completed | Dave T. | $120.00
+    - WO-2026-0450: Transmission Service | Downtown Bay | Completed | Mike R. | $420.00
+  - **Action Buttons** (sticky, bottom right):
+    - [Advance Status] button (primary, `--accent` blue): opens dropdown to select next valid status
+      - Available → In shop / Out of service
+      - In shop → Available / Awaiting parts / Road test
+      - Awaiting parts → In shop
+      - Road test → Available / In shop
+      - Out of service → Available / In shop
+    - [Flag for Parts] button (secondary, outline): opens form to add parts needed (part name, qty, estimated cost), adds to Parts & Costs totals
+    - [Back to Vehicles] link: navigates to `#/`
+**Interactions**:
+  - [Advance Status] → select status → update vehicle globally, reload Vehicles table + Work Orders queues
+  - [Flag for Parts] → select part from dropdown or enter custom part name, qty → confirm → adds line item to Parts & Costs
+  - Clicking work order row (expandable) → shows line items (parts + labor breakdown)
+  - Clicking shop name in notes → navigates to `#/work-orders` with shop filtered
+
+---
+
+### Work Orders (`#/work-orders`)
+**Layout**: sidebar + topbar (title: "Work Orders") + main area with shop tabs + order list
+**Template classes**: `.app-shell`, `.sidebar`, `.topbar`, `.main`, `.section`, `.shop-tabs`, `.shop-tab`, `.work-order-table`
+**Components**:
+  - **Shop Filter Tabs** (below topbar, sticky):
+    - "All Shops" (default), "Downtown Bay", "North Warehouse", "East Terminal" — active tab uses `--accent` highlight
+  - **Work Order Table**: columns [WO #, Vehicle Unit, Task, Assigned Tech, Status, Days in Queue, Priority, Cost]
+    - 15 work orders across 3 shops (5 per shop):
+      | WO # | Vehicle | Task | Tech | Status | Days | Priority | Cost |
+      |---|---|---|---|---|---|---|---|
+      | WO-2026-0515 | TRK-2026-0184 | Engine Oil Change | Mike R. | In Progress | 1 | Normal | $245 |
+      | WO-2026-0514 | BX-2024-0512 | Brake Pad Replacement | Sarah L. | Queued | 2 | High | $680 |
+      | WO-2026-0512 | TRK-2026-0184 | Oil Filter + Fluid Top | Mike R. | In Progress | 1 | Normal | $180 |
+      | WO-2026-0511 | CG-2024-0156 | Suspension Inspection | Dave T. | Queued | 3 | High | $420 |
+      | WO-2026-0510 | TR-2022-0091 | Trailer Light Repair | Mike R. | Completed | 0 | Normal | $85 |
+      | WO-2026-0509 | BX-2024-0512 | Transmission Fluid Change | Sarah L. | In Progress | 1 | Normal | $340 |
+      | WO-2026-0508 | TRK-2026-0445 | Engine Diagnostics | Dave T. | Queued | 4 | High | $450 |
+      | WO-2026-0507 | CG-2023-1047 | Tire Replacement (Set of 4) | Sarah L. | In Progress | 2 | Normal | $840 |
+      | WO-2026-0506 | TR-2021-0504 | Hitch Inspection | Mike R. | Completed | 0 | Normal | $120 |
+      | WO-2026-0505 | BX-2023-0889 | Full Overhaul | Dave T. | In Progress | 5 | High | $8500 |
+      | WO-2026-0504 | TRK-2025-0203 | Routine Maintenance | Sarah L. | Queued | 0 | Normal | $380 |
+      | WO-2026-0503 | CG-2024-0156 | Coolant Flush | Mike R. | Completed | 0 | Normal | $240 |
+      | WO-2026-0502 | TR-2024-0298 | Brake Fluid Top-off | Dave T. | Queued | 1 | Normal | $95 |
+      | WO-2026-0501 | BX-2025-0067 | Air Filter Replacement | Sarah L. | In Progress | 0 | Normal | $145 |
+      | WO-2026-0500 | TRK-2026-0184 | Tire Rotation | Mike R. | Completed | 0 | Normal | $120 |
+    - Status badges: Queued (gray), In Progress (blue), Completed (green), On Hold (orange)
+    - Priority badges: Normal (neutral text), High (orange/red background)
+    - Cost column right-aligned, formatted as currency ($XXX.XX)
+**Interactions**:
+  - Shop tabs filter work orders by location (All Shops shows all 15, individual shop shows 5)
+  - Clicking vehicle unit navigates to `#/vehicle/:id`
+  - Clicking row (expandable) shows detail: task breakdown, labor hours, parts line items (part name, qty, unit cost, total), estimated completion, notes
+  - [Update Status] button on expanded row: updates WO status (Queued → In Progress → Completed)
+
+---
+
+### Inspections (`#/inspections`)
+**Layout**: sidebar + topbar (title: "Inspections") + main area with type filter + inspection table
+**Template classes**: `.app-shell`, `.sidebar`, `.topbar`, `.main`, `.section`, `.filter-group`, `.inspection-table`
+**Components**:
+  - **Inspection Type Filter** (below topbar, sticky):
+    - Filter pills: "All Types" (default), "Pre-trip", "Post-trip", "Annual Safety", "Emission", "DOT Compliance" — active pill uses `--accent`
+  - **Inspection Table**: columns [Vehicle Unit, Inspection Type, Date, Technician, Findings, Status]
+    - 10 inspection records:
+      | Vehicle | Type | Date | Tech | Findings | Status |
+      |---|---|---|---|---|---|
+      | TRK-2026-0184 | Pre-trip | 2026-01-18 | Mike R. | Clean, no issues noted | Passed |
+      | BX-2024-0512 | DOT Compliance | 2026-01-17 | Sarah L. | Brake deficiency detected, flagged for repair | Failed |
+      | CG-2023-1047 | Annual Safety | 2026-01-16 | Dave T. | Tire wear within limits, suspension OK | Passed |
+      | TR-2022-0091 | Post-trip | 2026-01-18 | Mike R. | Trailer lights functional, all connections secure | Passed |
+      | TRK-2025-0203 | Pre-trip | 2026-01-18 | Sarah L. | Minor oil seep observed, monitor | Passed |
+      | BX-2023-0889 | Annual Safety | 2025-06-10 | Dave T. | Multiple deficiencies, vehicle out of service | Failed |
+      | CG-2024-0156 | Pre-trip | 2026-01-18 | Mike R. | All systems operational | Passed |
+      | TR-2021-0504 | Emission | 2026-01-12 | Sarah L. | Emissions within limits, catalyst OK | Passed |
+      | TRK-2026-0445 | Post-trip | 2026-01-18 | Dave T. | Engine knock detected, diagnostics recommended | Failed |
+      | BX-2025-0067 | Pre-trip | 2026-01-18 | Mike R. | Clean inspection, no issues | Passed |
+    - Status badges: Passed (green), Failed (red), Pending (yellow), N/A (gray)
+    - Findings column truncated with expandable detail (click row to see full findings + deficiency list)
+**Interactions**:
+  - Type filter updates table in real-time
+  - Clicking vehicle unit navigates to `#/vehicle/:id`
+  - Clicking row (expandable) shows full inspection detail: all findings, deficiency list (if Failed), photos (if present), technician sign-off timestamp, corrective actions taken
+
+---
+
+### Parts & Costs (`#/parts-costs`)
+**Layout**: sidebar + topbar (title: "Parts & Costs") + main area with KPI cards + cost aggregation table
+**Template classes**: `.app-shell`, `.sidebar`, `.topbar`, `.main`, `.section`, `.kpi-grid`, `.kpi-card`, `.cost-table`
+**Components**:
+  - **KPI Cards** (row 1, 4-column grid):
+    - **Total Fleet Maintenance Cost (This Month)**: $18,947 | vs. $16,320 last month | +16% up arrow | label in smaller text
+    - **Parts Inventory Value**: $24,560 | vs. $21,890 last month | +12% up arrow
+    - **Avg Cost per Vehicle**: $1,579 | vs. $1,361 last month | +16% up arrow
+    - **Open Work Order Cost**: $6,240 | vs. $5,100 last month | +22% up arrow
+    - Card design: white background, subtle border (`--border`), bold number (32px), small label + delta (secondary text + accent color for up/down indicator)
+  - **Cost Aggregation Table**: columns [Vehicle Unit, Total Cost (This Month), Labor, Parts, Parts Count, Most Recent WO]
+    - 8 vehicles, costs summed from work orders:
+      | Vehicle | Total Cost | Labor | Parts | WO Count | Recent WO |
+      |---|---|---|---|---|---|
+      | TRK-2026-0184 | $1,245 | $420 | $825 | 3 | WO-2026-0515: Oil Change |
+      | BX-2024-0512 | $1,950 | $680 | $1,270 | 2 | WO-2026-0514: Brake Pads |
+      | CG-2023-1047 | $2,340 | $840 | $1,500 | 1 | WO-2026-0507: Tire Repl |
+      | TR-2022-0091 | $580 | $180 | $400 | 1 | WO-2026-0510: Trailer Light |
+      | TRK-2025-0203 | $420 | $240 | $180 | 1 | WO-2026-0504: Routine |
+      | BX-2023-0889 | $8,500 | $3,200 | $5,300 | 1 | WO-2026-0505: Full Overhaul |
+      | CG-2024-0156 | $892 | $340 | $552 | 2 | WO-2026-0511: Suspension |
+      | TR-2021-0504 | $320 | $120 | $200 | 1 | WO-2026-0506: Hitch |
+    - All cost columns right-aligned, formatted as currency ($X,XXX.XX)
+    - Subtotal row at bottom: Total Fleet Cost = sum of all vehicles this month
+  - **Cost Trend Chart** (inline SVG): 12-month bar chart (Jan 2025 - Dec 2025, then Jan 2026), Y-axis = cost ($0-$25,000), X-axis = month labels, bars colored `--accent` for current month (Jan 2026 = $18,947)
+**Interactions**:
+  - Clicking vehicle unit row navigates to `#/vehicle/:id`
+  - Clicking work order link (e.g., "WO-2026-0515") shows inline detail: labor hours, parts line items (part name, qty, unit cost, total), date, assigned tech
+  - KPI cards are display-only (no interaction)
+
+---
+
+### Settings (`#/settings`)
+**Layout**: sidebar + topbar (title: "Settings") + main area with form sections
+**Template classes**: `.app-shell`, `.sidebar`, `.topbar`, `.main`, `.section`, `.settings-group`, `.form-group`, `.input`, `.select`, `.checkbox`, `.btn-primary`, `.btn-secondary`
+**Components**:
+  - **Fleet Settings Section**:
+    - Fleet Name: "Northwind Logistics" (text input)
+    - Total Vehicles: 52 (display-only, gray text)
+    - Headquarters Location: "Chicago, IL 60601" (text input)
+  - **Shop Configuration Section**:
+    - Table of 3 shops:
+      | Shop Name | Manager | Address | Edit |
+      |---|---|---|---|
+      | Downtown Bay | Mike Reynolds | 123 Main St, Chicago IL 60601 | [Edit] |
+      | North Warehouse | Sarah Chen | 4567 Industrial Blvd, Chicago IL 60602 | [Edit] |
+      | East Terminal | Dave Thompson | 8910 Distribution Rd, Chicago IL 60603 | [Edit] |
+    - [Add New Shop] button (secondary style)
+  - **Notification Rules Section** (checkboxes, all enabled by default):
+    - ☑ Alert when vehicle in same status > 14 days
+    - ☑ Alert when parts on backorder
+    - ☑ Alert when inspection fails
+    - ☑ Alert when maintenance is overdue
+    - ☑ Daily cost summary email (shop managers)
+  - **User Preferences Section**:
+    - Default Shop View: [Dropdown: All Shops / Downtown Bay / North Warehouse / East Terminal] — set to "All Shops"
+    - Cost Currency: [Dropdown: USD / EUR / GBP] — set to USD
+    - Date Format: [Dropdown: MM/DD/YYYY / DD/MM/YYYY / YYYY-MM-DD] — set to MM/DD/YYYY
+  - **Action Buttons** (sticky bottom):
+    - [Save Settings] button (primary, `--accent` blue, 8px radius)
+    - [Cancel] link (neutral text)
+    - Success toast message: "Settings saved successfully" (appears on save, fades after 3s)
+**Interactions**:
+  - Text inputs are editable
+  - Dropdowns are selectable
+  - Checkboxes toggle on/off
+  - [Edit] buttons on shop rows open inline edit form (name, manager, address fields)
+  - [Add New Shop] opens form to enter new shop details
+  - [Save Settings] submits form (no-op in prototype, shows toast)
+  - [Cancel] returns form to saved state, clears unsaved changes
+
+---
+
+## State & Data Model
+
+**Vehicle** (seed 12 instances):
+  - id: string (unit number slug, e.g., "trk-2026-0184")
+  - unitNumber: string (e.g., "TRK-2026-0184")
+  - make: string (e.g., "Volvo")
+  - model: string (e.g., "VNL 860")
+  - type: enum (Box truck | Tractor | Cargo van | Trailer)
+  - vin: string (VIN-style 17-char code, e.g., "1VUJB5B32F1234567")
+  - inServiceDate: date (YYYY-MM-DD, e.g., "2021-03-15")
+  - currentMileage: number (e.g., 187643)
+  - status: enum (Available | In shop | Awaiting parts | Road test | Out of service)
+  - daysInStatus: number (0-45)
+  - lastStatusChange: date (ISO, e.g., "2026-01-16T14:32:00Z")
+  - currentShop: string (Downtown Bay | North Warehouse | East Terminal | null if Available/Out of service)
+  - lastServiceDate: date (e.g., "2026-01-15")
+
+**WorkOrder** (seed 15 instances):
+  - id: string (e.g., "WO-2026-0515")
+  - vehicleId: string (FK to Vehicle id)
+  - shop: string (Downtown Bay | North Warehouse | East Terminal)
+  - task: string (e.g., "Engine Oil Change")
+  - taskDescription: text (detailed task breakdown)
+  - assignedTech: string (e.g., "Mike R.")
+  - status: enum (Queued | In Progress | Completed | On Hold)
+  - priority: enum (Normal | High)
+  - daysInQueue: number (0-5)
+  - createdDate: date (ISO)
+  - estimatedCompletion: date (ISO)
+  - laborHours: number (e.g., 1.5)
+  - laborCost: number (USD, e.g., 180.00)
+  - lineItems: array of { partId, partName, qty, unitCost, totalCost }
+  - partsCost: number (sum of lineItems totals)
+  - totalCost: number (laborCost + partsCost)
+  - notes: text (technician notes, e.g., "Brake wear evident, recommend replacement.")
+
+**Inspection** (seed 10 instances):
+  - id: string (e.g., "INS-2026-0518")
+  - vehicleId: string (FK to Vehicle id)
+  - type: enum (Pre-trip | Post-trip | Annual Safety | Emission | DOT Compliance)
+  - date: date (ISO)
+  - technician: string (name, e.g., "Mike R.")
+  - findings: text (detailed findings, e.g., "Clean, no issues noted")
+  - status: enum (Passed | Failed | Pending | N/A)
+  - deficiencies: array of { code, description, severity } (if status == Failed)
+  - correctiveActions: array of { action, completedDate } (actions taken post-inspection)
+  - signOffTimestamp: date (ISO)
+
+**ServiceChecklistItem** (per vehicle, 6 predefined items):
+  - task: string (Oil Change, Air Filter, Brake Inspection, Tire Rotation, Fluid Top-off, Coolant Flush)
+  - lastCompleted: date (ISO)
+  - interval: number (miles, e.g., 15000)
+  - nextDueDate: date (estimated)
+  - nextDueMileage: number (estimated)
+  - completed: boolean (checkbox state for current visit)
+
+**PartsLineItem** (aggregated from WorkOrder lineItems):
+  - partId: string
+  - partName: string (e.g., "Michelin LR3 18PR 255/70R22.5")
+  - qty: number
+  - unitCost: number (USD)
+  - totalCost: number (qty × unitCost)
+  - workOrderId: string (FK)
+  - vehicleId: string (FK)
+  - date: date (when ordered/installed)
+
+**Shop** (seed 3 instances):
+  - id: string (e.g., "downtown-bay")
+  - name: string (Downtown Bay | North Warehouse | East Terminal)
+  - manager: string (Mike Reynolds | Sarah Chen | Dave Thompson)
+  - address: string (full address)
+  - phone: string (business phone)
+  - capacity: number (bays available)
+  - activeWorkOrders: number (current count)
+
+**NotificationRule**:
+  - vehicleInStatusDays: number (14, default)
+  - partsBackorderAlert: boolean (true)
+  - failedInspectionAlert: boolean (true)
+  - overdueMaintenanceAlert: boolean (true)
+  - dailyCostSummary: boolean (true)
+
+---
+
+## Navigation Flows
+
+| Trigger | Destination | State Change |
+|---------|-------------|---|
+| Sidebar "Vehicles" | `#/` | Clear filters, show all vehicles |
+| Sidebar "Work Orders" | `#/work-orders` | Show all shops, clear filters |
+| Sidebar "Inspections" | `#/inspections` | Show all types, clear filters |
+| Sidebar "Parts & Costs" | `#/parts-costs` | Load aggregated costs (current month) |
+| Sidebar "Settings" | `#/settings` | Load saved settings into form |
+| Vehicles [Detail] button | `#/vehicle/:id` | Load vehicle detail, prepopulate service checklist |
+| Vehicle Detail [Back to Vehicles] | `#/` | Return to vehicles list, preserve filter state |
+| Vehicle Detail [Advance Status] → select status | Update vehicle.status, reload Vehicles table, update Work Orders queues | Trigger status change animation |
+| Vehicle Detail [Flag for Parts] → confirm | Add to Parts & Costs totals, create line item, reflect on Parts & Costs page | Show success confirmation |
+| Work Orders tab (shop) | Stay on `#/work-orders` | Filter by selected shop |
+| Work Orders [vehicle unit] link | `#/vehicle/:id` | Load vehicle detail |
+| Work Orders [Update Status] | Update workOrder.status | Reflect on Vehicles list (daysInStatus) |
+| Inspections filter (type) | Stay on `#/inspections` | Filter by selected type |
+| Inspections [vehicle unit] link | `#/vehicle/:id` | Load vehicle detail |
+| Parts & Costs [vehicle row] | `#/vehicle/:id` | Load vehicle detail, show work order history |
+| Parts & Costs [work order link] | Stay on `#/parts-costs` | Expand inline work order detail |
+| Settings [Save Settings] | Stay on `#/settings` | Save form state to localStorage, show success toast |
+| Settings [Cancel] | Stay on `#/settings` | Revert unsaved changes, reload form from saved state |
+
+---
+
+## Design Notes
+
+- **Color Mapping** (Apple DS → CSS variables):
+  - Primary actions & highlights: `--accent: #0071e3` (Apple Action Blue)
+  - Text links: `--accent-link: #0066cc` (Body Link Blue)
+  - Primary text: `--fg: #1d1d1f` (Near-Black Ink)
+  - Secondary text: `--fg-secondary: #6e6e73` (Secondary Neutral Gray)
+  - Backgrounds: `--bg: #ffffff` (white), `--bg-light: #f5f5f7` (Pale Apple Gray)
+  - Borders: `--border: #d2d2d7` (soft), `--border-strong: #86868b` (strong)
+  - Dark buttons: `--bg-dark: #1d1d1f`
+  - Status colors: Available `#34c759` (green), In shop `#ff9500` (orange), Awaiting parts `#ff3b30` (red), Road test `#0071e3` (blue), Out of service `#8e8e93` (gray)
+
+- **Typography** (Apple DS):
+  - Page titles: SF Pro Display, 48px, weight 600, line height 1.08
+  - Section headings: SF Pro Display, 28px, weight 600, line height 1.14
+  - Table headers: SF Pro Text, 14px, weight 600, line height 1.29
+  - Body text: SF Pro Text, 17px, weight 400, line height 1.47
+  - Small labels: SF Pro Text, 12px, weight 400, line height 1.33
+  - Fallback: Inter, Inter Tight for display
+
+- **Spacing & Density** (Apple DS — generous whitespace):
+  - Base unit: 8px
+  - Section gaps: 16-20px (between major sections)
+  - Card padding: 12-16px (inside cards)
+  - Form field padding: 8-12px (inside inputs)
+  - Sidebar width: 240px, sticky on left
+  - Topbar height: 56px, sticky on top
+  - Main content max-width: 1200px, centered with 16px margins
+
+- **Component Details**:
+  - Sidebar: background `--bg-light`, nav items use text color `--fg`, active item text `--accent`
+  - Buttons: primary uses `--accent` bg + white text, secondary uses `--border` outline + `--fg` text, both 8px radius
+  - Tables: striped rows (alternate white/`--bg-light`), borders use `--border`, sortable headers
+  - Forms: inputs use white bg + `--border-strong` outline, labels use `--fg`, helper text uses `--fg-secondary`
+  - Cards: white bg, subtle `--border` outline, 8-12px radius, shadow optional (`rgba(0,0,0,0.08)`)
+  - Badges: color-coded per status enum (green/orange/red/blue/gray)
+
+- **Responsiveness**: Prototype targets desktop (1024px+) primarily; sidebar collapses to icon-only on tablet (<834px); stacks to bottom tab bar on mobile (<640px)
+
+</spec>
+=== END ===
+
+=== RUBRIC ===
+Grading a prototype SPECIFICATION (not code) that another agent will build
+static HTML from. Read the brief for the industry.
+
+Nothing has been pre-screened. Judge the response as-is.
+
+Return an entry for EVERY dimension listed. A partial list is discarded in
+full.
+
+FINDINGS ARE THE SCORE. Per dimension, list every real defect in
+`weaknesses` as a string PREFIXED with its severity — `"blocking: ..."`,
+`"major: ..."`, `"minor: ..."`:
+- blocking — cannot proceed, or would build the wrong thing: contradiction,
+  undefined reference, a brief requirement absent.
+- major — real gap, but a reasonable assumption gets past it: unspecified
+  empty state, a capability claimed with no mechanism.
+- minor — nit; changes nothing about what gets built.
+
+The tag IS the deduction. Tag honestly: never withhold a finding to protect
+a score, never inflate a nit. No real defects = empty `weaknesses` = a
+legitimate 100. Do not invent a flaw to avoid giving one.
+
+`score`: your own 0-100. Recorded for comparison, NOT the score of record.
+Answer it honestly, not strategically.
+
+`evidence`: quote specific pages or data from THIS response. Text that
+would fit any other response is a non-answer.
+
+=== END ===
+
+=== DIMENSIONS (use each id verbatim) ===
+- data_realism (weight 20): Data (names, ids, amounts, dates) plausible and specific to THIS brief's industry — not generic filler that would fit any vertical.
+- brief_intent_match (weight 25): Every page serves a need the brief states, and everything the brief asked for is delivered. Flag both directions.
+- design_system_coherence (weight 15): Class system and density fit the audience — not a marketing look on an ops tool. Flag: classes or tokens referenced but never defined; a11y and narrow-viewport behaviour left silent instead of decided (control labels, keyboard reach, responsive or explicit desktop-only stance).
+- spec_consistency_completeness (weight 25): Buildable without guessing. Flag: "future expansion" / "not implemented" items outside the declared page count; routes referenced but never defined; capabilities claimed ("real-time", "live") with no mechanism; page count contradicting the pages specified; entry route that is not what loads first; fields rendered but absent from the data model; enums contradicted across sections; seed rows disagreeing with declared types.
+- interaction_specification (weight 15): Every interaction has an exact trigger AND outcome, including empty results, no-match search, zero values, first load, and what resets what. Test: would two build agents produce the same behaviour?
+=== END ===
+
+Return exactly one entry per dimension — no more, no fewer. Also return top-level `rationale`, `strengths`, `weaknesses`.

@@ -7,7 +7,7 @@ Grade this agent response for an automated eval. Return one entry per rubric dim
 === BRIEF ===
 {prompt}
 === END ===
-
+{upstream}
 === RESPONSE ===
 {response}
 === END ===

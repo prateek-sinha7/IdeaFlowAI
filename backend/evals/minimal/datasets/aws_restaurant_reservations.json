@@ -1,0 +1,17 @@
+{
+  "dataset_id": "prototype_aws_restaurant_reservations",
+  "for_agent": "prototype-specify",
+  "description": "ONE row (Hospitality, booking + calendar + state-change), full 5-stage chain, dispatched on AWS Bedrock. The time-grid shape: a calendar/floor layout rather than a table, so it exercises responsive breakpoints and date anchoring far harder than a list-and-detail brief does.",
+  "rows": [
+    {
+      "id": "restaurant_reservations",
+      "industry": "Hospitality",
+      "tags": [
+        "booking",
+        "calendar",
+        "state-change"
+      ],
+      "prompt": "Build the host-stand console for Verdello, a 14-table Italian restaurant. Pages: Tonight (service timeline), Reservation Detail via #/reservation/:id, Floor Plan (table-state list), Waitlist, Guests, Settings. Tonight lists reservations (time, party name, covers, table, occasion, status Booked/Seated/Finished/No-show) with a service-period filter (5:00 / 6:30 / 8:00 seatings) and party-name search. Reservation Detail shows guest notes and allergy flags with 'Seat party' and 'No-show' actions that update the status on Tonight and flip the table's state on the Floor Plan. Waitlist has a 'Convert to reservation' action that inserts a row into Tonight. Guest history counts must match Tonight's data. Realistic Italian-restaurant names, tables T1-T14, covers, times."
+    }
+  ]
+}

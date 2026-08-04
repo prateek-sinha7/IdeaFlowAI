@@ -158,6 +158,12 @@ class JudgeOutput(BaseModel):
         """
         if not isinstance(data, dict):
             return data
+        # `isinstance(..., str)` guard, not a bare `.get()`: assigning
+        # unconditionally wrote None over an ABSENT field, defeating its
+        # default_factory and failing a reply that was fine.
+        for key in ("strengths", "weaknesses"):
+            if isinstance(data.get(key), str):
+                data[key] = _as_list(data[key])
         if isinstance(data.get("strengths"), list):
             data["strengths"] = [_to_text(item) for item in data["strengths"]]
         if isinstance(data.get("weaknesses"), list):
@@ -168,6 +174,9 @@ class JudgeOutput(BaseModel):
         for dimension in dimensions:
             if not isinstance(dimension, dict):
                 continue
+            for key in ("strengths", "weaknesses"):
+                if isinstance(dimension.get(key), str):
+                    dimension[key] = _as_list(dimension[key])
             if isinstance(dimension.get("strengths"), list):
                 dimension["strengths"] = [_to_text(i) for i in dimension["strengths"]]
             if isinstance(dimension.get("weaknesses"), list):
@@ -185,6 +194,29 @@ class JudgeOutput(BaseModel):
 # bare string in a strengths/weaknesses list.
 _TEXT_KEYS = ("description", "finding", "text", "issue", "detail", "note", "summary")
 _SEVERITY_KEYS = ("severity", "tag", "level", "impact")
+
+
+def _as_list(value: Any) -> Any:
+    """A strengths/weaknesses field coerced to a list, if it plausibly is one.
+
+    Judges sometimes emit the list as a JSON-encoded STRING — `'["a", "b"]'`
+    rather than `["a", "b"]`. Pydantic rejects that outright, which discarded a
+    complete, already-paid-for verdict over pure serialisation (run
+    260803-155235-…reservations, specify).
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return [text]
+        if isinstance(parsed, list):
+            return parsed
+    return [text]
 
 
 def _to_text(item: Any) -> str:
@@ -414,7 +446,10 @@ def _suggestion(item: Suggestion) -> dict:
     }
 
 
-def build_judge_prompt(*, system_prompt: str, prompt: str, response: str, rubric: dict) -> str:
+def build_judge_prompt(
+    *, system_prompt: str, prompt: str, response: str, rubric: dict,
+    upstream: dict[str, str] | None = None,
+) -> str:
     """Fill `prompts/judge_prompt.md` from the rubric's dimensions and anchors.
 
     The template is a real file, not a mirror — this IS the prompt that gets
@@ -424,6 +459,23 @@ def build_judge_prompt(*, system_prompt: str, prompt: str, response: str, rubric
     without them (specify — see its comments) emits nothing at all rather
     than an empty section or a paragraph explaining the absence. Explaining
     it cost ~60 tokens on every call to say "ignore this".
+
+    `upstream` is the pipeline evidence: every PRIOR stage's output, under the
+    filename it was seeded into the sandbox as. Same optional-section shape as
+    `anchors` — specify has no upstream and emits nothing.
+
+    Without it, four of the five stages were judged blind on their largest
+    dimension, because a stage's own `row["prompt"]` is only the 840-character
+    brief: upstream artifacts reach the agent as sandbox FILES it opens with
+    tools, never as prompt text. So `plan.page_coverage` (40%) was scored with
+    no spec to count pages against, `analyze.cross_artifact_grounding` (40%)
+    with no artifacts to check grounding against, `build.page_completeness`
+    (35%) with no spec or task list, and `validate.defect_repair_delta` (35%)
+    with no pre-repair artifact to diff — that last one graded "what did you
+    fix?" against evidence that was never supplied. Judges cannot say they are
+    missing evidence they were never told existed; they scored the gap as if it
+    were the artifact's fault. Found when two Opus judges independently went
+    and dug the prior artifact off disk themselves rather than guess.
     """
     dimensions = "\n".join(
         f"- {d['id']} (weight {d.get('weight')}): {' '.join(str(d.get('description', '')).split())}"
@@ -435,9 +487,23 @@ def build_judge_prompt(*, system_prompt: str, prompt: str, response: str, rubric
         for band in sorted(anchor_map, key=lambda k: int(k), reverse=True)
     )
     anchors = f"\n=== SCORE ANCHORS ===\n{anchor_lines}\n=== END ===\n" if anchor_lines else ""
+    upstream_text = "".join(
+        f"\n=== UPSTREAM ARTIFACT: {path} ===\n{text}\n=== END ===\n"
+        for path, text in (upstream or {}).items() if text
+    )
+    if upstream_text:
+        upstream_text = (
+            "\nThe pipeline stages that ran BEFORE this one produced the artifacts below."
+            " They were seeded into the agent's sandbox under these filenames and are the"
+            " evidence for any dimension that compares this response against what came"
+            " before it — coverage, grounding, completeness, and what a repair stage"
+            " actually changed. Where a dimension asks what changed, diff them yourself"
+            " rather than take the response's word for it.\n" + upstream_text
+        )
     return JUDGE_PROMPT_TEMPLATE.format(
         system_prompt=system_prompt, prompt=prompt, response=response,
         rubric_text=rubric.get("rubric", ""), dimensions=dimensions, anchors=anchors,
+        upstream=upstream_text,
     )
 
 
@@ -529,7 +595,7 @@ def _check_dimension_ids(returned: list[str], expected: list[str]) -> str | None
 
 async def judge(
     response: str, *, rubric: dict, system_prompt: str = "", prompt: str = "",
-    on_call=None,
+    upstream: dict[str, str] | None = None, on_call=None,
 ) -> JudgeVerdict:
     """Grade one response against a rubric. NEVER raises — R-09: a malformed
     reply costs this one row, not the stage. A dimension-id mismatch (e.g. a
@@ -547,6 +613,7 @@ async def judge(
         structured_judge = judge_model.with_structured_output(JudgeOutput, include_raw=True)
         judge_prompt = build_judge_prompt(
             system_prompt=system_prompt, prompt=prompt, response=response, rubric=rubric,
+            upstream=upstream,
         )
         parsed, parse_error, tokens_in, tokens_out = await _invoke_logged(
             structured_judge, judge_prompt, on_call, kind="judge", attempt=0,

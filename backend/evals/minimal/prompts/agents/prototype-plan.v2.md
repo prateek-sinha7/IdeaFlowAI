@@ -57,18 +57,6 @@ You will receive:
 - The ACTIVE TEMPLATE (SKILL.md) — the visual template the user selected *(may be absent if no template was chosen)*
 - The ACTIVE DESIGN SYSTEM (DESIGN.md) — the design tokens to use
 
-## THE ISOLATION CONSTRAINT — THE RULE THAT DECIDES EVERY TASK
-
-**Each task is executed by a separate sub-agent with no memory of any other task, no sight of any other task's text, and no knowledge of what has been built so far.** It sees the spec, the design system, the current HTML file, and its own task block. Nothing else.
-
-Everything downstream follows from this:
-
-1. **Every task is self-contained.** It carries all the context, data, and detail needed to build its page. If a sub-agent would have to know what another task said, the task is broken.
-2. **No forward or backward references.** Never write "as defined in Task 2", "the Moves page built earlier", "consistent with the previous task", or "see the shell task". The sub-agent reading that sentence cannot see the thing you are pointing at.
-3. **Repetition is correct.** If two tasks both need the same nav structure, the same column set, or the same status vocabulary, state it in full in **both**. Duplication across tasks costs nothing; a missing definition costs a broken page.
-4. **A task that mentions another page must define what it needs from it.** If a control on this page navigates to, or reflects the state of, another page, say what that control does and what data it shows — in this task, in full. Do not assume the other page's task will handle it.
-5. **Assume the sub-agent knows nothing about the domain.** Anything you leave to judgement will be invented, and invented differently on every page.
-
 ## MANDATORY: READ THE SPEC'S TEMPLATE & DESIGN SYSTEM SECTION
 
 The spec includes a "Template & Design System" section with:
@@ -76,9 +64,7 @@ The spec includes a "Template & Design System" section with:
 - Design system name and color tokens
 - Per-page layout patterns and CSS classes
 
-**Every task MUST reference the exact CSS classes and DS token mappings from the spec**, and must use the spec's own terminology verbatim rather than a synonym for it. Where the spec names a class, a token, a page, or a layout pattern, use that exact name — a task that renames things forces the sub-agent to guess at the mapping.
-
-**Route naming must be internally consistent.** Pick one form for each page — either `#/page-name` or `#/page/:id` — and use that identical form in the shell task, in the page's own task, and in every task that links to it. Mixing `#/sku-detail` in one task and `#/sku/:id` in another produces a dead link that nothing catches until validation.
+**Every task MUST reference the exact CSS classes and DS token mappings from the spec.**
 
 **If NO ACTIVE TEMPLATE is present (no-template / blank canvas mode):** The build agent has a complete blank-canvas CSS scaffold available in its context. Use the CSS class system defined in the spec's "Template & Design System" section — reference those exact class names in every task. The scaffold provides: `.page`, `.container`, `.grid-2/3/4`, `.card`, `.table`, `.table-wrap`, `.badge-*`, `.btn`, `.btn-primary`, `.form-input`, `.form-group`, `.topbar`, `.sidebar`, `.nav-link`, `.bar-chart`, `.chart-wrap` and more. Spec tasks can reference these directly — the build agent will implement the spec's extended class system on top of the scaffold.
 
@@ -87,6 +73,30 @@ The spec includes a "Template & Design System" section with:
 **Total tasks = 1 (shell) + N pages + 1 (validation)**
 
 For a 5-page prototype: 7 tasks total (shell + 5 pages + validation).
+
+## THE SUB-AGENT ISOLATION CONTRACT — WHY TASKS FAIL
+
+Each task is executed by a **separate agent that cannot see any other task**. It sees only the spec, the design, the file so far, and its own task text. Everything its task depends on must be *in* its task or already *in the file*. Three consequences, and they are the most common way this plan breaks:
+
+1. **A shared mechanism must be fully defined by the task that introduces it.** If Task 1 creates a store, an event bus, a router parameter, or any cross-page channel, Task 1 must fix its complete contract: the exact function signatures, the exact event or key names, the exact payload shape of each. Naming a mechanism without its contract ("event system: `window.emit`/`window.on` for cross-component updates") leaves every later task to invent an incompatible version. List the channels by name in Task 1, even though later tasks are the ones that use them.
+2. **A data shape must be defined where the data is created, not where it is first read.** If Task 1 initializes a collection, Task 1 states its record fields and types.
+3. **Every task states its own data in full.** A task may not refer to values "as defined in Task N" — that task's text is invisible.
+
+## THE PER-ENTITY DATA RULE
+
+If a list task makes N rows navigate to a detail view, then the detail task must supply detail content for **all N** — or specify the deterministic rule that derives each one from its list row.
+
+- This covers the entity's **nested collections** as much as its scalar fields. Scalars are easy to interpolate and usually are; a nested collection needs per-entity seed data that no task creates unless one is told to, so it gets frozen as fixed markup and every entity displays the first entity's.
+- Say it explicitly in the detail task: "seed records for all N ids listed in Task {list}" or "derive from the row's fields by this rule: …".
+- Never write a detail task around one worked example and leave the rest implied.
+
+## NUMERIC AGREEMENT ACROSS TASKS
+
+Tasks are written together and built apart, so their numbers must already agree.
+
+- A set's size, its per-category breakdown, and every total over it must be identical in every task that mentions them.
+- **Specify a value as computed OR as given, never both.** If a task supplies a formula and also supplies the resulting figures, the sub-agent will hardcode the figures and the formula becomes decoration. Give the formula and the inputs; let the value be derived.
+- Any value one task displays and another task owns must be named as derived from the owner's data, not restated as a literal.
 
 ### Task 1 — HTML Shell (ALWAYS first)
 Build the structural skeleton only:
@@ -97,7 +107,7 @@ Build the structural skeleton only:
 - Shared chrome (sidebar/topbar) with ALL nav items — choose based on spec's layout architecture
 - Hash router + state store (use the MANDATORY ROUTER TEMPLATE from the build context)
 - Empty `<section data-page="{id}" class="page">` for EVERY page; first page also gets `is-active`
-- Routes map with ALL page IDs, in the one route form chosen above
+- Routes map with ALL page IDs
 - **ROUTER RULE**: `data-page` on `<section>` elements only — NEVER on `<a>` tags
 
 **DS Token Mapping for Task 1** (extract from ACTIVE DESIGN SYSTEM):
@@ -115,42 +125,19 @@ Each task fills ONE page section with COMPLETE content. Never combine two pages.
 - Exact layout pattern from the template (e.g. "hero-center + feature triplet")
 - Template CSS classes to use (e.g. `.section .container .grid-3 .card-flat .feature`)
 - Every component with its data
-- Table: exact column names + **5 specific data rows, written out in full** — actual values, not a description of what the values should be
-- Chart: type, axis labels, **6+ data points with their actual values**, and the rendering method
+- Table: exact column names + 5 specific data rows
+- Chart: type, axis labels, 6+ data points with values
 - Every button/link with its exact action
 - Every form field with validation rules
 - Event handlers needed in `<script>`
 
-### Task N+1 — Validation (ALWAYS last)
-- Verify `:root` tokens match the ACTIVE DESIGN SYSTEM (not seed defaults)
-- Fix nav links: `href="#page"` → `href="#/page"`
-- Verify routes map is complete and uses the one chosen route form
-- Verify first page has `class="is-active"`
-- Remove any placeholder text
-- Verify all buttons have handlers
-- **Plus the specific checks written in the "Validation task" section below**
+### Task N+1 — Final Wiring (ALWAYS last)
 
-## THE VALIDATION TASK MUST CHECK *THIS* PLAN
+This is a **build task, not a QA checklist**. The sub-agent executing it can edit the file but cannot observe whether earlier tasks succeeded, so "verify X" is not an instruction it can act on. Write it as concrete edits with a named target:
 
-A validation task that only repeats generic checks validates nothing — it passes a prototype that is missing exactly the content this plan specified. The final task carries a **checklist naming the actual components, data, and interactions the earlier tasks created**, drawn from the tasks you just wrote:
-
-- Name each page and the specific thing it must contain: "the {page} table has its 5 rows with {the column set}", not "all tables have content".
-- Name each chart and its data-point count and rendering method.
-- Name each interactive element and confirm its handler exists: "every button listed in tasks 2–6 has a handler in `<script>`" — with the buttons enumerated.
-- Confirm every calculation, validation rule, and interaction matches what the spec required, naming each one.
-- Use the spec's exact terminology for design-system checks — the same token names and class names the Template & Design System section used, so the check and the requirement cannot drift apart.
-
-If a check in this task could be copy-pasted into a different prototype's plan unchanged, it is too generic. Rewrite it naming this plan's content.
-
-## SPECIFICITY RULES — WHAT "SELF-CONTAINED" MEANS IN PRACTICE
-
-1. **Data is written, not described.** Every table gets its 5 rows as literal values. Every chart gets its 6+ points as literal label/value pairs. "Populate with realistic data" is not a specification — the sub-agent will invent something inconsistent with every other page.
-2. **Give a schema or an example for anything data-heavy.** Column names with their types, a sample row, the value ranges. The sub-agent needs to know the shape, not just the intent.
-3. **Computed values carry their formula.** If a page shows a derived number, state how it is derived and from what — "{metric} = {the exact computation}". Never leave a sub-agent to infer arithmetic.
-4. **Rendering method is named.** For any chart or visualisation, state how it is built — inline SVG, CSS bars, canvas, or a specific library. Leaving this open produces a different implementation on every page.
-5. **Validation rules and transformations are stated,** even where the spec is silent. If a form field has constraints, name them. If a value is formatted or transformed for display, say how.
-6. **Interactions carry their logic.** For every click, submit, toggle, and handler: what state changes, what re-renders, where the user lands, and whether the change persists across navigation. "Wire up the button" is not a specification.
-7. **Edge cases belong in the task.** What the page shows when its data set is empty, when a filter matches nothing, and on first load. The sub-agent builds only what the task names.
+- Name the specific wiring that spans pages and therefore belongs to no single page task — the cross-page handlers, the derived figures that read another page's data, the state subscriptions declared in Task 1 and consumed elsewhere.
+- Express each item as an edit ("wire the row click on {page} to set {state key} and route to `#/{detail}`"), never as an assertion ("all buttons have handlers").
+- If there is genuinely no cross-page wiring left, give this task real content — the empty/zero-result renderings for each filterable list — rather than a checklist.
 
 ## OUTPUT FORMAT
 
@@ -191,7 +178,7 @@ Output tasks inside `<tasks>...</tasks>` tags using `## Task N:` headers:
 **Template Classes**: Copy full CSS from TEMPLATE SEED (.section, .container, .grid-2, .grid-3, .card, .btn-primary, etc.) **— OR if no template: implement the CSS class system from the spec's "Template & Design System" section**
 **Chrome**: {sidebar/topbar description from template, with nav items}
 **Pages**: {list all page IDs}
-**Routes**: { {id}: '/{route}', ... }   ← one route form, used identically in every task
+**Routes**: { {id}: '/{route}', ... }
 
 ## Task 2: {Page Name} (`#/{route}`)
 **Goal**: Fill the {page-id} section with complete content.
@@ -199,28 +186,22 @@ Output tasks inside `<tasks>...</tasks>` tags using `## Task N:` headers:
 **Template Classes**: {list CSS classes}
 **Components**:
 - Table "{table-name}": columns [{col1}, {col2}, {col3}, {col4}]
-  Rows: [{row1 actual values}, {row2}, {row3}, {row4}, {row5}]
-- Chart "{chart-name}": {type}, rendered with {SVG | CSS bars | canvas}, x={axis}, y={axis}
-  Data: [{label: value}, ... 6+ actual points]
-**Derived values**: {metric} = {exact formula and source}
+  Rows: [{row1-data}, {row2-data}, {row3-data}, {row4-data}, {row5-data}]
+- Chart "{chart-name}": {type}, x={axis}, y={axis}
+  Data: [{label: value}, ... 6+ points]
 **Interactions**:
-- Click "{button}": {what state changes, what re-renders, where the user lands, whether it persists}
-- Submit "{form}": {validation rules + action}
-**Edge cases**: empty = {copy}, no-match = {copy}, first load = {default filter/sort}
+- Click "{button}": {exact behavior}
+- Submit "{form}": {validation + action}
 **Script handlers needed**: [{handler1}, {handler2}, ...]
 
-[... one task per page, same detail level, no references to any other task ...]
+[... one task per page, same detail level ...]
 
-## Task {N}: Final Wiring & Validation
-**Goal**: Validate the specific content this plan produced, verify DS tokens, fix navigation.
-**Checks**:
-- {page A}: {named table} has its 5 rows with columns [{...}]
-- {page B}: {named chart} renders {N} points via {method}
-- Handlers exist for: [{every button named in tasks 2..N}]
-- :root tokens match ACTIVE DESIGN SYSTEM, using the spec's own token names
-- Nav links use the one route form: `href="#/{route}"`
-- First page `class="is-active"`; routes map covers all {N} page IDs
-- No placeholder text anywhere
+## Task {N}: Final Wiring
+**Goal**: Implement the cross-page wiring that belongs to no single page task.
+**Edits**:
+- Wire {element on page A} → sets {state key}, routes to `#/{page B}`
+- Render {derived figure on page A} from {data owned by page B}
+- Implement the empty-result rendering for {each filterable list}: {exact text/markup}
 </tasks>
 ```
 
@@ -230,7 +211,9 @@ Output tasks inside `<tasks>...</tasks>` tags using `## Task N:` headers:
 2. **One page per task** — NEVER combine two pages into one task
 3. **Total tasks** = 1 + (number of pages) + 1
 4. **No skipping pages** — every page in the spec gets its own task
-5. **Validation is always last** — never skip it, and never let it be generic
-6. **DS tokens in Task 1** — always map DS colors to :root variables
+5. **Final wiring is always last** — never skip it, and never write it as a checklist
+6. **DS tokens in Task 1** — always map DS colors to :root variables, including every status colour and its tinted surface variant, so no later task needs a colour that has no token
 7. **Template classes in every task** — every page task lists CSS classes to use
-8. **Every task stands alone** — no task references another task, and every task carries its own data, formulas, interactions, and edge cases in full
+8. **Self-contained tasks** — no task refers to another task's text; shared contracts are fixed where the mechanism is created
+9. **Detail data for every navigable entity** — never one worked example
+10. **No deliberation in the output** — tasks are instructions, not reasoning. Never leave "let me reconsider", "need 6 total", or competing versions of a set in the text; decide first, then write the decision only

@@ -1,0 +1,91 @@
+{
+  "row_id": "northwind_fleet",
+  "score": 59.45,
+  "judge_model": "claude-opus-5 (claude code)",
+  "checks_failed": false,
+  "scoring": "severity_priced",
+  "sub_scores": {
+    "data_realism": 70,
+    "page_completeness": 37,
+    "visual_coherence": 74
+  },
+  "sub_scores_judge_self": {
+    "data_realism": 78,
+    "page_completeness": 55,
+    "visual_coherence": 80
+  },
+  "findings": {
+    "data_realism": [
+      {
+        "text": "major: the Parts & Costs totals row is hardcoded in the markup ('152' / '$12,847.50') and contradicts the 18 rows rendered above it — partsData sums to 129 units / $7,431.50 (120.00x8 + 285.00x2 + 18.50x32 + ... + 12.50x8). The KPI cards are equally static ('Work Order Count 24', 'Avg Cost per Order $535.31') while appState.workOrders holds 15 orders, and renderPartsTable() reads the standalone `partsData` array, never appState.workOrders[].lineItems — so the brief's 'Parts & Costs totals must sum from work order line items' is visibly unmet and the page shows arithmetic a fleet controller would reject.",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: the parts table's 'Used in WOs' column cites work orders that do not exist anywhere in the data — 'WO-016' (Spark Plugs), 'WO-019' (Water Pump), 'WO-021' (Radiator Cap), 'WO-022' (Alternator), 'WO-023', 'WO-025', 'WO-030' — while appState.workOrders only runs WO-001 through WO-015.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "minor: several VINs are not VIN-shaped: '5GJLJM32FW8L123456' and '1FTBF1FV5NLC789012' are 18 characters (VINs are 17), and the sequential-filler tails repeat across records — VAN-2023-0451 has '1FTBF1FV5NLC789012' while VAN-2023-0453 has '1FTBF1FV5OLC789012', one character apart.",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "minor: work-order line items thin out into generic filler after WO-001 — WO-011 'Full Service' $345.00, WO-012 'Routine Service' $275.00, WO-013 'General Service' $220.00, WO-014 'Maintenance Service' $185.00, WO-015 'Service' $298.00 — and every In Shop Kanban card renders the same synthetic label `Work: Maintenance ($...)` rather than the actual job, so only WO-001 (Oil & Filter Change / Brake Pad Set / Labor 4 hrs @ $75/hr = $465.00) reads like a real garage ticket.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ],
+    "page_completeness": [
+      {
+        "text": "blocking: Vehicle Detail is populated for exactly one vehicle. `serviceChecklists`, `statusHistories` and `technicianNotes` are keyed only on 'TRK-2026-0184'; initializeVehicleDetail() does `serviceChecklists[vehicleId] || []` for each, so clicking [View] on any of the other 11 rows (e.g. BXX-2024-0917 Isuzu NPR) renders 'Service Checklist', 'Status History' and 'Technician Notes (Main Garage)' as empty headings over bare cards. The brief's stated job for this page — 'renders the clicked vehicle's service checklist, technician notes per shop' — fails for 11 of 12 entry paths.",
+        "severity": "blocking",
+        "cost": 45
+      },
+      {
+        "text": "major: the Work Orders shop selector empties the board. All 15 work orders carry `shop: 'Main Garage'`, and renderWorkOrdersKanban() filters on `wo.shop === shop`, so choosing 'North Branch' or 'Downtown Annex' from the selector leaves all five Kanban columns (Pending, In Shop, Awaiting Parts, Road Test, Complete) blank with no empty state — a page the spec built a shop-scoped queue around. The Vehicles-page shop selector (`changeShop`) also mutates the same `appState.currentShop` without syncing `#woShopSelector`, so the board can go blank while the Work Orders dropdown still reads 'Main Garage'.",
+        "severity": "major",
+        "cost": 18
+      }
+    ],
+    "visual_coherence": [
+      {
+        "text": "major: header chrome is inconsistent across pages and duplicates the title on two of six. Inspections and Settings each render a second in-page `.topbar` ('<div class=\"topbar\" style=\"... height: 64px; position: sticky; top: 0 ...\"><h1 class=\"page-title\">Inspections</h1>') beneath the global topbar, whose `topbar-title` handleRouteChange() has already set to 'Inspections' — so the user sees two stacked 64px bars with the same word. Vehicles, Vehicle Detail and Work Orders instead use `.page-header`, and Parts & Costs uses a third variant (`page-header` with its own border and 16px 24px padding).",
+        "severity": "major",
+        "cost": 18
+      },
+      {
+        "text": "minor: status colours drop out of the DS tokens in places — the Kanban column titles are inline raw hex (`style=\"color: #FF9500;\"` for Awaiting Parts, `style=\"color: #9933FF;\"` for Road Test) while the neighbouring columns correctly use `var(--status-in-shop)` and `var(--status-complete)`, and the badge stylesheet introduces untokenised derivatives (#27A62E, #D17700, #7A2FA3, #E63329).",
+        "severity": "minor",
+        "cost": 4
+      },
+      {
+        "text": "minor: gutters do not line up page to page. `.main-content` already applies `padding: 0 28px 56px`, but Inspections adds `padding: 24px` on its table wrapper and Parts & Costs adds `padding: 24px 24px` on its KPI grid and `0 24px 24px 24px` on its table, so content on those pages starts ~52px from the sidebar while the Vehicles table starts at 28px — visible drift when navigating across the nav.",
+        "severity": "minor",
+        "cost": 4
+      }
+    ]
+  },
+  "rationale": "The fleet dataset is the strongest part of this build: 12 vehicles with credible tractor/box-truck/cargo-van/trailer makes (Freightliner Cascadia, Isuzu NPR, Wabash 53ft Trailer, Hyster 40 Low Boy), six-figure mileages that track vehicle age, 15 inspections with named inspectors and typed findings, and an 18-row parts table with real vendors (Baldwin, FLEETGUARD, Gates, Prestone). Five of the six pages carry the content their spec promised, and the clarification-mandated Kanban with drag-to-advance is genuinely wired (draggable cards, dataTransfer 'workOrderId', dragover preventDefault, drop reading data-status off the parent column, cascading into both wo.status and vehicle.status). Two content holes cost it: Vehicle Detail is only populated for TRK-2026-0184 and renders empty checklist/history/notes cards for the other eleven vehicles, and the Parts & Costs totals row plus KPI cards are hardcoded numbers that contradict the rows beneath them, which is precisely the one aggregation the brief called out. Visually the tokens are used consistently but two pages grow a second in-page topbar that repeats the page title, breaking the single-product read.",
+  "strengths": [
+    "Fleet data reads as a real export: TRK-2026-0184 Freightliner Cascadia, Tractor, in service 2019-03-15, 487,426 mi, Available 3 days, alongside TRL-2025-0335 Great Dane Dry Van at 789,234 mi and Out of Service 45 days — statuses, ages and mileages that hang together.",
+    "The clarification's Kanban-with-drag-to-advance is actually implemented, not faked: cards set `card.draggable = true` and `e.dataTransfer.setData('workOrderId', wo.id)`, columns preventDefault on dragover, and drop calls updateWorkOrderStatus() which writes both `wo.status` and `vehicle.status` then re-renders the Vehicles table — the brief's cross-page status cascade.",
+    "WO-001's detail modal is a real ticket: Oil & Filter Change 1 x $45.00, Brake Pad Set 1 x $120.00, Labor (4 hrs @ $75/hr) 4 x $75.00, totalled live in JS to $465.00, matching the Kanban card's ($465.00).",
+    "Inspections carries genuine depth — 15 rows across Routine/Safety/Emissions/Annual with real inspectors (Sarah Martinez, James Park, David Lee) and typed findings ('Emissions within EPA limits', 'Catalytic converter functioning') surfaced in the details modal.",
+    "Settings is fully specified rather than stubbed: three populated cards (Shop Configuration with 06:00–18:00 hours, User Preferences with marcus@northwindlogistics.com and three notification checkboxes, System Settings with min/max-bounded numeric inputs), a Danger Zone, and real validation (email regex, range checks) behind the Save buttons."
+  ],
+  "weaknesses": [
+    "blocking: Vehicle Detail is populated for exactly one vehicle. `serviceChecklists`, `statusHistories` and `technicianNotes` are keyed only on 'TRK-2026-0184'; initializeVehicleDetail() does `serviceChecklists[vehicleId] || []` for each, so clicking [View] on any of the other 11 rows (e.g. BXX-2024-0917 Isuzu NPR) renders 'Service Checklist', 'Status History' and 'Technician Notes (Main Garage)' as empty headings over bare cards. The brief's stated job for this page — 'renders the clicked vehicle's service checklist, technician notes per shop' — fails for 11 of 12 entry paths.",
+    "major: the Parts & Costs totals row is hardcoded in the markup ('152' / '$12,847.50') and contradicts the 18 rows rendered above it — partsData sums to 129 units / $7,431.50. The KPI cards are equally static ('Work Order Count 24' against 15 stored orders, 'Avg Cost per Order $535.31'), and renderPartsTable() reads the standalone `partsData` array, never appState.workOrders[].lineItems — so the brief's 'Parts & Costs totals must sum from work order line items' is visibly unmet.",
+    "major: the Work Orders shop selector empties the board. All 15 work orders carry `shop: 'Main Garage'`, so choosing 'North Branch' or 'Downtown Annex' leaves all five Kanban columns blank with no empty state; the Vehicles-page `changeShop` mutates the same state without syncing `#woShopSelector`.",
+    "major: header chrome is inconsistent and duplicates the title on two of six pages — Inspections and Settings each render a second sticky 64px in-page `.topbar` with an `<h1 class=\"page-title\">` repeating the title handleRouteChange() already wrote into the global topbar, while Vehicles/Vehicle Detail/Work Orders use `.page-header` and Parts & Costs uses a third variant.",
+    "minor: the parts table cites work orders absent from the data — WO-016, WO-019, WO-021, WO-022, WO-023, WO-025, WO-030 — while only WO-001 through WO-015 exist.",
+    "minor: several VINs are not VIN-shaped — '5GJLJM32FW8L123456' and '1FTBF1FV5NLC789012' are 18 characters, and VAN-2023-0451/VAN-2023-0453 differ by a single character.",
+    "minor: work-order line items degrade into filler after WO-001 ('Full Service' $345.00, 'Routine Service' $275.00, 'Service' $298.00), and every In Shop Kanban card prints the same synthetic `Work: Maintenance ($...)` label instead of the job.",
+    "minor: status colours drop out of the DS tokens in the Kanban column titles (inline `color: #FF9500`, `color: #9933FF`) while adjacent columns use `var(--status-in-shop)`/`var(--status-complete)`.",
+    "minor: gutters drift page to page — `.main-content` already pads 28px, but Inspections and Parts & Costs add another 24px on their inner wrappers, so their content starts ~52px in against the Vehicles table's 28px."
+  ],
+  "tokens_in": 0,
+  "tokens_out": 0
+}

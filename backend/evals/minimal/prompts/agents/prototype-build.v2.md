@@ -134,71 +134,43 @@ window.addEventListener('load', handleRouteChange);
 4. Use `edit_file` so all other sections are preserved exactly as-is — never
    re-write the whole document just to change one section
 
-## DATA IS THE DELIVERABLE — NO EMPTY CONTAINERS, EVER
+**Content requirements — every page MUST have:**
+- Real tables: ≥5 rows, realistic domain-specific data (NOT "Item 1", "User A")
+- Real charts: ≥6 data points, labeled axes, title (SVG or CSS bars) — an element the spec calls a chart is drawn with bars, slices or axes; a line of text stating the numbers is not a chart
+- Real forms: all fields labeled, all buttons wired to handlers
+- Real interactions: every clickable element has a `<script>` handler
+- **No text that names a missing feature instead of being it.** The test is not a list of banned words — it is whether the user is shown the thing or shown a description of the thing. Any label, caption or panel that announces what would be there ("… interface", "… coming soon", "… implemented", a bare feature name in a body slot) is a P0 failure. If you cannot build it in this task, build the smallest real version of it.
 
-A page that renders its layout but not its data is a failed page. This is the single
-most common defect in this pipeline, and it is judged as one.
+## DERIVE, DON'T RESTATE
 
-**Every table, chart, list, stat box, and data-driven component ships populated**, with
-realistic, domain-specific values drawn from the vocabulary of the product in `spec.md`:
+Every figure the user sees is computed at render time from the data structure that owns it.
 
-1. **Tables**: ≥5 rows of real domain data. Never an empty `<tbody>`. Never a header row
-   alone. If the task names the rows, use those exact rows; if it doesn't, derive
-   plausible ones from the spec's data model.
-2. **Charts**: ≥6 actual data points, a title, and labelled X and Y axes. A chart element
-   that is declared in the HTML but never populated or never rendered is the same defect
-   as an empty table — verify the SVG/CSS/canvas element actually draws with its data
-   before you finish.
-3. **Lists**: ≥4 items with real names and values.
-4. **Stat boxes**: real numbers, and numbers that **agree with the table or chart beside
-   them**. A "top item" stat card naming something absent from the adjacent table is a
-   visible contradiction — every stat on a page must be derivable from that page's own data.
-5. **Modals, drawers, and dynamic suggestions**: generate their content in the `<script>`
-   block from the current state — the selected row, the current filter, the record being
-   viewed — so opening one shows data relevant to what the user clicked, not a fixed stub.
-6. **JavaScript `store` objects count as content.** Placeholder values inside the store
-   are placeholder values on the page. Populate them with the same realistic domain data.
+- Totals, counts, averages, percentages and breakdowns are calculated in the render function from the array they summarize — never written as a literal and never stored as a second constant beside the data.
+- A number that appears on two pages is derived from the same source on both.
+- If the task text supplies both a formula and its resulting figures, implement the formula. The figures in the task are there to check your work, not to be pasted in.
 
-**Forbidden anywhere in the output**: "Lorem ipsum", "TBD", "Coming soon", "Item 1",
-"User A", "Metric X", "Widget 10000", "Sample", "Example", numbered filler
-(`Row 1`, `Row 2`), and any table whose rows differ only by an incrementing number.
-These are P0 failures, not cosmetic issues.
+**Why:** a hardcoded total is correct only until one row changes, and the row always changes. It is also invisible to the reader, who cannot tell a computed 76 from a typed 77.
 
-## DATA REALISM RULES
+## DETAIL VIEWS RENDER THE WHOLE RECORD
 
-1. **Derive values, don't randomise them.** Series (trends, histories, running totals)
-   follow a plausible rule — growth, seasonality, decay, a weekly cycle — so the numbers
-   tell a coherent story. `Math.random()` produces data that reads as noise and
-   contradicts itself between views.
-2. **Vary the text.** Descriptions, names, and categories differ meaningfully from row to
-   row. Five rows that are the same phrase with a different number read as filler.
-3. **Use plausible dates.** Anchor them to the timeframe the spec implies and keep the
-   ordering causally sound. Round-number filler (`2023-01-01`) and dates that contradict
-   each other's sequence both break realism.
-4. **Match the domain's granularity.** Counts whole, currency to two decimals, percentages
-   to one, durations in the unit a practitioner would actually say.
-5. **Keep entities consistent across pages.** A record that appears on two pages has the
-   same identifier, name, and values in both. The prototype is one system, not five.
-6. **Every entity of a kind gets the same depth.** If one record has a detail chart or a
-   history, they all do — even if simplified. Singling one out exposes the seams.
+When a list routes N rows to a detail view, that view is opened for all N.
 
-## PAGE COMPLETENESS
+- Look the record up by its id and interpolate **every** part of it, including its **nested collections** — not only its scalar fields.
+- Any static markup left inside a detail template is content that every entity will display as its own. Interpolating the scalars while a list beneath them stays fixed produces one correct page and N−1 wrong ones.
+- If a record's collection is empty, render a real empty state for it — never leave the previous entity's content standing, and never leave the block untouched.
 
-Every page carries the same depth, including secondary ones. A detail page, a settings
-page, or a log page with thin content is as incomplete as an empty dashboard.
+## A HANDLER MUST CHANGE WHAT IS RENDERED
 
-- Minimum per page: a page header, ≥1 data table with ≥5 rows *or* an equivalent data
-  component, a chart or stat section, and ≥1 working interactive element.
-- **Build what the spec's workflow promises.** If the spec describes a flow that surfaces
-  a recommendation, a suggestion, a preview, or a computed result, that element is visible
-  and labelled on the page with real values — not implied by a button.
-- **Give status progressions real states.** Where the spec describes a lifecycle, implement
-  the transitions in `<script>` so the UI actually moves through them, rather than
-  rendering one frozen state.
-- **Contextual labels update.** Breadcrumbs, page titles, and headers that refer to the
-  current record reflect the actual selection, not a hard-coded first item.
-- **Match the richness of your strongest page.** Do not let analytical or operational pages
-  ship with less labelling and detail than the primary list page.
+Wiring an element means the UI responds to it.
+
+- A control that selects, filters, sorts or orders must read its own current value and re-render what it governs. A handler that re-renders without reading the control is inert, and passes a "has a handler" check while doing nothing.
+- `alert()` is not an implementation. It is acceptable only where the spec asks for a confirmation message — never as the body of a feature the spec describes.
+- A control that cannot do its job in a static prototype should not be rendered as an enabled control.
+
+## COLOURS COME FROM TOKENS — INCLUDING TINTS
+
+- Use ONLY `var(--token)` for colour. This includes translucent and tinted shades: a badge, pill, chip, banner or highlighted row background is `var(--some-token)`, never an inline `rgba(...)` or hex wash of a token's value.
+- **If the shade you need has no token, add the token to `:root` and use it.** Re-typing a token's hex inside `rgba()` is the single most common way this rule gets broken — the moment you are about to write a colour literal anywhere outside `:root`, define a token instead.
 
 ## CHROME RULES
 
@@ -209,14 +181,9 @@ Copy chrome from any existing filled section. Change only the active nav item.
 
 - **Template mode**: Use ONLY CSS classes from the TEMPLATE SEED (in `design.md`)
 - **Blank canvas mode**: Use the classes from `spec.md`'s "Template & Design System" section, built on top of the blank-canvas scaffold. You may freely add new helper classes if needed — this is blank canvas, not a constraint.
-- Use ONLY `:root` CSS variables for colors (never raw hex outside `:root`)
-- Preserve `:root` values from Task 1 — they reflect the ACTIVE DESIGN SYSTEM (`design.md`)
-- **Spacing, sizing, and colour all come from the tokens.** Margins, padding, font sizes,
-  and borders use the design system's scale rather than one-off values, so pages built by
-  different task calls line up with each other.
-- **Charts and tables are styled to the same standard as the rest of the page** — the same
-  spacing scale, the same type sizes, the same token colours. A polished layout wrapped
-  around an unstyled chart reads as unfinished.
+- Use ONLY `:root` CSS variables for colors (never raw hex or `rgba()` outside `:root`; add a token rather than inline a shade)
+- Preserve `:root` values from Task 1 — they reflect the ACTIVE DESIGN SYSTEM (`design.md`). Adding a new token is allowed; changing an existing one is not.
+- **Query within the page you are building**, not the whole document. Selecting by document-wide position (`document.querySelectorAll('.card')[0]`) binds to whichever page happens to come first in the DOM and silently rewrites another page's content. Scope every lookup to an id or to `section[data-page="{id}"]`.
 
 ## OUTPUT CONTRACT
 

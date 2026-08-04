@@ -1,0 +1,66 @@
+# configs/ten.yaml, dispatched on AWS Bedrock instead of Mistral.
+#
+#   ./eval.sh configs/ten_aws.yaml --advise --concurrency 4
+#
+# WHY A SEPARATE CONFIG AND NOT `--provider bedrock`: the flag works, but it
+# lives in shell history rather than in the run. A config that names its own
+# provider cannot be run against the wrong one by forgetting the flag, and
+# `.runs/<id>/config.json` records `provider: bedrock` so a report row months
+# later still says which cloud produced it.
+#
+# WHAT CHANGES vs ten.yaml — the DISPATCH provider only. Same 10 rows, same
+# 5 stages, same rubrics, and the JUDGE stays pinned to mistral-large in
+# rubrics/*.yaml. That is deliberate: changing the thing under test AND the
+# instrument measuring it in one step makes a score delta unattributable.
+# Against ten.yaml this run is a clean provider A/B.
+#
+# MODEL: `model:` is left unset, so build_model resolves
+# settings.BEDROCK_INFERENCE_PROFILE_ID (currently the eu Claude Haiku 4.5
+# profile, region eu-north-1). Pin a different one here to test it, e.g.
+#   model: eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+# The resolved id is recorded per row as `model_id`, so it is never a guess.
+#
+# COST — READ BEFORE RUNNING. ten.yaml's own note puts a full 10-row chain on
+# the order of 20M input tokens (the per-task build loop re-sends the growing
+# HTML each turn, and validate re-reads the whole file). On Mistral's free
+# tier that was a rate-limit problem; on Bedrock it is a BILLED one. Run
+# `configs/small.yaml --provider bedrock` first and read its token counts,
+# then multiply by ten before committing to this.
+#
+# CHEAPER SHAPE: stage-at-a-time, checking the report between each —
+#   ./eval.sh configs/ten_aws.yaml --stage specify --advise      # prints RUN_ID
+#   ./eval.sh configs/ten_aws.yaml --stage plan --into RUN_ID --advise
+#   ...specify/plan/analyze are text-only and cheap; build and validate are
+# where the tokens are. Stopping after analyze costs a small fraction.
+dataset_id: prototype_ten_aws
+dataset: ten.json
+
+# Dispatch on AWS Bedrock. "aws" is accepted as an alias. An explicit
+# provider never silently falls back — if Bedrock is unconfigured,
+# build_model raises rather than quietly running on Mistral.
+provider: bedrock
+
+order: [specify, plan, analyze, build, validate]
+
+# `seed_as` is the filename each stage's output is written to in the shared
+# sandbox, so the next agent finds it where its AGENT.md says to look
+# (prototype-build opens `spec.md` and `design.md` by name). Without this the
+# downstream agent reads nothing and invents its own inputs.
+agents:
+  specify:
+    agent_id: prototype-specify
+    seed_as: spec.md
+  plan:
+    agent_id: prototype-plan
+    seed_as: tasks.md
+  analyze:
+    agent_id: prototype-analyze
+    seed_as: analysis.md
+  build:
+    agent_id: prototype-build
+    deliverable: prototype.html
+  validate:
+    # See configs/small.yaml — the same single global deliverable production
+    # uses; validate edits build's file in place.
+    agent_id: prototype-validate
+    deliverable: prototype.html
