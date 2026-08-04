@@ -1,5 +1,4 @@
 ---
-description: Performs a read-only cross-artifact consistency check across the spec, plan, and tasks — flags duplication, ambiguity, underspecification, and constitution conflicts.
 id: analyze-agent
 name: Analyze Agent
 role: Cross-Artifact Consistency Analyzer

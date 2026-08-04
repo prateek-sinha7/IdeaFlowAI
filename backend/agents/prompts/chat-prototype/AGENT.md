@@ -1,5 +1,4 @@
 ---
-description: Generates a comprehensive UI prototype definition — pages, components, and navigation — from the gathered requirements.
 id: chat-prototype
 name: Prototype Agent
 role: UI Prototype Definition (JSON)

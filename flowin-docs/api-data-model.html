@@ -84,14 +84,6 @@
         <div class="cap"><div class="cn">handoff</div><div class="cd">Claude-Code handoff sessions.</div></div>
       </div>
 
-      <h3>Untrusted-input chokepoints in <code>websocket.py</code></h3>
-      <p class="muted">A <code>run_pipeline</code> payload crosses from the browser (fully untrusted) into model selection and capability resolution — two spots where a naive implementation would have real security holes. Both are addressed with a dedicated, single validation function that runs before <code>engine.execute()</code> is ever called.</p>
-      <div class="grid g2">
-        <div class="card"><h4><code>_validate_model_overrides</code> &mdash; two allow-lists</h4><p class="lead">A client-supplied <code>{agent_id &#8594; model_id}</code> override map is checked against <b>two</b> independently-sourced allow-lists: <code>model_id</code> must be a member of <code>ModelCatalog().ids()</code> (the one authoritative model list — rejects an unknown provider or a cost-abuse model string), and <code>agent_id</code> must be in the run's actual resolved agent set (rejects an override silently targeting a nonexistent agent). It also explicitly type-guards against a non-dict payload &mdash; a bare string or list would otherwise crash <code>.items()</code> deep inside the async task, killing it silently with no error event and a leaked task reference.</p></div>
-        <div class="card"><h4><code>_revalidate_selections_trust_user</code> &mdash; re-check at launch, not just at save</h4><p class="lead">A saved custom workflow's per-step selections are validated once at save time, but a DB row can be tampered with after the fact. So the launch path re-synthesizes the exact same <code>WorkflowManifest</code> from the persisted selections and re-compiles it with <code>trust="user"</code> — routing through the dormant <code>_check_trust</code> path (the same one described on the <a href="manifests-compiler.html">Manifests &amp; Compiler</a> page) so a tampered reference to a non-user-allowed capability is rejected at launch, before a single agent runs.</p></div>
-      </div>
-      <div class="callout"><div class="t">&#128273; Gate ownership: an unknown run and an unowned run look identical</div><p><code>_review_gate_owned_by(gate_key, user_id)</code> resolves a HITL review-gate response's <code>{run_id}:{agent_id}</code> key against <code>WorkflowRun.user_id</code> before letting the response mutate that run's results. Deliberately, a nonexistent run id and a run owned by someone else produce the exact same "denied" outcome — there's no run-existence oracle a malicious client could use to enumerate valid run ids by comparing error responses.</p></div>
-
       <h3>Services (<code>app/services/</code>)</h3>
       <div class="grid g4">
         <div class="cap"><div class="cn">pptx_export.py</div><div class="cd">Spawns node + pptxgenjs for .pptx.</div></div>

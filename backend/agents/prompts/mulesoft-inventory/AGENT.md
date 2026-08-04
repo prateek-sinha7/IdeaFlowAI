@@ -1,7 +1,6 @@
 ---
 consumes: []
 context_from: []
-description: Catalogues your Mulesoft estate — flows, connectors, DataWeave transforms, and migration risk hotspots.
 estimated_duration: 8.0
 guardrails:
 - mulesoft

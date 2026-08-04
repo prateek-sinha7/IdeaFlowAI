@@ -54,15 +54,6 @@
         <div class="card"><h4>Smart-hybrid validation</h4><p class="lead">A prototype revision runs the same Both-validation as a build, but with baselines: only <b>new</b> static/console issues count as regressions, while hard render-breakage is always fixed. This is the <code>_select_issues_to_fix</code> baseline path.</p></div>
       </div>
 
-      <h3><code>prototype_revision/workflow.yaml</code>, the one revision manifest with the full picture</h3>
-      <p class="muted">Of the 5 revision manifests, <code>prototype_revision</code> is the only one that sets <code>revises_existing: true</code> — the others (ppt/user_stories/app_builder/od_ppt revisions) regenerate their whole artifact rather than editing it in place, so they correctly leave the flag <code>false</code>. Its single step is worth reading closely because it wires together three separate mechanisms into one coherent flow:</p>
-      <div class="grid g3">
-        <div class="card"><h4><code>gates: [validation]</code></h4><p class="lead">A post-edit validation gate on the revision step — the run pauses only if a critical issue survives, per the default block-critical/warn-non-critical policy.</p></div>
-        <div class="card"><h4><code>validators: [html_static, html_render]</code></h4><p class="lead">The same Both-validation the build loop runs, declared explicitly on this step rather than implied by the strategy.</p></div>
-        <div class="card"><h4><code>post_step: revision_validation</code></h4><p class="lead">After the edit, this capability computes the pre-edit baseline, runs the post-edit Both-validation + bounded fix-loop, and folds the result in — the exact machinery documented on the <a href="execution-kernel.html">Execution Kernel</a> page's <code>KernelServices.compute_revision_baseline</code> section.</p></div>
-      </div>
-      <p class="muted">The manifest's own header comment flags a real historical gotcha worth knowing: <code>clarify.defaults</code> for revisions intentionally falls back to the generic <code>"custom"</code> pipeline defaults (<code>target_audience</code>, <code>key_objectives</code>, <code>scope</code>, <code>priority</code>) rather than the richer <code>prototype</code> defaults — documented in the source as "parity trap #2", a subtlety the original engine's hardcoded dict reproduced and the manifest had to match exactly to hold byte-identical parity (INV-3) during the migration.</p>
-
       <div class="callout"><div class="t">&#8617;&#65039; Lineage</div><p>Phase 14 made <code>run_revision</code> a real revision loop dispatched through <code>execute()</code> (a model actually runs), persisting the revised artifact with <code>derived_from</code> lineage — replacing an earlier echo stub. The revised deliverable renders on the same mimetype-dispatched preview surface.</p></div>
 
       <div class="pager" id="pager-root"></div>

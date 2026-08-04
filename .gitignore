@@ -37,13 +37,14 @@ node_modules/
 out/
 
 # IDE
+.vscode/
 .idea/
 *.swp
 *.swo
-.vscode/PythonImportHelper-v2-Completion.json
 
 # Spec Kit — local AI tooling, not tracked in version control
 .specify/
+.claude/
 CLAUDE.md
 
 # OS
@@ -65,151 +66,3 @@ backend/runs/
 
 # Kiro IDE files (personal, not for team use)
 .kiro/
-.kiro/*
-!.kiro/steering/
-!.kiro/skills/
-.run
-frontend/package-lock.json
-frontend/package-lock.json
-
-# Generated output from tools/api/runs/*.run.http integration tests — decks,
-# prototypes, and WS/HTTP transcripts. Local-only, never committed.
-/tools/api/runs/artifacts/
-/tools/api/runs/logs/
-tools/api/runs/.logs
-tools/api/runs/.artifacts
-
-# Eval run output — full real-model transcripts, prompts and replies. Large,
-# regenerated on every run, and local-only: never committed.
-#
-# One rule, matched at any depth, so every eval package uses the same
-# convention: backend/evals/hybrid/.runs/, backend/evals/grading/.runs/, and
-# anything added later. (grading/ also carries its own nested .gitignore so the
-# rule survives that folder being moved or vendored on its own.)
-.runs/
-
-# backend/evals/minimal/'s report.html lives at the package root (not under
-# .runs/) so it survives .runs/ being wiped between runs — but it's still
-# generated output (report.py regenerates it from stored JSON), not source.
-backend/evals/minimal/report.html
-
-# The frozen model_graded package records its runs under logs/ instead — it
-# predates the .runs/ convention and is not being changed, but its transcripts
-# are just as local-only.
-/backend/evals/model_graded/logs/
-TODO.md
-.understand-anything
-.apex
-**/apex**
-.claude/settings.json
-**/PythonImportHelper-v2-Completion.json
-backend/runs/eval-graded/260730-005859-small-tiny_inventory/prototype.html
-backend/runs/eval-graded/260730-005859-small-tiny_inventory/spec.md
-backend/runs/eval-graded/260730-010523-small-tiny_helpdesk/prototype.html
-backend/runs/eval-graded/260730-010523-small-tiny_helpdesk/spec.md
-backend/runs/eval-graded/260730-010523-small-tiny_helpdesk/tmp/prototype_fixed.html
-backend/runs/eval-graded/260730-010523-small-tiny_inventory/prototype.html
-backend/runs/eval-graded/260730-010523-small-tiny_inventory/spec.md
-backend/runs/eval-graded/260730-012401-small-clinic_scheduler/prototype.html
-backend/runs/eval-graded/260730-012401-small-clinic_scheduler/spec.md
-backend/runs/eval-graded/260730-012401-small-expense_approvals/prototype.html
-backend/runs/eval-graded/260730-012401-small-expense_approvals/spec.md
-backend/runs/eval-graded/260730-022202-small-expense_approvals/prototype.html
-backend/runs/eval-graded/260730-022202-small-expense_approvals/spec.md
-backend/runs/eval-graded/260730-024121-prototype_complex-fleet_dispatch/prototype.html
-backend/runs/eval-graded/260730-024121-prototype_complex-fleet_dispatch/spec.md
-backend/runs/eval-graded/260730-105329-prototype_small-expense_approvals/prototype.html
-backend/runs/eval-graded/260730-105329-prototype_small-expense_approvals/spec.md
-backend/runs/eval-graded/260730-111620-prototype_small-expense_approvals/prototype.html
-backend/runs/eval-graded/260730-111620-prototype_small-expense_approvals/spec.md
-backend/runs/eval-graded/260730-172501-prototype_small-clinic_scheduler/prototype.html
-backend/runs/eval-graded/260730-172501-prototype_small-clinic_scheduler/spec.md
-backend/runs/eval-graded/260730-172501-prototype_small-expense_approvals/prototype.html
-backend/runs/eval-graded/260730-172501-prototype_small-expense_approvals/spec.md
-backend/runs/eval-graded/260730-173912-prototype_small-clinic_scheduler/prototype.html
-backend/runs/eval-graded/260730-173912-prototype_small-clinic_scheduler/spec.md
-backend/runs/eval-graded/260730-173912-prototype_small-expense_approvals/prototype.html
-backend/runs/eval-graded/260730-173912-prototype_small-expense_approvals/spec.md
-backend/runs/eval-graded/260730-173912-prototype_small-expense_approvals/tmp/prototype.html
-backend/runs/eval-graded/260730-201030-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-graded/260730-201030-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-graded/260730-201527-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-graded/260730-201527-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-graded/260730-212651-prototype_small-field_dispatch/prototype.html
-backend/runs/eval-graded/260730-212651-prototype_small-field_dispatch/spec.md
-backend/runs/eval-graded/260730-214205-prototype_small-field_dispatch/design.md
-backend/runs/eval-graded/260730-214205-prototype_small-field_dispatch/prototype.html
-backend/runs/eval-graded/260730-214205-prototype_small-field_dispatch/spec.md
-backend/runs/eval-graded/260730-214205-prototype_small-field_dispatch/tmp/prototype.html
-backend/runs/eval-graded/260730-224644-prototype_complex-fab_lot_dispatch/prototype.html
-backend/runs/eval-graded/260730-224644-prototype_complex-fab_lot_dispatch/spec.md
-backend/runs/eval-graded/260730-224644-prototype_complex-museum_loans/design.md
-backend/runs/eval-graded/260730-224644-prototype_complex-museum_loans/prototype.html
-backend/runs/eval-graded/260730-224644-prototype_complex-museum_loans/spec.md
-backend/runs/eval-graded/260730-224644-prototype_complex-trial_site_monitor/prototype.html
-backend/runs/eval-graded/260730-224644-prototype_complex-trial_site_monitor/spec.md
-backend/runs/eval-graded/260730-230503-prototype_complex-coldchain_vaccines/prototype.html
-backend/runs/eval-graded/260730-230503-prototype_complex-coldchain_vaccines/spec.md
-backend/runs/eval-graded/260730-230503-prototype_complex-fab_lot_dispatch/prototype.html
-backend/runs/eval-graded/260730-230503-prototype_complex-fab_lot_dispatch/spec.md
-backend/runs/eval-graded/260730-230503-prototype_complex-museum_loans/spec.md
-backend/runs/eval-graded/260730-230503-prototype_complex-port_berth_ops/prototype.html
-backend/runs/eval-graded/260730-230503-prototype_complex-port_berth_ops/spec.md
-backend/runs/eval-graded/260730-230503-prototype_complex-trial_site_monitor/prototype.html
-backend/runs/eval-graded/260730-230503-prototype_complex-trial_site_monitor/spec.md
-backend/runs/eval-minimal/260731-004007-prototype_smoke-fleet_dispatch/design.md
-backend/runs/eval-minimal/260731-004007-prototype_smoke-fleet_dispatch/prototype.html
-backend/runs/eval-minimal/260731-004007-prototype_smoke-fleet_dispatch/spec.md
-backend/runs/eval-minimal/260731-012612-prototype_smoke-fleet_dispatch/prototype.html
-backend/runs/eval-minimal/260731-014418-prototype_smoke-fleet_dispatch/prototype.html
-backend/runs/eval-minimal/260731-103256-prototype_smoke-fleet_dispatch/prototype.html
-backend/runs/eval-minimal/260731-104736-prototype_smoke-fleet_dispatch/design.md
-backend/runs/eval-minimal/260731-104736-prototype_smoke-fleet_dispatch/prototype.html
-backend/runs/eval-minimal/260731-104736-prototype_smoke-fleet_dispatch/spec.md
-backend/runs/eval-minimal/260731-113247-prototype_smoke-er_bed_board/prototype.html
-backend/runs/eval-minimal/260731-115055-prototype_smoke-er_bed_board/design.md
-backend/runs/eval-minimal/260731-115055-prototype_smoke-er_bed_board/prototype_new.html
-backend/runs/eval-minimal/260731-115055-prototype_smoke-er_bed_board/prototype.html
-backend/runs/eval-minimal/260731-115055-prototype_smoke-er_bed_board/spec.md
-backend/runs/eval-minimal/260731-122338-prototype_micro-ping/prototype.html
-backend/runs/eval-minimal/260731-124717-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-131245-prototype_small-warehouse_slotting/design.md
-backend/runs/eval-minimal/260731-131245-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-131245-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-133221-prototype_small-warehouse_slotting/design.md
-backend/runs/eval-minimal/260731-133221-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-133221-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-135739-prototype_small-warehouse_slotting/analysis.md
-backend/runs/eval-minimal/260731-135739-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-135739-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-135739-prototype_small-warehouse_slotting/tasks.md
-backend/runs/eval-minimal/260731-140047-prototype_small-warehouse_slotting/analysis.md
-backend/runs/eval-minimal/260731-140047-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-140047-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-140047-prototype_small-warehouse_slotting/tasks.md
-backend/runs/eval-minimal/260731-141005-prototype_small-warehouse_slotting/analysis.md
-backend/runs/eval-minimal/260731-141005-prototype_small-warehouse_slotting/design.md
-backend/runs/eval-minimal/260731-141005-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-141005-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-141005-prototype_small-warehouse_slotting/tasks.md
-backend/runs/eval-minimal/260731-142013-prototype_small-warehouse_slotting/analysis.md
-backend/runs/eval-minimal/260731-142013-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-142013-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-142013-prototype_small-warehouse_slotting/tasks.md
-backend/runs/eval-minimal/260731-142634-prototype_small-warehouse_slotting/analysis.md
-backend/runs/eval-minimal/260731-142634-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-142634-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-142634-prototype_small-warehouse_slotting/tasks.md
-backend/runs/eval-minimal/260731-142634-prototype_small-warehouse_slotting/tmp/prototype.html
-backend/runs/eval-minimal/260731-143945-prototype_small-warehouse_slotting/analysis.md
-backend/runs/eval-minimal/260731-143945-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-143945-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-143945-prototype_small-warehouse_slotting/tasks.md
-backend/runs/eval-minimal/260731-145300-prototype_small-warehouse_slotting/analysis.md
-backend/runs/eval-minimal/260731-145300-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-145300-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-145300-prototype_small-warehouse_slotting/tasks.md
-backend/runs/eval-minimal/260731-151514-prototype_small-warehouse_slotting/analysis.md
-backend/runs/eval-minimal/260731-151514-prototype_small-warehouse_slotting/prototype.html
-backend/runs/eval-minimal/260731-151514-prototype_small-warehouse_slotting/spec.md
-backend/runs/eval-minimal/260731-151514-prototype_small-warehouse_slotting/tasks.md

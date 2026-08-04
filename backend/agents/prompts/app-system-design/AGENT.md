@@ -5,7 +5,6 @@ consumes:
 context_from:
 - material-analyzer
 - app-user-stories
-description: Detailed component decomposition, sync/async boundaries, state ownership, deployment topology, and ADRs.
 estimated_duration: 10.0
 guardrails: []
 icon: "\U0001F3D7️"

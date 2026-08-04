@@ -5,7 +5,6 @@ consumes:
 context_from:
 - dotnet-modernization
 - dotnet-feature-coding
-description: SAST/SCA tooling, SonarQube quality gates, Roslyn analyzers, .editorconfig, license policy, and pre-commit/CI gates.
 estimated_duration: 8.0
 guardrails:
 - dotnet

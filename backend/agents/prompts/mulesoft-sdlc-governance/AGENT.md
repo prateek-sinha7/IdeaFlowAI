@@ -11,7 +11,6 @@ context_from:
 - mulesoft-code-compliance
 - mulesoft-test-compliance
 - mulesoft-validation
-description: Architecture Decision Records, runbooks, SLOs/SLIs, dashboards, compliance evidence matrix, and operations handover.
 estimated_duration: 9.0
 guardrails:
 - mulesoft

@@ -7,7 +7,6 @@ context_from:
 - material-analyzer
 - app-code-generator
 - app-feature-implementation
-description: SAST/SCA tooling, SonarQube quality gates, language-specific lint config, license policy, and pre-commit/CI gates.
 estimated_duration: 8.0
 guardrails: []
 icon: "\U0001F9EA"

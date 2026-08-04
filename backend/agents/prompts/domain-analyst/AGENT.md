@@ -1,7 +1,6 @@
 ---
 consumes: []
 context_from: []
-description: Researches your idea, identifies the target market, users, and key personas.
 estimated_duration: 5.0
 guardrails:
 - agile

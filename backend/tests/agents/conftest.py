@@ -14,46 +14,6 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Hermetic checkpointer — these tests must not need a database
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def in_process_checkpointer(monkeypatch):
-    """Pin the LangGraph checkpointer to InMemorySaver for the whole agent suite.
-
-    `get_checkpointer()` chooses purely on the `DATABASE_URL` *scheme*
-    (`app/agents/checkpointer.py`), and there is no fallback for "Postgres is
-    configured but unreachable" — only a Windows event-loop one. Nothing pinned
-    `DATABASE_URL` in the test tree, so these tests silently bound to whatever
-    the developer's `backend/.env` pointed at.
-
-    That made the suite non-hermetic in the worst way: with Postgres down, every
-    characterization run burned a 30-second `psycopg_pool.PoolTimeout`, errored,
-    and reported `pipeline_failed` — a whole-suite red that says nothing about
-    the code. One file took 482s instead of 2.6s. The goldens were therefore
-    only ever verified on machines that happened to have a database running.
-
-    These tests assert event streams and deliverable bytes; not one of them
-    asserts anything about persistence, so an in-memory saver is the correct
-    dependency, not a compromise. The suite that *does* need durability —
-    `test_phase8_resume.py` — starts its own docker Postgres, skips when docker
-    is absent, and does all its Postgres work in **subprocesses** that receive
-    `DATABASE_URL` through an explicit child env. Patching the in-process
-    `settings` singleton here leaves that untouched.
-    """
-    from app.agents import checkpointer as checkpointer_module
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-    # The factory caches a process-wide singleton; clear it so this test builds
-    # its own, and restore afterwards so ordering cannot leak a saver between tests.
-    monkeypatch.setattr(checkpointer_module, "_checkpointer", None)
-    monkeypatch.setattr(checkpointer_module, "_pool", None)
-    yield
-
-
-# ---------------------------------------------------------------------------
 # Helpers for building AGENT.md content in tests
 # ---------------------------------------------------------------------------
 

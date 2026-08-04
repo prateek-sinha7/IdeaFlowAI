@@ -2,7 +2,6 @@
 consumes: []
 context_from:
 - $previous
-description: Creates comprehensive test scenarios covering happy paths, edge cases, and errors.
 estimated_duration: 6.0
 guardrails: []
 icon: "\U0001F9EA"

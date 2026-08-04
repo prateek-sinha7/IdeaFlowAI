@@ -23,59 +23,174 @@ from agents.loader import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Pipeline-to-agent-ID mappings (FIX-051 / ISS-035)
+# Pipeline-to-agent-ID mappings
 # ---------------------------------------------------------------------------
-#
-# PIPELINE_AGENTS is DERIVED, not hand-maintained: it is built once at import
-# time by scanning agents/prompts/ (via the loader's list_agent_ids) for every
-# SUPPORTED_PIPELINE_TYPES value. This is the same dynamic scan
-# get_pipeline_agents() already trusts. Before FIX-051 this was a ~150-line
-# hand-typed literal that agent-library listing (get_all_agents_flat),
-# security allow-listing (allowed_custom_agent_ids), and workflow discovery
-# (app/api/workflows.py) all read directly — so an agent added on disk with
-# correct AGENT.md frontmatter (pipeline_type + order) was live for pipeline
-# EXECUTION but invisible everywhere else until someone remembered to also
-# hand-edit this dict. Now adding an AGENT.md is sufficient; there is nothing
-# left to forget.
 
+PIPELINE_AGENTS: dict[str, list[str]] = {
+    # ── User Stories pipeline — 6 agents ──────────────────────────────────
+    "user_stories": [
+        "domain-analyst",
+        "epic-architect",
+        "story-estimator",
+        "nfr-specialist",
+        "backlog-reviewer",
+        "backlog-compiler",
+    ],
 
-# od_* pipeline aliases that are NOT real PIPELINE_AGENTS keys — resolved to a
-# base pipeline (by callers, before ever indexing PIPELINE_AGENTS) rather than
-# scanned for agents. No AGENT.md declares pipeline_type: od_prototype (they
-# declare pipeline_type: prototype); od_prototype is purely a run-label alias.
-# Declared here (ahead of _discover_pipeline_agents, which excludes these
-# keys) so the two "alias" concepts — this one and the ppt/od_ppt one below —
-# live together. (od_ppt and od_ppt_revision ARE real registry keys, handled
-# by the general base/revision logic in allowed_custom_agent_ids, not here.)
-_OD_ALIAS_BASE: dict[str, str] = {
-    "od_prototype": "prototype",
+    # ── User Stories Revision pipeline — 1 agent ──────────────────────────
+    "user_stories_revision": [
+        "user-story-revision-agent",
+    ],
+
+    # ── PPT pipeline — 4 agents ───────────────────────────────────────────
+    "ppt": [
+        "od-ppt-brief-analyst",
+        "od-ppt-composer",
+        "od-ppt-validator",
+    ],
+
+    # ── od_ppt pipeline (alias — same agents, own runner) ─────────────────
+    "od_ppt": [
+        "od-ppt-brief-analyst",
+        "od-ppt-composer",
+        "od-ppt-validator",
+    ],
+
+    # ── od_ppt revision pipeline — 1 agent ────────────────────────────────
+    "od_ppt_revision": [
+        "od-ppt-revision-agent",
+    ],
+
+    # ── PPT Revision pipeline — 2 agents ─────────────────────────────────
+    "ppt_revision": [
+        "ppt-revision-agent",
+        "ppt-revision-assembler",
+    ],
+
+    # ── Prototype pipeline — Spec Kit Approach 2+3 ────────────────────────
+    # Phase 1: Spec Writer generates spec.md
+    # Phase 2: Task Planner decomposes into atomic tasks
+    # Phase 3: Build Agent executes tasks incrementally
+    # Phase 4: Validation Agent runs P0/P1 checks
+    "prototype": [
+        "prototype-specify",
+        "prototype-plan",
+        "prototype-analyze",
+        "prototype-build",
+        "prototype-validate",
+    ],
+
+    # ── Prototype Revision pipeline — 2 agents (KAN-108) ─────────────────
+    # prototype-revision-agent edits prototype.html in place; prototype-revision-validate
+    # runs a comprehensive P0/P1 quality pass after — dedicated agent with correct
+    # consumes/injects contracts for this pipeline (prototype-validate declares
+    # consumes:[prototype-build] which is not present here).
+    "prototype_revision": [
+        "prototype-revision-agent",
+        "prototype-revision-validate",
+    ],
+
+    # ── App Builder pipeline — 15 agents ──────────────────────────────────
+    "app_builder": [
+        "material-analyzer",
+        "app-user-stories",
+        "app-system-design",
+        "app-security-architecture",
+        "app-ux-design",
+        "app-api-design",
+        "app-database-design",
+        "app-code-generator",
+        "app-feature-implementation",
+        "app-infra-generator",
+        "app-code-compliance",
+        "app-test-implementation",
+        "app-test-compliance",
+        "app-devops",
+        "app-sdlc-governance",
+    ],
+
+    # ── App Builder Revision pipeline — 1 agent ───────────────────────────
+    "app_builder_revision": [
+        "app-builder-revision-agent",
+    ],
+
+    # ── Mulesoft → Spring Boot pipeline — 13 agents ───────────────────────
+    "mulesoft_to_springboot": [
+        "mulesoft-inventory",
+        "mulesoft-user-stories",
+        "mulesoft-decomposition",
+        "mulesoft-security-architecture",
+        "mulesoft-springboot-scaffold",
+        "mulesoft-feature-coding",
+        "mulesoft-dataweave-translator",
+        "mulesoft-aws-infra",
+        "mulesoft-code-compliance",
+        "mulesoft-test-implementation",
+        "mulesoft-test-compliance",
+        "mulesoft-validation",
+        "mulesoft-sdlc-governance",
+    ],
+
+    # ── .NET → Azure pipeline — 13 agents ────────────────────────────────
+    "dotnet_to_azure": [
+        "dotnet-inventory",
+        "dotnet-user-stories",
+        "dotnet-azure-target-mapping",
+        "dotnet-security-architecture",
+        "dotnet-modernization",
+        "dotnet-feature-coding",
+        "dotnet-azure-bicep",
+        "dotnet-azure-ai",
+        "dotnet-code-compliance",
+        "dotnet-test-implementation",
+        "dotnet-test-compliance",
+        "dotnet-validation",
+        "dotnet-sdlc-governance",
+    ],
+
+    # ── Custom pipeline — 9 utility agents ───────────────────────────────
+    "custom": [
+        "market-research-agent",
+        "swot-analyst",
+        "roadmap-planner",
+        "security-auditor",
+        "test-case-generator",
+        "performance-optimizer",
+        "documentation-agent",
+        "report-generator",
+        # Generic fan-out producer (Phase 51 / FANOUT-04): a domain-general
+        # `## Task N:` list-emitter the composer inserts as a fan-out producer
+        # node. A prompt fragment only (tools: []) — NOT a new capability kind.
+        # Order 9 in the custom AGENT.md set; kept in lock-step with the
+        # matching step in agents/workflows/custom/workflow.yaml so the engine
+        # membership assertion (engine.py:1701-1714) holds for a `custom` run.
+        "task-list-planner",
+    ],
+
+    # ── Reverse Engineer pipeline — agents TBD ────────────────────────────
+    # (populated when AGENT.md files are created for this pipeline)
+    "reverse_engineer": [],
+
+    # ── Free-chat pipeline — 7 agents (migration Phase 7b) ────────────────
+    # The conversational `user_message` path. Driven by the dedicated
+    # `ChatRunner` sequencer (app/agents/chat_runner.py), NOT the
+    # ExecutionEngine. Registered here so the chat pipeline has a single
+    # source of truth for its agent membership/ordering (consumed by
+    # `get_pipeline_agents("chat")`). The order below is the multi-phase
+    # sequence: Discovery → Requirements → UserStories/PPT/Prototype/UIDesign
+    # → Preview. This is an INTERNAL pipeline: it is intentionally excluded
+    # from `allowed_custom_agent_ids` (NOT a user-runnable `run_pipeline`
+    # pipeline — see the guard there).
+    "chat": [
+        "chat-discovery",
+        "chat-requirements",
+        "chat-user-stories",
+        "chat-ppt",
+        "chat-prototype",
+        "chat-ui-design",
+        "chat-preview",
+    ],
 }
-
-
-def _discover_pipeline_agents() -> dict[str, list[str]]:
-    """Scan agents/prompts/ for every SUPPORTED_PIPELINE_TYPES value.
-
-    Single source of truth: each AGENT.md's own `pipeline_type` + `order`
-    frontmatter. Replaces the former hand-maintained literal dict.
-    """
-    agents_map = {
-        pt: list_agent_ids(pt)
-        for pt in sorted(SUPPORTED_PIPELINE_TYPES)
-        if pt not in _OD_ALIAS_BASE
-    }
-    # "ppt" is a legacy pipeline-id ALIAS for the od_ppt agent set: no AGENT.md
-    # declares pipeline_type: ppt (they declare od_ppt, shared by both ids).
-    # This is an id-aliasing decision, not agent data, so it stays one explicit
-    # line here instead of being duplicated onto 3 AGENT.md files. Closes WR-01
-    # at the root — the PIPELINE_AGENTS.get("ppt", []) fallbacks in engine.py,
-    # websocket.py, and workflows.py now resolve correctly instead of hitting a
-    # hand-typed duplicate list that could silently drift from the real
-    # od_ppt agent set.
-    agents_map["ppt"] = agents_map.get("od_ppt", [])
-    return agents_map
-
-
-PIPELINE_AGENTS: dict[str, list[str]] = _discover_pipeline_agents()
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +266,16 @@ def get_pipeline_agents(pipeline_type: str) -> list[AgentSpec]:
 # data from the REAL pipeline-to-ID maps above + the on-disk AGENT.md files
 # (via the loader), so there is a single source of truth. Phase 6 (T3)
 # repoints ``app/api/agents.py`` and ``app/api/websocket.py`` here.
+
+# od_* pipeline aliases that are NOT real PIPELINE_AGENTS keys and must
+# resolve to a base pipeline before the allow-list logic runs. (Mirrors the
+# resolution in app/api/websocket.py — od_prototype→prototype; od_ppt and
+# od_ppt_revision ARE real registry keys, so they are handled by the general
+# base/revision logic below, not here.)
+_OD_ALIAS_BASE: dict[str, str] = {
+    "od_prototype": "prototype",
+}
+
 
 def get_agent_by_id(agent_id: str) -> AgentSpec | None:
     """Return the AgentSpec for ``agent_id``, or ``None`` if it does not exist.

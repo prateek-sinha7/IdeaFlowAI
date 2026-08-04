@@ -13,7 +13,6 @@ context_from:
 - app-code-compliance
 - app-devops
 - app-test-compliance
-description: Architecture Decision Records, runbooks, SLOs/SLIs, dashboards, compliance evidence matrix, and operations handover.
 estimated_duration: 9.0
 guardrails: []
 icon: "\U0001F4DA"

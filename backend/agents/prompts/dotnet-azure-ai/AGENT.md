@@ -5,7 +5,6 @@ consumes:
 context_from:
 - dotnet-modernization
 - dotnet-feature-coding
-description: Identifies where Azure OpenAI / Document Intelligence / AI Search add measurable value and produces the C# integration code.
 estimated_duration: 10.0
 guardrails:
 - dotnet

@@ -1,5 +1,4 @@
 ---
-description: Generates a professional, Jira-style product backlog of epics and user stories from the requirements and discovery context.
 id: chat-user-stories
 name: User Story Agent
 role: Agile Backlog & User Story Authoring

@@ -42,11 +42,6 @@
 
       <div class="callout"><div class="t">&#128230; Deliverable: serialized_sandbox</div><p>The many files the agents write into the shared <code>RunSandbox</code> are serialized into a <code>filename:</code>-block bundle by <code>serialize_sandbox_deliverable()</code>. The frontend renders it as a file-bundle (<code>application/zip</code>) in <code>AppBuilderPreview</code> + the Files tab.</p></div>
 
-      <h3>An event-free audit step: <code>post_step: api_prefix_audit</code></h3>
-      <p class="muted">The <code>app-infra-generator</code> step (step 10) is the one step in this manifest that declares a <code>post_step</code> — and the manifest's own comment explains a subtle design choice worth understanding. After the infra-generator writes its ~12 infra files, the engine runs the <code>api_prefix_audit</code> post-step to catch endpoints missing an <code>/api/v1</code> prefix.</p>
-      <div class="callout"><div class="t">&#128260; Why a <code>post_step</code>, not a <code>gates: [validation]</code> entry</div><p>A <code>validation</code> gate would emit a <code>validation_warning</code> WebSocket event — but the 5 characterization golden tests captured before this feature existed have no slot for that event at this position in the stream, so adding it would break byte-for-byte parity (INV-3). A <code>post_step</code> runs the exact same check but purely as a side effect: it writes a <code>validation_results</code> audit row for later inspection and emits nothing on the wire. Same detection, zero parity risk — a neat illustration of how INV-3 sometimes shapes <i>which</i> capability kind a feature uses, not just whether it exists.</p></div>
-      <p class="muted">Catalog metadata: <code>user_launchable: true</code>, <code>display_name: "Build an end-to-end application"</code>. Clarify defaults were widened (KAN-74) to 8, adding <code>user_journeys</code>, <code>data_model</code>, <code>integrations</code>, <code>performance</code> — all judged critical to full-stack app-generation quality.</p>
-
       <h3>Revision</h3>
       <p class="muted"><code>app_builder_revision</code> (1 agent) revises an existing app build seeded from the parent run. See <a href="feature-revisions.html">Revisions</a>.</p>
 

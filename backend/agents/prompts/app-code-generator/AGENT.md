@@ -9,7 +9,6 @@ context_from:
 - app-system-design
 - app-api-design
 - app-database-design
-description: Generates complete frontend and backend code for your application — controllers, services, models, pages, components.
 estimated_duration: 15.0
 guardrails: []
 icon: "\U0001F4BB"

@@ -5,7 +5,6 @@ consumes:
 context_from:
 - mulesoft-inventory
 - mulesoft-decomposition
-description: Generates a commit-ready Spring Boot 3 scaffold for each microservice.
 estimated_duration: 14.0
 guardrails:
 - mulesoft

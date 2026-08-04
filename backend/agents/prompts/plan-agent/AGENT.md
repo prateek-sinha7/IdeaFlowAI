@@ -1,5 +1,4 @@
 ---
-description: Produces a detailed implementation plan — technical context, data model, and contracts — from a feature specification.
 id: plan-agent
 name: Plan Agent
 role: Implementation Plan Author

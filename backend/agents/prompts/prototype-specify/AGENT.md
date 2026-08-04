@@ -1,7 +1,6 @@
 ---
 consumes: []
 context_from: []
-description: Analyses the brief and writes the specification — navigation graph, page structure, and design-system selection for the prototype.
 estimated_duration: 25.0
 gate: Human_Gate
 guardrails: []

@@ -5,7 +5,6 @@ consumes:
 context_from:
 - mulesoft-springboot-scaffold
 - mulesoft-feature-coding
-description: SAST/SCA tooling, SonarQube quality gates, Checkstyle/SpotBugs/PMD config, license policy, and pre-commit/CI gates.
 estimated_duration: 8.0
 guardrails:
 - mulesoft

@@ -3,7 +3,6 @@ consumes:
 - ppt-revision-agent
 context_from:
 - $previous
-description: Wraps the revised presentation code into a self-contained, ready-to-view HTML file.
 estimated_duration: 12.0
 guardrails: []
 icon: "\U0001F4E6"

@@ -27,24 +27,12 @@ from pathlib import Path
 import pytest
 
 from agents.capabilities.registry import CapabilityRegistry
-from agents.loader import SUPPORTED_PIPELINE_TYPES, load_agent_spec
-from agents.registry import _INTERNAL_PIPELINES
+from agents.loader import load_agent_spec
+from agents.registry import _INTERNAL_PIPELINES, PIPELINE_AGENTS
 from agents.workflows.compiler import WorkflowCompiler
 from agents.workflows.manifest import load_manifest
 
 _BASE = Path(__file__).resolve().parents[2] / "agents" / "workflows"
-
-# FIX-051 / ISS-035: PIPELINE_AGENTS is now derived from a folder scan and can
-# contain a pipeline_type with real agents but no manifest yet (e.g.
-# spec_kit) or a pure id-alias with none (od_prototype/od_prototype_revision
-# — resolved to `prototype` before ever reaching a manifest lookup). These
-# manifest-content parity tests only make sense for pipelines that actually
-# have an authored workflow.yaml.
-_MANIFEST_BACKED_IDS = sorted(
-    pt
-    for pt in SUPPORTED_PIPELINE_TYPES
-    if (_BASE / pt / "workflow.yaml").exists()
-)
 
 # The two pipelines the FE reaches via the `run_revision` WS frame
 # (DashboardLayout.tsx). As of Phase 14 they declare planner: skip — clarify-auto
@@ -94,7 +82,7 @@ def test_prototype_planner_runs() -> None:
 
 @pytest.mark.parametrize(
     "workflow_id",
-    sorted(set(_MANIFEST_BACKED_IDS) - set(_INTERNAL_PIPELINES)),
+    sorted(set(PIPELINE_AGENTS) - set(_INTERNAL_PIPELINES)),
 )
 def test_planner_run_everywhere(workflow_id: str) -> None:
     plan = _compile(workflow_id)
@@ -167,7 +155,7 @@ def test_run_revision_revision_agents_declare_no_template_injects() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("workflow_id", _MANIFEST_BACKED_IDS)
+@pytest.mark.parametrize("workflow_id", sorted(PIPELINE_AGENTS))
 def test_clarify_defaults_match_engine(workflow_id: str) -> None:
     plan = _compile(workflow_id)
     # od_prototype is an alias (no manifest); every real id resolves to itself.

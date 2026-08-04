@@ -7,7 +7,6 @@ context_from:
 - epic-architect
 - story-estimator
 - nfr-specialist
-description: Reviews all stories for completeness, gaps, and quality before finalizing.
 estimated_duration: 4.0
 guardrails:
 - agile

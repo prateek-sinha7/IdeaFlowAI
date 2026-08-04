@@ -7,7 +7,6 @@ context_from:
 - material-analyzer
 - app-system-design
 - app-api-design
-description: Entity model, DDL, indexing strategy, migration tooling, PII classification, backup/recovery targets, and query budgets.
 estimated_duration: 8.0
 guardrails: []
 icon: "\U0001F5C4️"

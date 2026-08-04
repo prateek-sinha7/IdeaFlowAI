@@ -3,7 +3,6 @@ consumes:
 - prototype-specify
 context_from:
 - $previous
-description: Decomposes the spec into an ordered build plan — the full HTML shell first, then one page per task, then validation.
 estimated_duration: 15.0
 gate: Human_Gate
 guardrails: []

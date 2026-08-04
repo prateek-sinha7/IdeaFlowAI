@@ -1,7 +1,6 @@
 ---
 consumes: []
 context_from: []
-description: Makes precise, targeted refinements to an existing product backlog based on your revision request, without rewriting it.
 estimated_duration: 15.0
 guardrails:
 - agile

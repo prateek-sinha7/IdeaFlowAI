@@ -48,13 +48,6 @@
       <h3>Export to .pptx</h3>
       <div class="callout"><div class="t">&#128202; Deliverable</div><p>The deck is produced by the <code>ppt</code> deliverable resolver and rendered in <code>PPTPreview</code>. Export to a real <code>.pptx</code> is done via <code>pptxgenjs</code> — client-side in the browser, and server-side through <code>app/services/pptx_export.py</code> (which spawns <code>node</code> + pptxgenjs, baked into the backend image).</p></div>
 
-      <h3>The manifest, verbatim</h3>
-      <p class="muted"><code>ppt/workflow.yaml</code>. Note the source comment: the <code>ppt</code> and <code>od_ppt</code> agents physically declare <code>pipeline_type: od_ppt</code> (they're shared), so this manifest's step list is sourced from <code>PIPELINE_AGENTS["ppt"]</code>, not from scanning agent frontmatter for a matching id — a subtlety worth knowing if you ever go looking for "ppt" in an AGENT.md file and don't find it.</p>
-      <div class="grid g2">
-        <div class="card"><h4>Launch surface: wizard</h4><p class="lead">Unlike most pipelines, <code>ppt</code> declares <code>launch_surface: "wizard"</code> — pure catalog-presentation metadata (Phase 20) telling the frontend to launch this workflow through the guided wizard flow rather than the default composer. Never read by the compiler or kernel.</p></div>
-        <div class="card"><h4>8 clarify defaults</h4><p class="lead">Widened from 4 (KAN-74) to also cover <code>content_depth</code>, <code>data_availability</code>, <code>visual_style</code>, <code>key_sections</code> — the dimensions that most affect whether a generated deck actually matches what the requester had in mind.</p></div>
-      </div>
-
       <h3>Revision</h3>
       <p class="muted">Two revision paths exist: <code>ppt_revision</code> (2 agents: ppt-revision-agent + ppt-revision-assembler) and <code>od_ppt_revision</code> (1 agent). See <a href="feature-revisions.html">Revisions</a>.</p>
 

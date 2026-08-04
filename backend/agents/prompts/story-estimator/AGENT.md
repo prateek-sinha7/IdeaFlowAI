@@ -3,7 +3,6 @@ consumes:
 - epic-architect
 context_from:
 - $previous
-description: Estimates effort for each story and maps out which tasks depend on others.
 estimated_duration: 5.0
 guardrails:
 - agile

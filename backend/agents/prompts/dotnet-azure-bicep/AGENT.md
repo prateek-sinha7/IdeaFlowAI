@@ -5,7 +5,6 @@ consumes:
 context_from:
 - dotnet-azure-target-mapping
 - dotnet-security-architecture
-description: Generates Bicep modules for App Service, Functions, Azure SQL, Service Bus, networking, and observability.
 estimated_duration: 12.0
 guardrails:
 - dotnet

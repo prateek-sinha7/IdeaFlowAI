@@ -15,7 +15,6 @@
   var NAV = [
     {grp:"Start here", items:[
       {id:"index", t:"Home / Overview", ic:"\uD83E\uDDED"},
-      {id:"getting-started", t:"Getting Started", ic:"\uD83D\uDE80"},
       {id:"architecture", t:"Architecture", ic:"\uD83C\uDFDB\uFE0F"},
       {id:"data-flow", t:"Data Flow", ic:"\uD83D\uDD00"}
     ]},

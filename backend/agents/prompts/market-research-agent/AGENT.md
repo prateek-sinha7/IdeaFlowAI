@@ -1,7 +1,6 @@
 ---
 consumes: []
 context_from: []
-description: Analyzes your market, competitors, and industry trends to size the opportunity.
 estimated_duration: 6.0
 guardrails: []
 icon: "\U0001F4C8"

@@ -1,7 +1,6 @@
 ---
 consumes: []
 context_from: []
-description: Makes precise, targeted edits to an existing presentation's code based on your revision request, without rewriting the deck.
 estimated_duration: 20.0
 guardrails: []
 icon: ✏️

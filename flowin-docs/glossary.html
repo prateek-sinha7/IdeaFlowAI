@@ -53,18 +53,12 @@
       </div>
 
       <h3>The invariants, in one line each</h3>
-      <p class="muted">The full breakdown with enforcement mechanisms lives on <a href="architecture.html">Architecture</a>; this is the quick-reference version.</p>
       <table>
         <tbody>
           <tr><td><span class="badge b-cyan">INV-1</span></td><td>Kernel knows no workflow by name (zero <code>if pipeline_type ==</code> branches).</td></tr>
           <tr><td><span class="badge b-cyan">INV-2</span></td><td>No per-run state on the engine singleton; it lives on <code>ExecutionContext</code>.</td></tr>
           <tr><td><span class="badge b-green">INV-3</span></td><td>Behavioral parity — deterministic deliverables stay byte-identical (5 golden tests).</td></tr>
-          <tr><td><span class="badge b-blue">INV-4</span></td><td>Every capability reference is registry-validated; an unknown name fails the compile, naming it.</td></tr>
           <tr><td><span class="badge b-violet">INV-5</span></td><td>Compiler is thin — manifests are pure data, no DSL.</td></tr>
-          <tr><td><span class="badge b-pink">INV-7</span></td><td>Fan-out is engine-owned; agents never spawn subagents themselves.</td></tr>
-          <tr><td><span class="badge b-blue">INV-8</span></td><td>Ownership is default-deny; every run has a real, non-null owner principal.</td></tr>
-          <tr><td><span class="badge b-red">INV-9</span></td><td>Tool permissions are least-privilege by default; grants can only narrow, never widen.</td></tr>
-          <tr><td><span class="badge b-green">INV-10</span></td><td>Inter-agent handoff flows through one typed, owner-scoped artifact substrate.</td></tr>
           <tr><td><span class="badge b-amber">INV-12</span></td><td>Move, don't copy — deletion of superseded code is an exit gate.</td></tr>
           <tr><td><span class="badge b-red">INV-13</span></td><td>LangChain deepagents only.</td></tr>
         </tbody>

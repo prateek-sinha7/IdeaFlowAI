@@ -1,5 +1,4 @@
 ---
-description: Produces a structured requirements document covering scope, functional and non-functional requirements from the discovery context.
 id: chat-requirements
 name: Requirements Agent
 role: Requirements Engineering & Business Analysis

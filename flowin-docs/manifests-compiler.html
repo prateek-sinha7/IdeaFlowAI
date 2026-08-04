@@ -80,39 +80,6 @@ steps:
 
       <div class="callout"><div class="t">&#128274; Safe parsing</div><p><code>yaml.safe_load</code> only (a <code>!!python/object</code> tag cannot construct an arbitrary object). Any control-flow / DSL key (<code>when</code>/<code>if</code>/<code>for</code>/<code>${&hellip;}</code>) at any level is rejected by strict-key validation — that is exactly what keeps manifests pure data (INV-5).</p></div>
 
-      <h3>Every top-level key, and what happens if you misspell one</h3>
-      <p class="muted"><code>_ALLOWED_TOP_KEYS</code> in <code>manifest.py</code> is the exhaustive list — nothing else is legal at the top of a <code>workflow.yaml</code>. A typo or an unsupported field doesn't get silently ignored; <code>load_manifest</code> raises a <code>ManifestValidationError</code> naming the exact unknown key(s), before the compiler even sees the manifest.</p>
-      <table>
-        <thead><tr><th>Key</th><th>Required?</th><th>Type</th><th>Purpose</th></tr></thead>
-        <tbody>
-          <tr><td><code>id</code></td><td>required</td><td>str</td><td>The manifest id, e.g. <code>prototype</code>.</td></tr>
-          <tr><td><code>steps</code></td><td>required</td><td>list</td><td>Raw step dicts. May be <code>[]</code> — the <code>reverse_engineer</code> workflow is an intentional empty plan.</td></tr>
-          <tr><td><code>deliverable</code></td><td>required</td><td>dict</td><td><code>{strategy, name}</code> — which resolver capability produces the final artifact.</td></tr>
-          <tr><td><code>planner</code></td><td>required</td><td>str</td><td><code>"run"</code> or <code>"skip"</code> — whether the deep-planner agent runs before the steps.</td></tr>
-          <tr><td><code>clarify</code></td><td>required</td><td>dict</td><td><code>{mode, defaults}</code> — HITL clarify gate config.</td></tr>
-          <tr><td><code>version</code></td><td>optional</td><td>int</td><td>Defaults to <code>1</code>. Rejects a <code>bool</code> explicitly (a bool is an <code>int</code> subclass in Python — <code>version: true</code> is caught, not silently coerced to <code>1</code>).</td></tr>
-          <tr><td><code>context_providers</code></td><td>optional</td><td>list</td><td>Names of <code>ContextProvider</code> capabilities to inject (e.g. <code>opendesign</code>, <code>repo</code>).</td></tr>
-          <tr><td><code>seed_files</code></td><td>optional</td><td>dict</td><td>Which files to seed from a prior run (revision workflows).</td></tr>
-          <tr><td><code>allowed_workers</code></td><td>optional</td><td>list</td><td>The named-worker allow-list a heterogeneous fan-out step may spawn from.</td></tr>
-          <tr><td><code>model</code> / <code>limits</code></td><td>optional</td><td>dict</td><td>Forward/inert in earlier phases; <code>model</code> now feeds the per-workflow default tier, <code>limits</code> feeds <code>BudgetManager.from_limits</code>.</td></tr>
-          <tr><td><code>user_launchable</code></td><td>optional</td><td>bool</td><td>Gates catalog visibility only — never authorizes a run (launch stays tier-gated server-side). Strictly type-checked: <code>1</code> is rejected, not coerced.</td></tr>
-          <tr><td><code>display_name</code> / <code>description</code> / <code>icon</code> / <code>launch_surface</code></td><td>optional</td><td>str</td><td>Pure presentation metadata for the catalog UI. Never read by the compiler or kernel.</td></tr>
-        </tbody>
-      </table>
-      <p class="muted">Note what's <i>not</i> in that list: no <code>when</code>, no <code>if</code>, no <code>for</code>, no template expression syntax. That absence is the whole point of INV-5 — there is structurally nowhere in a manifest to write control flow, so a manifest can never do anything more dangerous than name capabilities and configure them.</p>
-
-      <h3>The typed plan a manifest compiles into (<code>plan.py</code>)</h3>
-      <p class="muted">Every dataclass below started life "declared but inert" — present in the schema with a safe default, but not yet consumed by any kernel behavior — and was switched on phase by phase as the corresponding capability landed. That staging is deliberate: the full shape of the eventual system was designed up front, so later phases only had to <i>activate</i> fields, never restructure the contract.</p>
-      <div class="grid g3">
-        <div class="card"><h4><code>Step</code></h4><p class="lead">One compiled DAG node: <code>agent_id</code>, <code>strategy</code>, <code>gates</code>, <code>hooks</code>, <code>task_source</code>, <code>post_step</code>, plus the forward fields <code>tools</code> (a <code>ToolPermissions</code>), <code>model</code>, <code>validators</code>, <code>fix</code>, <code>compaction</code>, <code>fanout</code>, <code>on_conflict</code>, <code>retry</code>, <code>injects</code>, <code>depends_on</code>.</p></div>
-        <div class="card"><h4><code>ToolPermissions</code></h4><p class="lead">The least-privilege grant set (INV-9): <code>read_files</code> defaults ON, everything else (<code>write_files</code>/<code>exec</code>/<code>git</code>/<code>network</code>/<code>spawn_subagents</code>) defaults OFF. <code>intersect_permissions(owner, workflow, step)</code> is a pure AND-mask across all three levels — the result can only ever narrow, never widen a grant.</p></div>
-        <div class="card"><h4><code>FanoutSpec</code></h4><p class="lead"><code>agent</code>/<code>count</code> for a self&times;N fan-out, or <code>workers</code> (a list of named worker ids) for a heterogeneous one — every named worker must also appear in <code>CompiledWorkflow.allowed_workers</code> AND the agent registry before <code>run_fanout</code> will spawn it.</p></div>
-        <div class="card"><h4><code>RetryPolicy</code></h4><p class="lead"><code>max_attempts</code> + <code>backoff_seconds</code> + <code>on</code> (error classes — only <code>"transient"</code> is wired today, reusing the single <code>_is_transient_throttle</code> classifier). A step declaring no retry is byte-identical to before the field existed — the wrapper is fully dormant.</p></div>
-        <div class="card"><h4><code>DeliverableSpec</code></h4><p class="lead"><code>strategy</code> + <code>name</code> + the important <code>revises_existing</code> flag: this — not a provider-name proxy check, not a workflow-id branch — is what tells the kernel a run edits an artifact in place rather than regenerating it fresh. Only <code>prototype_revision</code> sets it <code>True</code> today.</p></div>
-        <div class="card"><h4><code>RepoSpec</code> &amp; <code>Limits</code></h4><p class="lead"><code>RepoSpec.index</code> is a pure opt-in flag — the compiler only records it; the actual decision to build a symbol index lives inside the <code>repo_index</code> capability, never the compiler (INV-5 again). <code>Limits</code> feeds <code>BudgetManager.from_limits</code> directly.</p></div>
-      </div>
-      <p class="muted">The one universal design rule across every one of these types, stated directly in the source comments: <i>declare the full field now, consume it later, and never let a Phase-N behavior key off a field that isn't live yet.</i> That's how 22 phases landed without ever rewriting the manifest schema out from under itself.</p>
-
       <div class="pager" id="pager-root"></div>
       <div class="footer">Flowin Feature Atlas &middot; Manifests &amp; Compiler</div>
     </div>

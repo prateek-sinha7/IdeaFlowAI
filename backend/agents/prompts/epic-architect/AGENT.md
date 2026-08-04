@@ -3,7 +3,6 @@ consumes:
 - domain-analyst
 context_from:
 - $previous
-description: Writes product epics and detailed user stories with clear acceptance criteria.
 estimated_duration: 10.0
 guardrails:
 - agile

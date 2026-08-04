@@ -16,27 +16,14 @@ from the compiled plan is covered by ``test_compiled_plan_runs.py``.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from agents.execution_engine.engine import compile_for_run, resolve_alias
-from agents.loader import SUPPORTED_PIPELINE_TYPES
 from agents.registry import PIPELINE_AGENTS, _OD_ALIAS_BASE, get_pipeline_agents
 
-_MANIFEST_BASE = Path(__file__).resolve().parents[2] / "agents" / "workflows"
-_MANIFEST_BACKED_IDS = {
-    pt
-    for pt in SUPPORTED_PIPELINE_TYPES
-    if (_MANIFEST_BASE / pt / "workflow.yaml").exists()
-}
-
-# The 13 engine-dispatchable pipelines = the manifest-backed pipelines minus
-# the two non-engine-dispatched edge cases (chat = ChatRunner; reverse_engineer
-# = empty). FIX-051 / ISS-035: scoped to manifest-backed ids, not raw
-# PIPELINE_AGENTS keys — PIPELINE_AGENTS can now contain a pipeline_type with
-# real agents but no manifest yet (e.g. spec_kit), which cannot be compiled.
-_DISPATCHABLE = sorted(_MANIFEST_BACKED_IDS - {"chat", "reverse_engineer"})
+# The 13 engine-dispatchable pipelines = 15 PIPELINE_AGENTS keys minus the two
+# non-engine-dispatched edge cases (chat = ChatRunner; reverse_engineer = empty).
+_DISPATCHABLE = sorted(set(PIPELINE_AGENTS) - {"chat", "reverse_engineer"})
 
 # The exact verbatim per-pipeline default clarifying-question lists the engine
 # formerly hardcoded in `_pipeline_defaults` (engine.py:752-761, now removed).

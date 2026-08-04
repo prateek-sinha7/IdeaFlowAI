@@ -55,25 +55,6 @@
 
       <div class="callout"><div class="t">&#128202; Watching it live</div><p>The UI's <code>WaveTreePanel</code> renders the wave/worker tree from the additive <code>wave_started/completed/failed</code> + <code>subagent_spawned/result</code> events (statuses only — no live token stream per worker). N parallel workers of the same agent render as N distinct leaves keyed by worker index.</p></div>
 
-      <h3>Inside <code>run_fanout</code> — the one spawn path, step by step</h3>
-      <p class="muted"><code>fanout.py</code>'s own docstring numbers five sequential steps, and both entry points — the declarative <code>fanout_batch</code> strategy and the runtime <code>spawn_subagents</code> tool's structured request — funnel through this exact same function. Nothing else in the codebase spawns a subagent.</p>
-      <div class="grid g3">
-        <div class="card"><h4>1 &middot; Select workers</h4><p class="lead">A named worker must pass <b>two</b> checks — present in <code>allowed_workers</code> AND resolvable in the agent registry — both reached through the runner handle, never a direct import. A disallowed or unknown worker raises <code>FanoutError</code> before anything else happens: zero <code>subagent_runs</code> rows, no workspace allocated.</p></div>
-        <div class="card"><h4>2 &middot; Reserve budget</h4><p class="lead"><code>budget.reserve()</code> runs before any spawn (Pitfall 4 — enforcement-point discipline). A refused reservation emits a <code>budget_warning</code> event naming the breached dimension, then re-raises — with genuinely zero side effects, since nothing was spawned yet.</p></div>
-        <div class="card"><h4>3 &middot; Select isolation</h4><p class="lead">The scope is derived <b>solely</b> from the base workspace's <code>has_git</code> flag — never from the manifest. This is a deliberate INV-7 enforcement: a user-authored manifest has no field that could downgrade a worker's isolation, even if it wanted to.</p></div>
-      </div>
-      <div class="grid g2">
-        <div class="card"><h4>4 &middot; Spawn, bounded</h4><p class="lead">Parallel mode runs under <code>asyncio.Semaphore(min(declared, DEFAULT_MAX_CONCURRENCY))</code> — the engine enforces its own concurrency ceiling <b>regardless of what the manifest asks for</b>. A manifest requesting 100 parallel workers still runs at most <code>DEFAULT_MAX_CONCURRENCY</code> at a time (a direct DoS mitigation, T-11-01-02).</p></div>
-        <div class="card"><h4>5 &middot; Persist fragments, then merge</h4><p class="lead">Before any merge runs, <b>every file</b> a worker wrote is persisted as its own lineage-tracked fragment <code>ArtifactRef</code> — so a worker's complete output survives an abort or cancel even if the merge itself never happens. Only after that does the engine resolve a <code>MergeStrategy</code> by name and attempt the merge.</p></div>
-      </div>
-
-      <h3>What happens when a worker crashes, or you hit Stop, mid fan-out</h3>
-      <div class="grid g2">
-        <div class="card"><h4>One worker failing never aborts its siblings</h4><p class="lead">Inside <code>_run_one</code>, a worker's exception is caught, logged, and turned into a <code>status="failed"</code> result — the other workers keep running. Only a genuinely unexpected non-worker exception (say, a budget boundary raising mid-gather) triggers the harsher cancel-everything path.</p></div>
-        <div class="card"><h4>Cancellation mirrors that same discipline</h4><p class="lead">A cooperative cancel is checked before the wave starts, between sequential workers, and before the merge. Mid-flight, every outstanding task is cancelled and awaited, each in-flight worker flips its own <code>subagent_runs</code> row to <code>cancelled</code>, and a <code>finally</code> block reclaims <b>every</b> allocated isolated workspace — whether the run finished, crashed, or was cancelled. No leaked worktrees, no orphaned sandbox directories.</p></div>
-      </div>
-      <p class="muted">One more detail worth knowing if you ever look at a worktree-isolated fan-out's git history: a completed worker's edits are explicitly committed onto its own per-worker branch inside <code>_run_one</code> — without that commit, the subsequent <code>git_3way</code> merge would see nothing to integrate and the worktree teardown would silently destroy the uncommitted work.</p>
-
       <div class="pager" id="pager-root"></div>
       <div class="footer">Flowin Feature Atlas &middot; Fan-out &amp; Waves</div>
     </div>

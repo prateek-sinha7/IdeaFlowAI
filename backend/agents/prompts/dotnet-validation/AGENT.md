@@ -5,7 +5,6 @@ consumes:
 context_from:
 - dotnet-azure-target-mapping
 - dotnet-test-compliance
-description: Designs parity tests, shadow-traffic config, Application Insights KQL gates, and the rollback drill.
 estimated_duration: 8.0
 guardrails:
 - dotnet

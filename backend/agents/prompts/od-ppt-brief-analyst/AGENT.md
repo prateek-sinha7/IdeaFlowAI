@@ -1,7 +1,6 @@
 ---
 consumes: []
 context_from: []
-description: Analyses the brief and architects the slide-by-slide plan, narrative arc, and content structure for the deck.
 estimated_duration: 8.0
 guardrails: []
 icon: "📋"

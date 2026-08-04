@@ -56,10 +56,6 @@
 
       <div class="callout"><div class="t">&#9851;&#65039; Brownfield capabilities</div><p>These pipelines lean on the repo capabilities added in Phase 9: <code>repo_inventory</code> + the tree-sitter <code>repo_index</code> build a symbol index, <code>context_pack</code> surfaces a targeted subset to agents, and the <code>repo_diff</code> deliverable resolver can emit a diff-only view. Code validators (<code>code_compile</code>/<code>code_test</code>/<code>code_lint</code>) run through the gated exec handle.</p></div>
 
-      <h3>Catalog visibility differs between the two</h3>
-      <p class="muted">Reading both manifests side by side turns up a detail not obvious from the UI alone: <code>mulesoft_to_springboot</code> declares <code>user_launchable: true</code> with the catalog label <i>"Platform workflows"</i>, while <code>dotnet_to_azure</code> declares <code>user_launchable: false</code> despite having its own real <code>display_name: ".NET to Azure"</code> and <code>description</code> already authored. It exists, compiles, and runs exactly like its sibling — it's simply not yet surfaced in the self-serve catalog. This is exactly the kind of authoring-vs-launch distinction the <code>user_launchable</code> field exists for: presentation metadata can be prepared well ahead of a feature's public rollout, because it is never read by the compiler or kernel (INV-3 parity is untouched either way).</p>
-      <p class="muted">Both manifests widened their clarify defaults from 4 to 8 (KAN-74): <code>mulesoft_to_springboot</code> adds <code>integration_patterns</code>, <code>target_infrastructure</code>, <code>data_migration</code>, <code>compliance_security</code>; <code>dotnet_to_azure</code> adds <code>azure_services</code>, <code>data_migration</code>, <code>integration_patterns</code>, <code>compliance_security</code> — both sets chosen specifically because a migration plan missing any of them tends to be unsafe or incomplete.</p>
-
       <div class="pager" id="pager-root"></div>
       <div class="footer">Flowin Feature Atlas &middot; Modernization</div>
     </div>

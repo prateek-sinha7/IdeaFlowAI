@@ -7,7 +7,6 @@ context_from:
 - material-analyzer
 - app-infra-generator
 - app-code-generator
-description: Branching model, CI/CD pipeline-as-code, environment promotion, OIDC secrets, DORA-metric observability, and developer-experience tooling.
 estimated_duration: 9.0
 guardrails: []
 icon: "\U0001F6A6"

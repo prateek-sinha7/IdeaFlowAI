@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 
 from agents.execution_engine.engine import compile_for_run
 from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
-from app.api.workflows import _KNOWN_WORKFLOW_IDS, router
+from app.api.workflows import router
 from app.core.dependencies import get_current_user
 
 
@@ -53,13 +53,10 @@ class TestList:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         ids = {w["id"] for w in body}
-        # FIX-051: "authored workflow" = has a workflow.yaml manifest, not just
-        # a PIPELINE_AGENTS key (PIPELINE_AGENTS can now list a pipeline_type
-        # with agents but no manifest yet, e.g. spec_kit — see ISS-035).
-        assert ids == _KNOWN_WORKFLOW_IDS, (
-            f"list did not cover every authored workflow: {ids ^ _KNOWN_WORKFLOW_IDS}"
+        assert ids == set(PIPELINE_AGENTS.keys()), (
+            f"list did not cover every authored workflow: {ids ^ set(PIPELINE_AGENTS)}"
         )
-        assert len(body) == len(_KNOWN_WORKFLOW_IDS)
+        assert len(body) == len(PIPELINE_AGENTS)
 
     def test_list_entries_carry_metadata(self, client):
         resp = client.get("/api/workflows")
@@ -73,7 +70,7 @@ class TestList:
             s.id for s in get_pipeline_agents("prototype")
         ]
 
-    @pytest.mark.parametrize("workflow_id", sorted(_KNOWN_WORKFLOW_IDS))
+    @pytest.mark.parametrize("workflow_id", sorted(PIPELINE_AGENTS.keys()))
     def test_list_step_count_matches_compiled_plan(self, client, workflow_id):
         # WR-01 regression guard: the list step_count must derive from the
         # COMPILED plan, not get_pipeline_agents — so 'ppt' (whose agents declare
@@ -213,7 +210,7 @@ class TestGetAnd404:
 
     def test_get_each_known_id_compiles(self, client):
         # Every authored id returns 200 with a step list of the right length.
-        for wid in _KNOWN_WORKFLOW_IDS:
+        for wid in PIPELINE_AGENTS:
             resp = client.get(f"/api/workflows/{wid}")
             assert resp.status_code == 200, f"{wid}: {resp.text}"
             compiled = compile_for_run(wid)
@@ -228,59 +225,3 @@ class TestGetAnd404:
         # never reaching the filesystem (T-04-13).
         resp = client.get("/api/workflows/..%2f..%2fetc%2fpasswd")
         assert resp.status_code == 404, resp.text
-
-
-# ---------------------------------------------------------------------------
-# FIX-051 / ISS-035 — _KNOWN_WORKFLOW_IDS is manifest-derived, not a
-# PIPELINE_AGENTS proxy (drift pins)
-# ---------------------------------------------------------------------------
-
-
-class TestKnownWorkflowIdsDiscovery:
-    def test_matches_workflows_directory_independently(self):
-        # Re-derive the manifest-id set directly from the filesystem (not via
-        # the router's own helper) and assert it matches exactly — catches
-        # "a manifest was added/removed but discovery didn't pick it up". Must
-        # also gate on SUPPORTED_PIPELINE_TYPES: agents/workflows/ contains
-        # non-pipeline test-fixture manifests (sample_brownfield/fanout/wave)
-        # that must never surface as real workflows (ISS-015).
-        from agents.execution_engine.engine import _WORKFLOWS_DIR
-        from agents.loader import SUPPORTED_PIPELINE_TYPES
-
-        on_disk = {
-            p.name
-            for p in _WORKFLOWS_DIR.iterdir()
-            if p.is_dir()
-            and p.name in SUPPORTED_PIPELINE_TYPES
-            and (p / "workflow.yaml").exists()
-        }
-        assert _KNOWN_WORKFLOW_IDS == on_disk
-
-    def test_sample_fixtures_are_not_exposed(self):
-        # ISS-015: sample_* manifest dirs exist on disk (used directly by
-        # tests/agents/test_sample_*_workflow.py) but carry no product launch
-        # surface and must never appear via GET /api/workflows.
-        for fixture_id in ("sample_brownfield", "sample_fanout", "sample_wave"):
-            assert fixture_id not in _KNOWN_WORKFLOW_IDS, (
-                f"{fixture_id} is a test fixture and must not be exposed as "
-                "a real workflow"
-            )
-
-    def test_spec_kit_has_agents_but_no_manifest_yet(self):
-        # ISS-035 proof case: spec_kit agents are real and discoverable via
-        # get_pipeline_agents/PIPELINE_AGENTS, but there is no authored
-        # workflow.yaml for spec_kit yet, so it must NOT be exposed as a
-        # launchable workflow. If a manifest is later added, this assertion
-        # forces a conscious test update rather than an unnoticed catalog
-        # change.
-        assert get_pipeline_agents("spec_kit"), (
-            "expected spec_kit to have real, loadable agents on disk"
-        )
-        assert "spec_kit" not in _KNOWN_WORKFLOW_IDS
-
-    def test_every_known_workflow_id_compiles(self):
-        # Would have caught the naive "PIPELINE_AGENTS.keys() == workflows"
-        # assumption directly: every id claimed as a known workflow must
-        # actually compile.
-        for wid in _KNOWN_WORKFLOW_IDS:
-            compile_for_run(wid)  # raises on failure

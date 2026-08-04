@@ -5,7 +5,6 @@ consumes:
 context_from:
 - dotnet-inventory
 - dotnet-azure-target-mapping
-description: STRIDE threat model, Entra ID/Key Vault design, encryption, WAF, and security gates for the target Azure architecture.
 estimated_duration: 9.0
 guardrails:
 - dotnet

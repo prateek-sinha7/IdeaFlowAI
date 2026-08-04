@@ -2,7 +2,6 @@
 consumes: []
 context_from:
 - $previous
-description: Writes clear documentation including README, API guides, and setup instructions.
 estimated_duration: 7.0
 guardrails: []
 icon: "\U0001F4DA"

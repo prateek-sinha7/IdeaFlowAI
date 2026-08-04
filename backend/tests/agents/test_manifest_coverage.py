@@ -1,15 +1,9 @@
-"""Coverage test — every manifest-backed pipeline loads + compiles (MAN-04 / D-05).
+"""Coverage test — every PIPELINE_AGENTS key loads + compiles (MAN-04 / D-05).
 
-ZERO exemptions: all 15 manifest-backed pipelines must load via load_manifest
-and compile via WorkflowCompiler. Additionally the compiled step order must
-equal the registry's agent membership order (RESEARCH Pitfall 3 — a manifest
-must not silently reorder agents and break snapshots).
-
-FIX-051 / ISS-035: the coverage set is scoped to pipeline_types that actually
-have an authored `workflow.yaml` manifest, NOT to every ``PIPELINE_AGENTS``
-key — ``PIPELINE_AGENTS`` is now derived from a folder scan and can contain a
-pipeline_type with real agents but no manifest yet (e.g. ``spec_kit``), which
-is an in-progress pipeline, not a compilable one.
+ZERO exemptions: all 15 manifests (one per PIPELINE_AGENTS key) must load via
+load_manifest and compile via WorkflowCompiler. Additionally the compiled step
+order must equal the registry's agent membership order (RESEARCH Pitfall 3 — a
+manifest must not silently reorder agents and break snapshots).
 
 NOTE on the `ppt` quirk: the ppt agents physically declare pipeline_type: od_ppt
 (shared agents), so get_pipeline_agents("ppt") is empty even though
@@ -27,7 +21,6 @@ from pathlib import Path
 import pytest
 
 from agents.capabilities.registry import CapabilityRegistry
-from agents.loader import SUPPORTED_PIPELINE_TYPES
 from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
 from agents.workflows.compiler import WorkflowCompiler
 from agents.workflows.manifest import load_manifest
@@ -35,20 +28,13 @@ from agents.workflows.plan import CompiledWorkflow
 
 _BASE = Path(__file__).resolve().parents[2] / "agents" / "workflows"
 
-_MANIFEST_BACKED_IDS = sorted(
-    pt
-    for pt in SUPPORTED_PIPELINE_TYPES
-    if (_BASE / pt / "workflow.yaml").exists()
-)
-
 
 def test_exactly_15_keys() -> None:
-    """The coverage set is exactly the 15 manifest-backed pipelines (zero
-    exemptions among pipelines that actually have a workflow.yaml)."""
-    assert len(_MANIFEST_BACKED_IDS) == 15
+    """The coverage set is exactly the 15 PIPELINE_AGENTS keys (zero exemptions)."""
+    assert len(PIPELINE_AGENTS) == 15
 
 
-@pytest.mark.parametrize("workflow_id", _MANIFEST_BACKED_IDS)
+@pytest.mark.parametrize("workflow_id", sorted(PIPELINE_AGENTS))
 def test_all_load_compile(workflow_id: str) -> None:
     manifest = load_manifest(workflow_id, _BASE)
     plan = WorkflowCompiler().compile(manifest, CapabilityRegistry())

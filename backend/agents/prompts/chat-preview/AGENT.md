@@ -1,5 +1,4 @@
 ---
-description: Assembles every phase's output into the final, structured deliverable.
 id: chat-preview
 name: Preview Agent
 role: Final Output Assembly
