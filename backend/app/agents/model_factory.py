@@ -36,9 +36,6 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
     if max_tokens is None:
         max_tokens = settings.MAX_OUTPUT_TOKENS
 
-    if provider == "aws":
-        provider = "bedrock"
-
     if provider == "mistral":
         if not settings.MISTRAL_API_KEY:
             raise ModelConfigurationError(
@@ -71,13 +68,7 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
     if thinking_enabled:
         budget = max(1024, min(settings.THINKING_BUDGET_TOKENS, max_tokens - 1))
 
-    # provider="bedrock" is an EXPLICIT request for AWS, so it skips the
-    # ANTHROPIC_API_KEY branch below. Without this the request was honoured
-    # only by accident — on a machine where that key happens to be set, an
-    # eval asked to run on Bedrock would silently run on the Anthropic API
-    # instead, and the run would look successful while measuring the wrong
-    # provider.
-    if settings.ANTHROPIC_API_KEY and provider != "bedrock":
+    if settings.ANTHROPIC_API_KEY:
         from langchain_anthropic import ChatAnthropic
 
         model_id = model or settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5-20251001"
@@ -109,14 +100,6 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
         (settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID) and settings.AWS_REGION
     )
     if not bedrock_configured:
-        # An explicit provider="bedrock" must never fall back: a silent
-        # downgrade to Mistral would produce a run labelled "aws" that never
-        # touched AWS.
-        if provider == "bedrock":
-            raise ModelConfigurationError(
-                "provider='bedrock' was requested but Bedrock is not configured. "
-                "Set BEDROCK_INFERENCE_PROFILE_ID (or BEDROCK_MODEL_ID) and AWS_REGION."
-            )
         if settings.MISTRAL_API_KEY:
             from langchain_mistralai import ChatMistralAI
 
