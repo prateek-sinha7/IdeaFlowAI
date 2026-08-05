@@ -238,7 +238,10 @@ def project_milestone_card(event: Any) -> dict | None:
     data = _event_data(event)
     run_id = _run_id(data, event)
 
-    kind, text, target = _classify(etype, data, run_id)
+    result = _classify(etype, data, run_id)
+    if result is None:
+        return None
+    kind, text, target = result
     if kind is None:
         return None
 

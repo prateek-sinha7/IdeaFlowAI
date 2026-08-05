@@ -166,42 +166,54 @@ export function StepsOverviewSpine({
   specRevisionCount = 0,
 }: StepsOverviewSpineProps) {
   const total = agents.length;
-  const completedCount = agents.filter(a => a.status === "done").length;
   const isRunning = pipelineState?.isRunning ?? false;
   const failed = pipelineState?.failed || agents.some(a => a.status === "error");
 
+  // ── FIX-182: construction agent "done" guard ──────────────────────────────
+  // agent_complete fires after EACH task-loop iteration, momentarily setting the
+  // build agent's status to "done" before the next task_loop_progress fires a new
+  // agent_start. Using agent.status === "done" directly causes a premature DONE
+  // badge and progress-bar fill. Mirror the constructionComplete logic from
+  // AgentThinkingTab so the build agent only shows DONE when all tasks are confirmed
+  // done OR the pipeline has stopped. Generic — keyed on id pattern, SC-001.
+  const constructionIdx = agents.findIndex(a => /build|construct/i.test(a.id));
+  const laterAgentStarted = constructionIdx >= 0 &&
+    agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
+  const completedTaskCount = pipelineState?.protoCompletedTaskCount ?? 0;
+  const protoTotalTasks = pipelineState?.protoTotalTasks ?? 0;
+  const totalTasks = protoTotalTasks > 0 ? protoTotalTasks : completedTaskCount;
+  const allTasksDone = totalTasks > 0 && completedTaskCount >= totalTasks;
+  const constructionAgentIsReallyDone = (idx: number): boolean => {
+    if (idx !== constructionIdx) return agents[idx]?.status === "done";
+    const agent = agents[idx];
+    if (!agent || agent.status !== "done") return false;
+    return !isRunning || (laterAgentStarted && allTasksDone);
+  };
+  const guardedCompletedCount = agents.filter((_, i) => constructionAgentIsReallyDone(i)).length;
+  // ── end FIX-182 ───────────────────────────────────────────────────────────
+
   const statusLabel = failed ? "Run failed" : isRunning ? "Running" : "Run complete";
 
-  // Mock's Steps-overview phase PILL + LABEL, keyed on the GENERIC run state
-  // (SC-001 — no workflow-name literal): clarify awaiting → CLARIFY; active
-  // review gate → REVIEW; otherwise running → BUILDING with live N/M counts
-  // (Run - Live.dc.html :981). Failed/complete keep the plain statusLabel.
   const hasClarify = !!(clarifyQuestions && clarifyQuestions.length > 0 && onSubmitClarify);
   const gateActive = !!laneGate && isRunning && !!onApproveGate;
   const phase =
     failed ? null
     : hasClarify ? { pill: "CLARIFY", label: "Waiting on your answers", live: false }
     : gateActive ? { pill: "REVIEW", label: "Paused for your approval", live: false }
-    : isRunning ? { pill: "BUILDING", label: `Pipeline running · ${completedCount} / ${total}`, live: true }
+    : isRunning ? { pill: "BUILDING", label: `Pipeline running · ${guardedCompletedCount} / ${total}`, live: true }
     : null;
 
   const totalDuration = pipelineState?.totalDuration;
   const metaBits = [
-    total > 0 ? `${completedCount} / ${total} agents` : null,
+    total > 0 ? `${guardedCompletedCount} / ${total} agents` : null,
     totalDuration ? formatDuration(totalDuration) : null,
   ].filter(Boolean).join(" · ");
 
-  // Not-run (idle) agents after a failure → the halted banner count (ND-D).
   const notRun = failed ? agents.filter(a => a.status === "idle").length : 0;
   const failedAgent = agents.find(a => a.status === "error");
 
-  // An active gate renders inline after its paused agent's row; if it maps to no
-  // visible agent, a foot-of-spine fallback keeps it reachable (never lost).
   const gateAgentMatches = !!laneGate && agents.some(a => a.id === laneGate.agentId);
   const showGateFallback = !!laneGate && isRunning && !!onApproveGate && !gateAgentMatches;
-
-  // Approved gate-event rows keyed by the agent (step) they fired on → the settled
-  // "Review gate — approved" strips interleaved after each agent's row.
   const approvedGatesByAgent = (gateEvents ?? [])
     .filter(g => g.step && (g.outcome ?? "").toLowerCase().includes("approv"))
     .reduce<Record<string, GateEventRow[]>>((acc, g) => {
@@ -239,9 +251,10 @@ export function StepsOverviewSpine({
           <div className="flex gap-[3px] h-[5px] rounded-[3px] overflow-hidden">
             {agents.map((a, i) => (
               <div key={i} className={`flex-1 ${
-                a.status === "done" ? "bg-brand" :
+                constructionAgentIsReallyDone(i) ? "bg-brand" :
                 a.status === "running" || a.status === "thinking" ? "bg-brand animate-pulse" :
                 a.status === "error" ? "bg-status-failed" :
+                a.status === "done" ? "bg-brand" :
                 "bg-line-faint"
               }`} />
             ))}
@@ -288,8 +301,8 @@ export function StepsOverviewSpine({
       )}
 
       {/* compact navigable agent rows + gate strips */}
-      {agents.map((agent) => {
-        const isDone = agent.status === "done";
+      {agents.map((agent, agentIdx) => {
+        const isDone = constructionAgentIsReallyDone(agentIdx);
         const isRun = agent.status === "running" || agent.status === "thinking";
         const isErr = agent.status === "error";
         const isIdle = agent.status === "idle";

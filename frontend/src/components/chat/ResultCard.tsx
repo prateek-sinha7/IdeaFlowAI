@@ -129,19 +129,21 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
   // KAN-154: pipeline and deliverable also render as inline links (no box chrome)
   // — the same lightweight "guideline-style" pattern as clarify. A pipeline update
   // ("Run started", "Run complete") is informational, not a decision point; a
-  // deliverable card is a single call-to-action link. Box chrome is kept for gate
-  // and spec_revision which ARE decision/status cards requiring visual weight.
+  // deliverable card is a single call-to-action link. Box chrome is kept for
+  // spec_revision which IS a decision/status card requiring visual weight.
   //
-  // A resolved gate card (review_gate_approved received) renders as a plain inline
-  // text — "Review approved — build continues" — with no box chrome. The gate is
-  // closed; there is no action left to surface.
-  if (kind === "clarify" || kind === "pipeline" || kind === "deliverable" ||
-      (kind === "gate" && message.resolved)) {
-    // Resolved gate cards show a fixed confirmation text (user-specified).
-    // All other inline kinds show their narrator content as-is.
+  // Gate cards — both resolved AND unresolved — render as inline text only.
+  // The active gate UI lives in the Steps panel (StepsOverviewSpine GateAwaitingCard)
+  // which is the authoritative affordance for approving/rejecting. Showing a second
+  // "Review required" box in the chat lane is redundant and was confusing.
+  // Resolved: shows "Review approved — build continues".
+  // Active (unresolved): shows plain "Review required" with "Open in Steps" link.
+  if (kind === "clarify" || kind === "pipeline" || kind === "deliverable" || kind === "gate") {
     const inlineText =
       kind === "gate" && message.resolved
         ? "Review approved — build continues"
+        : kind === "gate"
+        ? "Review required"
         : message.content;
     return (
       <div
@@ -152,7 +154,19 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
         <p className="font-serif text-[13px] leading-relaxed text-ink-900">
           {inlineText}
         </p>
-        {kind !== "gate" && (
+        {/* Gate cards: resolved shows no link (action complete); active shows "Open in Steps" */}
+        {kind === "gate" && !message.resolved ? (
+          <button
+            type="button"
+            data-testid="chat-result-card-link"
+            data-target-tab={tab}
+            onClick={() => onRequestOpenTab(tab)}
+            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand transition-colors hover:underline"
+          >
+            Open in Steps
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        ) : kind !== "gate" ? (
           <button
             type="button"
             data-testid="chat-result-card-link"
@@ -163,7 +177,7 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
             {linkLabel}
             <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
-        )}
+        ) : null}
       </div>
     );
   }

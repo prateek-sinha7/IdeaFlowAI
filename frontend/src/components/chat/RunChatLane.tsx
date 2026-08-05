@@ -522,12 +522,30 @@ function PipelineMini({
   onOpen,
   building,
   completedCount,
+  pipelineState,
 }: {
   agents: AgentRunState[];
   onOpen?: () => void;
   building?: boolean;
   completedCount?: number;
+  pipelineState?: import("@/types/index").PipelineRunState;
 }) {
+  // FIX-182: same constructionComplete guard as AgentThinkingTab/StepsOverviewSpine —
+  // prevents premature DONE checkmark on the build agent during task-loop iterations.
+  const isRunning = pipelineState?.isRunning ?? building ?? false;
+  const constructionIdx = agents.findIndex(a => /build|construct/i.test(a.id));
+  const laterAgentStarted = constructionIdx >= 0 &&
+    agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
+  const completedTaskCount = pipelineState?.protoCompletedTaskCount ?? 0;
+  const protoTotalTasks = pipelineState?.protoTotalTasks ?? 0;
+  const totalTasks = protoTotalTasks > 0 ? protoTotalTasks : completedTaskCount;
+  const allTasksDone = totalTasks > 0 && completedTaskCount >= totalTasks;
+  const agentIsReallyDone = (idx: number): boolean => {
+    const a = agents[idx];
+    if (!a || a.status !== "done") return false;
+    if (idx !== constructionIdx) return true;
+    return !isRunning || (laterAgentStarted && allTasksDone);
+  };
   return (
     <TranscriptCard
       testid="lane-pipeline-mini"
@@ -547,9 +565,9 @@ function PipelineMini({
           <span className="font-sans text-[11px] font-medium text-brand">Open Steps →</span>
         )}
       </div>
-      {agents.map((a) => {
-        const done = a.status === "done";
-        const running = a.status === "running" || a.status === "thinking";
+      {agents.map((a, agentIdx) => {
+        const done = agentIsReallyDone(agentIdx);
+        const running = !done && (a.status === "running" || a.status === "thinking");
         const errored = a.status === "error";
         return (
           <div key={a.id} className="flex items-center gap-[10px] py-[5px]">
@@ -1724,6 +1742,7 @@ export function RunChatLane({
               onOpen={goSteps}
               building
               completedCount={pipelineState?.completedCount}
+              pipelineState={pipelineState}
             />
           )}
         </div>
