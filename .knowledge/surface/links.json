@@ -1,0 +1,2042 @@
+{
+  "backlinks": {
+    "ADR-0001": [
+      "FIX-122"
+    ],
+    "BUG-015": [
+      "FIX-172"
+    ],
+    "BUG-015-sse": [
+      "ADR-0001"
+    ],
+    "FIX-033": [
+      "ISS-030"
+    ],
+    "FIX-034": [
+      "ISS-031",
+      "ISS-032",
+      "ISS-033"
+    ],
+    "FIX-035": [
+      "ISS-032"
+    ],
+    "FIX-036": [
+      "ISS-032",
+      "ISS-033",
+      "ISS-034"
+    ],
+    "FIX-037": [
+      "ISS-034"
+    ],
+    "FIX-039": [
+      "FIX-041b",
+      "FIX-042b",
+      "ISS-035",
+      "ISS-039"
+    ],
+    "FIX-046": [
+      "FIX-177"
+    ],
+    "FIX-048": [
+      "FIX-163",
+      "FIX-164"
+    ],
+    "FIX-051": [
+      "FIX-055"
+    ],
+    "FIX-065": [
+      "FIX-096"
+    ],
+    "FIX-119": [
+      "FIX-168"
+    ],
+    "FIX-121": [
+      "ADR-0001",
+      "FIX-122"
+    ],
+    "FIX-122": [
+      "ADR-0001",
+      "FIX-121"
+    ],
+    "FIX-128": [
+      "FIX-129"
+    ],
+    "FIX-135": [
+      "FIX-153"
+    ],
+    "FIX-140": [
+      "FIX-142"
+    ],
+    "FIX-141": [
+      "FIX-143"
+    ],
+    "FIX-146": [
+      "FIX-148"
+    ],
+    "FIX-149": [
+      "FIX-155"
+    ],
+    "FIX-156": [
+      "FIX-157"
+    ],
+    "FIX-163": [
+      "FIX-164"
+    ],
+    "FIX-166": [
+      "FIX-177"
+    ],
+    "FIX-167": [
+      "FIX-174"
+    ],
+    "FIX-172": [
+      "FIX-173",
+      "FIX-175",
+      "FIX-176"
+    ],
+    "ISS-007": [
+      "ISS-035"
+    ],
+    "ISS-014": [
+      "FIX-056",
+      "ISS-012",
+      "ISS-015"
+    ],
+    "ISS-016": [
+      "FIX-124",
+      "ISS-017",
+      "ISS-028"
+    ],
+    "ISS-018": [
+      "ISS-028"
+    ],
+    "ISS-021": [
+      "FIX-140"
+    ],
+    "ISS-022": [
+      "ISS-025"
+    ],
+    "ISS-029": [
+      "FIX-031"
+    ],
+    "ISS-031": [
+      "ISS-032"
+    ],
+    "ISS-032": [
+      "ISS-033",
+      "ISS-034"
+    ],
+    "ISS-035": [
+      "ISS-036"
+    ],
+    "ISS-039": [
+      "FIX-163"
+    ],
+    "ISS-045": [
+      "ISS-048"
+    ]
+  },
+  "by_area": {
+    "agents": [
+      "BUG-001-sse",
+      "BUG-002-sse",
+      "BUG-003-sse",
+      "BUG-004-sse",
+      "BUG-005-sse",
+      "BUG-006-sse",
+      "BUG-007-sse",
+      "BUG-009-sse",
+      "BUG-015-sse",
+      "BUG-016-sse",
+      "BUG-018-sse",
+      "BUG-R01-resume",
+      "BUG-R02-resume",
+      "BUG-R03-resume",
+      "BUG-R04-resume",
+      "BUG-R05-resume",
+      "CWF-001-custom-workflow",
+      "CWF-002-custom-workflow",
+      "DOC-image-input-plan",
+      "FIX-001",
+      "FIX-001b",
+      "FIX-002",
+      "FIX-003",
+      "FIX-004",
+      "FIX-006",
+      "FIX-007",
+      "FIX-008",
+      "FIX-009",
+      "FIX-011",
+      "FIX-013",
+      "FIX-014",
+      "FIX-015",
+      "FIX-016",
+      "FIX-017",
+      "FIX-018",
+      "FIX-021",
+      "FIX-022",
+      "FIX-029",
+      "FIX-032",
+      "FIX-033",
+      "FIX-034",
+      "FIX-036",
+      "FIX-037",
+      "FIX-041",
+      "FIX-046",
+      "FIX-049",
+      "FIX-049b",
+      "FIX-050",
+      "FIX-050b",
+      "FIX-050c",
+      "FIX-054",
+      "FIX-056",
+      "FIX-057",
+      "FIX-059",
+      "FIX-060",
+      "FIX-061",
+      "FIX-066",
+      "FIX-069",
+      "FIX-070",
+      "FIX-078",
+      "FIX-080",
+      "FIX-081",
+      "FIX-082",
+      "FIX-086",
+      "FIX-097",
+      "FIX-101",
+      "FIX-109",
+      "FIX-110",
+      "FIX-111",
+      "FIX-112",
+      "FIX-113",
+      "FIX-114",
+      "FIX-117",
+      "FIX-120",
+      "FIX-123",
+      "FIX-124",
+      "FIX-126",
+      "FIX-127",
+      "FIX-129",
+      "FIX-133",
+      "FIX-134",
+      "FIX-135",
+      "FIX-138",
+      "FIX-144",
+      "FIX-144b",
+      "FIX-150",
+      "FIX-151",
+      "FIX-153",
+      "FIX-154",
+      "FIX-155",
+      "FIX-157",
+      "FIX-163",
+      "FIX-164",
+      "FIX-166",
+      "FIX-170",
+      "FIX-177",
+      "FIX-182",
+      "ISS-001",
+      "ISS-004",
+      "ISS-005",
+      "ISS-006",
+      "ISS-010",
+      "ISS-014",
+      "ISS-015",
+      "ISS-016",
+      "ISS-017",
+      "ISS-019",
+      "ISS-022",
+      "ISS-024",
+      "ISS-025",
+      "ISS-027",
+      "ISS-028",
+      "ISS-029",
+      "ISS-030",
+      "ISS-031",
+      "ISS-032",
+      "ISS-033",
+      "ISS-037",
+      "ISS-046",
+      "ISS-047",
+      "ISS-048",
+      "ISS-049",
+      "PH-15-live-pass-prompt-contract-closure",
+      "PH-19-prompt-and-deliverable-adherence",
+      "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
+      "QUICK-260718-rf7-fix-cwf-002-persist-and-expose-the-pe",
+      "REQ-1",
+      "REQ-11",
+      "REQ-12",
+      "REQ-14",
+      "REQ-15",
+      "REQ-16",
+      "REQ-17",
+      "REQ-2",
+      "REQ-20",
+      "REQ-22",
+      "REQ-25",
+      "REQ-27",
+      "REQ-28",
+      "REQ-30",
+      "REQ-31",
+      "REQ-32",
+      "REQ-33",
+      "REQ-35",
+      "REQ-37",
+      "REQ-5",
+      "REQ-6",
+      "REQ-8",
+      "TEST-0-1",
+      "TEST-1-4",
+      "TEST-1-5",
+      "TEST-1-6",
+      "TEST-17",
+      "TEST-18",
+      "TEST-19",
+      "TEST-2-1",
+      "TEST-2-2",
+      "TEST-2-3",
+      "TEST-2-4",
+      "TEST-2-5",
+      "TEST-2-6",
+      "TEST-2-7",
+      "TEST-2-8",
+      "TEST-20",
+      "TEST-21",
+      "TEST-22",
+      "TEST-23",
+      "TEST-24",
+      "TEST-25",
+      "TEST-26",
+      "TEST-27",
+      "TEST-29",
+      "TEST-32",
+      "TEST-33",
+      "TEST-34",
+      "TEST-35",
+      "TEST-36",
+      "TEST-37",
+      "TEST-38",
+      "TEST-39",
+      "TEST-40",
+      "TEST-45",
+      "TEST-47",
+      "TEST-49",
+      "TEST-6-2",
+      "TEST-6-3"
+    ],
+    "artifacts": [
+      "BUG-002-sse",
+      "BUG-003-sse",
+      "BUG-006-sse",
+      "BUG-007-sse",
+      "BUG-008-sse",
+      "BUG-009-sse",
+      "BUG-011-sse",
+      "BUG-018-sse",
+      "BUG-R03-resume",
+      "DOC-live-verification-artifacts",
+      "FIX-001b",
+      "FIX-004",
+      "FIX-014",
+      "FIX-017",
+      "FIX-022",
+      "FIX-054",
+      "FIX-059",
+      "FIX-060",
+      "FIX-061",
+      "FIX-109",
+      "FIX-110",
+      "FIX-111",
+      "FIX-113",
+      "FIX-114",
+      "FIX-116",
+      "FIX-129",
+      "FIX-140",
+      "FIX-141",
+      "FIX-142",
+      "FIX-143",
+      "FIX-144b",
+      "FIX-152",
+      "FIX-154",
+      "FIX-167",
+      "FIX-167b",
+      "ISS-001",
+      "ISS-004",
+      "ISS-011",
+      "ISS-020",
+      "ISS-021",
+      "ISS-027",
+      "ISS-028",
+      "ISS-038",
+      "PH-05-typed-artifacts-persistence-ownership-1b",
+      "PH-19-prompt-and-deliverable-adherence",
+      "REQ-1",
+      "REQ-11",
+      "REQ-13",
+      "REQ-15",
+      "REQ-2",
+      "REQ-20",
+      "REQ-23",
+      "REQ-24",
+      "REQ-27",
+      "REQ-29",
+      "REQ-30",
+      "REQ-32",
+      "REQ-33",
+      "REQ-4",
+      "REQ-5",
+      "REQ-7",
+      "REQ-8",
+      "REQ-9",
+      "TEST-2-1",
+      "TEST-2-2",
+      "TEST-2-4",
+      "TEST-2-5",
+      "TEST-2-8",
+      "TEST-30",
+      "TEST-31",
+      "TEST-32",
+      "TEST-35",
+      "TEST-36",
+      "TEST-37",
+      "TEST-40",
+      "TEST-45",
+      "TEST-47",
+      "TEST-6-2"
+    ],
+    "auth": [
+      "BUG-005-sse",
+      "BUG-007-sse",
+      "BUG-011-sse",
+      "BUG-014-sse",
+      "BUG-021-sse",
+      "BUG-R03-resume",
+      "DOC-debug-od-ppt-golden-divergence",
+      "DOC-v2-0-evidence-10-login-admin-teardown",
+      "FIX-003b",
+      "FIX-006",
+      "FIX-021b",
+      "FIX-030",
+      "FIX-032",
+      "FIX-034",
+      "FIX-035",
+      "FIX-036",
+      "FIX-037",
+      "FIX-071",
+      "FIX-082",
+      "FIX-100",
+      "FIX-102",
+      "FIX-105",
+      "FIX-133",
+      "FIX-137",
+      "ISS-003",
+      "ISS-011",
+      "ISS-016",
+      "ISS-018",
+      "ISS-031",
+      "ISS-032",
+      "ISS-033",
+      "ISS-034",
+      "ISS-044",
+      "ISS-047",
+      "ISS-048",
+      "ISS-049",
+      "PH-03-token-trim-measured-change-0c",
+      "PH-21-saved-workflows-user-authored-named-persisted",
+      "REQ-1",
+      "REQ-11",
+      "REQ-15",
+      "REQ-16",
+      "REQ-17",
+      "REQ-21",
+      "REQ-22",
+      "REQ-27",
+      "REQ-3",
+      "REQ-30",
+      "REQ-34",
+      "REQ-37",
+      "REQ-4",
+      "REQ-5",
+      "REQ-6",
+      "TEST-0-1",
+      "TEST-1-3",
+      "TEST-1-5",
+      "TEST-16",
+      "TEST-2-2",
+      "TEST-2-3",
+      "TEST-20",
+      "TEST-21",
+      "TEST-23",
+      "TEST-24",
+      "TEST-27",
+      "TEST-38",
+      "TEST-39",
+      "TEST-40",
+      "TEST-45",
+      "TEST-46",
+      "TEST-49",
+      "TEST-6-2"
+    ],
+    "backend": [
+      "BUG-003-sse",
+      "BUG-009-sse",
+      "BUG-015-sse",
+      "FIX-001",
+      "FIX-001b",
+      "FIX-002",
+      "FIX-003",
+      "FIX-004",
+      "FIX-006",
+      "FIX-007",
+      "FIX-007b",
+      "FIX-008",
+      "FIX-009",
+      "FIX-010",
+      "FIX-011",
+      "FIX-012",
+      "FIX-014",
+      "FIX-015",
+      "FIX-016",
+      "FIX-017",
+      "FIX-018",
+      "FIX-024",
+      "FIX-030",
+      "FIX-031",
+      "FIX-032",
+      "FIX-034",
+      "FIX-035",
+      "FIX-036",
+      "FIX-038",
+      "FIX-039b",
+      "FIX-040",
+      "FIX-041",
+      "FIX-042b",
+      "FIX-047",
+      "FIX-048",
+      "FIX-049",
+      "FIX-050b",
+      "FIX-051",
+      "FIX-054",
+      "FIX-056",
+      "FIX-058",
+      "FIX-059",
+      "FIX-061",
+      "FIX-063",
+      "FIX-083",
+      "FIX-087",
+      "FIX-091",
+      "FIX-105",
+      "FIX-106",
+      "FIX-107",
+      "FIX-108",
+      "FIX-109",
+      "FIX-114",
+      "FIX-115",
+      "FIX-116",
+      "FIX-120",
+      "FIX-126",
+      "FIX-127",
+      "FIX-130",
+      "FIX-144",
+      "FIX-145",
+      "FIX-151",
+      "FIX-152",
+      "FIX-167",
+      "FIX-167b",
+      "FIX-171",
+      "FIX-173",
+      "FIX-175",
+      "TEST-46"
+    ],
+    "docs": [
+      "ISS-012",
+      "ISS-043"
+    ],
+    "evals": [
+      "BUG-007-sse",
+      "FIX-028",
+      "FIX-041b",
+      "FIX-100",
+      "ISS-027",
+      "ISS-029",
+      "REQ-8",
+      "TEST-2-1",
+      "TEST-2-5"
+    ],
+    "frontend": [
+      "ADR-0001",
+      "BUG-002-sse",
+      "BUG-007-sse",
+      "BUG-013-sse",
+      "BUG-014-sse",
+      "BUG-018-sse",
+      "BUG-021-sse",
+      "FIX-001",
+      "FIX-002b",
+      "FIX-003b",
+      "FIX-004",
+      "FIX-004b",
+      "FIX-005",
+      "FIX-005b",
+      "FIX-007b",
+      "FIX-013",
+      "FIX-019",
+      "FIX-021",
+      "FIX-021b",
+      "FIX-022",
+      "FIX-023",
+      "FIX-025",
+      "FIX-026",
+      "FIX-027",
+      "FIX-029",
+      "FIX-033",
+      "FIX-039",
+      "FIX-040b",
+      "FIX-041",
+      "FIX-041b",
+      "FIX-042",
+      "FIX-043",
+      "FIX-045",
+      "FIX-046",
+      "FIX-047",
+      "FIX-048",
+      "FIX-049b",
+      "FIX-050c",
+      "FIX-051",
+      "FIX-053",
+      "FIX-055",
+      "FIX-056",
+      "FIX-057",
+      "FIX-058",
+      "FIX-059",
+      "FIX-060",
+      "FIX-062",
+      "FIX-064",
+      "FIX-065",
+      "FIX-066",
+      "FIX-067",
+      "FIX-068",
+      "FIX-069",
+      "FIX-070",
+      "FIX-071",
+      "FIX-072",
+      "FIX-073",
+      "FIX-074",
+      "FIX-075",
+      "FIX-076",
+      "FIX-077",
+      "FIX-078",
+      "FIX-079",
+      "FIX-080",
+      "FIX-081",
+      "FIX-082",
+      "FIX-083",
+      "FIX-084",
+      "FIX-085",
+      "FIX-086",
+      "FIX-087",
+      "FIX-088",
+      "FIX-089",
+      "FIX-090",
+      "FIX-092",
+      "FIX-093",
+      "FIX-094",
+      "FIX-095",
+      "FIX-096",
+      "FIX-097",
+      "FIX-098",
+      "FIX-099",
+      "FIX-100",
+      "FIX-101",
+      "FIX-102",
+      "FIX-103",
+      "FIX-104",
+      "FIX-105",
+      "FIX-107",
+      "FIX-110",
+      "FIX-111",
+      "FIX-112",
+      "FIX-113",
+      "FIX-115",
+      "FIX-116",
+      "FIX-117",
+      "FIX-118",
+      "FIX-119",
+      "FIX-120",
+      "FIX-121",
+      "FIX-122",
+      "FIX-123",
+      "FIX-124",
+      "FIX-125",
+      "FIX-128",
+      "FIX-129",
+      "FIX-130",
+      "FIX-133",
+      "FIX-134",
+      "FIX-135",
+      "FIX-136",
+      "FIX-137",
+      "FIX-138",
+      "FIX-139",
+      "FIX-140",
+      "FIX-141",
+      "FIX-142",
+      "FIX-143",
+      "FIX-144",
+      "FIX-145",
+      "FIX-146",
+      "FIX-147",
+      "FIX-148",
+      "FIX-149",
+      "FIX-150",
+      "FIX-152",
+      "FIX-153",
+      "FIX-154",
+      "FIX-155",
+      "FIX-156",
+      "FIX-157",
+      "FIX-163",
+      "FIX-164",
+      "FIX-165",
+      "FIX-166",
+      "FIX-167",
+      "FIX-167b",
+      "FIX-168",
+      "FIX-169",
+      "FIX-170",
+      "FIX-171",
+      "FIX-172",
+      "FIX-173",
+      "FIX-174",
+      "FIX-176",
+      "FIX-177",
+      "FIX-178",
+      "FIX-180",
+      "FIX-181",
+      "ISS-022",
+      "ISS-025",
+      "TEST-0-1",
+      "TEST-45"
+    ],
+    "harness": [
+      "ISS-013",
+      "ISS-020"
+    ],
+    "infra": [
+      "ISS-018"
+    ],
+    "product": [
+      "ISS-001",
+      "ISS-010",
+      "ISS-011",
+      "ISS-015",
+      "ISS-016",
+      "ISS-017",
+      "ISS-023",
+      "ISS-024",
+      "ISS-027",
+      "ISS-028",
+      "ISS-029",
+      "ISS-030",
+      "ISS-031",
+      "ISS-032",
+      "ISS-033",
+      "ISS-034",
+      "ISS-035",
+      "ISS-036",
+      "ISS-037",
+      "ISS-038",
+      "ISS-039",
+      "ISS-040",
+      "ISS-041",
+      "ISS-042",
+      "ISS-044",
+      "ISS-045",
+      "ISS-046",
+      "ISS-047",
+      "ISS-048"
+    ],
+    "resume": [
+      "BUG-016-sse",
+      "BUG-R01-resume",
+      "BUG-R02-resume",
+      "BUG-R03-resume",
+      "BUG-R04-resume",
+      "BUG-R05-resume",
+      "DOC-resume-capability-design-draft",
+      "DOC-resume-qa-test-sheet",
+      "FIX-047",
+      "FIX-105",
+      "FIX-106",
+      "FIX-107",
+      "FIX-108",
+      "FIX-120",
+      "FIX-121",
+      "FIX-125",
+      "FIX-152",
+      "ISS-048",
+      "PH-12-wave-scheduler-durable-resume-6",
+      "PH-45-resume-completeness-bug-fix-r0",
+      "PH-49-gate-resume-across-restart-r4",
+      "PH-50-user-resume-from-failed-r5",
+      "QUICK-260719-ghn-fix-bug-r01-r02-alias-bug-resume-run",
+      "QUICK-260719-hd5-fix-bug-r05-od-prototype-offset-0-gat",
+      "QUICK-260719-hvn-fix-bug-r03-persist-output-agent-outp",
+      "REQ-12",
+      "REQ-13",
+      "REQ-15",
+      "REQ-2",
+      "REQ-29",
+      "REQ-30",
+      "REQ-31",
+      "REQ-32",
+      "REQ-33",
+      "REQ-34",
+      "REQ-39",
+      "REQ-40",
+      "REQ-5",
+      "TEST-2-8",
+      "TEST-40"
+    ],
+    "runtime": [
+      "BUG-015-sse",
+      "CWF-001-custom-workflow",
+      "CWF-002-custom-workflow",
+      "DOC-project",
+      "DOC-roadmap",
+      "DOC-v1-0-milestone-audit",
+      "FIX-018",
+      "FIX-042b",
+      "FIX-059",
+      "ISS-011",
+      "ISS-018",
+      "ISS-036",
+      "PH-02-executioncontext-ownership-0b",
+      "PH-08-capabilities-hardened-registry-gates-tool-per",
+      "PH-09-local-workspace-runtime-repo-workflows-no-exe",
+      "PH-12-wave-scheduler-durable-resume-6",
+      "PH-22-capability-surfacing-and-user-empowerment-uni",
+      "QUICK-260717-1c1-fix-bug-015-frontend-a-completed-run",
+      "REQ-11",
+      "REQ-12",
+      "REQ-14",
+      "REQ-15",
+      "REQ-2",
+      "REQ-36",
+      "REQ-37",
+      "REQ-6",
+      "REQ-8",
+      "REQ-9",
+      "TEST-2-5",
+      "TEST-2-7",
+      "TEST-2-8"
+    ],
+    "sse": [
+      "ADR-0001",
+      "BUG-004-sse",
+      "BUG-005-sse",
+      "BUG-006-sse",
+      "BUG-009-sse",
+      "BUG-010-sse",
+      "BUG-012-sse",
+      "BUG-013-sse",
+      "BUG-014-sse",
+      "BUG-015-sse",
+      "BUG-016-sse",
+      "BUG-017-sse",
+      "BUG-020-sse",
+      "CWF-001-custom-workflow",
+      "CWF-002-custom-workflow",
+      "DOC-bug-004-grounded-context",
+      "DOC-bug-013-grounded-context",
+      "DOC-bug-014-b-grounded-context",
+      "DOC-bug-015-016-grounded-context",
+      "DOC-sse-qa-launch-journeys",
+      "DOC-sse-qa-test-sheet",
+      "FIX-022",
+      "FIX-028",
+      "FIX-038",
+      "FIX-039",
+      "FIX-040b",
+      "FIX-041",
+      "FIX-043",
+      "FIX-047",
+      "FIX-049",
+      "FIX-050b",
+      "FIX-058",
+      "FIX-059",
+      "FIX-065",
+      "FIX-069",
+      "FIX-073",
+      "FIX-074",
+      "FIX-078",
+      "FIX-079",
+      "FIX-084",
+      "FIX-092",
+      "FIX-096",
+      "FIX-100",
+      "FIX-107",
+      "FIX-114",
+      "FIX-120",
+      "FIX-121",
+      "FIX-122",
+      "FIX-127",
+      "FIX-129",
+      "FIX-133",
+      "FIX-134",
+      "FIX-135",
+      "FIX-136",
+      "FIX-137",
+      "FIX-138",
+      "FIX-141",
+      "FIX-144",
+      "FIX-149",
+      "FIX-152",
+      "FIX-156",
+      "FIX-157",
+      "FIX-170",
+      "FIX-172",
+      "FIX-173",
+      "FIX-175",
+      "FIX-177",
+      "ISS-002",
+      "ISS-007",
+      "ISS-011",
+      "ISS-012",
+      "ISS-014",
+      "ISS-022",
+      "ISS-023",
+      "ISS-032",
+      "ISS-035",
+      "ISS-036",
+      "ISS-044",
+      "ISS-045",
+      "ISS-046",
+      "ISS-047",
+      "ISS-048",
+      "ISS-049",
+      "PH-16-terminal-state-integrity-and-reconnect-frame",
+      "PH-44-sse-only-hard-cutoff-run-revision-retirement",
+      "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
+      "QUICK-260717-1c1-fix-bug-015-frontend-a-completed-run",
+      "REQ-1",
+      "REQ-10",
+      "REQ-13",
+      "REQ-14",
+      "REQ-15",
+      "REQ-18",
+      "REQ-19",
+      "REQ-22",
+      "REQ-28",
+      "REQ-32",
+      "REQ-33",
+      "REQ-5",
+      "REQ-7",
+      "TEST-1-5",
+      "TEST-1-6",
+      "TEST-17",
+      "TEST-19",
+      "TEST-2-1",
+      "TEST-2-2",
+      "TEST-2-5",
+      "TEST-20",
+      "TEST-22",
+      "TEST-23",
+      "TEST-26",
+      "TEST-27",
+      "TEST-29",
+      "TEST-31",
+      "TEST-33",
+      "TEST-34",
+      "TEST-36",
+      "TEST-37",
+      "TEST-39",
+      "TEST-40",
+      "TEST-45",
+      "TEST-47",
+      "TEST-49",
+      "TEST-6-1",
+      "TEST-6-2"
+    ],
+    "test-infra": [
+      "ISS-022",
+      "ISS-025",
+      "ISS-026",
+      "ISS-049"
+    ],
+    "workflow": [
+      "BUG-002-sse",
+      "BUG-003-sse",
+      "BUG-005-sse",
+      "BUG-006-sse",
+      "BUG-007-sse",
+      "BUG-008-sse",
+      "BUG-009-sse",
+      "BUG-012-sse",
+      "BUG-R03-resume",
+      "CWF-001-custom-workflow",
+      "DOC-custom-workflow-qa-test-sheet",
+      "DOC-fanout-user-facing-scope",
+      "DOC-live-verification-campaign-2026-06-14-phase20-ca",
+      "DOC-live-verification-campaign-2026-06-14-phase21-sa",
+      "DOC-path-b-fanout-composer-scope",
+      "DOC-project",
+      "DOC-redo-gate-wave1-summary",
+      "DOC-redo-gate-wave2-summary",
+      "DOC-roadmap",
+      "DOC-v1-0-milestone-audit",
+      "DOC-v2-0-evidence-08-composer-wizard-teardown",
+      "FIX-001",
+      "FIX-002",
+      "FIX-002b",
+      "FIX-003",
+      "FIX-004",
+      "FIX-004b",
+      "FIX-005b",
+      "FIX-007b",
+      "FIX-010",
+      "FIX-011",
+      "FIX-012",
+      "FIX-013",
+      "FIX-015",
+      "FIX-021",
+      "FIX-023",
+      "FIX-026",
+      "FIX-035",
+      "FIX-036",
+      "FIX-037",
+      "FIX-039b",
+      "FIX-042",
+      "FIX-043",
+      "FIX-049",
+      "FIX-050",
+      "FIX-051",
+      "FIX-055",
+      "FIX-056",
+      "FIX-057",
+      "FIX-058",
+      "FIX-059",
+      "FIX-061",
+      "FIX-063",
+      "FIX-087",
+      "FIX-090",
+      "FIX-091",
+      "FIX-099",
+      "FIX-104",
+      "FIX-110",
+      "FIX-111",
+      "FIX-112",
+      "FIX-113",
+      "FIX-114",
+      "FIX-117",
+      "FIX-119",
+      "FIX-127",
+      "FIX-128",
+      "FIX-129",
+      "FIX-133",
+      "FIX-134",
+      "FIX-136",
+      "FIX-137",
+      "FIX-139",
+      "FIX-140",
+      "FIX-141",
+      "FIX-143",
+      "FIX-144",
+      "FIX-145",
+      "FIX-146",
+      "FIX-148",
+      "FIX-149",
+      "FIX-150",
+      "FIX-155",
+      "FIX-156",
+      "FIX-166",
+      "ISS-003",
+      "ISS-008",
+      "ISS-009",
+      "ISS-014",
+      "ISS-015",
+      "ISS-017",
+      "ISS-019",
+      "ISS-020",
+      "ISS-021",
+      "ISS-022",
+      "ISS-025",
+      "ISS-027",
+      "ISS-029",
+      "ISS-030",
+      "ISS-033",
+      "ISS-035",
+      "ISS-039",
+      "ISS-042",
+      "ISS-044",
+      "ISS-045",
+      "ISS-046",
+      "ISS-047",
+      "ISS-048",
+      "ISS-049",
+      "PH-04-manifest-compiler-1a",
+      "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
+      "PH-09-local-workspace-runtime-repo-workflows-no-exe",
+      "PH-11-engine-owned-fan-out-merge-5",
+      "PH-12-wave-scheduler-durable-resume-6",
+      "PH-18-custom-workflow-ux-completeness",
+      "PH-20-workflow-catalog-data-driven-browse-and-launc",
+      "PH-21-saved-workflows-user-authored-named-persisted",
+      "PH-36-home-history-my-workflows-b2",
+      "PH-51-user-composable-fan-out-in-the-composer-path",
+      "QUICK-260707-1p8-reset-per-run-agent-accumulators-on-a",
+      "REQ-11",
+      "REQ-12",
+      "REQ-13",
+      "REQ-14",
+      "REQ-15",
+      "REQ-16",
+      "REQ-18",
+      "REQ-20",
+      "REQ-22",
+      "REQ-23",
+      "REQ-24",
+      "REQ-27",
+      "REQ-28",
+      "REQ-29",
+      "REQ-30",
+      "REQ-31",
+      "REQ-33",
+      "REQ-34",
+      "REQ-35",
+      "REQ-37",
+      "REQ-4",
+      "REQ-40",
+      "REQ-5",
+      "REQ-6",
+      "REQ-7",
+      "REQ-8",
+      "REQ-9",
+      "TEST-1-3",
+      "TEST-1-4",
+      "TEST-1-6",
+      "TEST-17",
+      "TEST-18",
+      "TEST-19",
+      "TEST-2-1",
+      "TEST-2-2",
+      "TEST-2-3",
+      "TEST-2-4",
+      "TEST-2-5",
+      "TEST-2-6",
+      "TEST-2-7",
+      "TEST-2-8",
+      "TEST-21",
+      "TEST-23",
+      "TEST-26",
+      "TEST-30",
+      "TEST-31",
+      "TEST-34",
+      "TEST-35",
+      "TEST-36",
+      "TEST-37",
+      "TEST-39",
+      "TEST-40",
+      "TEST-45",
+      "TEST-47",
+      "TEST-49",
+      "TEST-6-1",
+      "TEST-6-2",
+      "TEST-6-3"
+    ]
+  },
+  "by_file": {
+    "backend/Dockerfile": [
+      "FIX-040"
+    ],
+    "backend/agents/artifact_store/store.py": [
+      "FIX-152"
+    ],
+    "backend/agents/capabilities/context_providers/opendesign.py": [
+      "FIX-002",
+      "FIX-031",
+      "FIX-032"
+    ],
+    "backend/agents/capabilities/deliverables/_artifact.py": [
+      "FIX-054",
+      "FIX-109"
+    ],
+    "backend/agents/capabilities/deliverables/ppt.py": [
+      "FIX-054"
+    ],
+    "backend/agents/capabilities/deliverables/ppt_guarded.py": [
+      "BUG-009-sse"
+    ],
+    "backend/agents/capabilities/hooks/__init__.py": [
+      "FIX-007b"
+    ],
+    "backend/agents/capabilities/model_catalog.py": [
+      "FIX-038"
+    ],
+    "backend/agents/capabilities/model_pricing.py": [
+      "FIX-035",
+      "FIX-038"
+    ],
+    "backend/agents/execution_engine/clarify_engine.py": [
+      "FIX-003",
+      "FIX-024",
+      "FIX-126"
+    ],
+    "backend/agents/execution_engine/engine.py": [
+      "FIX-016",
+      "FIX-018",
+      "FIX-035",
+      "FIX-036",
+      "FIX-041",
+      "FIX-047",
+      "FIX-048",
+      "FIX-059",
+      "FIX-106",
+      "FIX-114",
+      "FIX-120",
+      "FIX-121",
+      "FIX-171",
+      "FIX-175"
+    ],
+    "backend/agents/execution_engine/kernel_services.py": [
+      "FIX-007b"
+    ],
+    "backend/agents/execution_engine/od_context.py": [
+      "FIX-032"
+    ],
+    "backend/agents/execution_engine/state_machine.py": [
+      "FIX-152"
+    ],
+    "backend/agents/factory.py": [
+      "FIX-017"
+    ],
+    "backend/agents/loader.py": [
+      "FIX-058",
+      "FIX-059"
+    ],
+    "backend/agents/planner/smart_planner.py": [
+      "FIX-003",
+      "FIX-024"
+    ],
+    "backend/agents/prompts/backlog-compiler/AGENT.md": [
+      "FIX-126"
+    ],
+    "backend/agents/prompts/backlog-reviewer/AGENT.md": [
+      "FIX-126"
+    ],
+    "backend/agents/prompts/deep-planner/AGENT.md": [
+      "FIX-003"
+    ],
+    "backend/agents/prompts/documentation-agent/AGENT.md": [
+      "FIX-061"
+    ],
+    "backend/agents/prompts/domain-analyst/AGENT.md": [
+      "FIX-126"
+    ],
+    "backend/agents/prompts/epic-architect/AGENT.md": [
+      "FIX-126"
+    ],
+    "backend/agents/prompts/nfr-specialist/AGENT.md": [
+      "FIX-126"
+    ],
+    "backend/agents/prompts/od-ppt-brief-analyst/AGENT.md": [
+      "FIX-015",
+      "FIX-032"
+    ],
+    "backend/agents/prompts/od-ppt-composer/AGENT.md": [
+      "FIX-001b",
+      "FIX-031"
+    ],
+    "backend/agents/prompts/od-ppt-revision-agent/AGENT.md": [
+      "FIX-126"
+    ],
+    "backend/agents/prompts/od-ppt-validator/AGENT.md": [
+      "BUG-009-sse",
+      "FIX-001b",
+      "FIX-014",
+      "FIX-054",
+      "FIX-109"
+    ],
+    "backend/agents/prompts/performance-optimizer/AGENT.md": [
+      "FIX-061"
+    ],
+    "backend/agents/prompts/ppt-revision-agent/AGENT.md": [
+      "FIX-127"
+    ],
+    "backend/agents/prompts/ppt-revision-assembler/AGENT.md": [
+      "FIX-127"
+    ],
+    "backend/agents/prompts/prototype-build/AGENT.md": [
+      "FIX-009",
+      "FIX-127"
+    ],
+    "backend/agents/prompts/prototype-plan/AGENT.md": [
+      "FIX-006",
+      "FIX-008",
+      "FIX-009"
+    ],
+    "backend/agents/prompts/prototype-revision-agent/AGENT.md": [
+      "FIX-050b",
+      "FIX-126"
+    ],
+    "backend/agents/prompts/prototype-revision-validate/AGENT.md": [
+      "FIX-127"
+    ],
+    "backend/agents/prompts/prototype-specify/AGENT.md": [
+      "FIX-006",
+      "FIX-008",
+      "FIX-048"
+    ],
+    "backend/agents/prompts/prototype-validate/AGENT.md": [
+      "FIX-127"
+    ],
+    "backend/agents/prompts/report-generator/AGENT.md": [
+      "FIX-061"
+    ],
+    "backend/agents/prompts/roadmap-planner/AGENT.md": [
+      "FIX-061"
+    ],
+    "backend/agents/prompts/security-auditor/AGENT.md": [
+      "FIX-061"
+    ],
+    "backend/agents/prompts/story-estimator/AGENT.md": [
+      "FIX-126"
+    ],
+    "backend/agents/prompts/swot-analyst/AGENT.md": [
+      "FIX-061"
+    ],
+    "backend/agents/prompts/test-case-generator/AGENT.md": [
+      "FIX-061"
+    ],
+    "backend/agents/prompts/user-story-revision-agent/AGENT.md": [
+      "FIX-126"
+    ],
+    "backend/agents/registry.py": [
+      "BUG-003-sse",
+      "FIX-049",
+      "FIX-058",
+      "FIX-059"
+    ],
+    "backend/agents/workflows/app_builder/workflow.yaml": [
+      "FIX-011"
+    ],
+    "backend/agents/workflows/compiler.py": [
+      "FIX-007b"
+    ],
+    "backend/agents/workflows/custom/workflow.yaml": [
+      "FIX-011",
+      "FIX-056"
+    ],
+    "backend/agents/workflows/dotnet_to_azure/workflow.yaml": [
+      "FIX-011"
+    ],
+    "backend/agents/workflows/mulesoft_to_springboot/workflow.yaml": [
+      "FIX-011"
+    ],
+    "backend/agents/workflows/od_ppt/workflow.yaml": [
+      "FIX-015"
+    ],
+    "backend/agents/workflows/ppt/workflow.yaml": [
+      "FIX-011"
+    ],
+    "backend/agents/workflows/prototype/workflow.yaml": [
+      "FIX-010",
+      "FIX-011"
+    ],
+    "backend/agents/workflows/prototype_revision/workflow.yaml": [
+      "FIX-049"
+    ],
+    "backend/agents/workflows/selections.py": [
+      "FIX-059"
+    ],
+    "backend/agents/workflows/user_stories/workflow.yaml": [
+      "FIX-003",
+      "FIX-011"
+    ],
+    "backend/alembic/versions/0027_workflow_run_od_context.py": [
+      "FIX-106"
+    ],
+    "backend/alembic/versions/0030_workflow_runs_user_created_index.py": [
+      "FIX-144"
+    ],
+    "backend/app/agents/chat/concierge.py": [
+      "FIX-115",
+      "FIX-116"
+    ],
+    "backend/app/agents/chat_narrator.py": [
+      "FIX-083",
+      "FIX-108",
+      "FIX-167",
+      "FIX-167b",
+      "FIX-175"
+    ],
+    "backend/app/agents/checkpointer.py": [
+      "FIX-152"
+    ],
+    "backend/app/agents/deep_agent_runner.py": [
+      "FIX-034",
+      "FIX-036"
+    ],
+    "backend/app/agents/model_factory.py": [
+      "FIX-034"
+    ],
+    "backend/app/agents/runtime/local.py": [
+      "FIX-007"
+    ],
+    "backend/app/agents/sandbox.py": [
+      "FIX-152"
+    ],
+    "backend/app/api/agents.py": [
+      "FIX-001"
+    ],
+    "backend/app/api/ppt_templates.py": [
+      "FIX-040"
+    ],
+    "backend/app/api/prototype_templates.py": [
+      "FIX-030",
+      "FIX-040"
+    ],
+    "backend/app/api/run_commands.py": [
+      "FIX-087",
+      "FIX-105",
+      "FIX-106",
+      "FIX-107",
+      "FIX-115",
+      "FIX-116",
+      "FIX-130",
+      "FIX-152",
+      "FIX-171"
+    ],
+    "backend/app/api/run_engine.py": [
+      "FIX-152"
+    ],
+    "backend/app/api/run_stream.py": [
+      "BUG-015-sse",
+      "FIX-152"
+    ],
+    "backend/app/api/runs.py": [
+      "FIX-004",
+      "FIX-007b",
+      "FIX-051",
+      "FIX-063",
+      "FIX-091",
+      "FIX-144",
+      "FIX-145",
+      "FIX-151",
+      "FIX-173",
+      "FIX-179"
+    ],
+    "backend/app/api/websocket.py": [
+      "FIX-012",
+      "FIX-018",
+      "FIX-035",
+      "FIX-036",
+      "FIX-039b",
+      "FIX-047",
+      "FIX-048",
+      "FIX-059"
+    ],
+    "backend/app/core/config.py": [
+      "FIX-034",
+      "FIX-152"
+    ],
+    "backend/app/core/entitlements.py": [
+      "FIX-058",
+      "FIX-059"
+    ],
+    "backend/app/main.py": [
+      "FIX-144",
+      "FIX-152"
+    ],
+    "backend/app/models/workflow.py": [
+      "FIX-106"
+    ],
+    "backend/app/services/od_loader.py": [
+      "FIX-040",
+      "FIX-042b"
+    ],
+    "backend/scripts/seed_test_users.py": [
+      "TEST-46"
+    ],
+    "backend/tests/agents/_scripted_model.py": [
+      "FIX-049"
+    ],
+    "backend/tests/agents/characterization/_normalize.py": [
+      "FIX-036"
+    ],
+    "backend/tests/agents/characterization/golden/od_ppt.events.json": [
+      "FIX-031"
+    ],
+    "backend/tests/agents/characterization/golden/prototype_revision.events.json": [
+      "FIX-049"
+    ],
+    "backend/tests/agents/characterization/golden/prototype_revision.html": [
+      "FIX-049"
+    ],
+    "backend/tests/agents/test_bedrock_cache_and_thinking.py": [
+      "FIX-034"
+    ],
+    "backend/tests/agents/test_context_providers.py": [
+      "FIX-031",
+      "FIX-032"
+    ],
+    "backend/tests/agents/test_iss032_cache_tokens.py": [
+      "FIX-036"
+    ],
+    "backend/tests/agents/test_model_pricing.py": [
+      "FIX-035",
+      "FIX-038"
+    ],
+    "backend/tests/agents/test_phase5_revision_validation.py": [
+      "FIX-049"
+    ],
+    "backend/tests/agents/test_restart_resume.py": [
+      "FIX-175"
+    ],
+    "backend/tests/unit/test_chat_narrator.py": [
+      "FIX-083",
+      "FIX-175"
+    ],
+    "backend/tests/unit/test_prototype_run_request.py": [
+      "FIX-030"
+    ],
+    "frontend/e2e/FIXTURE-CONTRACT.md": [
+      "TEST-45"
+    ],
+    "frontend/e2e/README.md": [
+      "TEST-0-1",
+      "TEST-45"
+    ],
+    "frontend/e2e/tests/ts-sse-resilience.spec.ts": [
+      "FIX-152"
+    ],
+    "frontend/next.config.ts": [
+      "BUG-007-sse"
+    ],
+    "frontend/src/.../workflowChaining.test.ts": [
+      "ISS-025"
+    ],
+    "frontend/src/app/dashboard/page.tsx": [
+      "FIX-005",
+      "FIX-023",
+      "FIX-047",
+      "FIX-048",
+      "FIX-051",
+      "FIX-058",
+      "FIX-059",
+      "FIX-084",
+      "FIX-088",
+      "FIX-089",
+      "FIX-092",
+      "FIX-107",
+      "FIX-119",
+      "FIX-121",
+      "FIX-129",
+      "FIX-130",
+      "FIX-133",
+      "FIX-134",
+      "FIX-135",
+      "FIX-136",
+      "FIX-137",
+      "FIX-138",
+      "FIX-144",
+      "FIX-149",
+      "FIX-153",
+      "FIX-163",
+      "FIX-164",
+      "FIX-165",
+      "FIX-167",
+      "FIX-167b",
+      "FIX-170",
+      "FIX-172",
+      "FIX-173",
+      "FIX-174",
+      "FIX-176",
+      "FIX-178"
+    ],
+    "frontend/src/app/login/page.tsx": [
+      "FIX-102"
+    ],
+    "frontend/src/app/workflow/ppt/templates/page.tsx": [
+      "FIX-003b",
+      "FIX-005b"
+    ],
+    "frontend/src/app/workflow/prototype/templates/page.tsx": [
+      "FIX-003b",
+      "FIX-005b"
+    ],
+    "frontend/src/components/analytics/AnalyticsPage.tsx": [
+      "FIX-051"
+    ],
+    "frontend/src/components/catalog/HomeLaunchGrid.tsx": [
+      "FIX-097",
+      "FIX-098",
+      "FIX-099",
+      "FIX-100",
+      "FIX-144",
+      "FIX-145",
+      "FIX-181"
+    ],
+    "frontend/src/components/catalog/WorkflowCatalog.tsx": [
+      "FIX-004b"
+    ],
+    "frontend/src/components/chat/ChatPanel.tsx": [
+      "BUG-018-sse"
+    ],
+    "frontend/src/components/chat/InlineClarifyActions.tsx": [
+      "FIX-094",
+      "FIX-095"
+    ],
+    "frontend/src/components/chat/InlineGateActions.tsx": [
+      "FIX-154",
+      "FIX-163"
+    ],
+    "frontend/src/components/chat/ResultCard.test.tsx": [
+      "FIX-128"
+    ],
+    "frontend/src/components/chat/ResultCard.tsx": [
+      "FIX-083",
+      "FIX-128",
+      "FIX-167",
+      "FIX-167b",
+      "FIX-178"
+    ],
+    "frontend/src/components/chat/RunChatLane.tsx": [
+      "BUG-002-sse",
+      "FIX-085",
+      "FIX-104",
+      "FIX-105",
+      "FIX-115",
+      "FIX-116",
+      "FIX-118",
+      "FIX-119",
+      "FIX-120",
+      "FIX-124",
+      "FIX-125",
+      "FIX-154",
+      "FIX-168",
+      "FIX-171"
+    ],
+    "frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx": [
+      "FIX-085"
+    ],
+    "frontend/src/components/history/RevisionFamilyView.tsx": [
+      "FIX-053",
+      "FIX-090",
+      "FIX-169"
+    ],
+    "frontend/src/components/history/RunDetailPage.tsx": [
+      "FIX-050c"
+    ],
+    "frontend/src/components/history/WorkflowHistory.tsx": [
+      "FIX-004",
+      "FIX-043",
+      "FIX-051",
+      "FIX-053",
+      "FIX-055",
+      "FIX-087",
+      "FIX-090",
+      "FIX-144"
+    ],
+    "frontend/src/components/layout/AppHeader.tsx": [
+      "FIX-002b",
+      "FIX-102",
+      "FIX-146",
+      "FIX-147",
+      "FIX-156",
+      "FIX-157"
+    ],
+    "frontend/src/components/layout/DashboardLayout.tsx": [
+      "FIX-021",
+      "FIX-026",
+      "FIX-040b",
+      "FIX-042",
+      "FIX-043",
+      "FIX-047",
+      "FIX-048",
+      "FIX-058",
+      "FIX-059",
+      "FIX-092",
+      "FIX-098",
+      "FIX-099",
+      "FIX-105",
+      "FIX-117",
+      "FIX-119",
+      "FIX-120",
+      "FIX-125",
+      "FIX-129",
+      "FIX-130",
+      "FIX-139",
+      "FIX-141",
+      "FIX-143",
+      "FIX-148",
+      "FIX-149",
+      "FIX-150",
+      "FIX-153",
+      "FIX-154",
+      "FIX-155",
+      "FIX-156",
+      "FIX-157",
+      "FIX-163",
+      "FIX-170",
+      "FIX-173"
+    ],
+    "frontend/src/components/library/LibraryPage.tsx": [
+      "FIX-078"
+    ],
+    "frontend/src/components/preview/PPTPreview.tsx": [
+      "FIX-050c"
+    ],
+    "frontend/src/components/preview/PreviewPanel.tsx": [
+      "FIX-007b",
+      "FIX-140",
+      "FIX-163"
+    ],
+    "frontend/src/components/preview/QuestionnairePanel.tsx": [
+      "FIX-025",
+      "FIX-026"
+    ],
+    "frontend/src/components/preview/ReviewGatePanel.tsx": [
+      "FIX-041",
+      "FIX-045",
+      "FIX-048"
+    ],
+    "frontend/src/components/preview/RunHeader.tsx": [
+      "FIX-062"
+    ],
+    "frontend/src/components/results/AgentDetailPanel.tsx": [
+      "FIX-049b"
+    ],
+    "frontend/src/components/results/AgentThinkingTab.tsx": [
+      "FIX-022",
+      "FIX-029",
+      "FIX-163",
+      "FIX-166",
+      "FIX-177"
+    ],
+    "frontend/src/components/results/AuditTab.tsx": [
+      "FIX-124"
+    ],
+    "frontend/src/components/results/FilesTab.runInput.test.tsx": [
+      "FIX-033"
+    ],
+    "frontend/src/components/results/FilesTab.tsx": [
+      "FIX-033",
+      "FIX-140",
+      "FIX-142"
+    ],
+    "frontend/src/components/results/PrototypePipelineView.tsx": [
+      "FIX-022",
+      "FIX-029",
+      "FIX-046"
+    ],
+    "frontend/src/components/results/StartingPointCard.tsx": [
+      "FIX-093"
+    ],
+    "frontend/src/components/results/StepsOverviewSpine.tsx": [
+      "FIX-123",
+      "FIX-124",
+      "FIX-154",
+      "FIX-163"
+    ],
+    "frontend/src/components/settings/AccountSettings.tsx": [
+      "FIX-019"
+    ],
+    "frontend/src/components/sidebar/Sidebar.tsx": [
+      "FIX-090"
+    ],
+    "frontend/src/components/ui/NotificationPanel.tsx": [
+      "FIX-021",
+      "FIX-156"
+    ],
+    "frontend/src/components/workflow/AgentProgressPanel.test.tsx": [
+      "ISS-022"
+    ],
+    "frontend/src/components/workflow/AgentsPopup.tsx": [
+      "FIX-001",
+      "FIX-013",
+      "FIX-019",
+      "FIX-066",
+      "FIX-067",
+      "FIX-068",
+      "FIX-069",
+      "FIX-070",
+      "FIX-071",
+      "FIX-072",
+      "FIX-073",
+      "FIX-074",
+      "FIX-075",
+      "FIX-076",
+      "FIX-077",
+      "FIX-078",
+      "FIX-079",
+      "FIX-080",
+      "FIX-081",
+      "FIX-082",
+      "FIX-086",
+      "FIX-101"
+    ],
+    "frontend/src/components/workflow/IdeaInputPage.tsx": [
+      "FIX-027",
+      "FIX-056",
+      "FIX-057",
+      "FIX-058",
+      "FIX-059",
+      "FIX-060",
+      "FIX-110",
+      "FIX-111",
+      "FIX-112",
+      "FIX-113"
+    ],
+    "frontend/src/components/workflow/LaunchWizard.tsx": [
+      "FIX-065",
+      "FIX-103"
+    ],
+    "frontend/src/components/workflow/ReviewGatesSection.tsx": [
+      "FIX-041"
+    ],
+    "frontend/src/components/workflow/TokenUsageSummary.tsx": [
+      "FIX-021b"
+    ],
+    "frontend/src/components/workflow/WizardStepper.test.tsx": [
+      "FIX-064"
+    ],
+    "frontend/src/components/workflow/WizardStepper.tsx": [
+      "FIX-064",
+      "FIX-065",
+      "FIX-096"
+    ],
+    "frontend/src/components/workflow/composer/ComposerPage.tsx": [
+      "FIX-112",
+      "FIX-113"
+    ],
+    "frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx": [
+      "FIX-039",
+      "FIX-041b"
+    ],
+    "frontend/src/components/workflow/prototype/TemplateCard.tsx": [
+      "FIX-039",
+      "FIX-041b"
+    ],
+    "frontend/src/components/workflow/prototype/TemplateGallery.tsx": [
+      "FIX-039"
+    ],
+    "frontend/src/hooks/useNotifications.ts": [
+      "FIX-145",
+      "FIX-148"
+    ],
+    "frontend/src/hooks/useRunChat.test.ts": [
+      "FIX-128"
+    ],
+    "frontend/src/hooks/useRunChat.ts": [
+      "BUG-021-sse",
+      "FIX-119",
+      "FIX-128",
+      "FIX-172",
+      "FIX-176",
+      "FIX-178",
+      "FIX-180"
+    ],
+    "frontend/src/hooks/useRunStream.test.ts": [
+      "FIX-129"
+    ],
+    "frontend/src/hooks/useRunStream.ts": [
+      "ADR-0001",
+      "BUG-014-sse",
+      "FIX-122",
+      "FIX-129",
+      "FIX-135"
+    ],
+    "frontend/src/hooks/useWorkflow.ts": [
+      "FIX-007b",
+      "FIX-107",
+      "FIX-120",
+      "FIX-166"
+    ],
+    "frontend/src/lib/__tests__/wsRunScope.test.ts": [
+      "FIX-129"
+    ],
+    "frontend/src/lib/api.ts": [
+      "BUG-013-sse",
+      "FIX-001",
+      "FIX-007b",
+      "FIX-051",
+      "FIX-105",
+      "FIX-116",
+      "FIX-144",
+      "FIX-145"
+    ],
+    "frontend/src/lib/ppt-api.ts": [
+      "FIX-039"
+    ],
+    "frontend/src/lib/prototype-api.ts": [
+      "FIX-039"
+    ],
+    "frontend/src/lib/wsReplayState.ts": [
+      "FIX-129"
+    ],
+    "frontend/src/providers/RunConnectionProvider.tsx": [
+      "FIX-129",
+      "FIX-135",
+      "FIX-137",
+      "FIX-144",
+      "FIX-152"
+    ],
+    "frontend/src/types/index.ts": [
+      "FIX-001",
+      "FIX-007b",
+      "FIX-058",
+      "FIX-059",
+      "FIX-128",
+      "FIX-145",
+      "FIX-156",
+      "FIX-166",
+      "FIX-178"
+    ]
+  },
+  "edges": {
+    "ADR-0001": [
+      "BUG-015-sse",
+      "FIX-121",
+      "FIX-122"
+    ],
+    "FIX-031": [
+      "ISS-029"
+    ],
+    "FIX-041b": [
+      "FIX-039"
+    ],
+    "FIX-042b": [
+      "FIX-039"
+    ],
+    "FIX-055": [
+      "FIX-051"
+    ],
+    "FIX-056": [
+      "ISS-014"
+    ],
+    "FIX-096": [
+      "FIX-065"
+    ],
+    "FIX-121": [
+      "FIX-122"
+    ],
+    "FIX-122": [
+      "ADR-0001",
+      "FIX-121"
+    ],
+    "FIX-124": [
+      "ISS-016"
+    ],
+    "FIX-129": [
+      "FIX-128"
+    ],
+    "FIX-140": [
+      "ISS-021"
+    ],
+    "FIX-142": [
+      "FIX-140"
+    ],
+    "FIX-143": [
+      "FIX-141"
+    ],
+    "FIX-148": [
+      "FIX-146"
+    ],
+    "FIX-153": [
+      "FIX-135"
+    ],
+    "FIX-155": [
+      "FIX-149"
+    ],
+    "FIX-157": [
+      "FIX-156"
+    ],
+    "FIX-163": [
+      "FIX-048",
+      "ISS-039"
+    ],
+    "FIX-164": [
+      "FIX-048",
+      "FIX-163"
+    ],
+    "FIX-168": [
+      "FIX-119"
+    ],
+    "FIX-172": [
+      "BUG-015"
+    ],
+    "FIX-173": [
+      "FIX-172"
+    ],
+    "FIX-174": [
+      "FIX-167"
+    ],
+    "FIX-175": [
+      "FIX-172"
+    ],
+    "FIX-176": [
+      "FIX-172"
+    ],
+    "FIX-177": [
+      "FIX-046",
+      "FIX-166"
+    ],
+    "ISS-012": [
+      "ISS-014"
+    ],
+    "ISS-015": [
+      "ISS-014"
+    ],
+    "ISS-017": [
+      "ISS-016"
+    ],
+    "ISS-025": [
+      "ISS-022"
+    ],
+    "ISS-028": [
+      "ISS-016",
+      "ISS-018"
+    ],
+    "ISS-030": [
+      "FIX-033"
+    ],
+    "ISS-031": [
+      "FIX-034"
+    ],
+    "ISS-032": [
+      "FIX-034",
+      "FIX-035",
+      "FIX-036",
+      "ISS-031"
+    ],
+    "ISS-033": [
+      "FIX-034",
+      "FIX-036",
+      "ISS-032"
+    ],
+    "ISS-034": [
+      "FIX-036",
+      "FIX-037",
+      "ISS-032"
+    ],
+    "ISS-035": [
+      "FIX-039",
+      "ISS-007"
+    ],
+    "ISS-036": [
+      "ISS-035"
+    ],
+    "ISS-039": [
+      "FIX-039"
+    ],
+    "ISS-048": [
+      "ISS-045"
+    ]
+  },
+  "rules_by_file": {
+    "frontend/src/hooks/useRunStream.ts": [
+      "ADR-0001"
+    ]
+  }
+}

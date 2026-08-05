@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "name": "Sync Fix Cards on Register Save",
+  "description": "Automatically extracts new fix cards and rebuilds the knowledge index whenever FIX-REGISTER.md is edited and saved. Keeps .knowledge/cards/ and INDEX.md in sync without any manual commands.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      ".planning/FIX-REGISTER.md"
+    ]
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "set PYTHONIOENCODING=utf-8 && python scripts/knowledge/extract.py fixes && python scripts/knowledge/build_index.py && echo [knowledge] Fix cards synced.",
+    "timeout": 60
+  }
+}

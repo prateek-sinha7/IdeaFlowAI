@@ -125,26 +125,59 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
   // KAN-114: clarify kind renders as a plain text bubble (no styled card chrome).
   // The AwaitingCard in the transcript footer handles the "Paused — N questions"
   // status affordance; this narrator turn is just the conversational message.
-  if (kind === "clarify") {
+  //
+  // KAN-154: pipeline and deliverable also render as inline links (no box chrome)
+  // — the same lightweight "guideline-style" pattern as clarify. A pipeline update
+  // ("Run started", "Run complete") is informational, not a decision point; a
+  // deliverable card is a single call-to-action link. Box chrome is kept for
+  // spec_revision which IS a decision/status card requiring visual weight.
+  //
+  // Gate cards — both resolved AND unresolved — render as inline text only.
+  // The active gate UI lives in the Steps panel (StepsOverviewSpine GateAwaitingCard)
+  // which is the authoritative affordance for approving/rejecting. Showing a second
+  // "Review required" box in the chat lane is redundant and was confusing.
+  // Resolved: shows "Review approved — build continues".
+  // Active (unresolved): shows plain "Review required" with "Open in Steps" link.
+  if (kind === "clarify" || kind === "pipeline" || kind === "deliverable" || kind === "gate") {
+    const inlineText =
+      kind === "gate" && message.resolved
+        ? "Review approved — build continues"
+        : kind === "gate"
+        ? "Review required"
+        : message.content;
     return (
       <div
         data-testid="chat-result-card"
-        data-card-kind="clarify"
+        data-card-kind={kind}
         className="my-1"
       >
         <p className="font-serif text-[13px] leading-relaxed text-ink-900">
-          {message.content}
+          {inlineText}
         </p>
-        <button
-          type="button"
-          data-testid="chat-result-card-link"
-          data-target-tab={tab}
-          onClick={() => onRequestOpenTab(tab)}
-          className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand transition-colors hover:underline"
-        >
-          {linkLabel}
-          <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+        {/* Gate cards: resolved shows no link (action complete); active shows "Open in Steps" */}
+        {kind === "gate" && !message.resolved ? (
+          <button
+            type="button"
+            data-testid="chat-result-card-link"
+            data-target-tab={tab}
+            onClick={() => onRequestOpenTab(tab)}
+            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand transition-colors hover:underline"
+          >
+            Open in Steps
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        ) : kind !== "gate" ? (
+          <button
+            type="button"
+            data-testid="chat-result-card-link"
+            data-target-tab={tab}
+            onClick={() => onRequestOpenTab(tab)}
+            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand transition-colors hover:underline"
+          >
+            {linkLabel}
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
     );
   }

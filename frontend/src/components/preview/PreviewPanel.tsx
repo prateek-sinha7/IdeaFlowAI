@@ -348,6 +348,9 @@ interface PreviewPanelProps {
   // construction/wave tree renders them (the separate WaveTreePanel was retired,
   // INV-12). Optional/default-empty (tsc-identity).
   waves?: import("@/types/index").WaveGroup[];
+  // KAN-101 — spec revision cycle counter for the Steps "Spec Revision Cycle N"
+  // banner. Optional + defaulted to 0 → history/test renders unchanged.
+  specRevisionCount?: number;
   // Phase 39 (RUNUI-06/07) — run-header action wiring. Both optional/default-
   // undefined so history + test renders are byte-unchanged (tsc-identity), and
   // both have sensible in-component defaults. onShare copies the run deep link
@@ -458,7 +461,7 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload, specRevisionCount = 0 }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   // ─── Plan 07 — manual typed-renderer switcher override ───────────────────────
   // null = follow the generic auto-dispatch (the PRIMARY route); a non-null value
@@ -1153,6 +1156,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 onSubmitClarify={onSubmitClarify}
                 onSkipClarify={onSkipClarify}
                 onCancelWorkflow={onCancelWorkflow}
+                specRevisionCount={specRevisionCount}
               />
             </motion.div>
           )}

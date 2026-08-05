@@ -71,9 +71,6 @@ backend/runs/
 backend/evals/minimal/.runs/
 backend/evals/minimal/report.html
 
-# Kiro IDE files (personal, not for team use)
-.kiro/
-
 # Apex agent-framework local workspace state (personal, not for team use)
 .apex/
 
@@ -82,3 +79,4 @@ backend/evals/minimal/report.html
 
 # Personal scratch notes
 /TODO.md
+.kiro/settings/mcp.json

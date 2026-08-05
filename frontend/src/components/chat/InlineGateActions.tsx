@@ -239,7 +239,7 @@ export function InlineGateActions({
             (hasEdits ? "Approve with edits & build" : "Approve & build")}
         </button>
 
-        {/* 2. Request changes — reveals the redo/update-specs/reject channels. */}
+        {/* 2. Request changes — reveals the redo/reject channels. */}
         <button
           type="button"
           data-testid="chat-gate-request-changes"
@@ -252,24 +252,26 @@ export function InlineGateActions({
         </button>
       </div>
 
-      {/* The collapsed change channels — redo / update-specs / reject. These
-          fire the EXACT same handlers/channels as before; only the presentation
-          is folded under "Request changes" (CONTEXT §F preserve-the-channels). */}
+      {/* KAN-101 "Update the Specs" — elevated outside Request changes so it is
+          visible without a second click. Rendered iff the server flag is set
+          (updateSpecsEligible, derived generically from artifactKind — SC-001). */}
+      {canUpdateSpecs && (
+        <button
+          type="button"
+          data-testid="chat-gate-update-specs"
+          onClick={handleUpdateSpecs}
+          disabled={submitted}
+          className="w-full flex items-center justify-center gap-2 rounded-xl border border-brand/30 text-brand px-4 py-2 text-[11px] font-semibold hover:bg-brand-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Update the Specs
+        </button>
+      )}
+
+      {/* The collapsed change channels — redo / reject. These fire the EXACT same
+          handlers/channels as before; Update the Specs is now elevated above. */}
       {showRequestChanges && (
         <div className="space-y-2 rounded-xl border border-line-border bg-surface-warm/60 px-3 py-2.5">
-          {/* KAN-101 Update the Specs — rendered off the GENERIC flag (SC-001). */}
-          {canUpdateSpecs && (
-            <button
-              type="button"
-              data-testid="chat-gate-update-specs"
-              onClick={handleUpdateSpecs}
-              disabled={submitted}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border border-brand/30 text-brand px-4 py-2 text-[11px] font-semibold hover:bg-brand-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Update the Specs
-            </button>
-          )}
 
           {/* Redo — rendered IFF onRedo AND server-set redoable (generic fence). */}
           {canRedo && (

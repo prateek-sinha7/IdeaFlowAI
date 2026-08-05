@@ -2417,6 +2417,10 @@ async def _drive_revision_to_queue(
     A sanctioned duplication of the WS ``_run_revision_to_queue`` closure body
     (websocket.py:2543-2650), minus the socket drainer."""
     from agents.execution_engine.engine import get_execution_engine
+    # A.4 (Phase 43, DEF-43-03-1): inject the narrator so chat_reply milestone
+    # cards are persisted for revision runs (FIX-171) — same pattern as the
+    # _run_workflow_to_queue fresh-run path. The kernel never imports app.*.
+    from app.agents.chat_narrator import persist_milestone_card
 
     pipeline_complete_seen = False
     pipeline_failed_seen = False
@@ -2458,6 +2462,10 @@ async def _drive_revision_to_queue(
             model_id=getattr(user, "preferred_model", None) or None,
             owner_id=user.id,
             cancel_event=cancel_event,
+            # FIX-171: wire the narrator so pipeline_start ("Revision started")
+            # and pipeline_complete ("Delivered") cards are persisted for revision
+            # runs — the same milestone_sink pattern _run_workflow_to_queue uses.
+            milestone_sink=persist_milestone_card,
         )
         _persist_terminal_status(
             "cancelled"
