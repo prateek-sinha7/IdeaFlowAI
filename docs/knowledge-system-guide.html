@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IdeaFlowAI — Knowledge Management System Guide</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #0f1117; color: #e2e8f0; line-height: 1.6; padding: 24px; }
+  h1 { font-size: 2rem; color: #fff; margin-bottom: 4px; }
+  .subtitle { color: #64748b; margin-bottom: 40px; }
+  h2 { font-size: 1.25rem; color: #94a3b8; margin-bottom: 20px; text-transform: uppercase;
+       letter-spacing: .08em; border-bottom: 1px solid #1e293b; padding-bottom: 8px; }
+  h3 { font-size: 1rem; color: #cbd5e1; margin-bottom: 12px; }
+  .section { margin-bottom: 56px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; }
+  .card.green { border-color: #22c55e40; }
+  .card.blue { border-color: #3b82f640; }
+  .card.amber { border-color: #f59e0b40; }
+  .card.purple { border-color: #a855f740; }
+  .card.red { border-color: #ef444440; }
+  .badge { display: inline-block; font-size: .7rem; font-weight: 700; padding: 2px 8px;
+           border-radius: 4px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
+  .badge.green { background: #14532d; color: #86efac; }
+  .badge.blue { background: #1e3a5f; color: #93c5fd; }
+  .badge.amber { background: #451a03; color: #fcd34d; }
+  .badge.purple { background: #3b0764; color: #d8b4fe; }
+  .badge.gray { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+  .badge.red { background: #450a0a; color: #fca5a5; }
+  code { background: #0f172a; border: 1px solid #334155; border-radius: 4px;
+         padding: 1px 6px; font-family: 'Fira Code', monospace; font-size: .85em; color: #93c5fd; }
+  pre { background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+        padding: 16px; font-family: 'Fira Code', monospace; font-size: .82rem;
+        overflow-x: auto; color: #e2e8f0; line-height: 1.8; }
+  pre .dim { color: #475569; }
+  pre .green { color: #86efac; }
+  pre .blue { color: #93c5fd; }
+  pre .amber { color: #fcd34d; }
+  pre .purple { color: #d8b4fe; }
+  .arrow { color: #3b82f6; font-size: 1.2rem; text-align: center; padding: 4px 0; }
+  .flow { display: flex; flex-direction: column; gap: 6px; }
+  .flow-box { background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+              padding: 12px 16px; font-size: .88rem; }
+  .flow-box.trigger { border-color: #f59e0b60; background: #1c1500; }
+  .flow-box.action  { border-color: #3b82f660; background: #0c1a2e; }
+  .flow-box.output  { border-color: #22c55e60; background: #0a1f0a; }
+  .flow-box.query   { border-color: #a855f760; background: #1a0a2e; }
+  .flow-box .label  { font-size: .7rem; color: #64748b; margin-bottom: 2px; text-transform: uppercase; letter-spacing: .05em; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .check { color: #22c55e; margin-right: 4px; }
+  .cross { color: #ef4444; margin-right: 4px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }
+  .dot.green { background: #22c55e; }
+  .dot.blue { background: #3b82f6; }
+  .dot.amber { background: #f59e0b; }
+  .dot.purple { background: #a855f7; }
+  .dot.gray { background: #64748b; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th { background: #0f172a; color: #64748b; text-align: left; padding: 8px 12px;
+       font-weight: 600; text-transform: uppercase; font-size: .72rem; letter-spacing: .06em; }
+  td { padding: 8px 12px; border-top: 1px solid #1e293b; vertical-align: top; }
+  tr:hover td { background: #0f172a; }
+  .token-bar { height: 20px; border-radius: 4px; background: linear-gradient(90deg,#ef4444,#f59e0b); }
+  .token-bar.good { background: linear-gradient(90deg,#22c55e,#3b82f6); }
+  .stat { font-size: 2rem; font-weight: 700; }
+  .stat-label { font-size: .78rem; color: #64748b; }
+</style>
+</head>
+<body>
+
+<h1>IdeaFlowAI — Knowledge Management System</h1>
+<p class="subtitle">How the card store works, how it stays updated, and how velocity-ai commands use it</p>
+
+<!-- ── SECTION 1: THE PROBLEM ───────────────────────────────────── -->
+<div class="section">
+<h2>1 · The Problem We Solved</h2>
+<div class="grid-2">
+  <div class="card red">
+    <div class="badge red">Before (old approach)</div>
+    <h3>Registers loaded wholesale every session</h3>
+    <table>
+      <tr><td>FIX-REGISTER.md</td><td style="text-align:right;color:#f87171">344 KB</td></tr>
+      <tr><td>IMPLEMENTATION-REGISTER.md</td><td style="text-align:right;color:#f87171">982 KB</td></tr>
+      <tr><td>ISSUES-REGISTER.md</td><td style="text-align:right;color:#f87171">63 KB</td></tr>
+      <tr style="border-top:2px solid #ef4444"><td><strong>TOTAL context used</strong></td><td style="text-align:right;color:#f87171"><strong>~383,000 tokens</strong></td></tr>
+    </table>
+    <div style="margin-top:12px">
+      <div style="font-size:.8rem;color:#64748b;margin-bottom:4px">Context window burned before reading a single line of source</div>
+      <div class="token-bar" style="width:100%"></div>
+    </div>
+  </div>
+  <div class="card green">
+    <div class="badge green">After (card store)</div>
+    <h3>Only relevant cards loaded per task</h3>
+    <table>
+      <tr><td>ARCHITECTURE.md (current state)</td><td style="text-align:right;color:#86efac">4 KB</td></tr>
+      <tr><td>INVARIANTS.md (rules)</td><td style="text-align:right;color:#86efac">1 KB</td></tr>
+      <tr><td>RULES.md (decisions)</td><td style="text-align:right;color:#86efac">1 KB</td></tr>
+      <tr><td>INDEX.md (one-line index)</td><td style="text-align:right;color:#86efac">48 KB</td></tr>
+      <tr><td>2–4 matching cards (on demand)</td><td style="text-align:right;color:#86efac">~8 KB</td></tr>
+      <tr style="border-top:2px solid #22c55e"><td><strong>TOTAL context used</strong></td><td style="text-align:right;color:#86efac"><strong>~13,700 tokens</strong></td></tr>
+    </table>
+    <div style="margin-top:12px">
+      <div style="font-size:.8rem;color:#64748b;margin-bottom:4px">96.4% reduction — same knowledge reach</div>
+      <div class="token-bar good" style="width:4%"></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── SECTION 2: SYSTEM ARCHITECTURE ──────────────────────────── -->
+<div class="section">
+<h2>2 · System Architecture — Three Tiers</h2>
+<pre>
+<span class="dim">┌─────────────────────────────────────────────────────────────────────┐
+│  TIER 1 — SOURCE  (.planning/*.md)                                  │
+│  The registers — never read wholesale, never modified               │</span>
+<span class="amber">│  FIX-REGISTER.md  ·  ISSUES-REGISTER.md  ·  IMPLEMENTATION-REGISTER.md  │</span>
+<span class="dim">└──────────────────────────┬──────────────────────────────────────────┘
+                           │  extract.py  (automatic via hooks)
+                           │  ↓ runs on file save
+┌──────────────────────────▼──────────────────────────────────────────┐
+│  TIER 2 — CARDS  (.knowledge/cards/)                                │</span>
+<span class="blue">│  547 cards — one per fix / issue / phase / decision / bug / test    │
+│  FIX-176.md  ISS-049.md  PHASE-07.md  ADR-0001.md  ...             │</span>
+<span class="dim">└──────────────────────────┬──────────────────────────────────────────┘
+                           │  build_index.py  (automatic after extract)
+                           │  ↓ regenerates all surface files
+┌──────────────────────────▼──────────────────────────────────────────┐
+│  TIER 3 — SURFACE  (.knowledge/surface/)                            │</span>
+<span class="green">│  INDEX.md  RULES.md  CATALOG.md  ARCHITECTURE.md                    │
+│  index.json  links.json  stamp.json  ENTRY.md                       │</span>
+<span class="dim">└──────────────────────────┬──────────────────────────────────────────┘
+                           │  ctx.py — query tool (used by AI agents)
+                           │  ↓ searches index.json + links.json
+                           ▼</span>
+<span class="purple">  2–4 relevant cards returned to the AI agent  (~8K tokens)</span>
+</pre>
+</div>
+
+<!-- ── SECTION 3: FILE MAP ──────────────────────────────────────── -->
+<div class="section">
+<h2>3 · Where Every File Lives</h2>
+<div class="grid-3">
+  <div class="card blue">
+    <div class="badge blue">Always loaded (Kiro)</div>
+    <div class="flow">
+      <div class="flow-box"><div class="label">steering · always</div><code>project-index.md</code><br><span style="font-size:.78rem;color:#64748b">Navigation + ctx.py guide</span></div>
+      <div class="flow-box"><div class="label">steering · always</div><code>invariants.md</code><br><span style="font-size:.78rem;color:#64748b">Points to .knowledge/INVARIANTS.md</span></div>
+      <div class="flow-box"><div class="label">steering · always</div><code>terraform.md</code><br><span style="font-size:.78rem;color:#64748b">IaC security guardrails</span></div>
+    </div>
+  </div>
+  <div class="card amber">
+    <div class="badge amber">Auto-loaded on file open (Kiro fileMatch)</div>
+    <div class="flow">
+      <div class="flow-box"><div class="label">fileMatch: execution_engine/**</div><code>backend-engine.md</code></div>
+      <div class="flow-box"><div class="label">fileMatch: capabilities/**</div><code>backend-capabilities.md</code></div>
+      <div class="flow-box"><div class="label">fileMatch: app/api/**</div><code>backend-api.md</code></div>
+      <div class="flow-box"><div class="label">fileMatch: app/models/**, alembic/**</div><code>backend-models-migrations.md</code></div>
+      <div class="flow-box"><div class="label">fileMatch: components/chat/**, hooks/</div><code>frontend-chat.md</code></div>
+      <div class="flow-box"><div class="label">fileMatch: components/run/**, preview/</div><code>frontend-run-screen.md</code></div>
+      <div class="flow-box"><div class="label">fileMatch: components/workflow/**</div><code>frontend-workflow.md</code></div>
+      <div class="flow-box"><div class="label">fileMatch: components/layout/**, styles/</div><code>frontend-shell.md</code></div>
+    </div>
+  </div>
+  <div class="card purple">
+    <div class="badge purple">Manual load (command files)</div>
+    <div class="flow">
+      <div class="flow-box"><div class="label">steering · manual</div><code>velocity-ai-analyze.md</code><br><span style="font-size:.78rem;color:#64748b">/velocity-ai-analyze command</span></div>
+      <div class="flow-box"><div class="label">steering · manual</div><code>velocity-ai-fix.md</code><br><span style="font-size:.78rem;color:#64748b">/velocity-ai-fix command</span></div>
+      <div class="flow-box" style="margin-top:8px"><div class="label">knowledge store (all tools)</div>
+        <code>.knowledge/surface/INDEX.md</code><br>
+        <code>.knowledge/surface/RULES.md</code><br>
+        <code>.knowledge/surface/ARCHITECTURE.md</code><br>
+        <code>.knowledge/INVARIANTS.md</code>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── SECTION 4: HOW DATA FLOWS ────────────────────────────────── -->
+<div class="section">
+<h2>4 · How Data Flows — Fix Registered to Card Updated</h2>
+<div class="grid-2">
+  <div>
+    <h3 style="margin-bottom:12px">🔧 Developer logs a new fix</h3>
+    <div class="flow">
+      <div class="flow-box trigger">
+        <div class="label">Step 1 — Developer</div>
+        Appends FIX-177 row to <code>.planning/FIX-REGISTER.md</code> and saves
+      </div>
+      <div class="arrow">▼ Hook fires automatically</div>
+      <div class="flow-box action">
+        <div class="label">Step 2 — Hook: sync-fix-cards (fileEdited)</div>
+        <code>python extract.py fixes</code><br>
+        <span style="font-size:.8rem;color:#64748b">→ creates .knowledge/cards/FIX-177.md</span>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="flow-box action">
+        <div class="label">Step 3 — Same hook continues</div>
+        <code>python build_index.py</code><br>
+        <span style="font-size:.8rem;color:#64748b">→ regenerates all 8 surface files</span>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="flow-box output">
+        <div class="label">Step 4 — Output (automatic)</div>
+        ✅ <code>INDEX.md</code> updated — FIX-177 appears<br>
+        ✅ <code>index.json</code> updated<br>
+        ✅ <code>links.json</code> updated<br>
+        ✅ <code>stamp.json</code> updated
+      </div>
+      <div class="arrow">▼ Session ends</div>
+      <div class="flow-box action">
+        <div class="label">Step 5 — Hook: knowledge-freshness-check (agentStop)</div>
+        <code>python check.py</code><br>
+        <span style="font-size:.8rem;color:#64748b">→ confirms "cards vs registers: all extracted ✅"</span>
+      </div>
+    </div>
+  </div>
+  <div>
+    <h3 style="margin-bottom:12px">🐛 Issue or Phase added to register</h3>
+    <div class="flow">
+      <div class="flow-box trigger">
+        <div class="label">Step 1 — Developer</div>
+        Saves <code>ISSUES-REGISTER.md</code> or <code>IMPLEMENTATION-REGISTER.md</code>
+      </div>
+      <div class="arrow">▼ Hook fires automatically</div>
+      <div class="flow-box action">
+        <div class="label">Step 2 — Hook: sync-issue-phase-cards (fileEdited)</div>
+        <code>python extract.py issues</code><br>
+        <code>python extract.py phases</code><br>
+        <code>python build_index.py</code>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="flow-box output">
+        <div class="label">Step 3 — Output</div>
+        ✅ New ISS-*.md card created<br>
+        ✅ New PHASE-NN.md card created<br>
+        ✅ All surface files regenerated
+      </div>
+    </div>
+    <div style="margin-top:24px">
+      <h3 style="margin-bottom:12px">📅 Monthly: Promote rules to ADRs</h3>
+      <div class="flow">
+        <div class="flow-box trigger">
+          <div class="label">Monthly (human-triggered)</div>
+          Run <code>knowledge-consolidate</code> skill
+        </div>
+        <div class="arrow">▼</div>
+        <div class="flow-box action">
+          <div class="label">Skill reads recent fix cards</div>
+          Identifies implicit rules buried in fix prose.<br>
+          Proposes new ADR-*.md cards for each rule found.
+        </div>
+        <div class="arrow">▼</div>
+        <div class="flow-box output">
+          <div class="label">After human review and approval</div>
+          ✅ New ADR-000N.md card created<br>
+          ✅ RULES.md updated with new decision<br>
+          ✅ Agents see the new rule in every session
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── SECTION 5: VELOCITY-AI-ANALYZE FLOW ──────────────────────── -->
+<div class="section">
+<h2>5 · How /velocity-ai-analyze Works</h2>
+<div class="flow">
+  <div class="flow-box trigger">
+    <div class="label">Developer runs</div>
+    <code>/velocity-ai-analyze</code> &nbsp;→&nbsp; User types a question
+  </div>
+  <div class="arrow">▼</div>
+  <div class="flow-box action">
+    <div class="label">Step 1 — Classify the question</div>
+    Bug investigation? Impact analysis? Architecture question? Capability question?
+  </div>
+  <div class="arrow">▼</div>
+  <div class="flow-box action">
+    <div class="label">Step 2 — Prime the knowledge store  (~12,500 tokens total)</div>
+    Read in order: <code>.knowledge/surface/ARCHITECTURE.md</code> → <code>.knowledge/INVARIANTS.md</code> → <code>.knowledge/surface/RULES.md</code> → <code>.knowledge/surface/INDEX.md</code>
+  </div>
+  <div class="arrow">▼</div>
+  <div class="flow-box query">
+    <div class="label">Step 3 — Query for the task  (~2–4 cards = ~8K tokens)</div>
+    <div class="two-col" style="margin-top:8px">
+      <div><code>ctx.py "symptom words"</code><br><span style="font-size:.78rem;color:#64748b">→ finds matching fixes/issues</span></div>
+      <div><code>ctx.py --for &lt;file&gt;</code><br><span style="font-size:.78rem;color:#64748b">→ finds all rules touching a file</span></div>
+      <div><code>ctx.py --rules sse</code><br><span style="font-size:.78rem;color:#64748b">→ decisions in force for an area</span></div>
+      <div><code>ctx.py --type issue "gate"</code><br><span style="font-size:.78rem;color:#64748b">→ finds issues by type + keyword</span></div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+  <div class="flow-box action">
+    <div class="label">Step 4 — Load domain steering file (Kiro fileMatch already loaded it)</div>
+    <code>#backend-engine.md</code> or <code>#frontend-chat.md</code> etc.
+  </div>
+  <div class="arrow">▼</div>
+  <div class="flow-box action">
+    <div class="label">Step 5 — Deep codebase investigation</div>
+    Read source files · Search patterns · Trace call chains · Cross-reference
+  </div>
+  <div class="arrow">▼</div>
+  <div class="flow-box output">
+    <div class="label">Step 6 — Produce structured analysis report</div>
+    Summary · Root cause · Trace · Impact · Recommended fix approach
+  </div>
+  <div class="arrow">▼</div>
+  <div class="flow-box output">
+    <div class="label">Step 7 — Create Jira ticket (if bug/risk found)</div>
+    Only if confirmed bug (❌) or significant risk (⚠️ Medium+) not already in card store
+  </div>
+</div>
+<div style="margin-top:16px;padding:12px 16px;background:#0f172a;border:1px solid #1e293b;border-radius:8px;font-size:.82rem;color:#64748b">
+  ✅ <strong>No register is ever loaded wholesale.</strong> &nbsp;FIX-REGISTER.md, ISSUES-REGISTER.md, and IMPLEMENTATION-REGISTER.md are never auto-included.
+</div>
+</div>
+
+<!-- ── SECTION 6: VELOCITY-AI-FIX FLOW ──────────────────────────── -->
+<div class="section">
+<h2>6 · How /velocity-ai-fix Works</h2>
+<div class="grid-2">
+  <div class="flow">
+    <div class="flow-box trigger"><div class="label">Developer runs</div><code>/velocity-ai-fix</code> → describes the bug</div>
+    <div class="arrow">▼</div>
+    <div class="flow-box action"><div class="label">Step 1 — Load always-on steering</div>Read <code>invariants.md</code> + <code>project-index.md</code> + relevant domain file</div>
+    <div class="arrow">▼</div>
+    <div class="flow-box action"><div class="label">Step 2 — Prime knowledge store</div>ARCHITECTURE.md → INVARIANTS.md → RULES.md → INDEX.md</div>
+    <div class="arrow">▼</div>
+    <div class="flow-box query"><div class="label">Step 3 — Query knowledge store</div>
+      <code>ctx.py "symptom"</code> → find prior fixes<br>
+      <code>ctx.py --for &lt;file&gt;</code> → find rules<br>
+      <code>ctx.py --show FIX-NNN</code> → read related fix<br>
+      Check FIX-039 not regressed
+    </div>
+    <div class="arrow">▼</div>
+    <div class="flow-box action"><div class="label">Step 4 — Deep investigation (read only)</div>Trace the bug. Find exact file + line.</div>
+    <div class="arrow">▼</div>
+    <div class="flow-box action"><div class="label">Step 5 — Root cause analysis</div>Write RCA before touching code</div>
+    <div class="arrow">▼</div>
+    <div class="flow-box action"><div class="label">Step 6 — Fix plan</div>State what will change before writing code</div>
+    <div class="arrow">▼</div>
+    <div class="flow-box action"><div class="label">Step 7 — Apply the fix</div>Surgical edit · Match existing patterns · No collateral cleanup</div>
+    <div class="arrow">▼</div>
+    <div class="flow-box action"><div class="label">Step 8 — Verify</div>Read changed files · Check INV-3 goldens · Check FIX-039 · Lint</div>
+  </div>
+  <div class="flow">
+    <div class="flow-box output" style="border-color:#f59e0b60;background:#1c1500">
+      <div class="label">Step 9 — Register the fix (3 sub-steps)</div>
+      <div style="margin-top:8px">
+        <strong>9a — Write the card</strong><br>
+        <code>python extract.py fixes --only FIX-NNN</code><br>
+        <code>python build_index.py</code><br>
+        <span style="font-size:.78rem;color:#64748b;margin-top:4px;display:block">→ creates .knowledge/cards/FIX-NNN.md<br>→ updates INDEX.md, index.json, links.json</span>
+      </div>
+      <hr style="border-color:#334155;margin:10px 0">
+      <div>
+        <strong>9b — Add summary row to FIX-REGISTER.md</strong><br>
+        <code>| FIX-NNN | date | description | … |</code><br>
+        <span style="font-size:.78rem;color:#64748b">Summary row only. No detailed entry in the monolith.</span>
+      </div>
+      <hr style="border-color:#334155;margin:10px 0">
+      <div>
+        <strong>9c — Update next Fix ID</strong><br>
+        Check <code>INDEX.md</code> header for current highest FIX-NNN<br>
+        <span style="font-size:.78rem;color:#64748b">The card store IS the detailed entry, queryable via ctx.py</span>
+      </div>
+    </div>
+    <div style="margin-top:16px;padding:12px;background:#0a1f0a;border:1px solid #22c55e40;border-radius:8px;font-size:.82rem">
+      <strong style="color:#86efac">Result:</strong> Next developer who searches for this symptom gets the card in 2–4 results, never the monolith.
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── SECTION 7: HOOKS ──────────────────────────────────────────── -->
+<div class="section">
+<h2>7 · Automation Hooks — Zero Manual Commands</h2>
+<div class="grid-3">
+  <div class="card amber">
+    <div class="badge amber">Hook 1</div>
+    <h3>sync-fix-cards</h3>
+    <table>
+      <tr><td>Trigger</td><td><code>fileEdited</code></td></tr>
+      <tr><td>Watches</td><td><code>.planning/FIX-REGISTER.md</code></td></tr>
+      <tr><td>Runs</td><td><code>extract.py fixes</code><br><code>build_index.py</code></td></tr>
+      <tr><td>Result</td><td>New FIX card created + all surface files rebuilt</td></tr>
+    </table>
+  </div>
+  <div class="card amber">
+    <div class="badge amber">Hook 2</div>
+    <h3>sync-issue-phase-cards</h3>
+    <table>
+      <tr><td>Trigger</td><td><code>fileEdited</code></td></tr>
+      <tr><td>Watches</td><td><code>ISSUES-REGISTER.md</code><br><code>IMPLEMENTATION-REGISTER.md</code></td></tr>
+      <tr><td>Runs</td><td><code>extract.py issues</code><br><code>extract.py phases</code><br><code>build_index.py</code></td></tr>
+      <tr><td>Result</td><td>New ISS/PH card + surface files rebuilt</td></tr>
+    </table>
+  </div>
+  <div class="card blue">
+    <div class="badge blue">Hook 3</div>
+    <h3>knowledge-freshness-check</h3>
+    <table>
+      <tr><td>Trigger</td><td><code>agentStop</code></td></tr>
+      <tr><td>Watches</td><td>Every agent session end</td></tr>
+      <tr><td>Runs</td><td><code>check.py</code></td></tr>
+      <tr><td>Exit 0</td><td style="color:#86efac">Store is clean</td></tr>
+      <tr><td>Exit 1</td><td style="color:#fcd34d">Warnings (harmless)</td></tr>
+      <tr><td>Exit 2</td><td style="color:#f87171">Store broken — fix needed</td></tr>
+    </table>
+  </div>
+</div>
+<div style="margin-top:20px">
+  <h3 style="margin-bottom:12px">All hook commands include Windows UTF-8 fix</h3>
+  <pre><span class="amber">set PYTHONIOENCODING=utf-8</span> && python scripts/knowledge/extract.py fixes && python scripts/knowledge/build_index.py
+<span class="dim"># Without this, Windows CMD (cp1252) crashes on Unicode characters like ←</span></pre>
+</div>
+</div>
+
+<!-- ── SECTION 8: CARD FORMAT ────────────────────────────────────── -->
+<div class="section">
+<h2>8 · What a Card Looks Like</h2>
+<div class="grid-2">
+  <div>
+    <h3 style="margin-bottom:8px">Fix card (FIX-NNN.md)</h3>
+    <pre>---
+id: FIX-176
+type: fix
+date: 2026-08-04
+status: done
+area: [frontend]
+files:
+  - frontend/src/hooks/useRunChat.ts
+  - frontend/src/app/dashboard/page.tsx
+summary: >-
+  <span class="amber">"Revision started" shown twice — appendRunChatFrames</span>
+  <span class="amber">fetched from seq 0 instead of last seen seq</span>
+source: .planning/FIX-REGISTER.md#fix-176
+relates: [FIX-172]
+---
+
+[full original prose from the register]</pre>
+    <div style="margin-top:8px;font-size:.8rem;color:#64748b">
+      The <code>summary:</code> line is what <code>ctx.py</code> searches.<br>
+      The body is read only when you do <code>ctx.py --show FIX-176</code>.
+    </div>
+  </div>
+  <div>
+    <h3 style="margin-bottom:8px">Decision card (ADR-NNN.md)</h3>
+    <pre>---
+id: ADR-0001
+type: decision
+status: accepted
+date: 2026-07-27
+area: [sse, frontend]
+y: >-
+  <span class="green">In the context of SSE streams that the backend</span>
+  <span class="green">closes on purpose, facing spurious "Reconnecting"</span>
+  <span class="green">banners, we decided that terminal frames mark the</span>
+  <span class="green">connection non-reconnecting synchronously...</span>
+files: [frontend/src/hooks/useRunStream.ts]
+enforced_by: [frontend/src/hooks/useRunStream.test.ts]
+derived_from: [BUG-015-sse, FIX-121, FIX-122]
+---
+
+## Context
+## Decision Outcome
+## Consequences</pre>
+    <div style="margin-top:8px;font-size:.8rem;color:#64748b">
+      The <code>y:</code> (Y-statement) is what loads in <code>RULES.md</code>.<br>
+      ~45 tokens. Loaded <em>every</em> session.
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ── SECTION 9: CTX.PY CHEATSHEET ─────────────────────────────── -->
+<div class="section">
+<h2>9 · ctx.py — Query Cheat Sheet</h2>
+<table>
+  <tr><th>Command</th><th>When to use</th><th>Example</th></tr>
+  <tr>
+    <td><code>ctx.py "symptom words"</code></td>
+    <td>Before diagnosing a bug — check if it happened before</td>
+    <td><code>ctx.py "reconnect banner"</code> → FIX-122, ADR-0001</td>
+  </tr>
+  <tr>
+    <td><code>ctx.py --for &lt;file&gt;</code></td>
+    <td>Before editing a file — find all rules and prior fixes</td>
+    <td><code>ctx.py --for frontend/src/hooks/useRunStream.ts</code></td>
+  </tr>
+  <tr>
+    <td><code>ctx.py --rules &lt;area&gt;</code></td>
+    <td>Find decisions in force for a domain</td>
+    <td><code>ctx.py --rules sse</code> → ADR-0001</td>
+  </tr>
+  <tr>
+    <td><code>ctx.py --show FIX-NNN</code></td>
+    <td>Read the full body of a specific card</td>
+    <td><code>ctx.py --show FIX-176</code></td>
+  </tr>
+  <tr>
+    <td><code>ctx.py --type issue "gate"</code></td>
+    <td>Search issues specifically</td>
+    <td><code>ctx.py --type issue "review gate"</code></td>
+  </tr>
+  <tr>
+    <td><code>ctx.py --type phase "resume"</code></td>
+    <td>Find phase history</td>
+    <td><code>ctx.py --type phase "prototype manifest"</code> → PHASE-07</td>
+  </tr>
+  <tr>
+    <td><code>ctx.py --type bug "concurrent"</code></td>
+    <td>Find QA campaign bugs</td>
+    <td><code>ctx.py --type bug "resume"</code> → BUG-R01..R05</td>
+  </tr>
+  <tr>
+    <td><code>check.py</code></td>
+    <td>Verify store is fresh and cards match registers</td>
+    <td>Exit 0 = clean · 1 = warnings · 2 = broken</td>
+  </tr>
+</table>
+</div>
+
+<!-- ── SECTION 10: DEVELOPER CHEATSHEET ─────────────────────────── -->
+<div class="section">
+<h2>10 · Developer Quick Reference</h2>
+<div class="grid-2">
+  <div class="card green">
+    <div class="badge green">Daily workflow — zero manual commands</div>
+    <div class="flow" style="margin-top:12px">
+      <div class="flow-box"><span class="check">✓</span> Start a session → Kiro loads prime files automatically</div>
+      <div class="flow-box"><span class="check">✓</span> Open a file → domain steering file loads automatically</div>
+      <div class="flow-box"><span class="check">✓</span> Run /velocity-ai-analyze or /velocity-ai-fix → uses ctx.py</div>
+      <div class="flow-box"><span class="check">✓</span> Append fix to FIX-REGISTER.md → hook creates card + updates index</div>
+      <div class="flow-box"><span class="check">✓</span> Session ends → hook runs check.py, reports freshness</div>
+    </div>
+  </div>
+  <div class="card red">
+    <div class="badge red">Never do these</div>
+    <div class="flow" style="margin-top:12px">
+      <div class="flow-box"><span class="cross">✗</span> Open FIX-REGISTER.md and read it wholesale</div>
+      <div class="flow-box"><span class="cross">✗</span> Open IMPLEMENTATION-REGISTER.md and read it wholesale</div>
+      <div class="flow-box"><span class="cross">✗</span> Open ISSUES-REGISTER.md and read it wholesale</div>
+      <div class="flow-box"><span class="cross">✗</span> Add a fix to a fix-archive file (deleted — use cards)</div>
+      <div class="flow-box"><span class="cross">✗</span> Manually update INDEX.md (generated — run build_index.py)</div>
+      <div class="flow-box"><span class="cross">✗</span> Add cards for future/speculative work (cards = landed facts)</div>
+    </div>
+  </div>
+</div>
+<div class="grid-3" style="margin-top:20px">
+  <div style="text-align:center;padding:20px">
+    <div class="stat" style="color:#22c55e">547</div>
+    <div class="stat-label">Total cards in store</div>
+  </div>
+  <div style="text-align:center;padding:20px">
+    <div class="stat" style="color:#3b82f6">183</div>
+    <div class="stat-label">Fix cards (FIX-001 → FIX-176)</div>
+  </div>
+  <div style="text-align:center;padding:20px">
+    <div class="stat" style="color:#a855f7">96.4%</div>
+    <div class="stat-label">Context reduction vs old system</div>
+  </div>
+</div>
+</div>
+
+<!-- ── SECTION 11: CHECK.PY OUTPUT GUIDE ────────────────────────── -->
+<div class="section">
+<h2>11 · Reading check.py Output</h2>
+<table>
+  <tr><th>Output line</th><th>Meaning</th><th>Action</th></tr>
+  <tr>
+    <td><code style="color:#86efac">[  ok  ] cards vs registers</code></td>
+    <td>All register entries have cards — store is in sync</td>
+    <td style="color:#86efac">None</td>
+  </tr>
+  <tr>
+    <td><code style="color:#fcd34d">[ warn ] cards vs registers: N entries not yet extracted</code></td>
+    <td>New fixes/issues in the register don't have cards yet</td>
+    <td>Run <code>python extract.py fixes && python build_index.py</code></td>
+  </tr>
+  <tr>
+    <td><code style="color:#fcd34d">[ warn ] cards vs code: N paths missing</code></td>
+    <td>Cards reference files that were deleted (e.g. websocket.py)</td>
+    <td style="color:#86efac">None — expected historical records</td>
+  </tr>
+  <tr>
+    <td><code style="color:#fcd34d">[ warn ] links: N point at cards that do not exist</code></td>
+    <td>A card's <code>relates:</code> field references a non-existent card ID</td>
+    <td>Fix the card's <code>relates:</code> field to use the correct ID</td>
+  </tr>
+  <tr>
+    <td><code style="color:#fcd34d">[ warn ] index vs cards: stale</code></td>
+    <td>A card was added/edited but index not rebuilt</td>
+    <td>Run <code>python build_index.py</code></td>
+  </tr>
+  <tr>
+    <td><code style="color:#f87171">[ ERR  ] cards parse</code></td>
+    <td>A card file has invalid YAML frontmatter</td>
+    <td>Fix the card file. Run check.py again.</td>
+  </tr>
+  <tr>
+    <td><code style="color:#86efac">[  ok  ] coverage (1064/1064)</code></td>
+    <td>Every .planning/ file is covered by a card or documented exclusion</td>
+    <td style="color:#86efac">None</td>
+  </tr>
+</table>
+</div>
+
+<!-- ── FOOTER ─────────────────────────────────────────────────────── -->
+<div style="text-align:center;padding:32px 0;color:#334155;font-size:.82rem;border-top:1px solid #1e293b;margin-top:24px">
+  IdeaFlowAI Knowledge Management System · Built 2026-08-05 · 80/80 tests passing
+</div>
+
+</body>
+</html>

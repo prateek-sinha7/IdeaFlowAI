@@ -1,0 +1,13 @@
+{
+  "_comment": "Hand-authored frontmatter re-applied on top of mechanical extraction. Keys here win over derived values and survive `extract.py --force`. Keep this small: if you are overriding many cards, fix the extractor instead.",
+  "FIX-122": {
+    "summary": "Yellow \"Reconnecting\" banner and an apparently dead Stop button on every cancel, because sawNonLiveAttachRef was only set on stream_attached, so the stream close after pipeline_cancelled raced the React render.",
+    "area": ["sse", "frontend"],
+    "produces": ["ADR-0001"],
+    "relates": ["FIX-121"]
+  },
+  "FIX-121": {
+    "area": ["sse", "frontend", "resume"],
+    "relates": ["FIX-122"]
+  }
+}

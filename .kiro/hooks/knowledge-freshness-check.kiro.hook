@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "name": "Knowledge Store Freshness Check",
+  "description": "Runs check.py after every agent session. If the card store is behind the registers (new fixes/issues were added), warns the developer with the specific IDs that need extracting. Exit 0 = clean, exit 1 = warnings only, exit 2 = broken (reported clearly).",
+  "version": "1",
+  "when": {
+    "type": "agentStop"
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "set PYTHONIOENCODING=utf-8 && python scripts/knowledge/check.py & if %ERRORLEVEL% LEQ 1 exit 0",
+    "timeout": 30
+  }
+}

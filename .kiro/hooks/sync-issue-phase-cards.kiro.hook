@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "Sync Issue and Phase Cards on Register Save",
+  "description": "Automatically extracts new issue and phase cards and rebuilds the knowledge index whenever ISSUES-REGISTER.md or IMPLEMENTATION-REGISTER.md is edited and saved.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      ".planning/ISSUES-REGISTER.md",
+      ".planning/IMPLEMENTATION-REGISTER.md"
+    ]
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "set PYTHONIOENCODING=utf-8 && python scripts/knowledge/extract.py issues && python scripts/knowledge/extract.py phases && python scripts/knowledge/build_index.py && echo [knowledge] Issue/Phase cards synced.",
+    "timeout": 60
+  }
+}
