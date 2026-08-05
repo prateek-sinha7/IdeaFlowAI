@@ -284,11 +284,16 @@ export function HomeLaunchGrid({
                     <div className="mt-auto flex items-center gap-1.5">
                       <span className="text-[11px] font-medium text-ink-400">{estimate}</span>
                       {/* SURF-03: inspect compiled workflow capabilities — inline next to agent count */}
-                      <button type="button" onClick={(e) => { e.stopPropagation(); setInspectId(row.id); }}
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setInspectId(row.id); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setInspectId(row.id); } }}
                         aria-label={`Inspect ${label} details`}
-                        className="flex h-4 w-4 items-center justify-center rounded text-ink-300 transition-colors hover:text-ink-600">
+                        className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-ink-300 transition-colors hover:text-ink-600"
+                      >
                         <Info className="h-3 w-3" />
-                      </button>
+                      </span>
                     </div>
                     {!allowed && upgradeTo && (
                       <span className="mt-1.5 text-[10px] font-semibold text-brand">
