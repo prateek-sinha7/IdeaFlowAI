@@ -1,0 +1,35 @@
+# docker-compose.prod.yml — production logging override.
+#
+# Merged on top of docker-compose.yml in production (-f docker-compose.yml -f
+# docker-compose.prod.yml, see infra/scripts/bootstrap-ec2.sh §17). Switches
+# backend/frontend logging from local-dev json-file to awslogs, so each
+# service ships to its own CloudWatch Logs stream instead of the agent's
+# undifferentiated tail-all-containers stream.
+#
+# Requires VELOCITYAI_CW_LOG_GROUP in /etc/velocityai/app.env (written by
+# bootstrap-ec2.sh §11) and the instance role's logs:CreateLogStream +
+# logs:PutLogEvents grant (already scoped to that log-group ARN).
+#
+# Not used in local dev — plain `docker compose up` uses only the json-file
+# driver from docker-compose.yml.
+services:
+  backend:
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-eu-central-1}
+        awslogs-group: ${VELOCITYAI_CW_LOG_GROUP}
+        awslogs-stream: backend/{{.ID}}
+        # Log group already exists (Terraform, prevent_destroy=true) and the
+        # instance role has no logs:CreateLogGroup — fail loudly instead of
+        # letting the driver try to create one.
+        awslogs-create-group: "false"
+
+  frontend:
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-eu-central-1}
+        awslogs-group: ${VELOCITYAI_CW_LOG_GROUP}
+        awslogs-stream: frontend/{{.ID}}
+        awslogs-create-group: "false"

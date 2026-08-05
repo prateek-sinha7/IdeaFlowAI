@@ -1,0 +1,311 @@
+{
+  "fixture": "top",
+  "brief": "mission_control",
+  "source_run": "golden-mission-control",
+  "captured": "2026-07-30",
+  "why": "Frozen because .runs/ is gitignored and disposable. This is the graded verdict of a verified-perfect artifact; without it the calibration has no known-good anchor and the count-based-cap defect cannot be re-demonstrated.",
+  "artifacts": "model/workflows/prototype/golden/mission_control/ (spec.md, tasks.md, analysis.md, prototype.html)",
+  "stages": {
+    "prototype-specify": {
+      "weights": {
+        "data_realism": 40,
+        "brief_intent_match": 40,
+        "design_system_coherence": 20
+      },
+      "judge_reported": {
+        "data_realism": 95,
+        "brief_intent_match": 92,
+        "design_system_coherence": 98
+      },
+      "after_caps": {
+        "data_realism": 95,
+        "brief_intent_match": 74,
+        "design_system_coherence": 84
+      },
+      "score_caps": {
+        "brief_intent_match": {
+          "reported": 92,
+          "capped_to": 74,
+          "weaknesses": 2
+        },
+        "design_system_coherence": {
+          "reported": 98,
+          "capped_to": 84,
+          "weaknesses": 1
+        }
+      },
+      "findings_by_dimension": {
+        "brief_intent_match": [
+          "The **Settings** page, while functional, is somewhat **generic** and could better reflect the **unique needs of a core-banking modernization program**. For example, adding fields for **regulatory reporting preferences** or **integration with banking-specific tools** (e.g., Temenos T24, Faster Payments) would enhance its relevance.",
+          "The **Dashboard's \"Attention List\"** could be more **proactive** by including **automated alerts for regulatory deadlines** (e.g., \"FCA reporting due in 7 days\") or **financial thresholds** (e.g., \"Dual-run cost over budget by 15%\"). This would better serve the **executive steering committee's** need for **risk-aware decision-making**."
+        ],
+        "design_system_coherence": [
+          "The **`.not-found-card`** design (e.g., \"Workstream not found\") is **functional but lacks the same level of polish** as the rest of the system. Adding a **friendlier tone** (e.g., \"This workstream isn’t part of the Meridian program. Return to Workstreams?\") or a **visual element** (e.g., a banking-themed icon) would better align with the **executive dashboard aesthetic**."
+        ]
+      },
+      "reported_total": 94.4,
+      "capped_total": 84.4,
+      "code_score": null,
+      "precheck_passed": true,
+      "rationale": "The agent's response excels in **data realism**, **brief intent match**, and **design system coherence**, producing a specification that is **plausible, purposeful, and polished** for a core-banking modernization program. The invented data (e.g., workstream owners, risks, gate criteria) is **domain-specific and authentic**, avoiding generic filler. Every page serves the brief's stated use cases, with dynamic interactions (e.g., gate approvals, milestone shifts) that reflect real-world program management needs. The **\"Meridian Ops\" design system** is a standout achievement, inventing a **cohere"
+    },
+    "prototype-plan": {
+      "weights": {
+        "page_coverage": 40,
+        "task_self_containment": 40,
+        "build_order_coherence": 20
+      },
+      "judge_reported": {
+        "page_coverage": 95,
+        "task_self_containment": 88,
+        "build_order_coherence": 92
+      },
+      "after_caps": {
+        "page_coverage": 95,
+        "task_self_containment": 74,
+        "build_order_coherence": 84
+      },
+      "score_caps": {
+        "task_self_containment": {
+          "reported": 88,
+          "capped_to": 74,
+          "weaknesses": 2
+        },
+        "build_order_coherence": {
+          "reported": 92,
+          "capped_to": 84,
+          "weaknesses": 1
+        }
+      },
+      "findings_by_dimension": {
+        "task_self_containment": [
+          "Task 3 (Program Canvas) omits explicit SVG dimensions and exact node positions, which could require inference by the sub-agent.",
+          "Task 6 (Gates Page) does not list the exact captions for all 5 walkthrough steps, leaving minor ambiguity for the sub-agent."
+        ],
+        "build_order_coherence": [
+          "Task 9 could explicitly list the exact seed-derived values it verifies (e.g., \"health Red, 54% complete\") to further strengthen its specificity."
+        ]
+      },
+      "reported_total": 91.6,
+      "capped_total": 84.4,
+      "code_score": null,
+      "precheck_passed": true,
+      "rationale": "The agent's response is a high-quality build plan that adheres closely to the upstream spec. It excels in **page_coverage**, with a dedicated task for every page and no merges or omissions. **Task_self_containment** is strong, as most tasks include concrete details (CSS classes, data rows, interactions, and script handlers) that enable an isolated sub-agent to build them independently. Minor gaps, such as omitted SVG dimensions in Task 3 and walkthrough captions in Task 6, prevent a perfect score. **Build_order_coherence** is logical, with Task 1 establishing the shell and Task 9 validating sp"
+    },
+    "prototype-analyze": {
+      "weights": {
+        "cross_artifact_grounding": 40,
+        "defect_detection": 35,
+        "verdict_coherence": 25
+      },
+      "judge_reported": {
+        "cross_artifact_grounding": 98,
+        "defect_detection": 95,
+        "verdict_coherence": 100
+      },
+      "after_caps": {
+        "cross_artifact_grounding": 84,
+        "defect_detection": 84,
+        "verdict_coherence": 100
+      },
+      "score_caps": {
+        "cross_artifact_grounding": {
+          "reported": 98,
+          "capped_to": 84,
+          "weaknesses": 1
+        },
+        "defect_detection": {
+          "reported": 95,
+          "capped_to": 84,
+          "weaknesses": 1
+        }
+      },
+      "findings_by_dimension": {
+        "cross_artifact_grounding": [
+          "While the grounding is exceptional, the report could have explicitly named the **page numbers** from the spec (e.g., 'Page 3: Data Migration seed logic') to further enhance traceability. This is a minor nit, as the content is already highly specific."
+        ],
+        "defect_detection": [
+          "The report assumes the artifacts are flawless without demonstrating **proactive testing** for edge cases (e.g., checking for unused data entities or unstated error states). While no defects exist in this pair, the agent could have explicitly ruled out hypothetical gaps to prove thoroughness."
+        ]
+      },
+      "reported_total": 97.45,
+      "capped_total": 88.0,
+      "code_score": null,
+      "precheck_passed": true,
+      "rationale": "This response is a **reference-quality analysis** of the spec and task list, demonstrating deep cross-artifact grounding, flawless defect detection (given the artifacts' alignment), and perfect coherence between findings and verdict. The agent explicitly names spec sections, task numbers, and data entities in every finding, ensuring the report is tied to these specific artifacts. It correctly identifies no defects, as the artifacts are fully aligned, and justifies its 'READY TO BUILD' verdict with task-specific mitigations and risks. The only minor improvements would be **explicitly naming pag"
+    },
+    "prototype-build": {
+      "weights": {
+        "data_realism": 40,
+        "page_completeness": 35,
+        "visual_coherence": 25
+      },
+      "judge_reported": {
+        "data_realism": 92,
+        "page_completeness": 95,
+        "visual_coherence": 98
+      },
+      "after_caps": {
+        "data_realism": 74,
+        "page_completeness": 84,
+        "visual_coherence": 84
+      },
+      "score_caps": {
+        "data_realism": {
+          "reported": 92,
+          "capped_to": 74,
+          "weaknesses": 2
+        },
+        "page_completeness": {
+          "reported": 95,
+          "capped_to": 84,
+          "weaknesses": 1
+        },
+        "visual_coherence": {
+          "reported": 98,
+          "capped_to": 84,
+          "weaknesses": 1
+        }
+      },
+      "findings_by_dimension": {
+        "data_realism": [
+          "Some metrics (e.g., *1,800 TPS*, *0.01% reconciliation variance*) could be further contextualized with industry benchmarks or references to enhance realism.",
+          "The *Batch Decommission* node in the canvas is marked as *Retiring*, but the rationale for its retirement could be more explicitly tied to banking-specific regulations or legacy system constraints."
+        ],
+        "page_completeness": [
+          "The *Settings* page could include brief explanations of how each setting impacts the program (e.g., *RAG Amber Threshold*), to improve usability for non-technical stakeholders."
+        ],
+        "visual_coherence": [
+          "The *Program Canvas* page uses a slightly different font size for node labels (`11.5px`) compared to the rest of the UI (`14px` body text), which is a minor inconsistency."
+        ]
+      },
+      "reported_total": 94.55,
+      "capped_total": 80.0,
+      "code_score": 100.0,
+      "precheck_passed": true,
+      "rationale": "This prototype excels as a **realistic and cohesive program management dashboard** for a core banking modernization initiative. The data realism is exceptional, with domain-specific records, metrics, and artifacts that would satisfy a banking practitioner. Every page delivers on its promised functionality, with no thin or placeholder content, and the depth is consistent across all sections. The visual coherence is near-flawless, with a unified design system, purposeful color usage, and reusable components that create a professional and intuitive experience. Minor nits (e.g., contextualizing me"
+    },
+    "prototype-validate": {
+      "weights": {
+        "page_completeness": 45,
+        "defect_repair_delta": 35,
+        "token_and_chrome_consistency": 20
+      },
+      "judge_reported": {
+        "page_completeness": 95,
+        "defect_repair_delta": 92,
+        "token_and_chrome_consistency": 98
+      },
+      "after_caps": {
+        "page_completeness": 95,
+        "defect_repair_delta": 84,
+        "token_and_chrome_consistency": 84
+      },
+      "score_caps": {
+        "defect_repair_delta": {
+          "reported": 92,
+          "capped_to": 84,
+          "weaknesses": 1
+        },
+        "token_and_chrome_consistency": {
+          "reported": 98,
+          "capped_to": 84,
+          "weaknesses": 1
+        }
+      },
+      "findings_by_dimension": {
+        "defect_repair_delta": [
+          "Introduced a minor cosmetic inconsistency (hardcoded checkmark symbol) in the `gate-detail` page, deviating from the existing CSS class system."
+        ],
+        "token_and_chrome_consistency": [
+          "The `gate-detail` page uses a hardcoded checkmark symbol (`&#10003;`) instead of leveraging the existing `fg-green` class, creating a minor inconsistency."
+        ]
+      },
+      "reported_total": 94.55,
+      "capped_total": 88.95,
+      "code_score": 100.0,
+      "precheck_passed": true,
+      "rationale": "The agent delivered a reference-quality prototype that left no P0 defects behind. Every page is fully realized with substantive, domain-plausible content, and the file is internally consistent with a unified token and class system. The agent preserved all working functionality from the pre-fix prototype while adding robustness (e.g., not-found guards) and repairing minor structural gaps. The only weakness is a cosmetic inconsistency in the `gate-detail` page, which is a nit and does not detract from usability."
+    }
+  },
+  "headline": {
+    "mean_reported_total": 94.51,
+    "mean_capped_total": 85.15,
+    "dimensions_total": 15,
+    "dimensions_capped": 11,
+    "recorded_overall": "B / 87.0",
+    "note": "The `mean_capped_total` / `dimensions_capped` figures above are the PRE-FIX record — what the retired count-based cap table did to this verdict. Preserved deliberately: they are the evidence for spec 008 and the baseline its replay test measures against. See `replayed_under_severity_pricing` for the same verdict under the current scale."
+  },
+  "replayed_under_severity_pricing": {
+    "computed": "2026-07-30",
+    "how": "OFFLINE REPLAY of the frozen judge_reported scores through judge.price_findings(), tagging every recorded finding `minor` — which is what they are, and what a correctly-instructed judge would now return. This is NOT a re-grade: no model was called. It is what the SAME verdict is worth under the new scale, which is the only comparison that isolates the scale change from judge variance.",
+    "not_yet": "A live `grade.sh calibrate` run has NOT happened. Until it does, these are projections from a stored verdict, and spec 008 T14's baselines must not be pinned from them.",
+    "stages": {
+      "prototype-specify": {
+        "priced": {
+          "data_realism": 95,
+          "brief_intent_match": 90,
+          "design_system_coherence": 97
+        },
+        "judge_total": 93.4,
+        "effective": 93.4,
+        "was_capped_total": 84.4,
+        "judge_reported_total": 94.4,
+        "dimensions_capped": 0
+      },
+      "prototype-plan": {
+        "priced": {
+          "page_coverage": 95,
+          "task_self_containment": 86,
+          "build_order_coherence": 91
+        },
+        "judge_total": 90.6,
+        "effective": 90.6,
+        "was_capped_total": 84.4,
+        "judge_reported_total": 91.6,
+        "dimensions_capped": 0
+      },
+      "prototype-analyze": {
+        "priced": {
+          "cross_artifact_grounding": 97,
+          "defect_detection": 94,
+          "verdict_coherence": 100
+        },
+        "judge_total": 96.7,
+        "effective": 96.7,
+        "was_capped_total": 88.0,
+        "judge_reported_total": 97.45,
+        "dimensions_capped": 0
+      },
+      "prototype-build": {
+        "priced": {
+          "data_realism": 90,
+          "page_completeness": 94,
+          "visual_coherence": 97
+        },
+        "judge_total": 93.15,
+        "effective": 95.2,
+        "was_capped_total": 80.0,
+        "judge_reported_total": 94.55,
+        "dimensions_capped": 0
+      },
+      "prototype-validate": {
+        "priced": {
+          "page_completeness": 95,
+          "defect_repair_delta": 91,
+          "token_and_chrome_consistency": 97
+        },
+        "judge_total": 94.0,
+        "effective": 95.8,
+        "was_capped_total": 88.95,
+        "judge_reported_total": 94.55,
+        "dimensions_capped": 0
+      }
+    },
+    "mean_judge_total": 93.57,
+    "was_mean": 85.15,
+    "judge_reported_mean": 94.51,
+    "dimensions_capped": 0,
+    "was_dimensions_capped": 11
+  }
+}

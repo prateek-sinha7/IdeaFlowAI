@@ -1,0 +1,9 @@
+{
+  "workflow": "speckit",
+  "specName": "004-mistral-eval-provider",
+  "branch": "004-mistral-eval-provider",
+  "selectedAt": "2026-07-29T17:31:16.756Z",
+  "currentStep": "implement",
+  "status": "implemented",
+  "history": []
+}

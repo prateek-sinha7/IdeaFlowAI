@@ -1,6 +1,10 @@
 # =============================================================================
-# Checkov configuration for VelocityAI IaC scanning (consumed by
-# infra/buildspec.yml: `checkov -d infra/terraform --config-file .checkov.yaml`).
+# Checkov configuration for VelocityAI IaC scanning.
+# =============================================================================
+# Consumed by .github/workflows/ci.yml (`security-scan` job):
+#     checkov -d infra/terraform --config-file .checkov.yaml
+# (previously by the retired infra/buildspec.yml pre_build phase — the
+# invocation is unchanged, only the runner moved to GitHub Actions).
 # =============================================================================
 # Two mechanisms are used:
 #   - skip-path  : exclude code that is NOT deployed (module usage examples and
@@ -9,9 +13,8 @@
 #                  single-EC2, single-region architecture. Each is a conscious,
 #                  documented tradeoff. NOTE: every check listed here only
 #                  applies to the specific resources that exist in this repo
-#                  (3 S3 buckets, the SSM config params, the runner log group,
-#                  the data EBS/instance), so skipping globally loses no real
-#                  coverage today.
+#                  (3 S3 buckets, the SSM config params, the data EBS/instance),
+#                  so skipping globally loses no real coverage today.
 #
 # Resource-SPECIFIC exceptions that we do NOT want disabled globally (the broad
 # CI deploy IAM policy) use inline `# checkov:skip=` annotations instead, so the
@@ -28,7 +31,11 @@ skip-check:
   # --- S3: single-account / single-region design (only tfstate, backups,
   #     audit_trail buckets exist; all three intentionally share these choices) ---
   - CKV_AWS_144   # cross-region replication: intentionally single-region
-  - CKV_AWS_18    # S3 server access logging: not used (CloudTrail covers audit needs in one account)
+  - CKV_AWS_18    # S3 server access logging: not used. M-07 correction: the compensating
+                  # control is a CloudTrail DATA-EVENT selector scoped to the backup bucket
+                  # (modules/monitoring/main.tf aws_cloudtrail.audit's second event_selector),
+                  # not the management-events-only capture this skip previously (incorrectly)
+                  # cited — that selector never captured GetObject/PutObject on pg_dump backups.
   - CKV2_AWS_62   # S3 event notifications: not needed for state/backup/audit buckets
   - CKV2_AWS_61   # S3 lifecycle config: tfstate is versioned + prevent_destroy; lifecycle not required
 
@@ -37,10 +44,6 @@ skip-check:
   #     langsmith flags). The real secrets (secret_key, db_password, api_key)
   #     are written as SecureString and are NOT skipped. ---
   - CKV2_AWS_34   # non-secret config stored as String by design
-
-  # --- CodeBuild / CloudWatch logs ---
-  - CKV_AWS_316   # CodeBuild privileged_mode is REQUIRED to run the Docker daemon for image builds
-  - CKV_AWS_158   # runner log group uses default CloudWatch encryption (no per-env CMK exists at bootstrap time)
 
   # --- Compute: verified checkov detection limitations (NOT real gaps) ---
   - CKV2_AWS_41   # EC2 instance profile IS attached via var.iam_instance_profile_name (also required for SSM redeploy); checkov can't resolve the variable

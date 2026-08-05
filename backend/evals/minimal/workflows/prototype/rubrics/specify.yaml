@@ -1,0 +1,105 @@
+# Grading config for prototype-specify — turns a product brief into a spec
+# another agent builds HTML from. Industry-agnostic: briefs live in the
+# dataset, nothing here may name one.
+#
+# Only `judge`, `scoring`, `dimensions`, `rubric` and `upstream` are read
+# (judge.py, cli.py). specify has no `upstream:` — it is the first stage, and
+# the brief in its prompt block is the whole evidence.
+#
+# Two things an earlier version declared here and nothing ever read, worth
+# re-adding one day if calibration needs them — as real code, not as config:
+#   - precheck: free wrapper/section/filler-string checks before spending
+#     judge tokens. Needs an implementation in checks.py.
+#   - baseline.min_distinct_scores: the dead-judge guard. Caught mistral-small
+#     returning exactly 95 for all 11 rows once — invisible in the average.
+
+judge:
+  provider: mistral
+  model: mistral-large-latest      # a small judge could not separate rows
+
+
+# Score from what the findings COST (judge.SEVERITY_COST), not the number the
+# judge volunteers. This judge finds real defects and refuses to deduct for
+# them: run 260731-112251 listed a dangling route, an unbacked "real-time"
+# claim and absent responsive behaviour, then scored 100/100/95/90. Two
+# rounds of prompt-tuning moved the total the WRONG way (94.0 -> 97.25), so
+# the arithmetic moved to Python. Both numbers are stored per row
+# (`sub_scores` vs `sub_scores_judge_self`) to keep the gap measurable.
+scoring: severity_priced
+
+
+# FIVE dimensions, not seven. At seven, mistral-large returned ONE and stopped
+# (run 260731-113247), costing the whole row. Nothing was lost in the
+# fold-back: data-model checks moved into spec_consistency_completeness,
+# a11y/responsive into design_system_coherence.
+#
+# No anchors block, deliberately. A fixed 95/85/70/50/30 scale gave the judge
+# points to snap to — it scored 90 while listing two real weaknesses (run
+# 260731-111644), because the anchor text only described data-realism failure
+# modes. Severity pricing replaced it.
+dimensions:
+  - id: data_realism
+    weight: 20
+    description: >
+      Data (names, ids, amounts, dates) plausible and specific to THIS
+      brief's industry — not generic filler that would fit any vertical.
+
+  - id: brief_intent_match
+    weight: 25
+    description: >
+      Every page serves a need the brief states, and everything the brief
+      asked for is delivered. Flag both directions.
+
+  - id: design_system_coherence
+    weight: 15
+    description: >
+      Class system and density fit the audience — not a marketing look on an
+      ops tool. Flag: classes or tokens referenced but never defined; a11y
+      and narrow-viewport behaviour left silent instead of decided (control
+      labels, keyboard reach, responsive or explicit desktop-only stance).
+
+  - id: spec_consistency_completeness
+    weight: 25
+    description: >
+      Buildable without guessing. Flag: "future expansion" / "not
+      implemented" items outside the declared page count; routes referenced
+      but never defined; capabilities claimed ("real-time", "live") with no
+      mechanism; page count contradicting the pages specified; entry route
+      that is not what loads first; fields rendered but absent from the data
+      model; enums contradicted across sections; seed rows disagreeing with
+      declared types.
+
+  - id: interaction_specification
+    weight: 15
+    description: >
+      Every interaction has an exact trigger AND outcome, including empty
+      results, no-match search, zero values, first load, and what resets
+      what. Test: would two build agents produce the same behaviour?
+
+rubric: |
+  Grading a prototype SPECIFICATION (not code) that another agent will build
+  static HTML from. Read the brief for the industry.
+
+  Nothing has been pre-screened. Judge the response as-is.
+
+  Return an entry for EVERY dimension listed. A partial list is discarded in
+  full.
+
+  FINDINGS ARE THE SCORE. Per dimension, list every real defect in
+  `weaknesses` as a string PREFIXED with its severity — `"blocking: ..."`,
+  `"major: ..."`, `"minor: ..."`:
+  - blocking — cannot proceed, or would build the wrong thing: contradiction,
+    undefined reference, a brief requirement absent.
+  - major — real gap, but a reasonable assumption gets past it: unspecified
+    empty state, a capability claimed with no mechanism.
+  - minor — nit; changes nothing about what gets built.
+
+  The tag IS the deduction. Tag honestly: never withhold a finding to protect
+  a score, never inflate a nit. No real defects = empty `weaknesses` = a
+  legitimate 100. Do not invent a flaw to avoid giving one.
+
+  `score`: your own 0-100. Recorded for comparison, NOT the score of record.
+  Answer it honestly, not strategically.
+
+  `evidence`: quote specific pages or data from THIS response. Text that
+  would fit any other response is a non-answer.

@@ -1,0 +1,17 @@
+{
+  "dataset_id": "ppt_smoke",
+  "for_agent": "od-ppt-brief-analyst",
+  "description": "ONE row, full 3-stage chain. A brief with a stated audience, a stated ask, and enough named figures that every stage has something real to be judged on: a plan that omits a required subject is visible, a deck that invents its numbers is visible, and a validator that changes nothing is visible.",
+  "rows": [
+    {
+      "id": "series_b_pitch",
+      "industry": "SaaS / Fundraising",
+      "tags": [
+        "chart-heavy",
+        "narrative",
+        "exec-audience"
+      ],
+      "prompt": "Build a Series B pitch deck for Cadence, a workforce-scheduling SaaS selling to mid-market healthcare systems. Audience: growth-stage investors, 20 minutes, deck read cold before the meeting. The ask is $28M at a $140M pre-money to fund a US clinical-staffing expansion. Cover, in this order: the problem (nurse scheduling churn), the product, traction, unit economics, market, competition, the roadmap, the team, and the ask. Traction to show: ARR $4.2M growing 118% year over year, 61 hospital customers, net revenue retention 134%, gross margin 79%, CAC payback 14 months, logo churn 4%. Include a bar chart of quarterly ARR across the last eight quarters ending at $4.2M, and a cohort chart showing net revenue retention by signing year for 2022, 2023 and 2024. Competition should be a positioning table against three named incumbents on scheduling automation, clinical compliance, and integration depth. Team slide covers four founders with real-sounding healthcare-operations backgrounds. Keep it factual and quantitative — no marketing adjectives without a number behind them."
+    }
+  ]
+}

@@ -7,7 +7,7 @@ An enterprise-grade AI SaaS platform featuring a three-panel dashboard
 AI system via real-time WebSocket streaming. The AI system follows a multi-phase
 execution flow (Phases 0-7) powered by LangChain agents calling Claude via
 AWS Bedrock to generate structured deliverables: User Stories (Markdown),
-PowerPoint slides (JSON), and UI Prototypes.
+PowerPoint slides (JSON), and UI Prototypes..
 
 ================================================================================
 PREREQUISITES

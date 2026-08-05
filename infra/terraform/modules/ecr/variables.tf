@@ -17,9 +17,9 @@ variable "repository_names" {
 }
 
 variable "image_tag_mutability" {
-  description = "ECR tag mutability. MUTABLE (default) lets a build retry re-push the same <env>-<sha> / release tag — the reference CI model. Set IMMUTABLE for a strict 'a tag can never be overwritten' posture (at the cost of failing same-commit build retries)."
+  description = "ECR tag mutability. IMMUTABLE (default) means a pushed tag can NEVER be overwritten by any caller — a release tag always denotes the same bytes. This closes the failure mode where a dev-triggered build re-points an existing tag (including a v* release tag) at different content, because ECR IAM cannot restrict PutImage per tag. Build retries of an already-pushed tag stay green: .github/workflows/deploy.yml probes ECR first (ecr:DescribeImages) and reuses the existing digest instead of re-pushing. Set MUTABLE only if you accept overwritable tags. NOTE: with IMMUTABLE, floating aliases such as <env>-latest CANNOT be re-pushed either — mutability is a repository-wide setting on aws provider ~> 5.x (per-tag exclusion filters need provider >= 6.4), which is why the workflow no longer publishes them."
   type        = string
-  default     = "MUTABLE"
+  default     = "IMMUTABLE"
 
   validation {
     condition     = contains(["MUTABLE", "IMMUTABLE"], var.image_tag_mutability)

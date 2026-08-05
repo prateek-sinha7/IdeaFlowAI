@@ -48,92 +48,137 @@ variable "lock_table_name" {
   default     = "velocityai-tfstate-locks"
 }
 
-# --- CI/CD runners (Option B: full per-env isolation) -----------------------
+# --- CI/CD identity ----------------------------------------------------------
+# The retired GitLab connection + per-env CodeBuild runner variables
+# (create_gitlab_runner, gitlab_repo_url, runners) lived here. CI/CD is now
+# GitHub Actions only (see github_oidc.tf); deploy_permissions_boundary_arn is
+# kept because github_oidc.tf's shared deploy role still uses it.
 
-variable "create_gitlab_runner" {
-  description = "Create the GitLab connection + per-env CodeBuild project(s). Required for the CI/CD pipeline (infra/buildspec.yml); set true and supply gitlab_repo_url + runners. Default false keeps a state-backend-only bootstrap."
+variable "deploy_permissions_boundary_arn" {
+  description = "Optional IAM permissions-boundary ARN attached to EVERY GitHub Actions role github_oidc.tf creates (the build role and each per-environment deploy role). RECOMMENDED in a shared account: scope it to velocityai-* so these roles cannot touch non-project resources. Empty = no boundary, which github_oidc.tf surfaces as a plan/apply warning via its `check` block."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.deploy_permissions_boundary_arn == "" || can(regex("^arn:aws[a-zA-Z-]*:iam::[0-9]{12}:policy/", var.deploy_permissions_boundary_arn))
+    error_message = "deploy_permissions_boundary_arn must be empty or an IAM policy ARN (arn:aws:iam::<account>:policy/<name>)."
+  }
+}
+
+# --- GitHub Actions OIDC (github_oidc.tf) ------------------------------------
+# PRE-EXISTING GAP found while decommissioning CodeBuild: these 8 variables are
+# referenced throughout github_oidc.tf (added alongside it, presumably in the
+# same change that never got a matching variables.tf update) but were never
+# declared anywhere in this module — `terraform validate` was already broken
+# before this cleanup touched anything. bootstrap.tfvars sets
+# create_github_oidc + github_org_repo, which only worked because Terraform
+# silently treats an undeclared `-var-file` entry as a warning, not an error;
+# `validate`/`plan` is where the missing declarations actually surface. Adding
+# them here (matching every var.* usage in github_oidc.tf) is a correctness fix
+# needed to get `terraform validate` green again, not a scope change to what
+# CI/CD does.
+
+variable "create_github_oidc" {
+  description = "Create the GitHub Actions OIDC identity provider + the shared deploy role (github_oidc.tf). Default false keeps a state-backend-only bootstrap; set true once you're ready to wire GitHub Actions (docs/GITHUB_CICD_SETUP.md)."
   type        = bool
   default     = false
 }
 
-variable "gitlab_repo_url" {
-  description = "HTTPS clone URL of the GitLab repo for the CodeBuild runner, e.g. https://gitlab.com/<group>/<project>.git. Only used when create_gitlab_runner = true."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.gitlab_repo_url == "" || can(regex("^https://.*\\.git$", var.gitlab_repo_url))
-    error_message = "gitlab_repo_url must be an https://... .git clone URL (or empty when the runner is disabled)."
-  }
+variable "github_oidc_create_provider" {
+  description = "Create the token.actions.githubusercontent.com OIDC provider (true), or adopt an existing one already present in this account (false). There can be only one provider per account for a given URL, so set false if a sibling project already created it. Ignored when create_github_oidc = false."
+  type        = bool
+  default     = true
 }
 
-variable "deploy_permissions_boundary_arn" {
-  description = "Optional IAM permissions-boundary ARN attached to every per-env CodeBuild deploy role. RECOMMENDED in a shared account: scope it to velocityai-* so even the broad ProvisionStack statement cannot touch non-project resources. Empty = no boundary."
-  type        = string
-  default     = ""
+variable "github_oidc_thumbprints" {
+  description = "TLS certificate thumbprint(s) for GitHub's OIDC token endpoint. Only used when github_oidc_create_provider = true. Verify at https://github.blog/changelog/ before relying on this default long-term — AWS validates the OIDC cert chain against trusted CAs itself, so this is largely a legacy required field."
+  type        = list(string)
+  default     = ["1c58a3a8518e8759bf075b76b750d4f2df264fcd"]
 }
 
-variable "runners" {
+variable "github_org_repo" {
   description = <<-EOT
-    Per-environment GitLab CI/CD runner definitions, keyed by environment name
-    (dev|stage|prod). Each entry creates one fully isolated CodeBuild runner +
-    deploy role + webhook + log group. `branch` is the git branch (or, for tag/
-    release triggers, the name used to derive the project name — keep stable).
-    The non-secret per-env config (cors_origins, bedrock model, alert_email) is
-    injected into foundation/app as TF_VAR_*; secrets (SECRET_KEY, DB password)
-    are auto-generated by the foundation secrets module and never pass through
-    here. `extra_env` is the seam for adding per-env build vars without code
-    changes.
+    EXACT GitHub "<owner>/<repository>" whose workflows may assume the CI/CD
+    roles. Combined with each entry in github_environments to form the OIDC
+    subject "repo:<github_org_repo>:environment:<env>", matched with
+    StringEquals.
+
+    TWO VALID FORMS — the correct one depends on a GitHub org/enterprise
+    setting, and getting it wrong fails every deploy at OIDC auth with
+    "Not authorized to perform sts:AssumeRoleWithWebIdentity":
+
+      1. Plain names:      "Hexaware-HnI/velocityai"
+      2. Immutable IDs:    "Hexaware-HnI@220132078/velocityai@1321162016"
+
+    Form 2 is what GitHub emits when "immutable identifiers in the OIDC
+    subject" is enabled for the org/enterprise. GitHub then suffixes the owner
+    with @<org_id> and the repository with @<repo_id> so the subject survives a
+    rename. It is the STRONGER form: an attacker who acquires a released org or
+    repo NAME cannot impersonate the numeric ID, and a rename no longer
+    silently changes which identity can assume these roles.
+
+    DO NOT GUESS which form your org uses. Read the `sub` claim STS actually
+    received from CloudTrail:
+
+      aws cloudtrail lookup-events \
+        --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+        --region <region> --max-results 5 \
+        --query 'Events[].Username' --output text
+
+    WILDCARDS ARE REJECTED: a glob like "my-org*/my-repo*" also admits any
+    other GitHub owner/repository sharing that prefix — a repo-impersonation
+    path into this account. Rename of the org/repo is a deliberate
+    infrastructure change, not something the trust policy should absorb.
+
+    Required when create_github_oidc = true.
   EOT
-  type = map(object({
-    branch                       = string
-    cors_origins                 = string
-    bedrock_model_id             = string
-    bedrock_inference_profile_id = string
-    alert_email                  = string
-    compute_type                 = optional(string, "BUILD_GENERAL1_MEDIUM")
-    log_retention_days           = optional(number, 30)
-    extra_env                    = optional(map(string), {})
-    # How this env's build is triggered:
-    #   "branch" (default) -> push to `branch`
-    #   "tag"              -> a git tag push matching `tag_pattern`
-    #   "release"          -> a GitLab Release create/update (any release)
-    #
-    # WARNING (GitLab): only "branch" actually fires. GitLab tag pushes arrive
-    # as a separate "Tag Push Hook" that CodeBuild's GitLab integration does not
-    # trigger on, and GitLab Release events are rejected by CodeBuild for
-    # lacking a sender account ID ("Missing sender account ID"). So on GitLab
-    # both "tag" and "release" are no-ops (the webhook never fires) — use
-    # "branch" and protect the branch (MR + approval) to gate deploys.
-    trigger_type = optional(string, "branch")
-    # Tag-name pattern for "tag" runners only (matched after refs/tags/; do NOT
-    # add your own ^ or $). Empty = ANY tag.
-    tag_pattern = optional(string, "")
-  }))
-  default = {}
+  type        = string
+  default     = ""
 
   validation {
-    condition     = alltrue([for env in keys(var.runners) : contains(["dev", "stage", "prod"], env)])
-    error_message = "runners keys must be one of: dev, stage, prod (matching the foundation/app environment name)."
+    condition     = var.github_org_repo != "" || !var.create_github_oidc
+    error_message = "github_org_repo must be set when create_github_oidc = true."
   }
+
+  # Optional "@<digits>" suffix on either side accepts GitHub's immutable-ID
+  # subject form. `*` is still not in either character class, so a wildcard is
+  # rejected exactly as before.
   validation {
-    condition     = alltrue([for r in values(var.runners) : length(trimspace(r.branch)) > 0])
-    error_message = "each runner's branch must be a non-empty branch name."
+    condition     = var.github_org_repo == "" || can(regex("^[A-Za-z0-9][A-Za-z0-9-_.]*(@[0-9]+)?/[A-Za-z0-9][A-Za-z0-9-_.]*(@[0-9]+)?$", var.github_org_repo))
+    error_message = "github_org_repo must be an exact \"<owner>/<repository>\" pair with no wildcards — either plain names (\"Hexaware-HnI/velocityai\") or GitHub's immutable-ID form (\"Hexaware-HnI@220132078/velocityai@1321162016\")."
   }
+}
+
+variable "github_environments" {
+  description = "GitHub Environment names (must match the deploy-environment names, NOT branch names — see docs/GITHUB_CICD_SETUP.md's naming callout). One deploy role is created PER entry, each trusting only its own OIDC subject and scoped to only its own SSM prefix and EC2 `Environment` tag value."
+  type        = list(string)
+  default     = ["dev", "stage", "prod"]
+
   validation {
-    condition     = alltrue([for r in values(var.runners) : r.cors_origins != "*"])
-    error_message = "cors_origins must be a concrete origin list, never '*'."
+    condition     = alltrue([for e in var.github_environments : contains(["dev", "stage", "prod"], e)])
+    error_message = "github_environments entries must be one of: dev, stage, prod."
   }
+
   validation {
-    condition     = alltrue([for r in values(var.runners) : can(regex("^[^@]+@[^@]+\\.[^@]+$", r.alert_email))])
-    error_message = "each runner's alert_email must look like a valid email address."
+    condition     = length(var.github_environments) == length(toset(var.github_environments))
+    error_message = "github_environments must not contain duplicates (each entry names one IAM role)."
   }
-  validation {
-    condition     = alltrue([for r in values(var.runners) : contains(["BUILD_GENERAL1_SMALL", "BUILD_GENERAL1_MEDIUM", "BUILD_GENERAL1_LARGE", "BUILD_GENERAL1_2XLARGE"], r.compute_type)])
-    error_message = "compute_type must be a valid CodeBuild compute type (e.g. BUILD_GENERAL1_MEDIUM)."
-  }
-  validation {
-    condition     = alltrue([for r in values(var.runners) : contains(["branch", "tag", "release"], r.trigger_type)])
-    error_message = "each runner's trigger_type must be \"branch\", \"tag\", or \"release\"."
-  }
+}
+
+variable "github_cicd_role_name" {
+  description = "Base name for the IAM roles GitHub Actions assumes via OIDC. Creates \"<name>-build\" (ECR only, shared) plus one \"<name>-<env>\" deploy role per entry in github_environments (e.g. velocityai-gha-deploy-dev)."
+  type        = string
+  default     = "velocityai-gha-deploy"
+}
+
+variable "github_ecr_repository_names" {
+  description = "ECR repository names (not ARNs) the BUILD role may push/pull, scoped exactly — no wildcard beyond what's listed here. The per-environment deploy roles get no ECR access at all: images are pulled on the box by the EC2 instance role."
+  type        = list(string)
+  default     = ["velocityai/backend", "velocityai/frontend"]
+}
+
+variable "github_cicd_kms_key_arns" {
+  description = "KMS key ARNs the per-environment deploy roles may kms:Encrypt against when writing SSM SecureString parameters. Empty (default) scopes to every key in this account+region instead of a bare \"*\", because the per-env project CMKs (modules/kms) don't exist yet at bootstrap time. That breadth is closed by two conditions on the statement — kms:ViaService (SSM only) and kms:RequestAlias (this environment's own CMK alias only) — so a dev role still cannot encrypt under the prod key. Pass concrete ARNs once they exist to tighten the Resource as well."
+  type        = list(string)
+  default     = []
 }

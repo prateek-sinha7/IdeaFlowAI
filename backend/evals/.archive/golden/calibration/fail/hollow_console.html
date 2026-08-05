@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operations Console</title>
+<style>
+:root {
+  --bg: #f5f6f8;
+  --fg: #1f2430;
+  --accent: #3b5bdb;
+  --surface: #ffffff;
+  --border: #dfe3ea;
+  --muted: #6b7280;
+  --font-body: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { display: flex; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; }
+
+.sidebar { width: 220px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 20px 12px; }
+.brand { font-size: 15px; font-weight: 700; color: var(--accent); padding: 0 10px 18px; }
+.nav-link { display: block; padding: 9px 10px; margin-bottom: 2px; border-radius: 6px; color: var(--fg); text-decoration: none; }
+.nav-link.active { background: var(--accent); color: var(--surface); }
+
+.main { flex: 1; padding: 26px 30px; max-width: 1100px; }
+.page { display: none; }
+.page.is-active { display: block; }
+.page-title { font-size: 20px; font-weight: 700; }
+.page-sub { color: var(--muted); margin-top: 4px; margin-bottom: 18px; }
+
+.card-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.card { flex: 1; min-width: 180px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.card-value { font-size: 24px; font-weight: 700; }
+.card-label { color: var(--muted); margin-top: 4px; }
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-top: 16px; }
+.panel-title { font-weight: 600; margin-bottom: 8px; }
+.note { color: var(--muted); }
+
+.toolbar { display: flex; gap: 10px; margin-bottom: 14px; }
+.search-input { width: 260px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); font-size: 14px; }
+.btn { padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; font-size: 13px; }
+.btn:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="brand">Operations Console</div>
+  <nav>
+    <a class="nav-link" data-page-link="overview" href="#/overview" onclick="navigateTo('#/overview')">Overview</a>
+    <a class="nav-link" data-page-link="records" href="#/records" onclick="navigateTo('#/records')">Records</a>
+    <a class="nav-link" data-page-link="reports" href="#/reports" onclick="navigateTo('#/reports')">Reports</a>
+    <a class="nav-link" data-page-link="activity" href="#/activity" onclick="navigateTo('#/activity')">Activity</a>
+    <a class="nav-link" data-page-link="settings" href="#/settings" onclick="navigateTo('#/settings')">Settings</a>
+  </nav>
+</aside>
+
+<main class="main">
+
+  <section data-page="overview" class="page is-active">
+    <div class="page-title">Overview</div>
+    <div class="page-sub">A summary of the current state.</div>
+    <div class="card-row">
+      <div class="card"><div class="card-value">250</div><div class="card-label">Total</div></div>
+      <div class="card"><div class="card-value">100</div><div class="card-label">Active</div></div>
+      <div class="card"><div class="card-value">50</div><div class="card-label">Pending</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Summary</div>
+      <p class="note">Key metrics are shown above. Use the navigation to explore further.</p>
+    </div>
+  </section>
+
+  <section data-page="records" class="page">
+    <div class="page-title">Records</div>
+    <div class="page-sub">Browse and search the available entries.</div>
+    <div class="toolbar">
+      <input class="search-input" type="search" placeholder="Search records">
+      <button class="btn" onclick="applyFilter()">Filter</button>
+    </div>
+    <div class="panel">
+      <div class="panel-title">All records</div>
+      <p class="note">250 entries are available. Select one to view its details.</p>
+    </div>
+  </section>
+
+  <section data-page="reports" class="page">
+    <div class="page-title">Reports</div>
+    <div class="page-sub">Generated output for the selected period.</div>
+    <div class="card-row">
+      <div class="card"><div class="card-value">12</div><div class="card-label">Reports</div></div>
+      <div class="card"><div class="card-value">4</div><div class="card-label">Scheduled</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Latest report</div>
+      <p class="note">The most recent report covers the current period.</p>
+      <button class="btn" onclick="generateReport()">Generate</button>
+    </div>
+  </section>
+
+  <section data-page="activity" class="page">
+    <div class="page-title">Activity</div>
+    <div class="page-sub">Recent changes across the system.</div>
+    <div class="panel">
+      <div class="panel-title">Recent activity</div>
+      <p class="note">Updates appear here as they happen.</p>
+    </div>
+  </section>
+
+  <section data-page="settings" class="page">
+    <div class="page-title">Settings</div>
+    <div class="page-sub">Configure how the console behaves.</div>
+    <div class="panel">
+      <div class="panel-title">Preferences</div>
+      <p class="note">Options can be adjusted here.</p>
+      <button class="btn" onclick="savePreferences()">Save</button>
+    </div>
+  </section>
+
+</main>
+
+<script>
+const routes = [
+  { pattern: "overview", page: "overview" },
+  { pattern: "records",  page: "records" },
+  { pattern: "reports",  page: "reports" },
+  { pattern: "activity", page: "activity" },
+  { pattern: "settings", page: "settings" }
+];
+
+function matchRoute(hash) {
+  const path = hash.replace(/^#\/?/, "") || "overview";
+  for (const route of routes) {
+    if (route.pattern === path) return { page: route.page };
+  }
+  return { page: "overview" };
+}
+
+function handleRouteChange() {
+  const matched = matchRoute(window.location.hash);
+  document.querySelectorAll("section[data-page]").forEach(function (s) { s.classList.remove("is-active"); });
+  const section = document.querySelector('section[data-page="' + matched.page + '"]');
+  if (section) section.classList.add("is-active");
+  document.querySelectorAll("[data-page-link]").forEach(function (a) { a.classList.remove("active"); });
+  document.querySelectorAll('[data-page-link="' + matched.page + '"]').forEach(function (a) { a.classList.add("active"); });
+}
+
+function navigateTo(hash) { window.location.hash = hash; }
+function applyFilter() { handleRouteChange(); }
+function generateReport() { handleRouteChange(); }
+function savePreferences() { handleRouteChange(); }
+
+window.addEventListener("hashchange", handleRouteChange);
+window.addEventListener("load", handleRouteChange);
+</script>
+
+</body>
+</html>

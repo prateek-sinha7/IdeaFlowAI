@@ -10,14 +10,6 @@
         "logs:DescribeLogStreams"
       ],
       "Resource": "arn:${partition}:logs:${region}:${account_id}:log-group:/velocityai/${environment}/*"
-    },
-    {
-      "Sid": "DescribeLogGroups",
-      "Effect": "Allow",
-      "Action": [
-        "logs:DescribeLogGroups"
-      ],
-      "Resource": "arn:${partition}:logs:${region}:${account_id}:log-group:/velocityai/${environment}/*"
     }
   ]
 }

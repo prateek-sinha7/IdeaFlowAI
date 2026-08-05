@@ -1,0 +1,36 @@
+# configs/prototype_smoke.yaml, dispatched on AWS Bedrock instead of Mistral.
+#
+#   ./eval.sh configs/prototype_smoke_bedrock.yaml --advise
+#
+# WHY A CONFIG AND NOT `--provider bedrock`: the flag works, but it lives in
+# shell history rather than in the run. A config that names its own provider
+# cannot be run against the wrong one by forgetting the flag, and
+# `.runs/<id>/config.json` records `provider: bedrock` so a report row months
+# later still says which cloud produced it.
+#
+# WHAT CHANGES vs prototype_smoke.yaml — the DISPATCH provider only. Same row,
+# same stages, same rubrics, and the JUDGE stays pinned to mistral-large in
+# the rubrics. That is deliberate: changing the thing under test AND the
+# instrument measuring it in one step makes a score delta unattributable.
+#
+# MODEL: `model:` is left unset, so build_model resolves
+# settings.BEDROCK_INFERENCE_PROFILE_ID. Pin a different one here to test it,
+# e.g. `model: eu.anthropic.claude-sonnet-4-5-20250929-v1:0`. The resolved id
+# is recorded per row as `model_id`, so it is never a guess.
+#
+# COST — READ FIRST. On Mistral's free tier a runaway chain is a rate-limit
+# problem; on Bedrock it is a BILLED one. Read this run's token counts before
+# scaling to configs/prototype_ten.yaml.
+
+workflow: prototype
+dataset: smoke.json
+
+# An explicit provider never silently falls back — if Bedrock is
+# unconfigured, build_model raises rather than quietly running on Mistral.
+# "aws" is accepted as an alias.
+provider: bedrock
+
+# Pinned so this arm's runs are distinguishable from the Mistral arm's at a
+# glance in .runs/ and on the report index — otherwise both mint
+# `<timestamp>-prototype_smoke` and only the timestamp tells them apart.
+dataset_id: prototype_smoke_bedrock

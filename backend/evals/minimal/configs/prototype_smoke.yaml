@@ -1,0 +1,19 @@
+# ONE row, all 5 stages. Start here — always.
+#
+#   ./eval.sh configs/prototype_smoke.yaml --advise
+#
+# ...or one stage at a time, reading the report between each. `--into` appends
+# to an EXISTING run so every stage lands in the same folder and the same
+# report row, seeded from what that run already produced:
+#
+#   ./eval.sh configs/prototype_smoke.yaml --stage specify --advise   # prints RUN_ID
+#   ./eval.sh configs/prototype_smoke.yaml --stage plan --into RUN_ID --advise
+#
+# Stages must run in the workflow's `order`: each consumes the one(s) before it.
+#
+# Once this comes back clean, and only then, run configs/prototype_ten.yaml.
+
+# The chain, the agents and the sandbox filenames all live in
+# workflows/prototype/workflow.yaml. A config is a workflow plus a dataset.
+workflow: prototype
+dataset: smoke.json
