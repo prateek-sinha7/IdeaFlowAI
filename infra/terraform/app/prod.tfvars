@@ -25,3 +25,14 @@ use_nip_io = true
 # Monitoring.
 log_retention_days          = 30
 billing_alarm_threshold_usd = 500
+
+# M-12: per-log-group retention overrides. Without this every group — including
+# auth/system (forensic value, low volume) — inherited the same 30d default as
+# nginx-access (high churn, low forensic value). auth/system get long retention
+# for incident-response; nginx-access is shortened since it is high-volume and
+# already summarized by the nginx_5xx/429/limit-reject metric filters.
+log_retention_overrides = {
+  "/velocityai/prod/auth"         = 365
+  "/velocityai/prod/system"       = 365
+  "/velocityai/prod/nginx-access" = 14
+}

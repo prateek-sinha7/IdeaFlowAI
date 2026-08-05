@@ -55,9 +55,9 @@ variable "ecr_repository_names" {
 }
 
 variable "ecr_image_tag_mutability" {
-  description = "ECR tag mutability for the shared repos (MUTABLE or IMMUTABLE). MUTABLE lets a build retry re-push the same tag (the reference CI model)."
+  description = "ECR tag mutability for the shared repos. IMMUTABLE (default) means a pushed tag can never be overwritten, so a v* release tag cannot be re-pointed at other content by a later (or lower-environment) build — ECR IAM has no per-tag PutImage condition, so this repository-level setting is the control. Build retries remain green because deploy.yml reuses the digest of an already-pushed tag instead of re-pushing it."
   type        = string
-  default     = "MUTABLE"
+  default     = "IMMUTABLE"
 
   validation {
     condition     = contains(["MUTABLE", "IMMUTABLE"], var.ecr_image_tag_mutability)

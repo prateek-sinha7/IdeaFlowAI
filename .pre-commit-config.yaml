@@ -99,8 +99,9 @@ repos:
         # the right paths" bugs.
 
   # ---------------------------------------------------------------------
-  # Infra: tflint (Terraform lint — mirrors the CI scan in
-  # infra/buildspec.yml's pre_build phase).
+  # Infra: tflint (Terraform lint — mirrors the `security-scan` job in
+  # .github/workflows/ci.yml, which runs the identical command against the
+  # same infra/terraform/.tflint.hcl ruleset).
   #
   # Uses the locally-installed tflint binary (language: system), the same
   # pattern as pyright/eslint above. One-time setup per clone:

@@ -2362,7 +2362,7 @@ The columns:
 | `/flowin/prod/SECRET_KEY` | `SECRET_KEY` | SecureString | `openssl rand -hex 64` | Yearly + on compromise | Used by python-jose for HS256. **Required non-default at boot** (Blocker 1). |
 | `/flowin/prod/DATABASE_PASSWORD` | `DATABASE_URL` (composed by loader) | SecureString | `openssl rand -hex 32` | Yearly + on compromise | Drives `ALTER USER flowin WITH PASSWORD ...`. The loader composes `DATABASE_URL=postgresql://flowin:${pw}@127.0.0.1:5432/flowin` from this value. |
 | `/flowin/prod/CORS_ORIGINS` | `CORS_ORIGINS` | String | – | When domains change | JSON array. Currently `["https://flowin.example.com"]`. |
-| `/flowin/prod/ACCESS_TOKEN_EXPIRE_HOURS` | `ACCESS_TOKEN_EXPIRE_HOURS` | String | `12` | Re-evaluate yearly | Production override per env-template (env-templates/.env.production). |
+| `/flowin/prod/ACCESS_TOKEN_EXPIRE_HOURS` | `ACCESS_TOKEN_EXPIRE_HOURS` | String | `12` | Re-evaluate yearly | Production override per env-template (env-templates/.env.production.example). |
 | `/flowin/prod/llm/region` | `AWS_REGION` | String | `eu-central-1` | When deployment region changes | AWS region the Bedrock SDK targets. The cross-region inference profile fans out to other EU regions transparently — the SDK target stays `eu-central-1`. |
 | `/flowin/prod/llm/model_id` | `BEDROCK_MODEL_ID` | String | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | When upgrading model | The Bedrock model ID or inference-profile ID the application invokes. Not a secret, but kept in Parameter Store so model swaps don't require a redeploy. |
 | `/flowin/prod/LANGSMITH_TRACING` | `LANGSMITH_TRACING` | String | `false` (default) or `true` | Per change | If `true`, also requires the next two keys. |

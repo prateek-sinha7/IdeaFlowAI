@@ -7,7 +7,7 @@
 #   - the S3 bucket that holds Terraform state for the shared/foundation/app layers
 #   - the DynamoDB table for state locking
 #   - a small bootstrap-local KMS CMK that encrypts both of the above
-#   - (optionally) the per-environment GitLab CI/CD CodeBuild runners
+#   - (optionally) the GitHub Actions OIDC provider + shared deploy role
 #
 # After `terraform apply` here, copy the bucket name into the layer init via
 #   terraform init -backend-config="bucket=<state_bucket_name>" ...
@@ -43,78 +43,47 @@ state_bucket_name = "velocityai-tfstate-eu-central-1"
 # cost_center = "UKI-AI-001"
 
 # =============================================================================
-# CI/CD runners (optional) — see cicd.tf for the full design notes.
+# GitHub Actions CI/CD (optional) — see github_oidc.tf for the full design
+# notes, and docs/GITHUB_CICD_SETUP.md for the complete operator guide.
 #
-# Leave create_gitlab_runner = false (the default) for a state-backend-only
-# bootstrap. Set it to true and fill in gitlab_repo_url + runners to also
-# provision the per-environment CodeBuild pipeline runners.
+# Leave create_github_oidc = false (the default) for a state-backend-only
+# bootstrap. Set it to true and fill in github_org_repo to also provision the
+# OIDC identity provider, ONE ECR-only build role, and ONE DEPLOY ROLE PER
+# ENVIRONMENT (each trusting a single OIDC subject — see github_oidc.tf for why
+# a single shared role cannot isolate environments).
 # =============================================================================
 
-# Master switch for the GitLab connection + per-env CodeBuild projects.
-# create_gitlab_runner = false
+# Master switch for the OIDC provider + build/deploy roles.
+# create_github_oidc = false
 
-# HTTPS clone URL of the GitLab repo (must end in .git). Required when
-# create_gitlab_runner = true; ignored otherwise.
-# gitlab_repo_url = "https://gitlab.com/hexaware-uki/velocityai.git"
+# EXACT GitHub "<owner>/<repository>". Required when create_github_oidc = true.
+# WILDCARDS ARE REJECTED by variable validation: a glob such as
+# "my-org*/my-repo*" would also admit any other owner/repository sharing that
+# prefix, in any organisation — a repo-impersonation path into this account.
+# An org/repo rename is a deliberate change here plus a re-apply.
+# github_org_repo = "my-org/velocityai"
 
-# Optional IAM permissions-boundary ARN attached to every per-env CodeBuild
-# deploy role. RECOMMENDED in a shared account: scope it to velocityai-* so the
-# broad ProvisionStack statement cannot touch non-project resources.
-# Empty = no boundary.
+# GitHub Environment names. ONE DEPLOY ROLE IS CREATED PER ENTRY, each scoped to
+# only its own /velocityai/<env>/* parameters and only instances tagged
+# Environment=<env>. Default matches the live infra's short names (dev/stage/prod
+# — NOT dev/staging/production; see docs/GITHUB_CICD_SETUP.md's naming callout).
+# github_environments = ["dev", "stage", "prod"]
+
+# Adopt an existing token.actions.githubusercontent.com OIDC provider instead
+# of creating one. There can be only one per account for a given URL — set
+# false if a sibling project in this shared account already created it.
+# github_oidc_create_provider = true
+
+# Optional IAM permissions-boundary ARN attached to EVERY role created here
+# (build + each per-env deploy role). RECOMMENDED in a shared account: scope it
+# to velocityai-* so these roles cannot touch non-project resources. Empty = no
+# boundary, which github_oidc.tf reports as a plan/apply WARNING (check block)
+# rather than failing — so a first bootstrap in a sandbox account still works.
 # deploy_permissions_boundary_arn = "arn:aws:iam::123456789012:policy/velocityai-deploy-boundary"
 
-# Per-environment runner definitions, keyed by env name (dev|stage|prod). Each
-# entry creates one isolated CodeBuild runner + deploy role + webhook + log
-# group. Only needed when create_gitlab_runner = true.
-#
-# cors_origins NOTE: this is injected as TF_VAR_cors_origins and MUST be either
-#   - ""                  -> backend falls back to ["https://<FQDN>"] (correct
-#                            for nip.io dev/stage where the FQDN = <eip>.nip.io
-#                            and isn't known until apply), or
-#   - a JSON ARRAY STRING -> e.g. "[\"https://app.example.com\"]" (prod with a
-#                            real Route 53 domain). Frontend + backend share one
-#                            nginx origin, so usually a single entry.
-# A bare "https://..." (not a JSON array) FAILS foundation validation.
-#
-# bedrock_model_id vs bedrock_inference_profile_id — these are DIFFERENT ids:
-#   - bedrock_model_id             = the BARE foundation-model id (no regional
-#                                    prefix). Scopes the IAM `foundation-model/*`
-#                                    ARN, so it MUST match the model actually
-#                                    invoked underneath the profile.
-#   - bedrock_inference_profile_id = the CROSS-REGION inference profile id (the
-#                                    `eu.` prefix) the app invokes; scopes the
-#                                    IAM `inference-profile/*` ARN.
-# Do NOT set bedrock_model_id to the `eu.` value — a cross-region InvokeModel
-# resolves to the bare foundation-model ARN in the routed region, so a prefixed
-# model id makes IAM deny bedrock:InvokeModel and every LLM call fails.
-# runners = {
-#   dev = {
-#     branch                       = "dev"
-#     cors_origins                 = ""   # nip.io -> FQDN fallback
-#     bedrock_model_id             = "anthropic.claude-haiku-4-5-20251001-v1:0"
-#     bedrock_inference_profile_id = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-#     alert_email                  = "velocityai-dev-alerts@hexaware.com"
-#     # Optional knobs (defaults shown):
-#     # compute_type       = "BUILD_GENERAL1_MEDIUM"
-#     # log_retention_days = 30
-#     # trigger_type       = "branch"   # "branch" | "tag" | "release"
-#     # tag_pattern        = ""          # only used when trigger_type = "tag"
-#     # extra_env          = {}          # extra build env vars, e.g. { FOO = "bar" }
-#   }
-#   stage = {
-#     branch                       = "staging"
-#     cors_origins                 = ""   # nip.io -> FQDN fallback
-#     bedrock_model_id             = "anthropic.claude-haiku-4-5-20251001-v1:0"
-#     bedrock_inference_profile_id = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-#     alert_email                  = "velocityai-stage-alerts@hexaware.com"
-#   }
-#   prod = {
-#     branch                       = "main"
-#     cors_origins                 = "[\"https://velocityai.example.com\"]"  # real domain
-#     bedrock_model_id             = "anthropic.claude-haiku-4-5-20251001-v1:0"
-#     bedrock_inference_profile_id = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-#     alert_email                  = "velocityai-prod-alerts@hexaware.com"
-#     compute_type                 = "BUILD_GENERAL1_LARGE"
-#     trigger_type                 = "release"
-#   }
-# }
+# Optional: pin the KMS keys the deploy roles may encrypt SecureStrings with.
+# Empty (default) allows any key in this account+region, but ONLY via SSM and
+# ONLY for the role's own /velocityai/<env>/* parameters (kms:ViaService +
+# kms:EncryptionContext:PARAMETER_ARN conditions). Supply the per-env project
+# CMK ARNs once the foundation layer has created them to tighten further.
+# github_cicd_kms_key_arns = ["arn:aws:kms:eu-central-1:123456789012:key/<id>"]

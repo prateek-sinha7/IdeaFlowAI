@@ -49,6 +49,24 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Seed sessionStorage with the tab-launched run IDs for KAN-125 ownership filter.
+  // The provider auto-attaches only runs that appear in this set, preventing
+  // cross-tab interference. For test purposes, pre-populate with the building runs.
+  const tabLaunchedIds = new Set(["build-run", "gen-run"]);
+  Object.defineProperty(window, "sessionStorage", {
+    value: {
+      tab_launched_run_ids: JSON.stringify(Array.from(tabLaunchedIds)),
+      getItem: (key: string) => {
+        if (key === "tab_launched_run_ids") {
+          return JSON.stringify(Array.from(tabLaunchedIds));
+        }
+        return null;
+      },
+      setItem: () => {},
+      removeItem: () => {},
+      clear: () => {},
+    },
+  });
 });
 
 afterEach(() => {

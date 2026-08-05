@@ -1,6 +1,11 @@
 # =============================================================================
-# Trivy misconfiguration ignores (consumed by infra/buildspec.yml:
-#   trivy config ... --ignorefile .trivyignore infra/terraform).
+# Trivy misconfiguration ignores.
+# =============================================================================
+# Consumed by .github/workflows/ci.yml (`security-scan` job):
+#   trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile .trivyignore
+#     --skip-dirs "**/examples/**" --skip-dirs "**/localstack/**" infra/terraform
+# (previously by the retired infra/buildspec.yml pre_build phase — same flags).
+# The HIGH,CRITICAL threshold matters: the accepts below were triaged at it.
 # =============================================================================
 # Each ID below is an ACCEPTED finding for this single-account / single-EC2 /
 # single-region architecture. Each maps ONLY to the resources noted, so a
@@ -15,11 +20,12 @@
 # single-EC2 design). Only the app SG egress rules match.
 AVD-AWS-0104
 
-# AVD-AWS-0031 — ECR repository tags are mutable. The CI model re-pushes the
-# same <env>-<sha> / release tag on a build retry, and the lifecycle policy
-# always keeps a prior release to roll back to. Same accept as CKV_AWS_51
-# (inline checkov:skip in modules/ecr/main.tf). Only the velocityai/* repos match.
-AVD-AWS-0031
+# AVD-AWS-0031 (ECR mutable tags) WAS accepted here on the grounds that a build
+# retry needs to re-push the same tag. That accept is withdrawn: the repos now
+# default to IMMUTABLE (infra/terraform/modules/ecr) and build retries are
+# handled by reusing the existing image's digest instead of re-pushing it
+# (.github/workflows/deploy.yml, "Probe ECR for an existing image"). The check
+# is intentionally live again so that flipping a repo back to MUTABLE fails CI.
 
 # AVD-AWS-0136 — SNS topic not encrypted with a customer-managed KMS key. The
 # alerts topic carries non-sensitive CloudWatch alarm notifications and uses

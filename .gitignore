@@ -5,6 +5,9 @@
 # Local-dev compose env (devs copy from app.env.example).
 # The .example template IS committed; the real file is not.
 /app.env
+# Template env files (committed .example variants are exceptions to .env ignore)
+/env-templates/.env.*
+!/env-templates/.env.*.example
 
 # Local-dev compose overrides — see app.env.example for the convention.
 docker-compose.override.yml

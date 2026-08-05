@@ -33,8 +33,10 @@ module "compute" {
   # objects only reference foundation outputs + local files, never compute.
   depends_on = [
     aws_s3_object.compose_yaml,
+    aws_s3_object.compose_prod_yaml,
     aws_s3_object.deploy_env,
     aws_s3_object.bootstrap_script,
+    aws_s3_object.reconcile_script,
   ]
 
   name_prefix               = local.name_prefix
@@ -93,6 +95,34 @@ resource "aws_s3_object" "bootstrap_script" {
   }
 }
 
+# --- Host-config reconcile script hosted in S3 --------------------------------
+# The declarative half of bootstrap-ec2.sh (nginx site + limits + proxy-header
+# snippet, CloudWatch agent config + ACLs), extracted so it can be re-applied
+# to a RUNNING host. bootstrap-ec2.sh fetches and runs it on first boot; the CI
+# deploy fetches and runs it on every deploy. `source_hash` re-uploads whenever
+# the local script changes, so a repo edit reaches a live host on the next
+# deploy without any pipeline change.
+#
+# Same category as bootstrap_script: infrastructure that must exist before any
+# CI run, not deploy output. Same bucket/prefix/KMS key, so the instance role's
+# existing s3-config-read + kms-decrypt grants already cover it.
+resource "aws_s3_object" "reconcile_script" {
+  bucket = local.fnd.backup_bucket_name
+  key    = "config/reconcile-host-config.sh"
+
+  source      = "${path.root}/../../scripts/reconcile-host-config.sh"
+  source_hash = filemd5("${path.root}/../../scripts/reconcile-host-config.sh")
+
+  content_type           = "text/x-shellscript"
+  server_side_encryption = "aws:kms"
+  kms_key_id             = local.fnd.kms_key_arn
+
+  tags = {
+    Name      = "${local.name_prefix}-reconcile-script"
+    Component = "compute"
+  }
+}
+
 # --- DNS --------------------------------------------------------------------
 module "dns" {
   source = "../modules/dns"
@@ -125,12 +155,49 @@ resource "aws_s3_object" "compose_yaml" {
   }
 }
 
+# --- docker-compose.prod.yml (M-01 logging override) hosted in S3 ----------
+# Switches backend/frontend to the awslogs driver so each ships to its own
+# CloudWatch stream instead of the CloudWatch agent's undifferentiated
+# {instance_id}/docker stream. Applied alongside docker-compose.yml via
+# `docker compose -f docker-compose.yml -f docker-compose.prod.yml` (both the
+# systemd unit in bootstrap-ec2.sh and the CI redeploy in
+# .github/workflows/deploy.yml + .github/scripts/remote-deploy.sh pass both
+# files). Same delivery mechanism/bucket/KMS key as compose_yaml.
+#
+# NOTE: CI no longer READS this S3 object (deploy.yml ships docker-compose.yml
+# / docker-compose.prod.yml inline from the checkout, gzip+base64, in the SSM
+# payload — see remote-deploy.sh's header). This upload stays because
+# bootstrap-ec2.sh §10 and velocityai-firstboot.service still fetch it on
+# first boot, before any CI deploy has ever run.
+resource "aws_s3_object" "compose_prod_yaml" {
+  bucket = local.fnd.backup_bucket_name
+  key    = "config/docker-compose.prod.yml"
+
+  source      = "${path.root}/../../../docker-compose.prod.yml"
+  source_hash = filemd5("${path.root}/../../../docker-compose.prod.yml")
+
+  content_type           = "text/yaml"
+  server_side_encryption = "aws:kms"
+  kms_key_id             = local.fnd.kms_key_arn
+
+  tags = {
+    Name      = "${local.name_prefix}-compose-prod-yaml"
+    Component = "compute"
+  }
+}
+
 # --- Deploy env (image tag) hosted in S3 -----------------------------------
 # This is what makes the app layer the "deployable unit": the resolved image
 # URIs for var.image_tag. Changing image_tag changes this object's content, so
-# `app apply` re-uploads it and the on-host redeploy (SSM RunCommand in
-# infra/buildspec.yml) reads it to `docker compose pull` the new tag. The
+# `app apply` re-uploads it and bootstrap-ec2.sh §10 reads it on first boot to
+# seed BACKEND_IMAGE/FRONTEND_IMAGE before any CI deploy has run. The
 # docker-compose.yml interpolates ${BACKEND_IMAGE}/${FRONTEND_IMAGE} from here.
+#
+# NOTE: steady-state CI redeploys (.github/workflows/deploy.yml) do NOT read
+# this object — GitHub Actions computes the image tag itself and pins it
+# directly into /etc/velocityai/app.env via remote-deploy.sh, with no
+# Terraform apply in the loop. This S3 object is retained purely for the
+# first-boot bootstrap path described above.
 resource "aws_s3_object" "deploy_env" {
   bucket = local.fnd.backup_bucket_name
   key    = "config/deploy.env"
@@ -184,6 +251,10 @@ module "monitoring" {
   instance_role_arn       = local.fnd.instance_role_arn
   secrets_path_prefix_arn = local.secrets_path_prefix_arn
   project_cmk_arn         = local.fnd.kms_key_arn
+  # M-07: CloudTrail data-event capture for the backup bucket (GetObject/
+  # PutObject on the hourly pg_dump backups — the management-event trail
+  # above never captured object-level S3 API calls).
+  backup_bucket_arn = local.fnd.backup_bucket_arn
 }
 
 # --- Resource Groups (tag-query everything in this env) --------------------

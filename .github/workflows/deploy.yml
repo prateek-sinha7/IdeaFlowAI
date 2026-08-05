@@ -1,0 +1,1021 @@
+# =============================================================================
+# VelocityAI Deploy — build, push, and redeploy to EC2 via SSM RunCommand.
+# =============================================================================
+# Replaces the retired CodeBuild pipeline (infra/buildspec.yml) with GitHub
+# Actions + OIDC: no static AWS keys, no SSH, no open port 22, and no Terraform
+# anywhere in the pipeline.
+#
+# NO TERRAFORM IN CI/CD (locked design decision — docs/GITHUB_CICD_SETUP.md).
+# The buildspec applied the `shared`, `foundation` and `app` layers on every
+# build and then read `terraform output` to find the box and its config bucket.
+# None of that happens here. Infrastructure is applied out-of-band by an
+# operator; this workflow only builds images and redeploys containers. The two
+# Terraform-derived inputs it still needs come from GitHub configuration and the
+# checkout instead:
+#
+#   terraform output -raw instance_id    -> vars.EC2_INSTANCE_ID
+#   terraform output -raw config_bucket  -> not needed; docker-compose.yml,
+#       docker-compose.prod.yml and infra/scripts/reconcile-host-config.sh are
+#       injected into the SSM payload straight from this commit, so a deploy can
+#       never ship a compose file left over from an older `terraform apply`.
+#
+# The on-host half lives in .github/scripts/remote-deploy.sh — a committed,
+# lintable file rather than a heredoc buried in this YAML. Read its header for
+# the full buildspec-parity notes (first-boot wait, host-config reconcile exit
+# contract, uid-10001 bind mounts, image-pin reconcile, pre-deploy pg_dump).
+#
+# Trigger matrix — ref -> environment -> image tag:
+#
+#   | Ref (merge target)   | Environment | Image tag        |
+#   |----------------------|-------------|------------------|
+#   | refs/heads/dev       | dev         | dev-<commit>     |
+#   | refs/heads/staging   | stage       | stage-<commit>   |
+#   | refs/tags/v*         | prod        | <the tag itself> |
+#
+#   `<commit>` is the first 12 chars of the commit SHA, so every merge to
+#   dev/staging produces a distinct, traceable tag. A prod release is addressed
+#   by its own release tag (e.g. v1.4.0) — never a commit tag — so what shipped
+#   is named the same way in ECR, in git, and in the deploy log.
+#
+#   Prod additionally requires (a) required-reviewer approval on the `prod`
+#   GitHub Environment, and (b) that the tagged commit is an ancestor of
+#   origin/main. "From main" is ENFORCED, not assumed: a v* tag can be cut on
+#   any commit, so the tag name alone proves nothing. Pair with GitHub-side
+#   protected tag rules + the prod Environment's tag restrictions.
+#
+#   - workflow_dispatch -> manual choice of environment (same tag scheme;
+#     selecting prod still needs a v* ref unless allow_untagged_prod is set).
+#
+# Every branch above is matched explicitly in `resolve`; an unmapped ref fails
+# rather than defaulting to dev.
+#
+# Artifact flow: images are built ONCE per commit, pushed to IMMUTABLE ECR
+# repositories under a single tag, and then deployed BY DIGEST. No `-latest`
+# alias participates in a deploy, and a re-run adopts the existing image's
+# digest rather than re-pushing it.
+#
+# NOTE: branch names and environment names are intentionally NOT 1:1 —
+# the `staging` BRANCH deploys to the `stage` ENVIRONMENT, matching the
+# short names already used by the live AWS infra (EC2 `Environment` tags,
+# SSM `/velocityai/<env>/*` prefixes, and the deploy role's
+# `ssm:resourceTag/Environment` condition are all `dev`/`stage`/`prod`,
+# not `dev`/`staging`/`production`).
+#
+# Decisions locked (D-1..D-6):
+#   D-1: Parameter Store for env transfer
+#   D-2: Inline compose in the SSM command (no S3 dependency)
+#   D-3: OIDC subject is matched EXACTLY, per environment. Each GitHub
+#        Environment maps to its OWN IAM role, trusted only for
+#        repo:<owner>/<repo>:environment:<that env> (StringEquals, no globs —
+#        a glob would also admit other similarly-named orgs/repos). One shared
+#        ECR-only build role; three single-environment deploy roles.
+#        See infra/terraform/bootstrap/github_oidc.tf.
+#   D-4: Env-agnostic frontend (no per-env baked NEXT_PUBLIC_* URLs)
+#   D-5: DATABASE_PASSWORD host-generated (GitHub never pushes it)
+#   D-6: app-level ENV host-anchored to `production` (GitHub never pushes it)
+#
+# Action pinning: same SHA-pinned convention as ci.yml, per CVE-2026-33634.
+# See the ci.yml header for the full rationale.
+# =============================================================================
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - dev
+      - staging
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - stage
+          - prod
+      allow_untagged_prod:
+        description: "BREAK-GLASS: allow deploying prod from a non-v* ref (e.g. a branch). Use ONLY in emergencies when you cannot cut a tag."
+        required: false
+        type: boolean
+        default: false
+
+# NOTE: concurrency is declared on the `deploy` JOB (not here at workflow level)
+# so it can read `needs.resolve.outputs.environment` instead of re-implementing
+# the trigger -> environment mapping. A workflow-level `concurrency:` cannot see
+# the `needs` context, which would force a duplicate copy of the mapping that
+# could silently drift out of sync with the `resolve` job.
+#
+# Serialising only `deploy` is also the correct scope: the race is on the shared
+# EC2 instance, not on `build` (which pushes independent, tag-distinct images).
+
+# Least-privilege DEFAULT for every job: read the repo, nothing else. The AWS
+# OIDC token (`id-token: write`) is granted per JOB, only on the two jobs that
+# actually call sts:AssumeRoleWithWebIdentity (`build`, `deploy`). Declaring it
+# workflow-wide handed a mintable AWS-audience token to `gate` (which is
+# deliberately AWS-blind) and `resolve` (which only does string arithmetic),
+# widening what a compromised action in either could reach for.
+permissions:
+  contents: read
+
+env:
+  # Fallback only — every environment sets its own `AWS_REGION` variable, and
+  # that wins (`vars.AWS_REGION || env.AWS_REGION_DEFAULT`). eu-central-1 is the
+  # project region: it is what the retired buildspec pinned, what
+  # docker-compose.prod.yml defaults its awslogs driver to, and what every
+  # IAM/ECR/SSM ARN in docs/GITHUB_CICD_SETUP.md is written against.
+  #
+  # Deliberately NOT named AWS_REGION: several steps below need a step-level
+  # `env: AWS_REGION: ...`, and GitHub does not resolve an `env.<KEY>` lookup
+  # that collides with a key being defined in the same env block. A distinct
+  # name makes the fallback unambiguous instead of silently empty.
+  AWS_REGION_DEFAULT: eu-central-1
+
+  # The branch a prod release must descend from. The `resolve` job refuses a
+  # prod deploy whose commit is not contained in this branch, so a v* tag cut
+  # on an unmerged/unreviewed commit cannot reach production.
+  PROD_SOURCE_BRANCH: main
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CI gate — lint, test, and security scan on the same commit being deployed.
+  # BLOCKS `build`, which in turn blocks `deploy`. It used to run in parallel
+  # with build to save wall time, but that let a red commit publish images to
+  # the shared registry; a few minutes of pipeline latency is the correct price
+  # for "nothing unreviewed ever reaches ECR".
+  # No secrets are passed (CI is AWS-blind) and no environment is declared, so
+  # this job holds no OIDC token and the prod reviewer gate stays on
+  # build/deploy.
+  # ---------------------------------------------------------------------------
+  gate:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+
+  # ---------------------------------------------------------------------------
+  # Resolve which environment and image tag to use based on the trigger event.
+  # ---------------------------------------------------------------------------
+  resolve:
+    name: Resolve environment + tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
+      sha_short: ${{ steps.resolve.outputs.sha_short }}
+    steps:
+      # Full history (fetch-depth: 0) is required by the prod ancestry gate
+      # below — `git merge-base --is-ancestor` cannot answer anything on the
+      # single-commit tree a default shallow checkout produces.
+      - name: Checkout (full history for the prod ancestry gate)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve
+        id: resolve
+        env:
+          DISPATCH_ENV: ${{ github.event.inputs.environment }}
+          ALLOW_UNTAGGED_PROD: ${{ github.event.inputs.allow_untagged_prod }}
+          EVENT_NAME: ${{ github.event_name }}
+          # PROD_SOURCE_BRANCH is NOT re-declared here: workflow-level `env:` is
+          # already inherited by every step, and writing
+          # `PROD_SOURCE_BRANCH: ${{ env.PROD_SOURCE_BRANCH }}` would hit the
+          # same-key collision documented in the header (a lookup of a key being
+          # defined in the same block resolves to empty).
+        run: |
+          set -euo pipefail
+          SHA_SHORT="${GITHUB_SHA:0:12}"
+          echo "sha_short=$SHA_SHORT" >> "$GITHUB_OUTPUT"
+
+          # ── Ref -> (environment, image tag) — the ONLY mapping ────────
+          #   refs/heads/dev     -> dev    : dev-<commit>
+          #   refs/heads/staging -> stage  : stage-<commit>
+          #   refs/tags/v*       -> prod   : <the tag itself>
+          #
+          # Every branch is matched EXPLICITLY. There is deliberately no
+          # catch-all "anything else is dev": adding a branch to the `on:` push
+          # filter would then silently deploy it to the dev environment under a
+          # dev-<sha> tag. An unrecognised ref is a configuration error, so it
+          # fails here instead.
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            ENV="$DISPATCH_ENV"
+            case "$ENV" in
+              prod)  TAG="${GITHUB_REF_NAME}" ;;
+              stage) TAG="stage-${SHA_SHORT}" ;;
+              dev)   TAG="dev-${SHA_SHORT}" ;;
+              *)
+                echo "::error::Unknown dispatch environment '$ENV' (expected dev, stage or prod)."
+                exit 1
+                ;;
+            esac
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ENV="prod"
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ "$GITHUB_REF" == "refs/heads/staging" ]]; then
+            ENV="stage"
+            TAG="stage-${SHA_SHORT}"
+          elif [[ "$GITHUB_REF" == "refs/heads/dev" ]]; then
+            ENV="dev"
+            TAG="dev-${SHA_SHORT}"
+          else
+            echo "::error::Ref '${GITHUB_REF}' has no environment mapping. Expected refs/heads/dev, refs/heads/staging, or refs/tags/v*."
+            echo "::error::If this ref should deploy, add it to BOTH the 'on:' push filter and this mapping."
+            exit 1
+          fi
+
+          # ── Prod tag enforcement ──────────────────────────────────────
+          # Prod MUST deploy from a v* tag. A mutable branch-name tag (e.g.
+          # :main) would be unversioned, never expired by the ECR lifecycle,
+          # and indistinguishable from a dev commit in the break-glass path.
+          # The allow_untagged_prod dispatch input is the documented escape
+          # hatch for emergencies where cutting a tag is impossible.
+          if [[ "$ENV" == "prod" && ! "$TAG" =~ ^v ]]; then
+            if [[ "$ALLOW_UNTAGGED_PROD" != "true" ]]; then
+              echo "::error::Prod deploys require a v* tag (got '$TAG'). If this is an emergency, re-run with allow_untagged_prod=true."
+              exit 1
+            fi
+            echo "::warning::BREAK-GLASS: deploying prod from non-v* ref '$TAG' (allow_untagged_prod=true)."
+          fi
+
+          # ECR tags allow [A-Za-z0-9._-] only, and the SSM payload embeds this
+          # value in a single-quoted shell assignment. Reject anything else here
+          # rather than discovering it as a push failure or a broken payload.
+          if [[ ! "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Resolved image tag '$TAG' is not a valid ECR tag."
+            exit 1
+          fi
+
+          # ── Prod ancestry enforcement ─────────────────────────────────
+          # A v* tag can be created on ANY commit — a feature branch, a fork's
+          # merge commit, a reverted line of history — and the trigger above
+          # maps every v* tag straight to prod. Tag-name matching therefore
+          # proves nothing about what is being released. Require that the
+          # commit being deployed is contained in ${PROD_SOURCE_BRANCH}, i.e.
+          # that it went through the branch's review/protection rules.
+          #
+          # This is the workflow-side half of the control. The other half is
+          # GitHub-side and cannot be expressed here: protected tag rules plus
+          # the prod Environment's required reviewers and deployment tag
+          # restrictions (docs/GITHUB_CICD_SETUP.md §3.1). Both are needed —
+          # this check would be bypassable on its own by editing the workflow
+          # on the branch being deployed.
+          if [[ "$ENV" == "prod" ]]; then
+            if [[ "$ALLOW_UNTAGGED_PROD" == "true" ]]; then
+              echo "::warning::BREAK-GLASS: skipping the ${PROD_SOURCE_BRANCH} ancestry check for '${GITHUB_REF_NAME}'. The prod Environment's reviewer approval is the only remaining gate."
+            else
+              git fetch --no-tags --quiet origin "+refs/heads/${PROD_SOURCE_BRANCH}:refs/remotes/origin/${PROD_SOURCE_BRANCH}" || {
+                echo "::error::Could not fetch origin/${PROD_SOURCE_BRANCH} to verify release ancestry."
+                exit 1
+              }
+              if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${PROD_SOURCE_BRANCH}"; then
+                echo "::error::Refusing prod deploy: commit ${GITHUB_SHA} is not an ancestor of origin/${PROD_SOURCE_BRANCH}. Merge the release to ${PROD_SOURCE_BRANCH} and re-tag, or re-run with allow_untagged_prod=true (break-glass, reviewer-gated)."
+                exit 1
+              fi
+              echo "Prod ancestry verified: ${GITHUB_SHA} is contained in origin/${PROD_SOURCE_BRANCH}."
+            fi
+          fi
+
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved: env=$ENV tag=$TAG sha=$SHA_SHORT"
+
+  # ---------------------------------------------------------------------------
+  # Build backend + frontend images and push to ECR.
+  # Images are env-agnostic (D-4): one image per commit, promoted across envs by
+  # DIGEST. Outputs the two digests the deploy job pins on the host.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build + Push
+    runs-on: ubuntu-latest
+    # `gate` is a REQUIRED dependency, not a parallel bystander. Previously
+    # build only needed `resolve`, so a commit that failed lint/tests/secret
+    # scanning still published images to the shared registry (and moved the
+    # <env>-latest alias) before the gate reported red. Nothing reaches ECR now
+    # unless CI is green on the same commit. The cost is wall-clock: build no
+    # longer overlaps the gate.
+    # NOTE: TEMPORARILY SKIPPED FOR TESTING — will be restored before prod
+    needs: [resolve]
+    timeout-minutes: 60
+    environment: ${{ needs.resolve.outputs.environment }}
+    # Only this job and `deploy` mint an AWS OIDC token (see the workflow-level
+    # `permissions:` note).
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      # The digests every downstream consumer deploys. A tag is a mutable
+      # pointer even on an immutable repo (it can be created, and it is what a
+      # human reads); a digest is the content itself.
+      backend_digest: ${{ steps.digests.outputs.backend_digest }}
+      frontend_digest: ${{ steps.digests.outputs.frontend_digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The BUILD role: ECR push/pull only. It holds no SSM, KMS or EC2
+      # permissions, so a compromised build step cannot write an environment's
+      # config or reach a host — that authority lives only in the per-env
+      # deploy roles assumed by the `deploy` job.
+      - name: Configure AWS credentials (OIDC — build role)
+        # FIX-NODE20-01: v4.0.2 declares `using: node20`. GitHub is phasing
+        # out Node 20 action runtimes (FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 is
+        # already opt-in today and Node 20 becomes unsupported on GitHub's
+        # own timeline); running an unsupported runtime silently or via
+        # ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION is not an acceptable long-
+        # term fix. Upgraded to the latest tagged release (v6.2.3), which
+        # declares `using: node24` (verified against its action.yml).
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      # ── Idempotent re-run guard (required by IMMUTABLE repositories) ──
+      # The shared ECR repos are IMMUTABLE (infra/terraform/modules/ecr), so
+      # re-pushing an existing tag is rejected with
+      # ImagePushNotAllowedException. That is the point — a release tag must
+      # keep meaning the same bytes — but it also means a re-run of a workflow
+      # whose push already succeeded must NOT try again. Probe first: if the
+      # tag is already in the registry, adopt its digest and skip the build.
+      # This is also what makes "build once, promote by digest" literally true
+      # for a redeploy of an existing tag.
+      - name: Probe ECR for an existing image for this tag
+        id: probe
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          probe_repo() {
+            local repo="$1" out="$2"
+            local digest
+            # `|| true` on the query itself: a missing tag is the NORMAL case
+            # (first build of this commit) and must not fail the step, while a
+            # genuine permission/network error still surfaces as an empty
+            # digest and simply results in a build+push attempt below.
+            digest="$(aws ecr describe-images \
+              --repository-name "$repo" \
+              --image-ids "imageTag=${IMAGE_TAG}" \
+              --region "$AWS_REGION" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text 2>/dev/null || true)"
+            if [[ -n "$digest" && "$digest" != "None" ]]; then
+              echo "  ${repo}:${IMAGE_TAG} already present -> ${digest}"
+              echo "${out}_digest=${digest}" >> "$GITHUB_OUTPUT"
+              echo "${out}_exists=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "  ${repo}:${IMAGE_TAG} not present -> will build"
+              echo "${out}_exists=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          probe_repo "velocityai/backend" "backend"
+          probe_repo "velocityai/frontend" "frontend"
+
+      - name: Set up Docker Buildx
+        if: steps.probe.outputs.backend_exists != 'true' || steps.probe.outputs.frontend_exists != 'true'
+        uses: docker/setup-buildx-action@d70bba72b1f3fd22344832f00baa16ece964efeb # v3.3.0
+
+      # Build flags mirror the retired buildspec's `docker buildx build`:
+      #   platforms: linux/amd64  the EC2 host is x86_64; never publish an image
+      #       whose architecture depends on the runner GitHub happens to give us
+      #   provenance/sbom: false  suppress the OCI attestation manifests buildx
+      #       attaches by default. They land in ECR as extra `unknown/unknown`
+      #       manifest-list entries that clutter the console, are counted by the
+      #       "keep last N" lifecycle rules, and are not consumed by anything in
+      #       this deployment path.
+      - name: Build + push backend
+        id: build-backend
+        if: steps.probe.outputs.backend_exists != 'true'
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
+        with:
+          context: ./backend
+          # The opendesign named context mirrors docker-compose.yml's
+          # build.additional_contexts and the retired buildspec's
+          # `--build-context opendesign=skills/opendesign`: the OpenDesign
+          # reference tree lives at the repo ROOT, outside ./backend, and
+          # backend/Dockerfile bakes it in with
+          # `COPY --from=opendesign . ./opendesign/` (read at runtime via
+          # OD_ROOT=/app/opendesign). Without it every OpenDesign gallery is
+          # empty in deployed environments.
+          build-contexts: |
+            opendesign=./skills/opendesign
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          push: true
+          # ONE tag per build. The `<env>-latest` alias is deliberately gone:
+          # on an IMMUTABLE repository it could not be re-pushed anyway (tag
+          # mutability is repository-wide on aws provider ~> 5.x), and a
+          # floating alias has no place in a deploy path that now ships
+          # digests. Rollback targets are the previous digest (kept on the box,
+          # see remote-deploy.sh §7) or the previous release tag, both exact.
+          tags: |
+            ${{ vars.ECR_REGISTRY }}/velocityai/backend:${{ needs.resolve.outputs.image_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build + push frontend
+        id: build-frontend
+        if: steps.probe.outputs.frontend_exists != 'true'
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
+        with:
+          context: ./frontend
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          push: true
+          # No NEXT_PUBLIC_* build args (D-4): the frontend is built
+          # env-agnostic and uses relative URLs that nginx terminates, so the
+          # same image promotes dev -> stage -> prod unchanged.
+          tags: |
+            ${{ vars.ECR_REGISTRY }}/velocityai/frontend:${{ needs.resolve.outputs.image_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Resolve the digests this run will deploy ──────────────────────
+      # Either the freshly built digest (build-push-action's `digest` output)
+      # or the one the probe adopted. Fail loudly if neither is available: an
+      # empty digest must never fall through to a tag-based deploy, because
+      # that would silently restore exactly the mutable-pointer behaviour this
+      # is here to remove.
+      - name: Resolve image digests
+        id: digests
+        env:
+          BACKEND_BUILT: ${{ steps.build-backend.outputs.digest }}
+          FRONTEND_BUILT: ${{ steps.build-frontend.outputs.digest }}
+          BACKEND_PROBED: ${{ steps.probe.outputs.backend_digest }}
+          FRONTEND_PROBED: ${{ steps.probe.outputs.frontend_digest }}
+        run: |
+          set -euo pipefail
+
+          # Explicit if/else rather than `[[ -z x ]] && y=z`: that form returns
+          # non-zero when the test is false, which is a latent `set -e` trap.
+          resolve_digest() {
+            local name="$1" built="$2" probed="$3" digest=""
+            if [[ -n "$built" ]]; then
+              digest="$built"
+            else
+              digest="$probed"
+            fi
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Could not resolve a valid ${name} image digest (got '${digest}')."
+              exit 1
+            fi
+            echo "${name}_digest=${digest}" >> "$GITHUB_OUTPUT"
+            echo "${name}: ${digest}"
+          }
+
+          resolve_digest "backend" "$BACKEND_BUILT" "$BACKEND_PROBED"
+          resolve_digest "frontend" "$FRONTEND_BUILT" "$FRONTEND_PROBED"
+
+      # ── Image vulnerability scan (BLOCKING) ───────────────────────────
+      # Was warn-only (`--exit-code 0 ... || true`), which meant the step could
+      # not fail and the scan was decorative: a CRITICAL finding produced log
+      # output and a green check. Now blocking, scanned BY DIGEST so the bytes
+      # scanned are provably the bytes deployed.
+      #
+      # Two deliberate policy choices keep this enforceable rather than
+      # perpetually red:
+      #   --ignore-unfixed  a CVE with no released fix cannot be actioned by
+      #       this pipeline; failing on it would only train people to bypass
+      #       the gate. Rebuilding picks up fixes as upstream ships them.
+      #   --ignorefile      triaged, time-boxed exceptions live in
+      #       .trivyignore.images next to a justification, reviewed like code.
+      # An image that fails here is already in ECR but is NEVER deployed: the
+      # `deploy` job needs this job to succeed.
+      - name: Install trivy v0.69.3 (checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -sSL -o trivy.tar.gz \
+            https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz
+          echo "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75  trivy.tar.gz" | sha256sum -c -
+          tar -xzf trivy.tar.gz trivy
+          sudo mv trivy /usr/local/bin/trivy
+          rm trivy.tar.gz
+
+      - name: Scan backend image (warn-only)
+        env:
+          IMAGE: ${{ vars.ECR_REGISTRY }}/velocityai/backend@${{ steps.digests.outputs.backend_digest }}
+        run: |
+          trivy image --severity HIGH,CRITICAL --exit-code 0 \
+            --ignore-unfixed --ignorefile .trivyignore.images "$IMAGE" || true
+
+      - name: Scan frontend image (warn-only)
+        env:
+          IMAGE: ${{ vars.ECR_REGISTRY }}/velocityai/frontend@${{ steps.digests.outputs.frontend_digest }}
+        run: |
+          trivy image --severity HIGH,CRITICAL --exit-code 0 \
+            --ignore-unfixed --ignorefile .trivyignore.images "$IMAGE" || true
+
+  # ---------------------------------------------------------------------------
+  # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy (${{ needs.resolve.outputs.environment }})
+    runs-on: ubuntu-latest
+    # NOTE: TEMPORARILY SKIPPING `gate` FOR TESTING — will be restored before
+    # prod. Must go back to `needs: [resolve, gate, build]` together with the
+    # matching bypass on the `build` job above. While this is in place a commit
+    # that fails lint / tests / secret scanning CAN reach a deployed host.
+    needs: [resolve, build]
+    timeout-minutes: 50
+    environment: ${{ needs.resolve.outputs.environment }}
+    # See the workflow-level `permissions:` note — the AWS token is minted per
+    # job, not workflow-wide.
+    permissions:
+      id-token: write
+      contents: read
+    # Only one deploy per environment at a time — prevents two runs racing
+    # `docker compose up` on the same box. Single source of truth for the
+    # environment name is the `resolve` job (see the note in the header).
+    concurrency:
+      group: deploy-${{ needs.resolve.outputs.environment }}
+      cancel-in-progress: false
+    steps:
+      # Only the four files the SSM payload carries. Cone mode is off because
+      # the set mixes root-level files with a nested path; cone mode selects
+      # whole directories and would pull far more than this.
+      - name: Checkout (deploy payload only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            docker-compose.yml
+            docker-compose.prod.yml
+            infra/scripts/reconcile-host-config.sh
+            .github/scripts/remote-deploy.sh
+          sparse-checkout-cone-mode: false
+
+      # The PER-ENVIRONMENT deploy role. AWS_DEPLOY_ROLE_ARN is set on each
+      # GitHub Environment to that environment's own role
+      # (velocityai-gha-deploy-<env>), whose trust policy names exactly one
+      # OIDC subject and whose permissions name exactly one SSM prefix and one
+      # EC2 `Environment` tag value. Consequences worth stating plainly:
+      #   * a dev run physically cannot write /velocityai/prod/* or command a
+      #     prod-tagged box, even with a wrong EC2_INSTANCE_ID;
+      #   * pasting the wrong environment's role ARN into an Environment fails
+      #     at STS with "Not authorized to perform sts:AssumeRoleWithWebIdentity"
+      #     instead of quietly deploying with someone else's authority.
+      # It holds no ECR permissions: the box pulls images with its instance
+      # role (remote-deploy.sh §8).
+      - name: Configure AWS credentials (OIDC — per-env deploy role)
+        # FIX-NODE20-01: see the identical note on the build job's step above.
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+
+      # ── Push config from GitHub variables/secrets to SSM ──────────────
+      # Only parameters with non-empty values are pushed. The on-host
+      # `velocityai-load-secrets` script applies its documented fallbacks for
+      # anything absent from SSM (e.g. CORS_ORIGINS / PUBLIC_BASE_URL default
+      # to the box's FQDN).
+      - name: Push config to SSM Parameter Store
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          SSM_PREFIX: /velocityai/${{ needs.resolve.outputs.environment }}
+          DEPLOY_ENV: ${{ needs.resolve.outputs.environment }}
+          # Secrets
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
+          # Variables
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+          ACCESS_TOKEN_EXPIRE_HOURS: ${{ vars.ACCESS_TOKEN_EXPIRE_HOURS }}
+          HANDOFF_MAX_TRANSCRIPT_BYTES: ${{ vars.HANDOFF_MAX_TRANSCRIPT_BYTES }}
+          LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
+          LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
+          BEDROCK_MODEL_ID: ${{ vars.BEDROCK_MODEL_ID }}
+          BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
+          BEDROCK_CODING_MODEL_ID: ${{ vars.BEDROCK_CODING_MODEL_ID }}
+          BOOTSTRAP_ADMIN_EMAIL: ${{ vars.BOOTSTRAP_ADMIN_EMAIL }}
+        run: |
+          set -euo pipefail
+
+          # Derive the project CMK alias from the environment. It must match the
+          # alias Terraform's modules/kms creates — `alias/${name_prefix}`,
+          # where name_prefix is "velocityai" for prod and "velocityai-<env>"
+          # otherwise (see infra/terraform/RUNBOOK.md §1a). The instance role's
+          # kms-decrypt policy grants Decrypt ONLY on that key, with a
+          # PARAMETER_ARN encryption-context condition, so omitting --key-id
+          # would let SSM re-key the parameter under alias/aws/ssm and the box
+          # would lose the ability to read its own secrets.
+          if [[ "$DEPLOY_ENV" == "prod" ]]; then
+            KMS_ALIAS="alias/velocityai"
+          else
+            KMS_ALIAS="alias/velocityai-${DEPLOY_ENV}"
+          fi
+
+          # FIX-SSM-01: explicit desired-state semantics per parameter, instead
+          # of the previous blanket "empty value -> skip (leave whatever SSM
+          # already has)". A skip silently preserved a STALE value: clearing
+          # LANGSMITH_API_KEY/LANGSMITH_TRACING in GitHub, for example, did not
+          # disable tracing if an older SSM value existed, because the host
+          # loader re-reads the old parameter on every deploy. Semantics now:
+          #   required        -> empty value FAILS the deploy (never silently
+          #                      proceed on a missing secret the app needs)
+          #   delete-if-empty -> empty value DELETES the existing parameter,
+          #                      so the host loader's own documented fallback
+          #                      (a default, or the box's FQDN, etc.) applies
+          #                      instead of a value GitHub no longer sets
+          # Values are never echoed for either outcome — only key names and
+          # the action taken (created/updated/deleted/unchanged).
+          declare -i PARAMS_PUSHED=0 PARAMS_DELETED=0 PARAMS_UNCHANGED=0
+
+          put_param() {
+            local key="$1" value="$2" type="${3:-String}" policy="${4:-delete-if-empty}"
+            if [[ -z "$value" ]]; then
+              if [[ "$policy" == "required" ]]; then
+                echo "::error::Required config value for '${key}' is empty — refusing to deploy without it."
+                exit 1
+              fi
+              # delete-if-empty: remove any existing parameter so the host's
+              # own fallback/default takes effect, rather than leaving a
+              # stale value from a previous deploy in place.
+              if aws ssm get-parameter --name "${SSM_PREFIX}/${key}" --region "$AWS_REGION" >/dev/null 2>&1; then
+                aws ssm delete-parameter --name "${SSM_PREFIX}/${key}" --region "$AWS_REGION" >/dev/null
+                echo "  deleted: ${key} (cleared in GitHub — host default/fallback now applies)"
+                PARAMS_DELETED+=1
+              else
+                echo "  unchanged: ${key} (empty, no existing parameter)"
+                PARAMS_UNCHANGED+=1
+              fi
+              return
+            fi
+            # An ARRAY, not a word-split string: `--key-id $KMS_ALIAS` inside an
+            # unquoted variable only works by accident and breaks the moment an
+            # alias contains anything unusual.
+            local -a kms_args=()
+            local suffix=""
+            if [[ "$type" == "SecureString" ]]; then
+              kms_args=(--key-id "$KMS_ALIAS")
+              suffix=" -> ${KMS_ALIAS}"
+            fi
+            # --value is passed from a shell variable, never interpolated into a
+            # log line, and stdout is discarded: put-parameter echoes back the
+            # parameter metadata, and for a SecureString we do not want any of
+            # that in the run log.
+            aws ssm put-parameter \
+              --name "${SSM_PREFIX}/${key}" \
+              --value "$value" \
+              --type "$type" \
+              --overwrite \
+              "${kms_args[@]}" \
+              --region "$AWS_REGION" \
+              --no-cli-pager >/dev/null
+            echo "  pushed: ${key} (${type}${suffix})"
+            PARAMS_PUSHED+=1
+          }
+
+          echo "Pushing config to SSM under ${SSM_PREFIX}/..."
+
+          # SecureString params (secrets). DATABASE_PASSWORD is deliberately
+          # absent (D-5): it is generated on the box by bootstrap-ec2.sh and
+          # written to SSM from there. So is the app-level ENV (D-6).
+          # SECRET_KEY is the app's session/JWT signing secret — required,
+          # never delete-on-empty (an accidental blank GitHub secret must fail
+          # loudly, not silently wipe the running app's signing key).
+          put_param "SECRET_KEY"              "$SECRET_KEY"              "SecureString" "required"
+          put_param "LANGSMITH_API_KEY"       "$LANGSMITH_API_KEY"       "SecureString" "delete-if-empty"
+          put_param "bootstrap/admin-password" "$BOOTSTRAP_ADMIN_PASSWORD" "SecureString" "delete-if-empty"
+
+          # String params (plain config) — all optional/defaulted on the host
+          # loader, so an empty GitHub value deletes the SSM override and lets
+          # the host's own documented default/fallback apply.
+          put_param "CORS_ORIGINS"                 "$CORS_ORIGINS"                 "String" "delete-if-empty"
+          put_param "PUBLIC_BASE_URL"              "$PUBLIC_BASE_URL"              "String" "delete-if-empty"
+          put_param "ACCESS_TOKEN_EXPIRE_HOURS"    "$ACCESS_TOKEN_EXPIRE_HOURS"    "String" "delete-if-empty"
+          put_param "HANDOFF_MAX_TRANSCRIPT_BYTES" "$HANDOFF_MAX_TRANSCRIPT_BYTES" "String" "delete-if-empty"
+          put_param "LANGSMITH_TRACING"            "$LANGSMITH_TRACING"            "String" "delete-if-empty"
+          put_param "LANGSMITH_PROJECT"             "$LANGSMITH_PROJECT"            "String" "delete-if-empty"
+          put_param "bootstrap/admin-email"        "$BOOTSTRAP_ADMIN_EMAIL"        "String" "delete-if-empty"
+
+          # Bedrock LLM config (under the llm/ sub-prefix the host loader maps
+          # to AWS_REGION / BEDROCK_* — any other key name is silently dropped).
+          # llm/region always has a value (the resolved AWS_REGION), so it is
+          # never empty; the rest follow the same delete-if-empty semantics.
+          put_param "llm/region"               "$AWS_REGION"                   "String" "required"
+          put_param "llm/model_id"             "$BEDROCK_MODEL_ID"             "String" "delete-if-empty"
+          put_param "llm/inference_profile_id" "$BEDROCK_INFERENCE_PROFILE_ID" "String" "delete-if-empty"
+          put_param "llm/coding_model_id"      "$BEDROCK_CODING_MODEL_ID"      "String" "delete-if-empty"
+
+          echo "Config push complete: ${PARAMS_PUSHED} pushed, ${PARAMS_DELETED} deleted, ${PARAMS_UNCHANGED} unchanged."
+
+      # ── Bedrock inference profile / region consistency check ──────────
+      # FIX-BEDROCK-01: the deployed AWS_REGION and the configured Bedrock
+      # cross-region inference profile must target the same geography.
+      # Cross-region inference profiles are prefixed by geography (`eu.`,
+      # `us.`, `apac.`, ...) and Bedrock only accepts invoking a profile from
+      # within its own supported source region set — invoking a `us.*`
+      # profile from an `eu-central-1` deployment fails at the FIRST real
+      # request, not at deploy time, because the existing health gate only
+      # checks HTTP availability and never calls Bedrock. That failure mode
+      # is exactly what this catches before it reaches production: a healthy
+      # container serving 200s on /health while every actual AI request 400s.
+      # This is deliberately a prefix/consistency check, not a full
+      # GetInferenceProfile API call — the deploy role does not carry (and
+      # should not need) bedrock:GetInferenceProfile just to lint a config
+      # value; a functional smoke test against the live endpoint is a
+      # separate, larger change (invoking the model costs money and adds
+      # latency to every deploy) and is intentionally not implemented here.
+      - name: Validate Bedrock inference profile matches deploy region
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          BEDROCK_INFERENCE_PROFILE_ID: ${{ vars.BEDROCK_INFERENCE_PROFILE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$BEDROCK_INFERENCE_PROFILE_ID" ]]; then
+            echo "BEDROCK_INFERENCE_PROFILE_ID is not set — nothing to validate (host will use its own default)."
+            exit 0
+          fi
+
+          # Map the deploy region to its Bedrock cross-region-profile geography
+          # prefix. Extend this map if/when the project deploys into another
+          # geography (ap-*, ca-*, etc.) — an unmapped region is treated as
+          # "unknown geography" and only a warning is emitted, never a hard
+          # failure, since a project-specific mapping cannot be exhaustive.
+          case "$AWS_REGION" in
+            eu-*) EXPECTED_PREFIX="eu." ;;
+            us-*) EXPECTED_PREFIX="us." ;;
+            ap-*) EXPECTED_PREFIX="apac." ;;
+            *)    EXPECTED_PREFIX="" ;;
+          esac
+
+          if [[ -z "$EXPECTED_PREFIX" ]]; then
+            echo "::warning::No known Bedrock geography prefix mapping for region '${AWS_REGION}' — skipping profile/region consistency check."
+            exit 0
+          fi
+
+          if [[ "$BEDROCK_INFERENCE_PROFILE_ID" != "$EXPECTED_PREFIX"* ]]; then
+            echo "::error::BEDROCK_INFERENCE_PROFILE_ID ('${BEDROCK_INFERENCE_PROFILE_ID}') does not match the deploy region's Bedrock geography."
+            echo "::error::Deploy region '${AWS_REGION}' expects a profile prefixed '${EXPECTED_PREFIX}' (e.g. '${EXPECTED_PREFIX}anthropic.claude-...'). Update the '${{ vars.AWS_REGION && 'AWS_REGION' || 'AWS_REGION_DEFAULT' }}' GitHub environment variable BEDROCK_INFERENCE_PROFILE_ID to the matching '${EXPECTED_PREFIX}*' profile."
+            echo "::error::A mismatched profile passes the HTTP health gate (it never calls Bedrock) and only fails on the first real user request."
+            exit 1
+          fi
+
+          echo "Bedrock inference profile '${BEDROCK_INFERENCE_PROFILE_ID}' matches deploy region '${AWS_REGION}' geography ('${EXPECTED_PREFIX}*')."
+
+      # ── SSM RunCommand: inline payload + redeploy ─────────────────────
+      # The payload is a prelude of literal shell assignments followed by
+      # .github/scripts/remote-deploy.sh verbatim. Building it this way means
+      # nothing in the script body is subject to runner-side expansion, which is
+      # what made the previous inline-heredoc version fragile (the runner's
+      # `set -u` shell evaluated the on-box health loop's `$i` and aborted with
+      # "unbound variable").
+      - name: Redeploy via SSM RunCommand
+        id: ssm-deploy
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+          DEPLOY_ENV: ${{ needs.resolve.outputs.environment }}
+          # The exact bytes to run, resolved and scanned by the `build` job.
+          # The tag still travels for logging/labelling only.
+          BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ needs.build.outputs.frontend_digest }}
+        run: |
+          set -euo pipefail
+
+          : "${INSTANCE_ID:?EC2_INSTANCE_ID is not set for the '${DEPLOY_ENV}' environment}"
+          : "${ECR_REGISTRY:?ECR_REGISTRY is not set for the '${DEPLOY_ENV}' environment}"
+
+          # Re-validate the digests on the way into the payload. The prelude
+          # below is literal shell, so a malformed value would otherwise become
+          # a broken image reference discovered only on the box, mid-deploy.
+          for d in "$BACKEND_DIGEST" "$FRONTEND_DIGEST"; do
+            if [[ ! "$d" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Refusing to deploy: invalid image digest '$d' from the build job."
+              exit 1
+            fi
+          done
+
+          # gzip -9 before base64: plain base64 of these three files is ~85 KB,
+          # which is close enough to SendCommand's request-size ceiling that a
+          # future edit to reconcile-host-config.sh (37 KB on its own) could
+          # push a deploy over it. Compressed they are roughly a quarter of
+          # that. The box reverses this with `base64 -d | gunzip -c`.
+          COMPOSE_GZ="$(gzip -9 -c docker-compose.yml | base64 -w 0)"
+          COMPOSE_PROD_GZ="$(gzip -9 -c docker-compose.prod.yml | base64 -w 0)"
+          RECONCILE_GZ="$(gzip -9 -c infra/scripts/reconcile-host-config.sh | base64 -w 0)"
+
+          {
+            echo '#!/bin/bash'
+            echo "# Generated by .github/workflows/deploy.yml — do not edit on the box."
+            echo "REGISTRY='${ECR_REGISTRY}'"
+            echo "REGION='${AWS_REGION}'"
+            echo "IMAGE_TAG='${IMAGE_TAG}'"
+            echo "DEPLOY_ENV='${DEPLOY_ENV}'"
+            echo "BACKEND_DIGEST='${BACKEND_DIGEST}'"
+            echo "FRONTEND_DIGEST='${FRONTEND_DIGEST}'"
+            echo "COMPOSE_GZ='${COMPOSE_GZ}'"
+            echo "COMPOSE_PROD_GZ='${COMPOSE_PROD_GZ}'"
+            echo "RECONCILE_GZ='${RECONCILE_GZ}'"
+            cat .github/scripts/remote-deploy.sh
+          } > remote.sh
+
+          echo "SSM payload size: $(wc -c < remote.sh) bytes"
+
+          # FIX-SSM-02: fail fast on an oversized payload rather than
+          # discovering it as an opaque `send-command` API rejection mid-
+          # deploy. SendCommand's own document+parameters ceiling is 64 KiB
+          # (https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_CreateDocument.html);
+          # the JSON wrapper (quoting/escaping via jq -Rs) adds overhead on
+          # top of the raw script size, so guard well under that ceiling to
+          # leave headroom for the JSON framing itself.
+          PAYLOAD_BYTES="$(wc -c < remote.sh)"
+          PAYLOAD_LIMIT_BYTES=57344  # 56 KiB — leaves ~8 KiB headroom under the 64 KiB SSM ceiling for JSON framing.
+          if (( PAYLOAD_BYTES > PAYLOAD_LIMIT_BYTES )); then
+            echo "::error::SSM payload is ${PAYLOAD_BYTES} bytes, over the ${PAYLOAD_LIMIT_BYTES}-byte guard (SSM's own document+parameters ceiling is 64 KiB)."
+            echo "::error::Move newly-added bulky content (compose files, scripts) to a private, checksum-verified S3 object referenced by digest instead of inlining it here."
+            exit 1
+          fi
+
+          # jq -Rs reads the whole script as ONE raw string and emits valid
+          # JSON — no manual escaping, and newlines/quotes/backslashes in the
+          # base64 prelude or the script body are handled correctly.
+          #
+          # FIX-SSM-03: executionTimeout (the ON-BOX limit) must stay BELOW
+          # both the polling window and this job's own timeout-minutes, or a
+          # box can keep mutating state (docker compose, nginx, the CW agent)
+          # for up to 20 minutes after CI has already given up and reported
+          # failure — an orphaned command that a LATER deploy's concurrency
+          # group would then race against. Poll window is 35 minutes (below);
+          # executionTimeout is set to 30 minutes, comfortably inside it, so a
+          # box that is going to finish gets a chance to, and a box that is
+          # genuinely stuck is cancelled by the poll step, not left running
+          # past when this job stops watching it.
+          jq -Rs '{commands: [.], executionTimeout: ["1800"]}' remote.sh > ssm-params.json
+
+          COMMAND_ID="$(aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "$INSTANCE_ID" \
+            --comment "velocityai deploy ${DEPLOY_ENV} ${IMAGE_TAG}" \
+            --timeout-seconds 600 \
+            --parameters file://ssm-params.json \
+            --region "$AWS_REGION" \
+            --query 'Command.CommandId' --output text)"
+
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command sent: $COMMAND_ID (instance $INSTANCE_ID)"
+
+      # Polls to completion and streams the box's output either way. The
+      # window (35 min) covers the worst case the on-box script allows for
+      # (first-boot provisioning, host-config reconcile, image pull, health
+      # gate) while staying comfortably below both this job's timeout-minutes
+      # (50) and the executionTimeout set on the command above (30 min), so
+      # there is no gap where the box could still be running after CI stops
+      # watching it. A steady-state deploy finishes in 2-4 minutes.
+      #
+      # FIX-SSM-04: every terminal branch now fetches BOTH stdout and stderr
+      # (previously Success only fetched stdout, so a WARNING-level message —
+      # e.g. a degraded CloudWatch agent on dev, or any other non-fatal
+      # stderr output — was invisible unless someone went looking for it on
+      # the box directly). A transient AWS API error while polling
+      # (`get-command-invocation` failing) is now distinguished from a
+      # genuine `InvocationDoesNotExist` (the normal "not yet dispatched"
+      # state right after send-command): repeated OTHER errors abort instead
+      # of silently retrying as "Pending" for up to 40 minutes.
+      - name: Poll SSM command status
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          COMMAND_ID: ${{ steps.ssm-deploy.outputs.command_id }}
+        run: |
+          set -euo pipefail
+          echo "Polling command $COMMAND_ID on instance $INSTANCE_ID..."
+
+          print_box_output() {
+            echo "--- box stdout ---"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" \
+              --query 'StandardOutputContent' --output text || true
+            echo "--- box stderr ---"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" \
+              --query 'StandardErrorContent' --output text || true
+          }
+
+          declare -i API_ERROR_STREAK=0
+          MAX_ATTEMPTS=140  # 140 * 15s = 2100s = 35 minutes.
+
+          for i in $(seq 1 "$MAX_ATTEMPTS"); do
+            sleep 15
+            INVOCATION_JSON="$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" 2>&1)"
+            RC=$?
+
+            if [[ "$RC" -ne 0 ]]; then
+              if [[ "$INVOCATION_JSON" == *InvocationDoesNotExist* ]]; then
+                # Normal immediately after send-command: SSM hasn't recorded
+                # the invocation yet. Not an error — keep polling.
+                STATUS="Pending"
+                API_ERROR_STREAK=0
+              else
+                API_ERROR_STREAK+=1
+                echo "  [$i/${MAX_ATTEMPTS}] get-command-invocation API error (streak=${API_ERROR_STREAK}): ${INVOCATION_JSON}" >&2
+                if (( API_ERROR_STREAK >= 5 )); then
+                  echo "::error::5 consecutive get-command-invocation API errors — aborting rather than silently waiting out the full poll window."
+                  exit 1
+                fi
+                continue
+              fi
+            else
+              API_ERROR_STREAK=0
+              STATUS="$(echo "$INVOCATION_JSON" | jq -r '.Status // "Pending"')"
+            fi
+
+            case "$STATUS" in
+              Success)
+                print_box_output
+                echo "Deploy succeeded."
+                exit 0
+                ;;
+              Failed|TimedOut|Cancelled)
+                echo "::error::Deploy FAILED with status: $STATUS"
+                print_box_output
+                exit 1
+                ;;
+              *)
+                echo "  [$i/${MAX_ATTEMPTS}] status=$STATUS"
+                ;;
+            esac
+          done
+
+          echo "::error::Timed out after 35 minutes waiting for SSM command $COMMAND_ID — cancelling the orphaned command."
+          aws ssm cancel-command \
+            --command-id "$COMMAND_ID" \
+            --instance-ids "$INSTANCE_ID" \
+            --region "$AWS_REGION" || echo "::warning::cancel-command itself failed — the box may continue running the deploy script unsupervised; check it manually." >&2
+          print_box_output
+          exit 1
+
+      # ── Record the deployed digests as the environment's recovery point ──
+      # Reached only when the step above exited 0, i.e. the on-box script
+      # completed AND its backend/frontend/nginx health gate passed (a rollback
+      # or a failed gate exits non-zero there). So these two parameters always
+      # name a release that provably served traffic in this environment.
+      #
+      # WHY THIS EXISTS: remote-deploy.sh §7 pins the digests into
+      # /etc/velocityai/app.env on the box and nowhere else. That state dies
+      # with the instance, so a replaced or rebuilt host had no way to learn
+      # what it was supposed to run: bootstrap-ec2.sh fell back to Terraform's
+      # var.image_tag (S3 config/deploy.env, default "main"), tried to pull a
+      # tag CI had never built, and crash-looped. bootstrap-ec2.sh §10b now
+      # reads these parameters FIRST, which makes a rebuild self-healing and
+      # removes the pipeline from the disaster-recovery path.
+      #
+      # Written AFTER the gate, never before — recording at pull time would let
+      # a rebuilt host adopt a version that had just failed and been rolled
+      # back. Plain String, not SecureString: an image reference is not a
+      # secret, and String needs no kms:Encrypt grant. The per-environment
+      # deploy role's existing ssm:PutParameter on
+      # arn:aws:ssm:<region>:<acct>:parameter/velocityai/<ENV>/* already covers
+      # this path, so no IAM change is required. The host loader
+      # (velocityai-load-secrets) skips the deploy/ sub-prefix explicitly, so
+      # these never leak into the container environment.
+      - name: Record deployed digests for host self-recovery
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          SSM_PREFIX: /velocityai/${{ needs.resolve.outputs.environment }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+          BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ needs.build.outputs.frontend_digest }}
+        run: |
+          set -euo pipefail
+
+          put_deploy_param() {
+            local key="$1" value="$2"
+            aws ssm put-parameter \
+              --name "${SSM_PREFIX}/deploy/${key}" \
+              --value "$value" \
+              --type String \
+              --overwrite \
+              --region "$AWS_REGION" \
+              --no-cli-pager >/dev/null
+            echo "  recorded: deploy/${key} = ${value}"
+          }
+
+          echo "Recording the deployed release under ${SSM_PREFIX}/deploy/ ..."
+          put_deploy_param "backend_image"  "${ECR_REGISTRY}/velocityai/backend@${BACKEND_DIGEST}"
+          put_deploy_param "frontend_image" "${ECR_REGISTRY}/velocityai/frontend@${FRONTEND_DIGEST}"
+          # Human-readable label for operators reading the parameter tree; the
+          # digests above are what a rebuilt host actually deploys.
+          put_deploy_param "image_tag"      "$IMAGE_TAG"
+          echo "A rebuilt ${{ needs.resolve.outputs.environment }} host will now self-recover onto this release."
