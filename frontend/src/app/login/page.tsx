@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import { Mail, Lock } from "lucide-react";
 import { login, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { resolveRedirectTarget } from "@/lib/authRedirect";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -20,8 +22,13 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const data = await login(email, password);
-      router.push(data.user.is_admin ? "/admin" : "/dashboard");
+      await login(email, password);
+      // Every user — including admins — lands on the main application by
+      // default. If the user was bounced here from a specific protected page
+      // (?redirect=...), return them there instead; the target is validated
+      // against the internal-path allowlist to prevent an open redirect.
+      // The admin dashboard is reached separately via its nav link/menu item.
+      router.push(resolveRedirectTarget(searchParams.get("redirect")));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Invalid email or password.");
@@ -169,5 +176,13 @@ export default function LoginPage() {
         </motion.div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

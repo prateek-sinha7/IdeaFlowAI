@@ -168,6 +168,8 @@ export interface DashboardLayoutProps {
   onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
   userEmail?: string;
+  /** Shows the "Admin Dashboard" nav item in AppHeader only for admins. */
+  isAdmin?: boolean;
   // Phase 12 (WAVE-03) — wave groups assembled from the live `wave_*` /
   // `subagent_*` WS events by dashboard/page.tsx. Optional + defaulted to []
   // so existing callers/tests that omit it are unaffected; a non-wave run
@@ -267,6 +269,7 @@ export function DashboardLayout({
   onClearPendingOdPpt,
   userTier = "basic",
   userEmail,
+  isAdmin = false,
   waves = [],
   submittedBrief,
   runChatMessages,
@@ -1740,6 +1743,7 @@ export function DashboardLayout({
         onLogout={onLogout}
         userTier={userTier}
         userEmail={userEmail}
+        isAdmin={isAdmin}
         isPipelineRunning={isPipelineRunning}
         pipelineType={effectiveReviseType}
         pipelineAgentsCompleted={pipelineState?.completedCount ?? 0}

@@ -12,6 +12,7 @@ import {
   adminListUsers, adminUpdateTier, adminCreateUser, adminDeleteUser,
 } from "@/lib/api";
 import type { AdminUser } from "@/lib/api";
+import { buildLoginRedirect } from "@/lib/authRedirect";
 import { TIER_LABELS } from "@/lib/entitlements";
 import type { Tier } from "@/lib/entitlements";
 import { Card } from "@/components/ui/Card";
@@ -134,13 +135,14 @@ export default function AdminPage() {
 
   useEffect(() => {
     const token = getToken();
-    if (!token) { router.replace("/login"); return; }
+    if (!token) { router.replace(buildLoginRedirect()); return; }
 
-    // Verify admin access
+    // Verify admin access — a non-admin is sent to the main application, not
+    // back through login (they ARE authenticated, just not authorized here).
     getMe(token).then(user => {
       if (!user.is_admin) { router.replace("/dashboard"); return; }
       loadUsers(token);
-    }).catch(() => router.replace("/login"));
+    }).catch(() => router.replace(buildLoginRedirect()));
   }, [router]);
 
   const loadUsers = async (token?: string) => {

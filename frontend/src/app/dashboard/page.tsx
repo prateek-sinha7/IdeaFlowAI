@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions } from "@/lib/api";
+import { buildLoginRedirect } from "@/lib/authRedirect";
 import type { WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
@@ -288,7 +289,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const storedToken = getToken();
     if (!storedToken) {
-      router.replace("/login");
+      router.replace(buildLoginRedirect());
       return;
     }
     setToken(storedToken);
@@ -2100,6 +2101,7 @@ export default function DashboardPage() {
       onClearPendingOdPpt={() => setPendingOdPptParams(null)}
       userTier={user?.tier ?? "basic"}
       userEmail={user?.email}
+      isAdmin={user?.is_admin ?? false}
       waves={waveGroups}
     />
   );

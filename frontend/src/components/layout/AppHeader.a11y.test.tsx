@@ -15,6 +15,12 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+// next/navigation — AppHeader calls useRouter() to route the admin-only
+// "Admin Dashboard" menu item to /admin.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+
 import { AppHeader } from "./AppHeader";
 
 type HeaderOverrides = Partial<React.ComponentProps<typeof AppHeader>>;
@@ -72,6 +78,22 @@ describe("AppHeader — active nav aria-current", () => {
     expect(
       screen.getByRole("button", { name: /my workflows/i }),
     ).not.toHaveAttribute("aria-current");
+  });
+});
+
+describe("AppHeader — Admin Dashboard nav item (gated by isAdmin)", () => {
+  it("does NOT render 'Admin Dashboard' for a non-admin user", async () => {
+    const user = userEvent.setup();
+    setup({ isAdmin: false });
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
+    expect(screen.queryByRole("menuitem", { name: /admin dashboard/i })).not.toBeInTheDocument();
+  });
+
+  it("renders 'Admin Dashboard' in the profile menu for an admin user", async () => {
+    const user = userEvent.setup();
+    setup({ isAdmin: true });
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
+    expect(screen.getByRole("menuitem", { name: /admin dashboard/i })).toBeInTheDocument();
   });
 });
 

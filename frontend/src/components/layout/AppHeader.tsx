@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Home,
@@ -13,6 +14,7 @@ import {
   BarChart2,
   CreditCard,
   LayoutGrid,
+  Shield,
 } from "lucide-react";
 import { NotificationPanel } from "@/components/ui/NotificationPanel";
 import type { PipelineNotification } from "@/hooks/useNotifications";
@@ -46,6 +48,8 @@ interface AppHeaderProps {
   onLogout: () => void;
   userEmail?: string;
   userTier?: Tier;
+  /** Shows the "Admin Dashboard" nav item only for authenticated admins. */
+  isAdmin?: boolean;
   disabled?: boolean;
   // Pipeline running indicator (legacy scalar — kept as fallback)
   isPipelineRunning?: boolean;
@@ -78,6 +82,7 @@ export function AppHeader({
   onLogout,
   userEmail,
   userTier = "basic",
+  isAdmin = false,
   disabled,
   isPipelineRunning,
   pipelineType,
@@ -94,6 +99,7 @@ export function AppHeader({
   onClearNotifications,
   onViewResults,
 }: AppHeaderProps) {
+  const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
   // KAN-132: dropdown state for the multi-pipeline running badge
   const [runningDropdownOpen, setRunningDropdownOpen] = useState(false);
@@ -513,6 +519,16 @@ export function AppHeader({
                     <History className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
                     Run History
                   </button>
+                  {isAdmin && (
+                    <button
+                      role="menuitem"
+                      onClick={() => { setProfileOpen(false); router.push("/admin"); }}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-ink-700 hover:bg-surface-warm transition-colors text-left"
+                    >
+                      <Shield className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
+                      Admin Dashboard
+                    </button>
+                  )}
                 </div>
 
                 <div className="border-t border-line-divider py-0.5">
