@@ -753,7 +753,7 @@ export default function DashboardPage() {
         // consumed on the first re-starting agent (FIX-164 over-count fix).
         if (msg.type === "agent_start") {
           const agentId = (msg.data as Record<string, unknown> | undefined)?.agent_id as string | undefined
-            ?? (msg as Record<string, unknown>).agent_id as string | undefined;
+            ?? (msg as unknown as Record<string, unknown>).agent_id as string | undefined;
           if (agentId && revisionCycleArmedRef.current) {
             const prevAgent = pipelineAgentsRef.current.find((a) => a.id === agentId);
             if (prevAgent && prevAgent.status === "done") {
