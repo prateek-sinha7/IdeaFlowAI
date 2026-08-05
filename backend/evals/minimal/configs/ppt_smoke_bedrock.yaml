@@ -1,0 +1,17 @@
+# configs/ppt_smoke.yaml, dispatched on AWS Bedrock instead of Mistral.
+#
+#   evals/minimal/run-aws.sh configs/ppt_smoke_bedrock.yaml
+#
+# Same brief, same 3 agents, same rubrics. The JUDGE stays pinned to
+# mistral-large in workflows/ppt/rubrics/*.yaml — changing the thing under test
+# and the instrument measuring it in one step makes a score delta
+# unattributable.
+
+workflow: ppt
+dataset: smoke.json
+
+provider: bedrock
+
+# Pinned so this arm's runs are distinguishable from the Mistral arm's at a
+# glance in .runs/ and on the report index.
+dataset_id: ppt_smoke_bedrock

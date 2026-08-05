@@ -19,6 +19,12 @@ langchain==1.3.4
 langchain-core==1.4.0
 # Anthropic direct API — used when ANTHROPIC_API_KEY is set (local dev)
 langchain-anthropic==1.4.3
+# Mistral — free-tier provider used as a build_model() fallback / explicit
+# eval-harness opt-in.
+# Pinned to 1.1.4, NOT the latest (1.1.6): 1.1.5+ requires langchain-core>=1.4.7,
+# which conflicts with this repo's langchain-core==1.4.0 pin (resolver-verified
+# 2026-07-28 — 1.1.4 requires langchain-core>=1.3.2,<2.0.0, no conflict).
+langchain-mistralai==1.1.4
 # LangGraph — runtime under the deepagents graphs (replaces the hand-rolled
 # DeepAgent loop). deepagents 0.6.7 requires langgraph>=1.2.4,<1.3.
 langgraph==1.2.4
@@ -34,6 +40,13 @@ deepagents==0.6.7
 # LangGraph Postgres checkpointer — durable HITL review gates + crash/disconnect
 # resume; uses the production DATABASE_URL=postgresql://... (manages its own tables).
 langgraph-checkpoint-postgres==3.1.0
+# langgraph-checkpoint-postgres depends transitively on bare `psycopg>=3.2.0`,
+# which resolves to the core package with NO pq wrapper bundled — it needs a
+# system libpq at import time or it raises "no pq wrapper available" the
+# moment get_checkpointer() runs (checkpointer.py). Pinning the [binary] extra
+# here bundles a self-contained libpq in the wheel so no OS-level Postgres
+# client library install is required on any dev machine or container.
+psycopg[binary]==3.2.4
 # Headless Chromium driver for prototype render-validation
 # (app/agents/render_check.py). The browser binary itself is installed in the
 # Dockerfile via `playwright install --with-deps chromium` (not in the wheel).

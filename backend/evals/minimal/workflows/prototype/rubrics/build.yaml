@@ -1,0 +1,94 @@
+# Grading config for prototype-build — turns the plan's task list into the
+# single-file HTML deliverable.
+#
+# WHAT IS GRADED: not the streamed text. This agent is tool-using
+# (tools: [prototype_emit_only]); it writes prototype.html into the sandbox and
+# its reply is one confirmation sentence. run.py reads the deliverable back and
+# REPLACES the response with it, so every rule below applies to the CONTENT of
+# prototype.html. Industry-agnostic: briefs live in the dataset.
+#
+# Only `judge`, `scoring`, `dimensions`, `rubric` and `upstream` are read.
+
+# Upstream artifacts handed to the judge as evidence. `page_completeness` (35%)
+# is "did it build every page the spec and plan called for", which needs both.
+# `analysis.md` is deliberately NOT here: build consumes it, but no build
+# dimension reads it, and 11k chars of unusable context still costs the judge a
+# read before it can score.
+upstream:
+  - spec.md
+  - tasks.md
+
+judge:
+  provider: mistral
+  model: mistral-large-latest      # identical to every other stage, so stages stay comparable
+
+
+# Score from what the findings COST (judge.SEVERITY_COST), not the number the
+# judge volunteers — see rubrics/specify.yaml for the runs that forced this.
+scoring: severity_priced
+
+
+# No anchors block, deliberately. A fixed scale gave the judge round numbers
+# to snap to; severity pricing replaced it.
+dimensions:
+  - id: data_realism
+    weight: 40
+    description: >
+      Is the sample data in the tables, charts and forms plausible and
+      specific to THIS brief's industry — records, ids, amounts, dates and
+      statuses a practitioner would accept as a real export — rather than
+      generic rows fitting any vertical? Tables need real depth (several
+      distinct records, not one repeated); charts need real values and
+      labelled axes.
+
+  - id: page_completeness
+    weight: 35
+    description: >
+      Does every page carry the content its spec promised, or is some page a
+      heading over a bare shell? Judge whether a page a user navigates to
+      actually answers the job it exists for, and whether depth is even across
+      pages rather than one rich landing page and four thin ones.
+
+  - id: visual_coherence
+    weight: 25
+    description: >
+      Do the pages read as one designed product — consistent chrome, spacing
+      and component vocabulary, colours drawn from the `:root` DS tokens
+      (--bg, --fg, --accent, --surface, --border, --muted) rather than raw hex
+      scattered through the markup — at a density suited to the brief's
+      audience?
+
+rubric: |
+  Grading a single-file HTML PROTOTYPE — the `prototype.html` an agent wrote
+  to disk, read back and given to you verbatim. Read it as the rendered page a
+  user would see, not as source code to review. Read the seeded spec to know
+  the industry.
+
+  Structural and render checks (valid document, pages present, nav routes
+  resolving, no console errors) run SEPARATELY and deterministically; a row
+  failing them is forced to zero regardless of what you score. So do not
+  spend your findings on structure or code architecture — judge the content
+  quality those checks cannot see.
+
+  Return an entry for EVERY dimension listed. A partial list is discarded in
+  full.
+
+  FINDINGS ARE THE SCORE. Per dimension, list every real defect in
+  `weaknesses` as a string PREFIXED with its severity — `"blocking: ..."`,
+  `"major: ..."`, `"minor: ..."`:
+  - blocking — the prototype cannot be shown to a user: a page with nothing on
+    it, data that is obvious filler, content contradicting its own page id.
+  - major — a real gap that degrades the demo: a table with one repeated row,
+    a chart without values or labelled axes, a page markedly thinner than the
+    rest, raw hex overriding the DS tokens.
+  - minor — nit; nobody looking at the prototype would notice.
+
+  The tag IS the deduction. Tag honestly: never withhold a finding to protect
+  a score, never inflate a nit. No real defects = empty `weaknesses` = a
+  legitimate 100. Do not invent a flaw to avoid giving one.
+
+  `score`: your own 0-100. Recorded for comparison, NOT the score of record.
+  Answer it honestly, not strategically.
+
+  `evidence`: quote specific pages, records or data points from THIS
+  document. Text that would fit any other prototype is a non-answer.

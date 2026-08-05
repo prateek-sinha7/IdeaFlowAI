@@ -1,0 +1,107 @@
+{
+  "dataset_id": "prototype_ten",
+  "for_agent": "prototype-specify",
+  "description": "10 rows across 10 industries, full 5-stage chain. The real sweep — run this only after small.yaml has come back clean, because a full chain costs roughly 0.5-2M tokens PER ROW at build and validate.",
+  "rows": [
+    {
+      "id": "warehouse_slotting",
+      "industry": "Warehouse Ops",
+      "tags": [
+        "inventory",
+        "table-heavy",
+        "detail-route"
+      ],
+      "prompt": "Build a slotting-optimisation workbench for Granite Peak Distribution's pick floor. Pages: Slot Grid, SKU Detail via #/sku/:id, Replenishment, Velocity Report, Moves, Settings. Slot Grid lists 20 pick slots (aisle-bay-level code, SKU, on-hand, daily picks, fill %) filterable by aisle and by a 'below reorder point' toggle, with SKU text search. SKU Detail shows the clicked SKU's velocity history table, current slot, and a 'Queue move' action selecting a suggested better slot — queued moves appear on the Moves page and flag the source row on the Slot Grid. Velocity Report's top-10 must be derivable from the grid data. Realistic SKUs, case quantities, aisle codes like A-07-2."
+    },
+    {
+      "id": "er_bed_board",
+      "industry": "Healthcare",
+      "tags": [
+        "ops-console",
+        "capacity",
+        "state-change"
+      ],
+      "prompt": "Build an emergency-department bed board for St. Aldric Medical Center (24 beds across 3 pods). Pages: Bed Board, Patient Detail via #/patient/:id, Incoming (ambulance pre-arrivals), Staff, Reports, Settings. The Bed Board shows every bed as a card with pod, bed number, patient (or Open), acuity 1-5 and time-in-bed; filter buttons by pod and by acuity band must work together. Clicking an occupied bed opens that patient's detail — chief complaint, vitals trend as a small table, orders — and a 'Mark for discharge' action that flips the bed to Cleaning state, visible back on the board. Reports totals (occupancy %, median wait) must be computable from the board's own data. Realistic clinical data, no lorem."
+    },
+    {
+      "id": "fraud_review_queue",
+      "industry": "Banking",
+      "tags": [
+        "review-queue",
+        "state-change",
+        "table-heavy"
+      ],
+      "prompt": "Build a card-fraud review console for Meridian Bank's risk team. Pages: Queue, Case Detail via #/case/:id, Rules, Analytics, Audit Log, Settings. The Queue lists flagged transactions (card last-4, merchant, amount, country, risk score 0-100, status) with a risk-band filter (High ≥80 / Medium 50-79 / Low <50) and a text search over merchant; both must actually filter. Case Detail shows the transaction, the cardholder's last 5 transactions for context, and the triggering rule, with 'Confirm fraud' and 'Mark legitimate' buttons that update the case status badge in place and back on the Queue. The Audit Log appends one line per decision taken this session. Analytics totals must agree with the Queue data. Realistic amounts, merchants, BIN-plausible card fragments."
+    },
+    {
+      "id": "airline_crew_ops",
+      "industry": "Aviation",
+      "tags": [
+        "scheduling",
+        "compliance",
+        "detail-route"
+      ],
+      "prompt": "Build a crew-scheduling day-of-operations tool for Cascadia Air's Portland base. Pages: Roster (today's pairings), Crew Detail via #/crew/:id, Flights, Legality Alerts, Reserve Pool, Settings. Roster rows: pairing code, captain, first officer, aircraft, report time, duty hours, legality status — filterable by fleet (E175 / 737) and by legality (Legal / Caution / Illegal), plus name search. Crew Detail shows that crew member's duty-time ledger for the week and their assignments; a 'Assign from reserve' action on an Illegal pairing swaps in a named reserve pilot and updates both the Roster row and the Reserve Pool count. Legality Alerts must list exactly the Caution and Illegal rows from the Roster. Realistic pairing codes, FAR-117-flavoured duty numbers."
+    },
+    {
+      "id": "restaurant_reservations",
+      "industry": "Hospitality",
+      "tags": [
+        "booking",
+        "calendar",
+        "state-change"
+      ],
+      "prompt": "Build the host-stand console for Verdello, a 14-table Italian restaurant. Pages: Tonight (service timeline), Reservation Detail via #/reservation/:id, Floor Plan (table-state list), Waitlist, Guests, Settings. Tonight lists reservations (time, party name, covers, table, occasion, status Booked/Seated/Finished/No-show) with a service-period filter (5:00 / 6:30 / 8:00 seatings) and party-name search. Reservation Detail shows guest notes and allergy flags with 'Seat party' and 'No-show' actions that update the status on Tonight and flip the table's state on the Floor Plan. Waitlist has a 'Convert to reservation' action that inserts a row into Tonight. Guest history counts must match Tonight's data. Realistic Italian-restaurant names, tables T1-T14, covers, times."
+    },
+    {
+      "id": "campus_course_admin",
+      "industry": "Education",
+      "tags": [
+        "admin-console",
+        "enrollment",
+        "state-change"
+      ],
+      "prompt": "Build the registrar's section-management console for Ridgewater College's fall term. Pages: Sections, Section Detail via #/section/:id, Waitlists, Instructors, Rooms, Settings. Sections table: course code, title, instructor, room, cap, enrolled, waitlist, status (Open/Full/Cancelled) with department filter buttons (BIO / CS / ECON / ENG) and a title search that work together. Section Detail shows the clicked section's roster summary and meeting pattern, with 'Raise cap by 5' and 'Cancel section' actions that update its row in Sections (and move its waitlisted students count to the Waitlists page total when cancelled). Rooms page must show each room's sections consistent with the Sections table. Realistic course codes like CS-214, MWF times, room codes."
+    },
+    {
+      "id": "saas_billing_ops",
+      "industry": "SaaS Finance",
+      "tags": [
+        "billing",
+        "dunning",
+        "state-change"
+      ],
+      "prompt": "Build a subscription-billing operations console for Northlight, a B2B analytics SaaS. Pages: Accounts, Account Detail via #/account/:id, Dunning Queue, Invoices, Revenue Report, Settings. Accounts: company, plan (Starter/Growth/Scale), MRR, seats, renewal date, payment state (Current / Past due / Churn risk) — with payment-state filters and company search. Account Detail shows the clicked account's invoice history, usage-vs-seats table, and contacts, with 'Retry charge' (flips Past due → Current on success message) and 'Apply 10% save offer' actions reflected on the Accounts row. Dunning Queue must contain exactly the Past-due accounts. Revenue Report's MRR-by-plan must sum from the Accounts data. Realistic company names, non-round MRR figures, dates."
+    },
+    {
+      "id": "court_docket_manager",
+      "industry": "Legal",
+      "tags": [
+        "case-management",
+        "calendar",
+        "detail-route"
+      ],
+      "prompt": "Build a civil-docket management tool for the clerk's office of Alder County Superior Court. Pages: Docket, Case Detail via #/case/:id, Hearings Today, Judges, Filings Inbox, Settings. Docket: case number, caption (Smith v. Hartwell Logistics style), type (Contract / Tort / Landlord-tenant / Small claims), judge, next hearing, status — with type filters and caption search. Case Detail shows the clicked case's party list, filing history table and upcoming deadlines, with 'Grant continuance' (pushes next-hearing date, visible on Docket and Hearings Today) and 'Mark disposed' actions. Filings Inbox has an 'Accept filing' action appending to that case's filing history. Judges' caseload counts must sum from the Docket. Realistic case numbers like 26-CV-01472, dates, captions."
+    },
+    {
+      "id": "farm_field_ops",
+      "industry": "Agriculture",
+      "tags": [
+        "field-ops",
+        "sensors",
+        "detail-route"
+      ],
+      "prompt": "Build a field-operations dashboard for Tallgrass Farms' 12-field corn and soy operation. Pages: Fields, Field Detail via #/field/:id, Irrigation Runs, Scouting Reports, Equipment, Settings. Fields: field name, crop, acres, growth stage, soil moisture %, last scouted, alert state (OK / Dry / Pest pressure) — with crop filters and an alert-only toggle, plus name search. Field Detail shows the clicked field's moisture readings table (7 daily readings), scouting notes and applied inputs, with 'Schedule irrigation run' (adds a row to Irrigation Runs and clears the Dry alert) and 'Log scouting report' actions. Equipment page's assignment column must agree with scheduled runs. Realistic field names like 'North Quarter', moisture percentages, hybrid seed codes."
+    },
+    {
+      "id": "municipal_permits",
+      "industry": "Government",
+      "tags": [
+        "workflow",
+        "review-stages",
+        "detail-route"
+      ],
+      "prompt": "Build a building-permit review console for the City of Marlowe's planning department. Pages: Applications, Application Detail via #/application/:id, Review Queues (by discipline), Inspections, Fees, Settings. Applications: permit number, address, type (Residential remodel / New commercial / Sign / Demolition), submitted date, current review stage (Intake / Zoning / Structural / Fire / Issued), days in stage — with type filters and address search. Application Detail renders the clicked application's document checklist, reviewer comments per discipline, and 'Approve current stage' (advances the stage, visible on Applications and moving it between Review Queues) and 'Request corrections' actions. Fees page totals must sum from application valuations. Realistic permit numbers like BLD-2026-0341, addresses, valuations."
+    }
+  ]
+}
