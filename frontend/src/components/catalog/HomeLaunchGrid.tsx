@@ -12,9 +12,9 @@
  * SC-001 / ND-D: every row + recent comes from live endpoints (never fabricated).
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Lock, AlertCircle, Plus, Info, Paperclip, Sparkles, X } from "lucide-react";
+import { ArrowRight, Lock, AlertCircle, Info, Sparkles } from "lucide-react";
 import type { WorkflowType } from "@/types/index";
 import type { WorkflowRun } from "@/types/index";
 import { WorkflowDialog } from "@/components/workflow/WorkflowDialog";
@@ -203,24 +203,8 @@ export function HomeLaunchGrid({
   }, []);
 
   // ─── Prompt (controlled-optional) ─────────────────────────────────────────
-  const [internalBrief, setInternalBrief] = useState("");
-  const briefValue = brief ?? internalBrief;
-  const setBrief = (value: string) => {
-    if (onBriefChange) onBriefChange(value);
-    else setInternalBrief(value);
-  };
-
-  // ─── Attach (image affordance, ND-X) ──────────────────────────────────────
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [attachedImages, setAttachedImages] = useState<{ name: string }[]>([]);
-  const handleAttachClick = () => fileInputRef.current?.click();
-  const handleFilesPicked = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setAttachedImages((prev) => [...prev, ...Array.from(files).map((f) => ({ name: f.name }))]);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-  const removeAttachment = (idx: number) =>
-    setAttachedImages((prev) => prev.filter((_, i) => i !== idx));
+  // Brief/onBriefChange/onBuild props retained in interface for API compat
+  // but the prompt textarea has been removed from the home screen (FIX-181).
 
   // ─── Launch ────────────────────────────────────────────────────────────────
   const handleClick = (type: WorkflowType) => {
@@ -230,13 +214,6 @@ export function HomeLaunchGrid({
     if (type === "prototype") { router.push("/workflow/create?mode=prototype"); return; }
     if (type === "ppt")       { router.push("/workflow/create?mode=ppt");       return; }
     onSelectFeature(type);
-  };
-
-  const buildDisabled = briefValue.trim().length === 0;
-  const handleBuild = () => {
-    if (buildDisabled) return;
-    if (onBuild) onBuild();
-    else onSelectFeature("custom" as WorkflowType);
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -254,71 +231,15 @@ export function HomeLaunchGrid({
           </h1>
         </div>
 
-        {/* Prompt */}
-        <div className="overflow-hidden rounded-[18px] border border-line-border bg-surface-white shadow-[0_8px_30px_rgba(17,17,20,0.05)]">
-          <textarea
-            id="home-launch-prompt"
-            value={briefValue}
-            onChange={(e) => setBrief(e.target.value)}
-            rows={3}
-            placeholder="Describe what you want to build — a prototype, a backlog, an app, a deck…"
-            className="block w-full resize-none border-0 bg-transparent px-5 pt-5 pb-2 text-[15px] leading-relaxed text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-0"
-          />
-          <div className="flex items-center gap-4 border-t border-line-divider px-4 py-3">
-            <button type="button" onClick={handleAttachClick}
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-ink-500 transition-colors hover:text-brand">
-              <Paperclip className="h-[15px] w-[15px]" /> Attach
-            </button>
-            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
-              onChange={(e) => handleFilesPicked(e.target.files)} />
-            <span className="flex-1" />
-            <button type="button" onClick={handleBuild} disabled={buildDisabled}
-              className={`inline-flex items-center gap-2 rounded-[11px] px-5 py-2.5 text-[13.5px] font-semibold text-white transition-colors ${
-                buildDisabled ? "cursor-not-allowed bg-brand opacity-50" : "cursor-pointer bg-brand hover:bg-brand-pressed"
-              }`}>
-              Build <ArrowRight className="h-[15px] w-[15px]" />
-            </button>
-          </div>
-        </div>
-
-        {/* Attached image chips */}
-        {attachedImages.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {attachedImages.map((img, i) => (
-              <span key={`${img.name}-${i}`}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line-border bg-surface-card px-2.5 py-1 text-[11px] text-ink-600">
-                <Paperclip className="h-3 w-3" />
-                <span className="max-w-[160px] truncate">{img.name}</span>
-                <button type="button" onClick={() => removeAttachment(i)}
-                  aria-label={`Remove ${img.name}`}
-                  className="text-ink-400 transition-colors hover:text-ink-700">
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
         {error && (
           <div className="mt-6 flex items-center gap-1.5 rounded-lg bg-[var(--status-failed-fill)] px-2.5 py-1.5 text-[11px] text-status-failed">
             <AlertCircle className="h-3 w-3 flex-shrink-0" /> {error}
           </div>
         )}
 
-        {/* Section header */}
-        <div className="mt-10 mb-3.5 flex items-center justify-between">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">
-            Or start from a deliverable
-          </p>
-          <button onClick={() => onSelectFeature("custom" as WorkflowType)}
-            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-ink-500 transition-colors hover:text-brand">
-            <Plus className="h-3.5 w-3.5" /> Create workflow
-          </button>
-        </div>
-
         {/* Loading skeleton — only shown on true first visit (no cache) */}
         {loading && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="h-[168px] animate-pulse rounded-[14px] border border-line-border bg-surface-card" />
             ))}
@@ -326,12 +247,12 @@ export function HomeLaunchGrid({
         )}
 
         {!loading && !error && workflows.length === 0 && (
-          <p className="py-2 text-[11px] text-ink-400">No workflows available for your plan yet.</p>
+          <p className="mt-10 py-2 text-[11px] text-ink-400">No workflows available for your plan yet.</p>
         )}
 
         {/* Deliverable card grid */}
         {!loading && !error && workflows.length > 0 && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {workflows.map((row) => {
               const type      = row.id as WorkflowType;
               const label     = row.display_name ?? getWorkflowLabel(row.id);
@@ -348,7 +269,7 @@ export function HomeLaunchGrid({
                         ? "cursor-pointer border-line-border bg-surface-card hover:border-line-faint"
                         : "cursor-not-allowed border-line-border bg-surface-card opacity-60"
                     }`}>
-                    <div className="mb-3.5 flex items-center justify-between pr-7">
+                    <div className="mb-3.5 flex items-center justify-between">
                       <span className="grid h-[38px] w-[38px] place-items-center rounded-[10px] bg-surface-warm text-ink-900">
                         {allowed ? <Sparkles className="h-[19px] w-[19px]" /> : <Lock className="h-[18px] w-[18px] text-ink-400" />}
                       </span>
@@ -360,18 +281,20 @@ export function HomeLaunchGrid({
                     <p className={`mb-3 text-[12.5px] leading-relaxed ${allowed ? "text-ink-500" : "text-ink-400"}`}>
                       {subtitle}
                     </p>
-                    <span className="mt-auto text-[11px] font-medium text-ink-400">{estimate}</span>
+                    <div className="mt-auto flex items-center gap-1.5">
+                      <span className="text-[11px] font-medium text-ink-400">{estimate}</span>
+                      {/* SURF-03: inspect compiled workflow capabilities — inline next to agent count */}
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setInspectId(row.id); }}
+                        aria-label={`Inspect ${label} details`}
+                        className="flex h-4 w-4 items-center justify-center rounded text-ink-300 transition-colors hover:text-ink-600">
+                        <Info className="h-3 w-3" />
+                      </button>
+                    </div>
                     {!allowed && upgradeTo && (
                       <span className="mt-1.5 text-[10px] font-semibold text-brand">
                         Requires {TIER_LABELS[upgradeTo]} plan
                       </span>
                     )}
-                  </button>
-                  {/* SURF-03: inspect compiled workflow capabilities */}
-                  <button type="button" onClick={() => setInspectId(row.id)}
-                    aria-label={`Inspect ${label} details`}
-                    className="absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-lg text-ink-300 transition-colors hover:bg-surface-warm hover:text-ink-700">
-                    <Info className="h-3.5 w-3.5" />
                   </button>
                 </div>
               );
