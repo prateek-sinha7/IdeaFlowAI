@@ -135,8 +135,20 @@ export function AgentThinkingTab({
   const constructionAgent = constructionIdx >= 0 ? agents[constructionIdx] : undefined;
   const laterAgentStarted = constructionIdx >= 0 &&
     agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
+  // constructionComplete: the build agent's DONE badge may arrive (agent_complete)
+  // before the fix-loop finishes its last sub-task, causing the validation agent to
+  // start immediately (laterAgentStarted=true). Guard against that race: only treat
+  // the construction as complete when EITHER:
+  //   a) the pipeline has fully stopped (isRunning===false), OR
+  //   b) a later agent has started AND all expected sub-tasks are confirmed done
+  //      via task_progress (completedTaskCount >= totalTasks).
+  // This keeps the KAN-99 N-1 cap in force until the last task_progress fires.
+  const allTasksDone = totalTasks > 0 && completedTaskCount >= totalTasks;
   const constructionComplete = constructionAgent
-    ? constructionAgent.status === "done" && (laterAgentStarted || pipelineState?.isRunning === false)
+    ? constructionAgent.status === "done" && (
+        pipelineState?.isRunning === false ||
+        (laterAgentStarted && allTasksDone)
+      )
     : pipelineState?.isRunning === false;
 
   const selectedAgent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : undefined;

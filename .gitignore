@@ -62,7 +62,3 @@ skills/opendesign/design-templates/*/thumbnail.jpg
 
 # Backend run artifacts (UUID-based runtime data)
 backend/runs/
-
-
-# Kiro IDE files (personal, not for team use)
-.kiro/

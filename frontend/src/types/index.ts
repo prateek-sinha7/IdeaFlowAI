@@ -77,8 +77,15 @@ export interface ChatMessage {
   /** Narrator result-card kind — a GENERIC milestone discriminator (SC-001),
    *  never a workflow/agent literal. Present only on `chat_reply` narrator turns. */
   cardKind?: "clarify" | "gate" | "pipeline" | "deliverable" | "spec_revision";
-  /** The deep-link a narrator card carries into a run tab (borrow #6). */
+  /** Deep-link a narrator card carries into a run tab (borrow #6). */
   deepLink?: DeepLinkTarget;
+  /**
+   * Gate card resolution flag. Set to `true` when `review_gate_approved` fires
+   * for the gate this card represents. A resolved gate card renders as a plain
+   * inline text ("Review approved — build continues") instead of a styled box.
+   * Generic — keyed on message id, never on workflow/agent name (SC-001).
+   */
+  resolved?: boolean;
   /** Family anchoring (D-02): the run/thread this turn belongs to. A child
    *  (revision) run's turns carry a different `runId` but stitch into the SAME
    *  transcript array so the family transcript accumulates, never swaps. */

@@ -131,7 +131,18 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
   // ("Run started", "Run complete") is informational, not a decision point; a
   // deliverable card is a single call-to-action link. Box chrome is kept for gate
   // and spec_revision which ARE decision/status cards requiring visual weight.
-  if (kind === "clarify" || kind === "pipeline" || kind === "deliverable") {
+  //
+  // A resolved gate card (review_gate_approved received) renders as a plain inline
+  // text — "Review approved — build continues" — with no box chrome. The gate is
+  // closed; there is no action left to surface.
+  if (kind === "clarify" || kind === "pipeline" || kind === "deliverable" ||
+      (kind === "gate" && message.resolved)) {
+    // Resolved gate cards show a fixed confirmation text (user-specified).
+    // All other inline kinds show their narrator content as-is.
+    const inlineText =
+      kind === "gate" && message.resolved
+        ? "Review approved — build continues"
+        : message.content;
     return (
       <div
         data-testid="chat-result-card"
@@ -139,18 +150,20 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
         className="my-1"
       >
         <p className="font-serif text-[13px] leading-relaxed text-ink-900">
-          {message.content}
+          {inlineText}
         </p>
-        <button
-          type="button"
-          data-testid="chat-result-card-link"
-          data-target-tab={tab}
-          onClick={() => onRequestOpenTab(tab)}
-          className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand transition-colors hover:underline"
-        >
-          {linkLabel}
-          <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+        {kind !== "gate" && (
+          <button
+            type="button"
+            data-testid="chat-result-card-link"
+            data-target-tab={tab}
+            onClick={() => onRequestOpenTab(tab)}
+            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand transition-colors hover:underline"
+          >
+            {linkLabel}
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        )}
       </div>
     );
   }

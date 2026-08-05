@@ -1991,7 +1991,9 @@ export default function DashboardPage() {
             }
             // seedTranscript resets the hook's seen-set + seq cursor so the
             // re-fetch-after-send (DEF-44-12-2) pulls only newer events.
-            seedRunChatTranscript(familyChatFrames);
+            // Pass isTerminalRun=true for completed/failed/cancelled/degraded runs so
+            // gate chat_reply cards are auto-resolved (no pending review box).
+            seedRunChatTranscript(familyChatFrames, REOPEN_TERMINAL_STATUSES.has(fullRun.status));
           } catch (seedErr) {
             // Log-and-continue: a seed fetch failure must not break the reopen
             // content path already set above.

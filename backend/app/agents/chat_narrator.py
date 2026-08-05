@@ -175,15 +175,21 @@ def _classify(
     # KAN-154: gate-resolved events — surfaces the user's approve/reject action as an
     # inline clarify-style note in the transcript. Generic: keyed on event type only
     # (SC-001/INV-1). Action "reject" ends the pipeline (pipeline_cancelled follows);
-    # "approve" advances it. We emit the same CARD_CLARIFY kind so the FE renders it
-    # as a lightweight inline link matching the "Clarifications answered" pattern.
+    # "approve" advances it.
+    # FIX-178 follow-up: the "approve" action is no longer emitted as a separate
+    # narrator card — the FE now resolves the original gate card in-place and renders
+    # "Review approved — build continues" inline. Emitting a second card caused a
+    # duplicate "Approved" entry. Only redo/update_specs still emit a card (they are
+    # informational loop-back actions not covered by the gate card resolution).
     if etype in _GATE_RESOLVED_EVENTS:
         action = data.get("action", "approve")
-        if action in ("redo", "update_specs"):
-            text = "Redo requested" if action == "redo" else "Updating the specs"
-        else:
-            text = "Approved — build continues"
-        return CARD_CLARIFY, text, f"gate:{anchor}"
+        if action == "redo":
+            return CARD_CLARIFY, "Redo requested", f"gate:{anchor}"
+        if action == "update_specs":
+            return CARD_CLARIFY, "Updating the specs", f"gate:{anchor}"
+        # approve / reject / default: no separate card — the gate card itself is
+        # resolved by the FE on review_gate_approved.
+        return None
 
     if etype == "pipeline_complete":
         # A completion carrying deliverable metadata is a DELIVERABLE milestone

@@ -1149,10 +1149,17 @@ def _owned_family_members(
     foreign id.
 
     BUG-FIX (FIX-173): the BFS now only admits children whose normalized base type
-    matches the root's — stripping the generic ``_revision`` suffix (SC-001: no
-    literal pipeline-type name check). A prototype revision accidentally parented to
-    a PPT root (or vice-versa) is excluded, so concurrent PPT + prototype revision
-    sessions no longer cross-contaminate each other's version dropdown.
+    matches the root's — stripping the generic ``_revision`` suffix and the ``od_``
+    variant prefix (SC-001: no literal pipeline-type name check). A prototype revision
+    accidentally parented to a PPT root (or vice-versa) is excluded, so concurrent
+    PPT + prototype revision sessions no longer cross-contaminate each other's version
+    dropdown.
+
+    BUG-FIX (FIX-179): the normalization now ALSO strips the ``od_`` variant prefix
+    so that an ``od_prototype`` root correctly admits ``prototype_revision`` children —
+    both normalize to ``"prototype"``. Without this, ``od_prototype`` roots returned
+    only themselves (1 member) because ``"prototype" != "od_prototype"``, causing the
+    version dropdown to show only the initial run regardless of how many revisions existed.
     """
     members: dict[str, WorkflowRun] = {}
     root_row = (
@@ -1164,13 +1171,20 @@ def _owned_family_members(
         members[root_row.id] = root_row
 
     # Derive the root's base pipeline-type ONCE for the cross-family guard below.
-    # SC-001 / INV-1: keyed ONLY on the generic ``_revision`` suffix — no literal
-    # pipeline-name branch. We strip the suffix and compare so that both
-    # ``od_ppt`` + ``od_ppt_revision`` share the ``od_ppt`` base, while
-    # ``prototype`` / ``prototype_revision`` share the ``prototype`` base —
-    # preventing cross-type contamination without naming any workflow.
+    # SC-001 / INV-1: keyed ONLY on generic suffixes/prefixes — no literal
+    # pipeline-name branch. We strip the ``_revision`` suffix THEN the ``od_``
+    # variant prefix so that ``od_prototype`` and ``prototype_revision`` both
+    # normalise to ``"prototype"``, ``od_ppt`` and ``od_ppt_revision`` both
+    # normalise to ``"ppt"``, etc. — preventing cross-type contamination without
+    # naming any workflow. Without the ``od_`` strip, an ``od_prototype`` root's
+    # children (type ``prototype_revision``) were incorrectly excluded by the
+    # guard because ``"prototype" != "od_prototype"`` (FIX-179).
+    def _canonical_base(t: str) -> str:
+        """Strip generic ``_revision`` suffix then ``od_`` variant prefix."""
+        return t.removesuffix("_revision").removeprefix("od_")
+
     root_base_type: str | None = (
-        root_row.type.removesuffix("_revision") if root_row is not None else None
+        _canonical_base(root_row.type) if root_row is not None else None
     )
 
     frontier = {root_id}
@@ -1188,10 +1202,11 @@ def _owned_family_members(
         for child in children:
             if child.id in visited:
                 continue  # cycle guard — never re-enqueue an already-seen run
-            # FIX-173: cross-family isolation — skip a child whose base type
-            # differs from the root's (e.g. a prototype_revision accidentally
-            # linked to a PPT root). Generic: keyed only on the _revision suffix.
-            if root_base_type is not None and child.type.removesuffix("_revision") != root_base_type:
+            # FIX-173/FIX-179: cross-family isolation — skip a child whose
+            # canonical base type differs from the root's. Uses _canonical_base
+            # (strip ``_revision`` then ``od_`` prefix) so ``od_prototype`` roots
+            # correctly admit ``prototype_revision`` children (both → ``prototype``).
+            if root_base_type is not None and _canonical_base(child.type) != root_base_type:
                 continue
             visited.add(child.id)
             members[child.id] = child
