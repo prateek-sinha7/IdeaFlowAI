@@ -1,0 +1,77 @@
+# Grading config for od-ppt-composer — executes the slide plan into the
+# self-contained HTML deck.
+#
+# WHAT IS GRADED: not the streamed text. This agent writes the deck to the
+# sandbox; run.py reads `presentation.html` back and REPLACES the response with
+# it, so every rule below applies to the CONTENT of that file.
+#
+# No deterministic checker runs on this stage (workflow.yaml: `checks: none`),
+# so unlike the prototype build rubric this one may NOT assume structure has
+# been screened — say so when the document itself is broken.
+
+# The plan is what `plan_execution` (40%) compares against; without it that
+# dimension asks "did it build what was planned?" with nothing to compare to,
+# and judges price missing evidence as the artifact's failure.
+upstream:
+  - slide-plan.json
+
+judge:
+  provider: mistral
+  model: mistral-large-latest
+
+scoring: severity_priced
+
+dimensions:
+  - id: plan_execution
+    weight: 40
+    description: >
+      Is every slide the plan called for present, carrying the content the
+      plan specified, in the planned order? Flag hardest a planned slide that
+      is missing, and a slide whose content contradicts its own plan entry.
+
+  - id: content_substance
+    weight: 35
+    description: >
+      Does each slide carry real, specific, audience-plausible content —
+      figures, named examples, chart data a practitioner would accept — rather
+      than placeholder headings, lorem text or generic filler that would fit
+      any deck on any subject?
+
+  - id: visual_coherence
+    weight: 25
+    description: >
+      Do the slides read as one designed deck — consistent typography, spacing
+      and slide chrome, colours drawn from the deck's own token/theme
+      definitions rather than raw hex scattered per slide, at a density suited
+      to the audience?
+
+rubric: |
+  Grading a self-contained HTML PRESENTATION DECK — the file an agent wrote to
+  disk, read back and given to you verbatim. Read it as the deck an audience
+  would see, not as source code to review.
+
+  Nothing has been pre-screened: no structural or render check runs on this
+  stage. A document that is malformed, truncated or unopenable is a blocking
+  finding you must report yourself.
+
+  Return an entry for EVERY dimension listed. A partial list is discarded in
+  full.
+
+  FINDINGS ARE THE SCORE. Per dimension, list every real defect in
+  `weaknesses` as a string PREFIXED with its severity — `"blocking: ..."`,
+  `"major: ..."`, `"minor: ..."`:
+  - blocking — the deck cannot be presented: a planned slide missing, a slide
+    with nothing on it, placeholder text left in, a truncated document.
+  - major — a real gap that degrades the deck: a chart without values or
+    labelled axes, a slide markedly thinner than the rest, raw hex overriding
+    the theme.
+  - minor — nit; nobody in the audience would notice.
+
+  The tag IS the deduction. Tag honestly: never withhold a finding to protect
+  a score, never inflate a nit. No real defects = empty `weaknesses` = a
+  legitimate 100. Do not invent a flaw to avoid giving one.
+
+  `score`: your own 0-100. Recorded for comparison, NOT the score of record.
+
+  `evidence`: quote specific slides, figures or data points from THIS
+  document. Text that would fit any other deck is a non-answer.

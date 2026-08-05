@@ -10,9 +10,11 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "requires_api_key: test requires a live LLM provider (Bedrock/Anthropic) — skipped in CI without credentials",
-    "requires_postgres: test needs a throwaway PostgreSQL database via BOOTSTRAP_ADMIN_TEST_DATABASE_URL — skipped unless it is set",
+    "eval: issue-scoped eval suite (evals/hybrid) — offline scripted-model tests; select with -m eval",
+
 ]
 
 [tool.hypothesis]

@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cedar Family Clinic — Appointments</title>
+<style>
+:root {
+  --bg: #f6f7f6;
+  --fg: #1c2b2a;
+  --accent: #0f766e;
+  --surface: #ffffff;
+  --border: #dde3e2;
+  --muted: #64748b;
+  --accent-soft: #e6f4f2;
+  --info: #1e40af;
+  --info-soft: #e8eefb;
+  --danger: #b91c1c;
+  --danger-soft: #fdecec;
+  --font-body: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { display: flex; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; }
+
+.sidebar { width: 220px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 20px 12px; }
+.brand { font-size: 15px; font-weight: 700; color: var(--accent); padding: 0 10px 18px; }
+.nav-link { display: block; padding: 9px 10px; margin-bottom: 2px; border-radius: 6px; color: var(--fg); text-decoration: none; }
+.nav-link:hover { background: var(--bg); }
+.nav-link.active { background: var(--accent); color: var(--surface); }
+
+.main { flex: 1; padding: 26px 30px; max-width: 1100px; }
+.page { display: none; }
+.page.is-active { display: block; }
+.page-header { margin-bottom: 18px; }
+.page-title { font-size: 20px; font-weight: 700; }
+.page-sub { color: var(--muted); margin-top: 4px; }
+
+.toolbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.search-input { width: 280px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); font-size: 14px; }
+.search-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.filter-group { display: flex; gap: 6px; }
+.filter-btn { padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; font-size: 13px; }
+.filter-btn:hover { border-color: var(--accent); }
+.filter-btn.active { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.table th { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.table tr:last-child td { border-bottom: none; }
+.row-link { cursor: pointer; }
+.row-link:hover { background: var(--bg); }
+.patient-link { color: var(--accent); text-decoration: none; font-weight: 600; }
+.patient-link:hover { text-decoration: underline; }
+
+.badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.badge-confirmed { background: var(--accent-soft); color: var(--accent); }
+.badge-checkedin { background: var(--info-soft); color: var(--info); }
+.badge-noshow { background: var(--danger-soft); color: var(--danger); }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+.card-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.detail-list { list-style: none; }
+.detail-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.detail-list li:last-child { border-bottom: none; }
+.detail-list .k { color: var(--muted); }
+.back-link { display: inline-block; margin-bottom: 14px; color: var(--accent); text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+
+.form-group { margin-bottom: 14px; }
+.form-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+.form-input { width: 100%; max-width: 320px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); font-size: 14px; }
+.btn { padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; font-size: 14px; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn-primary:hover { opacity: 0.92; }
+.empty-note { color: var(--muted); font-style: italic; }
+.save-note { margin-top: 10px; color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<nav class="sidebar" data-od-id="sidebar">
+  <div class="brand">Cedar Family Clinic</div>
+  <a href="#/schedule" data-page-link="schedule" class="nav-link">Schedule</a>
+  <a href="#/providers" data-page-link="providers" class="nav-link">Providers</a>
+  <a href="#/settings" data-page-link="settings" class="nav-link">Settings</a>
+</nav>
+
+<main class="main" data-od-id="main">
+
+  <section data-page="schedule" class="page is-active" data-od-id="page-schedule">
+    <header class="page-header">
+      <h1 class="page-title">Today's schedule</h1>
+      <p class="page-sub">Thursday 12 Mar 2026 · Cedar Family Clinic</p>
+    </header>
+    <div class="toolbar" data-od-id="schedule-toolbar">
+      <input type="search" id="schedule-search" class="search-input" placeholder="Search patient or provider…" oninput="onScheduleSearch()">
+      <div class="filter-group" id="status-filters">
+        <button type="button" class="filter-btn active" data-status="all" onclick="onStatusFilter('all')">All</button>
+        <button type="button" class="filter-btn" data-status="Confirmed" onclick="onStatusFilter('Confirmed')">Confirmed</button>
+        <button type="button" class="filter-btn" data-status="Checked-in" onclick="onStatusFilter('Checked-in')">Checked-in</button>
+        <button type="button" class="filter-btn" data-status="No-show" onclick="onStatusFilter('No-show')">No-show</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>Time</th><th>Patient</th><th>Provider</th><th>Reason</th><th>Status</th></tr>
+        </thead>
+        <tbody id="schedule-rows">
+          <tr class="row-link"><td>08:30</td><td><a href="#/patient/101" class="patient-link">Rosa Delgado</a></td><td>Dr. Amara Osei</td><td>Annual physical</td><td><span class="badge badge-checkedin">Checked-in</span></td></tr>
+          <tr class="row-link"><td>09:15</td><td><a href="#/patient/102" class="patient-link">Marcus Webb</a></td><td>Dr. Ben Kowalski</td><td>Hypertension follow-up</td><td><span class="badge badge-confirmed">Confirmed</span></td></tr>
+          <tr class="row-link"><td>10:00</td><td><a href="#/patient/103" class="patient-link">Lena Fischer</a></td><td>Dr. Amara Osei</td><td>Flu-like symptoms</td><td><span class="badge badge-confirmed">Confirmed</span></td></tr>
+          <tr class="row-link"><td>11:30</td><td><a href="#/patient/104" class="patient-link">Tom Okafor</a></td><td>Dr. Ben Kowalski</td><td>Diabetes check (HbA1c review)</td><td><span class="badge badge-noshow">No-show</span></td></tr>
+          <tr class="row-link"><td>14:00</td><td><a href="#/patient/105" class="patient-link">Priya Raman</a></td><td>Dr. Amara Osei</td><td>Prenatal visit — week 24</td><td><span class="badge badge-confirmed">Confirmed</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section data-page="patient-detail" class="page" data-od-id="page-patient-detail">
+    <a href="#/schedule" class="back-link">← Back to schedule</a>
+    <header class="page-header">
+      <h1 class="page-title" id="patient-name">Patient</h1>
+      <p class="page-sub" id="patient-sub">Record and today's visit</p>
+    </header>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Patient record</div>
+        <ul class="detail-list" id="patient-record"></ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Today's visit</div>
+        <ul class="detail-list" id="patient-visit"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section data-page="providers" class="page" data-od-id="page-providers">
+    <header class="page-header">
+      <h1 class="page-title">Providers</h1>
+      <p class="page-sub">Both providers on duty today</p>
+    </header>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>Provider</th><th>Specialty</th><th>Room</th><th>Today's appointments</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Dr. Amara Osei</td><td>Family medicine &amp; prenatal care</td><td>Room 2</td><td>3</td></tr>
+          <tr><td>Dr. Ben Kowalski</td><td>Family medicine &amp; chronic care</td><td>Room 4</td><td>2</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section data-page="settings" class="page" data-od-id="page-settings">
+    <header class="page-header">
+      <h1 class="page-title">Settings</h1>
+      <p class="page-sub">Clinic display preferences</p>
+    </header>
+    <div class="card">
+      <div class="form-group">
+        <label class="form-label" for="setting-clinic-name">Clinic name</label>
+        <input class="form-input" id="setting-clinic-name" type="text" value="Cedar Family Clinic">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="setting-day-start">Working-day start</label>
+        <input class="form-input" id="setting-day-start" type="text" value="08:00">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="setting-reminder">Reminder lead-time</label>
+        <input class="form-input" id="setting-reminder" type="text" value="24 hours">
+      </div>
+      <button type="button" class="btn btn-primary" onclick="onSaveSettings()">Save preferences</button>
+      <div class="save-note" id="settings-note"></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+const store = {
+  patients: [
+    { id: 101, name: "Rosa Delgado",  dob: "1972-05-14", phone: "(415) 555-0132", insurer: "Blue Shield PPO",   allergies: "Penicillin" },
+    { id: 102, name: "Marcus Webb",   dob: "1965-11-02", phone: "(415) 555-0178", insurer: "Kaiser HMO",        allergies: "None recorded" },
+    { id: 103, name: "Lena Fischer",  dob: "1990-03-27", phone: "(415) 555-0119", insurer: "Aetna Select",      allergies: "Sulfa drugs" },
+    { id: 104, name: "Tom Okafor",    dob: "1958-08-19", phone: "(415) 555-0164", insurer: "Medicare Part B",   allergies: "None recorded" },
+    { id: 105, name: "Priya Raman",   dob: "1994-01-08", phone: "(415) 555-0147", insurer: "United Healthcare", allergies: "Latex" }
+  ],
+  appointments: [
+    { patientId: 101, time: "08:30", patient: "Rosa Delgado", provider: "Dr. Amara Osei",    reason: "Annual physical",               status: "Checked-in" },
+    { patientId: 102, time: "09:15", patient: "Marcus Webb",  provider: "Dr. Ben Kowalski",  reason: "Hypertension follow-up",        status: "Confirmed" },
+    { patientId: 103, time: "10:00", patient: "Lena Fischer", provider: "Dr. Amara Osei",    reason: "Flu-like symptoms",             status: "Confirmed" },
+    { patientId: 104, time: "11:30", patient: "Tom Okafor",   provider: "Dr. Ben Kowalski",  reason: "Diabetes check (HbA1c review)", status: "No-show" },
+    { patientId: 105, time: "14:00", patient: "Priya Raman",  provider: "Dr. Amara Osei",    reason: "Prenatal visit — week 24",      status: "Confirmed" }
+  ],
+  filters: { query: "", status: "all" },
+  settings: { clinicName: "Cedar Family Clinic", dayStart: "08:00", reminderLead: "24 hours" }
+};
+
+const routes = [
+  { pattern: "schedule",    page: "schedule" },
+  { pattern: "patient/:id", page: "patient-detail" },
+  { pattern: "providers",   page: "providers" },
+  { pattern: "settings",    page: "settings" }
+];
+
+function matchRoute(hash) {
+  const path = hash.replace(/^#\/?/, "") || "schedule";
+  const segments = path.split("/");
+  for (const route of routes) {
+    const parts = route.pattern.split("/");
+    if (parts.length !== segments.length) continue;
+    const params = {};
+    let ok = true;
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].charAt(0) === ":") { params[parts[i].slice(1)] = segments[i]; }
+      else if (parts[i] !== segments[i]) { ok = false; break; }
+    }
+    if (ok) return { page: route.page, params: params };
+  }
+  return { page: "schedule", params: {} };
+}
+
+function handleRouteChange() {
+  const matched = matchRoute(window.location.hash);
+  document.querySelectorAll("section[data-page]").forEach(function (s) { s.classList.remove("is-active"); });
+  const section = document.querySelector('section[data-page="' + matched.page + '"]');
+  if (section) section.classList.add("is-active");
+  document.querySelectorAll("[data-page-link]").forEach(function (a) { a.classList.remove("active"); });
+  document.querySelectorAll('[data-page-link="' + matched.page + '"]').forEach(function (a) { a.classList.add("active"); });
+  if (matched.page === "patient-detail") renderPatient(matched.params.id);
+}
+
+function badgeClass(status) {
+  if (status === "Confirmed") return "badge badge-confirmed";
+  if (status === "Checked-in") return "badge badge-checkedin";
+  return "badge badge-noshow";
+}
+
+function renderSchedule() {
+  const query = store.filters.query.toLowerCase();
+  const status = store.filters.status;
+  const rows = store.appointments.filter(function (a) {
+    const matchesQuery = a.patient.toLowerCase().indexOf(query) !== -1 ||
+                         a.provider.toLowerCase().indexOf(query) !== -1;
+    const matchesStatus = status === "all" || a.status === status;
+    return matchesQuery && matchesStatus;
+  });
+  const body = document.getElementById("schedule-rows");
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" class="empty-note">No appointments match.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(function (a) {
+    return '<tr class="row-link" onclick="openPatient(' + a.patientId + ')">' +
+      "<td>" + a.time + "</td>" +
+      '<td><span class="patient-link">' + a.patient + "</span></td>" +
+      "<td>" + a.provider + "</td>" +
+      "<td>" + a.reason + "</td>" +
+      '<td><span class="' + badgeClass(a.status) + '">' + a.status + "</span></td>" +
+      "</tr>";
+  }).join("");
+}
+
+function onScheduleSearch() {
+  store.filters.query = document.getElementById("schedule-search").value;
+  renderSchedule();
+}
+
+function onStatusFilter(status) {
+  store.filters.status = status;
+  document.querySelectorAll("#status-filters .filter-btn").forEach(function (b) {
+    b.classList.toggle("active", b.getAttribute("data-status") === status);
+  });
+  renderSchedule();
+}
+
+function openPatient(id) {
+  window.location.hash = "#/" + ["patient", id].join("/");
+}
+
+function renderPatient(id) {
+  const patient = store.patients.find(function (p) { return String(p.id) === String(id); });
+  const nameEl = document.getElementById("patient-name");
+  const recordEl = document.getElementById("patient-record");
+  const visitEl = document.getElementById("patient-visit");
+  if (!patient) {
+    nameEl.textContent = "Unknown patient";
+    recordEl.innerHTML = '<li><span class="empty-note">No patient found for this link.</span></li>';
+    visitEl.innerHTML = '<li><span class="empty-note">No visit on today\'s schedule.</span></li>';
+    return;
+  }
+  nameEl.textContent = patient.name;
+  recordEl.innerHTML =
+    '<li><span class="k">Date of birth</span><span>' + patient.dob + "</span></li>" +
+    '<li><span class="k">Phone</span><span>' + patient.phone + "</span></li>" +
+    '<li><span class="k">Insurer</span><span>' + patient.insurer + "</span></li>" +
+    '<li><span class="k">Allergies</span><span>' + patient.allergies + "</span></li>";
+  const visit = store.appointments.find(function (a) { return a.patientId === patient.id; });
+  if (visit) {
+    visitEl.innerHTML =
+      '<li><span class="k">Time</span><span>' + visit.time + "</span></li>" +
+      '<li><span class="k">Provider</span><span>' + visit.provider + "</span></li>" +
+      '<li><span class="k">Reason</span><span>' + visit.reason + "</span></li>" +
+      '<li><span class="k">Status</span><span class="' + badgeClass(visit.status) + '">' + visit.status + "</span></li>";
+  } else {
+    visitEl.innerHTML = '<li><span class="empty-note">No visit on today\'s schedule.</span></li>';
+  }
+}
+
+function onSaveSettings() {
+  store.settings.clinicName = document.getElementById("setting-clinic-name").value;
+  store.settings.dayStart = document.getElementById("setting-day-start").value;
+  store.settings.reminderLead = document.getElementById("setting-reminder").value;
+  document.getElementById("settings-note").textContent = "Preferences saved.";
+}
+
+window.addEventListener("hashchange", handleRouteChange);
+window.addEventListener("load", function () {
+  renderSchedule();
+  handleRouteChange();
+});
+</script>
+</body>
+</html>

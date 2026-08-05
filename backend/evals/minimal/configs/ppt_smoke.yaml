@@ -1,0 +1,16 @@
+# ONE row through the 3-agent deck pipeline.
+#
+#   ./eval.sh configs/ppt_smoke.yaml --advise
+#
+# THE SECOND WORKFLOW. Everything that makes this a deck eval rather than a
+# prototype eval is in workflows/ppt/ — the agent chain, the rubrics, the
+# brief, and the fact that no deterministic checker runs on its deliverable.
+# No Python distinguishes the two.
+#
+# UNVERIFIED AGAINST A LIVE RUN: the sandbox filenames in
+# workflows/ppt/workflow.yaml are read off the agents' AGENT.md contracts, not
+# observed. Run this stage-at-a-time first (`--stage brief`) and check the
+# artifact before paying for `compose`.
+
+workflow: ppt
+dataset: smoke.json

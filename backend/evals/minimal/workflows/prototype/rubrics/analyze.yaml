@@ -1,0 +1,93 @@
+# Grading config for prototype-analyze — the workflow's FAN-IN stage, a
+# read-only quality gate that reads the spec AND the task list and reports how
+# well they agree. It modifies nothing, so the REPORT is the only thing to
+# grade. Industry-agnostic: briefs live in the dataset, nothing here may name
+# a specific one.
+#
+# Only `judge`, `scoring`, `dimensions`, `rubric` and `upstream` are read.
+
+# Upstream artifacts handed to the judge as evidence. This stage's whole job is
+# reporting whether the spec and the task list agree, so `cross_artifact_grounding`
+# (40%) is uncheckable without both — every claim the report makes about them was
+# previously taken on trust.
+upstream:
+  - spec.md
+  - tasks.md
+
+judge:
+  provider: mistral
+  model: mistral-large-latest      # identical to every other stage, so stages stay comparable
+
+
+# Score from what the findings COST (judge.SEVERITY_COST), not the number the
+# judge volunteers — see rubrics/specify.yaml for the runs that forced this.
+scoring: severity_priced
+
+
+# No anchors block, deliberately. A fixed scale gave the judge round numbers
+# to snap to; severity pricing replaced it.
+dimensions:
+  - id: cross_artifact_grounding
+    weight: 40
+    description: >
+      Are findings tied to the SPECIFIC spec sections and task numbers in this
+      row — naming pages, entities, flows, "Task N" — so the report could not
+      be lifted onto a different spec/task pair unchanged? A report that names
+      nothing from either artifact did not read them, whatever its status
+      column says.
+
+  - id: defect_detection
+    weight: 35
+    description: >
+      Did it find the real disagreements that are actually present — a spec
+      page no task builds, a task traceable to no requirement, a data entity
+      or error/empty state the tasks never handle? Judge against the artifacts
+      themselves. "All clear" on a pair that genuinely disagrees is the worst
+      outcome here: it launders a broken plan as reviewed. Invented findings
+      that misread the artifacts are equally wrong.
+
+  - id: verdict_coherence
+    weight: 25
+    description: >
+      Do the Issues, Risk register, Suggested next actions and Readiness
+      verdict follow from the Findings table? Flag: recorded ❌ items under a
+      READY TO BUILD verdict, a clean table under NEEDS REVISION, next actions
+      that do not address the issues listed.
+
+rubric: |
+  Grading a read-only CROSS-ARTIFACT ANALYSIS REPORT. The agent was given two
+  upstream artifacts for the same row — a prototype specification and a task
+  list built from it — and had to compare them and report where they
+  disagree. It modifies nothing, so the report IS the work.
+
+  Nothing has been pre-screened. Judge the response as-is, structure included.
+  Correct structure is the floor, not a score: a perfectly formatted report
+  that found nothing is a failure.
+
+  Grade this stage on whether it CAUGHT REAL PROBLEMS. Read the spec and the
+  task list yourself first, and look for what the agent should have found: a
+  spec page no task builds, a task implementing something the spec never asked
+  for, a data entity or error/empty state the tasks silently drop.
+
+  Return an entry for EVERY dimension listed. A partial list is discarded in
+  full.
+
+  FINDINGS ARE THE SCORE. Per dimension, list every real defect in
+  `weaknesses` as a string PREFIXED with its severity — `"blocking: ..."`,
+  `"major: ..."`, `"minor: ..."`:
+  - blocking — the report cannot be trusted as a gate: a real spec/task
+    disagreement reported as clear, a verdict contradicting its own findings,
+    or a finding that misreads the artifacts.
+  - major — a real gap that degrades the review: a finding too generic to act
+    on, or a genuine issue noted but left out of the issues/next-actions.
+  - minor — nit; changes nothing about whether the pair is ready to build.
+
+  The tag IS the deduction. Tag honestly: never withhold a finding to protect
+  a score, never inflate a nit. No real defects = empty `weaknesses` = a
+  legitimate 100. Do not invent a flaw to avoid giving one.
+
+  `score`: your own 0-100. Recorded for comparison, NOT the score of record.
+  Answer it honestly, not strategically.
+
+  `evidence`: quote specific finding rows, task numbers or spec pages from
+  THIS response. Text that would fit any other report is a non-answer.

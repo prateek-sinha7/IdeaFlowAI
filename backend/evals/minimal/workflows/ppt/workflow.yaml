@@ -1,0 +1,71 @@
+# ppt — the 3-agent deck pipeline (od-ppt-*), graded by the same harness that
+# grades `prototype`, with no Python in common beyond the framework itself.
+#
+# THIS FILE EXISTS TO PROVE THE POINT: a second workflow is a directory with a
+# workflow.yaml, a rubric per stage, and a dataset. Not one line of run.py /
+# judge.py / checks.py knows this workflow is here.
+#
+# Mirrors production's agents/workflows/ppt/workflow.yaml membership and order
+# (PIPELINE_AGENTS["ppt"]). Note the agents declare `pipeline_type: od_ppt` —
+# they are shared with the od_ppt pipeline — which is exactly why the harness
+# resolves stages through this file rather than by guessing from an agent id.
+#
+# CONFIRMED BY RUN 260804-152342-ppt_smoke, with one surprise worth keeping
+# here. Both agents are told to "write the complete deck to
+# `presentation.html`". The validator wrote `workspace/presentation.html`
+# instead, and the composer wrote no file at all — it only emitted its
+# `<artifact>` block. So the declared path missed on both stages and the
+# harness silently graded the streamed text.
+#
+# `run._read_deliverable` now falls back to a unique basename match anywhere in
+# the sandbox and WARNS when even that misses, recording `deliverable_source`
+# per row — so "graded the file" and "graded the stream" are distinguishable
+# after the fact instead of looking identical in the report. The declared name
+# stays `presentation.html`: that is what the agents are instructed to write,
+# and pinning the subdirectory here would just paper over an agent that puts
+# it somewhere else next run.
+
+id: ppt
+
+order: [brief, compose, validate]
+
+# HOW THE PLAN REACHES THE COMPOSER — different from `prototype`, and worth
+# knowing before reading `seed_as` below. prototype-build OPENS `spec.md` with
+# a filesystem tool, so seeding that file IS the handoff. The od-ppt-* agents
+# are told the opposite ("Do NOT call filesystem tools to look for these files
+# — they do not exist"); the plan reaches the composer as PROMPT TEXT, routed
+# by the produces/consumes contracts in their AGENT.md, which run.py already
+# honours (`_compose_message`).
+#
+# So here `seed_as` is doing one job rather than two: it is the filename the
+# JUDGE sees the artifact under (cli._upstream_files keys on it, and the
+# rubrics' `upstream:` lists name it). The sandbox copy is harmless and free.
+
+agents:
+  brief:
+    # Turns the user brief into the slide-by-slide plan the composer executes.
+    # `.json`, not `.md`: this agent emits a machine-readable plan object
+    # ({"title", "audience", "slides": [...]}), and calling it markdown in the
+    # judge's evidence block invites the judge to grade it as prose.
+    agent_id: od-ppt-brief-analyst
+    seed_as: slide-plan.json
+
+  compose:
+    # Builds the self-contained HTML deck from the plan.
+    agent_id: od-ppt-composer
+    deliverable: presentation.html
+    # NOT `html_prototype`: that checker lints a hash-routed multi-page app
+    # (`<section data-page>`, a routes map, nav links that must activate) and
+    # would fail every valid deck for lacking a router it should not have. A
+    # deck-shaped checker belongs here when there is one; until then the judge
+    # is the only signal for this stage and the report says `checks n/a`
+    # rather than reporting a fabricated pass.
+    checks: none
+
+  validate:
+    # Re-emits the deck, corrected if it found structural defects. Same single
+    # global deliverable as `compose`, edited in place — the shape validate
+    # rubrics grade as a before/after delta.
+    agent_id: od-ppt-validator
+    deliverable: presentation.html
+    checks: none

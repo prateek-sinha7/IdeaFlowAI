@@ -1,0 +1,58 @@
+# prototype — the 5-stage HTML-prototype pipeline, as this harness runs it.
+#
+# THIS FILE IS THE WORKFLOW. A config under configs/ names it and a dataset,
+# and nothing else; everything about HOW the chain runs lives here, next to
+# the rubrics that grade it and the datasets that feed it. Adding a second
+# workflow (see workflows/ppt/) is writing one of these — no Python changes.
+#
+# Mirrors production's agents/workflows/prototype/workflow.yaml in the two
+# things an eval has to get right — the agent sequence, and the filenames each
+# stage's output lands under in the shared sandbox — and deliberately nothing
+# else. It is not a second copy of the manifest: gates, clarify, planner and
+# compaction have no meaning here, where every stage is dispatched directly.
+
+id: prototype
+
+# Stage order. A stage is an eval-local label ("build"); `agent_id` is the
+# real agent it dispatches. Keeping them separate is what lets two workflows
+# both have a "validate" stage without their rubrics colliding.
+order: [specify, plan, analyze, build, validate]
+
+agents:
+  # `seed_as` is the filename this stage's output is written to in the shared
+  # sandbox, so the next agent finds it where its AGENT.md says to look
+  # (prototype-build opens `spec.md` by name). Without it the downstream agent
+  # reads nothing and invents its own inputs — run 260731-133221, where build
+  # wrote its OWN spec and then scored itself against it.
+  specify:
+    agent_id: prototype-specify
+    seed_as: spec.md
+
+  plan:
+    agent_id: prototype-plan
+    seed_as: tasks.md
+
+  analyze:
+    agent_id: prototype-analyze
+    seed_as: analysis.md
+
+  build:
+    # `deliverable` instead of `seed_as`: this agent is tool-using, writes the
+    # file itself, and replies with one confirmation sentence. run.py reads the
+    # file back off the sandbox and grades THAT, not the sentence.
+    agent_id: prototype-build
+    deliverable: prototype.html
+    # Which deterministic checker runs over the deliverable (checks.py's
+    # CHECKERS). `html_prototype` is production's own static_check +
+    # render_check pair, so a check measures exactly what production enforces.
+    # Omit, or say `none`, for a stage nothing can be checked deterministically.
+    checks: html_prototype
+
+  validate:
+    # Production's single global deliverable — validate edits build's file in
+    # place. There is no separate "prototype.final.html"; naming one made
+    # sandbox.read() always miss and silently fall back to validate's short
+    # narrative text as the graded response.
+    agent_id: prototype-validate
+    deliverable: prototype.html
+    checks: html_prototype
