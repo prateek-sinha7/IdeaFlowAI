@@ -56,6 +56,21 @@ export interface ReplyStreamingState {
   lastChunkAt: number;
 }
 
+/**
+ * A Concierge-held consequential proposal (33-03 / D-05), sourced from the
+ * durable `concierge_proposal` run_events row via the existing post-send
+ * fetchEvents re-fetch (DEF-44-12-2). Generic — keyed on opaque channel/params
+ * strings, never a workflow-name literal (SC-001/INV-1).
+ */
+export interface HeldProposal {
+  /** The durable row's event_id: `concierge-proposal:{message_id}:{channel}`. */
+  id: string;
+  channel: string;
+  params: Record<string, unknown>;
+  /** Needed to match the later "resolved" companion row (gate_action/revision only). */
+  messageId: string;
+}
+
 /** The reconnect-handshake state surfaced from the latest `stream_attached`. */
 export interface StreamAttachedState {
   /** Whether the stream is now live (true) or still catching up (false). */
@@ -188,6 +203,18 @@ export interface UseRunChatReturn {
    * scoped by the deliberate view-change, NOT by a per-run filter on handleFrame.
    */
   seedTranscript: (frames: RunChatFrame[], isTerminalRun?: boolean) => void;
+  /**
+   * ISS-054 / KAN-160 — Concierge-held consequential proposals (chain, gate_action,
+   * revision) sourced from durable concierge_proposal run_events rows via the
+   * existing post-send fetchEvents re-fetch. Empty until a Concierge turn creates one.
+   */
+  proposals: HeldProposal[];
+  /**
+   * Client-side-only dismiss — removes the chip locally. A hard reload will
+   * re-show a pending row (accepted limitation; the row was never designed to be
+   * dismissible server-side via reject).
+   */
+  dismissProposal: (id: string) => void;
 }
 
 // ── id minting ────────────────────────────────────────────────────────────────
@@ -391,6 +418,9 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
   const [streamAttached, setStreamAttached] = useState<StreamAttachedState | null>(
     null,
   );
+  // ISS-054 / KAN-160: held Concierge proposals (33-03/D-05), sourced from durable
+  // concierge_proposal run_events rows via the post-send fetchEvents re-fetch.
+  const [proposals, setProposals] = useState<HeldProposal[]>([]);
   // The active streaming reply (rqo Issue-2 part-2): set on each chat_reply_chunk,
   // cleared on the matching terminal chat_reply. Drives the lane's reading hint.
   const [replyStreaming, setReplyStreaming] = useState<ReplyStreamingState | null>(
@@ -491,6 +521,35 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
           return updated;
         });
         break;
+      case "concierge_proposal": {
+        // ISS-054 / KAN-160: durable Concierge-held consequential proposal
+        // (33-03/D-05). "pending" adds/updates the chip; a "resolved" row
+        // (written on gate_action/revision confirm) removes it. chain proposals
+        // never get a resolved row (FIX-115 — confirm fires onSuggestion, not
+        // onConfirmProposal) so they stay until dismissed client-side.
+        // GENERIC (SC-001/INV-1) — keyed on opaque channel/params, never a
+        // workflow-name branch.
+        const ch = typeof data.channel === "string" ? data.channel : "";
+        const mid = typeof data.message_id === "string" ? data.message_id : "";
+        const pStatus = typeof data.status === "string" ? data.status : "pending";
+        if (pStatus === "resolved") {
+          setProposals((prev) =>
+            prev.filter((p) => !(p.channel === ch && p.messageId === mid)),
+          );
+          break;
+        }
+        if (!ch || !mid) break;
+        const propId = `concierge-proposal:${mid}:${ch}`;
+        const propParams = (data.params && typeof data.params === "object"
+          ? data.params
+          : {}) as Record<string, unknown>;
+        setProposals((prev) =>
+          prev.some((p) => p.id === propId)
+            ? prev
+            : [...prev, { id: propId, channel: ch, params: propParams, messageId: mid }],
+        );
+        break;
+      }
       default:
         // Every other frame (pipeline_complete, agent_*, …) leaves the
         // transcript untouched — it ACCUMULATES, never wipes (§0 rule).
@@ -654,5 +713,14 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
     return lastSeqRef.current;
   }, []);
 
-  return { messages, sendMessage, addOptimisticMessage, streamAttached, replyStreaming, seedTranscript, appendFrames, getLastSeq };
+  /**
+   * ISS-054 / KAN-160: client-side-only dismiss — removes the chip from local
+   * state. A hard reload will re-show a still-pending durable row (accepted
+   * limitation; the row was never designed to be dismissible server-side).
+   */
+  const dismissProposal = useCallback((id: string) => {
+    setProposals((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  return { messages, sendMessage, addOptimisticMessage, streamAttached, replyStreaming, seedTranscript, appendFrames, getLastSeq, proposals, dismissProposal };
 }

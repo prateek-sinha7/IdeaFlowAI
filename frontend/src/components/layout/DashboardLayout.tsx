@@ -194,6 +194,14 @@ export interface DashboardLayoutProps {
   // page.tsx's useRunChat. Threaded to RunChatLane so the lane can show the
   // "reading run data…" indicator during the Concierge reply's read-tool freeze.
   runChatReplyStreaming?: ReplyStreamingState | null;
+  /**
+   * ISS-054 / KAN-160: live Concierge-held consequential proposals for the
+   * currently viewed run, sourced from page.tsx's useRunChat.proposals (durable
+   * concierge_proposal run_events, delivered via DEF-44-12-2 post-send re-fetch).
+   * Optional/default-undefined → non-live callers/tests render unchanged.
+   */
+  runChatProposals?: LaneProposal[];
+  onDismissRunChatProposal?: (id: string) => void;
   onRunChatSend?: (
     text: string,
     attachments?: import("@/types/index").ChatAttachment[],
@@ -229,9 +237,9 @@ export interface DashboardLayoutProps {
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
 
-// 43-02: a stable empty held-proposal list (referential identity preserved across
-// renders). The concierge_proposal holds arrive with the Part-C SSE transport
-// (43-06); wiring the confirm chip now keeps that a data change, not a re-wire.
+// ISS-054 / KAN-160: stable empty fallback for non-live callers and existing tests
+// (preserves referential identity across renders). Live proposals now come from
+// page.tsx's useRunChat via runChatProposals prop; this constant is the ?? fallback.
 const RUN_CONCIERGE_PROPOSALS: LaneProposal[] = [];
 
 export function DashboardLayout({
@@ -287,6 +295,8 @@ export function DashboardLayout({
   specRevisionCount = 0,
   runChatMessages,
   runChatReplyStreaming,
+  runChatProposals,
+  onDismissRunChatProposal,
   onRunChatSend,
   addOptimisticMessage,
   onRevisionLaunched,
@@ -1499,18 +1509,16 @@ export function DashboardLayout({
     [runChatSend],
   );
 
-  // Held Concierge proposals surface. Empty until the Part-C SSE transport
-  // (43-06) delivers `concierge_proposal` holds onto the transcript-adjacent
-  // state; the confirm chip + handleConfirmProposal are wired now so that flip is
-  // a data change, not a wiring change (LOCK-B — no live transport in this plan).
-  const runConciergeProposals = RUN_CONCIERGE_PROPOSALS;
+  // ISS-054 / KAN-160: replace the permanently-empty frozen constant with the
+  // live proposals from useRunChat. Falls back to RUN_CONCIERGE_PROPOSALS (still
+  // an empty stable array) so non-live callers/tests render byte-identically.
+  const runConciergeProposals = runChatProposals ?? RUN_CONCIERGE_PROPOSALS;
 
-  // Reject dismisses a held proposal WITHOUT executing anything (T-33-04-01).
-  // No local proposal state exists yet (the holds arrive with the Part-C
-  // transport), so this is a safe no-op until then.
+  // Reject dismisses a held proposal client-side (T-33-04-01). Now wired to
+  // onDismissRunChatProposal from page.tsx's useRunChat.dismissProposal.
   const handleRejectProposal = useCallback((_id: string) => {
-    /* dismiss — nothing executes; real removal lands with the 43-06 holds surface */
-  }, []);
+    onDismissRunChatProposal?.(_id);
+  }, [onDismissRunChatProposal]);
 
   // Compaction has no backend trigger wired yet; the FE only ever SIGNALS (it
   // never compresses, D-08). A no-op-safe handler until the Part-C trigger lands

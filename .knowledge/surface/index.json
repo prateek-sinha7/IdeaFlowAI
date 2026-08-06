@@ -1,5 +1,5 @@
 {
-  "count": 556,
+  "count": 557,
   "entries": [
     {
       "area": [
@@ -4649,6 +4649,23 @@
     },
     {
       "area": [
+        "frontend"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "frontend/src/hooks/useRunChat.ts",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/components/layout/DashboardLayout.tsx"
+      ],
+      "id": "FIX-188",
+      "path": ".knowledge/cards/FIX-188.md",
+      "source": "",
+      "status": "",
+      "summary": "Concierge chain/gate_action/revision proposals never surface \u2014 dead RUN_CONCIERGE_PROPOSALS frozen constant replaced with live useRunChat.proposals; concierge_proposal handleFrame case added; no-op handleRejectProposal wired",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8294,7 +8311,7 @@
       "backend": 71,
       "docs": 2,
       "evals": 9,
-      "frontend": 154,
+      "frontend": 155,
       "harness": 2,
       "infra": 1,
       "product": 29,
@@ -8314,7 +8331,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 192,
+      "fix": 193,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8333,5 +8350,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 12:42"
+  "generated": "2026-08-06 13:06"
 }

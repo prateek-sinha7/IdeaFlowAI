@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-556 cards · rules 1 · fixes 192 · issues 49 · phases 23 · built 2026-08-06 12:42
+557 cards · rules 1 · fixes 193 · issues 49 · phases 23 · built 2026-08-06 13:06
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (192)
+## Fixes (193)
 
+FIX-188 2026-08-06 [frontend] Concierge chain/gate_action/revision proposals never surface — dead RUN_CONCIERGE_PROPOSALS frozen constant replaced with live useRunChat.proposals; concierge_proposal handleFrame case added; no-op handleRejectProposal wired
 FIX-187 2026-08-06 [backend,agents] Custom template upload silently discarded — both od_context.py loaders used custom_template_body as boolean flag only, never writing content into template_body; replaced catalog fallbacks with _synthesize_custom_template helper
 FIX-186 2026-08-06 [frontend] Custom design system body silently dropped — wire key mismatch custom_design_system_body vs custom_ds_body in DashboardLayout.tsx; 3 literals renamed to match backend LaunchCommand field
 FIX-185 2026-08-06 [backend,workflow,agents] CR-02 guard blocks prototype_revision and user_stories_revision via chat-lane revision channel — planner: run → skip in both manifests; user_stories_revision also requires clarify.mode: auto → skip (ATOMIC); two parity-test frozensets updated; rejection test retargeted; new succeed-path test added

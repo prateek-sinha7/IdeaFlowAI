@@ -718,6 +718,7 @@
       "FIX-180",
       "FIX-181",
       "FIX-186",
+      "FIX-188",
       "ISS-022",
       "ISS-025",
       "TEST-0-1",
@@ -1572,7 +1573,8 @@
       "FIX-173",
       "FIX-174",
       "FIX-176",
-      "FIX-178"
+      "FIX-178",
+      "FIX-188"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
@@ -1700,7 +1702,8 @@
       "FIX-163",
       "FIX-170",
       "FIX-173",
-      "FIX-186"
+      "FIX-186",
+      "FIX-188"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
       "FIX-078"
@@ -1856,7 +1859,8 @@
       "FIX-172",
       "FIX-176",
       "FIX-178",
-      "FIX-180"
+      "FIX-180",
+      "FIX-188"
     ],
     "frontend/src/hooks/useRunStream.test.ts": [
       "FIX-129"
