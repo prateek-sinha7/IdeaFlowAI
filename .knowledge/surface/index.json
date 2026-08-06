@@ -1,5 +1,5 @@
 {
-  "count": 553,
+  "count": 554,
   "entries": [
     {
       "area": [
@@ -4597,6 +4597,27 @@
     },
     {
       "area": [
+        "backend",
+        "workflow",
+        "agents"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "backend/agents/workflows/prototype_revision/workflow.yaml",
+        "backend/agents/workflows/user_stories_revision/workflow.yaml",
+        "backend/tests/agents/test_manifest_parity.py",
+        "backend/tests/agents/test_id_alias_resolver.py",
+        "backend/tests/unit/test_revision_intelligence.py"
+      ],
+      "id": "FIX-185",
+      "path": ".knowledge/cards/FIX-185.md",
+      "source": "",
+      "status": "",
+      "summary": "CR-02 guard blocks prototype_revision and user_stories_revision via chat-lane revision channel \u2014 planner: run \u2192 skip in both manifests; user_stories_revision also requires clarify.mode: auto \u2192 skip (ATOMIC); two parity-test frozensets updated; rejection test retargeted; new succeed-path test added",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8236,10 +8257,10 @@
   ],
   "facets": {
     "area": {
-      "agents": 186,
+      "agents": 187,
       "artifacts": 78,
       "auth": 71,
-      "backend": 69,
+      "backend": 70,
       "docs": 2,
       "evals": 9,
       "frontend": 153,
@@ -8250,7 +8271,7 @@
       "runtime": 31,
       "sse": 125,
       "test-infra": 4,
-      "workflow": 178
+      "workflow": 179
     },
     "status": {
       "accepted": 1,
@@ -8262,7 +8283,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 189,
+      "fix": 190,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8281,5 +8302,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-05 17:51"
+  "generated": "2026-08-06 12:13"
 }

@@ -12,7 +12,15 @@
 # (same fix applied to prototype/od_ppt in FIX-010/FIX-015).
 id: prototype_revision
 version: 1
-planner: run
+# ISS-050 / KAN-156: planner changed from run to skip. The derived alias
+# prototype_output → prototype_revision is reachable from the generic
+# chat-lane revision channel (route_chat_turn / CHANNEL_REVISION, Phase 29).
+# CR-02 at engine.py:5906 rejects any planner: run target pre-dispatch.
+# Skipping the planner is safe: the agent receives the real original artifact
+# + instruction directly via revision_context — the planner call was low-value
+# here. Matches the already-live ppt_revision / od_ppt_revision precedent.
+# clarify.mode: skip was already correct and stays unchanged.
+planner: skip
 clarify:
   mode: skip
   defaults: [target_audience, key_objectives, scope, priority]

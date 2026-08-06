@@ -234,6 +234,7 @@
       "FIX-170",
       "FIX-177",
       "FIX-182",
+      "FIX-185",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -546,6 +547,7 @@
       "FIX-171",
       "FIX-173",
       "FIX-175",
+      "FIX-185",
       "TEST-46"
     ],
     "docs": [
@@ -1050,6 +1052,7 @@
       "FIX-155",
       "FIX-156",
       "FIX-166",
+      "FIX-185",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1344,7 +1347,8 @@
       "FIX-011"
     ],
     "backend/agents/workflows/prototype_revision/workflow.yaml": [
-      "FIX-049"
+      "FIX-049",
+      "FIX-185"
     ],
     "backend/agents/workflows/selections.py": [
       "FIX-059"
@@ -1352,6 +1356,9 @@
     "backend/agents/workflows/user_stories/workflow.yaml": [
       "FIX-003",
       "FIX-011"
+    ],
+    "backend/agents/workflows/user_stories_revision/workflow.yaml": [
+      "FIX-185"
     ],
     "backend/alembic/versions/0027_workflow_run_od_context.py": [
       "FIX-106"
@@ -1480,8 +1487,14 @@
       "FIX-031",
       "FIX-032"
     ],
+    "backend/tests/agents/test_id_alias_resolver.py": [
+      "FIX-185"
+    ],
     "backend/tests/agents/test_iss032_cache_tokens.py": [
       "FIX-036"
+    ],
+    "backend/tests/agents/test_manifest_parity.py": [
+      "FIX-185"
     ],
     "backend/tests/agents/test_model_pricing.py": [
       "FIX-035",
@@ -1499,6 +1512,9 @@
     ],
     "backend/tests/unit/test_prototype_run_request.py": [
       "FIX-030"
+    ],
+    "backend/tests/unit/test_revision_intelligence.py": [
+      "FIX-185"
     ],
     "frontend/e2e/FIXTURE-CONTRACT.md": [
       "TEST-45"

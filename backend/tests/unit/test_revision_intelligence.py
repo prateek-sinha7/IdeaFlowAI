@@ -1042,9 +1042,15 @@ async def test_planner_run_target_rejected_before_dispatch(
     engine: ExecutionEngine, db_factory
 ) -> None:
     """CR-02 (14 review): a target whose derived alias resolves a REGISTERED
-    revision pipeline carrying ``planner: run`` (e.g. ``prototype_output`` →
-    ``prototype_revision``) is rejected with ValueError BEFORE dispatch —
+    revision pipeline carrying ``planner: run`` (e.g. ``app_builder_output`` →
+    ``app_builder_revision``) is rejected with ValueError BEFORE dispatch —
     never parked at the clarify gate's no-timeout ``event.wait()``.
+
+    ISS-050 (KAN-156): retargeted from ``prototype_output`` to
+    ``app_builder_output`` — prototype_revision was flipped to
+    ``planner: skip`` (now dispatchable) so it can no longer be used as the
+    CR-02 rejection example. ``app_builder_revision`` still declares
+    ``planner: run`` and is correctly rejected.
 
     The FR-014 artifact guard does NOT block this exploit: the deliverable
     chain link (link 2) resolves for ANY target kind, so an owned completed
@@ -1067,8 +1073,8 @@ async def test_planner_run_target_rejected_before_dispatch(
     with pytest.raises(ValueError, match="not revision-dispatchable"):
         await engine._handle_revision(
             parent_run_id=parent,
-            target_artifact_type="prototype_output",
-            instruction="Make the hero section bolder",
+            target_artifact_type="app_builder_output",
+            instruction="Add a login page",
             pipeline_run_id="run-rev-planner-run",
             websocket_send_fn=ws,
             owner_id=OWNER,
@@ -1078,5 +1084,57 @@ async def test_planner_run_target_rejected_before_dispatch(
     # for the rejected revision run (no stuck task, no "revising" leak).
     assert events == []
     store = ScopedStore(owner_id=OWNER)
-    refs = await store.list_refs("run-rev-planner-run", kind="prototype_output")
+    refs = await store.list_refs("run-rev-planner-run", kind="app_builder_output")
     assert refs == []
+
+
+@pytest.mark.asyncio
+async def test_prototype_revision_now_dispatches_successfully(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """ISS-050 (KAN-156) fix proof — fail-before / pass-after pin.
+
+    ``prototype_output`` → ``prototype_revision`` was previously rejected by
+    CR-02 (planner: run) when dispatched via the generic chat-lane revision
+    channel. After the ISS-050 manifest fix (planner: run → planner: skip) it
+    must pass the guard and dispatch successfully.
+
+    **Fail-before-fix:** running this test against an unmodified
+    ``prototype_revision/workflow.yaml`` (planner: run) raises
+    ``ValueError: ... not revision-dispatchable ...``.
+
+    **Pass-after-fix:** the manifest carries ``planner: skip``, the guard
+    passes, execute() is invoked with scripted models, a ``pipeline_complete``
+    event is observed, and a new ``prototype_output`` ref with the correct
+    lineage lands in the store.
+    """
+    parent = "run-parent-proto-rev-iss050"
+    _seed_run(db_factory, run_id=parent, owner_id=OWNER)
+    original_id = _seed_ref(
+        db_factory,
+        run_id=parent,
+        owner_id=OWNER,
+        kind="prototype_output",
+        content="<!doctype html><html><body><h1>Original</h1></body></html>",
+    )
+
+    rev_run_id, sent = await _dispatch_revision(
+        engine,
+        parent_run_id=parent,
+        target_artifact_type="prototype_output",
+        instruction="Make the hero section bolder",
+    )
+
+    complete_events = [e for e in sent if e["type"] == "pipeline_complete"]
+    assert len(complete_events) == 1, (
+        "ISS-050: prototype_revision did not dispatch — CR-02 guard still "
+        "firing; check prototype_revision/workflow.yaml planner: skip"
+    )
+
+    store = ScopedStore(owner_id=OWNER)
+    refs = await store.list_refs(rev_run_id, kind="prototype_output")
+    assert len(refs) == 1, "expected exactly one prototype_output revision ref"
+    revision = refs[0]
+    assert revision.derived_from == original_id
+    assert revision.run_id == rev_run_id
+    assert revision.owner_id == OWNER
