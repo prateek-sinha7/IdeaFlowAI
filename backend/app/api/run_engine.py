@@ -19,13 +19,17 @@ import asyncio
 import itertools
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
 from typing import Any, Optional
 
-from jose import JWTError
 from sqlalchemy.orm import Session
 
-from app.core.security import decode_access_token, is_token_revoked
+from app.core.identity import (
+    CredentialInvalid,
+    is_revoked_by_token_validity,
+    resolve_principal,
+    verify_credential,
+)
+from app.core.security import is_token_revoked
 from app.models.database import SessionLocal
 from app.models.user import User
 from app.models.workflow import WorkflowRun
@@ -779,59 +783,42 @@ def _review_gate_run_is_terminal(gate_key: str) -> bool:
 
 
 def _authenticate_token(token: str, db: Session) -> User | None:
-    """Validate JWT token and return the user, or None if invalid.
+    """Validate a bearer credential and return the user, or None if invalid.
 
-    Mirrors :func:`app.core.dependencies.get_current_user` — including the
-    revocation checks introduced for /api/auth/logout — so a token that has
-    been revoked over HTTP can no longer be used to open or keep a WebSocket.
+    Rewired (Cognito migration, Phase 2) onto the single shared resolver in
+    ``core/identity.py`` — the same one ``core.dependencies.get_current_user``
+    uses — closing the protocol-drift risk between the HTTP and
+    WebSocket/handoff validators (migration plan R8). Dual-accepts Cognito
+    RS256 and legacy HS256 (see ``core.identity.verify_credential``).
 
-    Called from both the open-time auth gate and the per-message re-validation
-    in ``websocket_chat``; the latter is what catches a /logout that revoked
-    the token mid-session.
+    Called from both the open-time auth gate and the per-message
+    re-validation in the handoff WebSocket; the latter is what catches a
+    /logout that revoked the token mid-session.
 
     Args:
-        token: The JWT token string.
+        token: The bearer credential string.
         db: The database session.
 
     Returns:
         The authenticated User or None.
     """
     try:
-        payload = decode_access_token(token)
-    except JWTError:
+        principal = verify_credential(token)
+    except CredentialInvalid:
         return None
 
-    user_id: str | None = payload.get("sub")
-    if user_id is None:
-        return None
-
-    user = db.query(User).filter(User.id == user_id).first()
+    user = resolve_principal(principal, db)
     if user is None:
         return None
 
-    # Per-token revocation (logout)
-    jti = payload.get("jti")
-    if jti and is_token_revoked(jti, db):
+    # Per-token revocation (logout) — applies to both providers; see
+    # core.dependencies.get_current_user_with_payload for the same rule.
+    if principal.jti and is_token_revoked(principal.jti, db):
         return None
 
-    # Blanket revocation on password change: reject any JWT whose ``iat``
-    # second is strictly before the password-rotation second. Comparison is
-    # done at whole-second resolution to match JWT ``iat`` precision — see
-    # the matching logic + rationale in app.core.dependencies.
-    pwd_changed_at = user.password_changed_at
-    if pwd_changed_at is not None and pwd_changed_at.tzinfo is None:
-        pwd_changed_at = pwd_changed_at.replace(tzinfo=timezone.utc)
-    iat_raw = payload.get("iat")
-    if pwd_changed_at is not None and iat_raw is not None:
-        if isinstance(iat_raw, (int, float)):
-            iat_seconds = int(iat_raw)
-        elif isinstance(iat_raw, datetime):
-            iat_dt = iat_raw if iat_raw.tzinfo else iat_raw.replace(tzinfo=timezone.utc)
-            iat_seconds = int(iat_dt.timestamp())
-        else:
-            iat_seconds = None
-        if iat_seconds is not None and iat_seconds < int(pwd_changed_at.timestamp()):
-            return None
+    # Generalized blanket revocation (password change OR role/tier change).
+    if is_revoked_by_token_validity(user, principal):
+        return None
 
     return user
 

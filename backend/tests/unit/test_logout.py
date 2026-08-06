@@ -26,12 +26,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.auth import router as auth_router
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, hash_password
 from app.models.database import Base, get_db
 # Ensure RevokedToken's table is registered with Base.metadata before
 # create_all is called.
 from app.models.revoked_token import RevokedToken  # noqa: F401
-from app.models.user import User  # noqa: F401
+from app.models.user import User
 from app.models.chat import ChatSession, Message  # noqa: F401
 from app.models.workflow import WorkflowRun  # noqa: F401
 
@@ -71,13 +71,33 @@ def client():
 
 
 def _register(client, email: str = "alice@example.com", password: str = "password123") -> dict:
-    """Register a user and return the parsed JSON response."""
-    resp = client.post(
-        "/api/auth/register",
-        json={"email": email, "password": password},
-    )
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+    """Create a local ("break-glass"-shaped) user directly via the DB, then
+    log in and return the parsed AuthResponse JSON.
+
+    ``POST /api/auth/register`` is permanently disabled (self-registration is
+    admin-only), so this fixture can no longer exercise it — same shape as
+    the real bootstrap path (``app/scripts/bootstrap_admin.py`` /
+    ``backend/scripts/seed_test_users.py``), which also inserts directly
+    rather than going through an HTTP registration endpoint. Mirrors what
+    account creation for a ``auth_provider="local"`` user is at any point in
+    the codebase's history (pre- and post-Cognito).
+    """
+    get_db_override = client.app.dependency_overrides[get_db]
+    db = next(get_db_override())
+    try:
+        existing = db.query(User).filter(User.email == email).one_or_none()
+        if existing is None:
+            db.add(
+                User(
+                    email=email,
+                    password_hash=hash_password(password),
+                    auth_provider="local",
+                )
+            )
+            db.commit()
+    finally:
+        db.close()
+    return _login(client, email=email, password=password)
 
 
 def _login(client, email: str = "alice@example.com", password: str = "password123") -> dict:

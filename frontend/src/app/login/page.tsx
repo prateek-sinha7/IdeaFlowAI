@@ -4,7 +4,13 @@ import { Suspense, useState, FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import { Mail, Lock } from "lucide-react";
-import { login, ApiError } from "@/lib/api";
+import {
+  login,
+  respondToLoginChallenge,
+  isAuthChallenge,
+  ApiError,
+  type AuthChallengeResponse,
+} from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { resolveRedirectTarget } from "@/lib/authRedirect";
 
@@ -16,30 +22,113 @@ function LoginForm() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  // Cognito migration (Phase 4): when login() returns a challenge instead of
+  // a token, the form switches to the matching challenge step. `session` is
+  // Cognito's opaque continuation token — echoed back verbatim.
+  const [challenge, setChallenge] = useState<AuthChallengeResponse | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+
+  function goToDestination() {
+    // Every user — including admins — lands on the main application by
+    // default. If the user was bounced here from a specific protected page
+    // (?redirect=...), return them there instead; the target is validated
+    // against the internal-path allowlist to prevent an open redirect.
+    // The admin dashboard is reached separately via its nav link/menu item.
+    router.push(resolveRedirectTarget(searchParams.get("redirect")));
+  }
+
+  function describeApiError(err: unknown): string {
+    if (err instanceof ApiError && err.status === 401) {
+      return "Invalid email or password.";
+    }
+    if (err instanceof ApiError) {
+      return typeof err.detail === "string" ? err.detail : "An error occurred. Please try again.";
+    }
+    return "An unexpected error occurred. Please try again.";
+  }
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
     setIsLoading(true);
 
     try {
-      await login(email, password);
-      // Every user — including admins — lands on the main application by
-      // default. If the user was bounced here from a specific protected page
-      // (?redirect=...), return them there instead; the target is validated
-      // against the internal-path allowlist to prevent an open redirect.
-      // The admin dashboard is reached separately via its nav link/menu item.
-      router.push(resolveRedirectTarget(searchParams.get("redirect")));
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        setError("Invalid email or password.");
-      } else if (err instanceof ApiError) {
-        setError(typeof err.detail === "string" ? err.detail : "An error occurred. Please try again.");
-      } else {
-        setError("An unexpected error occurred. Please try again.");
+      const result = await login(email, password);
+      if (isAuthChallenge(result)) {
+        setChallenge(result);
+        return;
       }
+      goToDestination();
+    } catch (err) {
+      setError(describeApiError(err));
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleChallengeSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!challenge) return;
+    setError("");
+
+    if (challenge.challenge === "NEW_PASSWORD_REQUIRED") {
+      if (newPassword.length < 12) {
+        setError("New password must be at least 12 characters.");
+        return;
+      }
+      if (newPassword !== confirmNewPassword) {
+        setError("Passwords do not match.");
+        return;
+      }
+    } else if (!mfaCode.trim()) {
+      setError("Enter the 6-digit code from your authenticator app.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await respondToLoginChallenge(email, challenge.session, challenge.challenge, {
+        newPassword: challenge.challenge === "NEW_PASSWORD_REQUIRED" ? newPassword : undefined,
+        mfaCode: challenge.challenge !== "NEW_PASSWORD_REQUIRED" ? mfaCode : undefined,
+      });
+      if (isAuthChallenge(result)) {
+        // A second challenge (e.g. NEW_PASSWORD_REQUIRED then MFA_SETUP) —
+        // reset the step-specific fields and move to the next step.
+        setChallenge(result);
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setMfaCode("");
+        return;
+      }
+      goToDestination();
+    } catch (err) {
+      setError(describeApiError(err));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  if (challenge) {
+    return (
+      <ChallengeForm
+        challenge={challenge}
+        error={error}
+        isLoading={isLoading}
+        newPassword={newPassword}
+        setNewPassword={setNewPassword}
+        confirmNewPassword={confirmNewPassword}
+        setConfirmNewPassword={setConfirmNewPassword}
+        mfaCode={mfaCode}
+        setMfaCode={setMfaCode}
+        onSubmit={handleChallengeSubmit}
+        onCancel={() => {
+          setChallenge(null);
+          setError("");
+        }}
+      />
+    );
   }
 
   return (
@@ -174,6 +263,134 @@ function LoginForm() {
             Access is by invitation. Contact your administrator for an account.
           </p>
         </motion.div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Cognito migration (Phase 4): the minimal first-login "set a new password"
+ * / TOTP enrol-or-verify step. Reuses the same two-column shell as the main
+ * login form so a challenge never looks like a different app.
+ */
+function ChallengeForm({
+  challenge,
+  error,
+  isLoading,
+  newPassword,
+  setNewPassword,
+  confirmNewPassword,
+  setConfirmNewPassword,
+  mfaCode,
+  setMfaCode,
+  onSubmit,
+  onCancel,
+}: {
+  challenge: AuthChallengeResponse;
+  error: string;
+  isLoading: boolean;
+  newPassword: string;
+  setNewPassword: (v: string) => void;
+  confirmNewPassword: string;
+  setConfirmNewPassword: (v: string) => void;
+  mfaCode: string;
+  setMfaCode: (v: string) => void;
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+}) {
+  const isNewPassword = challenge.challenge === "NEW_PASSWORD_REQUIRED";
+  const title = isNewPassword
+    ? "Set a new password"
+    : challenge.challenge === "MFA_SETUP"
+      ? "Set up two-factor authentication"
+      : "Enter your authentication code";
+  const subtitle = isNewPassword
+    ? "This is your first sign-in. Choose a permanent password to continue."
+    : "Enter the 6-digit code from your authenticator app.";
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-surface-paper px-4 py-12">
+      <div className="w-full max-w-md">
+        <div className="mb-8">
+          <h1 className="text-[32px] font-semibold text-ink-900 leading-[1.1] tracking-tight font-sans">
+            {title}
+          </h1>
+          <p className="mt-3 text-[13px] text-ink-500 leading-relaxed">{subtitle}</p>
+        </div>
+
+        <div className="rounded-[var(--radius-card)] border border-line-control bg-surface-card p-7 shadow-[var(--elevation-raised)]">
+          {error && (
+            <div className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={onSubmit} className="space-y-5">
+            {isNewPassword ? (
+              <>
+                <div>
+                  <label htmlFor="new-password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
+                    New password
+                  </label>
+                  <input
+                    id="new-password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    minLength={12}
+                    className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-card px-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
+                    placeholder="At least 12 characters"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="confirm-new-password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
+                    Confirm password
+                  </label>
+                  <input
+                    id="confirm-new-password"
+                    type="password"
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-card px-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none"
+                    placeholder="Re-enter your new password"
+                  />
+                </div>
+              </>
+            ) : (
+              <div>
+                <label htmlFor="mfa-code" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
+                  Authentication code
+                </label>
+                <input
+                  id="mfa-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  required
+                  className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-card px-3.5 py-2.5 text-ink-900 text-[14px] placeholder-ink-400 focus:border-brand focus:outline-none tracking-widest"
+                  placeholder="123456"
+                />
+              </div>
+            )}
+
+            <Button variant="primary" type="submit" disabled={isLoading} className="w-full py-3 text-[13px]">
+              {isLoading ? "Verifying…" : "Continue"}
+            </Button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="w-full text-center text-[12px] text-ink-400 hover:text-ink-700"
+            >
+              Back to sign in
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

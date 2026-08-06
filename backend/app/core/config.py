@@ -80,6 +80,11 @@ class SecretKeyMisconfigured(RuntimeError):
     predictable signing key means any attacker can forge JWTs."""
 
 
+class CognitoMisconfigured(RuntimeError):
+    """Raised at boot when AUTH_PROVIDER=cognito but the pool/client settings
+    are unset in a non-development environment. See _validate_cognito_config."""
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
@@ -304,7 +309,46 @@ class Settings(BaseSettings):
     SECRET_KEY: str = _DEFAULT_SECRET_KEY
     DATABASE_URL: str = "sqlite:///./dev.db"
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    # NOTE (Cognito migration): once Cognito is the active auth provider,
+    # this setting governs break-glass local-admin tokens ONLY — Cognito
+    # controls its own access-token lifetime via the app client
+    # (COGNITO_ACCESS_TOKEN_VALIDITY_MINUTES on the Terraform side). Misread
+    # as "the global session length" is R13 in the migration plan's risk
+    # register — it is not, past cutover.
     ACCESS_TOKEN_EXPIRE_HOURS: int = 24
+
+    # ---- Cognito (COGNITO-MIGRATION-PLAN §6.3 / §11) -----------------------
+    # AUTH_PROVIDER selects the active credential authority for NEW logins.
+    # "local" (default) preserves today's behaviour with zero config changes
+    # required — an environment that hasn't run the Terraform cognito module
+    # yet is completely unaffected. "cognito" activates Cognito-mediated login
+    # or Cognito+legacy dual-accept token verification depending on
+    # AUTH_ALLOW_LEGACY_JWT.
+    AUTH_PROVIDER: str = "local"
+    # Dual-accept window (Decision 11): while True, BOTH legacy HS256 (local
+    # SECRET_KEY) and Cognito RS256 tokens are accepted by the shared
+    # resolver, so cutover causes zero forced logouts. Flip to False per
+    # environment only after step 7 of the Phase 5 cutover checklist.
+    AUTH_ALLOW_LEGACY_JWT: bool = True
+    # Break-glass (Decision 12): keeps exactly one local-password admin
+    # reachable even if Cognito is unreachable. core/identity.py enforces the
+    # single-row invariant at the DB level; this flag is the kill switch.
+    BREAK_GLASS_ENABLED: bool = True
+
+    COGNITO_USER_POOL_ID: str = ""
+    COGNITO_CLIENT_ID: str = ""
+    COGNITO_CLIENT_SECRET: str = ""
+    # Empty default: falls back to AWS_REGION when unset (see
+    # core/cognito.py). Kept as a distinct setting because the Cognito pool
+    # and the Bedrock region are configured independently even though they
+    # are usually the same value in this deployment.
+    COGNITO_REGION: str = ""
+    COGNITO_JWKS_CACHE_TTL_SECONDS: int = 3600
+    # Phase 6 item 1 (plan §5.5): require a confirmed TOTP device for ADMIN
+    # operations. Cognito's MFA setting is pool-wide, so "admins only" has to be
+    # an app-layer gate. Defaults to False so shipping this code cannot lock out
+    # admins who have not enrolled yet -- flip it per environment once they have.
+    ADMIN_MFA_REQUIRED: bool = False
 
     # ---- Logging (M-06) ------------------------------------------------
     # app.agents / app.api carry prompts/payloads/user content at DEBUG — that
@@ -335,6 +379,44 @@ class Settings(BaseSettings):
         # secrets-loader pours every SSM key into the env file, etc.).
         # Without this, any unexpected variable raises ValidationError at boot.
         extra = "ignore"
+
+    @model_validator(mode="after")
+    def _validate_cognito_config(self) -> "Settings":
+        """Refuse to boot with AUTH_PROVIDER=cognito but no pool configured.
+
+        Mirrors ``_validate_secret_key``: this converts a silent
+        misconfiguration (the SSM secrets-loader allowlist omission — R2 in
+        the migration plan's risk register) into a loud, immediate startup
+        error outside development. In ``ENV=development`` we only warn, so a
+        local `.env` without Cognito set up still boots for legacy-only work.
+        """
+        if self.AUTH_PROVIDER.lower() != "cognito":
+            return self
+
+        is_dev = self.ENV.lower() == "development"
+        missing = [
+            name
+            for name, value in (
+                ("COGNITO_USER_POOL_ID", self.COGNITO_USER_POOL_ID),
+                ("COGNITO_CLIENT_ID", self.COGNITO_CLIENT_ID),
+                ("COGNITO_CLIENT_SECRET", self.COGNITO_CLIENT_SECRET),
+            )
+            if not value
+        ]
+        if missing:
+            message = (
+                f"AUTH_PROVIDER=cognito but {', '.join(missing)} "
+                f"{'is' if len(missing) == 1 else 'are'} unset. The Cognito "
+                "SSM parameters may exist but be missing from the on-host "
+                "secrets-loader allowlist (infra/scripts/bootstrap-ec2.sh) — "
+                "verify /etc/velocityai/app.env on the host."
+            )
+            if is_dev:
+                logger.warning(message)
+            else:
+                raise CognitoMisconfigured(message)
+
+        return self
 
     @model_validator(mode="after")
     def _validate_secret_key(self) -> "Settings":

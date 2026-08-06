@@ -85,18 +85,76 @@ class ApiError extends Error {
 // it never aborts a legitimately-slow brief ingest / large-deliverable fetch.
 const REQUEST_TIMEOUT_MS = 30_000;
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const url = `${BASE_URL}${path}`;
+/** Path of the refresh endpoint — never itself retried (see `request()`). */
+const REFRESH_PATH = "/api/auth/refresh";
+
+/**
+ * Cognito migration (Phase 4): swap the stored access token for a fresh one.
+ *
+ * Sends the CURRENT access token; the backend holds the Cognito refresh token
+ * server-side (migration 0032) so the browser only ever carries one bearer
+ * value — the `getToken()`/`setToken()` seam stays intact (Decision 3).
+ *
+ * Never throws: a failed refresh is a normal outcome (local/break-glass users
+ * get a 501, an aged-out refresh token gets a 401). Callers treat `null` as
+ * "could not refresh" and surface the original error instead.
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  const current = getToken();
+  if (!current) return null;
+  try {
+    const res = await fetch(`${BASE_URL}${REFRESH_PATH}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${current}` },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { token?: string } | null;
+    if (!body?.token) return null;
+    setToken(body.token);
+    return body.token;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Single-flight guard for `refreshAccessToken()`.
+ *
+ * A screen typically fires several requests at once, so an expired token
+ * produces a burst of simultaneous 401s. Without this, each one would mint its
+ * own refresh call and the losers would install a token that a later refresh
+ * had already superseded. The first caller performs the refresh; the rest await
+ * the same promise and reuse its result.
+ */
+let inFlightRefresh: Promise<string | null> | null = null;
+
+function refreshOnce(): Promise<string | null> {
+  if (!inFlightRefresh) {
+    inFlightRefresh = refreshAccessToken().finally(() => {
+      inFlightRefresh = null;
+    });
+  }
+  return inFlightRefresh;
+}
+
+/** Replace the Authorization header on a copy of the outgoing init. */
+function withBearer(options: RequestInit, token: string): RequestInit {
+  const headers = new Headers(options.headers as HeadersInit | undefined);
+  headers.set("Authorization", `Bearer ${token}`);
+  return { ...options, headers };
+}
+
+function hasAuthorization(options: RequestInit): boolean {
+  return new Headers(options.headers as HeadersInit | undefined).has("Authorization");
+}
+
+async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  let response: Response;
   try {
     // No current request() caller passes its own signal, so a direct assignment
     // is safe.
-    response = await fetch(url, { ...options, signal: controller.signal });
+    return await fetch(url, { ...options, signal: controller.signal });
   } catch (err) {
     // On abort the fetch throws a DOMException AbortError — translate it to a
     // typed, catchable ApiError (status 0) so callers surface a clear timeout
@@ -108,8 +166,46 @@ async function request<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Cognito migration (Phase 4): on a 401, refresh once and replay the request.
+ *
+ * Cognito access tokens are short-lived (60 min on the app client), so an
+ * authenticated REST call can legitimately expire mid-session. The SSE hook
+ * already did this (`useRunStream.ts::attemptSilentRefresh`); REST did not, so
+ * a token that expired between page load and the next click surfaced as a hard
+ * 401 the user had to resolve by logging in again.
+ *
+ * Three deliberate bounds keep this from becoming a retry storm:
+ *
+ * 1. **At most one retry per request.** The replay is issued with `retryOn401`
+ *    off, so a second 401 propagates to the caller. There is no recursion.
+ * 2. **Only for requests that actually sent a bearer.** An unauthenticated 401
+ *    (e.g. wrong password on `/login`) is a real answer, not an expiry — the
+ *    login form depends on receiving it.
+ * 3. **Never for the refresh endpoint itself**, which would be circular.
+ */
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  retryOn401 = true
+): Promise<T> {
+  const url = `${BASE_URL}${path}`;
+  const response = await fetchWithTimeout(url, options);
 
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      retryOn401 &&
+      path !== REFRESH_PATH &&
+      hasAuthorization(options)
+    ) {
+      const fresh = await refreshOnce();
+      if (fresh) {
+        return request<T>(path, withBearer(options, fresh), false);
+      }
+    }
     const body = await response.json().catch(() => ({
       detail: response.statusText,
     }));
@@ -141,16 +237,68 @@ export async function register(
   return data;
 }
 
+// Cognito migration (Phase 3/4): returned instead of AuthResponse when
+// Cognito needs another auth step (NEW_PASSWORD_REQUIRED / MFA_SETUP /
+// SOFTWARE_TOKEN_MFA) before a token can be issued. Detected by the ABSENCE
+// of a `token` field — every real AuthResponse carries one.
+export interface AuthChallengeResponse {
+  challenge: "NEW_PASSWORD_REQUIRED" | "MFA_SETUP" | "SOFTWARE_TOKEN_MFA";
+  session: string;
+}
+
+export function isAuthChallenge(
+  data: AuthResponse | AuthChallengeResponse
+): data is AuthChallengeResponse {
+  return "challenge" in data;
+}
+
 export async function login(
   email: string,
   password: string
-): Promise<AuthResponse> {
-  const data = await request<AuthResponse>("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  setToken(data.token);
+): Promise<AuthResponse | AuthChallengeResponse> {
+  const data = await request<AuthResponse | AuthChallengeResponse>(
+    "/api/auth/login",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    }
+  );
+  if (!isAuthChallenge(data)) {
+    setToken(data.token);
+  }
+  return data;
+}
+
+/**
+ * Complete a Cognito auth challenge started by login() (Phase 3/4). Pass
+ * `newPassword` for NEW_PASSWORD_REQUIRED, `mfaCode` for MFA_SETUP /
+ * SOFTWARE_TOKEN_MFA. Response is either a fresh challenge (rare — e.g.
+ * NEW_PASSWORD_REQUIRED followed by MFA_SETUP) or a real AuthResponse.
+ */
+export async function respondToLoginChallenge(
+  email: string,
+  session: string,
+  challenge: AuthChallengeResponse["challenge"],
+  opts: { newPassword?: string; mfaCode?: string }
+): Promise<AuthResponse | AuthChallengeResponse> {
+  const data = await request<AuthResponse | AuthChallengeResponse>(
+    "/api/auth/login/challenge",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        session,
+        challenge,
+        new_password: opts.newPassword,
+        mfa_code: opts.mfaCode,
+      }),
+    }
+  );
+  if (!isAuthChallenge(data)) {
+    setToken(data.token);
+  }
   return data;
 }
 
@@ -903,6 +1051,9 @@ export interface AdminUser {
   is_admin: boolean;
   created_at: string;
   workflow_run_count: number;
+  // Cognito migration (Phase 3): "local" | "cognito". Optional so the type
+  // still matches a pre-migration backend response shape.
+  auth_provider?: "local" | "cognito";
 }
 
 export async function adminListUsers(token: string): Promise<AdminUser[]> {
@@ -921,6 +1072,25 @@ export async function adminUpdateTier(
     method: "PATCH",
     headers: authHeaders(token),
     body: JSON.stringify({ tier }),
+  });
+}
+
+/**
+ * Cognito migration Phase 3: PATCH /api/admin/users/{id}/role. First real
+ * settable-role endpoint — a role change now also revokes the target's
+ * outstanding Cognito access tokens server-side (AdminUserGlobalSignOut) so
+ * it takes effect on their very next request. The target user is signed out
+ * of their current session as a result — this is expected, not a bug.
+ */
+export async function adminUpdateRole(
+  token: string,
+  userId: string,
+  isAdmin: boolean
+): Promise<AdminUser> {
+  return request<AdminUser>(`/api/admin/users/${userId}/role`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify({ is_admin: isAdmin }),
   });
 }
 

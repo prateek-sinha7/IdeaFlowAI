@@ -93,6 +93,31 @@ module "iam" {
   bedrock_model_id             = var.bedrock_model_id
   bedrock_inference_profile_id = var.bedrock_inference_profile_id
   attach_ssm_managed_policy    = true
+
+  # Cognito — pool-scoped admin permissions. The policy's `count` keys off the
+  # boolean, not the ARN (which is unknown until apply).
+  cognito_enabled       = var.cognito_enabled
+  cognito_user_pool_arn = var.cognito_enabled ? module.cognito[0].user_pool_arn : ""
+}
+
+# --- Cognito (COGNITO-MIGRATION-PLAN Phase 1) -------------------------------
+# One User Pool + backend app client + tier/role groups per environment.
+# Gated on var.cognito_enabled (default false) so existing environments are
+# unaffected until an operator explicitly opts in per-environment — creating
+# a pool is a one-way step this module deliberately does not do by accident.
+module "cognito" {
+  count  = var.cognito_enabled ? 1 : 0
+  source = "../modules/cognito"
+
+  name_prefix = local.name_prefix
+  environment = var.environment
+
+  deletion_protection = var.environment == "prod" ? "ACTIVE" : "INACTIVE"
+  mfa_configuration   = var.cognito_mfa_configuration
+
+  access_token_validity_minutes = var.cognito_access_token_validity_minutes
+  id_token_validity_minutes     = var.cognito_access_token_validity_minutes
+  refresh_token_validity_days   = var.cognito_refresh_token_validity_days
 }
 
 # --- Secrets (SSM Parameter Store) -----------------------------------------
@@ -114,4 +139,20 @@ module "secrets" {
   langsmith_tracing = var.langsmith_tracing
   langsmith_api_key = var.langsmith_api_key
   langsmith_project = var.langsmith_project
+
+  # Cognito — the module's `count` keys off this boolean (NOT off the string
+  # values below), because those come from module.cognito outputs that are
+  # unknown until apply and cannot legally drive a count.
+  cognito_enabled       = var.cognito_enabled
+  cognito_user_pool_id  = var.cognito_enabled ? module.cognito[0].user_pool_id : ""
+  cognito_client_id     = var.cognito_enabled ? module.cognito[0].client_id : ""
+  cognito_client_secret = var.cognito_enabled ? module.cognito[0].client_secret : ""
+  cognito_region        = var.cognito_enabled ? module.account_guard.region : ""
+
+  # Auth cutover flags (Phase 5). Only published once Cognito exists for this
+  # environment — publishing AUTH_PROVIDER=cognito without a pool would trip
+  # the application's own boot guard.
+  auth_provider         = var.cognito_enabled ? var.auth_provider : ""
+  auth_allow_legacy_jwt = var.cognito_enabled ? tostring(var.auth_allow_legacy_jwt) : ""
+  break_glass_enabled   = var.cognito_enabled ? tostring(var.break_glass_enabled) : ""
 }

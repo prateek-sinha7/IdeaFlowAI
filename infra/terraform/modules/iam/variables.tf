@@ -49,3 +49,15 @@ variable "attach_ssm_managed_policy" {
   type        = bool
   default     = true
 }
+
+variable "cognito_enabled" {
+  description = "Whether to attach the pool-scoped Cognito admin policy. MUST be a plan-time-known boolean rather than a `length(var.cognito_user_pool_arn) > 0` test — the ARN is a module output that is unknown until apply, and counting on it fails the plan with \"The count value depends on resource attributes that cannot be determined until apply\"."
+  type        = bool
+  default     = false
+}
+
+variable "cognito_user_pool_arn" {
+  description = "ARN of the Cognito User Pool the instance role may administer (AdminInitiateAuth/AdminCreateUser/etc, scoped to exactly this pool). Only used when cognito_enabled = true."
+  type        = string
+  default     = ""
+}

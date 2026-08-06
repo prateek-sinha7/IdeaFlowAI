@@ -204,6 +204,21 @@ resource "aws_iam_role_policy" "cw_agent" {
   policy = data.aws_iam_policy_document.cw_agent_describes.json
 }
 
+# --- Cognito admin (COGNITO-MIGRATION-PLAN Phase 1) -------------------------
+# Scoped to exactly one pool ARN (least privilege — never Resource "*"). No
+# statement is created when cognito_user_pool_arn is empty, so environments
+# that haven't enabled Cognito yet see zero policy change.
+resource "aws_iam_role_policy" "cognito_admin" {
+  count = var.cognito_enabled ? 1 : 0
+
+  name = "${var.name_prefix}-cognito-admin"
+  role = aws_iam_role.instance.id
+
+  policy = templatefile("${path.module}/${var.policies_dir}/cognito-admin.json", {
+    user_pool_arn = var.cognito_user_pool_arn
+  })
+}
+
 # --- Optional: AWS-managed SSM core for Session Manager --------------------
 
 resource "aws_iam_role_policy_attachment" "ssm_managed" {
@@ -250,16 +265,21 @@ resource "aws_iam_instance_profile" "instance" {
 
 resource "aws_iam_role_policies_exclusive" "instance" {
   role_name = aws_iam_role.instance.name
-  policy_names = [
-    aws_iam_role_policy.bedrock_invoke.name,
-    aws_iam_role_policy.ssm_read.name,
-    aws_iam_role_policy.kms_decrypt.name,
-    aws_iam_role_policy.cloudwatch_write.name,
-    aws_iam_role_policy.s3_backup_rw.name,
-    aws_iam_role_policy.s3_config_read.name,
-    aws_iam_role_policy.ecr_pull.name,
-    aws_iam_role_policy.cw_agent.name,
-  ]
+  policy_names = concat(
+    [
+      aws_iam_role_policy.bedrock_invoke.name,
+      aws_iam_role_policy.ssm_read.name,
+      aws_iam_role_policy.kms_decrypt.name,
+      aws_iam_role_policy.cloudwatch_write.name,
+      aws_iam_role_policy.s3_backup_rw.name,
+      aws_iam_role_policy.s3_config_read.name,
+      aws_iam_role_policy.ecr_pull.name,
+      aws_iam_role_policy.cw_agent.name,
+    ],
+    # count-guarded resource — [*] flattens to [] when the count is 0, so the
+    # exclusive list stays correct whether or not Cognito is enabled.
+    aws_iam_role_policy.cognito_admin[*].name,
+  )
 }
 
 resource "aws_iam_role_policy_attachments_exclusive" "instance" {

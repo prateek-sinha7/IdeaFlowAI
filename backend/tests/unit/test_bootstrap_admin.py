@@ -24,6 +24,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import settings
 from app.core.security import verify_password
 from app.models.database import Base
 from app.models.user import User
@@ -40,6 +41,26 @@ from app.scripts.bootstrap_admin import (
 
 VALID_PASSWORD = "bootstrap-password-0123456789"
 assert len(VALID_PASSWORD) >= MIN_PASSWORD_LENGTH
+
+
+@pytest.fixture(autouse=True)
+def _force_local_auth_provider(monkeypatch):
+    """Pin AUTH_PROVIDER=local for every test in this module.
+
+    ``bootstrap_admin.create_admin`` branches on ``settings.AUTH_PROVIDER``:
+    under ``cognito`` it provisions a real pool user via ``AdminCreateUser``.
+    Without this fixture, every test below would silently change behaviour —
+    and start making live AWS calls — on any machine whose ``.env`` or shell has
+    ``AUTH_PROVIDER=cognito`` set. That breaks the migration plan's hard rule
+    that CI stays offline-capable and no test calls AWS, and it fails in a
+    confusing way (credential/network errors inside what looks like a pure
+    bcrypt test).
+
+    These tests characterize the LOCAL path, so they pin it explicitly rather
+    than inheriting ambient configuration. The Cognito branch is covered
+    separately in ``TestCognitoBranch`` with the AWS calls stubbed.
+    """
+    monkeypatch.setattr(settings, "AUTH_PROVIDER", "local")
 
 
 @pytest.fixture
@@ -410,3 +431,158 @@ class TestMain:
     def test_no_arguments_is_rejected(self, session_factory):
         assert main([]) == EXIT_ERROR
         assert _users(session_factory) == []
+
+
+class TestCognitoBranch:
+    """The AUTH_PROVIDER=cognito path — the fresh-environment critical path.
+
+    With self-registration hard-disabled and `POST /api/admin/users` itself
+    requiring an authenticated admin, this is the ONLY way into a brand-new
+    Cognito environment (R1 in the migration plan's risk register). It is
+    therefore worth real coverage rather than trusting it on first use in prod.
+
+    AWS is stubbed: these assert what we ASK Cognito to do and how we persist
+    the result, keeping the suite offline per the plan's CI rule.
+    """
+
+    @pytest.fixture
+    def cognito_provider(self, monkeypatch):
+        # Overrides the module-level autouse fixture for this class only.
+        monkeypatch.setattr(settings, "AUTH_PROVIDER", "cognito")
+
+    @pytest.fixture
+    def fake_cognito(self, monkeypatch):
+        """Stub the four Cognito calls the bootstrap path makes."""
+        calls: dict[str, object] = {"groups": []}
+        sub = "11111111-2222-3333-4444-555555555555"
+
+        def admin_create_user(email):
+            calls["created_email"] = email
+            return {"User": {"Attributes": [{"Name": "sub", "Value": sub}]}}
+
+        def admin_set_user_password(email, password, permanent=True):
+            calls["password_email"] = email
+            calls["permanent"] = permanent
+
+        def admin_add_user_to_group(email, group):
+            calls["groups"].append((email, group))  # type: ignore[union-attr]
+
+        def admin_delete_user(email):
+            calls["deleted_email"] = email
+
+        from app.core import cognito as cognito_module
+
+        monkeypatch.setattr(cognito_module, "admin_create_user", admin_create_user)
+        monkeypatch.setattr(cognito_module, "admin_set_user_password", admin_set_user_password)
+        monkeypatch.setattr(cognito_module, "admin_add_user_to_group", admin_add_user_to_group)
+        monkeypatch.setattr(cognito_module, "admin_delete_user", admin_delete_user)
+        calls["sub"] = sub
+        return calls
+
+    def test_provisions_pool_user_and_maps_it_locally(
+        self, session_factory, cognito_provider, fake_cognito
+    ):
+        rc = create_admin(
+            email="admin@example.com",
+            password="a-valid-password-123",
+            session_factory=session_factory,
+        )
+        assert rc == EXIT_OK
+
+        rows = _users(session_factory)
+        assert len(rows) == 1
+        row = rows[0]
+
+        # The local row must carry the pool `sub` — without it
+        # resolve_principal() can never match this user and the admin simply
+        # cannot log in (check C1 in verify_cognito_cutover.py).
+        assert row.cognito_sub == fake_cognito["sub"]
+        assert row.auth_provider == "cognito"
+        assert row.is_admin is True
+
+        # No local bcrypt hash: the credential lives in Cognito now. A residual
+        # hash would be a second credential outside pool policy/MFA (check C3).
+        assert row.password_hash is None
+
+    def test_password_is_set_permanent_so_first_login_needs_no_challenge(
+        self, session_factory, cognito_provider, fake_cognito
+    ):
+        """A forced NEW_PASSWORD_REQUIRED challenge would strand the bootstrap.
+
+        Whoever runs this is trying to get into an empty environment; if the
+        credential they were handed demands an interactive challenge before it
+        works, the bootstrap has not actually delivered access.
+        """
+        create_admin(
+            email="admin@example.com",
+            password="a-valid-password-123",
+            session_factory=session_factory,
+        )
+        assert fake_cognito["permanent"] is True
+
+    def test_admin_is_added_to_the_admins_group(
+        self, session_factory, cognito_provider, fake_cognito
+    ):
+        from app.core.entitlements import ADMIN_GROUP
+
+        create_admin(
+            email="admin@example.com",
+            password="a-valid-password-123",
+            session_factory=session_factory,
+        )
+        assert ("admin@example.com", ADMIN_GROUP) in fake_cognito["groups"]
+
+    def test_local_commit_failure_compensates_by_deleting_the_pool_user(
+        self, session_factory, cognito_provider, fake_cognito, monkeypatch
+    ):
+        """No orphaned pool user if the local insert fails (R7).
+
+        An orphan authenticates against Cognito but has no local row, so it
+        401s at resolve_principal — a state that is invisible unless someone
+        runs the reconciliation report.
+        """
+
+        real_factory = session_factory
+
+        class ExplodingSession:
+            def __init__(self):
+                self._inner = real_factory()
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+            def commit(self):
+                raise RuntimeError("simulated local commit failure")
+
+        rc = create_admin(
+            email="admin@example.com",
+            password="a-valid-password-123",
+            session_factory=ExplodingSession,
+        )
+
+        assert rc == EXIT_ERROR
+        assert fake_cognito.get("deleted_email") == "admin@example.com", (
+            "a failed local commit must compensate by deleting the pool user"
+        )
+
+    def test_local_path_is_unaffected_when_provider_is_local(
+        self, session_factory, fake_cognito
+    ):
+        """Regression guard for the default path.
+
+        The autouse fixture pins AUTH_PROVIDER=local here, so no Cognito call
+        should happen at all and a bcrypt hash must be written.
+        """
+        rc = create_admin(
+            email="admin@example.com",
+            password="a-valid-password-123",
+            session_factory=session_factory,
+        )
+        assert rc == EXIT_OK
+
+        row = _users(session_factory)[0]
+        assert row.auth_provider == "local"
+        assert row.cognito_sub is None
+        assert row.password_hash is not None
+        assert verify_password("a-valid-password-123", row.password_hash)
+        assert "created_email" not in fake_cognito, "the local path must not call Cognito"

@@ -21,3 +21,33 @@ log_retention_days          = 14
 daily_backup_retention_days = 120
 cold_storage_after_days     = 30
 pg_dump_expiry_days         = 120
+
+# --- Cognito (COGNITO-MIGRATION-PLAN, Phase 1 + Phase 5) --------------------
+# dev is the first environment cut over (dev -> stage -> prod). Creating the
+# pool is safe and effectively free (MAU pricing, empty pool), and is a
+# prerequisite for anything in Phase 5.
+cognito_enabled = true
+
+# Shorter refresh-token life in dev than prod (assumption A-4) — a leaked dev
+# refresh token should die sooner, and dev sessions are disposable.
+cognito_refresh_token_validity_days = 7
+
+# CUTOVER SWITCHES — read these together:
+#
+#   auth_provider = "local"       -> Cognito EXISTS but is not yet the
+#                                    credential authority. Login still uses the
+#                                    local bcrypt path. This is Phase 5 step 1
+#                                    ("deploy with dual-accept"), and it is the
+#                                    correct value until the admin has been
+#                                    bootstrapped INTO the pool and verified.
+#   auth_provider = "cognito"     -> flip AFTER running
+#                                    scripts/bootstrap_admin.py against the
+#                                    pool and confirming a successful Cognito
+#                                    login (Phase 5 steps 2-6).
+#
+#   auth_allow_legacy_jwt = true  -> dual-accept; zero forced logouts. Flip to
+#                                    false only at step 7, after legacy tokens
+#                                    have aged out (<= ACCESS_TOKEN_EXPIRE_HOURS).
+auth_provider         = "local"
+auth_allow_legacy_jwt = true
+break_glass_enabled   = true

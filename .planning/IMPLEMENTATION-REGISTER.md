@@ -5,6 +5,26 @@
 > **How it was built.** The four root planning docs (`PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`) + `config.json` were read in full to produce the Overview; then an agent read **every file** in each `.planning/phases/<NN-…>/` folder in full and wrote one section in a fixed 8-part format. The per-section sources also live separately under `.planning/_register-parts/` (one file per phase) if you prefer to open just one.
 >
 > **Authoritative full specification:** `specs/003-workflow-engine-decoupling/plan.md`. **Running issues log:** `.planning/ISSUES-REGISTER.md` (live-pass + deep-investigation + UI-campaign findings, with statuses).
+>
+> ### Out-of-scope track: Cognito auth migration
+>
+> **This register covers the Workflow-Engine-Decoupling project only.** One other
+> body of work has landed in the same repo and is deliberately **not** indexed
+> as a phase here, because it shares no surface with the engine kernel:
+>
+> **Cognito Authentication & Authorization Migration** — plan:
+> `.planning/COGNITO-MIGRATION-PLAN.md` · runbook:
+> `infra/COGNITO-CUTOVER-RUNBOOK.md` · roadmap entry: the "Cross-Cutting Track"
+> section at the end of `.planning/ROADMAP.md`.
+>
+> Read it before touching **auth, `users`, the admin API, or the Terraform
+> foundation layer**. Two things there are easy to break by accident:
+> `core/identity.py` is the *single* shared credential resolver for both the HTTP
+> and WebSocket paths (they must not drift again), and the `AuthEvent` string
+> values in `core/auth_events.py` are a published interface that CloudWatch
+> metric filters match on — renaming one silently disables an alarm rather than
+> failing a test. Local HS256 signing is retained **on purpose** for one
+> break-glass admin; it is not dead code.
 
 ## How To Read This Register
 

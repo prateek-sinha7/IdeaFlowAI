@@ -45,6 +45,8 @@ export interface GithubPatStatus {
 export interface ApiKeySummary {
   id: string;
   name: string;
+  /** ISO timestamp, or null for a key minted before expiry existed (never expires). */
+  expires_at?: string | null;
   token_prefix: string;
   last_used_at: string | null;
   created_at: string;

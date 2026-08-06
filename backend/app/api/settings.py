@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from agents.capabilities.model_catalog import ModelCatalog
-from app.api.api_key_auth import mint_api_key
+from app.api.api_key_auth import default_api_key_expiry, mint_api_key
 from app.core.crypto import decrypt_pat, encrypt_pat
 from app.core.dependencies import get_current_user
 from app.models.database import get_db
@@ -91,6 +91,9 @@ class ApiKeyCreateResponse(BaseModel):
     token: str  # plaintext — ONLY returned on creation
     token_prefix: str
     created_at: datetime
+    # Phase 6 item 5. Surfaced at creation so the user learns the key's lifetime
+    # at the one moment they are actually looking at it.
+    expires_at: datetime | None = None
 
 
 class ApiKeySummary(BaseModel):
@@ -100,6 +103,8 @@ class ApiKeySummary(BaseModel):
     last_used_at: datetime | None
     created_at: datetime
     revoked_at: datetime | None
+    # None = never expires (a key minted before migration 0033).
+    expires_at: datetime | None = None
 
 
 # --- GitHub PAT ---------------------------------------------------------
@@ -231,6 +236,10 @@ def create_api_key(
         name=payload.name,
         token_prefix=prefix,
         token_hash=digest,
+        # Phase 6 item 5: every NEW key gets a bounded lifetime. Pre-existing
+        # keys keep expires_at = NULL ("never expires") so this cannot break a
+        # live IDE/MCP integration -- see migration 0033.
+        expires_at=default_api_key_expiry(),
     )
     db.add(row)
     db.commit()
@@ -241,6 +250,7 @@ def create_api_key(
         token=plaintext,
         token_prefix=row.token_prefix,
         created_at=row.created_at,
+        expires_at=row.expires_at,
     )
 
 
@@ -263,6 +273,7 @@ def list_api_keys(
             last_used_at=r.last_used_at,
             created_at=r.created_at,
             revoked_at=r.revoked_at,
+            expires_at=r.expires_at,
         )
         for r in rows
     ]

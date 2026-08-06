@@ -77,12 +77,90 @@ variable "cors_origins" {
 }
 
 variable "access_token_expire_hours" {
-  description = "JWT lifetime in hours."
+  description = "JWT lifetime in hours. NOTE (Cognito migration): once Cognito is the active auth provider, this setting governs break-glass local-admin tokens ONLY — Cognito controls its own access-token lifetime via the app client (see the cognito module's access_token_validity_minutes)."
   type        = number
   default     = 12
 
   validation {
     condition     = var.access_token_expire_hours > 0 && var.access_token_expire_hours <= 168
     error_message = "access_token_expire_hours must be between 1 and 168 (one week)."
+  }
+}
+
+# --- Cognito (COGNITO-MIGRATION-PLAN §6.3 / §11) ---------------------------
+# Four parameters written only when the caller opts in. Environments that
+# haven't yet run Phase 1 of the Cognito migration get no new parameters — the
+# backend's boot guard (core/config.py) treats an unset pool id as "Cognito not
+# configured" and refuses to boot ONLY if AUTH_PROVIDER=cognito is also set, so
+# this is safe to leave off during the transitional phases.
+
+variable "cognito_enabled" {
+  description = "Whether to create the COGNITO_* parameters. MUST be a plan-time-known boolean rather than a `length(var.cognito_user_pool_id) > 0` test, because the pool id/client id/secret are module outputs that are unknown until apply — counting on them yields \"The count value depends on resource attributes that cannot be determined until apply\"."
+  type        = bool
+  default     = false
+}
+
+variable "cognito_user_pool_id" {
+  description = "Cognito User Pool ID (module.cognito.user_pool_id). Empty (default) skips creating any COGNITO_* parameters."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_client_id" {
+  description = "Cognito app client ID (module.cognito.client_id)."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_client_secret" {
+  description = "Cognito app client secret (module.cognito.client_secret). Stored as SecureString. Sensitive."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "cognito_region" {
+  description = "AWS region the Cognito pool lives in. Empty default: on-host loader falls back to AWS_REGION when COGNITO_REGION is absent."
+  type        = string
+  default     = ""
+}
+
+# --- Auth cutover flags (COGNITO-MIGRATION-PLAN §7 Phase 5) -----------------
+# These three are SSM-managed (not baked into the image) precisely so the
+# cutover sequence -- deploy dual-accept, provision users, then flip
+# AUTH_ALLOW_LEGACY_JWT to false -- is an operational parameter change plus a
+# service restart, NOT a code change and redeploy. That is what makes step 7
+# of the Phase 5 checklist safely reversible per environment.
+
+variable "auth_provider" {
+  description = "Active credential authority for NEW logins: \"local\" (pre-migration behaviour) or \"cognito\". Empty (default) omits the parameter, so the application keeps its own \"local\" default."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.auth_provider == "" || contains(["local", "cognito"], var.auth_provider)
+    error_message = "auth_provider must be empty, \"local\", or \"cognito\"."
+  }
+}
+
+variable "auth_allow_legacy_jwt" {
+  description = "Dual-accept window (Decision 11). \"true\" during cutover so BOTH legacy HS256 and Cognito RS256 tokens are accepted (zero forced logouts); flip to \"false\" per environment once legacy tokens have aged out. Empty omits the parameter (application default: true)."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.auth_allow_legacy_jwt == "" || contains(["true", "false"], var.auth_allow_legacy_jwt)
+    error_message = "auth_allow_legacy_jwt must be empty, \"true\", or \"false\"."
+  }
+}
+
+variable "break_glass_enabled" {
+  description = "Kill switch for the single local-password break-glass admin (Decision 12). Empty omits the parameter (application default: true)."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.break_glass_enabled == "" || contains(["true", "false"], var.break_glass_enabled)
+    error_message = "break_glass_enabled must be empty, \"true\", or \"false\"."
   }
 }

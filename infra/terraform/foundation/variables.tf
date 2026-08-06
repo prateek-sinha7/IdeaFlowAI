@@ -244,3 +244,62 @@ variable "object_lock_retention_days" {
   type        = number
   default     = 35
 }
+
+# --- Cognito (COGNITO-MIGRATION-PLAN Phase 1) -------------------------------
+
+variable "cognito_enabled" {
+  description = "Create the Cognito User Pool + app client + groups for this environment. Default false — an operator opts in per-environment (COGNITO-MIGRATION-PLAN §7 Phase 1). Creating a pool is not something to do by accident on a plan."
+  type        = bool
+  default     = false
+}
+
+variable "cognito_mfa_configuration" {
+  description = "Pool-wide MFA setting. OFF/OPTIONAL/ON. OPTIONAL at cutover per the migration plan's Decision 4."
+  type        = string
+  default     = "OPTIONAL"
+
+  validation {
+    condition     = contains(["OFF", "OPTIONAL", "ON"], var.cognito_mfa_configuration)
+    error_message = "cognito_mfa_configuration must be one of: OFF, OPTIONAL, ON."
+  }
+}
+
+variable "cognito_access_token_validity_minutes" {
+  description = "Cognito access/ID token lifetime in minutes."
+  type        = number
+  default     = 60
+}
+
+variable "cognito_refresh_token_validity_days" {
+  description = "Cognito refresh token lifetime in days."
+  type        = number
+  default     = 30
+}
+
+# --- Auth cutover flags (COGNITO-MIGRATION-PLAN §7 Phase 5) -----------------
+# Only take effect when cognito_enabled = true (see main.tf). Published to SSM
+# so step 7 of the cutover checklist (flip AUTH_ALLOW_LEGACY_JWT to false) is a
+# parameter change + restart per environment, not a code change.
+
+variable "auth_provider" {
+  description = "Active credential authority for NEW logins: \"local\" or \"cognito\". Stays \"local\" until this environment is actually cut over (Phase 5 step 1 deploys the code with Cognito available but not yet authoritative)."
+  type        = string
+  default     = "local"
+
+  validation {
+    condition     = contains(["local", "cognito"], var.auth_provider)
+    error_message = "auth_provider must be \"local\" or \"cognito\"."
+  }
+}
+
+variable "auth_allow_legacy_jwt" {
+  description = "Dual-accept window (Decision 11): accept BOTH legacy HS256 and Cognito RS256 tokens so cutover forces zero logouts. Flip to false only after step 8 (legacy tokens aged out)."
+  type        = bool
+  default     = true
+}
+
+variable "break_glass_enabled" {
+  description = "Keep the single local-password break-glass admin reachable (Decision 12). Leave true unless you have a specific reason to close that path."
+  type        = bool
+  default     = true
+}

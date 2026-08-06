@@ -41,6 +41,39 @@ class AuthResponse(BaseModel):
     user: UserResponse
 
 
+class AuthChallengeResponse(BaseModel):
+    """Returned instead of AuthResponse when Cognito requires another auth
+    step (NEW_PASSWORD_REQUIRED, MFA_SETUP, SOFTWARE_TOKEN_MFA) before a
+    token can be issued. ``session`` must be echoed back verbatim on the
+    matching /login/challenge call."""
+
+    challenge: str
+    session: str
+
+
+class LoginChallengeRequest(BaseModel):
+    """Request body for responding to a Cognito auth challenge."""
+
+    email: EmailStr
+    session: str
+    challenge: str
+    # NEW_PASSWORD_REQUIRED
+    new_password: str | None = None
+    # SOFTWARE_TOKEN_MFA / MFA_SETUP
+    mfa_code: str | None = None
+
+
+class RefreshResponse(BaseModel):
+    """Response body for POST /api/auth/refresh.
+
+    Deliberately just ``{"token": "..."}`` -- the exact shape
+    ``frontend/src/hooks/useRunStream.ts``'s ``attemptSilentRefresh`` already
+    parses (D-14f), so no frontend change is required to light this up.
+    """
+
+    token: str
+
+
 # --- Chat Schemas ---
 
 

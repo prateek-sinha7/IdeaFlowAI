@@ -40,7 +40,18 @@ vi.mock("next/navigation", () => ({
 
 // @/lib/api — never hit the transport from a render test (LOCK-B). The class is
 // declared INSIDE the factory because vi.mock is hoisted above module scope.
-const { loginMock } = vi.hoisted(() => ({ loginMock: vi.fn() }));
+//
+// Cognito migration (Phase 4): the page now also imports
+// `respondToLoginChallenge` + `isAuthChallenge` (the challenge-response path).
+// `isAuthChallenge` is real logic (a type guard keyed on the `challenge` field
+// presence), not network I/O, so it is safe — and necessary — to keep the real
+// implementation here rather than stub it; every test in this file resolves
+// `loginMock` with a plain AuthResponse (no `challenge` field), so
+// `isAuthChallenge` always returns false and the existing flows are untouched.
+const { loginMock, respondToLoginChallengeMock } = vi.hoisted(() => ({
+  loginMock: vi.fn(),
+  respondToLoginChallengeMock: vi.fn(),
+}));
 vi.mock("@/lib/api", () => {
   class ApiError extends Error {
     status: number;
@@ -51,7 +62,15 @@ vi.mock("@/lib/api", () => {
       this.detail = detail;
     }
   }
-  return { login: loginMock, ApiError };
+  function isAuthChallenge(data: unknown): boolean {
+    return Boolean(data && typeof data === "object" && "challenge" in data);
+  }
+  return {
+    login: loginMock,
+    respondToLoginChallenge: respondToLoginChallengeMock,
+    isAuthChallenge,
+    ApiError,
+  };
 });
 
 // motion/react — strip animation-only props so motion.* render as plain nodes.

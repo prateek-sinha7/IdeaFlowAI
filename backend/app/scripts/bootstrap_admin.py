@@ -63,6 +63,7 @@ from collections.abc import Callable
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import hash_password
 from app.models.database import SessionLocal
 from app.models.user import User
@@ -216,6 +217,7 @@ def create_admin(
         logger.error("could not open a database session: %s", exc)
         return EXIT_ERROR
 
+    cognito_sub: str | None = None
     try:
         _lock_users_table(session)
 
@@ -231,10 +233,27 @@ def create_admin(
         # created_at / updated_at are intentionally omitted: the model's own
         # column defaults supply them, so this row is stamped exactly like
         # every other user instead of by a second, divergent code path.
+        #
+        # COGNITO-MIGRATION-PLAN §7 Phase 3 ("Bootstrap admin — Critical
+        # path"): when Cognito is the active provider, this is the ONLY way
+        # into a fresh environment (self-registration is 403'd; the normal
+        # POST /api/admin/users path itself requires an already-authenticated
+        # admin). So the pool user + flowin-admins membership are provisioned
+        # HERE, inside the same locked section, before the local row commits
+        # — a failure on either side leaves NO row (see the except branch's
+        # compensating pool-user delete) rather than a half-bootstrapped
+        # environment. `AUTH_PROVIDER != "cognito"` (the default) is
+        # byte-identical to the pre-migration behaviour — every existing test
+        # in this module runs with the default settings and is unaffected.
+        if settings.AUTH_PROVIDER.lower() == "cognito":
+            cognito_sub = _bootstrap_cognito_admin(normalised_email, password)
+
         session.add(
             User(
                 email=normalised_email,
-                password_hash=hash_password(password),
+                password_hash=None if cognito_sub else hash_password(password),
+                cognito_sub=cognito_sub,
+                auth_provider="cognito" if cognito_sub else "local",
                 tier=INITIAL_ADMIN_TIER,
                 is_admin=True,
             )
@@ -247,10 +266,46 @@ def create_admin(
         # concurrent caller blocked on it proceeds instead of waiting out the
         # deploy. The message carries the email at most, never the password.
         session.rollback()
+        if cognito_sub is not None:
+            _compensate_delete_cognito_admin(normalised_email)
         logger.error("failed to create the initial administrator: %s", exc)
         return EXIT_ERROR
     finally:
         session.close()
+
+
+def _bootstrap_cognito_admin(email: str, password: str) -> str:
+    """Provision the pool user + flowin-admins membership for the initial admin.
+
+    Uses ``AdminSetUserPassword(..., Permanent=True)`` so the account is
+    immediately usable with the given password, with no forced
+    NEW_PASSWORD_REQUIRED challenge — this is the credential that gets
+    someone into a brand-new environment, so it must work on the first try
+    with no additional interactive step. Returns the pool user's ``sub``
+    (from ``AdminCreateUser``'s response attributes) to store as
+    ``users.cognito_sub``.
+    """
+    from app.core import cognito
+    from app.core.entitlements import ADMIN_GROUP
+
+    create_resp = cognito.admin_create_user(email)
+    cognito.admin_set_user_password(email, password, permanent=True)
+    cognito.admin_add_user_to_group(email, ADMIN_GROUP)
+    return next(
+        attr["Value"]
+        for attr in create_resp["User"]["Attributes"]
+        if attr["Name"] == "sub"
+    )
+
+
+def _compensate_delete_cognito_admin(email: str) -> None:
+    """Best-effort cleanup of an orphaned pool user after a local-commit failure."""
+    from app.core import cognito
+
+    try:
+        cognito.admin_delete_user(email)
+    except Exception:  # noqa: BLE001 - best-effort; already in an error path
+        logger.error("failed to compensate-delete the orphaned Cognito admin %s", email)
 
 
 def _read_password_from_stdin() -> str | None:
