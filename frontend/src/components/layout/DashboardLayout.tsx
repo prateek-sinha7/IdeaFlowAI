@@ -381,6 +381,11 @@ export function DashboardLayout({
   // currentPipelineNotifId tracks the CURRENTLY VIEWED run's notif for
   // progress/gate/completion updates.
   const currentPipelineNotifId = useRef<string | null>(null);
+  // FIX-194 — ISS-060: companion ref that records WHICH run id owns the current
+  // notification, so the terminal effect can refuse to act on a foreign run's
+  // pipeline_complete. Without this, history-reopening a completed run fires the
+  // terminal effect and stamps a DIFFERENT live run's notification as "complete".
+  const currentPipelineNotifRunId = useRef<string | null>(null);
   // Map: local notifId → was-this-created-by-the-explicit-handler (true) or by
   // the reactive odProtoNotifCreated effect (false). Used to prevent the reactive
   // effect from creating a duplicate after the explicit handler already fired.
@@ -441,7 +446,21 @@ export function DashboardLayout({
       if (incomingRunId && currentPipelineNotifId.current) {
         if (!odProtoNotifCreated.current) {
           currentPipelineNotifId.current = null;
+          currentPipelineNotifRunId.current = null; // FIX-194: clear companion in lockstep
+        } else {
+          // FIX-194: back-fill the companion ref for explicit-launch handlers
+          // that set currentPipelineNotifId.current before the run id was known.
+          // Now that pipelineRunId is available, record it so the terminal effect
+          // can verify ownership before marking the notification complete.
+          if (!currentPipelineNotifRunId.current) {
+            currentPipelineNotifRunId.current = incomingRunId;
+          }
         }
+      } else if (incomingRunId && !currentPipelineNotifId.current) {
+        // No notif yet (will be created by the reactive od-proto/ppt effect below).
+        // Pre-populate the run id so when that effect writes notifId, we already
+        // have the correct owner recorded.
+        currentPipelineNotifRunId.current = incomingRunId;
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -459,6 +478,18 @@ export function DashboardLayout({
       // name (SC-001/INV-1).
       const allDone = pipelineState.agents.every((a) => a.status === "done" || a.status === "error");
       if (allDone && pipelineState.agents.some((a) => a.status === "done")) {
+        // FIX-194 — ISS-060: guard against a foreign run's terminal state firing
+        // this effect. pipelineState.pipelineRunId is the run that just completed;
+        // currentPipelineNotifRunId is the run that OWNS the notification. If they
+        // differ (e.g. history-reopening a completed user_stories run while a
+        // prototype notification is live), abort — never mark a different run's
+        // notification as complete. The completing run simply gets no toast (it
+        // was a history reopen, not a live run the user was watching).
+        const completingRunId = pipelineState.pipelineRunId;
+        if (completingRunId && currentPipelineNotifRunId.current &&
+            completingRunId !== currentPipelineNotifRunId.current) {
+          return;
+        }
         setCompletedPipelineTypes((prev) => {
           if (prev.includes(workflowType)) return prev;
           return [...prev, workflowType];
@@ -470,11 +501,16 @@ export function DashboardLayout({
         if (currentPipelineNotifId.current) {
           const notifId = currentPipelineNotifId.current;
           currentPipelineNotifId.current = null;  // reset so next run gets a fresh notification
+          currentPipelineNotifRunId.current = null; // FIX-194: clear companion ref in lockstep
           markCompleted(notifId);
+          // FIX-194 — ISS-060: use the notification's own workflowType/title rather
+          // than the shared workflowType state variable, which may still hold a
+          // previous run's value when the completion batches with the sync effect.
+          const n = notifications.find((x) => x.id === notifId);
           setToasts(prev => [...prev, {
             id: notifId + "-toast",
-            workflowType,
-            title: workflowType,
+            workflowType: n?.workflowType ?? workflowType,
+            title: n?.title ?? "",
             status: "completed",
           }]);
         }
@@ -489,10 +525,12 @@ export function DashboardLayout({
         if (pipelineState.failed) {
           const notifId = currentPipelineNotifId.current;
           currentPipelineNotifId.current = null;
+          currentPipelineNotifRunId.current = null; // FIX-194
           markFailed(notifId);
         } else if (pipelineState.cancelled) {
           const notifId = currentPipelineNotifId.current;
           currentPipelineNotifId.current = null;
+          currentPipelineNotifRunId.current = null; // FIX-194
           markCancelled(notifId);
         }
       }
@@ -549,6 +587,7 @@ export function DashboardLayout({
         if (!odPptNotifId.current) {
           odPptNotifId.current = notifId;
           currentPipelineNotifId.current = notifId;
+          currentPipelineNotifRunId.current = pipelineState.pipelineRunId ?? null; // FIX-194
           // FIX-149 (Bug 1): use the user's actual brief as the title so the header
           // dropdown shows "My interactive shopping cart" not "Prototype · Prototype".
           const label = submittedBrief
@@ -561,6 +600,7 @@ export function DashboardLayout({
         if (!odProtoNotifId.current) {
           odProtoNotifId.current = notifId;
           currentPipelineNotifId.current = notifId;
+          currentPipelineNotifRunId.current = pipelineState.pipelineRunId ?? null; // FIX-194
           const label = submittedBrief
             ? submittedBrief.split("\n")[0].trim().slice(0, 80)
             : "Prototype";
@@ -836,6 +876,7 @@ export function DashboardLayout({
       const notifId = `pipeline-${Date.now()}`;
       odProtoNotifId.current = notifId;
       currentPipelineNotifId.current = notifId;
+      currentPipelineNotifRunId.current = null; // FIX-194: will be set by reactive effect once pipelineRunId arrives
       addRunningNotification(notifId, "prototype", pendingOdProtoParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdProtoParams.agentIds ?? [];
       if (connectionStatus === "connected") {
@@ -892,6 +933,7 @@ export function DashboardLayout({
       const notifId = `pipeline-${Date.now()}`;
       odPptNotifId.current = notifId;
       currentPipelineNotifId.current = notifId;
+      currentPipelineNotifRunId.current = null; // FIX-194: will be set by reactive effect once pipelineRunId arrives
       addRunningNotification(notifId, "ppt", pendingOdPptParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdPptParams.agentIds ?? [];
       if (connectionStatus === "connected") {
@@ -1052,6 +1094,7 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
+      currentPipelineNotifRunId.current = null; // FIX-194: reactive sync effect will populate once pipelineRunId arrives
       // Strip injected context/revision markers before using as notification title
       // so the panel never shows raw "=== EXISTING PROTOTYPE HTML ===" text.
       const parsedMsg = parseRunInput(message);
@@ -1180,6 +1223,7 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
+      currentPipelineNotifRunId.current = null; // FIX-194
       // chainBrief is the stripped user brief (no markers); use it as the
       // notification title so the panel never shows raw context block text.
       const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
@@ -1260,6 +1304,7 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
+      currentPipelineNotifRunId.current = null; // FIX-194
       // historyBrief is the stripped user brief (no markers); use it so the
       // panel never shows raw context block text for history-chained runs.
       const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
@@ -1340,6 +1385,7 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
+      currentPipelineNotifRunId.current = null; // FIX-194
       const parsedPending = parseRunInput(pendingPipelineRun.message);
       const pendingNotifTitle = (parsedPending.revisionInstruction ?? parsedPending.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, pendingNotifTitle, 0);
@@ -1377,6 +1423,7 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
+      currentPipelineNotifRunId.current = null; // FIX-194
       const parsedSkip = parseRunInput(pendingPipelineRun.message);
       const skipNotifTitle = (parsedSkip.revisionInstruction ?? parsedSkip.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, skipNotifTitle, 0);

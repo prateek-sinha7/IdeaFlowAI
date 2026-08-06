@@ -1,5 +1,5 @@
 {
-  "count": 562,
+  "count": 563,
   "entries": [
     {
       "area": [
@@ -4764,6 +4764,28 @@
     },
     {
       "area": [
+        "frontend",
+        "workflow",
+        "agents"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/components/layout/DashboardLayout.fix194.test.tsx"
+      ],
+      "id": "FIX-194",
+      "path": ".knowledge/cards/FIX-194.md",
+      "relates": [
+        "FIX-155",
+        "FIX-157"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-194",
+      "status": "done",
+      "summary": "ISS-060: Completion notification/toast is not run-scoped \u2014 finishing run marks a DIFFERENT live run as \"complete\"; toast shows wrong label (KAN-166)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8403,13 +8425,13 @@
   ],
   "facets": {
     "area": {
-      "agents": 190,
+      "agents": 191,
       "artifacts": 78,
       "auth": 71,
       "backend": 74,
       "docs": 2,
       "evals": 9,
-      "frontend": 157,
+      "frontend": 158,
       "harness": 2,
       "infra": 1,
       "product": 29,
@@ -8417,11 +8439,11 @@
       "runtime": 31,
       "sse": 125,
       "test-infra": 4,
-      "workflow": 180
+      "workflow": 181
     },
     "status": {
       "accepted": 1,
-      "done": 532,
+      "done": 533,
       "open": 20,
       "shipped": 1
     },
@@ -8429,7 +8451,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 198,
+      "fix": 199,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8448,5 +8470,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 19:10"
+  "generated": "2026-08-06 19:27"
 }

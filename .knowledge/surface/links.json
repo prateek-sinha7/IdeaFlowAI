@@ -76,8 +76,14 @@
     "FIX-149": [
       "FIX-155"
     ],
+    "FIX-155": [
+      "FIX-194"
+    ],
     "FIX-156": [
       "FIX-157"
+    ],
+    "FIX-157": [
+      "FIX-194"
     ],
     "FIX-163": [
       "FIX-164"
@@ -238,6 +244,7 @@
       "FIX-187",
       "FIX-190",
       "FIX-193",
+      "FIX-194",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -726,6 +733,7 @@
       "FIX-188",
       "FIX-192",
       "FIX-193",
+      "FIX-194",
       "ISS-022",
       "ISS-025",
       "TEST-0-1",
@@ -1065,6 +1073,7 @@
       "FIX-166",
       "FIX-185",
       "FIX-190",
+      "FIX-194",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1713,6 +1722,9 @@
       "FIX-156",
       "FIX-157"
     ],
+    "frontend/src/components/layout/DashboardLayout.fix194.test.tsx": [
+      "FIX-194"
+    ],
     "frontend/src/components/layout/DashboardLayout.tsx": [
       "FIX-021",
       "FIX-026",
@@ -1748,7 +1760,8 @@
       "FIX-170",
       "FIX-173",
       "FIX-186",
-      "FIX-188"
+      "FIX-188",
+      "FIX-194"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
       "FIX-078"
@@ -2051,6 +2064,10 @@
     "FIX-177": [
       "FIX-046",
       "FIX-166"
+    ],
+    "FIX-194": [
+      "FIX-155",
+      "FIX-157"
     ],
     "ISS-012": [
       "ISS-014"
