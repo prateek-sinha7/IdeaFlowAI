@@ -236,6 +236,7 @@
       "FIX-182",
       "FIX-185",
       "FIX-187",
+      "FIX-190",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -551,6 +552,7 @@
       "FIX-185",
       "FIX-187",
       "FIX-189",
+      "FIX-190",
       "TEST-46"
     ],
     "docs": [
@@ -1058,6 +1060,7 @@
       "FIX-156",
       "FIX-166",
       "FIX-185",
+      "FIX-190",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1188,7 +1191,8 @@
     "backend/agents/execution_engine/clarify_engine.py": [
       "FIX-003",
       "FIX-024",
-      "FIX-126"
+      "FIX-126",
+      "FIX-190"
     ],
     "backend/agents/execution_engine/engine.py": [
       "FIX-016",
@@ -1204,14 +1208,16 @@
       "FIX-120",
       "FIX-121",
       "FIX-171",
-      "FIX-175"
+      "FIX-175",
+      "FIX-190"
     ],
     "backend/agents/execution_engine/kernel_services.py": [
       "FIX-007b"
     ],
     "backend/agents/execution_engine/od_context.py": [
       "FIX-032",
-      "FIX-187"
+      "FIX-187",
+      "FIX-190"
     ],
     "backend/agents/execution_engine/state_machine.py": [
       "FIX-152"
@@ -1225,7 +1231,8 @@
     ],
     "backend/agents/planner/smart_planner.py": [
       "FIX-003",
-      "FIX-024"
+      "FIX-024",
+      "FIX-190"
     ],
     "backend/agents/prompts/backlog-compiler/AGENT.md": [
       "FIX-126"
@@ -1277,7 +1284,8 @@
     ],
     "backend/agents/prompts/prototype-build/AGENT.md": [
       "FIX-009",
-      "FIX-127"
+      "FIX-127",
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-plan/AGENT.md": [
       "FIX-006",
@@ -1286,10 +1294,12 @@
     ],
     "backend/agents/prompts/prototype-revision-agent/AGENT.md": [
       "FIX-050b",
-      "FIX-126"
+      "FIX-126",
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-revision-validate/AGENT.md": [
-      "FIX-127"
+      "FIX-127",
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-specify/AGENT.md": [
       "FIX-006",
@@ -1297,7 +1307,8 @@
       "FIX-048"
     ],
     "backend/agents/prompts/prototype-validate/AGENT.md": [
-      "FIX-127"
+      "FIX-127",
+      "FIX-190"
     ],
     "backend/agents/prompts/report-generator/AGENT.md": [
       "FIX-061"
@@ -1327,30 +1338,36 @@
       "FIX-059"
     ],
     "backend/agents/workflows/app_builder/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/compiler.py": [
       "FIX-007b"
     ],
     "backend/agents/workflows/custom/workflow.yaml": [
       "FIX-011",
-      "FIX-056"
+      "FIX-056",
+      "FIX-190"
     ],
     "backend/agents/workflows/dotnet_to_azure/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/mulesoft_to_springboot/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/od_ppt/workflow.yaml": [
       "FIX-015"
     ],
     "backend/agents/workflows/ppt/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/prototype/workflow.yaml": [
       "FIX-010",
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/prototype_revision/workflow.yaml": [
       "FIX-049",
@@ -1361,7 +1378,8 @@
     ],
     "backend/agents/workflows/user_stories/workflow.yaml": [
       "FIX-003",
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/user_stories_revision/workflow.yaml": [
       "FIX-185"
@@ -1500,6 +1518,9 @@
     ],
     "backend/tests/agents/test_iss032_cache_tokens.py": [
       "FIX-036"
+    ],
+    "backend/tests/agents/test_iss056_clarify_quality_fixes.py": [
+      "FIX-190"
     ],
     "backend/tests/agents/test_manifest_parity.py": [
       "FIX-185"

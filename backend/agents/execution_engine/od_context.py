@@ -147,6 +147,10 @@ def load_prototype_context(
                 "craft_block": "",
                 "is_design_system_required": None,
                 "no_template": True,  # signal to the opendesign provider to skip template injection
+                # ISS-056/H3: friendly names for planner/clarify context (short names only,
+                # never the full body). None for template (no template in blank-canvas mode).
+                "template_name": None,
+                "ds_name": ds.get("name", ds_id) if not custom_ds_body else ds_id,
             }
         else:
             raise LookupError(f"Prototype template '{template_id}' not found")
@@ -183,6 +187,11 @@ def load_prototype_context(
         "ds_body": ds_body,
         "craft_block": craft_block,
         "is_design_system_required": None,  # prototype always requires DS
+        # ISS-056/H3: friendly names for planner/clarify context (short names only,
+        # never the full body). od_loader guarantees "name" is non-empty via
+        # _humanize_slug fallback (od_loader.py:151 / od_loader.py:375).
+        "template_name": template.get("name"),
+        "ds_name": ds.get("name", ds_id) if not custom_ds_body else ds_id,
     }
 
 

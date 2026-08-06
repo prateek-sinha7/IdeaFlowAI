@@ -17,6 +17,8 @@ clarify:
   mode: auto
   # KAN-74: extended from 4 to 8 defaults. Adds: user_journeys, data_model,
   # integrations, performance — critical for full-stack app generation quality.
+  # ISS-056: rounds: 2 lets a second round surface topics beyond the ~5/round cap.
+  rounds: 2
   defaults: [technology, scope, target_audience, security, user_journeys, data_model, integrations, performance]
 deliverable:
   strategy: serialized_sandbox

@@ -6,7 +6,7 @@ context_from:
 estimated_duration: 60.0
 guardrails:
 - html-prototype
-icon: "🏗️"
+- accessibility
 id: prototype-build
 injects:
 - template

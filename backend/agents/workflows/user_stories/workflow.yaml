@@ -19,8 +19,10 @@ clarify:
   # new items cover the user-story-specific dimensions (personas/roles,
   # user journeys, business rules, compliance/integrations) that are
   # consistently missing from short prompts and materially affect epic/story
-  # quality. ClarifyEngine caps at 5 per round — with 8 defaults a 2-round
-  # clarify handles all 8 when missing, or fewer when the brief is richer.
+  # quality. ClarifyEngine caps at ~5 questions per round; rounds: 2 below lets
+  # a second round pick up genuinely unresolved topics from the 8 (skipped
+  # early if nothing is left, and never forced on a user who skips round 1).
+  rounds: 2
   defaults: [target_audience, scope, priority, technology, personas, user_journeys, business_rules, compliance_security]
 deliverable:
   strategy: streamed_text

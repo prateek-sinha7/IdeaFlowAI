@@ -25,6 +25,9 @@ clarify:
   # design system; clarification then captures target audience, scope, style,
   # user journeys, and interactions before the agents run.
   # Extended defaults from 4 to 8 to match KAN-74 intent-capture requirements.
+  # ISS-056: rounds: 2 lets a second round pick up genuinely unresolved topics
+  # from the 8 (skipped early if nothing is left; never forced on a skip).
+  rounds: 2
   mode: auto
   defaults: [target_audience, scope, priority, style, user_journeys, key_screens, interactions, personas]
 deliverable:

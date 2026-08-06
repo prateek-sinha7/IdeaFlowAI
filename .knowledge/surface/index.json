@@ -1,5 +1,5 @@
 {
-  "count": 558,
+  "count": 559,
   "entries": [
     {
       "area": [
@@ -4683,6 +4683,38 @@
     },
     {
       "area": [
+        "backend",
+        "workflow",
+        "agents"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "backend/agents/workflows/app_builder/workflow.yaml",
+        "backend/agents/workflows/custom/workflow.yaml",
+        "backend/agents/workflows/dotnet_to_azure/workflow.yaml",
+        "backend/agents/workflows/mulesoft_to_springboot/workflow.yaml",
+        "backend/agents/workflows/ppt/workflow.yaml",
+        "backend/agents/workflows/prototype/workflow.yaml",
+        "backend/agents/workflows/user_stories/workflow.yaml",
+        "backend/agents/prompts/prototype-build/AGENT.md",
+        "backend/agents/prompts/prototype-validate/AGENT.md",
+        "backend/agents/prompts/prototype-revision-agent/AGENT.md",
+        "backend/agents/prompts/prototype-revision-validate/AGENT.md",
+        "backend/agents/execution_engine/od_context.py",
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/planner/smart_planner.py",
+        "backend/agents/execution_engine/clarify_engine.py",
+        "backend/tests/agents/test_iss056_clarify_quality_fixes.py"
+      ],
+      "id": "FIX-190",
+      "path": ".knowledge/cards/FIX-190.md",
+      "source": ".planning/FIX-REGISTER.md#fix-190",
+      "status": "done",
+      "summary": "ISS-056: Clarify question quality gaps \u2014 (H1) 7 manifests declare 8 defaults but only 1 round fires, silently dropping 3+ topics; (H2) prototype build/validate agents lack WCAG AA guardrail",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8322,10 +8354,10 @@
   ],
   "facets": {
     "area": {
-      "agents": 188,
+      "agents": 189,
       "artifacts": 78,
       "auth": 71,
-      "backend": 72,
+      "backend": 73,
       "docs": 2,
       "evals": 9,
       "frontend": 155,
@@ -8336,11 +8368,11 @@
       "runtime": 31,
       "sse": 125,
       "test-infra": 4,
-      "workflow": 179
+      "workflow": 180
     },
     "status": {
       "accepted": 1,
-      "done": 528,
+      "done": 529,
       "open": 20,
       "shipped": 1
     },
@@ -8348,7 +8380,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 194,
+      "fix": 195,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8367,5 +8399,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 13:31"
+  "generated": "2026-08-06 17:04"
 }

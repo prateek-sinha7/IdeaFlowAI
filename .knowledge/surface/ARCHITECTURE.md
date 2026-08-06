@@ -38,8 +38,8 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 35 | 27 files |
 | `backend/app/services` | application services | 2 | 5 files |
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
-| `backend/agents/execution_engine` | the execution kernel | 21 | 11 files |
-| `backend/agents/workflows` | workflow manifests — data, not code paths | 16 | 5 files |
+| `backend/agents/execution_engine` | the execution kernel | 24 | 11 files |
+| `backend/agents/workflows` | workflow manifests — data, not code paths | 23 | 5 files |
 | `backend/agents/capabilities` | capability adapters | 11 | 82 files |
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
 | `backend/agents/artifact_store` | artifact persistence | 1 | 2 files |
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (188), `workflow` (179), `frontend` (155), `sse` (125), `artifacts` (78), `backend` (72), `auth` (71), `resume` (40).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (189), `workflow` (180), `frontend` (155), `sse` (125), `artifacts` (78), `backend` (73), `auth` (71), `resume` (40).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 222 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 223 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.

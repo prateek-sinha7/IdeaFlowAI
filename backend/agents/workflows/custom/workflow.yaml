@@ -13,6 +13,8 @@ clarify:
   mode: auto
   # KAN-74: extended from 4 to 8 defaults. Adds: output_format, constraints,
   # domain, assumptions — needed for custom workflows with diverse deliverables.
+  # ISS-056: rounds: 2 lets a second round surface topics beyond the ~5/round cap.
+  rounds: 2
   defaults: [target_audience, key_objectives, scope, priority, output_format, constraints, domain, assumptions]
 deliverable:
   strategy: streamed_text

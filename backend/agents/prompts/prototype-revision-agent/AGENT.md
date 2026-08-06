@@ -3,6 +3,7 @@ consumes: []
 context_from: []
 guardrails:
 - html-prototype
+- accessibility
 icon: ✏️
 id: prototype-revision-agent
 max_tokens: 32768

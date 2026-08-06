@@ -15,6 +15,8 @@ clarify:
   # KAN-74: extended from 4 to 8 defaults. Adds: azure_services,
   # data_migration, integration_patterns, compliance_security — all critical
   # for a complete and safe .NET → Azure modernization.
+  # ISS-056: rounds: 2 lets a second round surface topics beyond the ~5/round cap.
+  rounds: 2
   defaults: [scope, technology, timeline, priority, azure_services, data_migration, integration_patterns, compliance_security]
 deliverable:
   strategy: serialized_sandbox
