@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-561 cards · rules 1 · fixes 197 · issues 49 · phases 23 · built 2026-08-06 18:32
+562 cards · rules 1 · fixes 198 · issues 49 · phases 23 · built 2026-08-06 19:10
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (197)
+## Fixes (198)
 
+FIX-193 2026-08-06 [frontend,agents] ISS-059: Concierge free-text ask during an active ("building") run silently no-ops — every message typed while agents are running returns HTTP 200 {"channel":"steering"} with no reply (KAN-165)
 FIX-192 2026-08-06 [frontend] ISS-058: RunChatLane voice input mic button was a dead control — no onClick, no hook, renders "Voice · transcribe" but does nothing (KAN-164)
 FIX-191 2026-08-06 [backend] ISS-057: _extract_docx silently drops table/header/footer content from uploaded Word docs; all-table docx fires misleading 422; python-docx/python-pptx/pypdf absent from requirements.txt (KAN-163)
 FIX-190 2026-08-06 [backend,workflow,agents] ISS-056: Clarify question quality gaps — (H1) 7 manifests declare 8 defaults but only 1 round fires, silently dropping 3+ topics; (H2) prototype build/validate agents lack WCAG AA guardrail

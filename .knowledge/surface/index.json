@@ -1,5 +1,5 @@
 {
-  "count": 561,
+  "count": 562,
   "entries": [
     {
       "area": [
@@ -4747,6 +4747,23 @@
     },
     {
       "area": [
+        "frontend",
+        "agents"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "frontend/src/components/chat/RunChatLane.tsx",
+        "frontend/src/components/chat/RunChatLane.test.tsx"
+      ],
+      "id": "FIX-193",
+      "path": ".knowledge/cards/FIX-193.md",
+      "source": ".planning/FIX-REGISTER.md#fix-193",
+      "status": "done",
+      "summary": "ISS-059: Concierge free-text ask during an active (\"building\") run silently no-ops \u2014 every message typed while agents are running returns HTTP 200 {\"channel\":\"steering\"} with no reply (KAN-165)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8386,13 +8403,13 @@
   ],
   "facets": {
     "area": {
-      "agents": 189,
+      "agents": 190,
       "artifacts": 78,
       "auth": 71,
       "backend": 74,
       "docs": 2,
       "evals": 9,
-      "frontend": 156,
+      "frontend": 157,
       "harness": 2,
       "infra": 1,
       "product": 29,
@@ -8404,7 +8421,7 @@
     },
     "status": {
       "accepted": 1,
-      "done": 531,
+      "done": 532,
       "open": 20,
       "shipped": 1
     },
@@ -8412,7 +8429,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 197,
+      "fix": 198,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8431,5 +8448,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 18:32"
+  "generated": "2026-08-06 19:10"
 }

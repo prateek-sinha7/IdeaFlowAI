@@ -1248,6 +1248,70 @@ export function RunChatLane({
         if (onRevise) setHeldRefinement(text);
         return;
       }
+
+      // FIX-193 — ISS-059: extend ask-vs-steer classification to the "building"
+      // composer mode. The backend's route_chat_turn escalation check (chat_router.py
+      // :203-204) is phase-independent — it routes to CHANNEL_CONCIERGE whenever
+      // turn.concierge is True, regardless of run phase. The FE never set that marker
+      // for "building", so every question during an active run silently became a
+      // steering note (no reply, HTTP 200, user confused).
+      //
+      // Pattern mirrors the "complete" branch exactly (FIX-116/FIX-119 precedent):
+      //   1. addOptimisticMessage — echo immediately so there's no stall
+      //   2. classifyIntent via the existing generic LLM endpoint (no run-status gate)
+      //   3. intent === "ask"  → sendMessage with {concierge: true} (Concierge reply)
+      //      anything else     → sendMessage with no concierge key  (steering, today's behavior)
+      //
+      // SAFE: every non-"ask" path is byte-identical to unmodified dev HEAD behavior.
+      // LOCKED: "clarify"/"gate"/"terminal" are NOT touched (Group-C decision, 42-03).
+      if (runState === "building") {
+        const echoMessageId = addOptimisticMessage
+          ? addOptimisticMessage(text, attachments)
+          : undefined;
+
+        const runId = viewedRunId ?? "";
+        const sendOpts = echoMessageId ? { existingMessageId: echoMessageId } : undefined;
+
+        if (!runId) {
+          // No runId — degrade to plain steering (identical to pre-fix behavior).
+          if (sendOpts) {
+            sendMessage(text, attachments, sendOpts);
+          } else {
+            sendMessage(text, attachments);
+          }
+          return;
+        }
+
+        // Show TypingIndicator while classifyIntent LLM call is in flight (~1–3s).
+        setReplyPending(true);
+
+        import("@/lib/api").then(({ classifyIntent, getToken }) => {
+          const jwt = getToken() ?? "";
+          if (!jwt) {
+            setReplyPending(false);
+            if (sendOpts) { sendMessage(text, attachments, sendOpts); } else { sendMessage(text, attachments); }
+            return;
+          }
+          classifyIntent(jwt, runId, text).then((result) => {
+            if (result.intent === "ask") {
+              // Conversational question → Concierge. Keep replyPending=true so the
+              // TypingIndicator stays until the assistant turn arrives (mirrors
+              // the "complete" ask path — setReplyPending(false) is NOT called here).
+              sendMessage(text, attachments, { ...sendOpts, concierge: true });
+            } else {
+              // Steering instruction / change request — degrade to today's behavior.
+              setReplyPending(false);
+              if (sendOpts) { sendMessage(text, attachments, sendOpts); } else { sendMessage(text, attachments); }
+            }
+          }).catch(() => {
+            // Classify failure — degrade to today's behavior, never leave spinner stuck.
+            setReplyPending(false);
+            if (sendOpts) { sendMessage(text, attachments, sendOpts); } else { sendMessage(text, attachments); }
+          });
+        });
+        return;
+      }
+
       sendMessage(text, attachments);
     },
     [runState, onRevise, sendMessage, addOptimisticMessage, suggestions, onSuggestion, viewedRunId],

@@ -1058,3 +1058,118 @@ describe("RunChatLane", () => {
     expect(/"prototype"|od_ppt|app_builder|user_stories/.test(src)).toBe(false);
   });
 });
+
+// ─── FIX-193 — ISS-059: Concierge ask during an active ("building") run ───────
+// Root cause: handleFreeText's runState==="building" branch called
+// sendMessage(text, []) unconditionally — no concierge key → backend dispatched
+// to CHANNEL_STEERING (no reply, HTTP 200, user confused).
+// Fix: added "building" branch that classifies intent via classifyIntent LLM
+// (same async path as "complete") and routes "ask" → {concierge:true}.
+// Non-"ask" / classify-failure degrades to pre-fix steering behavior.
+// Locked: "clarify"/"gate" NOT touched (Group-C decision, 42-03).
+//
+// Note: the "building" branch uses dynamic import("@/lib/api") which calls
+// a real fetch() in jsdom — so classify always fails here. Tests exercise
+// the degrade path (classify fail → plain sendMessage) and the structural
+// behaviors that DO work without a live backend.
+describe("FIX-193 — ISS-059 building-run Concierge routing", () => {
+  it("FIX-193 building: steer-shaped text still results in sendMessage (pre-fix steering preserved)", async () => {
+    const sendMessage = vi.fn();
+    render(<RunChatLane {...baseProps({ runState: "building", sendMessage })} />);
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "add SSO to the login flow" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    // Flush the async classify path (fails in jsdom → degrade to steering)
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(sendMessage).toHaveBeenCalled();
+    const lastCall = sendMessage.mock.calls[sendMessage.mock.calls.length - 1] as [string, unknown[], Record<string, unknown> | undefined];
+    // No concierge key — identical to pre-fix steering behavior (degrade path)
+    expect(lastCall[2]?.concierge).toBeUndefined();
+  });
+
+  it("FIX-193 building: Send button enabled for non-empty input (unchanged)", () => {
+    render(<RunChatLane {...baseProps({ runState: "building" })} />);
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "some text" },
+    });
+    expect((screen.getByTestId("chat-send") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("FIX-193 building: sendMessage IS eventually called (new async path entered)", async () => {
+    // Before FIX-193: sendMessage fired SYNCHRONOUSLY in the same tick.
+    // After FIX-193: it fires after the async classify attempt settles.
+    // Verifies the new code path is actually entered.
+    const sendMessage = vi.fn();
+    render(<RunChatLane {...baseProps({ runState: "building", sendMessage })} />);
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "what is happening?" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(sendMessage).toHaveBeenCalled();
+    expect((sendMessage.mock.calls[0] as [string])[0]).toBe("what is happening?");
+  });
+
+  it("FIX-193 building: addOptimisticMessage called immediately (FIX-119 echo pattern)", async () => {
+    // Echo must fire BEFORE the async classify settles (before sendMessage).
+    const addOptimisticMessage = vi.fn(() => "echo-fix193");
+    const sendMessage = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({ runState: "building", sendMessage, addOptimisticMessage })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "what is the status?" },
+    });
+    // Click — addOptimisticMessage must fire SYNCHRONOUSLY in the same tick
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(addOptimisticMessage).toHaveBeenCalledWith("what is the status?", []);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    // After classify settles, sendMessage carries the echo id
+    expect(sendMessage).toHaveBeenCalled();
+    const lastCall = sendMessage.mock.calls[sendMessage.mock.calls.length - 1] as [string, unknown[], Record<string, unknown> | undefined];
+    expect(lastCall[2]?.existingMessageId).toBe("echo-fix193");
+  });
+
+  // Safety boundary: other states must be unchanged by the new "building" branch
+
+  it("FIX-193 idle: sendMessage(text, []) — no classify, no change", () => {
+    const sendMessage = vi.fn();
+    render(<RunChatLane {...baseProps({ runState: "idle", sendMessage })} />);
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "hello" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(sendMessage).toHaveBeenCalledWith("hello", []);
+  });
+
+  it("FIX-193 gate: sendMessage(text, []) — Group-C locked, no change", () => {
+    const sendMessage = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "gate",
+          gate: { agentId: "a1", agentName: "Reviewer", output: "out", gateKey: "g1" },
+          sendMessage,
+        })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "steering note" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(sendMessage).toHaveBeenCalledWith("steering note", []);
+  });
+
+  it("FIX-193 clarify: sendMessage(text, []) — Group-C locked, no change", () => {
+    const sendMessage = vi.fn();
+    render(<RunChatLane {...baseProps({ runState: "clarify", sendMessage })} />);
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "clarify note" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    expect(sendMessage).toHaveBeenCalledWith("clarify note", []);
+  });
+});

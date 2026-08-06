@@ -237,6 +237,7 @@
       "FIX-185",
       "FIX-187",
       "FIX-190",
+      "FIX-193",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -724,6 +725,7 @@
       "FIX-186",
       "FIX-188",
       "FIX-192",
+      "FIX-193",
       "ISS-022",
       "ISS-025",
       "TEST-0-1",
@@ -1661,6 +1663,9 @@
       "FIX-167b",
       "FIX-178"
     ],
+    "frontend/src/components/chat/RunChatLane.test.tsx": [
+      "FIX-193"
+    ],
     "frontend/src/components/chat/RunChatLane.tsx": [
       "BUG-002-sse",
       "FIX-085",
@@ -1676,7 +1681,8 @@
       "FIX-154",
       "FIX-168",
       "FIX-171",
-      "FIX-192"
+      "FIX-192",
+      "FIX-193"
     ],
     "frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx": [
       "FIX-085"
