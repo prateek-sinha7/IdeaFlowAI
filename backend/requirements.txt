@@ -114,3 +114,12 @@ tree-sitter-typescript==0.23.2
 langchain-mcp-adapters>=0.2.2,<0.3
 mcp==1.27.2
 sse-starlette==3.0.2
+# Document-text extraction — used by _extract_docx / _extract_pptx / _extract_pdf
+# in app/api/file_extract.py (single extraction impl, INV-12).  These were absent
+# from requirements.txt which caused all three extractors to silently fail via the
+# broad `except Exception` (also catches ImportError) in each function, returning ""
+# for every upload in the deployed container.  Pinned to the locally-verified working
+# versions.  ISS-057 / FIX-191.
+python-docx==1.1.2
+python-pptx==1.0.2
+pypdf==5.1.0

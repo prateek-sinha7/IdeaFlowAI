@@ -1,5 +1,5 @@
 {
-  "count": 559,
+  "count": 560,
   "entries": [
     {
       "area": [
@@ -4715,6 +4715,23 @@
     },
     {
       "area": [
+        "backend"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "backend/app/api/file_extract.py",
+        "backend/requirements.txt",
+        "backend/tests/unit/test_file_extract_fix191.py"
+      ],
+      "id": "FIX-191",
+      "path": ".knowledge/cards/FIX-191.md",
+      "source": ".planning/FIX-REGISTER.md#fix-191",
+      "status": "done",
+      "summary": "ISS-057: _extract_docx silently drops table/header/footer content from uploaded Word docs; all-table docx fires misleading 422; python-docx/python-pptx/pypdf absent from requirements.txt (KAN-163)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8357,7 +8374,7 @@
       "agents": 189,
       "artifacts": 78,
       "auth": 71,
-      "backend": 73,
+      "backend": 74,
       "docs": 2,
       "evals": 9,
       "frontend": 155,
@@ -8372,7 +8389,7 @@
     },
     "status": {
       "accepted": 1,
-      "done": 529,
+      "done": 530,
       "open": 20,
       "shipped": 1
     },
@@ -8380,7 +8397,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 195,
+      "fix": 196,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8399,5 +8416,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 17:04"
+  "generated": "2026-08-06 18:09"
 }

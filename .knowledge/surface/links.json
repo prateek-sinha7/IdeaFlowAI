@@ -553,6 +553,7 @@
       "FIX-187",
       "FIX-189",
       "FIX-190",
+      "FIX-191",
       "TEST-46"
     ],
     "docs": [
@@ -1420,6 +1421,9 @@
     "backend/app/api/agents.py": [
       "FIX-001"
     ],
+    "backend/app/api/file_extract.py": [
+      "FIX-191"
+    ],
     "backend/app/api/ppt_templates.py": [
       "FIX-040"
     ],
@@ -1488,6 +1492,9 @@
       "FIX-040",
       "FIX-042b"
     ],
+    "backend/requirements.txt": [
+      "FIX-191"
+    ],
     "backend/scripts/seed_test_users.py": [
       "TEST-46"
     ],
@@ -1538,6 +1545,9 @@
     "backend/tests/unit/test_chat_narrator.py": [
       "FIX-083",
       "FIX-175"
+    ],
+    "backend/tests/unit/test_file_extract_fix191.py": [
+      "FIX-191"
     ],
     "backend/tests/unit/test_prototype_run_request.py": [
       "FIX-030"
