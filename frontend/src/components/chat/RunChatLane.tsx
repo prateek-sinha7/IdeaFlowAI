@@ -44,6 +44,7 @@ import {
   HelpCircle,
   ImageIcon,
   Mic,
+  MicOff,
   Minimize2,
   Paperclip,
   Pause,
@@ -75,6 +76,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Badge } from "../ui/Badge";
 import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 
 /**
  * The GENERIC live-run state that drives the composer mode (D-12,
@@ -877,6 +879,13 @@ function FreeTextComposer({
   // effect, so the send-reset stays deterministic + jsdom-testable).
   const taRef = useRef<HTMLTextAreaElement>(null);
 
+  // FIX-192 — wire useSpeechRecognition (already proven in LaunchWizard / IdeaInputPage).
+  // preSpeechTextRef snapshots whatever is typed BEFORE the mic is pressed so dictation
+  // appends to existing text instead of clobbering it (IdeaInputPage.tsx pattern).
+  const preSpeechTextRef = useRef("");
+  const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } =
+    useSpeechRecognition();
+
   // Grow the textarea to its content height, clamped to the cap; past the cap it
   // scrolls (max-h + overflow-y-auto). Reset height to "auto" first so the box can
   // SHRINK when text is removed, then measure scrollHeight.
@@ -886,6 +895,23 @@ function FreeTextComposer({
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT_PX) + "px";
   }, []);
+
+  // Append live transcript to any pre-existing typed text (dual-gated: both
+  // isListening and transcript must be truthy to avoid a stale-closure clobber).
+  useEffect(() => {
+    if (isListening && transcript) {
+      setValue(
+        preSpeechTextRef.current
+          ? `${preSpeechTextRef.current} ${transcript}`
+          : transcript,
+      );
+    }
+  }, [transcript, isListening]);
+
+  // Auto-grow when transcript drives setValue (transcript effect sets value through
+  // a path that bypasses the onChange handler's inline autoGrow() call, so the box
+  // would not resize until the next keystroke without this companion effect).
+  useEffect(() => { autoGrow(); }, [value, autoGrow]);
 
   const handleSend = useCallback(() => {
     const text = value.trim();
@@ -939,11 +965,34 @@ function FreeTextComposer({
         </button>
         <button
           type="button"
-          title="Voice · transcribe"
-          aria-label="Voice input"
-          className="grid h-8 w-8 flex-none place-items-center rounded-[9px] text-ink-500 transition-colors hover:bg-surface-paper hover:text-brand"
+          onClick={() => {
+            if (isListening) {
+              stopListening();
+            } else {
+              preSpeechTextRef.current = value;
+              startListening();
+            }
+          }}
+          disabled={!speechSupported}
+          title={
+            !speechSupported
+              ? "Speech recognition not supported"
+              : isListening
+              ? "Stop listening"
+              : "Voice · transcribe"
+          }
+          aria-label={isListening ? "Stop listening" : "Voice input"}
+          className={`grid h-8 w-8 flex-none place-items-center rounded-[9px] transition-colors ${
+            isListening
+              ? "animate-pulse text-status-failed"
+              : "text-ink-500 hover:bg-surface-paper hover:text-brand"
+          }`}
         >
-          <Mic className="h-4 w-4" strokeWidth={1.7} />
+          {isListening ? (
+            <MicOff className="h-4 w-4" strokeWidth={1.7} />
+          ) : (
+            <Mic className="h-4 w-4" strokeWidth={1.7} />
+          )}
         </button>
         <button
           type="button"

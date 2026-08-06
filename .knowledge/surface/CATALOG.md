@@ -3,7 +3,7 @@
 
 # Catalog
 
-291 cards · built 2026-08-06 18:09
+291 cards · built 2026-08-06 18:32
 
 Migrated for completeness — **not** loaded by default. Search with
 `ctx.py "<terms>"`; these rank alongside fixes and decisions.

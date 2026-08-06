@@ -723,6 +723,7 @@
       "FIX-181",
       "FIX-186",
       "FIX-188",
+      "FIX-192",
       "ISS-022",
       "ISS-025",
       "TEST-0-1",
@@ -1674,7 +1675,8 @@
       "FIX-125",
       "FIX-154",
       "FIX-168",
-      "FIX-171"
+      "FIX-171",
+      "FIX-192"
     ],
     "frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx": [
       "FIX-085"

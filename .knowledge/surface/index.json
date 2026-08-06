@@ -1,5 +1,5 @@
 {
-  "count": 560,
+  "count": 561,
   "entries": [
     {
       "area": [
@@ -4732,6 +4732,21 @@
     },
     {
       "area": [
+        "frontend"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "frontend/src/components/chat/RunChatLane.tsx"
+      ],
+      "id": "FIX-192",
+      "path": ".knowledge/cards/FIX-192.md",
+      "source": ".planning/FIX-REGISTER.md#fix-192",
+      "status": "done",
+      "summary": "ISS-058: RunChatLane voice input mic button was a dead control \u2014 no onClick, no hook, renders \"Voice \u00b7 transcribe\" but does nothing (KAN-164)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8377,7 +8392,7 @@
       "backend": 74,
       "docs": 2,
       "evals": 9,
-      "frontend": 155,
+      "frontend": 156,
       "harness": 2,
       "infra": 1,
       "product": 29,
@@ -8389,7 +8404,7 @@
     },
     "status": {
       "accepted": 1,
-      "done": 530,
+      "done": 531,
       "open": 20,
       "shipped": 1
     },
@@ -8397,7 +8412,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 196,
+      "fix": 197,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8416,5 +8431,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 18:09"
+  "generated": "2026-08-06 18:32"
 }
