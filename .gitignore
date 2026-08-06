@@ -80,3 +80,6 @@ backend/evals/minimal/report.html
 # Personal scratch notes
 /TODO.md
 .kiro/settings/mcp.json
+
+# Local issues / grounded-context files (personal, not for team use)
+/issues/
