@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-557 cards · rules 1 · fixes 193 · issues 49 · phases 23 · built 2026-08-06 13:06
+558 cards · rules 1 · fixes 194 · issues 49 · phases 23 · built 2026-08-06 13:31
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (193)
+## Fixes (194)
 
+FIX-189 2026-08-06 [backend] Tier entitlement never enforced at launch — can_run_pipeline wired into launch_run and _mint_revision_row; hexaware tier added for prototype+user_stories scope
 FIX-188 2026-08-06 [frontend] Concierge chain/gate_action/revision proposals never surface — dead RUN_CONCIERGE_PROPOSALS frozen constant replaced with live useRunChat.proposals; concierge_proposal handleFrame case added; no-op handleRejectProposal wired
 FIX-187 2026-08-06 [backend,agents] Custom template upload silently discarded — both od_context.py loaders used custom_template_body as boolean flag only, never writing content into template_body; replaced catalog fallbacks with _synthesize_custom_template helper
 FIX-186 2026-08-06 [frontend] Custom design system body silently dropped — wire key mismatch custom_design_system_body vs custom_ds_body in DashboardLayout.tsx; 3 literals renamed to match backend LaunchCommand field

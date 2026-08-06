@@ -50,6 +50,7 @@ from app.agents.chat_runner import ChatRunner
 from app.agents.modes import get_mode_prompt
 from app.core.config import settings
 from app.core.dependencies import get_current_user
+from app.core.entitlements import can_run_pipeline
 from app.models.chat import ChatSession, Message
 from app.models.user import User
 from app.models.workflow import WorkflowRun
@@ -1629,6 +1630,15 @@ async def launch_run(
 
     base_pipeline_type, od_context = _resolve_launch_agents(body)
 
+    # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
+    # Use the RAW pipeline_type (not base_pipeline_type): TIER_PIPELINES carries
+    # "od_prototype" and "prototype" as DISTINCT keys, and WorkflowRun.type is
+    # stamped from pipeline_type too. Checking the alias-collapsed base would
+    # silently mis-key the lookup for every od_prototype launch.
+    _allowed, _reason = can_run_pipeline(current_user.tier, pipeline_type)
+    if not _allowed:
+        raise _reject("pipeline_not_entitled", _reason, http_status=status.HTTP_403_FORBIDDEN)
+
     # ── Resolve + allow-list the agents (invalid_agent_ids) ────────────────────
     agent_ids = body.agent_ids
     if agent_ids:
@@ -2223,6 +2233,17 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
 
     pipeline_run_id = str(_uuid.uuid4())
     revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
+
+    # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
+    # Single insertion covers all 3 production call sites (create_revision,
+    # CHANNEL_REVISION in post_message, Concierge "revision" disposal). Fails fast
+    # BEFORE any registry lookup or DB row is minted, matching the fail-fast
+    # pattern in user_workflows.py. user.tier is available — the full User object
+    # is threaded to every caller already.
+    _rev_allowed, _rev_reason = can_run_pipeline(user.tier, revision_pipeline_type)
+    if not _rev_allowed:
+        raise _reject("pipeline_not_entitled", _rev_reason, http_status=status.HTTP_403_FORBIDDEN)
+
     _rev_agents = get_pipeline_agents(revision_pipeline_type)
     wr = WorkflowRun(
         id=pipeline_run_id,

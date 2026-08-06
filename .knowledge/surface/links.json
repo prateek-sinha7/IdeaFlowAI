@@ -550,6 +550,7 @@
       "FIX-175",
       "FIX-185",
       "FIX-187",
+      "FIX-189",
       "TEST-46"
     ],
     "docs": [
@@ -1417,7 +1418,8 @@
       "FIX-116",
       "FIX-130",
       "FIX-152",
-      "FIX-171"
+      "FIX-171",
+      "FIX-189"
     ],
     "backend/app/api/run_engine.py": [
       "FIX-152"
@@ -1454,7 +1456,8 @@
     ],
     "backend/app/core/entitlements.py": [
       "FIX-058",
-      "FIX-059"
+      "FIX-059",
+      "FIX-189"
     ],
     "backend/app/main.py": [
       "FIX-144",
@@ -1517,6 +1520,9 @@
     ],
     "backend/tests/unit/test_prototype_run_request.py": [
       "FIX-030"
+    ],
+    "backend/tests/unit/test_rest_run_launch.py": [
+      "FIX-189"
     ],
     "backend/tests/unit/test_revision_intelligence.py": [
       "FIX-185"

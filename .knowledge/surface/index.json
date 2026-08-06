@@ -1,5 +1,5 @@
 {
-  "count": 557,
+  "count": 558,
   "entries": [
     {
       "area": [
@@ -4666,6 +4666,23 @@
     },
     {
       "area": [
+        "backend"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "backend/app/core/entitlements.py",
+        "backend/tests/unit/test_rest_run_launch.py"
+      ],
+      "id": "FIX-189",
+      "path": ".knowledge/cards/FIX-189.md",
+      "source": "",
+      "status": "",
+      "summary": "Tier entitlement never enforced at launch \u2014 can_run_pipeline wired into launch_run and _mint_revision_row; hexaware tier added for prototype+user_stories scope",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8308,7 +8325,7 @@
       "agents": 188,
       "artifacts": 78,
       "auth": 71,
-      "backend": 71,
+      "backend": 72,
       "docs": 2,
       "evals": 9,
       "frontend": 155,
@@ -8331,7 +8348,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 193,
+      "fix": 194,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8350,5 +8367,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 13:06"
+  "generated": "2026-08-06 13:31"
 }

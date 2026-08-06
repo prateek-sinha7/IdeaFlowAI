@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-Tier = Literal["basic", "pro", "enterprise"]
+Tier = Literal["basic", "pro", "enterprise", "hexaware"]
 
 # Pipelines each tier can execute (including revision variants)
 TIER_PIPELINES: dict[str, set[str]] = {
@@ -10,6 +10,14 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "user_stories", "user_stories_revision",
         "ppt", "ppt_revision",
         "od_ppt", "od_ppt_revision",
+    },
+    # KAN-161 / ISS-055: scoped tier for deployments that need prototype +
+    # user_stories only (e.g. Hexaware internal tooling). Deliberately excludes
+    # ppt/od_ppt, od_prototype_revision, and app_builder families.
+    "hexaware": {
+        "user_stories", "user_stories_revision",
+        "prototype", "prototype_revision",
+        "od_prototype",
     },
     "pro": {
         "user_stories", "user_stories_revision",
@@ -35,12 +43,14 @@ TIER_PIPELINES: dict[str, set[str]] = {
 
 TIER_LABELS = {
     "basic": "Basic",
+    "hexaware": "Hexaware",
     "pro": "Pro",
     "enterprise": "Enterprise",
 }
 
 UPGRADE_PATH = {
     "basic": "pro",
+    "hexaware": "enterprise",
     "pro": "enterprise",
     "enterprise": None,
 }

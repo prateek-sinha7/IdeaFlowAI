@@ -46,9 +46,13 @@ import agents.execution_engine.engine as engine_mod
 
 
 class _FakeUser:
-    def __init__(self, id: str):
+    def __init__(self, id: str, tier: str = "enterprise"):
         self.id = id
         self.preferred_model = None
+        # KAN-161 / ISS-055: tier is now read by launch_run + _mint_revision_row
+        # for entitlement gating. Default to "enterprise" so all existing tests
+        # (which never set tier explicitly) continue to pass unchanged.
+        self.tier = tier
 
 
 class _RecordingEngine:
