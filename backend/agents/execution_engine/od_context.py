@@ -38,6 +38,52 @@ _TEMPLATES_DIR = od_loader._TEMPLATES_DIR
 EXAMPLE_MAX_CHARS = 120_000
 
 
+def _synthesize_custom_template(template_id: str, custom_template_body: str) -> dict[str, Any]:
+    """Build a minimal SKILL.md-equivalent template dict from a user-uploaded
+    custom template (ISS-052 / KAN-158 fix).
+
+    A catalog template ships a SKILL.md body PLUS a disk-backed bundle that
+    od_loader's seed/reference/example readers key off ``template_id`` to find
+    on disk. A ``custom_template_body`` upload is just a raw HTML string under
+    a synthetic ``template_id`` (``custom-<timestamp>``) with no on-disk folder
+    — those disk-backed readers always return None/{} for it (ISS-052 E5), so
+    the seed/reference/example injection paths stay empty regardless. The ONLY
+    place the user's content can reach the agent is ``template_body`` (this
+    dict's ``"body"`` key) — every downstream consumer
+    (``factory._compose_injection``, ``OpenDesignProvider.load``) renders
+    whatever ``template_body`` holds verbatim. So this wraps the raw HTML in a
+    short instruction preamble and embeds it directly (capped).
+
+    Capped at ``EXAMPLE_MAX_CHARS`` — the same single-authoritative cap this
+    module already uses for example.html (INV-12 single-truncation: one cap).
+    """
+    body = custom_template_body.strip()
+    if len(body) > EXAMPLE_MAX_CHARS:
+        body = body[:EXAMPLE_MAX_CHARS] + "\n...[truncated]"
+    return {
+        "id": template_id,
+        "name": "Custom uploaded template",
+        "craft_required": [],
+        "body": (
+            "# Custom Template (user-uploaded)\n\n"
+            "This is a CUSTOM template supplied directly by the user for this "
+            "run — there is no catalog workflow for it. The HTML below is the "
+            "user's own reference: study its structure, styling, and visual "
+            "language, and use it as the concrete starting point. Do not "
+            "invent an unrelated layout while this reference exists.\n\n"
+            "## Workflow\n"
+            "1. Read the reference HTML below in full before writing anything.\n"
+            "2. Reuse its structure and CSS approach as your base; extend it "
+            "for every page/section the brief requires.\n"
+            "3. Preserve its visual identity (colors, spacing, typography) "
+            "unless the brief or the active design system directs otherwise.\n\n"
+            "=== CUSTOM TEMPLATE REFERENCE (user-uploaded) ===\n"
+            f"{body}\n"
+            "=== END CUSTOM TEMPLATE REFERENCE ==="
+        ),
+    }
+
+
 def load_prototype_context(
     template_id: str,
     design_system_id: str,
@@ -63,14 +109,15 @@ def load_prototype_context(
     template = od_loader.get_template(template_id)
     if template is None:
         if custom_template_body:
-            # Fall back to web-prototype as the base template
-            template = od_loader.get_template("web-prototype")
-            if template is None:
-                raise LookupError(
-                    f"Template '{template_id}' not found and 'web-prototype' fallback unavailable"
-                )
-            logger.warning(
-                "Template '%s' not found — using 'web-prototype' as fallback", template_id
+            # ISS-052 / KAN-158 fix: synthesize from the user's OWN upload instead of
+            # silently substituting the unrelated 'web-prototype' catalog
+            # template (the prior fallback discarded custom_template_body's
+            # actual text with no error — see _synthesize_custom_template).
+            template = _synthesize_custom_template(template_id, custom_template_body)
+            logger.info(
+                "Template '%s' not found in catalog — using synthesized custom "
+                "template from custom_template_body (%d chars)",
+                template_id, len(custom_template_body),
             )
         elif template_id in (None, "", "none"):
             # KAN-87: no-template mode — user explicitly chose not to select a template.
@@ -214,8 +261,15 @@ def load_ppt_od_context(
     template = od_loader.get_ppt_template(template_id)
     if template is None:
         if custom_template_body:
-            template = dict(od_loader.get_ppt_template("html-ppt") or {})
-            template["id"] = template_id
+            # ISS-052 / KAN-158 fix: synthesize from the user's OWN upload instead of
+            # silently substituting the unrelated 'html-ppt' catalog template
+            # (identical discard bug as load_prototype_context above).
+            template = _synthesize_custom_template(template_id, custom_template_body)
+            logger.info(
+                "PPT template '%s' not found in catalog — using synthesized "
+                "custom template from custom_template_body (%d chars)",
+                template_id, len(custom_template_body),
+            )
         else:
             raise LookupError(f"PPT template '{template_id}' not found")
 

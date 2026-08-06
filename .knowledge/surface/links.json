@@ -235,6 +235,7 @@
       "FIX-177",
       "FIX-182",
       "FIX-185",
+      "FIX-187",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -548,6 +549,7 @@
       "FIX-173",
       "FIX-175",
       "FIX-185",
+      "FIX-187",
       "TEST-46"
     ],
     "docs": [
@@ -1206,7 +1208,8 @@
       "FIX-007b"
     ],
     "backend/agents/execution_engine/od_context.py": [
-      "FIX-032"
+      "FIX-032",
+      "FIX-187"
     ],
     "backend/agents/execution_engine/state_machine.py": [
       "FIX-152"

@@ -1,5 +1,5 @@
 {
-  "count": 555,
+  "count": 556,
   "entries": [
     {
       "area": [
@@ -4633,6 +4633,22 @@
     },
     {
       "area": [
+        "backend",
+        "agents"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "backend/agents/execution_engine/od_context.py"
+      ],
+      "id": "FIX-187",
+      "path": ".knowledge/cards/FIX-187.md",
+      "source": "",
+      "status": "",
+      "summary": "Custom template upload silently discarded \u2014 both od_context.py loaders used custom_template_body as boolean flag only, never writing content into template_body; replaced catalog fallbacks with _synthesize_custom_template helper",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8272,10 +8288,10 @@
   ],
   "facets": {
     "area": {
-      "agents": 187,
+      "agents": 188,
       "artifacts": 78,
       "auth": 71,
-      "backend": 70,
+      "backend": 71,
       "docs": 2,
       "evals": 9,
       "frontend": 154,
@@ -8298,7 +8314,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 191,
+      "fix": 192,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8317,5 +8333,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 12:29"
+  "generated": "2026-08-06 12:42"
 }
