@@ -44,8 +44,8 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
 | `backend/agents/artifact_store` | artifact persistence | 1 | 2 files |
 | `backend/agents/guardrails` | policy enforcement | 0 | 0 files |
-| `frontend/src/app` | Next.js routes | 42 | 21 files |
-| `frontend/src/components` | UI components | 175 | 188 files |
+| `frontend/src/app` | Next.js routes | 43 | 21 files |
+| `frontend/src/components` | UI components | 178 | 189 files |
 | `frontend/src/hooks` | client state + stream handling | 21 | 21 files |
 
 **19 workflows** registered — `app_builder`, `app_builder_revision`, `chat`, `custom`, `custom_prototype`, `dotnet_to_azure`, `mulesoft_to_springboot`, `od_ppt`, `od_ppt_revision`, `ppt`, `ppt_revision`, `prototype`, `prototype_revision`, `reverse_engineer`, `sample_brownfield`, `sample_fanout`, `sample_wave`, `user_stories`, `user_stories_revision`
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (191), `workflow` (181), `frontend` (158), `sse` (125), `artifacts` (78), `backend` (74), `auth` (71), `resume` (40).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (191), `workflow` (182), `frontend` (159), `sse` (125), `artifacts` (78), `backend` (74), `auth` (71), `resume` (40).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 227 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 228 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.

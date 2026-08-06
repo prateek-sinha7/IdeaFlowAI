@@ -1,5 +1,5 @@
 {
-  "count": 563,
+  "count": 564,
   "entries": [
     {
       "area": [
@@ -4786,6 +4786,29 @@
     },
     {
       "area": [
+        "frontend",
+        "workflow"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/components/ui/NotificationPanel.tsx",
+        "frontend/src/components/ui/NotificationPanel.fix195.test.tsx"
+      ],
+      "id": "FIX-195",
+      "path": ".knowledge/cards/FIX-195.md",
+      "relates": [
+        "FIX-146",
+        "FIX-133"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-195",
+      "status": "done",
+      "summary": "ISS-061: Header badge/notification clicks navigate to wrong run; Steps panel shows two-run hybrid; notification row tap does nothing (KAN-166)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8431,7 +8454,7 @@
       "backend": 74,
       "docs": 2,
       "evals": 9,
-      "frontend": 158,
+      "frontend": 159,
       "harness": 2,
       "infra": 1,
       "product": 29,
@@ -8439,11 +8462,11 @@
       "runtime": 31,
       "sse": 125,
       "test-infra": 4,
-      "workflow": 181
+      "workflow": 182
     },
     "status": {
       "accepted": 1,
-      "done": 533,
+      "done": 534,
       "open": 20,
       "shipped": 1
     },
@@ -8451,7 +8474,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 199,
+      "fix": 200,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8470,5 +8493,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 19:27"
+  "generated": "2026-08-06 19:47"
 }

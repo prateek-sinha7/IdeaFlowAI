@@ -168,7 +168,17 @@ export function NotificationPanel({
                   {notifications.map((n) => (
                     <div
                       key={n.id}
-                      className={`px-4 py-3 hover:bg-surface-warm transition-colors ${
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { setOpen(false); onViewResults(n); }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setOpen(false);
+                          onViewResults(n);
+                        }
+                      }}
+                      className={`px-4 py-3 cursor-pointer hover:bg-surface-warm transition-colors ${
                         !n.read && n.status !== "running" ? "bg-brand-fill" : ""
                       }`}
                     >

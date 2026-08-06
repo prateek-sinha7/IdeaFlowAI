@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-563 cards · rules 1 · fixes 199 · issues 49 · phases 23 · built 2026-08-06 19:27
+564 cards · rules 1 · fixes 200 · issues 49 · phases 23 · built 2026-08-06 19:47
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (199)
+## Fixes (200)
 
+FIX-195 2026-08-06 [frontend,workflow] ISS-061: Header badge/notification clicks navigate to wrong run; Steps panel shows two-run hybrid; notification row tap does nothing (KAN-166)
 FIX-194 2026-08-06 [frontend,workflow,agents] ISS-060: Completion notification/toast is not run-scoped — finishing run marks a DIFFERENT live run as "complete"; toast shows wrong label (KAN-166)
 FIX-193 2026-08-06 [frontend,agents] ISS-059: Concierge free-text ask during an active ("building") run silently no-ops — every message typed while agents are running returns HTTP 200 {"channel":"steering"} with no reply (KAN-165)
 FIX-192 2026-08-06 [frontend] ISS-058: RunChatLane voice input mic button was a dead control — no onClick, no hook, renders "Voice · transcribe" but does nothing (KAN-164)

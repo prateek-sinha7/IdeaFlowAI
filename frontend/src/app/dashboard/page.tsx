@@ -1750,12 +1750,21 @@ export default function DashboardPage() {
       const run = recentRuns.find((r) => r.id === runId);
       if (!run) {
         // Not in recents yet — just attach and switch view without content-type.
+        // FIX-195 Fix-B — ISS-061: register in launchedRunIdsRef BEFORE attachRun so the
+        // isForeignFrame guard lets this run's durable replay frames through to pipelineState.
+        // Without this, the Steps panel keeps showing the previous run's agents/questionnaire
+        // (the same fix handleSelectWorkflowRun already applies at page.tsx:1869, FIX-133).
+        launchedRunIdsRef.current.add(runId);
+        persistLaunchedIds();
         trackedRunIdRef.current = runId;
         activelyBuildingRunIdRef.current = runId;
         runConnection.attachRun(runId);
         setContentSourceRunId(runId);
         return;
       }
+      // FIX-195 Fix-B — same registration for the "found in recents" branch.
+      launchedRunIdsRef.current.add(runId);
+      persistLaunchedIds();
       // Point tracking refs at the selected run.
       trackedRunIdRef.current = runId;
       activelyBuildingRunIdRef.current = runId;
@@ -2269,6 +2278,16 @@ export default function DashboardPage() {
             if (thisLaunchSeq === launchCounterRef.current) {
               trackedRunIdRef.current = launchedRunId;
               activelyBuildingRunIdRef.current = launchedRunId;
+            }
+            // FIX-195 Fix-A — ISS-061: refresh recentRuns so the newly-launched run
+            // appears in the header badge/dropdown immediately. Without this refresh
+            // the snapshot stays stale until a run finishes (pipeline_complete) and
+            // the badge lists only runs that were already live at page load.
+            const freshToken = getToken();
+            if (freshToken) {
+              getWorkflows(freshToken, { limit: 50 })
+                .then(({ runs }) => setRecentRuns(runs))
+                .catch(() => {/* best-effort — stale list is recoverable on next terminal event */});
             }
           }
         });

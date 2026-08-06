@@ -559,6 +559,22 @@ export function DashboardLayout({
     }
   }, [pipelineState?.completedCount, pipelineState?.isRunning]);
 
+  // FIX-195 Fix-C — wire setNotifWorkflowRunId for explicit-launch handlers
+  // (handleRunPipeline, handleChainPipeline, etc.) that create the notification
+  // BEFORE the run id is known. Once pipelineState.pipelineRunId arrives (via the
+  // pipeline_start frame), stamp it onto the notification so onViewResults can
+  // resolve the exact run without falling back to a type-based stale search.
+  useEffect(() => {
+    const runId = pipelineState?.pipelineRunId;
+    if (!runId || !currentPipelineNotifId.current) return;
+    const notif = notifications.find(n => n.id === currentPipelineNotifId.current);
+    // Only stamp if not already populated (reactive-launch paths set it above)
+    if (notif && !notif.workflowRunId) {
+      setNotifWorkflowRunId(currentPipelineNotifId.current, runId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineState?.pipelineRunId]);
+
   // Detect when od_prototype/od_ppt starts (fired from dashboard/page.tsx directly,
   // not through handleQuestionnaireSubmit) and create a notification for it.
   const odProtoNotifCreated = useRef(false);
@@ -594,6 +610,11 @@ export function DashboardLayout({
             ? submittedBrief.split("\n")[0].trim().slice(0, 80)
             : "Presentation";
           addRunningNotification(notifId, wfType, label, 0);
+          // FIX-195 Fix-C: wire the run id so onViewResults resolves the correct run
+          // instead of falling back to a type-based stale search.
+          if (pipelineState.pipelineRunId) {
+            setNotifWorkflowRunId(notifId, pipelineState.pipelineRunId);
+          }
         }
       } else {
         // od_prototype / prototype
@@ -605,6 +626,10 @@ export function DashboardLayout({
             ? submittedBrief.split("\n")[0].trim().slice(0, 80)
             : "Prototype";
           addRunningNotification(notifId, wfType, label, 0);
+          // FIX-195 Fix-C
+          if (pipelineState.pipelineRunId) {
+            setNotifWorkflowRunId(notifId, pipelineState.pipelineRunId);
+          }
         }
       }
     }
@@ -626,6 +651,13 @@ export function DashboardLayout({
   // Update notification title when backend generates a clean title
   useEffect(() => {
     const latestRun = recentRuns?.[0];
+    // FIX-195 Fix-C: only stamp the title when the latest run MATCHES the
+    // currently-tracked notification's run. recentRuns[0] is the newest server
+    // row but it is an arbitrary foreign run whenever the user launches a new
+    // run that hasn't been added to recentRuns yet. Without this guard the
+    // AGENTPROBE/f36ab26c title stamps onto the PROBEUSTORIES notification.
+    const trackedRunId = currentPipelineNotifRunId.current;
+    if (!trackedRunId || !latestRun || latestRun.id !== trackedRunId) return;
     if (latestRun?.title && latestRun.title !== "Untitled" && currentPipelineNotifId.current) {
       const rawDbTitle = latestRun.title;
       // FIX-130: never use a title that starts with "===" (polluted marker text).
