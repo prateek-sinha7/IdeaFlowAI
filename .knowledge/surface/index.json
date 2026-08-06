@@ -1,5 +1,5 @@
 {
-  "count": 554,
+  "count": 555,
   "entries": [
     {
       "area": [
@@ -4618,6 +4618,21 @@
     },
     {
       "area": [
+        "frontend"
+      ],
+      "date": "2026-08-06",
+      "files": [
+        "frontend/src/components/layout/DashboardLayout.tsx"
+      ],
+      "id": "FIX-186",
+      "path": ".knowledge/cards/FIX-186.md",
+      "source": "",
+      "status": "",
+      "summary": "Custom design system body silently dropped \u2014 wire key mismatch custom_design_system_body vs custom_ds_body in DashboardLayout.tsx; 3 literals renamed to match backend LaunchCommand field",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8263,7 +8278,7 @@
       "backend": 70,
       "docs": 2,
       "evals": 9,
-      "frontend": 153,
+      "frontend": 154,
       "harness": 2,
       "infra": 1,
       "product": 29,
@@ -8283,7 +8298,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 190,
+      "fix": 191,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8302,5 +8317,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 12:13"
+  "generated": "2026-08-06 12:29"
 }

@@ -715,6 +715,7 @@
       "FIX-178",
       "FIX-180",
       "FIX-181",
+      "FIX-186",
       "ISS-022",
       "ISS-025",
       "TEST-0-1",
@@ -1695,7 +1696,8 @@
       "FIX-157",
       "FIX-163",
       "FIX-170",
-      "FIX-173"
+      "FIX-173",
+      "FIX-186"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
       "FIX-078"

@@ -339,7 +339,7 @@ export function DashboardLayout({
     extraParams?: {
       template_id?: string;
       design_system_id?: string;
-      custom_design_system_body?: string;
+      custom_ds_body?: string;
       custom_template_body?: string;
       discovery?: unknown;
     };
@@ -802,7 +802,7 @@ export function DashboardLayout({
     const extraParams = {
       template_id: pendingOdProtoParams.templateId,
       design_system_id: pendingOdProtoParams.designSystemId,
-      ...(pendingOdProtoParams.customDsBody ? { custom_design_system_body: pendingOdProtoParams.customDsBody } : {}),
+      ...(pendingOdProtoParams.customDsBody ? { custom_ds_body: pendingOdProtoParams.customDsBody } : {}),
       ...(pendingOdProtoParams.customTemplateBody ? { custom_template_body: pendingOdProtoParams.customTemplateBody } : {}),
       discovery: pendingOdProtoParams.discovery,
       // Phase 3 (T056): pass source_workflow_run_id for revision chaining
@@ -861,7 +861,7 @@ export function DashboardLayout({
     const extraParams = {
       template_id: pendingOdPptParams.templateId,
       ...(pendingOdPptParams.designSystemId ? { design_system_id: pendingOdPptParams.designSystemId } : {}),
-      ...(pendingOdPptParams.customDsBody ? { custom_design_system_body: pendingOdPptParams.customDsBody } : {}),
+      ...(pendingOdPptParams.customDsBody ? { custom_ds_body: pendingOdPptParams.customDsBody } : {}),
       ...(pendingOdPptParams.customTemplateBody ? { custom_template_body: pendingOdPptParams.customTemplateBody } : {}),
       discovery: pendingOdPptParams.discovery,
       // Phase 3 (T056): pass source_workflow_run_id for revision chaining

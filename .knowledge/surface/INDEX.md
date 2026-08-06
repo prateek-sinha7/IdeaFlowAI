@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-554 cards · rules 1 · fixes 190 · issues 49 · phases 23 · built 2026-08-06 12:13
+555 cards · rules 1 · fixes 191 · issues 49 · phases 23 · built 2026-08-06 12:29
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (190)
+## Fixes (191)
 
+FIX-186 2026-08-06 [frontend] Custom design system body silently dropped — wire key mismatch custom_design_system_body vs custom_ds_body in DashboardLayout.tsx; 3 literals renamed to match backend LaunchCommand field
 FIX-185 2026-08-06 [backend,workflow,agents] CR-02 guard blocks prototype_revision and user_stories_revision via chat-lane revision channel — planner: run → skip in both manifests; user_stories_revision also requires clarify.mode: auto → skip (ATOMIC); two parity-test frozensets updated; rejection test retargeted; new succeed-path test added
 FIX-182 2026-08-05 [agents] Build agent shows DONE / checkmark in Steps spine and left-panel agent list during task-loop iterations — FIX-177 fixed constructionComplete in AgentThinkingTab (L2 task list) but StepsOverviewSpine agent rows, progress bar
 FIX-181 2026-08-05 [frontend] Remove text input area, 'Or start from a deliverable' label, and 'Create workflow' button from home dashboard — UI elements present but non-functional or no longer needed
