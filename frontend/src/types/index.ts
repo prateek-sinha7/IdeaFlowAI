@@ -77,8 +77,15 @@ export interface ChatMessage {
   /** Narrator result-card kind — a GENERIC milestone discriminator (SC-001),
    *  never a workflow/agent literal. Present only on `chat_reply` narrator turns. */
   cardKind?: "clarify" | "gate" | "pipeline" | "deliverable" | "spec_revision";
-  /** The deep-link a narrator card carries into a run tab (borrow #6). */
+  /** Deep-link a narrator card carries into a run tab (borrow #6). */
   deepLink?: DeepLinkTarget;
+  /**
+   * Gate card resolution flag. Set to `true` when `review_gate_approved` fires
+   * for the gate this card represents. A resolved gate card renders as a plain
+   * inline text ("Review approved — build continues") instead of a styled box.
+   * Generic — keyed on message id, never on workflow/agent name (SC-001).
+   */
+  resolved?: boolean;
   /** Family anchoring (D-02): the run/thread this turn belongs to. A child
    *  (revision) run's turns carry a different `runId` but stitch into the SAME
    *  transcript array so the family transcript accumulates, never swaps. */
@@ -650,6 +657,16 @@ export interface PipelineRunState {
   unresolvedEdges?: Array<{ consuming_agent_id: string; artifact_type: string }>;
   protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
   protoCompletedTaskCount?: number;
+  // KAN-153 — total task count known as soon as the first task_loop_progress fires.
+  // Sourced from the `total_tasks` field the backend emits on every task_loop_progress
+  // event (task_loop.py). Lets the ConstructionBlock render ALL tasks as "pending"
+  // upfront rather than one-by-one. Optional so history/reopen callers are unchanged.
+  protoTotalTasks?: number;
+  // KAN-153 — task titles parsed from the planner agent's output the moment
+  // the first task_loop_progress fires. Indexed by 1-based task number so the
+  // ConstructionBlock can show "Task 1 · HTML Shell & Navigation" upfront.
+  // Optional; falls back to "Task N" placeholder when absent.
+  protoPlannedTasks?: Array<{ number: number; title: string }>;
   // Phase 13
   degraded?: boolean;
   degradedFailedAgents?: string[];

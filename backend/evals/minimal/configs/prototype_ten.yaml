@@ -1,0 +1,23 @@
+# 10 rows across 10 industries, all 5 stages. The real sweep.
+#
+#   ./eval.sh configs/prototype_ten.yaml --advise --concurrency 4
+#
+# RUN configs/prototype_smoke.yaml FIRST. This config is ~10x its cost and
+# every failure mode the smoke run would have caught costs ten times as much
+# to discover here.
+#
+# COST: a full chain ran ~440k tokens in / 30k out at build and ~1.5M in at
+# validate for a SINGLE row (the per-task build loop re-sends the growing HTML
+# each turn). Ten rows is on the order of 20M input tokens. This is not a
+# config to iterate with. The cheaper shape is stage-at-a-time with `--stage
+# X --into RUN_ID`: specify/plan/analyze are text-only and cheap, build and
+# validate are where the tokens are, and stopping after analyze costs a small
+# fraction.
+#
+# Why 10 rows and not repeats of one: `compare` refuses a verdict below n=2
+# and `noise_band` cannot observe variance from a single sample. Ten DIFFERENT
+# industries also means a prompt edit that only helps one vertical shows up as
+# disagreement between rows rather than averaging away.
+
+workflow: prototype
+dataset: ten.json

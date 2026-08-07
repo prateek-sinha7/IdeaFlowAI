@@ -181,6 +181,11 @@ export interface DashboardLayoutProps {
   // StartingPointCard + Files "Run input" section render on the LIVE mount. Optional
   // and default-undefined → non-live callers/tests render unchanged.
   submittedBrief?: string;
+  // KAN-101 — spec revision cycle counter from page.tsx. Threaded to
+  // AgentThinkingTab to show a violet "Spec Revision Cycle N" banner and version
+  // chips during an active update_specs re-run. Optional + defaulted to 0 so
+  // existing callers/tests render unchanged.
+  specRevisionCount?: number;
   // ─── Phase 31 (CHATUI-01/02/03) — run chat lane wiring ──────────────────────
   // The family-anchored transcript + the transport-agnostic send from page.tsx's
   // `useRunChat` (fed by the active transport — SSE flag ON or legacy WS OFF).
@@ -196,6 +201,16 @@ export interface DashboardLayoutProps {
     attachments?: import("@/types/index").ChatAttachment[],
     options?: SendMessageOptions,
   ) => void;
+  /**
+   * FIX-170: Called by the postRevision path (od_ppt/od_prototype REST launch)
+   * when the created revision run_id is known. Updates page.tsx's routing refs
+   * (trackedRunIdRef, activelyBuildingRunIdRef, launchedRunIdsRef) so the new
+   * revision run's SSE events are not blocked by isForeignRunFrame. Without this,
+   * the revision starts but pipeline_start/agent events are all discarded as
+   * foreign — the UI stays frozen showing the completed parent run's state until
+   * the user refreshes.
+   */
+  onRevisionLaunched?: (runId: string) => void;
   /**
    * FIX-119: Optimistically add a user bubble to the transcript without posting
    * to the backend. Passed from page.tsx's `useRunChat.addOptimisticMessage` to
@@ -272,10 +287,12 @@ export function DashboardLayout({
   isAdmin = false,
   waves = [],
   submittedBrief,
+  specRevisionCount = 0,
   runChatMessages,
   runChatReplyStreaming,
   onRunChatSend,
   addOptimisticMessage,
+  onRevisionLaunched,
   onRequestOpenTab,
   deepLinkTarget,
 }: DashboardLayoutProps) {
@@ -630,12 +647,24 @@ export function DashboardLayout({
     // written server-side from it).
     if (contentSourceRunId) {
       const targetType = isOdPpt ? "od_ppt_output" : "ppt_output";
+      // FIX-173: switch to the execution view IMMEDIATELY so the user sees the
+      // revision progress screen rather than the old completed run's content
+      // until the first pipeline_start event arrives (the same pattern the
+      // onStartPipeline path and the wizard launch path already follow).
+      setMainView("execution");
       void postRevision(getToken() ?? "", contentSourceRunId, {
         target_artifact_type: targetType,
         instruction,
       })
         .then(({ run_id }) => {
-          if (run_id) runConnection.attachRun(run_id);
+          if (run_id) {
+            runConnection.attachRun(run_id);
+            // FIX-170: update page.tsx's routing refs so the new revision run's
+            // SSE events (pipeline_start, agent_*) are NOT blocked by
+            // isForeignRunFrame. Without this, trackedRunIdRef still points to
+            // the old completed run → all revision events discarded → UI frozen.
+            onRevisionLaunched?.(run_id);
+          }
         })
         .catch((e) => console.error("postRevision failed", e));
       setWorkflowType((isOdPpt ? "od_ppt_revision" : "ppt_revision") as WorkflowType);
@@ -661,7 +690,7 @@ export function DashboardLayout({
         onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
       }
     }
-  }, [workflowType, pptxCode, pptContent, contentSourceRunId, runConnection, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [workflowType, pptxCode, pptContent, contentSourceRunId, runConnection, onStartPipeline, onResetPipeline, onRevisionLaunched, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {
@@ -1660,7 +1689,13 @@ export function DashboardLayout({
         // the correct preview for agents whose output has no XML wrapper tags
         // (e.g. user_stories domain-analyst produces plain markdown, kind="summary").
         artifactKind: reviewGateData.artifactKind,
-        approveLabel: reviewGateData.artifactKind
+        // KAN-101: the analyze gate (artifactKind="summary") is the final human
+        // decision before the build agents fire — label it clearly. Generic
+        // fallback for other gate kinds (spec, task_list). SC-001: keyed on the
+        // server-provided artifactKind string, never a workflow/agent-name literal.
+        approveLabel: reviewGateData.artifactKind === "summary"
+          ? "Accept & continue to build"
+          : reviewGateData.artifactKind
           ? `Approve the ${reviewGateData.artifactKind.replace(/_/g, " ")}`
           : undefined,
       }
@@ -2191,6 +2226,8 @@ export function DashboardLayout({
                       // now mounts INSIDE the Steps drill-down (relocated from the
                       // below-the-fold left slot). Forward the assembled groups.
                       waves={waves}
+                      // KAN-101 — spec revision cycle counter for the Steps banner.
+                      specRevisionCount={specRevisionCount}
                     />
                 </ErrorBoundary>
               </div>

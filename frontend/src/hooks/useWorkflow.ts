@@ -262,6 +262,10 @@ export function handlePipelineMessage(
         // is undefined/empty → same as before (byte-identical, INV-3).
         protoCompletedTasks: resumeOffset > 0 ? (prev.protoCompletedTasks ?? []) : [],
         protoCompletedTaskCount: resumeOffset > 0 ? (prev.protoCompletedTaskCount ?? 0) : 0,
+        // KAN-153: reset the known total on a fresh run; preserve on resume so
+        // the ConstructionBlock keeps showing the full task list while catching up.
+        protoTotalTasks: resumeOffset > 0 ? (prev.protoTotalTasks ?? 0) : 0,
+        protoPlannedTasks: resumeOffset > 0 ? prev.protoPlannedTasks : undefined,
         // KAN-120: clear terminal markers so a resumed run does not stay in
         // the "terminal" state (cancelled/failed) after pipeline_start fires.
         // Without this, pipeline_complete resolves isRunning→false but
@@ -819,14 +823,45 @@ export function handlePipelineMessage(
     }
 
     case "task_loop_progress": {
-      // Engine-level: build loop started a new task iteration
+      // Engine-level: build loop started a new task iteration.
+      // KAN-153: the event also carries `total_tasks` — store it so the
+      // ConstructionBlock can show ALL tasks upfront with "pending" status
+      // instead of revealing them one-by-one as task_progress events arrive.
       const taskNumber = (msg.task_number as number) || 0;
+      const totalTasksFromLoop = (msg.total_tasks as number) || 0;
       const completedFromLoop = Math.max(0, taskNumber - 1);
       setPipelineState((prev) => {
         const currentCount = prev.protoCompletedTaskCount ?? 0;
+        const currentTotal = prev.protoTotalTasks ?? 0;
+        // Parse task titles from the planner agent's output on the FIRST iteration
+        // (task_number === 1 and we don't yet have planned tasks). The planner output
+        // uses `## Task N: Title` headings — extract each title cheaply with a regex.
+        // INV-1: keyed on generic `## Task N:` pattern, never an agent-id literal.
+        let plannedTasks = prev.protoPlannedTasks;
+        if (taskNumber === 1 && !plannedTasks && totalTasksFromLoop > 0) {
+          const allTitles: Array<{ number: number; title: string }> = [];
+          // Find the planner agent output — the one that contains `## Task 1:`
+          for (const agent of prev.agents) {
+            const output = agent.output || "";
+            if (output.includes("## Task 1:") || output.includes("## Task 1 :")) {
+              // Extract all `## Task N: Title` lines
+              const matches = output.matchAll(/^##\s+Task\s+(\d+)\s*:\s*(.+)$/gm);
+              for (const m of matches) {
+                const num = parseInt(m[1], 10);
+                const title = m[2].trim();
+                if (num > 0 && title) allTitles.push({ number: num, title });
+              }
+              if (allTitles.length > 0) break;
+            }
+          }
+          if (allTitles.length > 0) plannedTasks = allTitles;
+        }
         return {
           ...prev,
           protoCompletedTaskCount: completedFromLoop > currentCount ? completedFromLoop : currentCount,
+          // Use Math.max so the total never decreases (handles event redelivery).
+          protoTotalTasks: totalTasksFromLoop > currentTotal ? totalTasksFromLoop : currentTotal,
+          protoPlannedTasks: plannedTasks,
         };
       });
       return true;

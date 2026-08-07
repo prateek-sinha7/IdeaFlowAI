@@ -66,8 +66,17 @@ skills/opendesign/design-templates/*/thumbnail.jpg
 # Backend run artifacts (UUID-based runtime data)
 backend/runs/
 
+# Eval harness run output + generated dashboard (regenerated from .runs/ JSON —
+# see backend/evals/minimal/report.py)
+backend/evals/minimal/.runs/
+backend/evals/minimal/report.html
 
-# Kiro IDE files are personal by default; workspace skills are team-shared.
-.kiro/*
-!.kiro/skills/
-!.kiro/skills/**
+# Apex agent-framework local workspace state (personal, not for team use)
+.apex/
+
+# understand-anything code-indexing tool local cache (personal, not for team use)
+.understand-anything/
+
+# Personal scratch notes
+/TODO.md
+.kiro/settings/mcp.json

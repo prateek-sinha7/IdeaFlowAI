@@ -522,12 +522,30 @@ function PipelineMini({
   onOpen,
   building,
   completedCount,
+  pipelineState,
 }: {
   agents: AgentRunState[];
   onOpen?: () => void;
   building?: boolean;
   completedCount?: number;
+  pipelineState?: import("@/types/index").PipelineRunState;
 }) {
+  // FIX-182: same constructionComplete guard as AgentThinkingTab/StepsOverviewSpine —
+  // prevents premature DONE checkmark on the build agent during task-loop iterations.
+  const isRunning = pipelineState?.isRunning ?? building ?? false;
+  const constructionIdx = agents.findIndex(a => /build|construct/i.test(a.id));
+  const laterAgentStarted = constructionIdx >= 0 &&
+    agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
+  const completedTaskCount = pipelineState?.protoCompletedTaskCount ?? 0;
+  const protoTotalTasks = pipelineState?.protoTotalTasks ?? 0;
+  const totalTasks = protoTotalTasks > 0 ? protoTotalTasks : completedTaskCount;
+  const allTasksDone = totalTasks > 0 && completedTaskCount >= totalTasks;
+  const agentIsReallyDone = (idx: number): boolean => {
+    const a = agents[idx];
+    if (!a || a.status !== "done") return false;
+    if (idx !== constructionIdx) return true;
+    return !isRunning || (laterAgentStarted && allTasksDone);
+  };
   return (
     <TranscriptCard
       testid="lane-pipeline-mini"
@@ -547,9 +565,9 @@ function PipelineMini({
           <span className="font-sans text-[11px] font-medium text-brand">Open Steps →</span>
         )}
       </div>
-      {agents.map((a) => {
-        const done = a.status === "done";
-        const running = a.status === "running" || a.status === "thinking";
+      {agents.map((a, agentIdx) => {
+        const done = agentIsReallyDone(agentIdx);
+        const running = !done && (a.status === "running" || a.status === "thinking");
         const errored = a.status === "error";
         return (
           <div key={a.id} className="flex items-center gap-[10px] py-[5px]">
@@ -1188,8 +1206,13 @@ export function RunChatLane({
 
   // Confirm the held refinement → launch the revision (the ONLY path that fires
   // onRevise on a settled run). Dismiss clears the hold and launches nothing.
+  // The user's revision text was already echoed as an optimistic bubble in
+  // handleFreeText via addOptimisticMessage (FIX-119 pattern) — do NOT call it
+  // again here or the same text appears twice (FIX-171 duplicate-bubble fix).
   const confirmRefinement = useCallback(() => {
-    if (heldRefinement !== null && onRevise) onRevise(heldRefinement);
+    if (heldRefinement !== null && onRevise) {
+      onRevise(heldRefinement);
+    }
     setHeldRefinement(null);
   }, [heldRefinement, onRevise]);
 
@@ -1203,12 +1226,15 @@ export function RunChatLane({
 
   // Failed-lane composer send — a change instruction that feeds the reopen /
   // edit-brief flow (the mock's "Tell the agents what to change, then reopen…").
+  // FIX-168: echo the user's instruction as an optimistic bubble before firing
+  // onRevise so the terminal-state revision request also appears in the transcript.
   const handleTerminalRevise = useCallback(
     (text: string, attachments: ChatAttachment[]) => {
+      if (addOptimisticMessage) addOptimisticMessage(text);
       if (onRevise) onRevise(text);
       else sendMessage(text, attachments);
     },
-    [onRevise, sendMessage],
+    [onRevise, sendMessage, addOptimisticMessage],
   );
 
   // Consequential Concierge proposals held behind a confirm chip (33-03/D-05).
@@ -1716,6 +1742,7 @@ export function RunChatLane({
               onOpen={goSteps}
               building
               completedCount={pipelineState?.completedCount}
+              pipelineState={pipelineState}
             />
           )}
         </div>

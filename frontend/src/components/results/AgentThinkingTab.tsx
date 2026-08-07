@@ -38,6 +38,11 @@ interface AgentThinkingTabProps {
   onSkipClarify?: () => void;
   /** Cancel the active pipeline from the inline Steps clarify (Phase 42-02 §A2 re-home). */
   onCancelWorkflow?: () => void;
+  /** KAN-101 — spec revision cycle counter. When > 0, a violet "Spec Revision
+   *  Cycle N" banner renders above the agent spine to indicate that update_specs
+   *  fired and the specify→plan→analyze sub-pipeline is re-running. Generic —
+   *  keyed on the counter value, never a workflow/agent-name literal (SC-001). */
+  specRevisionCount?: number;
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
@@ -73,6 +78,7 @@ export function AgentThinkingTab({
   clarifications, clarificationsLoading,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
+  specRevisionCount = 0,
 }: AgentThinkingTabProps) {
   // ── The three-level Steps navigation (mirrors the mock's stepView/taskView) ──
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -117,13 +123,32 @@ export function AgentThinkingTab({
   const resolvedWaves = waves ?? [];
   const completedTaskCount = pipelineState?.protoCompletedTaskCount ?? 0;
   const waveTaskUniverse = new Set(resolvedWaves.flatMap(w => w.taskIds));
-  const totalTasks = waveTaskUniverse.size > 0 ? waveTaskUniverse.size : completedTaskCount;
+  // KAN-153: prefer the authoritative total from task_loop_progress events
+  // (protoTotalTasks), which is known as soon as the build loop starts its
+  // first iteration — before any task completes. Falls back to wave universe
+  // size (from fan-out events) or the running completed count for non-task_loop
+  // pipelines. This makes ALL tasks visible upfront as "pending".
+  const totalTasks = (pipelineState?.protoTotalTasks ?? 0) > 0
+    ? pipelineState!.protoTotalTasks!
+    : waveTaskUniverse.size > 0 ? waveTaskUniverse.size : completedTaskCount;
   const constructionIdx = agents.findIndex(a => /build|construct/i.test(a.id));
   const constructionAgent = constructionIdx >= 0 ? agents[constructionIdx] : undefined;
   const laterAgentStarted = constructionIdx >= 0 &&
     agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
+  // constructionComplete: the build agent's DONE badge may arrive (agent_complete)
+  // before the fix-loop finishes its last sub-task, causing the validation agent to
+  // start immediately (laterAgentStarted=true). Guard against that race: only treat
+  // the construction as complete when EITHER:
+  //   a) the pipeline has fully stopped (isRunning===false), OR
+  //   b) a later agent has started AND all expected sub-tasks are confirmed done
+  //      via task_progress (completedTaskCount >= totalTasks).
+  // This keeps the KAN-99 N-1 cap in force until the last task_progress fires.
+  const allTasksDone = totalTasks > 0 && completedTaskCount >= totalTasks;
   const constructionComplete = constructionAgent
-    ? constructionAgent.status === "done" && (laterAgentStarted || pipelineState?.isRunning === false)
+    ? constructionAgent.status === "done" && (
+        pipelineState?.isRunning === false ||
+        (laterAgentStarted && allTasksDone)
+      )
     : pipelineState?.isRunning === false;
 
   const selectedAgent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : undefined;
@@ -160,7 +185,19 @@ export function AgentThinkingTab({
               totalTasks,
               isComplete: constructionComplete,
               waves: resolvedWaves,
-              tasks: pipelineState?.protoCompletedTasks,
+              // KAN-153: merge planned titles (from protoPlannedTasks) with completed
+              // task data (from protoCompletedTasks). Completed data wins for tasks
+              // that have already finished (carries summary etc.). Planned data fills
+              // in titles for tasks not yet complete, so they show their real name
+              // instead of "Task N" placeholder.
+              tasks: (() => {
+                const planned = pipelineState?.protoPlannedTasks ?? [];
+                const completed = pipelineState?.protoCompletedTasks ?? [];
+                if (planned.length === 0) return completed;
+                if (completed.length === 0) return planned.map(p => ({ ...p, summary: "" }));
+                const completedByNum = new Map(completed.map(t => [t.number, t]));
+                return planned.map(p => completedByNum.get(p.number) ?? { number: p.number, title: p.title, summary: "" });
+              })(),
             } : undefined}
             onOpenTask={isConstructionSelected ? (i) => setSelectedTaskIndex(i) : undefined}
             agents={agents}
@@ -195,6 +232,7 @@ export function AgentThinkingTab({
             onSubmitClarify={onSubmitClarify}
             onSkipClarify={onSkipClarify}
             onCancelWorkflow={onCancelWorkflow}
+            specRevisionCount={specRevisionCount}
           />
         )}
       </div>

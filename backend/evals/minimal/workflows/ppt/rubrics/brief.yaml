@@ -1,0 +1,67 @@
+# Grading config for od-ppt-brief-analyst — turns the brief into the
+# slide-by-slide plan the composer executes literally. Any ambiguity here
+# becomes guesswork there, so the plan is graded as an executable artifact,
+# not as a document.
+#
+# Only `judge`, `scoring`, `dimensions`, `rubric` and `upstream` are read.
+
+judge:
+  provider: mistral
+  model: mistral-large-latest      # identical across stages, so stages stay comparable
+
+# Score from what the findings COST (judge.SEVERITY_COST), not the number the
+# judge volunteers. See workflows/prototype/rubrics/specify.yaml for the runs
+# that forced this — it is a property of judges, not of prototypes.
+scoring: severity_priced
+
+dimensions:
+  - id: slide_specificity
+    weight: 45
+    description: >
+      Could the composer build each slide from its entry alone — a stated
+      layout, the actual headline and body copy, and for any chart its type,
+      axes and the specific data points? An entry naming a topic and leaving
+      the content to be invented is the defect this dimension exists to catch.
+
+  - id: narrative_arc
+    weight: 35
+    description: >
+      Do the slides form one argument in order — a setup, a development, a
+      close that lands the brief's stated objective — rather than a pile of
+      topic slides in arbitrary sequence? Flag a deck that never states its
+      own ask, and a sequence where moving two slides would change nothing.
+
+  - id: brief_coverage
+    weight: 20
+    description: >
+      Is every subject, audience and constraint the brief named accounted for,
+      at roughly the depth the brief implies, with nothing invented that the
+      brief never asked for?
+
+rubric: |
+  Grading a SLIDE PLAN — a presentation brief decomposed into an ordered,
+  machine-readable plan. The next agent executes this plan literally and
+  cannot ask questions, so judge every entry by whether it is buildable
+  as written.
+
+  Return an entry for EVERY dimension listed. A partial list is discarded in
+  full.
+
+  FINDINGS ARE THE SCORE. Per dimension, list every real defect in
+  `weaknesses` as a string PREFIXED with its severity — `"blocking: ..."`,
+  `"major: ..."`, `"minor: ..."`:
+  - blocking — the composer cannot build the slide, or builds the wrong
+    thing: content deferred rather than stated, a chart with no data, a
+    subject the brief required that no slide covers.
+  - major — a real gap a reasonable assumption gets past: a headline without
+    its body copy, a slide whose position in the arc is unjustified.
+  - minor — nit; changes nothing about what gets built.
+
+  The tag IS the deduction. Tag honestly: never withhold a finding to protect
+  a score, never inflate a nit. No real defects = empty `weaknesses` = a
+  legitimate 100. Do not invent a flaw to avoid giving one.
+
+  `score`: your own 0-100. Recorded for comparison, NOT the score of record.
+
+  `evidence`: quote specific slide numbers, headlines or data points from THIS
+  response. Text that would fit any other plan is a non-answer.

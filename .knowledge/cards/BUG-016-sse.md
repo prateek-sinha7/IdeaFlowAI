@@ -1,0 +1,18 @@
+---
+id: BUG-016-sse
+type: bug
+status: done
+area: [sse, resume, agents]
+summary: >-
+  Approving a review gate needlessly reconnects the stream (one "Reconnecting…" per
+  gate approve)
+source: .planning/SSE-QA-BUG-LOG.md#bug-016
+campaign: sse
+severity: "🟡 minor"
+---
+
+### BUG-016 — Approving a review gate needlessly reconnects the stream (one "Reconnecting…" per gate approve)  [🟡 minor] [FIXED ✅]
+- **RESOLVED:** FIXED (quick 260717-1c1, `7b422911`/`b485e5d1`) — BACKEND: `_STREAM_TERMINAL_TYPES = _GATE_RESOLUTION_TYPES - frozenset({"review_gate_approved"})` (`run_stream.py:87`), and the live-drain terminal check (`:208`) now keys on it — so `review_gate_approved` (a resume) no longer ends the drain; the open stream keeps delivering post-approve `generating` frames. `_GATE_RESOLUTION_TYPES` + its `_dangling_review_gate` use (`:121`) unchanged. RED→GREEN pytest (`test_review_gate_approved_does_not_close_stream` 1 failed→GREEN; `test_sse_stream.py` full 17 passed incl. the protected `test_resolved_gate_does_not_rearm` + `test_attach_live_queue_drains_until_sentinel`). Plan-checked (0 blockers) + verifier. Backend-only. **Applied** (backend restarted — swept 8 abandoned in-flight runs incl. `ccdde66e`, per user accept).
+- **Found:** 2026-07-17 (user-reported "after each gated answer") · the reconnect fires on review-gate **APPROVE only** — the agent DISPROVED the clarify half LIVE (clarify resumes on the SAME open stream, no reconnect; `POST /answers` → `questionnaire_complete`→`pipeline_start`→`agent_start` on one connection).
+- **Root cause (agent isolated-transport repro + orchestrator source spot-check):** BACKEND — the live-drain loop treats `review_gate_approved` as a stream terminal. `backend/app/api/run_stream.py:198` `if event.get("type") in _GATE_RESOLUTION_TYPES: return`, and `_GATE_RESOLUTION_TYPES` (`:68-77`) lists `review_gate_approved` (`:70`) ALONGSIDE the true terminals (`pipeline_complete`/`cancelled`/`failed`/`budget_aborted`/`error`). But approve is a RESUME (the engine keeps building on the same queue → `generating`). So the stream CLOSES on approve → FE reconnects on the drop (correct default) → banner, then re-attaches (Last-Event-ID) + resumes. FE answer handlers NOT involved (no epoch/reattach/remount — ruled out). **PRE-EXISTING** (`run_stream.py:198` from Phase 29-02 `7020bf82`, 2026-07-08), **NEWLY VISIBLE post-BUG-014-B**.
+- **Fix (PROPOSED, BACKEND ~2 lines, not applied):** `_STREAM_TERMINAL_TYPES = _GATE_RESOLUTION_TYPES - {"review_gate_approved"}`; use it at the drain check `:198`; leave `_GATE_RESOLUTION_TYPES` at `:121` (`_dangling_review_gate` correctly treats approve as gate-resolved). Then the open stream keeps delivering post-approve `generating` frames. NOTE: a backend change needs a backend RESTART to take effect (which fails in-flight parked runs like `ccdde66e`) — coordinate.

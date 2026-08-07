@@ -36,7 +36,7 @@ from agents.authz import ScopedStore
 
 # A.4 (Phase 43): the app-layer narrator milestone-card persist, INJECTED into ``execute()``
 # (never imported — the kernel must not import ``app.*``). Structurally
-# ``chat_narrator.persist_milestone_card(store, run_id, event) -> (created, seq, card) | None``;
+# ``chat_narrator.persist_milestone_card(store, run_id, event) -> (created, seq, card, reply_eid) | None``;
 # typed here as a generic awaitable callback so no app symbol crosses the import boundary.
 MilestoneSink = Callable[[ScopedStore, str, dict], Awaitable[object]]
 
@@ -364,16 +364,19 @@ class _RunEventSink:
         self._store = store
         self._run_id = run_id
 
-    async def emit_milestone_card(self, event: dict) -> "tuple[bool, int, dict] | None":
+    async def emit_milestone_card(self, event: dict) -> "tuple[bool, int, dict, str] | None":
         """Project + persist a ``chat_reply`` milestone card for one stamped engine event (A.4).
 
-        Returns the injected sink's ``(created, seq, card)`` result — or ``None`` when there is
-        no injected ``milestone_sink``, the event is not a projectable milestone, or the DB
-        write degraded. The engine loop (:meth:`execute`) uses the returned ``seq`` to advance
-        its OWN allocator PAST the card so the next engine event can never reuse the card's seq
-        (which would collide on the 0024 per-run-seq constraint → the engine's best-effort
-        persist would drop that event → a durable-log gap on reconnect, DEF-43-03-1), and to
-        yield the card into the live stream (emit LIVE).
+        Returns the injected sink's ``(created, seq, card, reply_eid)`` result — or ``None``
+        when there is no injected ``milestone_sink``, the event is not a projectable milestone,
+        or the DB write degraded. The engine loop (:meth:`execute`) uses the returned ``seq``
+        to advance its OWN allocator PAST the card so the next engine event can never reuse the
+        card's seq (which would collide on the 0024 per-run-seq constraint → the engine's
+        best-effort persist would drop that event → a durable-log gap on reconnect,
+        DEF-43-03-1), and to yield the card into the live stream (emit LIVE). ``reply_eid`` is
+        used by the engine to stamp the live SSE ``chat_reply`` frame with the SAME event_id
+        that the DB row carries — ensuring the FE ``seenRef`` dedup recognises a
+        DB-fetched frame as a duplicate of the already-delivered live frame (FIX-175).
 
         DORMANT unless an app-layer ``milestone_sink`` was injected AND the sink is armed.
         The injected callback (``chat_narrator.persist_milestone_card(store, run_id, event)``)
@@ -1041,7 +1044,7 @@ class ExecutionEngine:
                 # (chat_reply:{source}) the persisted row carries so a reconnect replay dedups it.
                 card_result = await sink.emit_milestone_card(event)
                 if card_result is not None:
-                    _created, _card_seq, _card = card_result
+                    _created, _card_seq, _card, _reply_eid = card_result
                     if _card_seq >= next_seq:
                         next_seq = _card_seq + 1
                     if _created:
@@ -1050,7 +1053,14 @@ class ExecutionEngine:
                             "data": {
                                 **_card,
                                 "seq": _card_seq,
-                                "event_id": f"chat_reply:{event_id}",
+                                # FIX-175: use the SAME event_id the DB row carries so the
+                                # FE seenRef can match live-delivered frames against
+                                # appendFrames-fetched frames.  The old f"chat_reply:{event_id}"
+                                # (raw source UUID) diverged from the DB's idempotency key for
+                                # "Run started" ("chat_reply:pipeline_start:run:{run_id}"),
+                                # causing FIX-172's appendFrames to treat it as unseen and add
+                                # a second "Run started" card.
+                                "event_id": _reply_eid,
                             },
                         }
         finally:
@@ -5700,6 +5710,7 @@ class ExecutionEngine:
         model_id: str | None = None,
         owner_id: str | None = None,
         cancel_event: asyncio.Event | None = None,
+        milestone_sink=None,
     ) -> None:
         """Handle a revision request (FR-014) — real revision-pipeline dispatch.
 
@@ -5931,6 +5942,11 @@ class ExecutionEngine:
             od_context=None,
             gate_agent_ids=[],
             parent_run_id=parent_run_id,
+            # FIX-171: thread the narrator milestone_sink so chat_reply cards
+            # (pipeline_start "Revision started", pipeline_complete "Delivered")
+            # are persisted for revision runs — same wiring as _run_workflow_to_queue.
+            # None when the WS caller does not supply it (backward-compat).
+            milestone_sink=milestone_sink,
         ):
             if event.get("type") == "pipeline_complete":
                 final_output = event.get("data", {}).get("final_output")
@@ -7837,11 +7853,11 @@ class ExecutionEngine:
                 # next base event can then never reuse the card's seq (a collision would
                 # drop that event → durable-log gap). The card is ALSO pushed onto the WS
                 # live queue (the driver is a coroutine, NOT a generator — it delivers live
-                # via live_queue, not yield), stamped with the SAME chat_reply:{event_id}
-                # the persisted row carries so a reconnect replay dedups it.
+                # via live_queue, not yield), stamped with the SAME event_id the persisted
+                # DB row carries so a reconnect replay dedups it (FIX-175).
                 card_result = await sink.emit_milestone_card(event)
                 if card_result is not None:
-                    _created, _card_seq, _card = card_result
+                    _created, _card_seq, _card, _reply_eid = card_result
                     if _card_seq >= next_seq:
                         next_seq = _card_seq + 1
                     if _created and live_queue is not None:
@@ -7852,7 +7868,7 @@ class ExecutionEngine:
                                     "data": {
                                         **_card,
                                         "seq": _card_seq,
-                                        "event_id": f"chat_reply:{event_id}",
+                                        "event_id": _reply_eid,
                                     },
                                 }
                             )

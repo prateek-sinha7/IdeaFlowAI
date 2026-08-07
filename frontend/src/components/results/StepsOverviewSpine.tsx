@@ -12,7 +12,7 @@
 // reskinned off the Phase-32 tokens (no gray-* palette).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Check, ChevronRight, XCircle, ListChecks, RotateCw, ShieldAlert } from "lucide-react";
+import { Check, ChevronRight, XCircle, ListChecks, RotateCw, ShieldAlert, RefreshCw } from "lucide-react";
 import type { AgentRunState, ClarifyRound, PipelineRunState } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
 import { InlineGateActions } from "@/components/chat/InlineGateActions";
@@ -49,6 +49,11 @@ export interface StepsOverviewSpineProps {
   onSkipClarify?: () => void;
   /** Cancel the active pipeline from the inline Steps clarify (Phase 42-02 §A2 re-home). */
   onCancelWorkflow?: () => void;
+  /** KAN-101 — spec revision cycle counter. When > 0, a violet "Spec Revision
+   *  Cycle N" banner renders above the agent rows to give the user context that
+   *  update_specs fired and specify→plan→analyze is re-running. Generic, keyed on
+   *  the counter value (SC-001 — never a workflow/agent-name literal). */
+  specRevisionCount?: number;
 }
 
 // The "Awaiting you" card chrome from the mock (brand-tinted, focus-ring shadow).
@@ -158,44 +163,57 @@ export function StepsOverviewSpine({
   agents, pipelineState, clarifications, clarificationsLoading, onOpenAgent, topSlot, gateEvents,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
+  specRevisionCount = 0,
 }: StepsOverviewSpineProps) {
   const total = agents.length;
-  const completedCount = agents.filter(a => a.status === "done").length;
   const isRunning = pipelineState?.isRunning ?? false;
   const failed = pipelineState?.failed || agents.some(a => a.status === "error");
 
+  // ── FIX-182: construction agent "done" guard ──────────────────────────────
+  // agent_complete fires after EACH task-loop iteration, momentarily setting the
+  // build agent's status to "done" before the next task_loop_progress fires a new
+  // agent_start. Using agent.status === "done" directly causes a premature DONE
+  // badge and progress-bar fill. Mirror the constructionComplete logic from
+  // AgentThinkingTab so the build agent only shows DONE when all tasks are confirmed
+  // done OR the pipeline has stopped. Generic — keyed on id pattern, SC-001.
+  const constructionIdx = agents.findIndex(a => /build|construct/i.test(a.id));
+  const laterAgentStarted = constructionIdx >= 0 &&
+    agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
+  const completedTaskCount = pipelineState?.protoCompletedTaskCount ?? 0;
+  const protoTotalTasks = pipelineState?.protoTotalTasks ?? 0;
+  const totalTasks = protoTotalTasks > 0 ? protoTotalTasks : completedTaskCount;
+  const allTasksDone = totalTasks > 0 && completedTaskCount >= totalTasks;
+  const constructionAgentIsReallyDone = (idx: number): boolean => {
+    if (idx !== constructionIdx) return agents[idx]?.status === "done";
+    const agent = agents[idx];
+    if (!agent || agent.status !== "done") return false;
+    return !isRunning || (laterAgentStarted && allTasksDone);
+  };
+  const guardedCompletedCount = agents.filter((_, i) => constructionAgentIsReallyDone(i)).length;
+  // ── end FIX-182 ───────────────────────────────────────────────────────────
+
   const statusLabel = failed ? "Run failed" : isRunning ? "Running" : "Run complete";
 
-  // Mock's Steps-overview phase PILL + LABEL, keyed on the GENERIC run state
-  // (SC-001 — no workflow-name literal): clarify awaiting → CLARIFY; active
-  // review gate → REVIEW; otherwise running → BUILDING with live N/M counts
-  // (Run - Live.dc.html :981). Failed/complete keep the plain statusLabel.
   const hasClarify = !!(clarifyQuestions && clarifyQuestions.length > 0 && onSubmitClarify);
   const gateActive = !!laneGate && isRunning && !!onApproveGate;
   const phase =
     failed ? null
     : hasClarify ? { pill: "CLARIFY", label: "Waiting on your answers", live: false }
     : gateActive ? { pill: "REVIEW", label: "Paused for your approval", live: false }
-    : isRunning ? { pill: "BUILDING", label: `Pipeline running · ${completedCount} / ${total}`, live: true }
+    : isRunning ? { pill: "BUILDING", label: `Pipeline running · ${guardedCompletedCount} / ${total}`, live: true }
     : null;
 
   const totalDuration = pipelineState?.totalDuration;
   const metaBits = [
-    total > 0 ? `${completedCount} / ${total} agents` : null,
+    total > 0 ? `${guardedCompletedCount} / ${total} agents` : null,
     totalDuration ? formatDuration(totalDuration) : null,
   ].filter(Boolean).join(" · ");
 
-  // Not-run (idle) agents after a failure → the halted banner count (ND-D).
   const notRun = failed ? agents.filter(a => a.status === "idle").length : 0;
   const failedAgent = agents.find(a => a.status === "error");
 
-  // An active gate renders inline after its paused agent's row; if it maps to no
-  // visible agent, a foot-of-spine fallback keeps it reachable (never lost).
   const gateAgentMatches = !!laneGate && agents.some(a => a.id === laneGate.agentId);
   const showGateFallback = !!laneGate && isRunning && !!onApproveGate && !gateAgentMatches;
-
-  // Approved gate-event rows keyed by the agent (step) they fired on → the settled
-  // "Review gate — approved" strips interleaved after each agent's row.
   const approvedGatesByAgent = (gateEvents ?? [])
     .filter(g => g.step && (g.outcome ?? "").toLowerCase().includes("approv"))
     .reduce<Record<string, GateEventRow[]>>((acc, g) => {
@@ -233,9 +251,10 @@ export function StepsOverviewSpine({
           <div className="flex gap-[3px] h-[5px] rounded-[3px] overflow-hidden">
             {agents.map((a, i) => (
               <div key={i} className={`flex-1 ${
-                a.status === "done" ? "bg-brand" :
+                constructionAgentIsReallyDone(i) ? "bg-brand" :
                 a.status === "running" || a.status === "thinking" ? "bg-brand animate-pulse" :
                 a.status === "error" ? "bg-status-failed" :
+                a.status === "done" ? "bg-brand" :
                 "bg-line-faint"
               }`} />
             ))}
@@ -265,9 +284,25 @@ export function StepsOverviewSpine({
         </AwaitingCard>
       )}
 
+      {/* KAN-101 — spec revision cycle banner. Shown when update_specs has fired
+          (specRevisionCount > 0) so the user knows specify→plan→analyze is re-running.
+          Violet to match the old UI's PrototypePipelineView revision banner. Generic —
+          keyed on the counter value, never a workflow/agent-name literal (SC-001). */}
+      {specRevisionCount > 0 && (
+        <div className="flex items-center gap-2.5 mb-3 px-3.5 py-3 rounded-[12px] bg-[#F4F2FB] border border-[#DED9F7]">
+          <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-brand grid place-items-center">
+            <RefreshCw className="h-3.5 w-3.5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="m-0 text-[12px] font-semibold text-brand font-[Manrope]">Spec Revision Cycle {specRevisionCount}</p>
+            <p className="mt-0.5 m-0 text-[11px] text-[#8A86B0]">Spec &amp; plan are being revised based on the analysis report</p>
+          </div>
+        </div>
+      )}
+
       {/* compact navigable agent rows + gate strips */}
-      {agents.map((agent) => {
-        const isDone = agent.status === "done";
+      {agents.map((agent, agentIdx) => {
+        const isDone = constructionAgentIsReallyDone(agentIdx);
         const isRun = agent.status === "running" || agent.status === "thinking";
         const isErr = agent.status === "error";
         const isIdle = agent.status === "idle";

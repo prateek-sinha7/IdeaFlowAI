@@ -290,7 +290,7 @@ class TestPersistence:
         event = {"type": "review_gate_ready", "event_id": "src-1",
                  "data": {"pipeline_run_id": run_id, "gate_key": f"{run_id}:agent"}}
 
-        created, seq, card = _run(persist_milestone_card(self._store(owner), run_id, event))
+        created, seq, card = _run(persist_milestone_card(self._store(owner), run_id, event))[:3]
         assert created is True
         rows = _reply_rows(store_env, run_id)
         assert len(rows) == 1
@@ -309,7 +309,7 @@ class TestPersistence:
         event = {"type": "pipeline_complete", "event_id": "src-c",
                  "data": {"pipeline_run_id": run_id, "deliverable_filename": "p.html"}}
 
-        created, seq, card = _run(persist_milestone_card(self._store(owner), run_id, event))
+        created, seq, card = _run(persist_milestone_card(self._store(owner), run_id, event))[:3]
         assert seq == 3  # max(1,2)+1 — same contiguous seq the engine sink computes
 
     def test_replayed_milestone_is_idempotent_noop(self, store_env):
@@ -352,7 +352,7 @@ class TestPersistence:
         # attacker store is scoped to a DIFFERENT owner — read_events default-denies.
         created, seq, _ = _run(
             persist_milestone_card(self._store("attacker"), run_id, event)
-        )
+        )[:3]
         # It can only see its own (empty) scope → seq starts at 1, and the row it writes
         # is stamped with the attacker principal (never mutates the owner's rows).
         attacker_rows = [
@@ -385,7 +385,7 @@ class TestDeepLinkNonceDB:
                  "data": {"pipeline_run_id": run_id}}
         created, _seq, card = _run(
             persist_milestone_card(self._store(owner_id, workspace_id), run_id, event)
-        )
+        )[:3]
         assert created is True
         return card["deep_link"]["nonce"]
 
@@ -537,13 +537,15 @@ class TestEngineSinkWiring:
         assert not any("chat_narrator" in ln for ln in import_lines)
 
     def test_emit_milestone_card_returns_created_seq_card(self, store_env):
-        # DEF-43-03-1: emit_milestone_card RETURNS the sink's (created, seq, card) — the
-        # engine loop relies on the returned seq to advance its own allocator past the card.
+        # DEF-43-03-1: emit_milestone_card RETURNS the sink's (created, seq, card, reply_eid)
+        # — the engine loop relies on the returned seq to advance its own allocator past the
+        # card, and uses reply_eid for the live SSE event_id (FIX-175).
         sink, run_id = self._armed_sink(store_env, "owner-ret", with_narrator=True)
         result = _run(sink.emit_milestone_card(self._stamped(run_id, "pipeline_start", "e-r")))
         assert result is not None
-        created, seq, card = result
+        created, seq, card, reply_eid = result
         assert created is True and isinstance(seq, int) and card["card_kind"] == "pipeline"
+        assert isinstance(reply_eid, str) and reply_eid.startswith("chat_reply:")
         # A non-milestone (self-filtered) and the dormant default both return None.
         assert _run(sink.emit_milestone_card(self._stamped(run_id, "agent_chunk", "e-r2"))) is None
 

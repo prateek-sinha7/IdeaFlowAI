@@ -479,23 +479,41 @@ export function FamilyGroupCard({
               // row className + appends `w-full text-left` to reproduce the
               // full-width flex row — no visual change. The ROOT family-card rows
               // stay <div onClick> (audit-scoped out).
-              <button
+              // FIX-169: each member row gets its own RowMenu so individual
+              // revisions can be deleted independently (previously only the root
+              // card had a delete affordance). Row wraps in a flex div so the
+              // RowMenu sits at the trailing edge without pushing the button wider.
+              // NOTE: no opacity-hide on RowMenu — the hover-fade race makes the
+              // dropdown disappear before the click lands (FIX-169 follow-up).
+              <div
                 key={member.id}
-                type="button"
-                onClick={() => onSelectRun(member)}
-                aria-label={`Version ${i + 1}, ${member.status}`}
-                className="w-full text-left flex items-center gap-3 pl-8 pr-6 py-2.5 cursor-pointer hover:bg-surface-warm transition-colors"
+                className="flex items-center hover:bg-surface-warm transition-colors"
               >
-                <span className="text-[9px] font-semibold px-1 rounded bg-surface-warm text-ink-500">
-                  v{i + 1}
-                </span>
-                <span className={statusDotClass(member.status)} />
-                <span className="text-[12px] text-ink-700 truncate">{cleanDisplayTitle(member.title, rootMeta.label, member.input)}</span>
-                <span className="text-[10px] text-ink-400">{formatDate(member.createdAt)}</span>
-                {member.parentRunId && (
-                  <span className="text-[10px] text-ink-400">↳ revises v{revisesN}</span>
-                )}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectRun(member)}
+                  aria-label={`Version ${i + 1}, ${member.status}`}
+                  className="flex-1 text-left flex items-center gap-3 pl-8 pr-2 py-2.5 cursor-pointer min-w-0"
+                >
+                  <span className="text-[9px] font-semibold px-1 rounded bg-surface-warm text-ink-500 flex-shrink-0">
+                    v{i + 1}
+                  </span>
+                  <span className={`${statusDotClass(member.status)} flex-shrink-0`} />
+                  <span className="text-[12px] text-ink-700 truncate">{cleanDisplayTitle(member.title, rootMeta.label, member.input)}</span>
+                  <span className="text-[10px] text-ink-400 flex-shrink-0">{formatDate(member.createdAt)}</span>
+                  {member.parentRunId && (
+                    <span className="text-[10px] text-ink-400 flex-shrink-0">↳ revises v{revisesN}</span>
+                  )}
+                </button>
+                <div className="pr-4 flex-shrink-0">
+                  <RowMenu
+                    runId={member.id}
+                    openMenuId={openMenuId}
+                    onToggleMenu={onToggleMenu}
+                    onDeleteClick={onDeleteClick}
+                  />
+                </div>
+              </div>
             );
           })}
         </div>

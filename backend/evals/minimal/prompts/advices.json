@@ -1,0 +1,2193 @@
+{
+  "generated_at": "2026-08-03 17:32:41",
+  "runs": [
+    "260803-162919-prototype_aws_3_permits-opusjudge",
+    "260803-162918-prototype_aws_2_reservations-opusjudge",
+    "260803-162918-prototype_aws_1_fraud_review-opusjudge",
+    "260803-160333-prototype_aws_3_permits-mistraljudge",
+    "260803-160333-prototype_aws_2_reservations-mistraljudge",
+    "260803-160333-prototype_aws_1_fraud_review-mistraljudge",
+    "260803-155235-prototype_aws_3_permits-awsjudge",
+    "260803-155235-prototype_aws_2_reservations-awsjudge",
+    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+  ],
+  "workflows": {
+    "prototype": {
+      "stages": {
+        "analyze": {
+          "categories": {
+            "cross_artifact_grounding": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Verify that both `<spec>...</spec>` and `<tasks>...</tasks>` blocks are present in the input before proceeding with analysis; if either is missing, halt and report which artifact(s) are absent instead of proceeding with unverifiable claims.",
+                  "advisory_score": 100,
+                  "reasons": [
+                    "Task list artifact was missing from input, but analysis claimed 'All tasks trace back to spec pages' (row 3), making verification impossible and claims unfalsifiable."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add a requirement to perform systematic artifact mapping: 'For each spec page (Queue, Case Detail, Rules, Analytics, Audit Log, Settings), confirm that at least one task implements it and trace back to the spec section that requires it; report unmapped pages and tasks that do not trace to any spec section.'",
+                  "advisory_score": 100,
+                  "reasons": [
+                    "Report does not perform systematic cross-artifact mapping of spec pages to tasks; blocking weakness cites this as the core audit function that is missing"
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For each claim about task coverage (e.g., 'Task N implements requirement Y'), quote a specific phrase from the task description that explicitly matches the spec requirement, or mark the claim as inferred.",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Blocking: coverage claims ('All 8 tasks are traceable,' 'Tasks 2\u20137 map 1:1 to pages') are inferred without quoting actual task text; cannot verify whether tasks explicitly implement spec requirements."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In the Issues requiring attention section, for each unimplemented or ambiguous requirement (e.g., service-period filter, Reservation Detail actions, data validation rules), explicitly cite the spec section number and the corresponding Task number (if any) that should address it.",
+                  "advisory_score": 88,
+                  "reasons": [
+                    "Major: spec requires service-period filter, Reservation Detail actions, and data validation, but report does not verify whether tasks explicitly build these or leaves them as assumptions; linking spec\u2192task enables verification."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For each finding that appears to report a requirement not explicitly stated in the spec text provided, add a note: '[Not found in spec excerpts provided\u2014verify against full spec before reporting as a requirement.]'",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Report references 'Cases This Session' column in Rules table as a spec requirement, but the spec brief does not mention it; reporter may be inferring from task details or hallucinating, creating grounding risk"
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Suggested next actions, distinguish between work items that are already in the task list (pre-build) versus work items that extend the task list (new scope), and clarify the sequencing (e.g., 'Add data validation rules *before* task assignment').",
+                  "advisory_score": 72,
+                  "reasons": [
+                    "Minor: Next action #3 ('Expand data validation rules') is added work not listed in original Tasks 1\u20138; no clarification whether pre-build or post-build, creating ambiguity about scope expansion."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In the **Findings** table, mandate that every \u26a0\ufe0f or \u274c entry includes the exact task number(s) or spec section(s) referenced, using the format: \"See Task [N]\" or \"See Spec [Section].\"",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "Some findings could be more precise in naming exact task numbers or spec sections (e.g., error states)."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In the **Findings** table, always cite the exact spec page name or task number (e.g., 'Task 3' or 'Settings page') instead of generic references like 'spec' or 'task'.",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "Occasional generic references to 'spec' or 'task' reduce precision and traceability in the Findings table."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Confirm whether the Settings page stub/no-op implementation (if present in tasks) is explicitly spec-compliant or represents an undocumented scope boundary; note the status in Findings under a relevant category (Coverage gaps or Scope creep) so the reader knows if Settings is intentionally minimal.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Report does not verify Settings page is actually tasked or confirm whether its stub/no-op status is spec-compliant; minor gap but affects completeness of page-to-task mapping"
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 9,
+              "total": 9,
+              "max_score": 100
+            },
+            "defect_detection": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Distinguish between spec promises and implementation choices: flag only as 'Coverage gaps' those requirements the spec *explicitly* promises but tasks do not cover; do not flag the absence of features the spec does not mention (e.g., filter persistence) as gaps unless the spec's own requirements necessitate them.",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Issue #6 flagged 'Filter persistence' as a gap requiring clarification, but spec does not promise persistence; absence of a feature is not a defect if the spec does not require it."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For **Coverage gaps**, explicitly require tracing each spec requirement to at least one task, and flag any requirement that lacks a direct task mapping as a **\u274c Issue**.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Fails to detect that the spec requires 'Guest history counts must match Tonight's data,' but no task explicitly addresses this requirement."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "When the spec explicitly marks a feature as a no-op (e.g., '(no-op in prototype)'), do not flag it as a missing feature or implementation gap in the coverage analysis.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Issue #4 questioned whether 'View Original Submission (no-op in prototype)' was a missing feature, despite the brief explicitly stating the no-op status."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Distinguish hard spec/task defects from ambiguities: if spec explicitly states behavior X and a task implements behavior Y (where Y \u2260 X), classify as a defect under 'Issues requiring attention' with a \u274c status in Findings, not as an ambiguity under \u26a0\ufe0f Partial.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Report frames Audit Log pre-population disagreement (spec: append-only empty start vs. task: 10 pre-populated rows) as ambiguity rather than hard defect; this is a major misclassification that obscures real spec/task conflict"
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Explicitly verify alignment of the **Settings page** and **Audit Log data structure** between the spec and task list in the **Data model alignment** and **UX flow completeness** categories.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Alignment of the Settings page and Audit Log data structure is not explicitly verified, risking oversight of critical requirements."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Treat documented assumptions (e.g., 'assume Robert Martinez', 'hardcoded user') as spec intent, not gaps, and verify that tasks reflect those assumptions rather than flagging them as missing implementation details.",
+                  "advisory_score": 75,
+                  "reasons": [
+                    "Issue #5 flagged 'Current user determination' as a gap, but the brief explicitly states 'assume Robert Martinez', making hardcoding a documented choice, not a missing requirement."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For **UX flow completeness**, explicitly require identification and flagging of empty states for ALL pages described in the spec, not just Applications.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Missed an opportunity to flag empty state behavior for pages beyond Applications (e.g., no explicit mention of empty states for other pages)."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "When analyzing threshold contradictions across stages (e.g., overdue durations), examine all stages mentioned in the spec systematically; if thresholds vary, either flag them all as contradictions or propose a unified formula that reconciles them.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Analysis flagged Zoning stage overdue threshold but did not analyze Structural (7\u201314 days) or Fire (3\u20137 days) stages, leaving threshold logic incomplete and reconciliation unmapped."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 8,
+              "total": 8,
+              "max_score": 95
+            },
+            "verdict_coherence": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "When a Finding is marked \u2705 Clear, verify it does not contradict Issues or Risk items identified in the same report; if contradictions exist, revise the Finding status to \u26a0\ufe0f Partial or \u274c Issue.",
+                  "advisory_score": 92,
+                  "reasons": [
+                    "Blocking: Finding #3 declares tasks 'traceable to spec' as \u2705 Clear, yet Finding #8 and Issues #4\u20135 describe unimplemented requirements (data validation, allergy icons), creating internal contradiction that undermines verdict."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In the Risk register, assign a readiness impact level (Acceptable / Concerning / Blocking) to each risk, and revise the Readiness verdict if any risk is Blocking or if the count/severity of Concerning risks contradicts the verdict tone.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Report lists Medium-risk tasks but Readiness verdict does not weight these risks; verdict should either lower readiness or explain why Medium risks are acceptable"
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For **Ambiguities**, distinguish between **\u26a0\ufe0f Partial** (minor clarifications needed, non-blocking) and **\u274c Issue** (critical ambiguities that prevent implementation).",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Overstates the severity of minor ambiguities as issues requiring attention."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "When flagging ambiguities or risks as \u274c CRITICAL in the findings table, escalate the verdict to READY WITH CAUTION *only* if the issues can be resolved by the implementation team; if issues require pre-work, architecture review, or specification revision outside the build team's scope, recommend NEEDS REVISION or establish pre-conditions before proceeding.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Verdict was READY WITH CAUTION despite rows 4 and 11 marked \u274c for critical architectural gaps (real-time state sync) that are not fixable by implementation alone."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "If flagged gaps in the Issues and Risk register are intentionally delegated to the agent as reasonable implementation decisions (rather than spec defects), justify this trade-off explicitly in the Readiness verdict paragraph before declaring READY TO BUILD.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Major: five genuine gaps and risks (cleanup timer UI, post-action nav, search scope, data validation, allergy icons) are listed but verdict is READY TO BUILD with no revision required; the coherence depends on explicit delegation, which is currently implicit."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Ensure the **Risk register** and **Suggested next actions** explicitly align with any **\u26a0\ufe0f Partial** or **\u274c Issue** findings in the **Data model alignment** category.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Minor inconsistency in addressing the 'Data validation gap' in the risk register and next actions."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Ensure that the verdict (READY TO BUILD / READY WITH CAUTION / NEEDS REVISION) and Suggested next actions are aligned: if next actions include 'Before starting', pre-work requirements, or blockers, adjust the verdict to reflect that work must occur before implementation begins.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Action #1 recommended 'document before starting Task 3\u20134' (pre-work) while verdict said READY to begin, creating contradiction about whether team should proceed now or wait."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In the **Readiness verdict** section, explicitly reconcile any **\u26a0\ufe0f Partial** findings by clarifying whether they are blockers or scope considerations.",
+                  "advisory_score": 75,
+                  "reasons": [
+                    "\u26a0\ufe0f Partial statuses in Findings are not always reconciled with the readiness verdict, creating ambiguity about their impact."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "After drafting all 11 category findings, count the total status badges (\u2705 Clear, \u26a0\ufe0f Partial, \u274c Issue) and the count of issues mentioned in 'Issues requiring attention', and ensure these counts are consistent with the summary statement ('X minor issues' or 'X ambiguities'); if counts diverge, revisit findings.",
+                  "advisory_score": 75,
+                  "reasons": [
+                    "Findings table lists 5 coverage/ambiguity items but next actions preamble states 'Three minor ambiguities'\u2014internal inconsistency suggests findings were updated after verdict drafted, creating confusion"
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "If an edge case (e.g., Task 2 filter edge case, empty filter results) is raised in Suggested next actions, it must also appear as a \u26a0\ufe0f Partial finding in the Findings table or be removed from next actions; do not cite issues in recommended actions that are not listed in the Findings.",
+                  "advisory_score": 65,
+                  "reasons": [
+                    "Task 2 filter edge case appears in next actions but not in Issues list, creating logical asymmetry; either merits an Issue row or should not be in next actions, undermining report coherence"
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In the **Risk Register**, prioritize risks that directly impact implementation (e.g., real-time state sync, overdue thresholds) and move lower-priority risks (e.g., Settings persistence) to the **Findings** table if they are not critical.",
+                  "advisory_score": 50,
+                  "reasons": [
+                    "The Risk Register includes a valid but lower-priority risk that could have been flagged more prominently in the Findings."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 11,
+              "total": 11,
+              "max_score": 92
+            }
+          },
+          "unique": 28,
+          "total": 28,
+          "open": 28,
+          "agent_id": "prototype-analyze",
+          "system_prompt_hashes": [
+            "sha256:4e48828942db70328ce9a1edd94f85294e7534ec2f5f980e9712747b32089956"
+          ],
+          "runs": [
+            "260803-162919-prototype_aws_3_permits-opusjudge",
+            "260803-162918-prototype_aws_2_reservations-opusjudge",
+            "260803-162918-prototype_aws_1_fraud_review-opusjudge",
+            "260803-160333-prototype_aws_3_permits-mistraljudge",
+            "260803-160333-prototype_aws_2_reservations-mistraljudge",
+            "260803-160333-prototype_aws_1_fraud_review-mistraljudge",
+            "260803-155235-prototype_aws_3_permits-awsjudge",
+            "260803-155235-prototype_aws_2_reservations-awsjudge",
+            "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+          ],
+          "current_prompt_hash": "sha256:4e48828942db70328ce9a1edd94f85294e7534ec2f5f980e9712747b32089956"
+        },
+        "build": {
+          "categories": {
+            "data_realism": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "For any interactive data table or chart, ensure the `<script>` block includes dynamic state updates (e.g., filtering, sorting, or toggling) that modify the `store` object and re-render the affected components without full page reloads.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Static data in tables and charts does not reflect real-world scenarios where user interactions (e.g., filters, actions) should update the displayed data dynamically."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "All header badges reporting counts (e.g., 'Applications total', 'Inspections scheduled') must exactly match the number of records rendered on the page or in the dataset; never report a count that exceeds the actual rendered or available data.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Applications header badge claims '247 total' but only 12 records exist; Inspections badge claims '18 scheduled' but only 8 records rendered \u2014 counts inflated and contradicted by actual dataset size."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Include edge cases in data sets, such as large parties (e.g., 10+ guests) and rare allergies (e.g., 'celiac', 'shellfish'), to reflect real-world scenarios.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Missing edge cases in data reduce the prototype's realism and preparedness for real-world use."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For multi-cardholder cases, ensure the prior transactions table in the Case Detail page dynamically displays data for the selected cardholder, pulling from a diversified dataset in the `store` object.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Limited cardholder context in the prior transactions table reduces realism, as it does not account for variations across multiple cardholders."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Ensure all placeholder messages (e.g., 'Roles & Permissions' tab in Settings) are replaced with domain-specific, realistic content that aligns with the prototype's industry and requirements.",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "Placeholder messages like 'Roles & Permissions' reduce realism and completeness of the prototype."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Replace all edge-case data placeholders (e.g., 'Address TBD') with specific, domain-relevant values to maintain consistency and realism.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Edge-case data like 'Address TBD' detracts from the prototype's realism and specificity."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Floor Plan summary counts (Available, Occupied, Reserved, No-show) must re-render in real-time whenever Seat, No-show, or Finish actions are triggered in the state store.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Floor Plan counts (7, 5, 2, 0) do not update dynamically after Seat/No-show/Finish actions, creating visual lag and user confusion about action persistence."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "When populating multi-cardholder tables or lists, ensure every distinct entity in the data model has representative sample rows in the initial state, not just one exemplar.",
+                  "advisory_score": 50,
+                  "reasons": [
+                    "Prior transactions table only shows Sarah Chen; other cardholders exist in spec but have no visible history rows, breaking the breadth of realistic data coverage."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 8,
+              "total": 8,
+              "max_score": 90
+            },
+            "page_completeness": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Every settings or configuration tab must include functional UI and state handlers for its domain (e.g., Roles & Permissions tab must contain a real permission matrix or role-editing form with working add/remove handlers), never a static placeholder string.",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Roles & Permissions settings tab is non-functional placeholder ('Roles & Permissions management interface (placeholder)') \u2014 user cannot configure actual permissions, violating the completeness guarantee."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Every page MUST expose all relevant guest metadata inline without requiring a context-switch to another page; for Reservation Detail, embed a summary card showing repeat visit count, frequency, and last visit date sourced from the guest history dataset.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Reservation Detail page lacks guest history (repeat visits, frequency, last visit date) forcing users to navigate away to Guests page to see data the brief requires to match Tonight's counts."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Floor Plan must include a hover or click detail panel that displays allergy flags and guest notes without requiring navigation to Reservation Detail.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Floor Plan hides critical dietary and access information (allergy flags, guest notes) in Reservation Detail, requiring an extra click and page switch before seating staff can view safety-critical details."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 3,
+              "total": 3,
+              "max_score": 95
+            },
+            "visual_coherence": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Require that all charts (line, bar, pie) use SVG or CSS visual rendering, never plain text enumeration; include labels, gridlines, and a legend where applicable.",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Analytics page displays risk-band chart as plain text ('High: 34 (41%)...') instead of graphical bars/axes; undermines data clarity and professional appearance."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Replace all text-based chart placeholders with SVG or CSS-based visual charts that use realistic data from the `store` object, ensuring axes, labels, and titles are included.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Text-based placeholders in the Analytics page reduce visual coherence and completeness, as they do not provide a true representation of data trends."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Standardize the formatting and styling of allergy flags in forms and tables using a consistent CSS class (e.g., `.allergy-flag`) and ensure it is applied uniformly across all pages.",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "Inconsistent allergy flag styling and formatting observed in the prototype."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Remove or disable hover states for non-interactive elements to avoid misleading user expectations.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Non-interactive elements with hover states may confuse users."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Enhance visual distinctions for key metrics (e.g., 'Days in Stage') using design system tokens, such as bold typography, color accents, or icons, to improve scannability and emphasis.",
+                  "advisory_score": 50,
+                  "reasons": [
+                    "Weak visual distinctions for key metrics reduce clarity and user focus."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "All styled summary blocks (fee totals, summary rows, etc.) must use the same row styling classes and CSS variables as adjacent data tables to maintain consistent visual weight and hierarchy.",
+                  "advisory_score": 40,
+                  "reasons": [
+                    "Fee-summary styling (.fee-line) does not match table-row styling; inconsistent visual weight in summary block undermines design-system coherence."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Waitlist 'Add Party' form must use an inline form layout or modal dialog instead of a card to match the visual weight and hierarchy of existing waitlist items.",
+                  "advisory_score": 40,
+                  "reasons": [
+                    "Waitlist 'Add Party' form card is heavier than waitlist items, creating asymmetric visual weight; inline form or modal would restore balance."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Use semantic HTML and CSS class structure for stat displays (e.g., `.stat-card`, `.stat-value`, `.stat-label`) so numeric highlights are part of a consistent component grammar, not ad-hoc text/style mixing.",
+                  "advisory_score": 35,
+                  "reasons": [
+                    "Stat card 'Most Triggered: Velocity spike' mixes plain text label with numeric highlight, creating inconsistent semantics and unclear visual hierarchy."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 8,
+              "total": 8,
+              "max_score": 95
+            }
+          },
+          "unique": 19,
+          "total": 19,
+          "open": 19,
+          "agent_id": "prototype-build",
+          "system_prompt_hashes": [
+            "sha256:8176bce8b8d5d69077e211e6c0b7479140239419046b1dc3e9923dd21bea4b8f"
+          ],
+          "runs": [
+            "260803-162919-prototype_aws_3_permits-opusjudge",
+            "260803-162918-prototype_aws_2_reservations-opusjudge",
+            "260803-162918-prototype_aws_1_fraud_review-opusjudge",
+            "260803-160333-prototype_aws_3_permits-mistraljudge",
+            "260803-160333-prototype_aws_2_reservations-mistraljudge",
+            "260803-160333-prototype_aws_1_fraud_review-mistraljudge",
+            "260803-155235-prototype_aws_3_permits-awsjudge",
+            "260803-155235-prototype_aws_2_reservations-awsjudge",
+            "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+          ],
+          "current_prompt_hash": "sha256:8176bce8b8d5d69077e211e6c0b7479140239419046b1dc3e9923dd21bea4b8f"
+        },
+        "plan": {
+          "categories": {
+            "build_order_coherence": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "In Task 1 (HTML Shell), include a mandatory 'State & Event API' subsection that defines the state subscription and event emission mechanism (e.g., `StateStore.on(eventName, callback)`, `StateStore.emit(eventName, data)`, or `Observer.subscribe(topic, callback)`) with concrete examples: `StateStore.on('stageAdvanced', (application) => { ... update Applications page ... })` and `StateStore.on('applicationUpdates', (updates) => { ... sync Review Queues page ... })`.",
+                  "advisory_score": 92,
+                  "reasons": [
+                    "Task 3 and Task 4 both require real-time state subscription (e.g., 'onApproveCurrentStage: trigger update' and 'subscribeToApplicationUpdates()') but Task 1 does not define the API, forcing sub-agents to invent the mechanism independently."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1 seed data section, include an `assignedTo` field on each application and inspection record with specific user assignments (e.g., 'BLD-2026-0341': { ..., assignedTo: 'Robert Martinez', queue: 'Zoning' }). Provide 2\u20133 applications assigned to the current user (Robert Martinez, Zoning queue) and 2\u20133 assigned to other users so Task 4 can filter correctly without ad-hoc assumptions.",
+                  "advisory_score": 88,
+                  "reasons": [
+                    "Task 4 (Review Queues) requires filtering 'Assigned to me' and assumes 'Robert Martinez is assigned to BLD-2026-0341 and BLD-2026-0335' but Task 1 seed data does not include assignedTo field, forcing the sub-agent to hard-code assumptions."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, define `stages` as a dynamic array in seed data (not a static 4-column layout) with structure { id, name, order }, and note that Task 4 (Review Queues) must use `.grid-auto` or a flex layout responsive to the number of stages, not `.grid-4`, so that adding a stage in Task 7 (Settings) does not break the layout.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Task 4 hardcodes `.grid-4` for 4 queue columns (Intake, Zoning, Structural, Fire), but Task 7 allows 'Add New Stage'. Adding a 5th stage breaks the grid. Task 1 must specify dynamic stages and Task 4 must be updated to use flexible layout."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, define a validation rules object that maps permit types to allowed inspection types (e.g., { 'Residential remodel': ['Foundation', 'Framing', 'Electrical', ...], 'Sign': ['Electrical', 'Final', ...] }) and note in Task 5 (Inspections) that the 'Inspection Type' dropdown must filter options based on the current application's permit type using these rules.",
+                  "advisory_score": 78,
+                  "reasons": [
+                    "Task 5 lists 8 inspection types (Foundation, Framing, etc.) without specifying which are valid for which permit types (Residential remodel, New commercial, Sign, Demolition). Sub-agent must assume all combinations are valid or invent the rules."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 2 (Applications table) task instructions, add a note: 'Include a Status column showing application status values (e.g., Submitted, Under Review, Corrections requested, Approved, Rejected) that align with the Application Detail page (Task 3) and Review Queues page (Task 4) stage progression.'",
+                  "advisory_score": 72,
+                  "reasons": [
+                    "Task 3 introduces 'Application.status' field (e.g., 'Corrections requested') but Task 2 (Applications) table does NOT include status, creating an inconsistent data model across page tasks if Task 2 is built independently."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Avoid forward references in tasks by explicitly defining all prerequisites (e.g., logic for 'next available table') in earlier tasks or the spec itself.",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "The 'Convert to Reservation' modal assumed undefined logic for 'next available table', creating a minor forward reference."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 6,
+              "total": 6,
+              "max_score": 92
+            },
+            "page_coverage": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "In Task 3 (Reservation Detail), clarify that this is a full-page section (not a modal overlay) that replaces the main content area and is routed via hash (#/reservation/:id), and that the 'Back to Tonight' button navigates back to #/tonight (not a dismissal).",
+                  "advisory_score": 82,
+                  "reasons": [
+                    "Weakness states 'Reservation Detail page is a modal/sub-route (#/reservation/:id) rather than a full page section, creating ambiguity'\u2014Task 1 includes <section data-page=reservation-detail> but it is never clarified if this is overlay or full-page navigation."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For multi-page sections (e.g., Settings with sub-pages), create ONE task per sub-page to align with the user's mental model of distinct pages.",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "Task 7 (Settings) combines four sub-pages into a single task, which may not align with the user's expectation of distinct pages."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 2,
+              "total": 2,
+              "max_score": 82
+            },
+            "task_self_containment": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "For tasks involving critical interactions or visual components (e.g., tables, charts, forms, buttons, or event handlers), explicitly require inclusion of ALL interaction behaviors, validation rules, and visual specifications (e.g., responsiveness, toast messages, or dynamic content) in the task description.",
+                  "advisory_score": 100,
+                  "reasons": [
+                    "Task 4 (Rules) and Task 5 (Analytics) left interactions and visual components underspecified, risking incomplete execution by sub-agents."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, define a complete event contract listing all event names (e.g., 'reservation-seated', 'reservation-finished', 'table-cleaned', 'waitlist-converted') with their payload shapes (e.g., event 'reservation-seated': {reservationId, tableId, covers}) and which tasks emit vs. listen to each.",
+                  "advisory_score": 100,
+                  "reasons": [
+                    "Task 1 mentions window.emit/window.on but does not specify event names or payloads; Task 3 says emit 'reservation-seated' but Task 4 does not know what to listen for, and Task 5 says emit something after conversion but the event name is unspecified\u2014sub-agents cannot wire cross-page communication without this contract."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "remove",
+                  "description": "Remove the sentence 'A response without `## Task N:` headers inside `<tasks>` is a CRITICAL FAILURE \u2014 the build agent will receive nothing to build.' and replace the entire Task N+1 section with: 'Task N+1 is NOT a validation checklist \u2014 it MUST be a real buildable feature. For a 6-page prototype: do NOT output a 7th task that checks 'All pages have content'. Instead, use only 7 tasks total (1 shell + 6 pages), and append any real feature work (e.g., error handling, notifications, audit logging) as additional page-adjacent feature tasks, not as a validation pass.'",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Task 8 (Final Wiring & Validation) is a non-executable QA checklist that violates the build-plan model where each task must be independently buildable. Sub-agents cannot execute assertions like 'Check: All 6 pages have content' in isolation."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, explicitly define the appState JSON structure with exact property names (e.g., reservations: [{id, partyName, time, covers, tableId, status, occasion}, ...], tables: [{id, capacity, status, x, y}, ...], waitlist: [{id, partyName, covers, position}, ...]) and populate it with all 18 reservations and initial table states from the spec.",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Task 2 references window.appState.reservations and filter logic but Task 1 never outputs the actual object shape or property names; sub-agents in Tasks 2\u20137 cannot write queries without knowing if it is .time vs .seatingTime or .partyName vs .party_name."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, immediately after 'Hash router + state store', add: 'Initialize the state store with complete seed data structures: Queue (array of 12 transaction objects with fields caseId, cardholder, amount, currency, merchant, decision, timestamp, riskBand, triggeredRules, status; each row matching Task 2 sample data), Rules (array of 24 rule objects with fields ruleId, name, fraudRate, triggerCount, category, active, threshold; each matching Task 4 sample data), Analytics (object with totalCases, highRiskCount, mediumRiskCount, lowRiskCount, avgDecisionTime, topMerchants computed from Queue and Rules on load), and CaseDecisions (empty array initialized with schema { caseId, cardholder, amount, currency, merchant, decision, timestamp, triggeredRules }).'",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Task 1 mentions 'Data initialization (load Queue, Rules, Analytics, Audit Log initial state)' but does not define seed structures or schema; Tasks 2\u20135 assume hard-coded data exists but Task 1 does not create it; Task 8 validation expects specific counts (82 total, 34 high-risk) that are never seeded, making downstream tasks un-buildable without forward-referencing."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, in the 'Empty `<section data-page>` for EVERY page' bullet, append: 'Initialize caseDecisions state object with exact schema: { caseId (string), cardholder (string), amount (number), currency (string), merchant (string), decision (enum: approve|decline|review), timestamp (ISO 8601), triggeredRules (array of rule name strings) }; this schema is mandatory for Task 3 Case Detail and Task 6 Audit Log to construct and query caseDecisions records without guessing field types.'",
+                  "advisory_score": 92,
+                  "reasons": [
+                    "Task 1 initializes caseDecisions as empty array but omits schema; Task 3 specifies the schema mid-task; a sub-agent building Task 1 in isolation cannot see Task 3 and will not know how to initialize or validate caseDecisions, and Task 6 cannot build Audit Log rendering without knowing which fields exist."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In the **Validation** task, explicitly require verification of ALL dynamic UI elements (e.g., toast messages, responsiveness, and form validation feedback) to ensure they are implemented as specified in earlier tasks.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Task 8 (Validation) overlooked minor but critical details like toast content and responsiveness, which could cause confusion or inconsistencies."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 2 (Tonight page), explicitly specify the filter bucket logic: '5:00 PM chip: 5:00\u20135:59 PM (include rows at 5:00, 5:15, 5:30, 5:45)', '6:30 PM chip: 6:00\u20137:59 PM (include rows at 6:00, 6:15, 6:30, etc.)', '8:00 PM chip: 8:00\u2013end of service', and list which of the 18 named reservations fall into each bucket.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Task 2 says '5:00 PM chip includes 5:00\u20135:59 PM' but then lists '6:00 PM | Ferrante' as in the 5:00 PM bucket, creating ambiguity; sub-agents cannot write filter logic without knowing exact bucket boundaries."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 6 (Guests page), specify that the 'Seated Covers Now' KPI is a real-time total calculated as the sum of covers for all reservations with status='Seated', and define that it updates whenever a 'reservation-seated' event is received from Task 3.",
+                  "advisory_score": 88,
+                  "reasons": [
+                    "Task 6 says 'Seated Covers Now = 18' but does not specify the calculation logic or how it updates when Seat Party is clicked in Task 3; sub-agents cannot ensure cross-page data sync without this dependency."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 2 (Tonight page), clarify whether the 'Party Name Search Box' filters globally across all service periods or only within the currently selected service period, and specify the expected behavior when search is active alongside a service period filter.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Task 2 says 'filters across all service periods (or only visible service period)' without resolving which; sub-agents cannot code the search handler without knowing the scope."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, specify the cleanup timer implementation: define the timer duration (e.g., 5 minutes in milliseconds = 300000), clarify that 'Cleanup' state on floor tables means the table is locked and grayed out until the timer expires, and link this to the Finish Party button in Task 3.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Task 1 defines startCleanupTimer() and Task 4 mentions 'Cleanup: yellow' but Task 3 (Finish Party action) does not specify timer duration or what happens during cleanup; sub-agents cannot implement the cleanup flow without these details."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 5 (Waitlist), specify the event name and payload that should be emitted after a waitlist party is converted to a reservation (e.g., emit 'waitlist-converted' with {partyName, covers, tableId, newReservationId}), and define that this event triggers Task 2 (Tonight page) to re-query and display the new reservation.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Task 5 says convert waitlist to reservations and update Tonight page but does not specify the event name or payload; the cross-page sync is implicit and sub-agents cannot wire it without explicit event contract."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, add a new 'CSS Class Inventory' subsection immediately after the 'TEMPLATE CLASSES' bullet that lists: '.chart-container (wraps analytics charts), .chart-wrap (alias for .chart-container if blank-canvas scaffold uses it), .bar-chart (bar chart wrapper), .pie-chart (pie chart wrapper), .grid-2 (two-column layout for side-by-side charts), .kpi-box (KPI metric card)' with a note: 'Task 5 (Analytics) requires .chart-container and .grid-2 for layout; ensure these classes are included in the scaffold CSS or template seed and documented here so Task 5 does not invent them.'",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Task 1 lists '.chart-wrap, .bar-chart, .badge-*' in scaffold but Task 5 specifies '.chart-container' and '.grid-2' for charts, which are not listed; class definitions are not assigned to either task, forcing Task 5 to invent or Task 1 to be incomplete."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 4 (Rules), in the 'Interactions' section, add: 'Toggle to show/hide inactive rules: UI component is a checkbox labeled \"Show inactive\" positioned in the Rules section header, left of the search box; state is managed in the rules store (property activeRulesFilter: boolean, default true); clicking the checkbox toggles activeRulesFilter and re-renders the table, filtering rows where inactive.active === !activeRulesFilter. Example handler signature: handleToggleInactiveRules(event) { state.rules.activeRulesFilter = event.target.checked; render(); }'",
+                  "advisory_score": 82,
+                  "reasons": [
+                    "Task 4 says 'inactive available via toggle' but does not specify UI component type (checkbox vs. button vs. dropdown), placement, label, or state management; sub-agent building Task 4 must invent these details or fail."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Ensure NO placeholder text of any kind (e.g., '(optional, if present in data)') remains in any task output, replacing it with explicit default values or omitting it entirely.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Task 8's check for 'No placeholder text' is not stringent enough, as minor placeholders still appear in tasks."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Ensure all page routes in tasks strictly match the route patterns specified in the `<spec>`, including dynamic segments (e.g., `#/reservation/:id` instead of `#/reservation-detail`).",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "The Reservation Detail page used `#/reservation-detail` instead of the specified `#/reservation/:id`, causing minor route inconsistency."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For tasks involving user settings or dynamic UI elements (e.g., toast messages, responsiveness, or form validation), explicitly list ALL minor details (e.g., toast content, breakpoints, or validation feedback) to ensure consistency and avoid oversights.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Task 7 (Settings) and Task 8 (Validation) included minor oversights like toast content and responsiveness, leading to potential inconsistencies."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 3 (Reservation Detail), specify the reservation ID format and how to construct it from reservation data (e.g., 'ID is partyName in lowercase with hyphens + seating time: rossi-5pm' or 'ID is a UUID from appState'), and clarify that the modal/overlay behavior replaces the main content area until 'Back' is clicked.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Task 2 says 'click Rossi \u2192 #/reservation/rossi-5pm' but Task 1's router and Task 3 never specify the :id format or generation logic; sub-agents in Task 3 cannot build links or parse parameters without this."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 3, in the 'Components' section where 'Cardholder Context' is described, add: 'Field \"Triggering Rule\" displays the name of the rule that matched this transaction (e.g., \"High-value transaction in unusual geography\"). This value is sourced from the triggeredRules array in the case's Queue record (array of rule name strings); for display purposes, if multiple rules triggered, show the first rule name or a comma-separated list. This field is read-only and pre-computed at the time the transaction entered the queue (stored in Queue[n].triggeredRules).'",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Task 3 specifies Triggering Rule field but does not state where the value comes from (pre-computed on transaction? rule lookup? parameter?); sub-agent must guess or hard-code it."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 5 (Analytics), add a new 'Data Source' subsection: 'All KPI values (total cases, high-risk count, medium-risk count, low-risk count, average decision time) are computed from the current Queue state in real-time on page load and whenever Queue changes (e.g., after Case Detail saves). Computation rules: totalCases = Queue.length; highRiskCount = Queue.filter(q => q.riskBand === \"high\").length; mediumRiskCount = Queue.filter(q => q.riskBand === \"medium\").length; lowRiskCount = Queue.filter(q => q.riskBand === \"low\").length; avgDecisionTime = sum of all (decision_timestamp - case_timestamp) / totalCases, converted to minutes. Pie chart and bar chart data are derived from these computed counts (not hard-coded). When Queue is updated by another task, call recomputeAnalytics() to refresh this page without requiring manual refresh.'",
+                  "advisory_score": 78,
+                  "reasons": [
+                    "Task 5 shows hard-coded KPI values and charts but does not explicitly state whether they are computed from Queue or hard-coded; Task 8 validation expects 'Analytics data matches Queue' but no algorithm is provided, creating forward reference and guesswork for sub-agent."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 6 (Audit Log), in the 'Layout' or 'Components' section, add: 'Audit Log table rows are sorted by timestamp descending (newest first) every time the Audit Log page is rendered. The sort is performed in JavaScript (not static HTML order): on page load or when caseDecisions changes, call handleSortAuditLog('timestamp', 'desc') which sorts the caseDecisions array in place. Function signature: handleSortAuditLog(field, direction) { state.caseDecisions.sort((a, b) => direction === \"desc\" ? new Date(b[field]) - new Date(a[field]) : new Date(a[field]) - new Date(b[field])); render(\"audit-log\"); }'",
+                  "advisory_score": 76,
+                  "reasons": [
+                    "Task 6 specifies rows sorted descending but does not clarify whether sort is static HTML or JavaScript; if the latter, sub-agent must know caseDecisions schema (only in Task 3) and implement sort logic."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "remove",
+                  "description": "\"## Task {N}: Final Wiring & Validation\n**Goal**: Validate all pages have content, verify DS tokens, fix navigation.\n**Checks**:\n- All {N} pages have content\n- :root tokens match ACTIVE DESIGN SYSTEM\n- Nav links use `href=\"#/path\"` format\n- First page `class=\"is-active\"`\n- No placeholder text\n- All buttons have handlers\"",
+                  "advisory_score": 75,
+                  "reasons": [
+                    "Task 8 (Validation) is a checklist of verification outcomes rather than buildable tasks; it lists outcomes to verify but does not specify concrete corrections if checks fail, and validation is already implicit if all other tasks build correctly. Either remove it or rewrite as buildable tasks (e.g., 'Fix any mismatched data between Tonight and Guests')."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 7 (Settings), specify that the 'Default Seatings' configuration (checkboxes for 5:00 PM, 6:30 PM, 8:00 PM) is read by Task 2 to determine which filter chips are displayed on the Tonight page, and define how this config is stored in appState (e.g., settings.visiblePeriods: ['17:00', '18:30', '20:00']).",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "Task 7 defines settings but Task 2 does not reference them to conditionally render chips; sub-agents in Task 2 cannot know if chips are hardcoded or derived from settings without this link."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Explicitly specify default values for all optional fields, even if they are placeholders like '(optional, if present in data)'.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Some tasks (e.g., Task 5) use generic descriptions for optional fields, introducing ambiguity where default values could clarify intent."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 4 (Review Queues), specify the queue card container's scrollable dimensions: 'max-height: 600px; overflow-y: auto' and clarify the 'more items' truncation message format (e.g., 'card.scrollHeight > card.clientHeight: append text \\\"X more in {stage-name} queue \u2014 scroll to see\\\"').",
+                  "advisory_score": 58,
+                  "reasons": [
+                    "Task 4 says 'if more cards than visible: \"3 more in intake queue\"' but does not specify max-height or overflow-y, forcing sub-agent to guess (Task 5 mentions 600px but Task 4 does not)."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, clarify current-user role immutability: 'currentUser = { name: \"Robert Martinez\", role: \"Zoning Reviewer\", userId: \"rm-001\" }. Note: currentUser.role is read-only; Task 7 (Settings) allows modifying other users\\' roles and permissions, but the logged-in user\\'s own role is not editable in this prototype.'",
+                  "advisory_score": 55,
+                  "reasons": [
+                    "Task 1 hardcodes currentUser as 'Robert Martinez', but Task 7 allows modifying user roles. Unclear whether currentUser.role changes if the admin edits the Zoning Reviewer role, or if it is read-only."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1, in the 'Top status bar' description (where it says 'Top status bar shows current page title, session time elapsed (1h 42m), and quick stats'), change to: 'Top status bar shows current page title, session time elapsed (computed dynamically from sessionStart; see Task 7 updateSessionDuration() for refresh interval), and quick stats (e.g., \"Queue: 82 cases, 34 high-risk\", derived from current Queue state). Session time is initialized as \"0m\" on page load and updated every 10 seconds via a handler defined in Task 7.'",
+                  "advisory_score": 55,
+                  "reasons": [
+                    "Task 1 hard-codes session time as '1h 42m' but does not clarify whether it is a constant or computed; dynamic update is only mentioned in Task 7, not Task 1, creating ambiguity about initialization."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 1 seed data, explicitly note which 10 of the 12 applications appear in Task 6 (Fees) Valuations table (e.g., 'Fees table includes Valuations for applications [BLD-2026-0301, BLD-2026-0305, ..., BLD-2026-0355] (10 of 12 total); BLD-2026-0375 and BLD-2026-0389 are excluded').",
+                  "advisory_score": 48,
+                  "reasons": [
+                    "Task 6 provides 10 rows in Valuations table but Task 1 seeds 12 applications. Sub-agent must infer which 2 applications are excluded or arbitrarily select them."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 2 (Queue), in the 'Result Count' description, add: 'Result Count displays \"Showing X of Y transactions\" where X is the number of rows currently visible after all active filters (Risk Band, Merchant Search, Status) are applied, and Y is the total number of transactions in the Queue (always 12 for this session). If no filters are active, X = Y = 12. If filters are applied (e.g., Risk Band = \"high\"), Y remains 12 but X updates to the filtered count. Example: with Risk Band = \"high\" active, count shows \"Showing 4 of 12 transactions\" (assuming 4 high-risk cases exist). The count is recomputed in JavaScript whenever filters change: call handleUpdateResultCount() after every filter toggle.'",
+                  "advisory_score": 48,
+                  "reasons": [
+                    "Task 2 specifies Result Count format but does not clarify whether Y is total transactions in database (always 12) or unfiltered visible count before current filter; affects accuracy of result badge."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 3 (Case Detail), in the 'Cardholder Context' section, add: 'The \"Last 5 Transactions\" list is parameterized by cardholder ID (extracted from the current case's cardholder field). If viewing Case ID \"C-001\" with cardholder \"Sarah Chen\", the sub-agent must query or filter the Queue/Transaction history for all cases with cardholder === \"Sarah Chen\" and display the 5 most recent by timestamp (or all if fewer than 5 exist). For this prototype, assume each case has a unique cardholder (no reuse of sample data); if the same cardholder appears in multiple cases, the sub-agent should fetch and display their actual transaction history, not a hard-coded sample. Example: case{caseId: \"C-002\", cardholder: \"Jane Doe\", ...} \u2192 display last 5 Jane Doe transactions, not Sarah Chen's.'",
+                  "advisory_score": 42,
+                  "reasons": [
+                    "Task 3 specifies 'last 5 transactions' with only one sample cardholder (Sarah Chen) but does not address whether different case IDs have different cardholder context or if all reuse this sample; implies parameterization but only one dataset provided."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In Task 3, fix the typo: change 'Back to Tonigh' to 'Back to Tonight' in the button text specification.",
+                  "advisory_score": 20,
+                  "reasons": [
+                    "Task 3 button text contains a typo ('Tonigh' instead of 'Tonight'); minor but affects sub-agent output quality."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 31,
+              "total": 31,
+              "max_score": 100
+            }
+          },
+          "unique": 39,
+          "total": 39,
+          "open": 39,
+          "agent_id": "prototype-plan",
+          "system_prompt_hashes": [
+            "sha256:44738e2fe87557293b879d96acd2dc6da90b12421746af79b942d178b8cd2c90"
+          ],
+          "runs": [
+            "260803-162919-prototype_aws_3_permits-opusjudge",
+            "260803-162918-prototype_aws_2_reservations-opusjudge",
+            "260803-162918-prototype_aws_1_fraud_review-opusjudge",
+            "260803-160333-prototype_aws_3_permits-mistraljudge",
+            "260803-160333-prototype_aws_2_reservations-mistraljudge",
+            "260803-160333-prototype_aws_1_fraud_review-mistraljudge",
+            "260803-155235-prototype_aws_3_permits-awsjudge",
+            "260803-155235-prototype_aws_2_reservations-awsjudge",
+            "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+          ],
+          "current_prompt_hash": "sha256:44738e2fe87557293b879d96acd2dc6da90b12421746af79b942d178b8cd2c90"
+        },
+        "specify": {
+          "categories": {
+            "brief_intent_match": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Add to OUTPUT FORMAT: 'If a feature span is introduced in the brief (e.g., 'realistic Italian restaurant...covers, times') or mentioned as a design enrichment, add a \"Brief Coverage\" subsection in each relevant page spec stating which brief requirements or optional enhancements are implemented in that page, and why.'",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Brief mentions 'realistic Italian-restaurant names, tables T1-T14, covers, times' but does not explicitly require a Cleanup state with 5-min timer; spec adds this feature which enriches but is not mandated\u2014transparency on enrichments would clarify scope."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to Settings page spec: 'If a read-only or display-only field has no functional purpose in the current feature set (e.g., user.role without a permissions model), omit it from the spec or add a \"Deferred\" note explaining why it is retained (e.g., for future role-based access control).'",
+                  "advisory_score": 55,
+                  "reasons": [
+                    "Settings page lists 'user.role' as read-only 'Host Manager' but permissions model is absent, so 'role' field has no functional purpose in the current spec."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 2,
+              "total": 2,
+              "max_score": 60
+            },
+            "data_realism": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Require seed data counts and totals to be reconciled and explicitly verified in the spec; if a table states '5 per stage' or similar aggregate claim, all row counts must sum correctly and be listed with their actual values.",
+                  "advisory_score": 75,
+                  "reasons": [
+                    "Applications table claims '5 per stage' but actual counts are Intake 3, Zoning 3, Structural 2, Fire 2, Issued 2; Review Queues totals 11 vs. 12 \u2014 contradictions undermine realism."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to Data Model or Accessibility section: 'If the spec uses real-world data that includes cultural or linguistic conventions (e.g., Italian names, email domains), verify that sample data is sufficiently specific and contextually authentic to avoid generic placeholders that contradict the stated design goal.'",
+                  "advisory_score": 50,
+                  "reasons": [
+                    "Email domain 'marco@verdello.it' uses correct .it TLD but 'marco' as a user name is generic given the otherwise specific Italian context (Marco is a very common Italian name, unlike the distinct reservation surnames: Rossi, Marchetti, Colombo)."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For regional data such as phone numbers, ensure consistency with the target region's formatting conventions (e.g., Milan: `+39 02 XXXX XXXX` or `02 XXXX XXXX`).",
+                  "advisory_score": 40,
+                  "reasons": [
+                    "Phone numbers in the spec lack regional consistency for Milan."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For data lists (e.g., cardholders, merchants, transaction parties), ensure names reflect a diverse range of regional demographics and avoid generic defaults like 'Sarah Chen' or 'James Rodriguez'.",
+                  "advisory_score": 30,
+                  "reasons": [
+                    "The cardholder names are plausible but generic and could enhance realism with more regional diversity."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 4,
+              "total": 4,
+              "max_score": 75
+            },
+            "design_system_coherence": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Explicitly require accessibility features in the spec, including ARIA labels, keyboard navigation support, and semantic HTML tags for all interactive elements.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Lacks explicit accessibility features, which is a critical gap for usability and compliance."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Unify the status badge and risk-score badge CSS class system: explicitly map every distinct visual state (pending, confirmed, legitimate, high-risk, medium-risk, low-risk) to exactly one CSS class name in the template class system; if multiple visual properties apply to one row cell (e.g., risk level AND decision status), specify whether two classes coexist on one element or separate elements.",
+                  "advisory_score": 86,
+                  "reasons": [
+                    "Class system defines .status-* variants (confirmed, legitimate, pending) but Queue table uses .badge-high/medium/low for risk; mapping between two naming schemes is contradictory and ambiguous."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Mandate responsive behavior for narrow viewports in the spec, including mobile-specific layout adjustments and touch-friendly interactive elements.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Missing responsive behavior for narrow viewports, which limits usability on mobile devices."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to TEMPLATE COMPLIANCE RULES: 'When a design system defines font tokens (e.g., --font-mono), explicitly list all component types or HTML elements in the spec where each font family must be applied. Do not define a token without assigning it to at least one component in the spec.'",
+                  "advisory_score": 75,
+                  "reasons": [
+                    "Font token '--font-mono: Monaco' is defined in color tokens but never applied to any component; spec mentions 'time displays, table IDs' as uses in design notes but does not mandate mono font in any actual component (e.g., Reservation time fields, table ID cells in Floor Plan)."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to CONTENT RULES: 'Every status badge, icon, or visual indicator defined in the spec MUST list its complete rendering specification: shape (badge, dot, tag), color (mapped to design system token), icon (if any, specify icon name or character), text label, and the contexts (pages/components) where it appears.'",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "Accessibility section states 'Status badges include icons/text' but icon specifications ('\ud83d\udea8' for allergies, color badges for status) appear only in Waitlist/Reservation Detail examples, not systematically defined; spec does not confirm which status badges get icons or define a complete iconography system."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For every spacing class name listed in the CSS class system (e.g., `.spacing-sm`, `.spacing-md`, `.spacing-lg`), explicitly define its pixel or rem equivalent and map it to a `:root` CSS variable (e.g., `--spacing-sm: 4px`).",
+                  "advisory_score": 52,
+                  "reasons": [
+                    "Spacing class names listed but pixel scale not mapped; implied but not explicit, making build implementation ambiguous."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Define the visual or behavioral outcomes of all referenced CSS classes (e.g., `.transition`, `.rounded`) to ensure consistent implementation.",
+                  "advisory_score": 50,
+                  "reasons": [
+                    "Some classes are referenced but not fully defined, which could lead to inconsistencies."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Define explicit padding and font-size values for every size variant of buttons (e.g., `.btn-primary: padding 10px 16px, font-size 14px; .btn-small: padding 6px 12px, font-size 12px`) in the CSS class system spec.",
+                  "advisory_score": 50,
+                  "reasons": [
+                    "`.btn-small` class defined but size values (padding/font-size) not specified; build agent cannot implement without explicit measurements."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 8,
+              "total": 8,
+              "max_score": 90
+            },
+            "interaction_specification": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Add to CONTENT RULES: 'Every action and state transition MUST specify the complete user flow: what the UI displays before the action, what input/confirmation the user provides, and what the UI shows after. Do not omit intermediate steps, decision points, or fallback cases (e.g., if no available resource exists).'",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Waitlist 'Convert to Reservation' and Floor Plan 'Finish Party' cleanup flow lack complete flow definition: time-slot selection does not say whether table is manual or automatic, who determines 'next available', what happens if no tables exist; cleanup timer mechanism not specified (auto-decrement? manual confirm? visual label?)."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For every table or list shown, specify the exact mechanism (pagination, infinite scroll, all-at-once load, or fixed set) that reveals the full dataset, including step-by-step interaction behavior and what happens when the user triggers the next batch of results.",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Queue table displays 12 rows but 82 total cases exist with no loading mechanism documented; build agents diverge on whether remaining 70 are paginated, lazy-loaded, or hidden."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Define permission handling for all interactive elements, including role-based access control (RBAC) rules and fallback behaviors for unauthorized actions.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Missing details for permission handling, which is critical for security and usability."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For every filter or search combination that can produce zero results, specify the exact UX outcome: render a blank table with an explanatory message, show a dedicated 'no results' card, or other visual state, including the exact text and styling.",
+                  "advisory_score": 88,
+                  "reasons": [
+                    "Combined filter (High Risk + 'walmart' search) can yield zero results per brief intent, but empty-state UX is undefined; build agents would implement blank vs. message differently."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Specify keyboard interactions for all interactive elements, including tab order, keyboard shortcuts, and focus management.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Missing details for keyboard interactions, which are essential for accessibility and usability."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to CONTENT RULES: 'Filter and search interactions MUST explicitly define precedence: if multiple filters coexist (e.g., service-period filter + party-name search), specify whether they are AND or OR; specify scope (do filters apply to visible rows only, or all data rows?); specify override behavior (does search override filter or must both be satisfied?).'",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Party Name search on Tonight does not specify whether it filters across all 18 rows or only visible filtered rows; does not say if search overrides service-period filter or returns zero results if search target is outside current period."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to Page Specifications template: 'For every interactive button, modal, or state-conditional component, specify: (1) Render condition (when does element appear or hide?); (2) Disabled condition (if any); (3) On-click behavior (result visible to user); (4) Error/fallback case (what if preconditions fail?).'",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Reservation Detail buttons ('Seat Party', 'No-show', 'Finish Party') are specified as conditional on status but do not say whether they hide, disable, or appear static with disabled state; Waitlist 'Convert to Reservation' does not specify fallback if no available tables exist."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Define invalid input handling for all forms and interactive elements, including error messages, validation rules, and recovery behaviors.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Missing details for invalid input handling, which is necessary for robustness and user guidance."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For any multi-message or nested-comment interaction mentioned in the brief or component descriptions, add a full 'Comments & Replies' data structure subsection specifying schema (parent-child relationships, timestamps, author fields), UI rendering (nesting depth, threading visualization), and interaction mechanism (reply button, @mention, edit, delete).",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Application Detail page references 'replies' and 'reply in thread' but UI, data structure, and interaction flow undefined; conflates messaging with no binding spec."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For every form field or text input marked as 'session-only' or 'not persisted', specify the restoration behavior on return to the page: does the field retain text if the user navigates away and back, does it clear on page load, or does it clear on form reset only?",
+                  "advisory_score": 79,
+                  "reasons": [
+                    "Case Detail 'Notes text area' is marked 'session only' but behavior on back-and-return to case is unspecified; build agents would implement restore-or-clear differently."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For every form with 'no-op' or non-persisting submit buttons (e.g., Settings form), specify the visual and state outcome on click: does the form field clear, does a toast appear, does the button show a loading state, or should the interaction be silent?",
+                  "advisory_score": 77,
+                  "reasons": [
+                    "Settings form buttons ('Update Profile', 'Save Thresholds') specified as no-ops but no trigger/outcome defined; build agents would leave interaction incomplete."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "When a workflow action (e.g., 'Request Corrections') changes application state, explicitly document in the spec the resulting state (stays in queue vs. moves to new queue), visibility rules for that state, and which roles/pages can see the corrected application.",
+                  "advisory_score": 75,
+                  "reasons": [
+                    "'Request Corrections' workflow lacks clarity on application state transitions \u2014 remains in current queue or moves to Corrections queue; no state diagram provided."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Explicitly specify responsive behavior for narrow viewports, including how control labels adapt (e.g., truncation, stacking, or icon-only) and ensure keyboard-reachable interactive elements.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Responsive behavior for narrow viewports lacks explicit details for control labels and keyboard reach."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to Page Specifications template: 'For every navigation button or action that leads to another page, specify whether prior state (filters, search query, scroll position) is preserved on return navigation or reset to defaults.'",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "'Back to Tonight' button on Reservation Detail states 'navigate to #/tonight' but does not say if it should restore previous filter/search state or reload clean; ambiguity in state persistence."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to CONTENT RULES: 'Every search or autocomplete field MUST specify matching behavior: case-sensitive or case-insensitive, substring match or exact match, and the source data set (e.g., search across all 18 rows or only filtered visible rows).'",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Search box on Tonight page has placeholder 'Search by party name (e.g., Rossi)' but spec does not say if search is case-insensitive, substring match, or exact match."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Define the UI feedback and behavior for empty results in search/filter interactions, including a clear message (e.g., \"No results found\") and any suggested actions (e.g., \"Reset filters\").",
+                  "advisory_score": 50,
+                  "reasons": [
+                    "Empty results for search/filter interactions are not explicitly described."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Tie the \"cleanup timer\" mechanism to explicit UI feedback, such as a countdown display or visual indicator, to ensure users are aware of the timer's status and remaining time.",
+                  "advisory_score": 50,
+                  "reasons": [
+                    "The \"cleanup timer\" mechanism could be tied to UI feedback (e.g., countdown)."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Define how dynamic content (e.g., insights in the 'Insights Section') is generated or updated to ensure completeness.",
+                  "advisory_score": 50,
+                  "reasons": [
+                    "The spec does not describe how insights are generated, leaving a gap in completeness."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Include a dedicated 'empty state' section for search results or filtered lists (e.g., 'No transactions match your search') to make edge-case behavior unambiguous.",
+                  "advisory_score": 40,
+                  "reasons": [
+                    "The behavior for 'no-match' search results is implied but not explicitly described."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 19,
+              "total": 19,
+              "max_score": 95
+            },
+            "spec_consistency_completeness": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Define the source (backend query, session-scoped state, cache, or computed field) and scope (stateless vs. session-persistent) for every statistic displayed, especially metrics that aggregate across sessions or claims (e.g., 'Total Cases Reviewed: 247 all-time').",
+                  "advisory_score": 92,
+                  "reasons": [
+                    "Analytics shows 247 all-time cases but Session State only models 10 Audit Log entries; unclear whether 247 is synthetic demo data, backend-sourced, or impossible in a stateless prototype."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add a mandatory 'Accessibility & Keyboard Navigation' section to the Template & Design System requiring keyboard focus indicators, tab order, ARIA labels, and screen reader guidance for all interactive elements and tables.",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "Civic ops tool serves diverse users; accessibility rules and focus management entirely absent despite mandatory content rules for all other interaction types."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to OUTPUT FORMAT (Page Specifications section): 'Every page spec MUST include an \"Initial State\" subsection defining: default filter/search values on page load; sort order for lists and tables; which elements are highlighted, expanded, or focused on first render; and whether state persists across navigation or resets to defaults.'",
+                  "advisory_score": 90,
+                  "reasons": [
+                    "No first-load state specified: Tonight page does not say whether it defaults to 'All' seatings or current service period; Waitlist does not specify sort order (time-on-list vs. FIFO); Floor Plan does not say if any table is highlighted; search does not say if it starts empty or retains previous query."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Include in the page specification template a required 'Responsive Design' subsection that explicitly states which elements stack, hide, or reflow at breakpoints (768px for tablet, 1024px for desktop), and define the mobile-first layout strategy for each page.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Responsive breakpoints mentioned in current spec but no guidance on which components reflow; civic ops tool must work on diverse devices and no strategy documented."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Specify whether every page that shows a subset of data (e.g., Rules page showing 12 active rules out of 24 total) displays the full set, paginates, filters by default, or uses another mechanism; if filtering is applied by default (e.g., 'active rules only'), state the filter state explicitly.",
+                  "advisory_score": 82,
+                  "reasons": [
+                    "Rules page displays 12 rows but state model declares 24 rules (12 active, 12 inactive); no indication whether page shows only active rules, paginates, or all rows are loaded."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Specify real-time update mechanisms for dynamic components like `ReviewQueue` and `assignedQueue`, including polling intervals, WebSocket connections, or event-driven updates.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Minor gaps in real-time update mechanisms for dynamic components like `ReviewQueue` and `assignedQueue`."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to Data Model section: 'Define all identifier generation rules (e.g., reservation ID format, table reference format). If composites are used (e.g., {partyName-time}), specify the exact pattern, delimiter, and transformation rules (case, truncation, special-character handling). Ensure all sample routes use consistent ID format.'",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Reservation Detail route is '#/reservation/:id' but sample navigations mix ID formats ('rossi-5pm' vs. 'rossi-515pm'); spec does not define ID generation rule, so ID extraction and URL routing are ambiguous."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to Page Specifications (e.g., Reservation Detail, Floor Plan sections): 'When a design element has multiple display states (e.g., a table cell in Occupied vs. Booked vs. Cleanup state), specify the exact visual format for EACH state (color, text label, icon). Do not specify only one state; list all states and their displays side-by-side.'",
+                  "advisory_score": 75,
+                  "reasons": [
+                    "Floor Plan specifies Occupied cell format ('T1 \u2013 Rossi [4]') but not Booked format; Cleanup state is only mentioned in Finish Party outcome but not defined in Floor Plan legend or state table; unclear what text/label appears in each state cell."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Clarify the Audit Log population rule: specify whether every action (including those not matching a rule, such as 'Mark Legitimate' for a row with no triggered rule) is appended to the Audit Log, or only fraud-flagged/rule-triggered decisions are logged; make the append condition explicit.",
+                  "advisory_score": 74,
+                  "reasons": [
+                    "'Mark Legitimate' actions without a triggered rule show no Audit Log entry in examples; inconsistent with append-only fraud-decision concept and ambiguous for build agents."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "When a component or interaction is described as having multiple display modes (e.g., drawer overlay vs. page navigation), specify exactly one primary mode per interaction and document whether secondary modes are alternatives or errors in the spec.",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "'View' action described as opening drawer overlay but later text says it navigates to `#/application/:id` \u2014 conflation of two different UI patterns without resolution."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to MANDATORY: MULTI-PAGE REQUIREMENT section: 'For every navigation filter or state parameter (e.g., seating period, status type, table state), define the set of allowed values, their labels, and whether multiple selections are possible (radio/single-select vs. checkbox/multi-select).'",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "Waitlist 'Convert to Reservation' modal says 'select time slot' with defaults (5:00, 6:30, 8:00 PM) and 'or free-form time' but does not specify: are free-form times allowed? If yes, does a free-form time create a new seating period, or must user select from defaults only?"
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to OUTPUT FORMAT: 'For responsive or context-dependent measurements (e.g., sidebar width, component padding, breakpoint values), if a design element changes between states (e.g., sidebar expanded vs. collapsed), specify all width/dimension values explicitly and confirm consistency with other specs.'",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "'Sidebar width: 200px (fixed, always visible)' contradicts responsive note 'Sidebar collapses to icon-only on screens < 768px'\u2014does 'fixed' mean always 200px even collapsed, or does collapsed state have a different width? Spec does not clarify collapsed width or confirm 'fixed' persists or changes."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to TEMPLATE COMPLIANCE RULES: 'If the spec defines a CSS class system (e.g., .grid-2, .grid-3, .grid-4, .sidebar, .card), validate by listing, for each class, at least one component where it is used. If a class is not used in any component, omit it from the class system definition.'",
+                  "advisory_score": 65,
+                  "reasons": [
+                    "Class system is comprehensive but not validated; spec does not confirm every class is used in at least one component, or whether .grid-2, .grid-3, .grid-4 are all required for this layout."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add to Data Model section: 'If a data entity has computed or time-dependent fields (e.g., \"time on list\" in Waitlist), specify: (1) the base data (e.g., arrival timestamp); (2) the computation rule (e.g., current time minus arrival time); (3) the refresh frequency (e.g., real-time on every render, or on-demand on blur).'",
+                  "advisory_score": 65,
+                  "reasons": [
+                    "Waitlist 'Time on list' updates 'in real-time' but no trigger specified\u2014does UI tick every second, or is it recomputed only on page refresh/re-render?; refresh trigger ambiguity prevents build agent from implementing real-time updates correctly."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Specify the first-load state for filtered views (e.g., Queue, Rules): when the user navigates to `#/queue` with no query string, does the page load with all data, no filters applied, or restore filters from session storage?",
+                  "advisory_score": 63,
+                  "reasons": [
+                    "Query string updates on filter change documented but initial load state undefined; build agents would implement all-data or filtered-by-default differently."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Explicitly label any stubbed or non-functional elements (e.g., 'Update Profile', 'Save Thresholds') as 'stubbed' or 'non-functional' to avoid confusion.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Stubbed functionality is not clearly labeled, which could lead to confusion during implementation."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For any list or table page, specify the default sort order and filter state on initial load (e.g., 'Review Queues sorts by Days in Stage descending' or 'Inspections filters show Status=All by default').",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Review Queues initial load order unstated; Inspections page filters lack empty-state messaging unlike Applications page \u2014 inconsistent specification."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "In the 'Design Notes' section, state explicitly whether the prototype is desktop-only, responsive to mobile viewports, or tablet-aware; if responsive, define breakpoints and layout behavior for each viewport size (narrow, tablet, desktop).",
+                  "advisory_score": 58,
+                  "reasons": [
+                    "Responsive layout noted parenthetically as out-of-scope but not formally declared; spec should state design intent clearly rather than hedge."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Explicitly state in the spec whether the prototype is 'desktop-only' or includes responsive considerations for other devices, even if the brief does not specify mobile requirements.",
+                  "advisory_score": 40,
+                  "reasons": [
+                    "The lack of a clear stance on responsiveness could lead to ambiguity in implementation."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 19,
+              "total": 19,
+              "max_score": 92
+            }
+          },
+          "unique": 52,
+          "total": 52,
+          "open": 52,
+          "agent_id": "prototype-specify",
+          "system_prompt_hashes": [
+            "sha256:d0362e2a9d35dd591aabff4a2274de4125ba0e8bef1d7a7a38de6fb94014e2b9"
+          ],
+          "runs": [
+            "260803-162919-prototype_aws_3_permits-opusjudge",
+            "260803-162918-prototype_aws_2_reservations-opusjudge",
+            "260803-162918-prototype_aws_1_fraud_review-opusjudge",
+            "260803-160333-prototype_aws_3_permits-mistraljudge",
+            "260803-160333-prototype_aws_2_reservations-mistraljudge",
+            "260803-160333-prototype_aws_1_fraud_review-mistraljudge",
+            "260803-155235-prototype_aws_3_permits-awsjudge",
+            "260803-155235-prototype_aws_2_reservations-awsjudge",
+            "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+          ],
+          "current_prompt_hash": "sha256:d0362e2a9d35dd591aabff4a2274de4125ba0e8bef1d7a7a38de6fb94014e2b9"
+        },
+        "validate": {
+          "categories": {
+            "defect_repair_delta": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Add an explicit instruction that the agent must receive the PRE-FIX prototype HTML file as input in the prompt (e.g., under a `=== PROTOTYPE HTML (BEFORE) ===` section) and then read it before applying any fixes, with a check that confirms the before-state was received and parsed.",
+                  "advisory_score": 95,
+                  "reasons": [
+                    "Judge reported 'NO actual prototype HTML code shown in the input section' \u2014 blocking validation of whether the agent repaired an existing prototype or wrote from scratch, violating the core requirement to 'compare PRE-FIX prototype in the prompt against POST-FIX prototype in the response.'"
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Verify and document in the output that the before-state prototype was received and successfully parsed (e.g., 'Read {N} lines from prototype.html; found {M} pages; starting repairs\u2026') before any fixes are applied, so the caller can confirm the before-state was present.",
+                  "advisory_score": 85,
+                  "reasons": [
+                    "Given missing before-state, the agent cannot distinguish between repairing an existing thin prototype vs. writing from scratch, creating ambiguity about whether it followed the repair-in-place workflow intent."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add explicit input validation rules for modal time input fields to ensure they reject invalid or edge-case values (e.g., negative numbers, out-of-bounds times).",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "The 'Convert to reservation' modal's custom time input field lacks input validation, which could lead to edge-case issues."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 3,
+              "total": 3,
+              "max_score": 95
+            },
+            "page_completeness": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Explicitly require that modals or forms involving selection from existing records (e.g., permit numbers, user roles) must include a searchable dropdown or filter mechanism to ensure practical usability.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "The 'Schedule New Inspection' modal lacked a search or dropdown for permit numbers, making it less user-friendly."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For any `<section data-page>` with an ID that implies configuration or selection (e.g., 'settings', 'permissions', 'inspections'), ensure substantive interactive controls like searchable dropdowns, filters, or form fields are included to match real-world usability.",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "The 'Roles & Permissions' tab in the 'Settings' page and the 'Schedule New Inspection' modal lacked substantive interactive controls, reducing usability."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_3_permits-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "For any page labeled `Analytics`, `Metrics`, or `Traffic`, ensure all charts are represented with **visual SVG or Canvas elements** (e.g., bar charts, line graphs, or pie charts) using realistic data, instead of placeholder text or descriptive labels.",
+                  "advisory_score": 70,
+                  "reasons": [
+                    "The `Analytics` page uses placeholder text for charts instead of visual representations, reducing fidelity and usability."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "When a page contains JavaScript that computes or overwrites HTML values on render (such as analytics totals), place a comment in the HTML noting the field is computed dynamically, and ensure the JavaScript runs before or at the same time as the initial page paint to avoid visible value flashing or inconsistency.",
+                  "advisory_score": 40,
+                  "reasons": [
+                    "Analytics page KPI cards have static HTML values ('Queue Age: 3.2h', 'Total Cases Reviewed: 247') that are overwritten by JavaScript on render, creating a flash of inconsistent data; values should either be pre-computed server-side or JavaScript should run before initial render to hide the transition."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 4,
+              "total": 4,
+              "max_score": 80
+            },
+            "token_and_chrome_consistency": {
+              "entries": [
+                {
+                  "action": "add",
+                  "description": "Explicitly require that all charts on data-driven pages (e.g., `Analytics`, `Metrics`, `Traffic`) must use the prototype's design system tokens for colors, fonts, and spacing, ensuring visual consistency with the rest of the prototype.",
+                  "advisory_score": 80,
+                  "reasons": [
+                    "Placeholder charts on the `Analytics` page were not addressed during repair, risking visual inconsistency with the design system."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_1_fraud_review-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Enhance the visual prominence of allergy flags and notes on the Reservation Detail page by using the `--accent` or `--border` design tokens for borders, backgrounds, or icons, and ensure they are positioned near critical fields.",
+                  "advisory_score": 60,
+                  "reasons": [
+                    "Allergy flags and notes on the Reservation Detail page could be more visually prominent to ensure they are not overlooked."
+                  ],
+                  "runs": [
+                    "260803-160333-prototype_aws_2_reservations-mistraljudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Add a P1 CHECK item: '[ ] No raw rgba() values with hardcoded RGB decimals \u2014 derive opacity overlays from `:root` tokens or use CSS `color-mix()` / `hsla()` with token references where permitted by the design system.'",
+                  "advisory_score": 25,
+                  "reasons": [
+                    "Judge observed rgba() values with hardcoded RGB decimals (e.g., 'rgba(111, 66, 193, 0.15)') that bypass the token system, reducing consistency enforcement even though the underlying hex is defined elsewhere."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_3_permits-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                },
+                {
+                  "action": "add",
+                  "description": "Permit inline `style` attributes for single-use, non-critical visual elements (e.g. legend indicators) when extracting them to a class would introduce unnecessary complexity, provided all colour values reference design tokens.",
+                  "advisory_score": 15,
+                  "reasons": [
+                    "One inline style on floor-plan legend indicator uses token values (`var(--border-color)`, `var(--status-booked)`) correctly; creating a class for a single element adds no value and contradicts the principle of keeping rules simple."
+                  ],
+                  "runs": [
+                    "260803-155235-prototype_aws_2_reservations-awsjudge"
+                  ],
+                  "count": 1,
+                  "prompt_state": "current"
+                }
+              ],
+              "unique": 4,
+              "total": 4,
+              "max_score": 80
+            }
+          },
+          "unique": 11,
+          "total": 11,
+          "open": 11,
+          "agent_id": "prototype-validate",
+          "system_prompt_hashes": [
+            "sha256:e49f3c53f6c354ee7b48a4e5dd346ca701f363a195744fdffa9be8d321cca96d"
+          ],
+          "runs": [
+            "260803-162919-prototype_aws_3_permits-opusjudge",
+            "260803-162918-prototype_aws_2_reservations-opusjudge",
+            "260803-162918-prototype_aws_1_fraud_review-opusjudge",
+            "260803-160333-prototype_aws_3_permits-mistraljudge",
+            "260803-160333-prototype_aws_2_reservations-mistraljudge",
+            "260803-160333-prototype_aws_1_fraud_review-mistraljudge",
+            "260803-155235-prototype_aws_3_permits-awsjudge",
+            "260803-155235-prototype_aws_2_reservations-awsjudge",
+            "260803-155235-prototype_aws_1_fraud_review-awsjudge"
+          ],
+          "current_prompt_hash": "sha256:e49f3c53f6c354ee7b48a4e5dd346ca701f363a195744fdffa9be8d321cca96d"
+        }
+      },
+      "unique": 149,
+      "total": 149
+    }
+  }
+}

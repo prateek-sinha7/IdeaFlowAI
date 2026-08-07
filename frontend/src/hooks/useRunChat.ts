@@ -163,6 +163,22 @@ export interface UseRunChatReturn {
    */
   replyStreaming: ReplyStreamingState | null;
   /**
+   * FIX-172: Fold frames into the transcript WITHOUT resetting — used to recover
+   * narrator chat_reply cards that the SSE race drops (pipeline_complete detaches
+   * the stream before the narrator card arrives). Idempotent: the per-hook seenRef
+   * deduplicates frames already processed, so calling this with already-seen frames
+   * is safe. Does NOT clear messages or the seen-set (unlike seedTranscript).
+   */
+  appendFrames: (frames: RunChatFrame[]) => void;
+  /**
+   * FIX-176: The last-seen seq from the chat transcript hook — used by FIX-172's
+   * appendRunChatFrames caller to fetch only NEWLY-arrived events (after lastSeq)
+   * rather than ALL events from seq 0. This prevents duplicate chat_reply cards
+   * (e.g. "Revision started") from being re-added by FIX-172 when the seenRef
+   * dedup might be racing with seedRunChatTranscript's seenRef.clear().
+   */
+  getLastSeq: () => number;
+  /**
    * DEF-44-12-4 (Piece 3) — IMPERATIVE prior-transcript seed, fired ONLY from
    * the explicit history-open action. Clears the per-hook seen-set + seq cursor,
    * resets `messages` to empty, then folds each frame through `handleFrame` (so
@@ -171,7 +187,7 @@ export interface UseRunChatReturn {
    * accumulating family-anchored transcript (Test 6) is untouched — the reset is
    * scoped by the deliberate view-change, NOT by a per-run filter on handleFrame.
    */
-  seedTranscript: (frames: RunChatFrame[]) => void;
+  seedTranscript: (frames: RunChatFrame[], isTerminalRun?: boolean) => void;
 }
 
 // ── id minting ────────────────────────────────────────────────────────────────
@@ -403,7 +419,21 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
       case "chat_message":
         setMessages((prev) => upsertUserMessage(prev, data));
         break;
-      case "chat_reply":
+      case "chat_reply": {
+        // FIX-180: drop stale pre-FIX-178 narrator cards persisted in run_events
+        // for the review_gate_approved "approve" action. Before FIX-178 the narrator
+        // wrote a CARD_CLARIFY row with this exact text; FIX-178 replaced the mechanism
+        // with the resolved-gate inline text ("Review approved — build continues") and
+        // removed the narrator emission, but existing DB rows were not deleted. When
+        // getRunEvents replays them they produce a duplicate "Approved — build continues"
+        // clarify bubble alongside the resolved gate card. Guard keys on the literal
+        // deprecated text string — SC-001-safe (no pipeline_type / workflow name branch);
+        // INV-3-safe (narrator is dormant on golden runs; this text never appears there).
+        const deprecatedApproveCard =
+          data.card_kind === "clarify" &&
+          typeof data.text === "string" &&
+          data.text === "Approved \u2014 build continues";
+        if (deprecatedApproveCard) break;
         setMessages((prev) => upsertNarratorMessage(prev, data));
         // rqo Issue-2 part-2: finalize the active streaming reply if THIS terminal
         // matches it (by the message_id-derived bubble id or the frame event_id),
@@ -417,6 +447,7 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
           return cur;
         });
         break;
+      }
       case "chat_reply_chunk": {
         // m0o — accumulate the streamed delta into the SAME bubble the terminal
         // `chat_reply` finalizes (keyed `chat-reply:{message_id}`). No dedup/cursor
@@ -442,6 +473,22 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
             typeof data.replayed_through_seq === "number"
               ? data.replayed_through_seq
               : undefined,
+        });
+        break;
+      case "review_gate_approved":
+        // Mark the most recent unresolved gate card in the transcript as
+        // resolved so it re-renders as a plain inline text
+        // ("Review approved — build continues") instead of a styled box.
+        // Generic — keyed on cardKind, never on workflow/agent name (SC-001).
+        setMessages((prev) => {
+          // Find the last unresolved gate card and flip it.
+          const idx = prev.map((m, i) => ({ m, i }))
+            .reverse()
+            .find(({ m }) => m.cardKind === "gate" && !m.resolved)?.i;
+          if (idx === undefined) return prev;
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], resolved: true };
+          return updated;
         });
         break;
       default:
@@ -531,7 +578,7 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
   // setMessages([]) reset is queued before the per-frame updaters, so React
   // applies them in order (empty → folded turns).
   const seedTranscript = useCallback(
-    (frames: RunChatFrame[]) => {
+    (frames: RunChatFrame[], isTerminalRun?: boolean) => {
       seenRef.current.clear();
       lastSeqRef.current = 0;
       setMessages([]);
@@ -539,6 +586,18 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
       // (a seeded transcript's chat_reply rows are all terminal — never mid-stream).
       setReplyStreaming(null);
       for (const f of frames) handleFrame(f);
+      // Auto-resolve all gate cards when seeding a completed/terminal run.
+      // A gate in a completed run was necessarily approved — there is no pending
+      // review box to show. This covers history-reopen and family-seed paths
+      // where review_gate_approved may not be in the durable event log.
+      // Generic — keyed on cardKind, never on workflow/agent name (SC-001).
+      if (isTerminalRun) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.cardKind === "gate" && !m.resolved ? { ...m, resolved: true } : m
+          )
+        );
+      }
     },
     [handleFrame],
   );
@@ -573,5 +632,27 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
     [runId],
   );
 
-  return { messages, sendMessage, addOptimisticMessage, streamAttached, replyStreaming, seedTranscript };
+  /**
+   * FIX-172: Fold frames into the transcript without resetting the seen-set or
+   * messages state. Used after pipeline_complete to recover narrator chat_reply
+   * cards that the SSE race may have dropped. Idempotent: seenRef deduplicates
+   * already-processed frames so re-folding a durable log replay is safe.
+   */
+  const appendFrames = useCallback(
+    (frames: RunChatFrame[]) => {
+      for (const f of frames) handleFrame(f);
+    },
+    [handleFrame],
+  );
+
+  /**
+   * FIX-176: Expose the last-seen seq so FIX-172's appendRunChatFrames caller
+   * can fetch only events AFTER the last delivered seq, preventing duplicate
+   * chat_reply cards (e.g. "Revision started") from re-appearing.
+   */
+  const getLastSeq = useCallback((): number => {
+    return lastSeqRef.current;
+  }, []);
+
+  return { messages, sendMessage, addOptimisticMessage, streamAttached, replyStreaming, seedTranscript, appendFrames, getLastSeq };
 }

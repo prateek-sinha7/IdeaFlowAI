@@ -5,7 +5,12 @@ LLM provider notes
 The backend uses AWS Bedrock via ``langchain_aws.ChatBedrockConverse``.
 Auth comes from the boto3 default credential chain (instance profile in
 prod, ``~/.aws/credentials`` / ``AWS_PROFILE`` locally). Requires
-``BEDROCK_MODEL_ID`` and ``AWS_REGION``.
+``BEDROCK_MODEL_ID`` and ``AWS_REGION``. 
+Mistral (``langchain_mistralai.ChatMistralAI``) is an optional, $0 free-tier provider
+ — reachable as a fallback when neither Anthropic nor Bedrock is configured, or
+forced explicitly via ``build_model(..., provider="mistral")`` (used by the eval
+harness so it can run against Mistral without disturbing any other caller's
+Anthropic/Bedrock config).
 
 IMPORTANT — operator action: the ``BEDROCK_MODEL_ID`` default below is a
 cross-region inference profile for ``eu-central-1``. Verify availability
@@ -97,6 +102,18 @@ class Settings(BaseSettings):
     # When set, uses langchain-anthropic instead of Bedrock.
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL_ID: str = "claude-haiku-4-5-20251001"
+
+    # ---- Mistral (free-tier fallback / eval-harness opt-in) ----
+    # When set, build_model() can reach langchain-mistralai's ChatMistralAI —
+    # either as the third-tier fallback (only when neither ANTHROPIC_API_KEY nor
+    # Bedrock resolves) or unconditionally via the explicit
+    # build_model(provider="mistral") opt-in that the eval harness uses. Empty
+    # (default) means Mistral is never reachable.
+    MISTRAL_API_KEY: str = ""
+    # mistral-small-latest — the closest weight-class match to Haiku 4.5 among
+    # the free providers investigated (see specs/005-prompt-eval-scoring/research/candidate.md).
+    # Overridable per-call via build_model(model=...).
+    MISTRAL_MODEL_ID: str = "mistral-small-latest"
 
     # ---- AWS Bedrock ----
     # Foundation-model ID. The IAM policy in
