@@ -13,12 +13,29 @@ import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, type BadgeStatus } from "@/components/ui/Badge";
+import { SecuritySection } from "@/components/settings/SecuritySection";
+
+/**
+ * The settings surface's tab ids. Exported so callers that deep-link into a
+ * specific tab (the header profile menu's "Security" item) reference the same
+ * union rather than a loose string.
+ */
+export type SettingsSection = "profile" | "model" | "limits" | "constitution" | "security";
 
 interface AccountSettingsProps {
   onBack: () => void;
+  /**
+   * Tab to open on. Defaults to "profile".
+   *
+   * Mount-time only, by design: the active tab is local UI state that the user
+   * owns once the surface is open, so a later prop change must not yank them off
+   * the tab they just clicked. Callers that need to force a specific tab while
+   * this surface is ALREADY open remount it (DashboardLayout keys the settings
+   * view on a per-request nonce), which is why this is `initialSection` rather
+   * than a controlled `section`.
+   */
+  initialSection?: SettingsSection;
 }
-
-type SettingsSection = "profile" | "model" | "limits" | "constitution";
 
 // Pipeline display names — used by the Usage & Limits deliverable-access grid.
 const PIPELINE_DISPLAY: Record<string, { label: string; description: string }> = {
@@ -46,8 +63,8 @@ function getBasePipelines(tier: Tier): string[] {
   return all.filter(p => !p.endsWith("_revision")).filter(p => PIPELINE_DISPLAY[p]);
 }
 
-export function AccountSettings({ onBack }: AccountSettingsProps) {
-  const [section, setSection] = useState<SettingsSection>("profile");
+export function AccountSettings({ onBack, initialSection = "profile" }: AccountSettingsProps) {
+  const [section, setSection] = useState<SettingsSection>(initialSection);
   const [email, setEmail] = useState("");
   const [userTier, setUserTier] = useState<Tier>("basic");
   const [loading, setLoading] = useState(true);
@@ -139,11 +156,15 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
   // The mock relabels "Limits" → "Usage & Limits" (pure fidelity fix); the
   // internal id + data-testid ("limits" / tab-limits) stay stable. No tab
   // icons — the mock's settings tab row is plain text.
+  // "Security" sits LAST (after Constitution): it absorbed the retired
+  // /settings/security route, which was the same MFA controls behind a second,
+  // parallel navigation model.
   const SECTION_TABS: TabItem[] = [
     { id: "profile", label: "Profile" },
     { id: "model", label: "AI Model" },
     { id: "limits", label: "Usage & Limits" },
     { id: "constitution", label: "Constitution" },
+    { id: "security", label: "Security" },
   ];
 
   // Token-driven feedback banner (success -> done ramp, error -> failed ramp).
@@ -172,7 +193,7 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
           </button>
           <div className="flex-1">
             <h1 className="text-[24px] font-light tracking-tight text-ink-900 leading-none font-sans">Account Settings</h1>
-            <p className="text-[12.5px] text-ink-400 mt-1.5">Profile, model preference, usage limits and your agent constitution.</p>
+            <p className="text-[12.5px] text-ink-400 mt-1.5">Profile, model preference, usage limits, your agent constitution and sign-in security.</p>
           </div>
         </div>
 
@@ -426,6 +447,11 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
           {/* ── CONSTITUTION ── */}
           {section === "constitution" && (
             <ConstitutionSection />
+          )}
+
+          {/* ── SECURITY ── two-factor authentication (was /settings/security) */}
+          {section === "security" && (
+            <SecuritySection />
           )}
 
         </AnimatePresence>

@@ -306,7 +306,9 @@ Two factors are available, and the gate accepts **either**:
 | Authenticator app (TOTP) | `POST /api/auth/mfa/totp/associate` → `otpauth://` URI for a QR code, then `POST /api/auth/mfa/totp/verify` | No pool change needed; available on any pool with `mfa_configuration != OFF` |
 | Email codes (EMAIL_OTP) | `POST /api/auth/mfa/email/enable` — a single toggle, no secret to provision | Requires the pool change in 6.4 below |
 
-Users manage both from **Security** in the account menu (`/settings/security`).
+Users manage both from **Security** in the account menu, which opens the
+**Security** tab of Account Settings on `/dashboard` (there is no longer a
+standalone `/settings/security` route).
 `GET /api/auth/mfa` reports current state.
 
 Enforcement is separate from availability:

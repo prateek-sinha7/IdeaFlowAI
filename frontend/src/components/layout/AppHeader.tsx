@@ -22,6 +22,7 @@ import type { PipelineNotification } from "@/hooks/useNotifications";
 import { getWorkflowLabel } from "@/hooks/useNotifications";
 import type { Tier } from "@/lib/entitlements";
 import { TIER_LABELS } from "@/lib/entitlements";
+import type { SettingsSection } from "@/components/settings/AccountSettings";
 import type { WorkflowRun } from "@/types/index";
 
 // Status label + dot colour map for live runs — mirrors HomeLaunchGrid's
@@ -45,7 +46,14 @@ const LIVE_STATUSES = new Set([
 
 interface AppHeaderProps {
   currentPage: "home" | "library" | "workflow" | "execution" | "history" | "analytics" | "catalog" | "saved-workflows";
-  onNavigate: (page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => void;
+  /**
+   * Navigate to an in-app dashboard panel. `options.settingsSection` deep-links
+   * into a single Account Settings tab and is ignored for every other page.
+   */
+  onNavigate: (
+    page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows",
+    options?: { settingsSection?: SettingsSection },
+  ) => void;
   onLogout: () => void;
   userEmail?: string;
   userTier?: Tier;
@@ -504,12 +512,13 @@ export function AppHeader({
                     <Settings className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
                     Account Settings
                   </button>
-                  {/* Routes directly rather than through onNavigate: security is
-                      its own page, not one of the dashboard's in-app panels the
-                      onNavigate union covers (mirrors Admin Dashboard below). */}
+                  {/* Deep-links into the Account Settings "Security" tab. It used
+                      to router.push("/settings/security") — that standalone route
+                      is gone, and its MFA controls now live as a tab on this
+                      surface, so security is an in-app panel like the rest. */}
                   <button
                     role="menuitem"
-                    onClick={() => { setProfileOpen(false); router.push("/settings/security"); }}
+                    onClick={() => { setProfileOpen(false); onNavigate("settings", { settingsSection: "security" }); }}
                     className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-ink-700 hover:bg-surface-warm transition-colors text-left"
                   >
                     <ShieldCheck className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />

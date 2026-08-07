@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, ShieldAlert, Mail, Smartphone, ArrowLeft, RefreshCw } from "lucide-react";
+import { motion } from "motion/react";
+import { ShieldCheck, ShieldAlert, Mail, Smartphone, RefreshCw } from "lucide-react";
 import {
   getToken,
   getMfaStatus,
@@ -23,6 +24,12 @@ import { Button } from "@/components/ui/Button";
  * were always missing. Without it `ADMIN_MFA_REQUIRED` is a lockout switch
  * rather than a control, because the 403 it raises points at an endpoint no
  * screen calls.
+ *
+ * Lives as a TAB inside Account Settings rather than its own route: the
+ * standalone `/settings/security` page duplicated the chrome (own back button,
+ * own page title) that the settings surface already provides, and split account
+ * concerns across two navigation models. This component therefore renders body
+ * content only — the header, back affordance and tab strip are the parent's.
  *
  * Email OTP is a TOGGLE, not a wizard, and that asymmetry with TOTP is real
  * rather than a shortcut: Cognito provisions no secret for email codes (the
@@ -54,7 +61,7 @@ function describeError(err: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function SecuritySettingsPage() {
+export function SecuritySection() {
   const router = useRouter();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [pending, setPending] = useState(false);
@@ -102,111 +109,105 @@ export default function SecuritySettingsPage() {
     void load();
   }, [load]);
 
-  async function toggleEmailMfa(enable: boolean) {
-    const token = getToken();
-    if (!token) {
-      router.replace(buildLoginRedirect());
-      return;
-    }
-    setPending(true);
-    setNotice(null);
-    try {
-      const result = enable ? await enableEmailMfa(token) : await disableEmailMfa(token);
-      // Trust the server's returned factor list over an optimistic guess: the
-      // write resolves against the account's real current state, so assuming
-      // the outcome here could show a factor set that never existed.
-      setState((prev) =>
-        prev.kind === "ready"
-          ? {
-              kind: "ready",
-              status: {
-                ...prev.status,
-                factors: result.factors,
-                enabled: result.factors.length > 0,
-              },
-            }
-          : prev
-      );
-      setNotice({ tone: "ok", text: result.message });
-    } catch (err) {
-      setNotice({
-        tone: "bad",
-        text: describeError(err, "That change could not be saved. Please try again."),
-      });
-    } finally {
-      setPending(false);
-    }
-  }
+  const toggleEmailMfa = useCallback(
+    async (enable: boolean) => {
+      const token = getToken();
+      if (!token) {
+        router.replace(buildLoginRedirect());
+        return;
+      }
+      setPending(true);
+      setNotice(null);
+      try {
+        const result = enable ? await enableEmailMfa(token) : await disableEmailMfa(token);
+        // Trust the server's returned factor list over an optimistic guess: the
+        // write resolves against the account's real current state, so assuming
+        // the outcome here could show a factor set that never existed.
+        setState((prev) =>
+          prev.kind === "ready"
+            ? {
+                kind: "ready",
+                status: {
+                  ...prev.status,
+                  factors: result.factors,
+                  enabled: result.factors.length > 0,
+                },
+              }
+            : prev
+        );
+        setNotice({ tone: "ok", text: result.message });
+      } catch (err) {
+        setNotice({
+          tone: "bad",
+          text: describeError(err, "That change could not be saved. Please try again."),
+        });
+      } finally {
+        setPending(false);
+      }
+    },
+    [router]
+  );
 
   return (
-    <main className="min-h-screen bg-surface-paper px-4 py-12">
-      <div className="mx-auto w-full max-w-2xl">
-        <button
-          type="button"
-          onClick={() => router.push("/dashboard")}
-          className="mb-6 inline-flex items-center gap-1.5 rounded-[var(--radius-button)] text-[12px] text-ink-500 hover:text-ink-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-          Back to dashboard
-        </button>
+    <motion.div
+      key="security"
+      initial={{ opacity: 0, x: 8 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -8 }}
+      transition={{ duration: 0.15 }}
+      className="pt-1"
+    >
+      <p className="text-[13px] text-ink-500 leading-relaxed mb-4 max-w-2xl">
+        Add a second step to sign-in so a stolen password isn&apos;t enough on its own.
+      </p>
 
-        <header className="mb-8">
-          <h1 className="font-sans text-[32px] font-semibold leading-[1.1] tracking-tight text-ink-900">
-            Security
-          </h1>
-          <p className="mt-3 text-[13px] leading-relaxed text-ink-500">
-            Add a second step to sign-in so a stolen password isn&apos;t enough on its own.
-          </p>
-        </header>
-
-        {/*
-          aria-live so the outcome of a toggle is announced. Without it a
-          screen-reader user gets no confirmation that anything happened —
-          the only visible change is text further down the page.
-        */}
-        <div aria-live="polite" className="sr-only">
-          {notice?.text ?? ""}
-        </div>
-
-        {state.kind === "loading" && <SecuritySkeleton />}
-
-        {state.kind === "error" && (
-          <Card className="p-7">
-            <div className="flex items-start gap-3">
-              <ShieldAlert
-                className="mt-0.5 h-5 w-5 flex-shrink-0 text-status-failed"
-                aria-hidden="true"
-              />
-              <div>
-                <p className="text-[14px] font-semibold text-ink-900">
-                  Couldn&apos;t load your settings
-                </p>
-                <p className="mt-1 text-[13px] leading-relaxed text-ink-500">{state.message}</p>
-                <Button variant="secondary" onClick={retry} className="mt-4">
-                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                  Try again
-                </Button>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {state.kind === "ready" && (
-          <SecurityPanel
-            status={state.status}
-            pending={pending}
-            notice={notice}
-            onToggleEmail={toggleEmailMfa}
-          />
-        )}
+      {/*
+        aria-live so the outcome of a toggle is announced. Without it a
+        screen-reader user gets no confirmation that anything happened —
+        the only visible change is text further down the page.
+      */}
+      <div aria-live="polite" className="sr-only">
+        {notice?.text ?? ""}
       </div>
-    </main>
+
+      {state.kind === "loading" && <SecuritySkeleton />}
+
+      {state.kind === "error" && (
+        <Card className="p-[22px] shadow-[var(--elevation-raised)]">
+          <div className="flex items-start gap-3">
+            <ShieldAlert
+              className="mt-0.5 h-5 w-5 flex-shrink-0 text-status-failed"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="text-[14px] font-semibold text-ink-900">
+                Couldn&apos;t load your settings
+              </p>
+              <p className="mt-1 text-[13px] leading-relaxed text-ink-500">{state.message}</p>
+              <Button variant="secondary" onClick={retry} className="mt-4">
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                Try again
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {state.kind === "ready" && (
+        <SecurityPanel
+          status={state.status}
+          pending={pending}
+          notice={notice}
+          onToggleEmail={toggleEmailMfa}
+        />
+      )}
+    </motion.div>
   );
 }
 
 function SecuritySkeleton() {
   return (
-    <Card className="p-7" aria-busy="true">
+    <Card className="p-[22px] shadow-[var(--elevation-raised)]" aria-busy="true">
       {/* Fixed heights matching the loaded rows so nothing shifts on arrival (CLS). */}
       <div className="h-5 w-48 animate-pulse rounded bg-surface-warm" />
       <div className="mt-6 h-[72px] animate-pulse rounded-[var(--radius-button)] bg-surface-warm" />
@@ -231,10 +232,8 @@ function SecurityPanel({
   // plainly instead of rendering controls that would 501.
   if (!status.supported) {
     return (
-      <Card className="p-7">
-        <p className="text-[14px] font-semibold text-ink-900">
-          Not available for this account
-        </p>
+      <Card className="p-[22px] shadow-[var(--elevation-raised)]">
+        <p className="text-[14px] font-semibold text-ink-900">Not available for this account</p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-500">
           This account&apos;s credentials are managed outside the application, so
           two-factor authentication is configured separately.
@@ -247,8 +246,8 @@ function SecurityPanel({
   const totpOn = status.factors.includes("SOFTWARE_TOKEN_MFA");
 
   return (
-    <div className="space-y-4">
-      <Card className="p-7">
+    <div className="space-y-3.5">
+      <Card className="p-[22px] shadow-[var(--elevation-raised)]">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">
             {status.enabled ? (
@@ -300,7 +299,7 @@ function SecurityPanel({
         )}
       </Card>
 
-      <Card className="divide-y divide-line-divider">
+      <Card className="divide-y divide-line-divider shadow-[var(--elevation-raised)]">
         {status.email_available && (
           <MethodRow
             icon={<Mail className="h-4 w-4 text-ink-500" aria-hidden="true" />}

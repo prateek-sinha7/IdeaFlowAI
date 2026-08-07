@@ -35,7 +35,11 @@ class User(Base):
     # before this value is treated as revoked — the cheap, enumeration-free
     # "revoke all this user's outstanding tokens" pattern. Nullable so users
     # who have never rotated their password have no blanket-revocation cutoff.
-    password_changed_at = Column(DateTime, nullable=True)
+    # timezone=True (0035): stores timestamptz on Postgres so the stamped
+    # UTC instant survives the round-trip regardless of the DB session's
+    # timezone -- see 0035's docstring for the "Token has been revoked"
+    # class of bug this closes.
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
     tier = Column(String, nullable=False, default="basic", server_default="basic")
     is_admin = Column(Boolean, nullable=False, default=False, server_default="0")
     preferred_model = Column(String, nullable=True, default=None)
@@ -54,10 +58,12 @@ class User(Base):
     # Generalizes password_changed_at: any JWT/Cognito-token whose `iat` is
     # before max(password_changed_at, tokens_valid_from) is rejected. A role
     # or tier change stamps this to force re-authentication with fresh groups.
-    tokens_valid_from = Column(DateTime, nullable=True)
+    # timezone=True (0035) -- see password_changed_at above.
+    tokens_valid_from = Column(DateTime(timezone=True), nullable=True)
     # Observability only (when the tier/is_admin projection below was last
     # refreshed from cognito:groups) -- never read by an authorization check.
-    roles_synced_at = Column(DateTime, nullable=True)
+    # timezone=True (0035) -- see password_changed_at above.
+    roles_synced_at = Column(DateTime(timezone=True), nullable=True)
     # Stamped by api/auth.py::login_challenge ONLY when the caller just
     # answered a real Cognito MFA challenge (SOFTWARE_TOKEN_MFA / EMAIL_OTP)
     # during sign-in -- never by the enrolment endpoints (mfa/totp/verify,
@@ -67,18 +73,21 @@ class User(Base):
     # gate (P0 fix -- COGNITO-AUTH-QA-BUGS.md "Admin MFA is Off by Default and
     # Bypassable"). Nullable: a user who has never completed an MFA challenge
     # has no stamp, which correctly fails the gate when ADMIN_MFA_REQUIRED.
-    mfa_verified_at = Column(DateTime, nullable=True)
+    # timezone=True (0035) -- see password_changed_at above.
+    mfa_verified_at = Column(DateTime(timezone=True), nullable=True)
     # Fernet-encrypted Cognito refresh token (0032), stored so
     # POST /api/auth/refresh can call REFRESH_TOKEN_AUTH server-side -- the
     # browser only ever holds one bearer value (the access token), per the
     # getToken()/setToken() seam (Decision 3). NULL for local/break-glass
     # users, who have no Cognito refresh token.
     encrypted_cognito_refresh_token = Column(Text, nullable=True)
+    # timezone=True (0035) -- see password_changed_at above; kept consistent
+    # with the other users.* timestamp columns.
     created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
