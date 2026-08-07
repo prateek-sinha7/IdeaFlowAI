@@ -74,18 +74,20 @@ def _principal_as_payload(principal: Principal) -> dict:
 def _decode_and_load_user(
     credentials: HTTPAuthorizationCredentials,
     db: Session,
+    *,
+    allow_expired: bool = False,
 ) -> tuple[User, Principal]:
     """Common credential-verify + user-lookup logic, with no revocation checks.
 
     Returns ``(user, principal)``. Raises 401 only on the unrecoverable cases
-    where the token is plainly invalid (bad signature, expired, missing
-    subject, no matching user). Revocation gating is layered on top by the
-    full-fat dependencies.
+    where the token is plainly invalid (bad signature, expired -- unless
+    ``allow_expired`` --, missing subject, no matching user). Revocation
+    gating is layered on top by the full-fat dependencies.
     """
     token = credentials.credentials
 
     try:
-        principal = verify_credential(token)
+        principal = verify_credential(token, allow_expired=allow_expired)
     except CredentialInvalid:
         raise _invalid_token()
 
@@ -160,6 +162,39 @@ def get_current_user_with_payload(
     return user, _principal_as_payload(principal)
 
 
+def get_current_principal(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> tuple[User, Principal]:
+    """Verify the credential, run the full revocation gate, return
+    ``(user, principal)`` with the REAL ``Principal`` object (not the dict
+    projection ``get_current_user_with_payload`` hands back).
+
+    Callers that need to make an authorization decision keyed on the
+    EFFECTIVE role/tier (``core.identity.effective_tier`` /
+    ``effective_is_admin``) should depend on this instead of
+    ``get_current_user`` — those functions take a ``Principal``, and
+    reconstructing one from the dict payload (as ``api/auth.py``'s
+    ``_principal_from_payload`` and ``api/admin.py``'s inline construction
+    both do) is a needless second projection. New call sites should prefer
+    this dependency; the dict-payload path stays only for the two existing
+    callers that were already built around it.
+    """
+    user, principal = _decode_and_load_user(credentials, db)
+
+    if principal.jti and is_token_revoked(principal.jti, db):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    _check_password_change_revocation(user, principal)
+    _maybe_run_lazy_gc(db)
+
+    return user, principal
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -190,6 +225,40 @@ def get_current_user(
     """
     user, _ = get_current_user_with_payload(credentials=credentials, db=db)
     return user
+
+
+def get_current_user_for_refresh(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> tuple[User, dict]:
+    """Resolve the credential for ``POST /api/auth/refresh`` ONLY.
+
+    P1 fix (COGNITO-AUTH-QA-BUGS.md "Token Refresh: Impossible After Access
+    Token Expiry"): identical to :func:`get_current_user_with_payload`
+    EXCEPT it accepts a token whose ``exp`` has already passed, bounded by
+    ``settings.AUTH_REFRESH_GRACE_SECONDS`` (see
+    ``core.identity.verify_credential(allow_expired=True)``). Every other
+    check still applies in full — signature, issuer, client_id, per-jti
+    revocation (a LOGGED-OUT user cannot use this to mint a new token), and
+    the generalized blanket revocation (a token issued before a password/role
+    change is still rejected even if it hasn't reached its own ``exp`` yet).
+
+    Do NOT reuse this dependency for any other endpoint — accepting expired
+    bearers is exactly the wrong contract for a normal protected route.
+    """
+    user, principal = _decode_and_load_user(credentials, db, allow_expired=True)
+
+    if principal.jti and is_token_revoked(principal.jti, db):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    _check_password_change_revocation(user, principal)
+    _maybe_run_lazy_gc(db)
+
+    return user, _principal_as_payload(principal)
 
 
 def get_user_for_logout(

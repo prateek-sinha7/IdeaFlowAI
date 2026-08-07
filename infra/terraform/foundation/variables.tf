@@ -329,6 +329,35 @@ variable "cognito_refresh_token_validity_days" {
   default     = 30
 }
 
+# --- Feature plan / threat protection (P2 fix, COGNITO-AUTH-QA-BUGS.md) ----
+# The cognito module already supports both (Decision 8 / Phase 6 item 2), but
+# the foundation layer never exposed them as variables -- ESSENTIALS and
+# NO_ACTION were the only reachable values for every environment regardless
+# of what an operator wanted, closing off threat protection entirely without
+# a manual module-level Terraform edit.
+
+variable "cognito_feature_plan" {
+  description = "Cognito user pool feature plan: LITE, ESSENTIALS, or PLUS. ESSENTIALS (default) provides TOTP MFA. PLUS additionally enables threat protection (compromised-credential detection, adaptive auth) and costs more per MAU."
+  type        = string
+  default     = "ESSENTIALS"
+
+  validation {
+    condition     = contains(["LITE", "ESSENTIALS", "PLUS"], var.cognito_feature_plan)
+    error_message = "cognito_feature_plan must be one of: LITE, ESSENTIALS, PLUS."
+  }
+}
+
+variable "cognito_threat_protection_mode" {
+  description = "Threat-protection enforcement for the standard auth flow. Requires cognito_feature_plan = PLUS; ignored (and the underlying resource skipped) otherwise. AUDIT logs risk assessments without blocking; ENFORCED applies the configured automatic responses; NO_ACTION disables it."
+  type        = string
+  default     = "NO_ACTION"
+
+  validation {
+    condition     = contains(["NO_ACTION", "AUDIT", "ENFORCED"], var.cognito_threat_protection_mode)
+    error_message = "cognito_threat_protection_mode must be one of: NO_ACTION, AUDIT, ENFORCED."
+  }
+}
+
 # --- Auth cutover flags (COGNITO-MIGRATION-PLAN §7 Phase 5) -----------------
 # Only take effect when cognito_enabled = true (see main.tf). Published to SSM
 # so step 7 of the cutover checklist (flip AUTH_ALLOW_LEGACY_JWT to false) is a
@@ -355,4 +384,10 @@ variable "break_glass_enabled" {
   description = "Keep the single local-password break-glass admin reachable (Decision 12). Leave true unless you have a specific reason to close that path."
   type        = bool
   default     = true
+}
+
+variable "admin_mfa_required" {
+  description = "Require a confirmed second factor for admin operations (Phase 6 item 1 / P0 fix COGNITO-AUTH-QA-BUGS.md). Default false so shipping this cannot lock out admins who have not enrolled + re-authenticated through an MFA challenge yet. Enable per-environment only after verifying every admin has completed the challenge at least once (enrolling alone does not satisfy the session-bound gate)."
+  type        = bool
+  default     = false
 }

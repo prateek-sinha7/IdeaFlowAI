@@ -370,3 +370,17 @@ resource "aws_ssm_parameter" "break_glass_enabled" {
     Component = "secrets"
   }
 }
+
+resource "aws_ssm_parameter" "admin_mfa_required" {
+  count = length(var.admin_mfa_required) > 0 ? 1 : 0
+
+  name        = "${local.prefix}/ADMIN_MFA_REQUIRED"
+  description = "Require a confirmed second factor for admin operations (P0 fix). IMPORTANT: must ALSO be added to the secrets-loader allowlist in infra/scripts/bootstrap-ec2.sh, or this parameter is silently dropped from /etc/velocityai/app.env."
+  type        = "String"
+  value       = var.admin_mfa_required
+  tier        = "Standard"
+
+  tags = {
+    Component = "secrets"
+  }
+}

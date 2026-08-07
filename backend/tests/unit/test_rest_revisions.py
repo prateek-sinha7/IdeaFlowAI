@@ -58,9 +58,13 @@ from app.models.workflow import WorkflowRun
 
 
 class _FakeUser:
-    def __init__(self, id: str):
+    def __init__(self, id: str, tier: str = "enterprise"):
         self.id = id
         self.preferred_model = None
+        # Defaults to "enterprise" (P1 tier-gate fix) so pre-existing ownership/
+        # mint/driver tests are unaffected; entitlement behavior is covered by
+        # its own dedicated test(s).
+        self.tier = tier
 
 
 class _StubEngine:

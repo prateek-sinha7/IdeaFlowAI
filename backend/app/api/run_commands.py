@@ -50,6 +50,7 @@ from app.agents.chat_runner import ChatRunner
 from app.agents.modes import get_mode_prompt
 from app.core.config import settings
 from app.core.dependencies import get_current_user
+from app.core.entitlements import can_run_pipeline
 from app.models.chat import ChatSession, Message
 from app.models.user import User
 from app.models.workflow import WorkflowRun
@@ -382,6 +383,13 @@ async def resume_run_endpoint(
                 f"Run is {wr.status!r}; only failed, degraded, or cancelled runs are resumable",
                 http_status=status.HTTP_409_CONFLICT,
             )
+
+        # P1 fix: tier entitlement gate on the run's OWN type. A resume re-drives
+        # the same pipeline the run was originally launched as, so if the caller's
+        # tier no longer entitles them to it (e.g. downgraded after launch), resume
+        # must deny exactly as a fresh launch would — never a way to route around
+        # the launch-time gate.
+        _require_tier_entitlement(current_user, wr.type)
 
         # (3) Overlap mutex — the authoritative liveness signal is the in-process DRIVER
         # TASK (NOT the DB status, and NOT bare registry membership: a stale entry from a
@@ -1479,6 +1487,38 @@ def _reject(code: str, error: str, *, http_status: int = status.HTTP_400_BAD_REQ
     return HTTPException(status_code=http_status, detail=detail)
 
 
+def _require_tier_entitlement(current_user: User, pipeline_type: str) -> None:
+    """P1 fix (COGNITO-AUTH-QA-BUGS.md "REST Pipeline Launch Has No Tier
+    Check"): enforce ``can_run_pipeline(tier, pipeline_type)`` before a run
+    (or revision, or resume) is minted/driven. Previously ``launch_run``,
+    ``create_revision``, and ``resume_run_endpoint`` never called this at
+    all — the entitlement helper existed and was used at save-time in
+    ``user_workflows.py`` but was completely absent from every REST launch
+    codepath, so any authenticated user could run a tier-restricted pipeline
+    regardless of their subscription tier.
+
+    Reads ``current_user.tier`` — the SAME source ``user_workflows.py``'s
+    save-time gate already uses. This is the DB column, which is advisory on
+    the Cognito path relative to a live token's ``cognito:groups`` (see
+    ``core.identity``'s precedence rule) but is refreshed on every login
+    (``_refresh_role_projection``) and re-stamped synchronously on every
+    admin tier-change write (``admin.py::update_user_tier``, which also
+    forces ``AdminUserGlobalSignOut`` so a stale token cannot outlive the
+    change) — the same one-cycle staleness window ``admin.py::require_admin``
+    already documents accepting for the analogous ``is_admin`` check. Closing
+    that residual window to a per-request live-token read is a further
+    hardening step, deferred like ``require_admin``'s, not a gap this fix
+    reintroduces.
+    """
+    allowed, reason = can_run_pipeline(current_user.tier, pipeline_type)
+    if not allowed:
+        raise _reject(
+            "tier_not_entitled",
+            reason,
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
+
+
 def _resolve_launch_agents(body: "LaunchCommand"):
     """Resolve + validate a launch payload's pipeline + od_context, returning
     ``(base_pipeline_type, od_context)`` or raising the matching HTTPException.
@@ -1628,6 +1668,11 @@ async def launch_run(
     content = body.message
 
     base_pipeline_type, od_context = _resolve_launch_agents(body)
+
+    # P1 fix: tier entitlement gate, BEFORE any WorkflowRun is minted. Checked
+    # against the RESOLVED base type (od_prototype/od_ppt normalize to their
+    # tier-table entries) — see _require_tier_entitlement.
+    _require_tier_entitlement(current_user, pipeline_type)
 
     # ── Resolve + allow-list the agents (invalid_agent_ids) ────────────────────
     agent_ids = body.agent_ids
@@ -2373,6 +2418,13 @@ async def create_revision(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run"
             )
+        # P1 fix: tier entitlement gate on the DERIVED revision pipeline type
+        # (mirrors _mint_revision_row's own derivation), BEFORE any child row
+        # is minted.
+        _revision_pipeline_type = (
+            f"{body.target_artifact_type.removesuffix('_output')}_revision"
+        )
+        _require_tier_entitlement(current_user, _revision_pipeline_type)
         child_run_id, _ = _mint_revision_row(
             db,
             user=current_user,

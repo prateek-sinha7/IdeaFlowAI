@@ -54,7 +54,7 @@ from sqlalchemy.pool import StaticPool
 from agents.authz import ScopedStore
 from app.api.run_stream import _iter_sse_frames, router as stream_router
 from app.core.config import settings
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_user_with_payload
 from app.models.database import Base, get_db
 from app.models.run_event import RunEvent
 from app.models.workflow import WorkflowRun
@@ -80,6 +80,7 @@ from tests.agents.characterization._sse_projection import (
 class _FakeUser:
     def __init__(self, id: str):
         self.id = id
+        self.auth_provider = "local"
 
 
 @pytest.fixture
@@ -118,6 +119,9 @@ def matrix(monkeypatch):
     app.include_router(commands_router)
     state: dict = {"user": _FakeUser(id="owner")}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
+    app.dependency_overrides[get_current_user_with_payload] = lambda: (
+        state["user"], {"jti": None, "iat": None}
+    )
     app.dependency_overrides[get_db] = lambda: (yield session)
     client = TestClient(app)
 

@@ -234,21 +234,69 @@ def update_user_tier(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     if user.auth_provider == "cognito":
-        old_group = _TIER_TO_GROUP.get(user.tier)
         new_group = _TIER_TO_GROUP[request.tier]
+        # P1 fix: remove EVERY tier group the user actually holds at Cognito
+        # (a live AdminListGroupsForUser read), not just the one INFERRED
+        # from the local `tier` column. The old code removed only
+        # `_TIER_TO_GROUP.get(user.tier)` — if the account had somehow
+        # accumulated multiple tier groups (data corruption, manual console
+        # edits, a previous partial failure of THIS same endpoint), any
+        # group other than the DB-projected one survived the "swap" and
+        # could still satisfy `resolve_tier_from_groups`'s precedence table
+        # at a higher tier than the one just assigned.
         try:
-            if old_group and old_group != new_group:
-                cognito.admin_remove_user_from_group(user.email, old_group)
-            cognito.admin_add_user_to_group(user.email, new_group)
-            cognito.admin_user_global_sign_out(user.email)
+            current_groups = set(cognito.admin_list_groups_for_user(user.email))
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
-            logger.error("Cognito tier update failed for %s: %s", user.email, code)
+            logger.error(
+                "Cognito group lookup failed for %s during tier update: %s",
+                user.email, code,
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Could not update tier at the identity provider.",
             )
-        user.tokens_valid_from = datetime.now(timezone.utc)
+        stale_tier_groups = {
+            g for g in _TIER_TO_GROUP.values() if g in current_groups and g != new_group
+        }
+        # P1 fix (COGNITO-AUTH-QA-BUGS.md "Privilege Mutation: Non-Atomic
+        # Cognito/DB Updates Can Leave Stale Tokens Valid"): stamp AND COMMIT
+        # `tokens_valid_from` FIRST, before any Cognito mutation. Previously
+        # this ran the Cognito group swap + global-sign-out FIRST and only
+        # committed the local cutoff afterward — if the process crashed, the
+        # DB write failed, or simply raced a request in the window between
+        # the (already-applied) Cognito change and the (not-yet-committed)
+        # local commit, a token minted under the OLD tier stayed valid past
+        # the point where Cognito believed the change had taken effect
+        # (`iat < tokens_valid_from` was comparing against the STALE cutoff).
+        # Committing the cutoff first closes that window: from this instant
+        # on, ANY token whose `iat` predates it is rejected by
+        # `is_revoked_by_token_validity`, regardless of whether the Cognito
+        # calls below succeed, retry, or ultimately fail. A token issued
+        # exactly in this race now fails closed (revoked) instead of failing
+        # open (still valid) — the correct default for a privilege change.
+        new_cutoff = datetime.now(timezone.utc)
+        user.tokens_valid_from = new_cutoff
+        db.commit()
+
+        try:
+            for stale_group in stale_tier_groups:
+                cognito.admin_remove_user_from_group(user.email, stale_group)
+            if new_group not in current_groups:
+                cognito.admin_add_user_to_group(user.email, new_group)
+            cognito.admin_user_global_sign_out(user.email)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            logger.error("Cognito tier update failed for %s: %s", user.email, code)
+            # The local cutoff is ALREADY committed (fail-closed for every
+            # outstanding token), so the only remaining risk is a stale group
+            # membership at the provider — surfaced to the caller as a 503 so
+            # the operator retries the Cognito-side mutation, never silently
+            # left inconsistent with no error.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not update tier at the identity provider.",
+            )
 
     user.tier = request.tier
     db.commit()
@@ -289,6 +337,16 @@ def update_user_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     if user.auth_provider == "cognito":
+        # P1 fix (COGNITO-AUTH-QA-BUGS.md "Privilege Mutation"): commit the
+        # local cutoff BEFORE the Cognito mutation — see the identical
+        # rationale in update_user_tier just above. A role change is the
+        # HIGHER-stakes case (admin privilege), so the fail-closed ordering
+        # matters even more here: a stale non-admin token must not remain
+        # usable past this instant just because the Cognito call is slow,
+        # retried, or ultimately fails.
+        user.tokens_valid_from = datetime.now(timezone.utc)
+        db.commit()
+
         try:
             if request.is_admin:
                 cognito.admin_add_user_to_group(user.email, ADMIN_GROUP)
@@ -302,7 +360,6 @@ def update_user_role(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Could not update role at the identity provider.",
             )
-        user.tokens_valid_from = datetime.now(timezone.utc)
 
     user.is_admin = request.is_admin
     db.commit()

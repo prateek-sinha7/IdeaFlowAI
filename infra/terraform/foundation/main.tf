@@ -115,6 +115,12 @@ module "cognito" {
   deletion_protection = var.environment == "prod" ? "ACTIVE" : "INACTIVE"
   mfa_configuration   = var.cognito_mfa_configuration
 
+  # P2 fix (COGNITO-AUTH-QA-BUGS.md "Cognito & Threat Protection Defaults Are
+  # Opt-In"): previously unexposed at this layer, so every environment was
+  # silently pinned to ESSENTIALS/NO_ACTION regardless of intent.
+  feature_plan           = var.cognito_feature_plan
+  threat_protection_mode = var.cognito_threat_protection_mode
+
   # Email OTP second factor. Requires SES (below) — the module validates that
   # rather than silently producing a pool without the factor. Turning this on
   # switches account recovery to admin_only and therefore SURRENDERS
@@ -167,6 +173,10 @@ module "secrets" {
   auth_provider         = var.cognito_enabled ? var.auth_provider : ""
   auth_allow_legacy_jwt = var.cognito_enabled ? tostring(var.auth_allow_legacy_jwt) : ""
   break_glass_enabled   = var.cognito_enabled ? tostring(var.break_glass_enabled) : ""
+  # P0 fix (COGNITO-AUTH-QA-BUGS.md): published only once Cognito exists for this
+  # environment -- the app-layer gate is a no-op without a Cognito principal anyway,
+  # so there is nothing to enable on a "local" environment.
+  admin_mfa_required = var.cognito_enabled ? tostring(var.admin_mfa_required) : ""
 
   # Sourced from the module's DERIVED output, not from var.cognito_email_mfa_enabled:
   # if the flag is set but SES isn't configured, the pool ends up without email

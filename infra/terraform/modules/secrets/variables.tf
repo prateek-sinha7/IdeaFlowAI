@@ -175,3 +175,14 @@ variable "break_glass_enabled" {
     error_message = "break_glass_enabled must be empty, \"true\", or \"false\"."
   }
 }
+
+variable "admin_mfa_required" {
+  description = "Require a confirmed second factor for admin operations (Phase 6 item 1 / P0 fix COGNITO-AUTH-QA-BUGS.md). Empty (default) omits the parameter, so the application keeps its own \"false\" default -- enable ONLY after admins have enrolled AND confirmed a login through the MFA challenge (enrolling alone does not satisfy the session-bound gate)."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.admin_mfa_required == "" || contains(["true", "false"], var.admin_mfa_required)
+    error_message = "admin_mfa_required must be empty, \"true\", or \"false\"."
+  }
+}

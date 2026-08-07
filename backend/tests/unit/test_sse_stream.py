@@ -41,7 +41,7 @@ from sqlalchemy.pool import StaticPool
 
 from agents.authz import ScopedStore
 from app.api.run_stream import _iter_sse_frames, router
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user_with_payload
 from app.models.database import Base, get_db
 from app.models.run_event import RunEvent
 from app.models.workflow import WorkflowRun
@@ -53,6 +53,7 @@ from app.models.workflow import WorkflowRun
 class _FakeUser:
     def __init__(self, id: str):
         self.id = id
+        self.auth_provider = "local"
 
 
 @pytest.fixture
@@ -79,12 +80,12 @@ def api(db_session, monkeypatch):
     state: dict = {"user": _FakeUser(id="owner")}
 
     def override_user():
-        return state["user"]
+        return (state["user"], {"jti": None, "iat": None})
 
     def override_db():
         yield db_session
 
-    app.dependency_overrides[get_current_user] = override_user
+    app.dependency_overrides[get_current_user_with_payload] = override_user
     app.dependency_overrides[get_db] = override_db
 
     # BUG-004: stream_run_events now backs the streaming generator with a SESSION-LESS

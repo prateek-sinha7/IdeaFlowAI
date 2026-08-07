@@ -709,7 +709,12 @@ while IFS=$'\t' read -r name value; do
                 PUBLIC_BASE_URL_SET=1
             fi
             ;;
-        SECRET_KEY|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT|HANDOFF_MAX_TRANSCRIPT_BYTES|COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_CLIENT_SECRET|COGNITO_REGION|AUTH_PROVIDER|AUTH_ALLOW_LEGACY_JWT|BREAK_GLASS_ENABLED)
+        SECRET_KEY|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT|HANDOFF_MAX_TRANSCRIPT_BYTES|COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_CLIENT_SECRET|COGNITO_REGION|AUTH_PROVIDER|AUTH_ALLOW_LEGACY_JWT|BREAK_GLASS_ENABLED|ADMIN_MFA_REQUIRED|AUTH_EMAIL_MFA_ENABLED)
+            # ADMIN_MFA_REQUIRED (P0 fix, COGNITO-AUTH-QA-BUGS.md) and
+            # AUTH_EMAIL_MFA_ENABLED were published to SSM by the secrets module
+            # but omitted here, so both parameters existed in Parameter Store yet
+            # never reached /etc/velocityai/app.env on any deployed host — an
+            # operator flipping either one in Terraform saw no effect at all.
             emit "$rel" "$value" ;;
         DATABASE_PASSWORD)
             emit DATABASE_URL "postgresql://velocityai:${value}@host.docker.internal:5432/velocityai" ;;

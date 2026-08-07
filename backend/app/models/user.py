@@ -58,6 +58,16 @@ class User(Base):
     # Observability only (when the tier/is_admin projection below was last
     # refreshed from cognito:groups) -- never read by an authorization check.
     roles_synced_at = Column(DateTime, nullable=True)
+    # Stamped by api/auth.py::login_challenge ONLY when the caller just
+    # answered a real Cognito MFA challenge (SOFTWARE_TOKEN_MFA / EMAIL_OTP)
+    # during sign-in -- never by the enrolment endpoints (mfa/totp/verify,
+    # mfa/email/enable). core.identity.enforce_admin_mfa compares a bearer's
+    # `iat` against this column: a token minted before the stamp (including a
+    # password-only bearer obtained before the challenge) fails the admin-MFA
+    # gate (P0 fix -- COGNITO-AUTH-QA-BUGS.md "Admin MFA is Off by Default and
+    # Bypassable"). Nullable: a user who has never completed an MFA challenge
+    # has no stamp, which correctly fails the gate when ADMIN_MFA_REQUIRED.
+    mfa_verified_at = Column(DateTime, nullable=True)
     # Fernet-encrypted Cognito refresh token (0032), stored so
     # POST /api/auth/refresh can call REFRESH_TOKEN_AUTH server-side -- the
     # browser only ever holds one bearer value (the access token), per the

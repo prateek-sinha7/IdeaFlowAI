@@ -29,6 +29,7 @@ an MFA factor (see ``infra/terraform/modules/cognito``).
 
 import json
 import logging
+import uuid as uuid_module
 from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
@@ -44,6 +45,7 @@ from app.core.config import settings
 from app.core.crypto import decrypt_cognito_refresh_token, encrypt_cognito_refresh_token
 from app.core.dependencies import (
     bearer_scheme,
+    get_current_user_for_refresh,
     get_current_user_with_payload,
     get_user_for_logout,
 )
@@ -187,6 +189,40 @@ def _challenge_response(resp: dict) -> AuthChallengeResponse:
     )
 
 
+#: A pre-computed bcrypt hash of a value no real password will ever equal.
+#: Used ONLY to pay the same bcrypt cost a real ``verify_password`` call
+#: would, for an unknown email, on the local-auth path (P2 timing fix).
+#: Generated once at import time — a fresh `hash_password` call per request
+#: would itself be the expensive operation we are trying to bound.
+_DUMMY_PASSWORD_HASH = hash_password(str(uuid_module.uuid4()))
+
+
+def _burn_unknown_email_latency(email: str) -> None:
+    """Pay approximately the same latency an existing account's login would
+    incur, for an email that does not exist (P2 fix — login timing
+    enumeration).
+
+    Branches on ``AUTH_PROVIDER`` exactly like the real login path does for a
+    known account: local auth pays a bcrypt verify against a fixed dummy
+    hash (the same cost class as ``verify_password`` against a real hash);
+    Cognito pays a REAL ``AdminInitiateAuth`` call against the submitted
+    (nonexistent) email, which Cognito rejects with
+    ``UserNotFoundException`` after doing the same network/provider work it
+    would for any other unauthorized attempt — the SAME code path a known
+    email's wrong-password attempt exercises, just with a different
+    rejection reason. Failures are swallowed: this call exists purely to
+    burn time, never to change the outcome (which stays the generic 401 the
+    caller already raises).
+    """
+    if settings.AUTH_PROVIDER.lower() != "cognito":
+        verify_password("not-a-real-password", _DUMMY_PASSWORD_HASH)
+        return
+    try:
+        cognito.admin_initiate_auth(email, str(uuid_module.uuid4()))
+    except Exception:  # noqa: BLE001 - deliberately doomed call, outcome unused
+        pass
+
+
 @router.post("/login", response_model=AuthResponse | AuthChallengeResponse)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate a user and return a bearer token.
@@ -204,9 +240,24 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     Returns a generic 401 on failure — does not distinguish between
     wrong email and wrong password (also true of a Cognito
     NotAuthorizedException, which maps to the same 401).
+
+    P2 fix (COGNITO-AUTH-QA-BUGS.md "Login Timing Enumeration"): an unknown
+    email used to return immediately after a single indexed local lookup
+    (~ms), while a known email incurred either a bcrypt verify (local) or a
+    full Cognito network round-trip (~hundreds of ms) — a ~100x timing
+    difference an attacker could use to enumerate registered emails one
+    request at a time even under the per-IP rate limit. An unknown email now
+    pays the SAME cost class as a known one before returning: a dummy bcrypt
+    check when this deployment is local-auth, or a REAL (deliberately
+    doomed) Cognito ``AdminInitiateAuth`` call against the submitted email
+    when Cognito is active — so the attacker observes materially the same
+    latency distribution either way. This does not need to be
+    cryptographically constant-time; it only needs to remove the
+    order-of-magnitude gap that made the oracle cheap to exploit.
     """
     user = db.query(User).filter(User.email == request.email).first()
     if not user:
+        _burn_unknown_email_latency(request.email)
         # Email is included here precisely BECAUSE no user_id exists — without
         # it a credential-stuffing run would be invisible in the audit trail.
         auth_events.emit(
@@ -408,24 +459,45 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
         )
         return _challenge_response(resp)
 
+    # P0 fix (COGNITO-AUTH-QA-BUGS.md "Admin MFA is Off by Default and
+    # Bypassable"): stamp mfa_verified_at ONLY when the challenge just
+    # completed was an actual MFA proof (SOFTWARE_TOKEN_MFA / EMAIL_OTP), not
+    # NEW_PASSWORD_REQUIRED or a SELECT_MFA_TYPE selection step. This is the
+    # session-bound proof core.identity.enforce_admin_mfa compares a bearer's
+    # `iat` against -- it is never stamped by the enrolment endpoints
+    # (mfa/totp/verify, mfa/email/enable), so enrolling a factor alone (with
+    # no reauthentication) does not satisfy the admin gate.
+    if request.challenge in _CODE_RESPONSE_KEY:
+        user.mfa_verified_at = datetime.now(timezone.utc)
+        db.commit()
+
     auth_events.emit(AuthEvent.LOGIN_SUCCESS, user_id=user.id, provider="cognito")
     return _cognito_auth_result_to_response(user, resp["AuthenticationResult"], db)
 
 
 @router.post("/refresh", response_model=RefreshResponse)
 def refresh(
-    auth: tuple[User, dict] = Depends(get_current_user_with_payload),
+    auth: tuple[User, dict] = Depends(get_current_user_for_refresh),
     db: Session = Depends(get_db),
 ):
     """Silently mint a fresh access token from the caller's stored Cognito
     refresh token (R4 in the migration plan's risk register: long-running
     workflows must not die on access-token expiry).
 
-    Requires a currently-valid access token (via
-    ``get_current_user_with_payload`` -- so an already-expired token cannot
-    self-refresh; the frontend's pre-expiry timer calls this BEFORE expiry,
-    per D-14f). Break-glass/local users have no Cognito refresh token and
-    get a 501 -- their session simply lives out ``ACCESS_TOKEN_EXPIRE_HOURS``.
+    P1 fix (COGNITO-AUTH-QA-BUGS.md "Token Refresh: Impossible After Access
+    Token Expiry"): accepts a bearer up to ``AUTH_REFRESH_GRACE_SECONDS``
+    PAST its own expiry (``get_current_user_for_refresh`` -- see
+    ``core.identity.verify_credential(allow_expired=True)``), not only a
+    currently-valid one. Previously this required an unexpired access token,
+    which meant a REST-only client with no SSE stream attached (the only
+    place the frontend's pre-expiry timer runs) had no way to recover once
+    the token actually expired -- the 401-triggered refresh retried with the
+    SAME expired bearer and failed identically. Every other check (signature,
+    issuer, per-jti revocation, password/role-change blanket revocation)
+    still applies in full; only the expiry clock is relaxed, and only within
+    the bounded grace window. Break-glass/local users have no Cognito refresh
+    token and get a 501 -- their session simply lives out
+    ``ACCESS_TOKEN_EXPIRE_HOURS``.
 
     Response shape is exactly ``{"token": "..."}`` -- the contract
     ``frontend/src/hooks/useRunStream.ts::attemptSilentRefresh`` already

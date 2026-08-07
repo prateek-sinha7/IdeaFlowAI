@@ -24,6 +24,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.api.run_engine import _authenticate_token, _get_db
+from app.core.config import settings
 from app.models.handoff import HandoffSession
 
 logger = logging.getLogger("app.api.websocket_handoff")
@@ -77,6 +78,30 @@ def _extract_jwt(websocket: WebSocket) -> str | None:
     return None
 
 
+def _still_authorized(jwt: str, token: str, expected_user_id: str) -> bool:
+    """Re-verify the connection's original bearer + handoff-session binding.
+
+    P1 fix (COGNITO-AUTH-QA-BUGS.md "Stream Revocation"): called periodically
+    from the WS loop, never only at accept(). Re-runs the SAME check accept()
+    ran — ``_authenticate_token`` (full revocation gate: per-jti, then the
+    generalized blanket revocation) plus the handoff-session ownership check
+    — against a FRESH DB session. Returns False (close the socket) on ANY of:
+    the token no longer verifies, the resolved user no longer matches who
+    opened this connection, or the handoff session was deleted/reassigned.
+    """
+    db = _get_db()
+    try:
+        user = _authenticate_token(jwt, db)
+        if user is None or user.id != expected_user_id:
+            return False
+        sess = db.query(HandoffSession).filter(HandoffSession.token == token).first()
+        if sess is None or sess.issuer_user_id != user.id:
+            return False
+        return True
+    finally:
+        db.close()
+
+
 @router.websocket("/ws/handoff/{token}")
 async def websocket_handoff(websocket: WebSocket, token: str) -> None:
     jwt = _extract_jwt(websocket)
@@ -105,8 +130,37 @@ async def websocket_handoff(websocket: WebSocket, token: str) -> None:
         # channel is live before the first pipeline event arrives.
         await websocket.send_text(json.dumps({"type": "handoff_ready", "chunk": None, "section": None, "data": {"token": token}}))
 
+        # P1 fix (COGNITO-AUTH-QA-BUGS.md "Stream Revocation"): the docstring
+        # of this handler previously claimed re-authentication happened "per
+        # message", but no call site actually did it -- the connection was
+        # authenticated once at accept() and never checked again for the
+        # rest of its lifetime. Re-verify periodically instead, mirroring the
+        # SSE down-channel's revocation_check (run_stream.py): every
+        # SSE_REVOCATION_CHECK_EVERY_N_EVENTS events, and at least every
+        # SSE_REVOCATION_CHECK_INTERVAL_SECONDS of idle time, whichever comes
+        # first. On revocation the socket is closed with a distinct code
+        # (4003) rather than silently continuing to forward events to a
+        # logged-out / credential-rotated caller.
+        events_since_check = 0
         while True:
-            event = await queue.get()
+            try:
+                event = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=settings.SSE_REVOCATION_CHECK_INTERVAL_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                if not _still_authorized(jwt, token, user.id):
+                    await websocket.close(code=4003, reason="session revoked")
+                    return
+                continue
+
+            events_since_check += 1
+            if events_since_check >= settings.SSE_REVOCATION_CHECK_EVERY_N_EVENTS:
+                events_since_check = 0
+                if not _still_authorized(jwt, token, user.id):
+                    await websocket.close(code=4003, reason="session revoked")
+                    return
+
             await websocket.send_text(json.dumps(event, default=str))
             if event.get("type") in ("pipeline_complete", "handoff_error"):
                 # Pipeline is done. Drain any final events that may already be

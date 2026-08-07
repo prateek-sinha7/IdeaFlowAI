@@ -40,10 +40,13 @@ the email is included only for events where the account may not exist yet
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from enum import StrEnum
 from typing import Any
+
+from app.core.config import settings
 
 logger = logging.getLogger("app.auth.events")
 
@@ -94,6 +97,24 @@ _ALARM_EVENTS = {
 }
 
 
+def _hash_email(email: str) -> str:
+    """Return a stable, non-reversible key for an email address.
+
+    P2 fix (COGNITO-AUTH-QA-BUGS.md "Authentication PII in Logs"): keyed with
+    ``SECRET_KEY`` (HMAC-style salting via simple concatenation is
+    sufficient here — this is not a password hash, it only needs to resist
+    a rainbow-table lookup against common/leaked email lists, not a
+    dedicated brute force) so the SAME address always hashes to the SAME
+    value (aggregation/alerting on repeated attempts still works), but the
+    raw address is never recoverable from the log line. Truncated to 16 hex
+    chars — plenty to disambiguate within a single deployment's log volume
+    without keeping the full 64-char digest around for a value that is
+    already one-way.
+    """
+    digest = hashlib.sha256(f"{settings.SECRET_KEY}:{email.lower()}".encode("utf-8"))
+    return digest.hexdigest()[:16]
+
+
 def emit(
     event: AuthEvent,
     *,
@@ -113,12 +134,21 @@ def emit(
     ``reason`` is a short machine-ish token (``invalid_password``,
     ``unknown_user``, ``jwks_unavailable``) rather than a sentence, so failure
     modes can be grouped without regex-matching prose.
+
+    ``email`` is NEVER written in plaintext (P2 fix — "Authentication PII in
+    Logs"): it is hashed via :func:`_hash_email` before it reaches the log
+    line, as ``email_hash``. An unknown-email login attempt therefore still
+    aggregates (repeated hits on the same hash are visible for enumeration
+    detection) without accumulating a plaintext wordlist of attempted
+    addresses that outlives any matching account and would itself be a
+    social-engineering/enumeration asset if the logs were ever breached or
+    queried internally.
     """
     payload: dict[str, Any] = {"auth_event": str(event)}
     if user_id:
         payload["user_id"] = user_id
     if email:
-        payload["email"] = email
+        payload["email_hash"] = _hash_email(email)
     if provider:
         payload["provider"] = provider
     if reason:

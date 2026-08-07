@@ -66,20 +66,31 @@ def create_access_token(user_id: str) -> str:
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict:
+def decode_access_token(token: str, *, verify_exp: bool = True) -> dict:
     """Decode and validate a JWT access token.
 
     Args:
         token: The JWT token string to decode.
+        verify_exp: When False, an expired token still decodes successfully
+            (signature/issuer-equivalent checks still apply). Used ONLY by
+            the refresh path (``core.identity.verify_credential(...,
+            allow_expired=True)``), which needs to identify who an expired
+            token belonged to in order to mint a replacement.
 
     Returns:
         The decoded payload dictionary with 'sub', 'exp', 'iat', and 'jti'
         claims.
 
     Raises:
-        JWTError: If the token is expired, malformed, or has an invalid signature.
+        JWTError: If the token is expired (when verify_exp=True), malformed,
+            or has an invalid signature.
     """
-    return jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+    return jwt.decode(
+        token,
+        settings.SECRET_KEY,
+        algorithms=[ALGORITHM],
+        options={"verify_exp": verify_exp},
+    )
 
 
 def is_token_revoked(jti: str, db: "Session") -> bool:

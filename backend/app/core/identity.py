@@ -96,7 +96,7 @@ def _coerce_to_aware_utc(value: datetime | None) -> datetime | None:
     return value
 
 
-def verify_credential(token: str) -> Principal:
+def verify_credential(token: str, *, allow_expired: bool = False) -> Principal:
     """Dual-accept verifier: Cognito RS256 first, legacy HS256 as fallback.
 
     Ordering rationale: once Cognito is the active provider, the overwhelming
@@ -108,13 +108,35 @@ def verify_credential(token: str) -> Principal:
     ``AUTH_PROVIDER`` is still "local" -- an environment that hasn't enabled
     Cognito yet must keep working exactly as before).
 
+    ``allow_expired`` (P1 fix, COGNITO-AUTH-QA-BUGS.md "Token Refresh:
+    Impossible After Access Token Expiry"): when True, an OTHERWISE-valid
+    token whose ``exp`` has passed is still accepted, bounded by
+    ``settings.AUTH_REFRESH_GRACE_SECONDS`` past ``exp`` -- past that grace
+    window ``CredentialInvalid`` is still raised. This is used by exactly one
+    caller, ``POST /api/auth/refresh``: the whole point of that endpoint is to
+    mint a fresh token when the old one just ran out, so requiring the OLD
+    token to still be unexpired defeats its purpose (a session can only ever
+    be kept alive by a client that happens to call refresh strictly BEFORE
+    expiry, which an idle REST-only tab with no SSE stream attached never
+    does). Every other check (signature, issuer, client_id, token_use,
+    sub/jti presence, and -- at the caller layer -- per-jti/blanket
+    revocation) still applies unconditionally; only the expiry clock is
+    relaxed, and only within the bounded grace window, so a token leaked long
+    ago cannot be replayed into a fresh one indefinitely.
+
     Raises ``CredentialInvalid`` if neither path accepts the token.
     """
     cognito_active = settings.AUTH_PROVIDER.lower() == "cognito"
 
     if cognito_active:
         try:
-            cp = verify_cognito_access_token(token)
+            cp = verify_cognito_access_token(token, verify_exp=not allow_expired)
+            if allow_expired and cp.exp:
+                now = int(datetime.now(timezone.utc).timestamp())
+                if now - cp.exp > settings.AUTH_REFRESH_GRACE_SECONDS:
+                    raise CredentialInvalid(
+                        "token expired beyond the refresh grace window"
+                    )
             return Principal(
                 provider="cognito",
                 sub=cp.sub,
@@ -134,7 +156,7 @@ def verify_credential(token: str) -> Principal:
             # since every other user's local password_hash is NULL post-cutover).
 
     try:
-        payload = decode_access_token(token)
+        payload = decode_access_token(token, verify_exp=not allow_expired)
     except JWTError as exc:
         raise CredentialInvalid(f"legacy token verification failed: {exc}") from exc
 
@@ -143,12 +165,18 @@ def verify_credential(token: str) -> Principal:
         raise CredentialInvalid("legacy token missing sub")
 
     exp_raw = payload.get("exp")
+    exp_int = int(exp_raw) if isinstance(exp_raw, (int, float)) else None
+    if allow_expired and exp_int:
+        now = int(datetime.now(timezone.utc).timestamp())
+        if now - exp_int > settings.AUTH_REFRESH_GRACE_SECONDS:
+            raise CredentialInvalid("token expired beyond the refresh grace window")
+
     return Principal(
         provider="local",
         sub=sub,
         jti=payload.get("jti"),
         iat=int(payload["iat"]) if isinstance(payload.get("iat"), (int, float)) else None,
-        exp=int(exp_raw) if isinstance(exp_raw, (int, float)) else None,
+        exp=exp_int,
         groups=[],
     )
 
@@ -277,17 +305,21 @@ def effective_is_admin(user: User, principal: Principal) -> bool:
 
 
 class AdminMfaRequired(Exception):
-    """Raised when an admin lacks the second factor their role requires.
+    """Raised when the CURRENT SESSION lacks proof of completing the second
+    factor their admin role requires.
 
     Distinct from a generic authorization failure because the caller is
-    genuinely an admin -- they just need to finish enrolment. Routes translate
-    this into a 403 carrying a machine-readable code so the frontend can send
-    the user to the enrolment flow instead of showing a dead end.
+    genuinely an admin -- they just haven't (yet, THIS session) proven MFA.
+    Routes translate this into a 403 carrying a machine-readable code so the
+    frontend can send the user to the enrolment/re-login flow instead of
+    showing a dead end.
     """
 
 
 def enforce_admin_mfa(user: User, principal: Principal) -> None:
-    """Admin-only MFA gate (migration plan §5.5, Phase 6 item 1).
+    """Admin-only, SESSION-BOUND MFA gate (P0 fix — COGNITO-AUTH-QA-BUGS.md
+    "Admin MFA is Off by Default and Bypassable"; migration plan §5.5, Phase
+    6 item 1).
 
     Cognito's ``mfa_configuration`` is POOL-WIDE (``OFF``/``OPTIONAL``/``ON``);
     there is no native "required for admins only". Setting the whole pool to
@@ -296,28 +328,46 @@ def enforce_admin_mfa(user: User, principal: Principal) -> None:
     in Phase 6). So the admin requirement is enforced HERE, in application code,
     against a pool that stays ``OPTIONAL``.
 
-    Scope and fail-safety, both deliberate:
+    THE PROOF IS SESSION-BOUND, NOT ACCOUNT-ENROLMENT. The previous
+    implementation asked Cognito "has this account EVER confirmed a factor"
+    (``has_any_confirmed_mfa``) — a question about enrolment, not about
+    whether THIS token was minted from a session that actually completed a
+    challenge. That let an admin holding nothing but a password-only bearer
+    call ``POST /mfa/totp/associate`` + ``/verify`` (no reauthentication
+    required by either call) and then reuse that SAME original bearer against
+    every ``/api/admin/*`` route, because enrolling a factor and proving it at
+    sign-in are different Cognito operations entirely.
+
+    The fix compares the token's ``iat`` against ``user.mfa_verified_at`` — a
+    column stamped by ``api/auth.py::login_challenge`` ONLY when the caller
+    just answered a real MFA challenge (``SOFTWARE_TOKEN_MFA`` /
+    ``EMAIL_OTP``) during sign-in, never by the enrolment endpoints. A token
+    minted before that stamp (including a password-only bearer obtained
+    before the admin ever enrolled a factor) fails the gate; a token minted
+    by the login flow that just passed the challenge — whose ``iat`` is at or
+    after the stamp — passes. An admin who enrols a NEW factor while holding
+    an old bearer gains nothing until they log out and back in through the
+    challenge, which is the reauthentication the old design was missing.
+
+    This is also FAIL-CLOSED, not fail-open: the whole point of the redesign
+    is that the check no longer makes a Cognito API call on the request path
+    (no ``AdminGetUser`` round-trip, no "graceful" bypass on a lookup error) —
+    it reads a local column already loaded on ``user``. A missing/stale stamp
+    denies, full stop.
+
+    Scope, still deliberate:
 
     * Only applies to a **Cognito** principal. The break-glass local admin is
       exempt by construction -- it exists precisely for the case where Cognito
-      is unreachable, so gating it on a Cognito API call would defeat its only
-      purpose. Its compensating control is the alarm on every use (§5.6).
+      is unreachable, so gating it on Cognito-derived state would defeat its
+      only purpose. Its compensating control is the alarm on every use (§5.6).
     * Only applies when ``ADMIN_MFA_REQUIRED`` is on, so an operator can enable
       this deliberately after their admins have enrolled rather than locking
       themselves out the moment the code ships.
-    * If the Cognito lookup itself fails, we FAIL OPEN for this specific check
-      and log loudly. This is the one place in the auth path that does not fail
-      closed, and the reasoning is explicit: the caller has ALREADY been fully
-      authenticated and authorized as an admin by this point. Turning a
-      transient ``AdminGetUser`` blip into a total loss of admin access would
-      make a Cognito hiccup an outage, which is a worse failure than briefly
-      not enforcing a second factor on an already-verified admin.
 
     The check is factor-AGNOSTIC: any confirmed second factor satisfies it,
-    whether TOTP or email OTP. The gate's question is "did this admin complete a
-    second factor", not "did they pick the one this environment prefers" -- an
-    admin holding TOTP must not be locked out because the deployment later
-    standardised on email OTP.
+    whether TOTP or email OTP -- ``login_challenge`` stamps the SAME column
+    regardless of which challenge type was answered.
     """
     if not settings.ADMIN_MFA_REQUIRED:
         return
@@ -326,27 +376,22 @@ def enforce_admin_mfa(user: User, principal: Principal) -> None:
     if not effective_is_admin(user, principal):
         return
 
-    from app.core.cognito import has_any_confirmed_mfa
+    mfa_verified_at = _coerce_to_aware_utc(getattr(user, "mfa_verified_at", None))
+    session_proved_mfa = (
+        mfa_verified_at is not None
+        and principal.iat is not None
+        and principal.iat >= int(mfa_verified_at.timestamp())
+    )
 
-    try:
-        enrolled = has_any_confirmed_mfa(user.email)
-    except Exception as exc:  # noqa: BLE001 - deliberate fail-open, see docstring
-        logger.error(
-            "Admin MFA check could not reach Cognito for %s; allowing the request "
-            "rather than failing an authenticated admin closed: %s",
-            user.id,
-            exc,
-        )
-        return
-
-    if not enrolled:
+    if not session_proved_mfa:
         auth_events.emit(
             AuthEvent.ADMIN_MFA_BLOCKED,
             user_id=user.id,
             provider="cognito",
-            reason="no_confirmed_mfa",
+            reason="no_confirmed_mfa" if mfa_verified_at is None else "stale_session",
         )
         raise AdminMfaRequired(
             "Two-factor authentication is required for administrator access. "
-            "Enable it from your account security settings."
+            "Enable it from your account security settings, then sign in again "
+            "to complete the challenge."
         )

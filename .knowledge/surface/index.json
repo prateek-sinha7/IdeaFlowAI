@@ -1,5 +1,5 @@
 {
-  "count": 553,
+  "count": 559,
   "entries": [
     {
       "area": [
@@ -4215,6 +4215,76 @@
     },
     {
       "area": [
+        "agents",
+        "auth"
+      ],
+      "date": "2026-07-30",
+      "files": [],
+      "id": "FIX-158",
+      "path": ".knowledge/cards/FIX-158.md",
+      "source": ".planning/FIX-REGISTER.md#fix-158",
+      "status": "done",
+      "summary": "CloudWatch agent duplicate log stream configuration \u2014 audit.log and unattended-upgrades.log collide on /velocityai/*/system:{instance_id}",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "2026-07-30",
+      "files": [],
+      "id": "FIX-159",
+      "path": ".knowledge/cards/FIX-159.md",
+      "source": ".planning/FIX-REGISTER.md#fix-159",
+      "status": "done",
+      "summary": "C1: Extract nginx + CloudWatch config from bootstrap into reusable reconcile script \u2014 config changes never reach live hosts",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "sse"
+      ],
+      "date": "2026-07-30",
+      "files": [],
+      "id": "FIX-160",
+      "path": ".knowledge/cards/FIX-160.md",
+      "relates": [
+        "FIX-144"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-160",
+      "status": "done",
+      "summary": "nginx rate-limit 429s unobservable in CloudWatch metrics \u2014 JSON log_format with upstream_addr discriminator + new 429 filters and liveness alarms",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "2026-07-31",
+      "files": [],
+      "id": "FIX-161",
+      "path": ".knowledge/cards/FIX-161.md",
+      "source": ".planning/FIX-REGISTER.md#fix-161",
+      "status": "done",
+      "summary": "Remove no-op logs:DescribeLogGroups from instance-role CloudWatch IAM policy \u2014 logs:DescribeLogGroups has no AWS IAM resource type (AWS Service Reference: no \"Resources\" entry)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "sse",
+        "resume"
+      ],
+      "date": "2026-07-31",
+      "files": [],
+      "id": "FIX-162",
+      "path": ".knowledge/cards/FIX-162.md",
+      "source": ".planning/FIX-REGISTER.md#fix-162",
+      "status": "done",
+      "summary": "Application lifespan shutdown unreachable with live SSE streams \u2014 graceful-shutdown timeout + orchestrated teardown",
+      "type": "fix"
+    },
+    {
+      "area": [
         "frontend",
         "agents"
       ],
@@ -4593,6 +4663,20 @@
       "source": ".planning/FIX-REGISTER.md#fix-182",
       "status": "done",
       "summary": "Build agent shows DONE / checkmark in Steps spine and left-panel agent list during task-loop iterations \u2014 FIX-177 fixed constructionComplete in AgentThinkingTab (L2 task list) but StepsOverviewSpine agent rows, progress bar",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "sse",
+        "auth"
+      ],
+      "date": "2026-08-06",
+      "files": [],
+      "id": "FIX-185",
+      "path": ".knowledge/cards/FIX-185.md",
+      "source": ".planning/FIX-REGISTER.md#fix-185",
+      "status": "done",
+      "summary": "bootstrap admin orphans a Cognito pool user when a step AFTER AdminCreateUser fails \u2014 a fresh environment then stays unreachable on every subsequent deploy; plus the PostgreSQL bootstrap suite was calling the LIVE user pool",
       "type": "fix"
     },
     {
@@ -8236,9 +8320,9 @@
   ],
   "facets": {
     "area": {
-      "agents": 186,
+      "agents": 189,
       "artifacts": 78,
-      "auth": 71,
+      "auth": 73,
       "backend": 69,
       "docs": 2,
       "evals": 9,
@@ -8246,15 +8330,15 @@
       "harness": 2,
       "infra": 1,
       "product": 29,
-      "resume": 40,
+      "resume": 41,
       "runtime": 31,
-      "sse": 125,
+      "sse": 128,
       "test-infra": 4,
       "workflow": 178
     },
     "status": {
       "accepted": 1,
-      "done": 528,
+      "done": 534,
       "open": 20,
       "shipped": 1
     },
@@ -8262,7 +8346,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 189,
+      "fix": 195,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8281,5 +8365,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-05 17:51"
+  "generated": "2026-08-07 13:36"
 }

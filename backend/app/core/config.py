@@ -196,6 +196,18 @@ class Settings(BaseSettings):
     # replays the gap from the durable log. 1000 events ≈ 5–10 MB in memory per
     # subscriber. Set to 0 for unbounded (INV-3 parity with old single-queue model).
     SSE_SUBSCRIBER_QUEUE_MAXSIZE: int = 1000
+    # P1 fix (COGNITO-AUTH-QA-BUGS.md "Stream Revocation"): how many live-drain
+    # events pass before the attached SSE stream re-checks the caller's
+    # revocation state (per-jti logout, password/role/tier change,
+    # expiry). Checked on a cadence rather than every event since the check
+    # hits the DB; a long-idle stream between events is covered separately by
+    # the keepalive-triggered path in the endpoint's disconnect-poll loop.
+    SSE_REVOCATION_CHECK_EVERY_N_EVENTS: int = 5
+    # Idle-time bound on the SAME check: even a live-drain loop that sees no
+    # events for a while (a long-running quiet agent step) re-checks
+    # revocation at least this often, rather than only when the next event
+    # happens to arrive.
+    SSE_REVOCATION_CHECK_INTERVAL_SECONDS: int = 30
 
     # ---- Graceful shutdown budget (KAN-151 D8) ────────────────────────────
     # The container's hard ceiling is docker's stop_grace_period (30s,
@@ -366,6 +378,19 @@ class Settings(BaseSettings):
     # an app-layer gate. Defaults to False so shipping this code cannot lock out
     # admins who have not enrolled yet -- flip it per environment once they have.
     ADMIN_MFA_REQUIRED: bool = False
+
+    # ---- Post-expiry refresh grace window (P1 fix — token refresh) ----
+    # POST /api/auth/refresh accepts an access token up to this many seconds
+    # PAST its own `exp` (see core.identity.verify_credential(allow_expired=True)).
+    # Without this, an idle REST-only client with no SSE stream attached has no
+    # way to trigger a pre-expiry refresh (the frontend's pre-expiry timer only
+    # runs inside an active stream's effect scope), so the token expires with no
+    # recovery path and the user is forced to log in again on the very next
+    # request. 5 minutes is generous enough to cover a request that was already
+    # in flight when the token expired, or a client that reacts to a 401 within
+    # a reasonable window, while still bounding how long a leaked/expired token
+    # can be exchanged for a fresh one.
+    AUTH_REFRESH_GRACE_SECONDS: int = 300
 
     # Mirrors the pool's email-OTP posture, published to SSM as
     # AUTH_EMAIL_MFA_ENABLED from the Terraform cognito module's DERIVED

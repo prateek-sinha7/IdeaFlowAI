@@ -142,14 +142,25 @@ def _get_signing_key(kid: str) -> dict[str, Any]:
     return key
 
 
-def verify_cognito_access_token(token: str) -> CognitoPrincipal:
+def verify_cognito_access_token(token: str, *, verify_exp: bool = True) -> CognitoPrincipal:
     """Verify a Cognito *access* token offline against the pool's JWKS.
 
     Enforces: signature (RS256), `kid` resolution, `iss` matches this pool,
-    `exp` (via jose's default expiry check), `token_use == "access"`,
-    `client_id` matches the configured app client, and the presence of `sub`
-    + `jti`. Returns a typed principal carrying `cognito:groups` (defaulting
-    to an empty list — a user in no group is a legal, if unusual, principal).
+    `exp` (via jose's default expiry check, unless ``verify_exp=False``),
+    `token_use == "access"`, `client_id` matches the configured app client,
+    and the presence of `sub` + `jti`. Returns a typed principal carrying
+    `cognito:groups` (defaulting to an empty list — a user in no group is a
+    legal, if unusual, principal).
+
+    ``verify_exp=False`` is used EXCLUSIVELY by the ``POST /api/auth/refresh``
+    path (see ``core.identity.verify_credential(..., allow_expired=True)``):
+    an access token that has merely expired must still be usable to identify
+    WHO is asking for a refresh, since the whole point of the endpoint is to
+    mint a new one when the old one just ran out. Every other check here
+    (signature, issuer, client_id, token_use, sub/jti presence) still applies
+    unconditionally — only the expiry clock is skipped, and only on that one
+    call site. A token with a bad signature or wrong pool never reaches this
+    far regardless of ``verify_exp``.
 
     Raises ``CognitoVerificationError`` on any failure. Never raises a raw
     ``JOSEError``/``httpx`` exception to the caller.
@@ -175,6 +186,7 @@ def verify_cognito_access_token(token: str) -> CognitoPrincipal:
                 # Cognito access tokens carry no `aud` claim (only ID tokens
                 # do) -- audience is verified via client_id below instead.
                 "verify_aud": False,
+                "verify_exp": verify_exp,
             },
         )
     except JOSEError as exc:

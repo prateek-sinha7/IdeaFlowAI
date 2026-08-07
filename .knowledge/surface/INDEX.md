@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-553 cards · rules 1 · fixes 189 · issues 49 · phases 23 · built 2026-08-05 17:51
+559 cards · rules 1 · fixes 195 · issues 49 · phases 23 · built 2026-08-07 13:36
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (189)
+## Fixes (195)
 
+FIX-185 2026-08-06 [sse,auth] bootstrap admin orphans a Cognito pool user when a step AFTER AdminCreateUser fails — a fresh environment then stays unreachable on every subsequent deploy; plus the PostgreSQL bootstrap suite was calling the LIVE user pool
 FIX-182 2026-08-05 [agents] Build agent shows DONE / checkmark in Steps spine and left-panel agent list during task-loop iterations — FIX-177 fixed constructionComplete in AgentThinkingTab (L2 task list) but StepsOverviewSpine agent rows, progress bar
 FIX-181 2026-08-05 [frontend] Remove text input area, 'Or start from a deliverable' label, and 'Create workflow' button from home dashboard — UI elements present but non-functional or no longer needed
 FIX-180 2026-08-05 [frontend] Duplicate 'Approved — build continues' clarify card shown in chat after gate approve — stale pre-FIX-178 narrator DB row replayed by getRunEvents; tombstone guard added in useRunChat handleFrame chat_reply case
@@ -35,10 +36,15 @@ FIX-166 2026-08-03 [frontend,workflow,agents] Build Agent task list shows all ta
 FIX-165 2026-08-03 [frontend] Analyze gate approve requires 2 clicks — first click disables button but does nothing visible
 FIX-164 2026-08-03 [frontend,agents] specRevisionCount over-counting — shows "Cycle 6" after 1 update_specs click
 FIX-163 2026-08-03 [frontend,agents] Restore spec revision cycle UX — violet "Spec Revision Cycle N" banner in Steps, elevate "Update the Specs" button out of Request changes, fix approveLabel on analyze gate
+FIX-162 2026-07-31 [sse,resume] Application lifespan shutdown unreachable with live SSE streams — graceful-shutdown timeout + orchestrated teardown
+FIX-161 2026-07-31 [agents] Remove no-op logs:DescribeLogGroups from instance-role CloudWatch IAM policy — logs:DescribeLogGroups has no AWS IAM resource type (AWS Service Reference: no "Resources" entry)
 FIX-157 2026-07-31 [frontend,sse,agents] Running dropdown and notification panel: click doesn't open correct run page; progress shows 0/N; onViewResults status filter misses planning/generating
 FIX-156 2026-07-31 [frontend,sse,workflow] Running dropdown not showing user_stories (or any run) — runningPipelines undefined causing crash; recentRuns never passed to AppHeader
 FIX-155 2026-07-31 [frontend,workflow,agents] Header shows duplicate running workflow entries (7 instead of 3) — notifications for prototype/ppt not created when user_stories runs concurrently
 FIX-154 2026-07-31 [frontend,agents,artifacts] user_stories review gate shows no summary content — discriminateArtifact called without artifactKind param
+FIX-160 2026-07-30 [sse] nginx rate-limit 429s unobservable in CloudWatch metrics — JSON log_format with upstream_addr discriminator + new 429 filters and liveness alarms
+FIX-159 2026-07-30 [agents] C1: Extract nginx + CloudWatch config from bootstrap into reusable reconcile script — config changes never reach live hosts
+FIX-158 2026-07-30 [agents,auth] CloudWatch agent duplicate log stream configuration — audit.log and unattended-upgrades.log collide on /velocityai/*/system:{instance_id}
 FIX-153 2026-07-30 [frontend,agents] Concurrent run review gates cross-contaminate screens and appear before agent output (corrected: trackedRunIdRef not activelyBuildingRunIdRef)
 FIX-152 2026-07-30 [backend,frontend,sse,resume,artifacts] 9 D-cluster infrastructure defects (memory leaks, missing logging, missing shutdown, missing admission control, dead config)
 FIX-151 2026-07-30 [backend,agents] PPT revision chain context empty — _extract_chain_context returns empty context_block for *_revision runs because they have no brief-analyst agent output
