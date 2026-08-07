@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-565 cards · rules 1 · fixes 201 · issues 49 · phases 23 · built 2026-08-07 16:29
+572 cards · rules 1 · fixes 208 · issues 49 · phases 23 · built 2026-08-07 19:27
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,15 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (201)
+## Fixes (208)
 
+FIX-208 2026-08-07 [frontend,agents] Notification panel agent progress shows 0/N for background concurrent runs — only viewed run shows live progress
+FIX-207 2026-08-07 [frontend,sse,auth] useRunStream "Maximum update depth exceeded" — setCursor and setLastMessage called on every SSE frame causing re-render storm with concurrent runs
+FIX-206 2026-08-07 [frontend,sse,agents] Concurrent background run agent frames contaminate Steps panel of a clarify-paused run — Domain Discovery Agent shown below clarify questions
+FIX-205 2026-08-07 [frontend,workflow] Background run's workflowRunId never stamped on notification — backgroundCompletedRunId lookup fails silently
+FIX-204 2026-08-07 [frontend] Duplicate notification entries in panel — 2× Presentation, 2× User Stories when only 1 of each is running
+FIX-203 2026-08-07 [frontend] Background concurrent run completion never marked on notification — User Stories completed but notification stayed "running"
+FIX-202 2026-08-07 [frontend,sse,workflow] Notification panel refactor: localStorage persistence, per-item dismiss, toast run navigation, duplicate/stale entry elimination
 FIX-201 2026-08-07 [frontend,workflow,sse] ISS-061 continued: concurrent run cross-contamination — agents/clarify questions/review gates from one run appearing in another; per-run state store (useRunStateStore) with viewport pattern; agent progress not showing after clarify submit / gate approval; infinite re-render loop (setCursor); duplicate toast keys
 FIX-195 2026-08-06 [frontend,workflow] ISS-061: Header badge/notification clicks navigate to wrong run; Steps panel shows two-run hybrid; notification row tap does nothing (KAN-166)
 FIX-194 2026-08-06 [frontend,workflow,agents] ISS-060: Completion notification/toast is not run-scoped — finishing run marks a DIFFERENT live run as "complete"; toast shows wrong label (KAN-166)

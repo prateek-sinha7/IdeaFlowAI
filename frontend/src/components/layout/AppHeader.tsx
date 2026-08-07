@@ -64,11 +64,19 @@ interface AppHeaderProps {
   recentRuns?: WorkflowRun[];
   onSwitchToLiveRun?: (runId: string) => void;
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
+  /**
+   * Per-run agents-completed count from the run store (page.tsx → DashboardLayout).
+   * When present, used instead of the scalar pipelineAgentsCompleted for non-active
+   * runs so all concurrent runs show real progress, not just the viewed one.
+   */
+  runAgentsCompletedMap?: Record<string, number>;
   // Notifications (for the bell panel — unchanged)
   notifications?: PipelineNotification[];
   unreadCount?: number;
   onMarkAllRead?: () => void;
   onClearNotifications?: () => void;
+  // FIX-202: per-item dismiss — passed through to NotificationPanel.
+  onDismissOneNotification?: (id: string) => void;
   onViewResults?: (n: PipelineNotification) => void;
 }
 
@@ -88,10 +96,12 @@ export function AppHeader({
   recentRuns = [],
   onSwitchToLiveRun,
   onSelectWorkflowRun,
+  runAgentsCompletedMap,
   notifications = [],
   unreadCount = 0,
   onMarkAllRead,
   onClearNotifications,
+  onDismissOneNotification,
   onViewResults,
 }: AppHeaderProps) {
   const [profileOpen, setProfileOpen] = useState(false);
@@ -162,19 +172,22 @@ export function AppHeader({
         // from pipelineAgentsCompleted/Total so the dropdown shows real progress
         // (e.g. "2/6") instead of a hardcoded "0/N" from the list endpoint.
         const isActive = activePipelineRunId != null && r.id === activePipelineRunId;
+        // For the active run use the live scalar (most up-to-date, updated every
+        // agent_complete frame via pipelineState). For background runs use the
+        // per-run store map if available — it receives the same SSE frames for
+        // all attached runs. Falls back to 0 when the run isn't in the store yet.
+        const storeCompleted = runAgentsCompletedMap?.[r.id] ?? 0;
         return {
           id: r.id,
           workflowRunId: r.id,
           workflowType: r.type,
           title: r.title,
-          // Map extended live statuses to the PipelineNotification status union.
-          // "waiting_for_user"/"gate" both mean the run is paused at a review gate.
           status: (r.status === "waiting_for_user" ? "gate"
             : (r.status === "running" || r.status === "planning" || r.status === "generating"
                 || r.status === "clarifying" || r.status === "analyzing" || r.status === "revising")
               ? "running"
               : r.status) as PipelineNotification["status"],
-          agentsCompleted: isActive ? pipelineAgentsCompleted : 0,
+          agentsCompleted: isActive ? pipelineAgentsCompleted : storeCompleted,
           agentsTotal: isActive ? (pipelineAgentsTotal || r.agentCount) : (r.agentCount ?? 0),
           createdAt: new Date(r.createdAt),
           read: true,
@@ -434,8 +447,10 @@ export function AppHeader({
           unreadCount={unreadCount}
           onMarkAllRead={onMarkAllRead ?? (() => {})}
           onClearAll={onClearNotifications ?? (() => {})}
+          onDismissOne={onDismissOneNotification}
           onGoToPipeline={onGoToPipeline ?? (() => {})}
           onViewResults={onViewResults ?? (() => {})}
+          liveRuns={runningPipelines}
           recentRuns={recentRuns}
         />
 

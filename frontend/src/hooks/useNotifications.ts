@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { WorkflowType } from "@/types/index";
 
 export interface PipelineNotification {
@@ -11,9 +11,80 @@ export interface PipelineNotification {
   status: "running" | "completed" | "failed" | "cancelled" | "gate";
   agentsCompleted?: number;
   agentsTotal?: number;
+  // Stored as ISO string in localStorage, hydrated as Date on load.
   createdAt: Date;
   completedAt?: Date;
   read: boolean;
+}
+
+// ── localStorage persistence (FIX-202) ────────────────────────────────────────
+// v2 schema — bump the key when PipelineNotification shape changes incompatibly.
+const STORAGE_KEY = "flowin.notifications.v2";
+const DISMISSED_KEY = "flowin.notifications.dismissed.v2";
+
+function loadFromStorage(): PipelineNotification[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
+    const dismissed = loadDismissed();
+    return parsed
+      // Drop notifications the user explicitly dismissed.
+      .filter((n) => !dismissed.has(n.id as string))
+      // FIX-204: drop "running" and "gate" notifications on hydration.
+      // After a page refresh, in-flight runs are no longer live — the SSE
+      // connection is gone and the run may have completed, failed, or been
+      // cancelled while the page was closed. Rehydrating them as "running"
+      // produces stale eternally-spinning entries that never resolve.
+      // Terminal notifications (completed / failed / cancelled) are safe to
+      // persist and are the only ones worth showing after a refresh.
+      .filter((n) => n.status !== "running" && n.status !== "gate")
+      .map((n) => ({
+        ...n,
+        // Hydrate ISO strings back to Date objects.
+        createdAt: new Date(n.createdAt as string),
+        completedAt: n.completedAt ? new Date(n.completedAt as string) : undefined,
+      })) as PipelineNotification[];
+  } catch {
+    return [];
+  }
+}
+
+function saveToStorage(notifications: PipelineNotification[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    // FIX-204: only persist terminal notifications (completed/failed/cancelled).
+    // Running and gate notifications are ephemeral — they belong to a live SSE
+    // session and become stale the moment the page is refreshed. Writing them
+    // to storage is what caused duplicate/stale entries to rehydrate on load.
+    const persistable = notifications.filter(
+      (n) => n.status !== "running" && n.status !== "gate"
+    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
+  } catch {
+    // Storage quota exceeded or unavailable — fail silently; next write retries.
+  }
+}
+
+function loadDismissed(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissed(ids: Set<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...ids]));
+  } catch {
+    // fail silently
+  }
 }
 
 const WORKFLOW_LABELS: Record<string, string> = {
@@ -42,7 +113,15 @@ export function getWorkflowLabel(type: string): string {
 }
 
 export function useNotifications() {
-  const [notifications, setNotifications] = useState<PipelineNotification[]>([]);
+  // FIX-202: hydrate from localStorage on mount so notifications survive refresh.
+  const [notifications, setNotifications] = useState<PipelineNotification[]>(() =>
+    loadFromStorage()
+  );
+
+  // FIX-202: persist to localStorage on every state change.
+  useEffect(() => {
+    saveToStorage(notifications);
+  }, [notifications]);
 
   const addRunningNotification = useCallback((
     id: string,
@@ -142,8 +221,25 @@ export function useNotifications() {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   }, []);
 
+  // FIX-202: per-item dismiss — removes the notification from the list and
+  // records its id in the persisted dismissed set so it does not re-appear
+  // after a page refresh (unlike "Clear all" which only clears in-memory state).
+  const dismissOne = useCallback((id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+    // Persist the dismissal so the notification stays gone after a refresh.
+    const dismissed = loadDismissed();
+    dismissed.add(id);
+    saveDismissed(dismissed);
+  }, []);
+
   const clearAll = useCallback(() => {
     setNotifications([]);
+    // FIX-202: also clear the persistence layer so notifications don't
+    // rehydrate on the next page load after a "Clear all".
+    if (typeof window !== "undefined") {
+      try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+      try { localStorage.removeItem(DISMISSED_KEY); } catch { /* ignore */ }
+    }
   }, []);
 
   // KAN-132 (FIX-148): store the backend run id on a running notification so
@@ -170,6 +266,7 @@ export function useNotifications() {
     markGateResumed,
     setNotifWorkflowRunId,
     markAllRead,
+    dismissOne,
     clearAll,
     unreadCount,
   };

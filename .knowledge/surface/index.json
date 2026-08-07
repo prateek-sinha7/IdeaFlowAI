@@ -1,5 +1,5 @@
 {
-  "count": 565,
+  "count": 572,
   "entries": [
     {
       "area": [
@@ -4837,6 +4837,147 @@
     },
     {
       "area": [
+        "frontend",
+        "sse",
+        "workflow"
+      ],
+      "date": "2026-08-07",
+      "files": [
+        "frontend/src/hooks/useNotifications.ts",
+        "frontend/src/components/ui/NotificationPanel.tsx",
+        "frontend/src/components/ui/CompletionToast.tsx",
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/components/layout/AppHeader.tsx",
+        "frontend/src/hooks/useNotifications.fix202.test.tsx"
+      ],
+      "id": "FIX-202",
+      "path": ".knowledge/cards/FIX-202.md",
+      "source": ".planning/FIX-REGISTER.md#fix-202",
+      "status": "done",
+      "summary": "Notification panel refactor: localStorage persistence, per-item dismiss, toast run navigation, duplicate/stale entry elimination",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "2026-08-07",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/components/layout/DashboardLayout.tsx"
+      ],
+      "id": "FIX-203",
+      "path": ".knowledge/cards/FIX-203.md",
+      "relates": [
+        "FIX-202"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-203",
+      "status": "done",
+      "summary": "Background concurrent run completion never marked on notification \u2014 User Stories completed but notification stayed \"running\"",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "2026-08-07",
+      "files": [
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/hooks/useNotifications.ts"
+      ],
+      "id": "FIX-204",
+      "path": ".knowledge/cards/FIX-204.md",
+      "relates": [
+        "FIX-202",
+        "FIX-203"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-204",
+      "status": "done",
+      "summary": "Duplicate notification entries in panel \u2014 2\u00d7 Presentation, 2\u00d7 User Stories when only 1 of each is running",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "workflow"
+      ],
+      "date": "2026-08-07",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/components/layout/DashboardLayout.tsx"
+      ],
+      "id": "FIX-205",
+      "path": ".knowledge/cards/FIX-205.md",
+      "relates": [
+        "FIX-203"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-205",
+      "status": "done",
+      "summary": "Background run's workflowRunId never stamped on notification \u2014 backgroundCompletedRunId lookup fails silently",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "agents"
+      ],
+      "date": "2026-08-07",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/components/results/StepsOverviewSpine.tsx"
+      ],
+      "id": "FIX-206",
+      "path": ".knowledge/cards/FIX-206.md",
+      "relates": [
+        "FIX-201",
+        "FIX-153"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-206",
+      "status": "done",
+      "summary": "Concurrent background run agent frames contaminate Steps panel of a clarify-paused run \u2014 Domain Discovery Agent shown below clarify questions",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "auth"
+      ],
+      "date": "2026-08-07",
+      "files": [
+        "frontend/src/hooks/useRunStream.ts"
+      ],
+      "id": "FIX-207",
+      "path": ".knowledge/cards/FIX-207.md",
+      "source": ".planning/FIX-REGISTER.md#fix-207",
+      "status": "done",
+      "summary": "useRunStream \"Maximum update depth exceeded\" \u2014 setCursor and setLastMessage called on every SSE frame causing re-render storm with concurrent runs",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "agents"
+      ],
+      "date": "2026-08-07",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/components/layout/AppHeader.tsx"
+      ],
+      "id": "FIX-208",
+      "path": ".knowledge/cards/FIX-208.md",
+      "relates": [
+        "FIX-202"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-208",
+      "status": "done",
+      "summary": "Notification panel agent progress shows 0/N for background concurrent runs \u2014 only viewed run shows live progress",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8476,25 +8617,25 @@
   ],
   "facets": {
     "area": {
-      "agents": 191,
+      "agents": 193,
       "artifacts": 78,
-      "auth": 71,
+      "auth": 72,
       "backend": 74,
       "docs": 2,
       "evals": 9,
-      "frontend": 160,
+      "frontend": 167,
       "harness": 2,
       "infra": 1,
       "product": 29,
       "resume": 40,
       "runtime": 31,
-      "sse": 126,
+      "sse": 129,
       "test-infra": 4,
-      "workflow": 183
+      "workflow": 185
     },
     "status": {
       "accepted": 1,
-      "done": 535,
+      "done": 542,
       "open": 20,
       "shipped": 1
     },
@@ -8502,7 +8643,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 201,
+      "fix": 208,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8521,5 +8662,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-07 16:29"
+  "generated": "2026-08-07 19:27"
 }

@@ -319,6 +319,15 @@ export default function DashboardPage() {
   // launch path sources parent linkage from it (replaces the old fragile
   // currentWorkflowRunId heuristic).
   const [contentSourceRunId, setContentSourceRunId] = useState<string | null>(null);
+  // FIX-203: the most-recently completed background (non-viewed) concurrent run id.
+  // Set in the pipeline_complete handler for foreign completions so DashboardLayout
+  // can mark the matching notification as completed (pipelineState only reflects
+  // the viewed run, so the standard completion effect never fires for background runs).
+  const [backgroundCompletedRunId, setBackgroundCompletedRunId] = useState<string | null>(null);
+  // FIX-205: the run id of a background concurrent run whose pipeline_start just
+  // arrived. DashboardLayout uses this to stamp workflowRunId onto that run's
+  // notification (created at launch time before the run id was known).
+  const [backgroundStartedRunId, setBackgroundStartedRunId] = useState<string | null>(null);
   // BUG-012: the durable viewed-run-type — the REAL type of the run that produced
   // the on-screen content (fullRun.type), threaded to DashboardLayout so the
   // PreviewPanel render dispatch keys on the viewed run's type even for runs
@@ -728,6 +737,12 @@ export default function DashboardPage() {
         if (isForeignRun) {
           // Foreign concurrent run — forward the frame to the reducer (below) but
           // do NOT reset THIS tab's clarify / seen-set / review-gate.
+          // FIX-205: stamp the run id onto the notification created for this run
+          // at launch time (before the run id was known), so backgroundCompletedRunId
+          // can find it on completion.
+          if (incomingRunId) {
+            setBackgroundStartedRunId(incomingRunId);
+          }
         } else {
           // FIX-201 (KAN-168): when launchPendingRef=true, this pipeline_start is
           // for the new run being launched (not yet in launchedRunIdsRef). Register
@@ -739,11 +754,24 @@ export default function DashboardPage() {
           if (launchPendingRef.current && incomingRunId && !launchedRunIdsRef.current.has(incomingRunId)) {
             launchedRunIdsRef.current.add(incomingRunId);
             persistLaunchedIds();
+            // Check clarify state of the PREVIOUS viewed run BEFORE overwriting refs.
+            // If the user is answering clarify questions for run A and run B's
+            // pipeline_start arrives, switching the viewport would replace A's agent
+            // list with B's agents below the clarify form (cross-run contamination).
+            const prevTrackedId = trackedRunIdRef.current;
+            const prevViewedHasClarify =
+              !!prevTrackedId &&
+              (runStore.get(prevTrackedId)?.questionnaireData != null);
             // Point all tracking refs at the new run immediately — same as .then()
             trackedRunIdRef.current = incomingRunId;
             activelyBuildingRunIdRef.current = incomingRunId;
-            // Switch the store viewport so frames project to the UI immediately.
-            runStoreSwitchViewToRef.current(incomingRunId);
+            // Switch the store viewport so frames project to the UI immediately —
+            // BUT only when the previous viewport was NOT parked on a clarify-paused
+            // run. The .then() callback will handle the viewport switch once the
+            // clarify is done; for now accumulate the new run's frames silently.
+            if (!prevViewedHasClarify) {
+              runStoreSwitchViewToRef.current(incomingRunId);
+            }
           }
           resetReplayState({
             seen: seenEventIdsRef.current,
@@ -919,6 +947,17 @@ export default function DashboardPage() {
         // the family is never re-fetched, leaving the version dropdown at v1.
         // SC-001/INV-1: keyed on generic endsWith("_revision") suffix, no literal.
         const isRevisionCompletion = typeof completingPipelineType === "string" && completingPipelineType.endsWith("_revision");
+
+        // FIX-203: for foreign completions (background concurrent runs), signal
+        // DashboardLayout to mark the matching notification as completed.
+        // pipelineState only reflects the viewed run, so DashboardLayout's standard
+        // completion effect never fires for background runs. Exclude revision
+        // completions (they are not "foreign" in the notification sense — the user
+        // intentionally launched them and they are tracked via the viewed run).
+        if (completingRunId && isForeignCompletion && !isRevisionCompletion) {
+          setBackgroundCompletedRunId(completingRunId);
+        }
+
         if (completingRunId && (!isForeignCompletion || isRevisionCompletion)) {
           setContentSourceRunId(completingRunId);
           // BUG-015 — release the tracked completing run's sticky focus so its
@@ -2472,6 +2511,19 @@ export default function DashboardPage() {
   // so all subsequent agent frames project to the viewed state in real-time.
   const displayedPipelineState = runStore.viewed.pipelineState;
 
+  // Build a per-run agents-completed map from the run store so AppHeader can show
+  // live progress for ALL concurrent background runs (not just the viewed one).
+  // The store receives agent_complete SSE frames for every attached run via
+  // runStore.handleFrame, so completedCount is accurate for all of them.
+  // SC-001: keyed on run ids (generic), never workflow-name literals.
+  const runAgentsCompletedMap: Record<string, number> = {};
+  for (const run of recentRuns) {
+    const entry = runStore.get(run.id);
+    if (entry) {
+      runAgentsCompletedMap[run.id] = entry.pipelineState.completedCount;
+    }
+  }
+
   return (
     <DashboardLayout
       activeChatId={activeChatId}
@@ -2644,7 +2696,10 @@ export default function DashboardPage() {
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
       homeWorkflows={homeWorkflows}
+      runAgentsCompletedMap={runAgentsCompletedMap}
       contentSourceRunId={contentSourceRunId}
+      backgroundCompletedRunId={backgroundCompletedRunId}
+      backgroundStartedRunId={backgroundStartedRunId}
       contentSourceRunType={contentSourceRunType}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       onSwitchToLiveRun={handleSwitchToLiveRun}

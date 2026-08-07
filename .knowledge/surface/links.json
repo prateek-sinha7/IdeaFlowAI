@@ -84,6 +84,9 @@
     "FIX-149": [
       "FIX-155"
     ],
+    "FIX-153": [
+      "FIX-206"
+    ],
     "FIX-155": [
       "FIX-194"
     ],
@@ -112,6 +115,18 @@
     ],
     "FIX-195": [
       "FIX-201"
+    ],
+    "FIX-201": [
+      "FIX-206"
+    ],
+    "FIX-202": [
+      "FIX-203",
+      "FIX-204",
+      "FIX-208"
+    ],
+    "FIX-203": [
+      "FIX-204",
+      "FIX-205"
     ],
     "ISS-007": [
       "ISS-035"
@@ -259,6 +274,8 @@
       "FIX-190",
       "FIX-193",
       "FIX-194",
+      "FIX-206",
+      "FIX-208",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -454,6 +471,7 @@
       "FIX-105",
       "FIX-133",
       "FIX-137",
+      "FIX-207",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -750,6 +768,13 @@
       "FIX-194",
       "FIX-195",
       "FIX-201",
+      "FIX-202",
+      "FIX-203",
+      "FIX-204",
+      "FIX-205",
+      "FIX-206",
+      "FIX-207",
+      "FIX-208",
       "ISS-022",
       "ISS-025",
       "TEST-0-1",
@@ -937,6 +962,9 @@
       "FIX-175",
       "FIX-177",
       "FIX-201",
+      "FIX-202",
+      "FIX-206",
+      "FIX-207",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1093,6 +1121,8 @@
       "FIX-194",
       "FIX-195",
       "FIX-201",
+      "FIX-202",
+      "FIX-205",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1650,7 +1680,11 @@
       "FIX-178",
       "FIX-188",
       "FIX-195",
-      "FIX-201"
+      "FIX-201",
+      "FIX-203",
+      "FIX-205",
+      "FIX-206",
+      "FIX-208"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
@@ -1748,7 +1782,9 @@
       "FIX-147",
       "FIX-156",
       "FIX-157",
-      "FIX-201"
+      "FIX-201",
+      "FIX-202",
+      "FIX-208"
     ],
     "frontend/src/components/layout/DashboardLayout.fix194.test.tsx": [
       "FIX-194"
@@ -1791,7 +1827,12 @@
       "FIX-188",
       "FIX-194",
       "FIX-195",
-      "FIX-201"
+      "FIX-201",
+      "FIX-202",
+      "FIX-203",
+      "FIX-204",
+      "FIX-205",
+      "FIX-208"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
       "FIX-078"
@@ -1849,7 +1890,8 @@
       "FIX-123",
       "FIX-124",
       "FIX-154",
-      "FIX-163"
+      "FIX-163",
+      "FIX-206"
     ],
     "frontend/src/components/settings/AccountSettings.tsx": [
       "FIX-019"
@@ -1857,13 +1899,17 @@
     "frontend/src/components/sidebar/Sidebar.tsx": [
       "FIX-090"
     ],
+    "frontend/src/components/ui/CompletionToast.tsx": [
+      "FIX-202"
+    ],
     "frontend/src/components/ui/NotificationPanel.fix195.test.tsx": [
       "FIX-195"
     ],
     "frontend/src/components/ui/NotificationPanel.tsx": [
       "FIX-021",
       "FIX-156",
-      "FIX-195"
+      "FIX-195",
+      "FIX-202"
     ],
     "frontend/src/components/workflow/AgentProgressPanel.test.tsx": [
       "ISS-022"
@@ -1937,9 +1983,14 @@
     "frontend/src/components/workflow/prototype/TemplateGallery.tsx": [
       "FIX-039"
     ],
+    "frontend/src/hooks/useNotifications.fix202.test.tsx": [
+      "FIX-202"
+    ],
     "frontend/src/hooks/useNotifications.ts": [
       "FIX-145",
-      "FIX-148"
+      "FIX-148",
+      "FIX-202",
+      "FIX-204"
     ],
     "frontend/src/hooks/useRunChat.test.ts": [
       "FIX-128"
@@ -1965,7 +2016,8 @@
       "BUG-014-sse",
       "FIX-122",
       "FIX-129",
-      "FIX-135"
+      "FIX-135",
+      "FIX-207"
     ],
     "frontend/src/hooks/useWorkflow.ts": [
       "FIX-007b",
@@ -2115,6 +2167,23 @@
       "FIX-134",
       "FIX-194",
       "FIX-195"
+    ],
+    "FIX-203": [
+      "FIX-202"
+    ],
+    "FIX-204": [
+      "FIX-202",
+      "FIX-203"
+    ],
+    "FIX-205": [
+      "FIX-203"
+    ],
+    "FIX-206": [
+      "FIX-153",
+      "FIX-201"
+    ],
+    "FIX-208": [
+      "FIX-202"
     ],
     "ISS-012": [
       "ISS-014"
