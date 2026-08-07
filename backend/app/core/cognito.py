@@ -428,21 +428,51 @@ def admin_remove_user_from_group(email: str, group_name: str) -> None:
     )
 
 
-def has_confirmed_totp(email: str) -> bool:
-    """True when this user has a CONFIRMED software-token (TOTP) MFA device.
+# Cognito's own factor identifiers, as they appear in ``UserMFASettingList``
+# and as challenge names. Named constants because they are used in three
+# separate places (status reads, the admin gate, challenge mapping) and a typo
+# in any of them fails silently as "not enrolled".
+TOTP_FACTOR = "SOFTWARE_TOKEN_MFA"
+EMAIL_FACTOR = "EMAIL_OTP"
 
-    Backs the admin-MFA gate (migration plan §5.5). Cognito's MFA setting is
-    pool-wide -- there is no native "required for admins only" -- so
-    enforcement has to be an application decision, and that decision needs to
-    know whether a given principal actually enrolled.
 
-    Reads ``UserMFASettingList`` from ``AdminGetUser``. That list contains only
-    CONFIRMED factors: a user who called ``AssociateSoftwareToken`` but never
-    completed ``VerifySoftwareToken`` does NOT appear, which is exactly the
-    semantics the gate wants (a half-finished enrolment must not satisfy it).
+def get_confirmed_mfa_factors(email: str) -> list[str]:
+    """The user's CONFIRMED MFA factors, from ``AdminGetUser``.
+
+    ``UserMFASettingList`` contains only confirmed/active factors: a user who
+    called ``AssociateSoftwareToken`` but never completed
+    ``VerifySoftwareToken`` does NOT appear. That is exactly the semantics the
+    admin gate wants -- a half-finished enrolment must not satisfy it.
+
+    Note the AWS quirk: the list stays empty until ``SetUserMFAPreference`` has
+    been called at least once, even when a factor is otherwise configured. Both
+    enrolment paths in this codebase always set a preference, so an enrolled
+    user is never invisible here.
     """
-    settings_list = admin_get_user(email).get("UserMFASettingList", []) or []
-    return "SOFTWARE_TOKEN_MFA" in settings_list
+    return list(admin_get_user(email).get("UserMFASettingList", []) or [])
+
+
+def has_confirmed_totp(email: str) -> bool:
+    """True when this user has a CONFIRMED software-token (TOTP) MFA device."""
+    return TOTP_FACTOR in get_confirmed_mfa_factors(email)
+
+
+def has_confirmed_email_mfa(email: str) -> bool:
+    """True when this user has email OTP active as a second factor."""
+    return EMAIL_FACTOR in get_confirmed_mfa_factors(email)
+
+
+def has_any_confirmed_mfa(email: str) -> bool:
+    """True when the user holds ANY confirmed second factor.
+
+    Backs the admin-MFA gate (migration plan §5.5). Deliberately factor-agnostic:
+    the gate's question is "did this admin complete a second factor", not "did
+    they choose the one the deployment happens to prefer". An admin with TOTP
+    should not be blocked because the environment later standardised on email
+    OTP, and vice versa.
+    """
+    factors = get_confirmed_mfa_factors(email)
+    return any(factor in factors for factor in (TOTP_FACTOR, EMAIL_FACTOR))
 
 
 def associate_software_token(access_token: str) -> str:
@@ -468,17 +498,76 @@ def verify_software_token(access_token: str, user_code: str, device_name: str | 
     return _client().verify_software_token(**kwargs)["Status"]
 
 
-def set_user_mfa_preference(access_token: str, totp_enabled: bool) -> None:
-    """Turn the (already-verified) software token on/off as the user's preference.
+def apply_mfa_preference(
+    access_token: str,
+    email: str,
+    *,
+    totp_enabled: bool | None = None,
+    email_enabled: bool | None = None,
+) -> list[str]:
+    """Set the user's MFA factor state, preserving any factor not named.
 
-    Cognito treats verification and preference as separate steps: verifying a
-    token proves possession, but the factor is not actually used at sign-in
-    until it is marked preferred/enabled.
+    ``None`` means "leave this factor as it is"; it is resolved from the user's
+    CURRENT confirmed factors and then sent explicitly, rather than omitted from
+    the request. That distinction is deliberate: AWS does not document whether an
+    omitted settings block preserves or clears the corresponding factor, and
+    guessing wrong would silently strip a user's TOTP device the first time they
+    enable email OTP. Reading current state costs one ``AdminGetUser`` on a
+    settings-page write -- never on a request path -- which is a cheap price for
+    not having to rely on undocumented behaviour.
+
+    Returns the resulting factor list so callers can report and audit the real
+    post-write state instead of assuming the write did what was asked.
+
+    Two Cognito protocol rules are enforced here so no caller has to remember
+    them:
+
+    * **Only one factor may be preferred.** If several are active and none is
+      preferred, Cognito issues a ``SELECT_MFA_TYPE`` challenge at sign-in
+      instead of going straight to a code prompt. We always name a preference so
+      that extra round trip does not appear. Preference goes to the factor being
+      turned on in THIS call; failing that, to email when it is active, else
+      TOTP.
+    * **TOTP cannot be enabled without a registered software token.** Doing so
+      fails with ``InvalidParameterException: User does not have delivery config
+      set to turn on SOFTWARE_TOKEN_MFA``. Callers enabling TOTP must have just
+      completed ``verify_software_token``; a ``None`` here can only ever preserve
+      an already-confirmed token, so it is safe.
     """
+    current = get_confirmed_mfa_factors(email)
+
+    resolved_totp = (TOTP_FACTOR in current) if totp_enabled is None else totp_enabled
+    resolved_email = (EMAIL_FACTOR in current) if email_enabled is None else email_enabled
+
+    if email_enabled:
+        preferred = EMAIL_FACTOR
+    elif totp_enabled:
+        preferred = TOTP_FACTOR
+    elif resolved_email:
+        preferred = EMAIL_FACTOR
+    elif resolved_totp:
+        preferred = TOTP_FACTOR
+    else:
+        preferred = ""
+
     _client().set_user_mfa_preference(
         AccessToken=access_token,
-        SoftwareTokenMfaSettings={"Enabled": totp_enabled, "PreferredMfa": totp_enabled},
+        SoftwareTokenMfaSettings={
+            "Enabled": resolved_totp,
+            "PreferredMfa": preferred == TOTP_FACTOR,
+        },
+        EmailMfaSettings={
+            "Enabled": resolved_email,
+            "PreferredMfa": preferred == EMAIL_FACTOR,
+        },
     )
+
+    factors = []
+    if resolved_totp:
+        factors.append(TOTP_FACTOR)
+    if resolved_email:
+        factors.append(EMAIL_FACTOR)
+    return factors
 
 
 def forgot_password(email: str) -> None:

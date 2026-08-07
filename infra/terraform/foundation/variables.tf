@@ -264,6 +264,59 @@ variable "cognito_mfa_configuration" {
   }
 }
 
+variable "cognito_email_mfa_enabled" {
+  description = <<-EOT
+    Enable email one-time-password (EMAIL_OTP) as the second factor.
+
+    Requires cognito_ses_source_arn to be set — Cognito rejects email MFA on a
+    pool using the built-in sender.
+
+    ACCEPTED TRADEOFF: AWS forbids email being both the second factor and the
+    account-recovery channel, and this pool collects no phone numbers. Enabling
+    this switches account recovery to `admin_only`, which SURRENDERS
+    self-service password reset — resets become an administrator operation via
+    POST /api/admin/users/{id}/reset-password. The backend is told via the
+    SSM-published AUTH_EMAIL_MFA_ENABLED so /api/auth/forgot-password reports
+    this explicitly rather than accepting a request that produces no email.
+  EOT
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.cognito_email_mfa_enabled || length(var.cognito_ses_source_arn) > 0
+    error_message = "cognito_email_mfa_enabled requires cognito_ses_source_arn to be set."
+  }
+}
+
+variable "cognito_ses_source_arn" {
+  description = "ARN of a VERIFIED SES identity (domain or email) for pool email. Empty keeps Cognito's built-in sender, which is rate limited well below production need and cannot carry email MFA."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_ses_from_email_address" {
+  description = "From: address for pool email. Must belong to the verified cognito_ses_source_arn identity. Required when that is set."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_ses_reply_to_email_address" {
+  description = "Optional Reply-To: address for pool email."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_auth_session_validity_minutes" {
+  description = "Lifetime of the Cognito auth-flow session, and therefore how long a delivered MFA code stays valid. 3-15 minutes; AWS defaults to 3, which is tight for emailed codes."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.cognito_auth_session_validity_minutes >= 3 && var.cognito_auth_session_validity_minutes <= 15
+    error_message = "cognito_auth_session_validity_minutes must be between 3 and 15."
+  }
+}
+
 variable "cognito_access_token_validity_minutes" {
   description = "Cognito access/ID token lifetime in minutes."
   type        = number

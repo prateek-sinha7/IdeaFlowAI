@@ -154,6 +154,17 @@ variable "auth_allow_legacy_jwt" {
   }
 }
 
+variable "auth_email_mfa_enabled" {
+  description = "Whether the pool has email OTP configured as a second factor. Drives the backend's forgot-password posture: when true, email is disqualified as an account-recovery channel and self-service reset must report that instead of silently accepting the request. Empty omits the parameter (application default: false)."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.auth_email_mfa_enabled == "" || contains(["true", "false"], var.auth_email_mfa_enabled)
+    error_message = "auth_email_mfa_enabled must be empty, \"true\", or \"false\"."
+  }
+}
+
 variable "break_glass_enabled" {
   description = "Kill switch for the single local-password break-glass admin (Decision 12). Empty omits the parameter (application default: true)."
   type        = string

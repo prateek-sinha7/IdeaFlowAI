@@ -29,6 +29,11 @@ function LoginForm() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [mfaCode, setMfaCode] = useState("");
+  // SELECT_MFA_TYPE only. Should not normally appear — the backend always names
+  // a preferred factor — but a preference changed out of band (AWS console) can
+  // still produce it, and a dead end at the login screen is the worst place for
+  // one.
+  const [selectedFactor, setSelectedFactor] = useState("");
 
   function goToDestination() {
     // Every user — including admins — lands on the main application by
@@ -82,8 +87,17 @@ function LoginForm() {
         setError("Passwords do not match.");
         return;
       }
+    } else if (challenge.challenge === "SELECT_MFA_TYPE") {
+      if (!selectedFactor) {
+        setError("Choose how you'd like to receive your code.");
+        return;
+      }
     } else if (!mfaCode.trim()) {
-      setError("Enter the 6-digit code from your authenticator app.");
+      setError(
+        challenge.challenge === "EMAIL_OTP"
+          ? "Enter the 6-digit code we emailed you."
+          : "Enter the 6-digit code from your authenticator app."
+      );
       return;
     }
 
@@ -91,15 +105,23 @@ function LoginForm() {
     try {
       const result = await respondToLoginChallenge(email, challenge.session, challenge.challenge, {
         newPassword: challenge.challenge === "NEW_PASSWORD_REQUIRED" ? newPassword : undefined,
-        mfaCode: challenge.challenge !== "NEW_PASSWORD_REQUIRED" ? mfaCode : undefined,
+        mfaCode:
+          challenge.challenge === "SOFTWARE_TOKEN_MFA" || challenge.challenge === "EMAIL_OTP"
+            ? mfaCode
+            : undefined,
+        selectedFactor:
+          challenge.challenge === "SELECT_MFA_TYPE" ? selectedFactor : undefined,
       });
       if (isAuthChallenge(result)) {
-        // A second challenge (e.g. NEW_PASSWORD_REQUIRED then MFA_SETUP) —
-        // reset the step-specific fields and move to the next step.
+        // A second challenge — ordinary, not exotic: a first login with a
+        // temporary password produces NEW_PASSWORD_REQUIRED and then a code
+        // prompt for a user who holds a factor. Clear the step-specific fields
+        // so the next step starts empty.
         setChallenge(result);
         setNewPassword("");
         setConfirmNewPassword("");
         setMfaCode("");
+        setSelectedFactor("");
         return;
       }
       goToDestination();
@@ -122,10 +144,13 @@ function LoginForm() {
         setConfirmNewPassword={setConfirmNewPassword}
         mfaCode={mfaCode}
         setMfaCode={setMfaCode}
+        selectedFactor={selectedFactor}
+        setSelectedFactor={setSelectedFactor}
         onSubmit={handleChallengeSubmit}
         onCancel={() => {
           setChallenge(null);
           setError("");
+          setSelectedFactor("");
         }}
       />
     );
@@ -268,10 +293,46 @@ function LoginForm() {
   );
 }
 
+/** Copy per challenge kind. Kept as one table so the strings are comparable
+ *  side by side rather than scattered through nested ternaries. */
+const CHALLENGE_COPY: Record<
+  AuthChallengeResponse["challenge"],
+  { title: string; subtitle: string }
+> = {
+  NEW_PASSWORD_REQUIRED: {
+    title: "Set a new password",
+    subtitle: "This is your first sign-in. Choose a permanent password to continue.",
+  },
+  SOFTWARE_TOKEN_MFA: {
+    title: "Enter your authentication code",
+    subtitle: "Enter the 6-digit code from your authenticator app.",
+  },
+  EMAIL_OTP: {
+    title: "Check your email",
+    subtitle: "We sent you a 6-digit code. Enter it below to finish signing in.",
+  },
+  SELECT_MFA_TYPE: {
+    title: "Choose a verification method",
+    subtitle: "How would you like to receive your code?",
+  },
+  MFA_SETUP: {
+    title: "Two-factor setup required",
+    subtitle:
+      "This account needs two-factor authentication set up before it can sign in. Contact your administrator to finish setup.",
+  },
+};
+
+/** SELECT_MFA_TYPE answers. `EMAIL_MFA` is Cognito's own asymmetry — the factor
+ *  is `EMAIL_OTP` everywhere else but the selection answer is `EMAIL_MFA`. */
+const FACTOR_CHOICES: { value: string; label: string }[] = [
+  { value: "EMAIL_MFA", label: "Email me a code" },
+  { value: "SOFTWARE_TOKEN_MFA", label: "Use my authenticator app" },
+];
+
 /**
- * Cognito migration (Phase 4): the minimal first-login "set a new password"
- * / TOTP enrol-or-verify step. Reuses the same two-column shell as the main
- * login form so a challenge never looks like a different app.
+ * Cognito migration (Phase 4): the first-login "set a new password" step and the
+ * MFA code prompts. Reuses the same shell as the main login form so a challenge
+ * never looks like a different app.
  */
 function ChallengeForm({
   challenge,
@@ -283,6 +344,8 @@ function ChallengeForm({
   setConfirmNewPassword,
   mfaCode,
   setMfaCode,
+  selectedFactor,
+  setSelectedFactor,
   onSubmit,
   onCancel,
 }: {
@@ -295,18 +358,38 @@ function ChallengeForm({
   setConfirmNewPassword: (v: string) => void;
   mfaCode: string;
   setMfaCode: (v: string) => void;
+  selectedFactor: string;
+  setSelectedFactor: (v: string) => void;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
 }) {
-  const isNewPassword = challenge.challenge === "NEW_PASSWORD_REQUIRED";
-  const title = isNewPassword
-    ? "Set a new password"
-    : challenge.challenge === "MFA_SETUP"
-      ? "Set up two-factor authentication"
-      : "Enter your authentication code";
-  const subtitle = isNewPassword
-    ? "This is your first sign-in. Choose a permanent password to continue."
-    : "Enter the 6-digit code from your authenticator app.";
+  const kind = challenge.challenge;
+  const isNewPassword = kind === "NEW_PASSWORD_REQUIRED";
+  const isCode = kind === "SOFTWARE_TOKEN_MFA" || kind === "EMAIL_OTP";
+  const isSelect = kind === "SELECT_MFA_TYPE";
+  // MFA_SETUP cannot be completed here: it needs a three-call Cognito session
+  // chain the single-shot /login/challenge endpoint can't express, and the
+  // backend answers 501. Render the explanation instead of a code field that
+  // would collect a code and then fail.
+  const isDeadEnd = kind === "MFA_SETUP";
+
+  const copy = CHALLENGE_COPY[kind] ?? {
+    title: "Additional verification required",
+    subtitle: "Follow the prompt below to finish signing in.",
+  };
+  const { title } = copy;
+  // For EMAIL_OTP, name the mailbox Cognito actually sent to when it told us.
+  // "Check your email" is unhelpful when the address on file isn't the one the
+  // user expected; the value is already masked by AWS.
+  const subtitle =
+    kind === "EMAIL_OTP" && challenge.delivery
+      ? `We sent a 6-digit code to ${challenge.delivery}. Enter it below to finish signing in.`
+      : copy.subtitle;
+
+  const choices =
+    challenge.available_factors && challenge.available_factors.length > 0
+      ? FACTOR_CHOICES.filter((c) => challenge.available_factors?.includes(c.value))
+      : FACTOR_CHOICES;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-paper px-4 py-12">
@@ -360,10 +443,36 @@ function ChallengeForm({
                   />
                 </div>
               </>
-            ) : (
+            ) : isSelect ? (
+              <fieldset>
+                <legend className="mb-2 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
+                  Verification method
+                </legend>
+                <div className="space-y-2">
+                  {choices.map((choice) => (
+                    <label
+                      key={choice.value}
+                      htmlFor={`factor-${choice.value}`}
+                      className="flex cursor-pointer items-center gap-3 rounded-[var(--radius-button)] border border-line-control bg-surface-card px-3.5 py-3 text-[14px] text-ink-900 hover:bg-surface-warm has-[:focus-visible]:border-brand"
+                    >
+                      <input
+                        id={`factor-${choice.value}`}
+                        type="radio"
+                        name="mfa-factor"
+                        value={choice.value}
+                        checked={selectedFactor === choice.value}
+                        onChange={(e) => setSelectedFactor(e.target.value)}
+                        className="h-4 w-4 accent-brand"
+                      />
+                      {choice.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : isCode ? (
               <div>
                 <label htmlFor="mfa-code" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
-                  Authentication code
+                  {kind === "EMAIL_OTP" ? "Email code" : "Authentication code"}
                 </label>
                 <input
                   id="mfa-code"
@@ -377,11 +486,15 @@ function ChallengeForm({
                   placeholder="123456"
                 />
               </div>
-            )}
+            ) : null}
 
-            <Button variant="primary" type="submit" disabled={isLoading} className="w-full py-3 text-[13px]">
-              {isLoading ? "Verifying…" : "Continue"}
-            </Button>
+            {/* MFA_SETUP has nothing actionable, so it gets no submit control —
+                offering "Continue" would just produce a 501. */}
+            {!isDeadEnd && (
+              <Button variant="primary" type="submit" disabled={isLoading} className="w-full py-3 text-[13px]">
+                {isLoading ? "Verifying…" : "Continue"}
+              </Button>
+            )}
             <button
               type="button"
               onClick={onCancel}

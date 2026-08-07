@@ -4,12 +4,30 @@ Rewired for the Cognito Authentication & Authorization Migration
 (``.planning/COGNITO-MIGRATION-PLAN.md`` §7 Phase 3). ``login`` branches on
 ``user.auth_provider``: ``"local"`` (break-glass) keeps the original bcrypt +
 local-JWT path unchanged; ``"cognito"`` calls ``AdminInitiateAuth`` and
-handles the NEW_PASSWORD_REQUIRED / MFA_SETUP / SOFTWARE_TOKEN_MFA challenges
-via the new ``/login/challenge`` endpoint. ``AuthResponse`` shape is
-UNCHANGED for the happy path -- 122 ``getToken()`` call sites across 57
-frontend files need no edits (Decision 3).
+handles the NEW_PASSWORD_REQUIRED / SOFTWARE_TOKEN_MFA / EMAIL_OTP /
+SELECT_MFA_TYPE challenges via the ``/login/challenge`` endpoint.
+``AuthResponse`` shape is UNCHANGED for the happy path -- 122 ``getToken()``
+call sites across 57 frontend files need no edits (Decision 3).
+
+MFA surface
+-----------
+Two factors, with deliberately different shapes because Cognito's are different:
+
+* **TOTP** needs a secret provisioned, so enrolment is a two-step ceremony:
+  ``/mfa/totp/associate`` (returns an ``otpauth://`` URI to render as a QR) then
+  ``/mfa/totp/verify`` (proves possession).
+* **Email OTP** needs nothing provisioned -- the mailbox is already the pool's
+  sign-in identifier and is auto-verified -- so enrolment is a single toggle:
+  ``/mfa/email/enable`` / ``/mfa/email/disable``.
+
+``GET /mfa`` reports current state for both. Enabling email OTP requires the pool
+to carry ``email_mfa_configuration``, signalled by ``AUTH_EMAIL_MFA_ENABLED``;
+that same flag makes ``/forgot-password`` report that self-service reset is
+unavailable, because AWS disqualifies email for account recovery whenever it is
+an MFA factor (see ``infra/terraform/modules/cognito``).
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -39,6 +57,7 @@ from app.models.schemas import (
     AuthResponse,
     LoginChallengeRequest,
     LoginRequest,
+    MfaStatusResponse,
     RefreshResponse,
     RegisterRequest,
     UserResponse,
@@ -64,6 +83,22 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Self-registration is disabled. Contact your administrator for an account.",
+    )
+
+
+def _principal_from_payload(user: User, payload: dict) -> Principal:
+    """Rebuild the Principal from a dependency's projected payload.
+
+    Needed wherever a route has to ask an authorization question that depends on
+    the EFFECTIVE role (``cognito:groups`` on the Cognito path) rather than the
+    advisory DB column -- see core/identity.py's precedence rule.
+    """
+    return Principal(
+        provider="cognito" if user.auth_provider == "cognito" else "local",
+        sub=payload.get("sub", user.id),
+        jti=payload.get("jti"),
+        iat=payload.get("iat"),
+        groups=payload.get("groups", []),
     )
 
 
@@ -112,6 +147,43 @@ def _cognito_auth_result_to_response(user: User, auth_result: dict, db: Session)
             tier=user.tier,
             is_admin=user.is_admin,
         ),
+    )
+
+
+def _challenge_response(resp: dict) -> AuthChallengeResponse:
+    """Project a boto3 challenge response into our wire shape.
+
+    Pulls two things out of ``ChallengeParameters`` that the client genuinely
+    needs and cannot derive:
+
+    * ``CODE_DELIVERY_DESTINATION`` -- where Cognito just sent the code, already
+      masked by AWS. For EMAIL_OTP a prompt that cannot say which mailbox to
+      check is a real support burden when the address on file is not the one the
+      user expected.
+    * ``MFAS_CAN_CHOOSE`` -- the selectable factors on a SELECT_MFA_TYPE
+      challenge, so a client can render an actual choice.
+
+    Both are absent on challenges that do not produce them, hence the ``None``
+    defaults rather than empty strings.
+    """
+    params = resp.get("ChallengeParameters", {}) or {}
+
+    available: list[str] | None = None
+    raw_options = params.get("MFAS_CAN_CHOOSE")
+    if raw_options:
+        # Cognito serialises this as a JSON array inside a string value.
+        try:
+            parsed = json.loads(raw_options)
+            if isinstance(parsed, list):
+                available = [str(item) for item in parsed]
+        except (ValueError, TypeError):
+            logger.warning("Could not parse MFAS_CAN_CHOOSE: %r", raw_options)
+
+    return AuthChallengeResponse(
+        challenge=resp["ChallengeName"],
+        session=resp["Session"],
+        delivery=params.get("CODE_DELIVERY_DESTINATION"),
+        available_factors=available,
     )
 
 
@@ -215,20 +287,49 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
             provider="cognito",
             challenge=resp["ChallengeName"],
         )
-        return AuthChallengeResponse(challenge=resp["ChallengeName"], session=resp["Session"])
+        return _challenge_response(resp)
 
     auth_events.emit(AuthEvent.LOGIN_SUCCESS, user_id=user.id, provider="cognito")
     return _cognito_auth_result_to_response(user, resp["AuthenticationResult"], db)
 
 
-@router.post("/login/challenge", response_model=AuthResponse)
+#: Maps a challenge name to the ``ChallengeResponses`` key carrying its one-time
+#: code. All three are a 6-digit code from the user's point of view; only the key
+#: Cognito expects differs, so the request schema uses a single ``mfa_code``
+#: field and this table does the translation.
+_CODE_RESPONSE_KEY = {
+    "SOFTWARE_TOKEN_MFA": "SOFTWARE_TOKEN_MFA_CODE",
+    "EMAIL_OTP": "EMAIL_OTP_CODE",
+}
+
+#: Valid answers to a SELECT_MFA_TYPE challenge. Note the asymmetry, which is a
+#: genuine Cognito quirk and not a typo here: the factor is called ``EMAIL_OTP``
+#: everywhere else (challenge name, UserMFASettingList) but the SELECT_MFA_TYPE
+#: answer for it is ``EMAIL_MFA``.
+_SELECTABLE_FACTORS = ("EMAIL_MFA", "SOFTWARE_TOKEN_MFA")
+
+
+@router.post("/login/challenge", response_model=AuthResponse | AuthChallengeResponse)
 def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db)):
     """Complete a Cognito auth challenge started by ``POST /api/auth/login``.
 
-    Handles the three challenges the migration plan's §5.5 documents as
-    reachable even while MFA stays OPTIONAL (Decision 4): NEW_PASSWORD_REQUIRED
-    (first login with an admin-set temp password), MFA_SETUP, and
-    SOFTWARE_TOKEN_MFA (an enrolled user logging in).
+    Handles NEW_PASSWORD_REQUIRED (first login with an admin-set temp password),
+    SOFTWARE_TOKEN_MFA and EMAIL_OTP (an enrolled user signing in), and
+    SELECT_MFA_TYPE (a user with several active factors and no preference).
+
+    ``response_model`` is the union because a challenge response can itself
+    produce another challenge -- NEW_PASSWORD_REQUIRED followed by an MFA prompt
+    is the ordinary first-login sequence for a user whose role requires a factor.
+    Declaring only ``AuthResponse`` here made FastAPI's response validation
+    reject that chained case.
+
+    MFA_SETUP is deliberately NOT handled. Completing it requires a three-call
+    session chain (AssociateSoftwareToken -> VerifySoftwareToken ->
+    RespondToAuthChallenge, each consuming the previous call's session) that this
+    endpoint's single-shot shape cannot express. Cognito only issues MFA_SETUP
+    when the pool REQUIRES MFA and the user holds no factor, which cannot happen
+    while ``mfa_configuration`` is OPTIONAL. Rather than send a response Cognito
+    will reject, this returns an actionable error -- see the guard below.
     """
     user = db.query(User).filter(User.email == request.email).first()
     if not user or user.auth_provider != "cognito":
@@ -242,13 +343,40 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
                 detail="new_password is required for the NEW_PASSWORD_REQUIRED challenge",
             )
         challenge_responses["NEW_PASSWORD"] = request.new_password
-    elif request.challenge in ("SOFTWARE_TOKEN_MFA", "MFA_SETUP"):
+    elif request.challenge in _CODE_RESPONSE_KEY:
         if not request.mfa_code:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"mfa_code is required for the {request.challenge} challenge",
             )
-        challenge_responses["SOFTWARE_TOKEN_MFA_CODE"] = request.mfa_code
+        challenge_responses[_CODE_RESPONSE_KEY[request.challenge]] = request.mfa_code
+    elif request.challenge == "SELECT_MFA_TYPE":
+        if request.selected_factor not in _SELECTABLE_FACTORS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "selected_factor is required for the SELECT_MFA_TYPE challenge "
+                    f"and must be one of: {', '.join(_SELECTABLE_FACTORS)}"
+                ),
+            )
+        challenge_responses["ANSWER"] = request.selected_factor
+    elif request.challenge == "MFA_SETUP":
+        # Reachable only if the pool is switched to mfa_configuration = "ON"
+        # while users hold no factor. Say so precisely: a generic "unsupported"
+        # here would send an operator hunting through client code for a bug that
+        # is actually a pool setting.
+        logger.error(
+            "Received an MFA_SETUP challenge, which requires pool-wide required MFA. "
+            "This endpoint cannot complete it (needs an AssociateSoftwareToken "
+            "session chain). Check mfa_configuration on the user pool."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=(
+                "This account must finish setting up two-factor authentication "
+                "before signing in. Contact your administrator."
+            ),
+        )
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -270,10 +398,17 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
         )
 
     if "ChallengeName" in resp:
-        # A second challenge (e.g. NEW_PASSWORD_REQUIRED then MFA_SETUP) --
+        # A second challenge (e.g. NEW_PASSWORD_REQUIRED then EMAIL_OTP) --
         # surface it the same way /login does rather than special-casing.
-        return AuthChallengeResponse(challenge=resp["ChallengeName"], session=resp["Session"])
+        auth_events.emit(
+            AuthEvent.LOGIN_CHALLENGE,
+            user_id=user.id,
+            provider="cognito",
+            challenge=resp["ChallengeName"],
+        )
+        return _challenge_response(resp)
 
+    auth_events.emit(AuthEvent.LOGIN_SUCCESS, user_id=user.id, provider="cognito")
     return _cognito_auth_result_to_response(user, resp["AuthenticationResult"], db)
 
 
@@ -355,13 +490,7 @@ def get_me(auth: tuple[User, dict] = Depends(get_current_user_with_payload)):
     core/identity.py.
     """
     user, payload = auth
-    principal = Principal(
-        provider="cognito" if user.auth_provider == "cognito" else "local",
-        sub=payload.get("sub", user.id),
-        jti=payload.get("jti"),
-        iat=payload.get("iat"),
-        groups=payload.get("groups", []),
-    )
+    principal = _principal_from_payload(user, payload)
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -514,7 +643,11 @@ def verify_totp(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not verify that code. Try the current code from your app.",
             )
-        cognito.set_user_mfa_preference(credentials.credentials, totp_enabled=True)
+        # Preserves any email factor the user already has (email_enabled=None) --
+        # enrolling a second device must not silently remove the first.
+        cognito.apply_mfa_preference(
+            credentials.credentials, user.email, totp_enabled=True
+        )
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
         if code in ("CodeMismatchException", "EnableSoftwareTokenMFAException"):
@@ -527,8 +660,190 @@ def verify_totp(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service unavailable",
         )
-    auth_events.emit(AuthEvent.MFA_ENROLLED, user_id=user.id, provider="cognito")
+    auth_events.emit(
+        AuthEvent.MFA_ENROLLED, user_id=user.id, provider="cognito", factor=cognito.TOTP_FACTOR
+    )
     return {"message": "Two-factor authentication enabled."}
+
+
+# ---------------------------------------------------------------------------
+# MFA status + email OTP enrolment
+# ---------------------------------------------------------------------------
+# Email OTP has no enrolment ceremony the way TOTP does: there is no secret to
+# provision, so no AssociateSoftwareToken/VerifySoftwareToken pair. Possession of
+# the mailbox is already established -- it is the pool's sign-in identifier
+# (`username_attributes = ["email"]`), auto-verified, and the address the
+# invitation was delivered to. Enabling the factor is therefore a single
+# SetUserMFAPreference write, which is why these endpoints are a toggle rather
+# than a multi-step flow.
+
+
+@router.get("/mfa", response_model=MfaStatusResponse)
+def get_mfa_status(
+    auth: tuple[User, dict] = Depends(get_current_user_with_payload),
+):
+    """Report the caller's second-factor state and what this deployment offers.
+
+    Returns 200 with ``supported=false`` for a non-Cognito (break-glass) account
+    rather than an error: the security page still needs to render, and "this
+    account type has no second factor" is a legitimate answer, not a failure.
+
+    On a Cognito lookup failure this reports ``enabled=false`` with the factor
+    list empty rather than 503. The consequence of being wrong here is a settings
+    page that offers to enable a factor the user already has -- Cognito would
+    reject or no-op that -- which is a far better outcome than a security page
+    that cannot load at all.
+    """
+    user, payload = auth
+    principal = _principal_from_payload(user, payload)
+
+    if user.auth_provider != "cognito":
+        return MfaStatusResponse(
+            enabled=False,
+            factors=[],
+            email_available=False,
+            totp_available=False,
+            required=False,
+            supported=False,
+        )
+
+    try:
+        factors = cognito.get_confirmed_mfa_factors(user.email)
+    except Exception as exc:  # noqa: BLE001 - see docstring: degrade, don't 503
+        logger.warning("Could not read MFA factors for %s: %s", user.id, exc)
+        factors = []
+
+    return MfaStatusResponse(
+        enabled=bool(factors),
+        factors=factors,
+        email_available=settings.AUTH_EMAIL_MFA_ENABLED,
+        totp_available=True,
+        required=settings.ADMIN_MFA_REQUIRED and effective_is_admin(user, principal),
+        supported=True,
+    )
+
+
+def _require_cognito_user(user: User) -> None:
+    if user.auth_provider != "cognito":
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Two-factor authentication is not available for this account type.",
+        )
+
+
+@router.post("/mfa/email/enable", status_code=status.HTTP_200_OK)
+def enable_email_mfa(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    auth: tuple[User, dict] = Depends(get_current_user_with_payload),
+):
+    """Turn on email OTP as the caller's second factor.
+
+    Guarded on ``AUTH_EMAIL_MFA_ENABLED`` because the factor only works when the
+    POOL carries ``email_mfa_configuration`` (which in turn needs SES). Without
+    that, Cognito rejects the write with an opaque parameter error; refusing here
+    produces an explanation instead.
+
+    Keyed on the caller's own access token, so a user can only ever change their
+    OWN factors. Any existing TOTP device is preserved.
+    """
+    user, _payload = auth
+    _require_cognito_user(user)
+
+    if not settings.AUTH_EMAIL_MFA_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Email two-factor authentication is not configured for this "
+                "environment. Use an authenticator app instead."
+            ),
+        )
+
+    try:
+        factors = cognito.apply_mfa_preference(
+            credentials.credentials, user.email, email_enabled=True
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        logger.error("Cognito SetUserMFAPreference (email on) failed: %s", code)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        )
+
+    auth_events.emit(
+        AuthEvent.MFA_ENROLLED,
+        user_id=user.id,
+        provider="cognito",
+        factor=cognito.EMAIL_FACTOR,
+    )
+    return {
+        "message": "Email two-factor authentication enabled.",
+        "factors": factors,
+    }
+
+
+@router.post("/mfa/email/disable", status_code=status.HTTP_200_OK)
+def disable_email_mfa(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    auth: tuple[User, dict] = Depends(get_current_user_with_payload),
+):
+    """Turn off email OTP for the caller.
+
+    Refused when it would leave a user whose role REQUIRES a factor with none at
+    all (admin + ``ADMIN_MFA_REQUIRED``, and no TOTP device to fall back on).
+    Allowing it would let an admin lock themselves out of every ``/api/admin/*``
+    route in one click, and the fix would then need another admin -- so this
+    fails closed and explains what to do instead.
+    """
+    user, payload = auth
+    _require_cognito_user(user)
+    principal = _principal_from_payload(user, payload)
+
+    mfa_required = settings.ADMIN_MFA_REQUIRED and effective_is_admin(user, principal)
+    if mfa_required:
+        try:
+            has_totp = cognito.has_confirmed_totp(user.email)
+        except Exception as exc:  # noqa: BLE001 - fail CLOSED here, unlike the gate
+            # The admin gate itself fails open on a lookup error because the
+            # caller is already authenticated. This is the opposite case: we are
+            # about to REMOVE a control, and doing that on incomplete information
+            # is how someone locks themselves out. Refuse and let them retry.
+            logger.error("Could not confirm TOTP before disabling email MFA for %s: %s", user.id, exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not verify your other factors right now. Please try again.",
+            )
+        if not has_totp:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Administrator accounts must keep a second factor. Set up an "
+                    "authenticator app first, then disable email codes."
+                ),
+            )
+
+    try:
+        factors = cognito.apply_mfa_preference(
+            credentials.credentials, user.email, email_enabled=False
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        logger.error("Cognito SetUserMFAPreference (email off) failed: %s", code)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        )
+
+    auth_events.emit(
+        AuthEvent.MFA_DISABLED,
+        user_id=user.id,
+        provider="cognito",
+        factor=cognito.EMAIL_FACTOR,
+    )
+    return {
+        "message": "Email two-factor authentication disabled.",
+        "factors": factors,
+    }
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -555,12 +870,32 @@ def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db
     endpoint into an account-enumeration oracle, which is the standard failure
     mode of naive reset flows. The pool client also has
     ``prevent_user_existence_errors = ENABLED`` for the same reason.
+
+    UNAVAILABLE when the pool uses email MFA. AWS forbids email being both a
+    second factor and the account-recovery channel, so such a pool is created
+    with ``account_recovery_setting = admin_only`` and ``ForgotPassword`` can
+    deliver nothing. Returning the usual generic 202 in that configuration would
+    be a lie that costs the user a support ticket to discover, so this reports
+    the situation directly -- see the 409 branch below.
     """
     email = request.email.strip().lower()
     generic = {"message": "If that account exists, a reset code has been sent."}
 
     if settings.AUTH_PROVIDER.lower() != "cognito":
         return generic
+
+    if settings.AUTH_EMAIL_MFA_ENABLED:
+        # Not an enumeration risk: the answer is a property of the DEPLOYMENT,
+        # identical for every address including ones that do not exist, so it
+        # reveals nothing about any particular account.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Self-service password reset is unavailable because this "
+                "environment uses email verification codes for sign-in. Ask an "
+                "administrator to reset your password."
+            ),
+        )
 
     user = db.query(User).filter(User.email == email).first()
     # Break-glass accounts deliberately have NO self-service reset path: the
@@ -605,6 +940,19 @@ def confirm_forgot_password(
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Self-service password reset is not enabled.",
+        )
+
+    if settings.AUTH_EMAIL_MFA_ENABLED:
+        # Mirrors the guard on /forgot-password. No code can have been issued in
+        # this configuration, so accepting one here could only ever waste the
+        # caller's time -- and leaving the endpoint open would let it be used to
+        # probe reset codes that the other half of the flow refuses to send.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Self-service password reset is unavailable in this environment. "
+                "Ask an administrator to reset your password."
+            ),
         )
 
     try:

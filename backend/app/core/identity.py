@@ -277,7 +277,7 @@ def effective_is_admin(user: User, principal: Principal) -> bool:
 
 
 class AdminMfaRequired(Exception):
-    """Raised when an admin lacks the TOTP factor their role requires.
+    """Raised when an admin lacks the second factor their role requires.
 
     Distinct from a generic authorization failure because the caller is
     genuinely an admin -- they just need to finish enrolment. Routes translate
@@ -312,6 +312,12 @@ def enforce_admin_mfa(user: User, principal: Principal) -> None:
       transient ``AdminGetUser`` blip into a total loss of admin access would
       make a Cognito hiccup an outage, which is a worse failure than briefly
       not enforcing a second factor on an already-verified admin.
+
+    The check is factor-AGNOSTIC: any confirmed second factor satisfies it,
+    whether TOTP or email OTP. The gate's question is "did this admin complete a
+    second factor", not "did they pick the one this environment prefers" -- an
+    admin holding TOTP must not be locked out because the deployment later
+    standardised on email OTP.
     """
     if not settings.ADMIN_MFA_REQUIRED:
         return
@@ -320,10 +326,10 @@ def enforce_admin_mfa(user: User, principal: Principal) -> None:
     if not effective_is_admin(user, principal):
         return
 
-    from app.core.cognito import has_confirmed_totp
+    from app.core.cognito import has_any_confirmed_mfa
 
     try:
-        enrolled = has_confirmed_totp(user.email)
+        enrolled = has_any_confirmed_mfa(user.email)
     except Exception as exc:  # noqa: BLE001 - deliberate fail-open, see docstring
         logger.error(
             "Admin MFA check could not reach Cognito for %s; allowing the request "
@@ -338,9 +344,9 @@ def enforce_admin_mfa(user: User, principal: Principal) -> None:
             AuthEvent.ADMIN_MFA_BLOCKED,
             user_id=user.id,
             provider="cognito",
-            reason="no_confirmed_totp",
+            reason="no_confirmed_mfa",
         )
         raise AdminMfaRequired(
             "Two-factor authentication is required for administrator access. "
-            "Enrol a TOTP device via POST /api/auth/mfa/totp/associate."
+            "Enable it from your account security settings."
         )

@@ -343,6 +343,20 @@ resource "aws_ssm_parameter" "auth_allow_legacy_jwt" {
   }
 }
 
+resource "aws_ssm_parameter" "auth_email_mfa_enabled" {
+  count = length(var.auth_email_mfa_enabled) > 0 ? 1 : 0
+
+  name        = "${local.prefix}/AUTH_EMAIL_MFA_ENABLED"
+  description = "Pool has email OTP as a second factor, so email is disqualified for account recovery and self-service password reset is unavailable."
+  type        = "String"
+  value       = var.auth_email_mfa_enabled
+  tier        = "Standard"
+
+  tags = {
+    Component = "secrets"
+  }
+}
+
 resource "aws_ssm_parameter" "break_glass_enabled" {
   count = length(var.break_glass_enabled) > 0 ? 1 : 0
 

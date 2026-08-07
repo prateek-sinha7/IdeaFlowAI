@@ -237,13 +237,48 @@ export async function register(
   return data;
 }
 
-// Cognito migration (Phase 3/4): returned instead of AuthResponse when
-// Cognito needs another auth step (NEW_PASSWORD_REQUIRED / MFA_SETUP /
-// SOFTWARE_TOKEN_MFA) before a token can be issued. Detected by the ABSENCE
-// of a `token` field — every real AuthResponse carries one.
+// Cognito migration (Phase 3/4): returned instead of AuthResponse when Cognito
+// needs another auth step before a token can be issued. Detected by the presence
+// of a `challenge` field — every real AuthResponse carries a `token` instead.
 export interface AuthChallengeResponse {
-  challenge: "NEW_PASSWORD_REQUIRED" | "MFA_SETUP" | "SOFTWARE_TOKEN_MFA";
+  challenge:
+    | "NEW_PASSWORD_REQUIRED"
+    | "SOFTWARE_TOKEN_MFA"
+    // Email one-time code. Cognito has already sent it by the time this
+    // response arrives.
+    | "EMAIL_OTP"
+    // Several factors active with no preference set. Should not occur — the
+    // backend always names a preferred factor — but handled rather than
+    // dead-ended.
+    | "SELECT_MFA_TYPE"
+    // Pool-wide required MFA with no factor enrolled. The backend answers 501
+    // for this; it cannot be completed from the login screen.
+    | "MFA_SETUP";
   session: string;
+  /**
+   * Masked destination Cognito sent the code to (e.g. "j***@e***.com"), for
+   * delivered-code challenges like EMAIL_OTP. Already masked by AWS. Telling the
+   * user WHICH mailbox to check avoids the common "no code arrived" confusion
+   * when the address on file isn't the one they expected.
+   */
+  delivery?: string | null;
+  /** Selectable factors on a SELECT_MFA_TYPE challenge. */
+  available_factors?: string[] | null;
+}
+
+/** A Cognito MFA factor id as it appears in `MfaStatus.factors`. */
+export type MfaFactor = "SOFTWARE_TOKEN_MFA" | "EMAIL_OTP";
+
+export interface MfaStatus {
+  enabled: boolean;
+  factors: MfaFactor[];
+  /** Email OTP is configured on the pool. When false, the UI must not offer it. */
+  email_available: boolean;
+  totp_available: boolean;
+  /** This user's role requires a factor, so it cannot be removed. */
+  required: boolean;
+  /** False for non-Cognito (break-glass) accounts, where MFA does not apply. */
+  supported: boolean;
 }
 
 export function isAuthChallenge(
@@ -272,15 +307,18 @@ export async function login(
 
 /**
  * Complete a Cognito auth challenge started by login() (Phase 3/4). Pass
- * `newPassword` for NEW_PASSWORD_REQUIRED, `mfaCode` for MFA_SETUP /
- * SOFTWARE_TOKEN_MFA. Response is either a fresh challenge (rare — e.g.
- * NEW_PASSWORD_REQUIRED followed by MFA_SETUP) or a real AuthResponse.
+ * `newPassword` for NEW_PASSWORD_REQUIRED, `mfaCode` for SOFTWARE_TOKEN_MFA /
+ * EMAIL_OTP, `selectedFactor` for SELECT_MFA_TYPE.
+ *
+ * Response is either a fresh challenge or a real AuthResponse. Chaining is
+ * ordinary, not exotic: a first login with a temporary password produces
+ * NEW_PASSWORD_REQUIRED and then an MFA prompt for a user who holds a factor.
  */
 export async function respondToLoginChallenge(
   email: string,
   session: string,
   challenge: AuthChallengeResponse["challenge"],
-  opts: { newPassword?: string; mfaCode?: string }
+  opts: { newPassword?: string; mfaCode?: string; selectedFactor?: string }
 ): Promise<AuthResponse | AuthChallengeResponse> {
   const data = await request<AuthResponse | AuthChallengeResponse>(
     "/api/auth/login/challenge",
@@ -293,6 +331,7 @@ export async function respondToLoginChallenge(
         challenge,
         new_password: opts.newPassword,
         mfa_code: opts.mfaCode,
+        selected_factor: opts.selectedFactor,
       }),
     }
   );
@@ -300,6 +339,49 @@ export async function respondToLoginChallenge(
     setToken(data.token);
   }
   return data;
+}
+
+// --- MFA (account security) ---
+
+/** Read the caller's second-factor state and what this deployment offers. */
+export async function getMfaStatus(token: string): Promise<MfaStatus> {
+  return request<MfaStatus>("/api/auth/mfa", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+/**
+ * Turn email one-time codes on as a second factor.
+ *
+ * Unlike TOTP there is no enrolment ceremony: the mailbox is already the pool's
+ * sign-in identifier and is verified, so there is no secret to provision and
+ * nothing to scan. Returns the resulting factor list from the server rather than
+ * assuming the write landed.
+ */
+export async function enableEmailMfa(
+  token: string
+): Promise<{ message: string; factors: MfaFactor[] }> {
+  return request<{ message: string; factors: MfaFactor[] }>(
+    "/api/auth/mfa/email/enable",
+    { method: "POST", headers: authHeaders(token) }
+  );
+}
+
+/**
+ * Turn email one-time codes off.
+ *
+ * The backend refuses with 409 when this would leave an account whose role
+ * requires a factor without one — surface that message rather than treating it
+ * as an unexpected failure.
+ */
+export async function disableEmailMfa(
+  token: string
+): Promise<{ message: string; factors: MfaFactor[] }> {
+  return request<{ message: string; factors: MfaFactor[] }>(
+    "/api/auth/mfa/email/disable",
+    { method: "POST", headers: authHeaders(token) }
+  );
 }
 
 export async function getMe(token: string): Promise<User> {
@@ -1092,6 +1174,34 @@ export async function adminUpdateRole(
     headers: authHeaders(token),
     body: JSON.stringify({ is_admin: isAdmin }),
   });
+}
+
+/**
+ * Reset another user's password (admin only).
+ *
+ * This is the ONLY reset path when the pool uses email MFA: AWS disqualifies
+ * email as an account-recovery channel whenever it is a second factor, so
+ * /api/auth/forgot-password correctly refuses in that configuration.
+ *
+ * `permanent` defaults to false, which issues a TEMPORARY password — the user is
+ * forced to choose their own at next sign-in, so the admin never ends up knowing
+ * a live credential for someone else's account. The target's existing sessions
+ * are revoked either way.
+ */
+export async function adminResetUserPassword(
+  token: string,
+  userId: string,
+  newPassword: string,
+  permanent = false
+): Promise<{ message: string; requires_new_password_at_next_login: boolean }> {
+  return request<{ message: string; requires_new_password_at_next_login: boolean }>(
+    `/api/admin/users/${userId}/reset-password`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ new_password: newPassword, permanent }),
+    }
+  );
 }
 
 export async function adminCreateUser(

@@ -65,7 +65,17 @@ class AuthEvent(StrEnum):
     PASSWORD_RESET_REQUESTED = "password_reset_requested"
     PASSWORD_RESET_COMPLETED = "password_reset_completed"
     MFA_ENROLLED = "mfa_enrolled"
+    # Removing a second factor is a privilege-reducing change to an account's
+    # own security posture, so it is audited as its own event rather than folded
+    # into MFA_ENROLLED with a flag — an attacker who has taken over a session
+    # would use exactly this to establish persistence.
+    MFA_DISABLED = "mfa_disabled"
     ADMIN_MFA_BLOCKED = "admin_mfa_blocked"
+    # An administrator reset another user's password. The only reset path that
+    # exists when the pool uses email MFA (which disqualifies email for
+    # self-service recovery), so it carries the audit weight that
+    # PASSWORD_RESET_COMPLETED carries in the self-service flow.
+    ADMIN_PASSWORD_RESET = "admin_password_reset"
     ROLE_CHANGED = "role_changed"
     TIER_CHANGED = "tier_changed"
     USER_CREATED = "user_created"

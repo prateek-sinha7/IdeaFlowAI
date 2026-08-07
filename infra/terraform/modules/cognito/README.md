@@ -108,10 +108,59 @@ architecture does not block the upgrade; it is purely a cost/benefit call.
 
 The pool stays at `mfa_configuration = "OPTIONAL"` even once admins are required
 to hold a factor. Cognito has no per-group MFA requirement, and setting the pool
-to `ON` would force TOTP on every basic-tier user — explicitly not the cutover
-decision. The admin requirement is an application gate
-(`ADMIN_MFA_REQUIRED` + `core/identity.py::enforce_admin_mfa`), with enrolment
-served by `POST /api/auth/mfa/totp/associate` and `.../verify`.
+to `ON` would force a factor on every basic-tier user — explicitly not the
+cutover decision. The admin requirement is an application gate
+(`ADMIN_MFA_REQUIRED` + `core/identity.py::enforce_admin_mfa`), and it is
+factor-agnostic: either an authenticator app or email codes satisfies it.
+
+Do not set `mfa_configuration = "ON"` without revisiting the backend. Required
+MFA makes Cognito issue an `MFA_SETUP` challenge to any user without a factor,
+and completing that needs a three-call session chain
+(`AssociateSoftwareToken` → `VerifySoftwareToken` → `RespondToAuthChallenge`)
+that `POST /api/auth/login/challenge` deliberately does not implement — it
+returns an explanatory 501 instead of a response Cognito would reject.
+
+### On email OTP (`email_mfa_enabled`) — read before enabling
+
+Email codes need no enrolment ceremony: unlike TOTP there is no secret to
+provision, because the mailbox is already the pool's verified sign-in identifier.
+Enabling the factor for a user is one `SetUserMFAPreference` write
+(`POST /api/auth/mfa/email/enable`).
+
+Two prerequisites, both enforced by variable validation:
+
+| Requirement | Why |
+|---|---|
+| `ses_source_arn` set | Cognito rejects `EmailMfaConfiguration` on a pool using the built-in `COGNITO_DEFAULT` sender, whose rate limit would make the factor unusable anyway |
+| `mfa_configuration != "OFF"` | An MFA factor on a pool with MFA off is meaningless |
+| Feature plan `ESSENTIALS` or `PLUS` | Email MFA is not available on `LITE` (the module defaults to `ESSENTIALS`) |
+
+**The cost, which is not optional.** AWS forbids email being both a second factor
+and the account-recovery channel — `CreateUserPool` rejects `verified_email` as
+the only `AccountRecoverySetting` member while `EmailMfaConfiguration` is active,
+and even where a mixed setting is accepted AWS documents that email MFA
+*disqualifies* email for recovery. The reasoning is sound: one compromised
+mailbox would otherwise yield both the second factor and the password-reset
+channel, which is not two factors.
+
+This pool collects no phone numbers, so `verified_phone_number` is not an
+available fallback. `email_mfa_enabled = true` therefore switches
+`account_recovery_setting` to `admin_only`, which **surrenders self-service
+password reset**:
+
+- `POST /api/auth/forgot-password` and `/forgot-password/confirm` return 409
+  ("ask an administrator") rather than their usual generic 202. That behaviour is
+  driven by the backend's `AUTH_EMAIL_MFA_ENABLED`, which the foundation layer
+  publishes to SSM from this module's **derived** `email_mfa_active` output — so a
+  caller who sets the flag but forgets SES gets `false` and keeps working reset,
+  rather than losing reset for a factor that was never configured.
+- Resets happen through `POST /api/admin/users/{id}/reset-password`, which issues
+  a temporary password by default so the admin never learns a live credential for
+  someone else's account.
+
+`auth_session_validity_minutes` defaults to 10 rather than Cognito's 3 because an
+emailed code has SES queuing plus inbox delivery ahead of the user's typing, and
+an expired code is indistinguishable from a wrong one in the UI.
 
 ## Verified behaviour of a real applied pool
 

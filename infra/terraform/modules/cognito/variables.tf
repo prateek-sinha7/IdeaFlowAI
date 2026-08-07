@@ -65,6 +65,57 @@ variable "mfa_configuration" {
   }
 }
 
+variable "email_mfa_enabled" {
+  description = <<-EOT
+    Enable email one-time-password (EMAIL_OTP) as a second factor.
+
+    Two hard prerequisites, both enforced by the validations below:
+
+      1. `ses_source_arn` must be set. Cognito rejects EmailMfaConfiguration on
+         a pool using the built-in COGNITO_DEFAULT sender, and that sender's
+         rate limit would make the factor unusable regardless.
+      2. `mfa_configuration` must not be OFF.
+
+    ACCEPTED TRADEOFF -- read before enabling. AWS forbids using email as both
+    the second factor and the account-recovery channel. Because this pool has no
+    phone numbers, turning this on switches `account_recovery_setting` to
+    `admin_only`, which SURRENDERS self-service password reset: users can no
+    longer reset their own password and an administrator must do it for them
+    (`POST /api/admin/users/{id}/reset-password`). Set the backend's
+    AUTH_EMAIL_MFA_ENABLED to match so `POST /api/auth/forgot-password` reports
+    that clearly instead of accepting a request whose mail will never arrive.
+  EOT
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.email_mfa_enabled || length(var.ses_source_arn) > 0
+    error_message = "email_mfa_enabled requires ses_source_arn: Cognito will not accept email MFA on a pool using the built-in COGNITO_DEFAULT sender."
+  }
+
+  validation {
+    condition     = !var.email_mfa_enabled || var.mfa_configuration != "OFF"
+    error_message = "email_mfa_enabled requires mfa_configuration to be OPTIONAL or ON."
+  }
+}
+
+variable "email_mfa_subject" {
+  description = "Subject line for the email carrying the MFA one-time code. Only used when email_mfa_enabled is true."
+  type        = string
+  default     = "Your Flowin verification code"
+}
+
+variable "email_mfa_message" {
+  description = "Body of the email carrying the MFA one-time code. MUST contain the {####} placeholder, which Cognito replaces with the code. Only used when email_mfa_enabled is true."
+  type        = string
+  default     = "Your Flowin verification code is {####}. It expires shortly — if you did not try to sign in, change your password."
+
+  validation {
+    condition     = can(regex("\\{####\\}", var.email_mfa_message))
+    error_message = "email_mfa_message must contain the {####} placeholder or Cognito will reject the pool configuration."
+  }
+}
+
 # --- Feature plan / threat protection (Phase 6 item 2) ----------------------
 # Decision 8 selected ESSENTIALS. Threat protection (compromised-credential
 # detection, adaptive authentication) requires PLUS. Assumption A-7 / risk R15
@@ -142,6 +193,27 @@ variable "refresh_token_validity_days" {
   description = "Refresh token lifetime in days (A-4: shorter in dev, longer in prod)."
   type        = number
   default     = 30
+}
+
+variable "auth_session_validity_minutes" {
+  description = <<-EOT
+    Lifetime of the auth-flow `Session` string, and therefore the window in
+    which a delivered MFA code stays valid. Cognito allows 3-15 minutes and
+    defaults to 3.
+
+    Raised above the AWS default because an emailed OTP has SES queuing plus
+    inbox delivery in front of the user's typing; at 3 minutes a user who opens
+    a separate mail client can plausibly miss the window, and the resulting
+    ExpiredCodeException is indistinguishable from a wrong code in the UI. Keep
+    this at or above ~10 when email_mfa_enabled is true.
+  EOT
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.auth_session_validity_minutes >= 3 && var.auth_session_validity_minutes <= 15
+    error_message = "auth_session_validity_minutes must be between 3 and 15 (Cognito's allowed range)."
+  }
 }
 
 # --- Deletion protection ---------------------------------------------------

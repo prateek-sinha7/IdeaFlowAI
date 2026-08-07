@@ -115,6 +115,18 @@ module "cognito" {
   deletion_protection = var.environment == "prod" ? "ACTIVE" : "INACTIVE"
   mfa_configuration   = var.cognito_mfa_configuration
 
+  # Email OTP second factor. Requires SES (below) — the module validates that
+  # rather than silently producing a pool without the factor. Turning this on
+  # switches account recovery to admin_only and therefore SURRENDERS
+  # self-service password reset; see the module's variable documentation.
+  email_mfa_enabled = var.cognito_email_mfa_enabled
+
+  ses_source_arn             = var.cognito_ses_source_arn
+  ses_from_email_address     = var.cognito_ses_from_email_address
+  ses_reply_to_email_address = var.cognito_ses_reply_to_email_address
+
+  auth_session_validity_minutes = var.cognito_auth_session_validity_minutes
+
   access_token_validity_minutes = var.cognito_access_token_validity_minutes
   id_token_validity_minutes     = var.cognito_access_token_validity_minutes
   refresh_token_validity_days   = var.cognito_refresh_token_validity_days
@@ -155,4 +167,10 @@ module "secrets" {
   auth_provider         = var.cognito_enabled ? var.auth_provider : ""
   auth_allow_legacy_jwt = var.cognito_enabled ? tostring(var.auth_allow_legacy_jwt) : ""
   break_glass_enabled   = var.cognito_enabled ? tostring(var.break_glass_enabled) : ""
+
+  # Sourced from the module's DERIVED output, not from var.cognito_email_mfa_enabled:
+  # if the flag is set but SES isn't configured, the pool ends up without email
+  # MFA and the backend must be told `false` so it doesn't disable self-service
+  # password reset for a factor that was never actually configured.
+  auth_email_mfa_enabled = var.cognito_enabled ? tostring(module.cognito[0].email_mfa_active) : ""
 }

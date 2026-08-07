@@ -344,11 +344,28 @@ class Settings(BaseSettings):
     # are usually the same value in this deployment.
     COGNITO_REGION: str = ""
     COGNITO_JWKS_CACHE_TTL_SECONDS: int = 3600
-    # Phase 6 item 1 (plan §5.5): require a confirmed TOTP device for ADMIN
+    # Phase 6 item 1 (plan §5.5): require a confirmed second factor for ADMIN
     # operations. Cognito's MFA setting is pool-wide, so "admins only" has to be
     # an app-layer gate. Defaults to False so shipping this code cannot lock out
     # admins who have not enrolled yet -- flip it per environment once they have.
     ADMIN_MFA_REQUIRED: bool = False
+
+    # Mirrors the pool's email-OTP posture, published to SSM as
+    # AUTH_EMAIL_MFA_ENABLED from the Terraform cognito module's DERIVED
+    # email_mfa_active output (not its raw input flag).
+    #
+    # This is not a feature toggle for the endpoints -- it records a constraint
+    # AWS imposes. Cognito refuses to let email be BOTH a second factor and the
+    # account-recovery channel, and this pool has no phone numbers, so a pool
+    # with email MFA is created with account_recovery_setting = admin_only. When
+    # that is the case, `ForgotPassword` cannot deliver anything, so
+    # /api/auth/forgot-password must say so plainly rather than return its usual
+    # generic 202 and leave the user waiting for mail that will never arrive.
+    #
+    # Kept as an explicit setting rather than probed from Cognito at runtime: the
+    # answer is a deploy-time property of the pool, and an unauthenticated
+    # endpoint should not make an AWS call to decide how to answer.
+    AUTH_EMAIL_MFA_ENABLED: bool = False
 
     # ---- Logging (M-06) ------------------------------------------------
     # app.agents / app.api carry prompts/payloads/user content at DEBUG — that

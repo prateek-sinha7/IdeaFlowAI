@@ -114,10 +114,15 @@ describe("AppHeader — profile menu a11y", () => {
     await user.click(screen.getByRole("button", { name: /account menu/i }));
     const menu = screen.getByRole("menu");
     const items = within(menu).getAllByRole("menuitem");
-    // Account Settings / Analytics / Workflow History / Log out
-    expect(items).toHaveLength(4);
+    // Account Settings / Security / Analytics / Workflow History / Log out.
+    // Security was added with the MFA enrolment page — without a route into it,
+    // ADMIN_MFA_REQUIRED is a lockout switch rather than a control.
+    expect(items).toHaveLength(5);
     expect(
       within(menu).getByRole("menuitem", { name: /account settings/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("menuitem", { name: /security/i }),
     ).toBeInTheDocument();
     expect(
       within(menu).getByRole("menuitem", { name: /log out/i }),

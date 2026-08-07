@@ -299,19 +299,30 @@ steps 1–8 above.
 
 ### 6.1 Admin MFA enforcement
 
-Enrolment endpoints are live for everyone immediately
-(`POST /api/auth/mfa/totp/associate` → returns an `otpauth://` URI for a QR
-code, then `POST /api/auth/mfa/totp/verify`). Enforcement is separate:
+Two factors are available, and the gate accepts **either**:
+
+| Factor | Enrolment | Notes |
+|---|---|---|
+| Authenticator app (TOTP) | `POST /api/auth/mfa/totp/associate` → `otpauth://` URI for a QR code, then `POST /api/auth/mfa/totp/verify` | No pool change needed; available on any pool with `mfa_configuration != OFF` |
+| Email codes (EMAIL_OTP) | `POST /api/auth/mfa/email/enable` — a single toggle, no secret to provision | Requires the pool change in 6.4 below |
+
+Users manage both from **Security** in the account menu (`/settings/security`).
+`GET /api/auth/mfa` reports current state.
+
+Enforcement is separate from availability:
 
 1. Have every admin enrol **first**. Confirm with
    `aws cognito-idp admin-get-user` → `UserMFASettingList` contains
-   `SOFTWARE_TOKEN_MFA`.
+   `SOFTWARE_TOKEN_MFA` or `EMAIL_OTP`.
 2. Then set `ADMIN_MFA_REQUIRED=true`.
 
 Enabling it before admins enrol locks them out of admin routes (they can still
 sign in and enrol — the gate covers `/api/admin/*`, not login). The break-glass
 account is exempt by construction: gating it on a Cognito call would defeat its
 only purpose. Watch the `*-auth-admin-mfa-blocked` metric after enabling.
+
+The gate is deliberately factor-agnostic — an admin holding TOTP must not be
+locked out because the environment later standardised on email codes.
 
 ### 6.2 Threat protection (Essentials → Plus)
 
@@ -337,7 +348,57 @@ volume, so this needs SES:
 4. Add the "Forgot password?" link to the login page (deliberately omitted at
    cutover per Decision 10).
 
-### 6.4 CORS drift — **already fixed**
+> **Mutually exclusive with email OTP MFA (6.4).** AWS will not let email serve as
+> both a second factor and the account-recovery channel. Pick one.
+
+### 6.4 Email OTP as a second factor — **surrenders 6.3**
+
+Requires SES from 6.3 first. Then:
+
+```hcl
+cognito_email_mfa_enabled = true
+cognito_ses_source_arn    = "arn:aws:ses:eu-central-1:<acct>:identity/<domain>"
+```
+
+The module's variable validation refuses the flag without SES, so a
+half-configured apply fails rather than silently producing a pool with no email
+factor.
+
+**What this changes, deliberately.** AWS rejects `verified_email` as the only
+account-recovery mechanism while email MFA is active, and this pool collects no
+phone numbers, so the module switches `account_recovery_setting` to `admin_only`.
+Self-service password reset stops working:
+
+| Before | After |
+|---|---|
+| `POST /api/auth/forgot-password` → generic 202 + emailed code | → **409**, "ask an administrator" |
+| User resets their own password | Admin resets it via `POST /api/admin/users/{id}/reset-password` |
+
+The backend learns this from `AUTH_EMAIL_MFA_ENABLED`, published to SSM from the
+module's **derived** `email_mfa_active` output. Do not hand-edit that parameter to
+disagree with the pool — a `true` against a pool without email MFA disables reset
+for a factor nobody can use.
+
+Verify after apply:
+
+```bash
+aws cognito-idp describe-user-pool --user-pool-id <pool> \
+  --query 'UserPool.{mfa:MfaConfiguration,email:EmailMfaConfiguration,recovery:AccountRecoverySetting}'
+```
+
+Expect `recovery` to contain `admin_only` and `email` to be present. Then confirm
+the host actually received the flag:
+
+```bash
+sudo grep AUTH_EMAIL_MFA_ENABLED /etc/velocityai/app.env
+```
+
+The admin reset issues a **temporary** password by default, so the user is forced
+through `NEW_PASSWORD_REQUIRED` at next sign-in and the admin never holds a live
+credential for another account. Pass `permanent: true` only when provisioning on
+someone's behalf.
+
+### 6.5 CORS drift — **already fixed**
 
 `main.py` previously hardcoded three localhost origins and ignored
 `settings.CORS_ORIGINS` while setting `allow_credentials=True`. Harmless under
@@ -349,7 +410,7 @@ list contains `*` alongside credentials.
 environment — it is now actually honoured, so a wrong value will surface as
 browser CORS failures where it previously (silently) did nothing.
 
-### 6.5 API-key expiry — **already shipped**
+### 6.6 API-key expiry — **already shipped**
 
 New keys get a 90-day `expires_at`; expired keys 401 identically to revoked
 ones. Keys minted before migration `0033` have `expires_at = NULL` (never

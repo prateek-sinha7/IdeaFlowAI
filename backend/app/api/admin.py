@@ -134,6 +134,20 @@ class CreateUserRequest(BaseModel):
     is_admin: bool = False
 
 
+class ResetPasswordRequest(BaseModel):
+    """Body for an admin-driven password reset.
+
+    ``permanent`` defaults to False so the reset issues a TEMPORARY password and
+    the user is forced to choose their own at next sign-in. Defaulting the other
+    way would leave the admin knowing a working credential for someone else's
+    account, which is a needless standing risk when the safe option costs the
+    user one extra prompt.
+    """
+
+    new_password: str
+    permanent: bool = False
+
+
 def _run_count(db: Session, user_id: str) -> int:
     from app.models.workflow import WorkflowRun
     from sqlalchemy import func
@@ -427,6 +441,106 @@ def create_user(
         is_admin=request.is_admin,
     )
     return _to_response(new_user, db)
+
+
+@router.post("/users/{user_id}/reset-password", status_code=status.HTTP_200_OK)
+def reset_user_password(
+    user_id: str,
+    request: ResetPasswordRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Set a new password for another user (admin only).
+
+    This is the ONLY reset path when the pool uses email MFA. AWS forbids email
+    being both a second factor and the account-recovery channel, so such a pool
+    is created with ``account_recovery_setting = admin_only`` and
+    ``/api/auth/forgot-password`` correctly refuses to pretend otherwise. Without
+    this endpoint, a forgotten password in that configuration would need a
+    console operator or a CLI runbook.
+
+    Uses ``AdminSetUserPassword``. ``permanent=False`` (the default) issues a
+    TEMPORARY password, so the user is forced through the NEW_PASSWORD_REQUIRED
+    challenge on next sign-in and chooses something the admin never knew -- an
+    admin who sets a permanent password knows a live credential for an account
+    that is not theirs. ``permanent=True`` remains available for the case where
+    an admin is provisioning on someone's behalf, but it is opt-in.
+
+    Mirrors the self-service reset's revocation: stamps ``tokens_valid_from`` so
+    every access token issued before now is rejected on its next request, and
+    clears the stored refresh token. A reset that leaves an attacker's session
+    alive defeats the point of resetting.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if len(request.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters.",
+        )
+
+    if user.auth_provider != "cognito":
+        # The break-glass account is administered out-of-band from a secret
+        # store, by design (plan §5.6). Letting it be reset through the ordinary
+        # admin API would put the one credential that must survive a Cognito
+        # outage back inside the system that outage would take down.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This account's password is managed outside the application and "
+                "cannot be reset here."
+            ),
+        )
+
+    try:
+        cognito.admin_set_user_password(
+            user.email, request.new_password, permanent=request.permanent
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code == "InvalidPasswordException":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password does not meet the password policy.",
+            )
+        if code == "UserNotFoundException":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found at the identity provider.",
+            )
+        logger.error("Cognito AdminSetUserPassword failed for %s: %s", user.email, code)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not reset the password at the identity provider.",
+        )
+
+    now = datetime.now(timezone.utc)
+    user.password_changed_at = now
+    user.tokens_valid_from = now
+    user.encrypted_cognito_refresh_token = None
+    db.commit()
+
+    # actor_id records WHO performed the reset. An admin resetting another
+    # user's credential is a privilege-adjacent action and belongs in the audit
+    # trail with the same weight as a role change.
+    auth_events.emit(
+        AuthEvent.ADMIN_PASSWORD_RESET,
+        user_id=user.id,
+        provider="cognito",
+        actor_id=admin.id,
+        permanent=request.permanent,
+    )
+
+    return {
+        "message": (
+            "Password reset. The user can sign in with it immediately."
+            if request.permanent
+            else "Password reset. The user must choose a new password at next sign-in."
+        ),
+        "requires_new_password_at_next_login": not request.permanent,
+    }
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)

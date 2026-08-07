@@ -7,6 +7,40 @@ locals {
     },
     var.tags,
   )
+
+  # Email OTP as a second factor. Requires BOTH the opt-in flag and SES-backed
+  # delivery: Cognito refuses EmailMfaConfiguration on a pool using the built-in
+  # COGNITO_DEFAULT sender, and the built-in sender's rate limit would make the
+  # factor unusable even if it were accepted. Deriving the flag here (rather
+  # than trusting var.email_mfa_enabled alone) means a caller who sets the flag
+  # but forgets SES gets a pool without email MFA instead of a failed apply --
+  # and the variable validation below turns that into a loud error anyway.
+  email_mfa_active = var.email_mfa_enabled && length(var.ses_source_arn) > 0 && var.mfa_configuration != "OFF"
+
+  # AWS will not let email be BOTH the second factor and the account-recovery
+  # channel. Two documented constraints, one root cause:
+  #
+  #   * CreateUserPool/UpdateUserPool reject `verified_email` as the only
+  #     AccountRecoverySetting member while EmailMfaConfiguration is active
+  #     ("Cannot set verified_email as the only member of
+  #     AccountRecoverySetting when EmailMfaConfiguration is active").
+  #   * Even where accepted, AWS documents that email MFA DISQUALIFIES email
+  #     for account recovery -- so a mixed setting degrades silently rather
+  #     than failing at apply time.
+  #
+  # The reasoning is sound: one compromised mailbox would otherwise yield both
+  # the second factor and the password-reset channel, which is not two factors.
+  #
+  # This pool has no phone numbers (`username_attributes = ["email"]`, no
+  # phone_number attribute collected anywhere), so `verified_phone_number` is
+  # not an available fallback. That leaves `admin_only`, which is the recorded
+  # decision: with email MFA on, self-service password reset is deliberately
+  # surrendered and password resets become an administrator operation
+  # (`POST /api/admin/users/{id}/reset-password`). The backend reads the same
+  # posture from AUTH_EMAIL_MFA_ENABLED and returns an explicit "contact your
+  # administrator" instead of silently accepting a reset request whose email
+  # will never arrive.
+  account_recovery_mechanism = local.email_mfa_active ? "admin_only" : "verified_email"
 }
 
 # =============================================================================
@@ -68,9 +102,27 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
+  # Email OTP (EMAIL_OTP challenge) as a second factor. Essentials feature plan
+  # or higher is required -- see var.feature_plan, which defaults to ESSENTIALS.
+  # Cognito delivers the code through the SES identity configured in
+  # email_configuration below; there is no separate enrolment ceremony the way
+  # TOTP has one (no AssociateSoftwareToken/VerifySoftwareToken pair), because
+  # possession of the mailbox is already established by the invitation flow.
+  # Enabling the factor for a user is therefore a single SetUserMFAPreference
+  # call with EmailMfaSettings -- see backend/app/core/cognito.py.
+  dynamic "email_mfa_configuration" {
+    for_each = local.email_mfa_active ? [1] : []
+    content {
+      subject = var.email_mfa_subject
+      message = var.email_mfa_message
+    }
+  }
+
+  # Exactly one mechanism either way. See local.account_recovery_mechanism for
+  # why email MFA forces this to admin_only rather than keeping verified_email.
   account_recovery_setting {
     recovery_mechanism {
-      name     = "verified_email"
+      name     = local.account_recovery_mechanism
       priority = 1
     }
   }
@@ -122,6 +174,14 @@ resource "aws_cognito_user_pool_client" "backend" {
 
   prevent_user_existence_errors = "ENABLED"
   enable_token_revocation       = true
+
+  # Bounds the lifetime of the `Session` string threaded through
+  # AdminInitiateAuth -> AdminRespondToAuthChallenge, and therefore how long an
+  # emailed OTP stays usable. Cognito's default is 3 minutes, which is tight
+  # once SES queuing and inbox delivery are in the path -- a user who has to
+  # open a mail client can plausibly exceed it and get an expired-code error
+  # that looks like a wrong code. See var.auth_session_validity_minutes.
+  auth_session_validity = var.auth_session_validity_minutes
 
   access_token_validity  = var.access_token_validity_minutes
   id_token_validity      = var.id_token_validity_minutes

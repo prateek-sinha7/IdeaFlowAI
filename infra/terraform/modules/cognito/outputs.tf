@@ -28,3 +28,23 @@ output "group_names" {
   description = "The four fixed group names created, for reference by callers/tests."
   value       = var.group_names
 }
+
+output "email_mfa_active" {
+  description = <<-EOT
+    Whether email OTP is actually configured as a second factor on the applied
+    pool. This is the DERIVED value (email_mfa_enabled AND ses_source_arn set
+    AND mfa_configuration != OFF), not the raw input flag — so a caller that
+    forgot SES sees `false` here rather than assuming the factor exists.
+
+    Published to SSM as AUTH_EMAIL_MFA_ENABLED so the backend's
+    /api/auth/forgot-password can report "contact your administrator" instead of
+    accepting a reset whose email Cognito will never send (email is disqualified
+    for account recovery whenever email MFA is active).
+  EOT
+  value       = local.email_mfa_active
+}
+
+output "account_recovery_mechanism" {
+  description = "The single account-recovery mechanism the pool was created with: `verified_email` normally, or `admin_only` when email MFA is active. Surfaced so the cutover runbook can assert it rather than infer it."
+  value       = local.account_recovery_mechanism
+}

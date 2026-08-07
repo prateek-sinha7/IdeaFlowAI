@@ -15,7 +15,7 @@
 | 1 | Login UX | **Keep the in-app email/password form; backend calls Cognito** | No CSP change, no `NEXT_PUBLIC_*` build-arg churn, no hosted UI. Backend uses `AdminInitiateAuth` |
 | 2 | Federation / SSO | **Not now** | Pool is designed so an IdP can be added later without re-migration |
 | 3 | Token storage | **Short-TTL bearer now; cookie/BFF in Phase 6** | `getToken()` seam preserved → 122 call sites / 57 frontend files untouched |
-| 4 | MFA | **TOTP optional at cutover; required for admins in Phase 6** | Backend must handle auth challenges from day one; admin-only enforcement is an app-layer gate (see §5.5) |
+| 4 | MFA | **Optional at cutover; required for admins in Phase 6.** Method revised in P6.8 from TOTP-only to **email OTP primary, TOTP retained** — see §1.2 | Backend must handle auth challenges from day one; admin-only enforcement is an app-layer gate (see §5.5). Email OTP costs self-service password reset (§1.2) |
 | 5 | Existing prod users | **None yet** | **No user-migration campaign.** Production is greenfield. Phase 5 collapses to bootstrap + dev/test seed |
 | 6 | Role/tier authority | **Cognito groups, not DB** | Reshapes authorization (see §5). DB columns survive only as a non-authoritative projection |
 | 7 | `X-Flowin-API-Key` | **Leave as-is; add expiry as separate hardening** | Machine identity untouched by this migration |
@@ -30,6 +30,30 @@
 **Decision 6 (roles in Cognito)** inverts the authorization design. The naive reading — "read `cognito:groups` on every request" — is correct and cheap, but a role change would then take up to one access-token lifetime to bite. This plan solves that by reusing a pattern the codebase already ships: the `iat`-versus-timestamp blanket revocation in `core/dependencies.py:75-115`. See §5.3.
 
 **Decision 5 (no prod users)** removes the single most expensive and risky work package. There is no forced-reset campaign, no user-migration Lambda, no password-hash export debate. The critical path becomes the **bootstrap admin** path, because with self-registration disabled it is the only way into a fresh environment.
+
+### 1.2 Decision 4 revised in P6.8 — email OTP as the primary factor
+
+Decision 4 originally named TOTP. It now reads **email OTP primary, TOTP retained**, and the trade this makes is not optional, so it is recorded here rather than left in a commit message.
+
+**AWS forbids email being both a second factor and the account-recovery channel.** `CreateUserPool`/`UpdateUserPool` reject `verified_email` as the only `AccountRecoverySetting` member while `EmailMfaConfiguration` is active, and AWS separately documents that email MFA *disqualifies* email for account recovery. The reasoning is correct: one compromised mailbox would otherwise yield both the second factor and the password-reset channel, which is not two factors.
+
+The available recovery mechanisms are `verified_email`, `verified_phone_number`, and `admin_only`. This pool collects **no phone numbers** (`username_attributes = ["email"]`, no `phone_number` attribute anywhere), so there were exactly three options:
+
+| Option | Cost | Verdict |
+|---|---|---|
+| Add `verified_phone_number` recovery | Requires configuring SMS on the pool — and **SMS cannot be removed as an MFA factor without recreating the pool**, which carries `prevent_destroy` and holds every account | Rejected: an irreversible change to take on the weakest factor's infrastructure |
+| Recovery → `admin_only` | **Surrenders self-service password reset** (P6.3, shipped) | **Chosen** |
+| Keep TOTP | No cost, but not the requested method | Superseded |
+
+**Consequences now in force when `email_mfa_enabled = true`:**
+
+- `POST /api/auth/forgot-password` and `/forgot-password/confirm` return **409** ("ask an administrator") instead of their usual generic 202. Returning the generic 202 would be a lie — Cognito sends nothing in this configuration — and the user pays for it with a support ticket. The 409 is *not* an enumeration oracle: it is a property of the deployment, identical for every address including ones that do not exist.
+- Password resets run through `POST /api/admin/users/{id}/reset-password`, which issues a **temporary** password by default so the admin never holds a live credential for another account.
+- The pool is created with `account_recovery_setting = admin_only`, and the pool-wide nature of the constraint means this affects **every** user, not only those who enable the factor.
+
+**Why the flag is derived, not raw.** The backend's `AUTH_EMAIL_MFA_ENABLED` is published from the Terraform module's `email_mfa_active` **output** (flag AND SES configured AND `mfa_configuration != OFF`), never from the input variable. An operator who sets the flag but forgets SES gets a pool without email MFA; sourcing the raw flag would have disabled password reset for a factor that was never configured — the worst of both.
+
+Email OTP being weaker than TOTP against a targeted mailbox compromise is accepted knowingly. TOTP remains fully supported and the admin gate accepts either factor, so an environment can move back without a code change.
 
 ---
 
@@ -248,10 +272,17 @@ Cognito MFA configuration is **pool-wide** (`OFF` / `OPTIONAL` / `REQUIRED`); th
 
 Therefore:
 
-- **Cutover:** pool MFA = `OPTIONAL`, TOTP enabled. Backend supports the `MFA_SETUP` and `SOFTWARE_TOKEN_MFA` challenges; frontend gains a minimal enrolment/verification step.
-- **Phase 6:** admin-only enforcement is an **application gate** — if `resolve_is_admin_from_groups()` is true and the principal has no confirmed TOTP device, deny privileged operations and route to enrolment.
+- **Cutover:** pool MFA = `OPTIONAL`, TOTP enabled. Backend supports the `SOFTWARE_TOKEN_MFA` challenge; frontend gains a minimal enrolment/verification step.
+- **Phase 6:** admin-only enforcement is an **application gate** — if `resolve_is_admin_from_groups()` is true and the principal has no confirmed factor, deny privileged operations and route to enrolment.
 
 Because MFA can appear as an auth challenge from day one, the login endpoint must be challenge-aware in Phase 3 even though MFA is optional. This avoids a second rewrite in Phase 6.
+
+**Revised in P6.8 (see §1.2).** Two factors are now supported and the gate accepts **either** — an admin holding TOTP must not be locked out because the environment later standardised on email codes. The two enrol differently, and the asymmetry is real rather than an inconsistency: TOTP needs a secret provisioned (`AssociateSoftwareToken` → QR → `VerifySoftwareToken`), whereas email OTP has **no enrolment ceremony at all** because the mailbox is already the pool's verified sign-in identifier, so enabling it is a single `SetUserMFAPreference` write.
+
+Two constraints discovered in P6.8 that bound this design:
+
+1. **`SetUserMFAPreference` must always be sent with the complete desired factor state.** AWS does not document whether an omitted settings block preserves or clears that factor. `apply_mfa_preference` therefore reads the user's current factors and sends both blocks explicitly. Guessing wrong would have silently removed a user's authenticator device the first time they enabled email codes — a failure with no error at the point it happens.
+2. **`mfa_configuration = "ON"` is not currently safe.** Required MFA makes Cognito issue `MFA_SETUP` to any user without a factor, and completing that needs a three-call session chain (`AssociateSoftwareToken` → `VerifySoftwareToken` → `RespondToAuthChallenge`, each consuming the previous session) that the single-shot `/login/challenge` endpoint cannot express. It returns an explanatory 501 rather than a response Cognito would reject. Keeping the pool `OPTIONAL` plus the app-layer admin gate avoids needing it.
 
 ### 5.6 Break-glass admin (Decision 12)
 
@@ -635,4 +666,6 @@ infra/README.md                      # Cognito in the AWS service inventory
 - [x] **P6.5** `UserApiKey.expires_at` + migration `0033` + enforcement in `api_key_auth.py` (uniform 401) + 90-day default at mint; pre-existing keys stay NULL/never-expire so no live integration breaks
 - [x] **P6.6** `core/auth_events.py` structured auth events + CloudWatch metric filters/alarms for break-glass login, break-glass invariant violation, and login-failure spikes
 - [x] **P6.7** Docs closed — `docs/_audit/section_3_1_auth.md` C1/C2 + telemetry theme annotated with the resolution and the deliberate break-glass carve-out; `infra/README.md` Cognito inventory; `infra/COGNITO-CUTOVER-RUNBOOK.md` Phase 6 section
+- [x] **P6.8** **Email OTP second factor + the enrolment UI that was missing.** Revises Decision 4's *method*, not its shape (see §1.2). Terraform: `email_mfa_configuration` gated on a derived `email_mfa_active` (flag AND SES AND `mfa_configuration != OFF`), `auth_session_validity_minutes` raised off Cognito's 3-minute default for email delivery latency, `AUTH_EMAIL_MFA_ENABLED` published to SSM from the **derived** output. Backend: `apply_mfa_preference` (sends COMPLETE factor state — AWS does not document whether an omitted `SetUserMFAPreference` block preserves or clears, and guessing wrong would silently strip a user's TOTP device), `GET /api/auth/mfa`, `/mfa/email/enable|disable`, `EMAIL_OTP`→`EMAIL_OTP_CODE` + `SELECT_MFA_TYPE` challenge mapping, `enforce_admin_mfa` made factor-agnostic, `POST /api/admin/users/{id}/reset-password`. Frontend: `/settings/security` panel + Security entry in the account menu — without it `ADMIN_MFA_REQUIRED` was a lockout switch, not a control. Regression-guarded by `tests/unit/test_email_mfa.py` (28 tests)
+- [x] **P6.8a** Two latent bugs found and fixed while wiring the above: (a) `POST /api/auth/login/challenge` declared `response_model=AuthResponse` but returns `AuthChallengeResponse` on a chained challenge — FastAPI response validation would reject the ordinary NEW_PASSWORD_REQUIRED→MFA sequence; now the union. (b) The `MFA_SETUP` branch sent `SOFTWARE_TOKEN_MFA_CODE` with the original session, which is not the documented protocol (it needs an `AssociateSoftwareToken`→`VerifySoftwareToken`→`RespondToAuthChallenge` session chain); now an explicit 501 naming `mfa_configuration` as the cause. Both were dormant only because the pool is `OPTIONAL` — flipping it to `ON` would have locked out every unenrolled user
 - [ ] **P6 (deferred)** Cookie/BFF session — token still in `localStorage`; needs CSRF design first. Prerequisite (P6.4) now done.
