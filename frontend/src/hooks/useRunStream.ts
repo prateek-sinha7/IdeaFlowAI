@@ -144,9 +144,19 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
   const { runId, token, onMessage, afterSeq, onCursor, enabled = true } = config;
 
   const [phase, setPhase] = useState<RunConnectionPhase>("idle");
-  const [lastMessage, setLastMessage] = useState<RunStreamMessage | null>(null);
+  // FIX: lastMessage is NOT React state — same reason as cursor.
+  // setLastMessage fires on EVERY SSE frame, causing a re-render storm with
+  // concurrent runs. No production caller reads lastMessage from the return value
+  // (only RunConnectionProvider.test.tsx mocks it as null). Track it as a ref.
+  const lastMessageRef = useRef<RunStreamMessage | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [cursor, setCursor] = useState<number | null>(afterSeq ?? null);
+  // FIX: cursor is NOT React state — it only needs to be a ref.
+  // Making it useState caused setCursor() to fire on every SSE frame (each frame
+  // has a seq number), which triggered a re-render storm: with multiple concurrent
+  // runs each emitting frames, React exceeded its maximum update depth limit.
+  // The cursor value is already tracked in cursorRef for Last-Event-ID; the only
+  // consumer of the returned `cursor` is a test — no production code reads it.
+  const cursorStateRef = useRef<number | null>(afterSeq ?? null);
 
   // Refs so the connect loop reads the latest callbacks without re-subscribing.
   const onMessageRef = useRef(onMessage);
@@ -187,7 +197,7 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
     // Seed the resume cursor from the caller's persisted value (D-14c).
     if (afterSeq != null && cursorRef.current == null) {
       cursorRef.current = afterSeq;
-      setCursor(afterSeq);
+      cursorStateRef.current = afterSeq;
     }
 
     const clearTimers = () => {
@@ -258,12 +268,19 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
         (cursorRef.current == null || seq > cursorRef.current)
       ) {
         cursorRef.current = seq;
-        setCursor(seq);
+        cursorStateRef.current = seq;
         onCursorRef.current?.(seq);
       }
 
       // Keepalives never reach the reducer (WS parity).
       if (type === "pipeline_heartbeat" || type === "pong") return;
+
+      // Guard: don't call setState after the connection has been torn down.
+      // In React strict-mode / Turbopack dev, the effect cleanup runs before
+      // the async reader loop drains; frames arriving after cleanup would call
+      // setState on an unmounted or re-mounted hook instance, triggering
+      // "Maximum update depth exceeded".
+      if (stoppedRef.current) return;
 
       // stream_attached {live:true} → caught up, promote to the live phase (D-14d).
       // Also record the attach liveness for the close branch (BUG-015): a non-live
@@ -289,7 +306,7 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
       // stream frames — this hook is instantiated once per run, so `runId` here is
       // authoritative). Downstream run-scoping depends on it; see RunStreamMessage.
       const msg: RunStreamMessage = { type, data, _sourceRunId: runId };
-      setLastMessage(msg);
+      lastMessageRef.current = msg;
       onMessageRef.current?.(msg);
     };
 
@@ -426,5 +443,5 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
     connectRef.current();
   }, []);
 
-  return { phase, reconnect, lastMessage, lastError, cursor };
+  return { phase, reconnect, lastMessage: lastMessageRef.current, lastError, cursor: cursorStateRef.current };
 }

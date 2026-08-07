@@ -247,7 +247,8 @@ export function StepsOverviewSpine({
           <span className="flex-1" />
           {metaBits && <span className="text-[11.5px] text-ink-300 font-mono">{metaBits}</span>}
         </div>
-        {total > 0 && (
+        {/* Progress bar — suppress during clarify (agents are from a different run) */}
+        {total > 0 && !hasClarify && (
           <div className="flex gap-[3px] h-[5px] rounded-[3px] overflow-hidden">
             {agents.map((a, i) => (
               <div key={i} className={`flex-1 ${
@@ -300,8 +301,12 @@ export function StepsOverviewSpine({
         </div>
       )}
 
-      {/* compact navigable agent rows + gate strips */}
-      {agents.map((agent, agentIdx) => {
+      {/* compact navigable agent rows + gate strips.
+          Defense-in-depth: hide ALL agent rows while the run is paused at clarify.
+          The run hasn't started its agent phase yet — any agent visible here belongs
+          to a concurrent background run that leaked into the viewport. Showing them
+          would confuse the user into thinking this run has already started building. */}
+      {!hasClarify && agents.map((agent, agentIdx) => {
         const isDone = constructionAgentIsReallyDone(agentIdx);
         const isRun = agent.status === "running" || agent.status === "thinking";
         const isErr = agent.status === "error";

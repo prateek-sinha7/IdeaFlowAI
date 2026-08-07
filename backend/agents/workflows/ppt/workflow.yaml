@@ -18,6 +18,8 @@ clarify:
   mode: auto
   # KAN-74: extended from 4 to 8 defaults to capture full intent for short prompts.
   # Covers: presentation structure, content depth, data availability, visual style.
+  # ISS-056: rounds: 2 lets a second round surface topics beyond the ~5/round cap.
+  rounds: 2
   defaults: [target_audience, tone_and_style, key_objectives, slide_count, content_depth, data_availability, visual_style, key_sections]
 deliverable:
   strategy: ppt

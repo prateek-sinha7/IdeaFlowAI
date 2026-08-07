@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-553 cards · rules 1 · fixes 189 · issues 49 · phases 23 · built 2026-08-05 17:51
+572 cards · rules 1 · fixes 208 · issues 49 · phases 23 · built 2026-08-07 19:27
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,27 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (189)
+## Fixes (208)
 
+FIX-208 2026-08-07 [frontend,agents] Notification panel agent progress shows 0/N for background concurrent runs — only viewed run shows live progress
+FIX-207 2026-08-07 [frontend,sse,auth] useRunStream "Maximum update depth exceeded" — setCursor and setLastMessage called on every SSE frame causing re-render storm with concurrent runs
+FIX-206 2026-08-07 [frontend,sse,agents] Concurrent background run agent frames contaminate Steps panel of a clarify-paused run — Domain Discovery Agent shown below clarify questions
+FIX-205 2026-08-07 [frontend,workflow] Background run's workflowRunId never stamped on notification — backgroundCompletedRunId lookup fails silently
+FIX-204 2026-08-07 [frontend] Duplicate notification entries in panel — 2× Presentation, 2× User Stories when only 1 of each is running
+FIX-203 2026-08-07 [frontend] Background concurrent run completion never marked on notification — User Stories completed but notification stayed "running"
+FIX-202 2026-08-07 [frontend,sse,workflow] Notification panel refactor: localStorage persistence, per-item dismiss, toast run navigation, duplicate/stale entry elimination
+FIX-201 2026-08-07 [frontend,workflow,sse] ISS-061 continued: concurrent run cross-contamination — agents/clarify questions/review gates from one run appearing in another; per-run state store (useRunStateStore) with viewport pattern; agent progress not showing after clarify submit / gate approval; infinite re-render loop (setCursor); duplicate toast keys
+FIX-195 2026-08-06 [frontend,workflow] ISS-061: Header badge/notification clicks navigate to wrong run; Steps panel shows two-run hybrid; notification row tap does nothing (KAN-166)
+FIX-194 2026-08-06 [frontend,workflow,agents] ISS-060: Completion notification/toast is not run-scoped — finishing run marks a DIFFERENT live run as "complete"; toast shows wrong label (KAN-166)
+FIX-193 2026-08-06 [frontend,agents] ISS-059: Concierge free-text ask during an active ("building") run silently no-ops — every message typed while agents are running returns HTTP 200 {"channel":"steering"} with no reply (KAN-165)
+FIX-192 2026-08-06 [frontend] ISS-058: RunChatLane voice input mic button was a dead control — no onClick, no hook, renders "Voice · transcribe" but does nothing (KAN-164)
+FIX-191 2026-08-06 [backend] ISS-057: _extract_docx silently drops table/header/footer content from uploaded Word docs; all-table docx fires misleading 422; python-docx/python-pptx/pypdf absent from requirements.txt (KAN-163)
+FIX-190 2026-08-06 [backend,workflow,agents] ISS-056: Clarify question quality gaps — (H1) 7 manifests declare 8 defaults but only 1 round fires, silently dropping 3+ topics; (H2) prototype build/validate agents lack WCAG AA guardrail
+FIX-189 2026-08-06 [backend] Tier entitlement never enforced at launch — can_run_pipeline wired into launch_run and _mint_revision_row; hexaware tier added for prototype+user_stories scope
+FIX-188 2026-08-06 [frontend] Concierge chain/gate_action/revision proposals never surface — dead RUN_CONCIERGE_PROPOSALS frozen constant replaced with live useRunChat.proposals; concierge_proposal handleFrame case added; no-op handleRejectProposal wired
+FIX-187 2026-08-06 [backend,agents] Custom template upload silently discarded — both od_context.py loaders used custom_template_body as boolean flag only, never writing content into template_body; replaced catalog fallbacks with _synthesize_custom_template helper
+FIX-186 2026-08-06 [frontend] Custom design system body silently dropped — wire key mismatch custom_design_system_body vs custom_ds_body in DashboardLayout.tsx; 3 literals renamed to match backend LaunchCommand field
+FIX-185 2026-08-06 [backend,workflow,agents] CR-02 guard blocks prototype_revision and user_stories_revision via chat-lane revision channel — planner: run → skip in both manifests; user_stories_revision also requires clarify.mode: auto → skip (ATOMIC); two parity-test frozensets updated; rejection test retargeted; new succeed-path test added
 FIX-182 2026-08-05 [agents] Build agent shows DONE / checkmark in Steps spine and left-panel agent list during task-loop iterations — FIX-177 fixed constructionComplete in AgentThinkingTab (L2 task list) but StepsOverviewSpine agent rows, progress bar
 FIX-181 2026-08-05 [frontend] Remove text input area, 'Or start from a deliverable' label, and 'Create workflow' button from home dashboard — UI elements present but non-functional or no longer needed
 FIX-180 2026-08-05 [frontend] Duplicate 'Approved — build continues' clarify card shown in chat after gate approve — stale pre-FIX-178 narrator DB row replayed by getRunEvents; tombstone guard added in useRunChat handleFrame chat_reply case

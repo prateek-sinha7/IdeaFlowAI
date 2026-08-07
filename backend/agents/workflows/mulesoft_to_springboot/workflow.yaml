@@ -15,6 +15,8 @@ clarify:
   # KAN-74: extended from 4 to 8 defaults. Adds: integration_patterns,
   # target_infrastructure, data_migration, compliance_security — all critical
   # for a safe, complete MuleSoft → Spring Boot migration.
+  # ISS-056: rounds: 2 lets a second round surface topics beyond the ~5/round cap.
+  rounds: 2
   defaults: [scope, technology, timeline, priority, integration_patterns, target_infrastructure, data_migration, compliance_security]
 deliverable:
   strategy: serialized_sandbox

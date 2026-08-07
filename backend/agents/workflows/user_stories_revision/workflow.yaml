@@ -4,9 +4,17 @@
 # context_providers: [previous_run] seeds the prior run's output (Phase-7 impl).
 id: user_stories_revision
 version: 1
-planner: run
+# ISS-050 / KAN-156: planner changed from run to skip AND clarify.mode changed
+# from auto to skip (BOTH required, atomic). user_stories_output →
+# user_stories_revision is reachable from the generic chat-lane revision channel
+# (Phase 29). CR-02 rejects planner: run. Additionally clarify.mode: auto with
+# planner: run would unconditionally force gate_verdict = CLARIFY_REQUIRED
+# (engine.py:1809-1812), guaranteeing the indefinite event.wait() hang CR-02
+# was designed to prevent. Both fields must flip together. Matches the
+# ppt_revision / od_ppt_revision precedent.
+planner: skip
 clarify:
-  mode: auto
+  mode: skip
   defaults: [target_audience, key_objectives, scope, priority]
 deliverable:
   strategy: streamed_text

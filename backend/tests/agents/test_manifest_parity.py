@@ -34,12 +34,19 @@ from agents.workflows.manifest import load_manifest
 
 _BASE = Path(__file__).resolve().parents[2] / "agents" / "workflows"
 
-# The two pipelines the FE reaches via the `run_revision` WS frame
-# (DashboardLayout.tsx). As of Phase 14 they declare planner: skip — clarify-auto
-# would hang a dispatched revision at the clarify event.wait(). The other three
-# *_revision manifests (prototype_revision, user_stories_revision,
-# app_builder_revision) ride run_pipeline and KEEP planner: run.
-_RUN_REVISION_DISPATCHED = frozenset({"ppt_revision", "od_ppt_revision"})
+# The run_revision-dispatched pipelines: as of Phase 14 ppt_revision and
+# od_ppt_revision declare planner: skip — clarify-auto would hang a dispatched
+# revision at the clarify event.wait(). ISS-050 (KAN-156) adds prototype_revision
+# and user_stories_revision — both are now reachable from the generic chat-lane
+# revision channel (Phase 29 route_chat_turn / CHANNEL_REVISION) and CR-02
+# in engine._handle_revision rejects any planner: run target pre-dispatch.
+# app_builder_revision still declares planner: run (not chat-lane dispatched).
+_RUN_REVISION_DISPATCHED = frozenset({
+    "ppt_revision",
+    "od_ppt_revision",
+    "prototype_revision",
+    "user_stories_revision",
+})
 
 # Hard-copied VERBATIM from engine.ExecutionEngine.execute's local
 # `_pipeline_defaults` dict (agents/execution_engine/engine.py:752-761). This is
@@ -68,7 +75,9 @@ def _compile(workflow_id: str):
 
 # ---------------------------------------------------------------------------
 # Parity trap #1 — planner: run for every dispatchable manifest, EXCEPT the
-# two run_revision-dispatched manifests which declare planner: skip (Phase 14)
+# run_revision-dispatched set which declares planner: skip (Phase 14 original:
+# ppt_revision / od_ppt_revision; ISS-050 addition: prototype_revision /
+# user_stories_revision — now also reachable via the chat-lane revision channel)
 # ---------------------------------------------------------------------------
 
 

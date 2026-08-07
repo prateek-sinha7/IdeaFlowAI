@@ -200,7 +200,7 @@ class SmartPlanner:
             config=botocore_cfg,
         )
 
-    def _build_prompt(self, brief: str, pipeline_type: str) -> str:
+    def _build_prompt(self, brief: str, pipeline_type: str, design_context: dict | None = None) -> str:
         """Build the rich planning prompt with domain knowledge and coverage scan."""
         kb = _get_domain_knowledge(pipeline_type)
 
@@ -217,13 +217,29 @@ class SmartPlanner:
                 f"{head}\n\n[... document continues — {len(brief) - settings.BRIEF_MAX_CHARS} chars omitted ...]\n\n{tail}"
             )
 
+        # ISS-056/H3(b): if the wizard already resolved a design system/template,
+        # inject a short note so the planner doesn't flag visual style as missing.
+        # Uses friendly names only (never the full ds_body/template_body — those are
+        # up to 120k chars and would overwhelm a 2–5s structured-call budget).
+        design_note = ""
+        if design_context and (design_context.get("ds_name") or design_context.get("template_name")):
+            _tmpl = design_context.get("template_name") or "a template"
+            _ds = design_context.get("ds_name") or "a design system"
+            design_note = (
+                f"\n## Design already chosen\n"
+                f"The user already selected the \"{_tmpl}\" template and \"{_ds}\" design "
+                f"system in the wizard before this brief was written. "
+                f"Do NOT flag visual style / UI look-and-feel as missing or ambiguous — "
+                f"it is already decided.\n"
+            )
+
         return f"""You are an expert pipeline planner. Analyze the user's brief and produce a structured planning context using a coverage scan approach.
 
 ## Pipeline Being Run
 **Type**: {pipeline_type}
 **Description**: {kb['description']}
 **What makes a good brief**: {kb['what_makes_good_brief']}
-
+{design_note}
 ## User Brief
 "{brief_for_prompt}"
 
@@ -306,7 +322,7 @@ Return ONLY valid JSON:
 **Type**: {pipeline_type}
 **Description**: {kb['description']}
 **What makes a good brief**: {kb['what_makes_good_brief']}
-
+{design_note}
 ## User Brief
 "{brief_for_prompt}"
 
@@ -383,13 +399,13 @@ Return ONLY valid JSON, no other text:
   "user_request_summary": "1-2 sentence summary of what the user provided (useful for downstream context)"
 }}"""
 
-    async def plan(self, brief: str, pipeline_type: str) -> dict:
+    async def plan(self, brief: str, pipeline_type: str, design_context: dict | None = None) -> dict:
         """Run the smart planner. Returns a complete PlanningContext dict."""
         from langchain_core.messages import HumanMessage
 
         from app.agents.cached_invoke import cached_invoke
 
-        prompt = self._build_prompt(brief, pipeline_type)
+        prompt = self._build_prompt(brief, pipeline_type, design_context=design_context)
 
         try:
             # ISS-033: route the direct model call through the ONE shared cached-invoke

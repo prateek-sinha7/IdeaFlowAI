@@ -1848,6 +1848,34 @@ class ExecutionEngine:
                 logger.info(
                     "no-template prototype: prepended 'ui_style', set no_template_mode=True"
                 )
+
+            # ISS-056/H3(a): the wizard already resolved a design system before the
+            # engine was called (od_context.ds_id, set at the REST launch boundary).
+            # Asking "what visual style?" is redundant. Prune style/ui_style from
+            # missing_information when a ds_id is present and no_template is NOT set
+            # (blank-canvas is the one case where style IS still genuinely unknown —
+            # KAN-87 above has already forced ui_style back in for that path).
+            # Keyed on od_context content (generic, INV-1-compliant), not pipeline_type.
+            _od = ectx.od_context or {}
+            if _od.get("ds_id") and not _od.get("no_template") and gate_verdict == "CLARIFY_REQUIRED":
+                _missing = planning_context.get("missing_information") or []
+                _filtered = [m for m in _missing if m not in ("style", "ui_style")]
+                if len(_filtered) != len(_missing):
+                    planning_context["missing_information"] = _filtered
+                    logger.info(
+                        "ISS-056/H3: pruned style/ui_style from missing_information "
+                        "(ds_id=%s already chosen)", _od.get("ds_id")
+                    )
+
+            # ISS-056/H3(b): thread the design system's friendly name into
+            # planning_context so ClarifyEngine can acknowledge it in its LLM prompt.
+            # Uses the template_name/ds_name fields added to od_context by od_context.py.
+            # Keyed on od_context.ds_id (generic, INV-1-compliant), not pipeline_type.
+            if _od.get("ds_id") and gate_verdict == "CLARIFY_REQUIRED":
+                if _od.get("ds_name"):
+                    planning_context["design_system_name"] = _od.get("ds_name")
+                if _od.get("template_name"):
+                    planning_context["template_name"] = _od.get("template_name")
             _log_event(
                 "planner_complete", pipeline_run_id,
                 duration_ms=(time.time() * 1000 - planner_start_ms),
@@ -2838,8 +2866,22 @@ class ExecutionEngine:
     ) -> tuple[dict, str]:
         """Run the Deep_Planner_Agent with a timeout. Returns (planning_context, gate)."""
         try:
+            # ISS-056/H3(b): if a design system was already chosen in the wizard,
+            # thread its friendly name into the planner prompt so it doesn't flag
+            # visual style as missing. Keyed on od_context.ds_id (generic, INV-1).
+            _od = (ectx.od_context or {}) if ectx is not None else {}
+            design_context = (
+                {
+                    "template_name": _od.get("template_name"),
+                    "ds_name": _od.get("ds_name"),
+                }
+                if _od.get("ds_id") else None
+            )
             planning_context = await asyncio.wait_for(
-                self._invoke_planner(user_message, model_id, pipeline_type, usage_sink=usage_sink),
+                self._invoke_planner(
+                    user_message, model_id, pipeline_type,
+                    usage_sink=usage_sink, design_context=design_context,
+                ),
                 timeout=PLANNER_TIMEOUT_SECONDS,
             )
             gate = planning_context.get("execution_gate", "PROCEED")
@@ -2871,7 +2913,8 @@ class ExecutionEngine:
             return ctx, "PROCEED"
 
     async def _invoke_planner(
-        self, user_message: str, model_id: str | None, pipeline_type: str = "custom", usage_sink=None
+        self, user_message: str, model_id: str | None, pipeline_type: str = "custom",
+        usage_sink=None, design_context: dict | None = None,
     ) -> dict:
         """Invoke the SmartPlanner — single structured LLM call, 2-5 seconds."""
         from agents.planner.smart_planner import SmartPlanner
@@ -2879,7 +2922,7 @@ class ExecutionEngine:
         # ISS-033: thread the run-usage sink so the planner's model-call tokens are
         # counted in the run accounting (via the shared cached_invoke inside plan()).
         planner = SmartPlanner(model_id=model_id, usage_sink=usage_sink)
-        return await planner.plan(user_message, pipeline_type)
+        return await planner.plan(user_message, pipeline_type, design_context=design_context)
 
     def _default_planning_context(self, user_message: str, timed_out: bool = False) -> dict:
         return {

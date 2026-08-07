@@ -6,6 +6,7 @@ context_from:
 estimated_duration: 60.0
 guardrails:
 - html-prototype
+- accessibility
 icon: "✅"
 id: prototype-revision-validate
 injects: []

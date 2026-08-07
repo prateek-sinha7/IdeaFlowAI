@@ -61,6 +61,13 @@
     "FIX-128": [
       "FIX-129"
     ],
+    "FIX-133": [
+      "FIX-195",
+      "FIX-201"
+    ],
+    "FIX-134": [
+      "FIX-201"
+    ],
     "FIX-135": [
       "FIX-153"
     ],
@@ -71,13 +78,23 @@
       "FIX-143"
     ],
     "FIX-146": [
-      "FIX-148"
+      "FIX-148",
+      "FIX-195"
     ],
     "FIX-149": [
       "FIX-155"
     ],
+    "FIX-153": [
+      "FIX-206"
+    ],
+    "FIX-155": [
+      "FIX-194"
+    ],
     "FIX-156": [
       "FIX-157"
+    ],
+    "FIX-157": [
+      "FIX-194"
     ],
     "FIX-163": [
       "FIX-164"
@@ -92,6 +109,24 @@
       "FIX-173",
       "FIX-175",
       "FIX-176"
+    ],
+    "FIX-194": [
+      "FIX-201"
+    ],
+    "FIX-195": [
+      "FIX-201"
+    ],
+    "FIX-201": [
+      "FIX-206"
+    ],
+    "FIX-202": [
+      "FIX-203",
+      "FIX-204",
+      "FIX-208"
+    ],
+    "FIX-203": [
+      "FIX-204",
+      "FIX-205"
     ],
     "ISS-007": [
       "ISS-035"
@@ -234,6 +269,13 @@
       "FIX-170",
       "FIX-177",
       "FIX-182",
+      "FIX-185",
+      "FIX-187",
+      "FIX-190",
+      "FIX-193",
+      "FIX-194",
+      "FIX-206",
+      "FIX-208",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -429,6 +471,7 @@
       "FIX-105",
       "FIX-133",
       "FIX-137",
+      "FIX-207",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -546,6 +589,11 @@
       "FIX-171",
       "FIX-173",
       "FIX-175",
+      "FIX-185",
+      "FIX-187",
+      "FIX-189",
+      "FIX-190",
+      "FIX-191",
       "TEST-46"
     ],
     "docs": [
@@ -713,6 +761,20 @@
       "FIX-178",
       "FIX-180",
       "FIX-181",
+      "FIX-186",
+      "FIX-188",
+      "FIX-192",
+      "FIX-193",
+      "FIX-194",
+      "FIX-195",
+      "FIX-201",
+      "FIX-202",
+      "FIX-203",
+      "FIX-204",
+      "FIX-205",
+      "FIX-206",
+      "FIX-207",
+      "FIX-208",
       "ISS-022",
       "ISS-025",
       "TEST-0-1",
@@ -899,6 +961,10 @@
       "FIX-173",
       "FIX-175",
       "FIX-177",
+      "FIX-201",
+      "FIX-202",
+      "FIX-206",
+      "FIX-207",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1050,6 +1116,13 @@
       "FIX-155",
       "FIX-156",
       "FIX-166",
+      "FIX-185",
+      "FIX-190",
+      "FIX-194",
+      "FIX-195",
+      "FIX-201",
+      "FIX-202",
+      "FIX-205",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1180,7 +1253,8 @@
     "backend/agents/execution_engine/clarify_engine.py": [
       "FIX-003",
       "FIX-024",
-      "FIX-126"
+      "FIX-126",
+      "FIX-190"
     ],
     "backend/agents/execution_engine/engine.py": [
       "FIX-016",
@@ -1196,13 +1270,16 @@
       "FIX-120",
       "FIX-121",
       "FIX-171",
-      "FIX-175"
+      "FIX-175",
+      "FIX-190"
     ],
     "backend/agents/execution_engine/kernel_services.py": [
       "FIX-007b"
     ],
     "backend/agents/execution_engine/od_context.py": [
-      "FIX-032"
+      "FIX-032",
+      "FIX-187",
+      "FIX-190"
     ],
     "backend/agents/execution_engine/state_machine.py": [
       "FIX-152"
@@ -1216,7 +1293,8 @@
     ],
     "backend/agents/planner/smart_planner.py": [
       "FIX-003",
-      "FIX-024"
+      "FIX-024",
+      "FIX-190"
     ],
     "backend/agents/prompts/backlog-compiler/AGENT.md": [
       "FIX-126"
@@ -1268,7 +1346,8 @@
     ],
     "backend/agents/prompts/prototype-build/AGENT.md": [
       "FIX-009",
-      "FIX-127"
+      "FIX-127",
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-plan/AGENT.md": [
       "FIX-006",
@@ -1277,10 +1356,12 @@
     ],
     "backend/agents/prompts/prototype-revision-agent/AGENT.md": [
       "FIX-050b",
-      "FIX-126"
+      "FIX-126",
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-revision-validate/AGENT.md": [
-      "FIX-127"
+      "FIX-127",
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-specify/AGENT.md": [
       "FIX-006",
@@ -1288,7 +1369,8 @@
       "FIX-048"
     ],
     "backend/agents/prompts/prototype-validate/AGENT.md": [
-      "FIX-127"
+      "FIX-127",
+      "FIX-190"
     ],
     "backend/agents/prompts/report-generator/AGENT.md": [
       "FIX-061"
@@ -1318,40 +1400,51 @@
       "FIX-059"
     ],
     "backend/agents/workflows/app_builder/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/compiler.py": [
       "FIX-007b"
     ],
     "backend/agents/workflows/custom/workflow.yaml": [
       "FIX-011",
-      "FIX-056"
+      "FIX-056",
+      "FIX-190"
     ],
     "backend/agents/workflows/dotnet_to_azure/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/mulesoft_to_springboot/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/od_ppt/workflow.yaml": [
       "FIX-015"
     ],
     "backend/agents/workflows/ppt/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/prototype/workflow.yaml": [
       "FIX-010",
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/prototype_revision/workflow.yaml": [
-      "FIX-049"
+      "FIX-049",
+      "FIX-185"
     ],
     "backend/agents/workflows/selections.py": [
       "FIX-059"
     ],
     "backend/agents/workflows/user_stories/workflow.yaml": [
       "FIX-003",
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
+    ],
+    "backend/agents/workflows/user_stories_revision/workflow.yaml": [
+      "FIX-185"
     ],
     "backend/alembic/versions/0027_workflow_run_od_context.py": [
       "FIX-106"
@@ -1389,6 +1482,9 @@
     "backend/app/api/agents.py": [
       "FIX-001"
     ],
+    "backend/app/api/file_extract.py": [
+      "FIX-191"
+    ],
     "backend/app/api/ppt_templates.py": [
       "FIX-040"
     ],
@@ -1405,7 +1501,8 @@
       "FIX-116",
       "FIX-130",
       "FIX-152",
-      "FIX-171"
+      "FIX-171",
+      "FIX-189"
     ],
     "backend/app/api/run_engine.py": [
       "FIX-152"
@@ -1442,7 +1539,8 @@
     ],
     "backend/app/core/entitlements.py": [
       "FIX-058",
-      "FIX-059"
+      "FIX-059",
+      "FIX-189"
     ],
     "backend/app/main.py": [
       "FIX-144",
@@ -1454,6 +1552,9 @@
     "backend/app/services/od_loader.py": [
       "FIX-040",
       "FIX-042b"
+    ],
+    "backend/requirements.txt": [
+      "FIX-191"
     ],
     "backend/scripts/seed_test_users.py": [
       "TEST-46"
@@ -1480,8 +1581,17 @@
       "FIX-031",
       "FIX-032"
     ],
+    "backend/tests/agents/test_id_alias_resolver.py": [
+      "FIX-185"
+    ],
     "backend/tests/agents/test_iss032_cache_tokens.py": [
       "FIX-036"
+    ],
+    "backend/tests/agents/test_iss056_clarify_quality_fixes.py": [
+      "FIX-190"
+    ],
+    "backend/tests/agents/test_manifest_parity.py": [
+      "FIX-185"
     ],
     "backend/tests/agents/test_model_pricing.py": [
       "FIX-035",
@@ -1497,8 +1607,17 @@
       "FIX-083",
       "FIX-175"
     ],
+    "backend/tests/unit/test_file_extract_fix191.py": [
+      "FIX-191"
+    ],
     "backend/tests/unit/test_prototype_run_request.py": [
       "FIX-030"
+    ],
+    "backend/tests/unit/test_rest_run_launch.py": [
+      "FIX-189"
+    ],
+    "backend/tests/unit/test_revision_intelligence.py": [
+      "FIX-185"
     ],
     "frontend/e2e/FIXTURE-CONTRACT.md": [
       "TEST-45"
@@ -1515,6 +1634,12 @@
     ],
     "frontend/src/.../workflowChaining.test.ts": [
       "ISS-025"
+    ],
+    "frontend/src/app/dashboard/freshLaunchTranscriptReset.source.test.ts": [
+      "FIX-201"
+    ],
+    "frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts": [
+      "FIX-201"
     ],
     "frontend/src/app/dashboard/page.tsx": [
       "FIX-005",
@@ -1552,7 +1677,14 @@
       "FIX-173",
       "FIX-174",
       "FIX-176",
-      "FIX-178"
+      "FIX-178",
+      "FIX-188",
+      "FIX-195",
+      "FIX-201",
+      "FIX-203",
+      "FIX-205",
+      "FIX-206",
+      "FIX-208"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
@@ -1601,6 +1733,9 @@
       "FIX-167b",
       "FIX-178"
     ],
+    "frontend/src/components/chat/RunChatLane.test.tsx": [
+      "FIX-193"
+    ],
     "frontend/src/components/chat/RunChatLane.tsx": [
       "BUG-002-sse",
       "FIX-085",
@@ -1615,7 +1750,9 @@
       "FIX-125",
       "FIX-154",
       "FIX-168",
-      "FIX-171"
+      "FIX-171",
+      "FIX-192",
+      "FIX-193"
     ],
     "frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx": [
       "FIX-085"
@@ -1644,7 +1781,13 @@
       "FIX-146",
       "FIX-147",
       "FIX-156",
-      "FIX-157"
+      "FIX-157",
+      "FIX-201",
+      "FIX-202",
+      "FIX-208"
+    ],
+    "frontend/src/components/layout/DashboardLayout.fix194.test.tsx": [
+      "FIX-194"
     ],
     "frontend/src/components/layout/DashboardLayout.tsx": [
       "FIX-021",
@@ -1679,7 +1822,17 @@
       "FIX-157",
       "FIX-163",
       "FIX-170",
-      "FIX-173"
+      "FIX-173",
+      "FIX-186",
+      "FIX-188",
+      "FIX-194",
+      "FIX-195",
+      "FIX-201",
+      "FIX-202",
+      "FIX-203",
+      "FIX-204",
+      "FIX-205",
+      "FIX-208"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
       "FIX-078"
@@ -1737,7 +1890,8 @@
       "FIX-123",
       "FIX-124",
       "FIX-154",
-      "FIX-163"
+      "FIX-163",
+      "FIX-206"
     ],
     "frontend/src/components/settings/AccountSettings.tsx": [
       "FIX-019"
@@ -1745,9 +1899,17 @@
     "frontend/src/components/sidebar/Sidebar.tsx": [
       "FIX-090"
     ],
+    "frontend/src/components/ui/CompletionToast.tsx": [
+      "FIX-202"
+    ],
+    "frontend/src/components/ui/NotificationPanel.fix195.test.tsx": [
+      "FIX-195"
+    ],
     "frontend/src/components/ui/NotificationPanel.tsx": [
       "FIX-021",
-      "FIX-156"
+      "FIX-156",
+      "FIX-195",
+      "FIX-202"
     ],
     "frontend/src/components/workflow/AgentProgressPanel.test.tsx": [
       "ISS-022"
@@ -1821,9 +1983,14 @@
     "frontend/src/components/workflow/prototype/TemplateGallery.tsx": [
       "FIX-039"
     ],
+    "frontend/src/hooks/useNotifications.fix202.test.tsx": [
+      "FIX-202"
+    ],
     "frontend/src/hooks/useNotifications.ts": [
       "FIX-145",
-      "FIX-148"
+      "FIX-148",
+      "FIX-202",
+      "FIX-204"
     ],
     "frontend/src/hooks/useRunChat.test.ts": [
       "FIX-128"
@@ -1835,7 +2002,11 @@
       "FIX-172",
       "FIX-176",
       "FIX-178",
-      "FIX-180"
+      "FIX-180",
+      "FIX-188"
+    ],
+    "frontend/src/hooks/useRunStateStore.ts": [
+      "FIX-201"
     ],
     "frontend/src/hooks/useRunStream.test.ts": [
       "FIX-129"
@@ -1845,7 +2016,8 @@
       "BUG-014-sse",
       "FIX-122",
       "FIX-129",
-      "FIX-135"
+      "FIX-135",
+      "FIX-207"
     ],
     "frontend/src/hooks/useWorkflow.ts": [
       "FIX-007b",
@@ -1981,6 +2153,37 @@
     "FIX-177": [
       "FIX-046",
       "FIX-166"
+    ],
+    "FIX-194": [
+      "FIX-155",
+      "FIX-157"
+    ],
+    "FIX-195": [
+      "FIX-133",
+      "FIX-146"
+    ],
+    "FIX-201": [
+      "FIX-133",
+      "FIX-134",
+      "FIX-194",
+      "FIX-195"
+    ],
+    "FIX-203": [
+      "FIX-202"
+    ],
+    "FIX-204": [
+      "FIX-202",
+      "FIX-203"
+    ],
+    "FIX-205": [
+      "FIX-203"
+    ],
+    "FIX-206": [
+      "FIX-153",
+      "FIX-201"
+    ],
+    "FIX-208": [
+      "FIX-202"
     ],
     "ISS-012": [
       "ISS-014"

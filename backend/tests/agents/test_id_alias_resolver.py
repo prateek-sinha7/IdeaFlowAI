@@ -114,11 +114,18 @@ def test_compiled_clarify_defaults_match_engine_dict(pipeline_type: str) -> None
 
 # ── compile_for_run sources the planner flag (MAN-04, concern 4) ────────────
 
-# Phase 14 carve-out: the two run_revision-dispatched manifests declare
-# planner: skip (clarify-auto would hang a dispatched revision at the clarify
-# event.wait()). Sibling trap: tests/agents/test_manifest_parity.py
+# Phase 14 carve-out + ISS-050 (KAN-156) addition: run_revision-dispatched
+# manifests declare planner: skip (clarify-auto would hang a dispatched revision
+# at the clarify event.wait()). ISS-050 adds prototype_revision and
+# user_stories_revision — now reachable from the generic chat-lane revision
+# channel (Phase 29). Sibling trap: tests/agents/test_manifest_parity.py
 # (_RUN_REVISION_DISPATCHED) — keep both carve-outs in lockstep.
-_RUN_REVISION_DISPATCHED = frozenset({"ppt_revision", "od_ppt_revision"})
+_RUN_REVISION_DISPATCHED = frozenset({
+    "ppt_revision",
+    "od_ppt_revision",
+    "prototype_revision",
+    "user_stories_revision",
+})
 
 
 @pytest.mark.parametrize("pipeline_type", _DISPATCHABLE + ["od_prototype"])
