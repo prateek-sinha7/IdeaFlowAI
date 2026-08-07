@@ -10,6 +10,7 @@
 
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase Involved | Invariants | Status |
 |--------|------|-------------|------------|---------------|---------------|------------|--------|
+| FIX-165 | 2026-08-06 | KAN-167: bootstrap admin orphans a Cognito pool user when a step AFTER `AdminCreateUser` fails — a fresh environment then stays unreachable on every subsequent deploy; plus the PostgreSQL bootstrap suite was calling the LIVE user pool | `_bootstrap_cognito_admin` (`bootstrap_admin.py:277-298`) calls `admin_create_user` FIRST but returns the pool `sub` LAST, with three fallible steps in between (`admin_set_user_password`, `admin_add_user_to_group`, the `next(...)` sub extraction). `create_admin` initialises `cognito_sub = None` (:220), assigns it only from that return (:248-249), and gates its compensating delete on `if cognito_sub is not None` (:269-270) — so a failure inside the helper raises past an un-set `cognito_sub` and the compensation NEVER fires. The local row is rolled back but the pool user survives; because `users` is still empty, the next deploy re-runs bootstrap and dies on `UsernameExistsException`, so the environment stays unreachable until an operator cleans the pool by hand (migration-plan risk R1). Fix: the helper now owns cleanup for every post-create step (compensate then re-raise unchanged), with `admin_create_user` deliberately outside the guard so a create failure deletes nothing; single-shot by construction since `cognito_sub` stays `None` when the helper raises. SECOND defect found during verification: `tests/integration/test_bootstrap_admin_postgres.py` had no `AUTH_PROVIDER` pin (the unit module has one), so on a developer `.env` set to `cognito` the suite called the REAL pool — it created live users for `admin@`/`first@`/`second@example.com`, failed on `InvalidPasswordException` (the module's password meets the 16-char floor but not the pool's uppercase policy), and failed all 7 lock/concurrency assertions for a non-PostgreSQL reason; the 3 leftover users were deleted and the pool verified back to its 4 seeded accounts. | `backend/app/scripts/bootstrap_admin.py` (in-helper compensation + re-raise; success-case compensation log; docstrings/comments naming both compensation sites), `backend/tests/unit/test_bootstrap_admin.py` (+9 tests: `TestCognitoPartialProvisioningCompensation` — 3 post-create failure modes, create-failure-deletes-nothing guard, single-compensation, retry-after-compensation, failed-compensation logging, success logging, password-hygiene), `backend/tests/integration/test_bootstrap_admin_postgres.py` (autouse `AUTH_PROVIDER=local` pin) | quick-260806-q4c; Cognito Auth & Authorization Migration §7 Phase 3 ("Bootstrap admin — Critical path", risk R1) | INV-1/2/3/12/13/SC-001 ✅ (app/scripts + tests only; zero engine edits; no per-run singleton state; goldens never execute bootstrap; reuses the existing `_compensate_delete_cognito_admin` rather than adding a second delete path; no agent loop touched) | Done |
 | FIX-164 | 2026-08-02 | `.kiro/infra-bug-tasks.md` HIGH/MEDIUM/LOW sweep: CW-agent permissions/pinning/reboot-enablement, self-log shipping, fail-closed/report-but-continue split, per-service log streams, request-ID correlation, structured JSON logging, SSE 503 disambiguation, trailing-slash filter, retention overrides, shutdown DSN scrub, sudoers cleanup | **H-01** cwagent had no read access to auth/audit/postgres logs (no `adm` group membership, no ACLs). **H-06** bootstrap/reconcile/agent self-logs written locally via `tee` but never in the agent's `collect_list`. **H-07** the CW-agent half of reconcile aborted the whole app deploy on a transient failure (same `set -euo pipefail` as the nginx half). **H-08** the docker-containers ACL swallowed its own failure (`2>/dev/null \|\| true`) despite `o::r` being load-bearing for `host.docker.internal` resolution. **H-12** the agent `.deb` was fetched from a mutable `latest` URL with no pin/checksum/signature. **M-01** backend+frontend container logs were interleaved in one CloudWatch stream with no service field. **M-02** no request-ID correlation between nginx and app logs. **M-03** the SSE `limit_conn` rejection (503) was indistinguishable from a real 5xx in `Nginx5xx`; a pinned test (`test_nginx_site_template.py`) blocks setting `limit_conn_status 429`, so a dedicated 503+upstream_addr="-" filter was added instead. **M-04** the `QueueFull` eviction path had zero logging. **M-06** app logs were pipe-delimited text with DEBUG hardcoded on `app.agents`/`app.api` in every environment. **M-07** the backup-bucket checkov skip cited CloudTrail coverage that only captured management events, never object-level GetObject/PutObject. **M-09**/**M-11**/**M-12**/**M-16**/**M-19** — see Files Changed. **L-02**/**L-05**/**L-07** — sudoers double-`rm`, cwagent logs-dir ownership, stale `.bak` file. **M-18** — 2 ruff errors + a stale test citation + a missing `last_event_of_types` unit test in the KAN-134 test suite. | `infra/scripts/reconcile-host-config.sh` (degrade_agent report-but-continue split, pinned+signature-verified agent install, adm group + ACLs, is-enabled assertion, syslog/self-log collect_list entries, M-10 missing-cert fail-closed on provisioned hosts, X-Request-ID forward, cwagent logs-dir chown), `infra/scripts/bootstrap-ec2.sh` (sudoers trap cleanup, logrotate drop-in, VELOCITYAI_ENVIRONMENT/CW_LOG_GROUP env, reconcile exit-code handling, docker-compose.prod.yml wiring), `infra/buildspec.yml` (reconcile exit 1 vs 2 handling, docker-compose.prod.yml fetch+flags), `docker-compose.yml` + `docker-compose.prod.yml` (new — awslogs driver override), `infra/terraform/modules/monitoring/main.tf` (deploy log group, SSE-connection-cap filter+alarm, trailing-slash fix, stale comment fixes, CloudTrail backup-bucket data-event selector), `infra/terraform/modules/monitoring/variables.tf` (backup_bucket_arn), `infra/terraform/app/main.tf` (compose_prod_yaml object, backup_bucket_arn wiring), `infra/terraform/app/prod.tfvars` (log_retention_overrides), `.checkov.yaml` (corrected CKV_AWS_18 justification), `backend/app/api/run_engine.py` (M-04 eviction logging), `backend/app/api/run_shutdown.py` (M-14 concierge-cancel, M-16 DSN scrub), `backend/app/main.py` + `backend/app/core/config.py` (M-02 request-ID middleware, M-06 JSON logging + env-driven level), `backend/app/api/run_stream.py` + `backend/tests/unit/test_sse_stream.py` (M-18) | Phase 44 (SSE transport), Phase 3/E1 (nginx observability), Phase 10 (CW agent) | INV-1/3/12/SC-001 ✅ (infra + app-layer only; run_id/request_id-keyed; no engine edits; no duplication) | Done (M-05 dashboards, M-13 SNS confirmation check, M-15 timeout-graceful-shutdown blast-radius audit, and M-20 frontend test drift require live-AWS/manual verification not available in this environment — left open, see infra-bug-tasks.md) |
 | FIX-163 | 2026-08-02 | KAN-134: Multi-Tab SSE Stream Silent Data Loss — fan-out pump had no producer, plus C-06a/C-06b/H-09/H-10/H-11 successor defects in the replacement pump | The original bug (fan-out bus had no producer) is fixed by `_pump_run_events`/`_ensure_pump`/`_dispatch_sentinel_to_subscribers` bridging `_PIPELINE_QUEUES` into the per-subscriber `_SUBSCRIBERS` bus. Four release-gate successor defects were then found in that replacement and fixed in the same change: **C-06a** — the producer persists an event to the durable log BEFORE it reaches the live source queue, so an event committed in the subscribe→replay window could be delivered twice (once via durable replay, once via the live queue); fixed by recording replayed `event_id`s and skipping any live event already delivered. **C-06b** — a resumed run installs a new producer queue under the same `run_id` while an older pump (still draining its now-superseded queue) is registered, so a bare `run_id` key let a stale pump masquerade as "already covered" and starve the new generation's subscribers; fixed with an explicit `(task, generation)` tuple in `_PUMP_TASKS` plus a `_QUEUE_GENERATIONS` counter, so subscribers and dispatch are always scoped to one producer generation. **H-09** — a subscriber queue at maxsize silently dropped the overflowing event while the client's cursor kept advancing, hiding the gap from ever being replayed; fixed by evicting the subscriber (unsubscribe + forced close) instead. **H-10** — only the live-drain path unsubscribed a closed stream; a replay or gate-re-arm error, or a client abort before the generator body ran, left the subscriber queue registered for the process lifetime; fixed by wrapping the whole `_iter_sse_frames` body in one try/finally. **H-11** — `shutdown_run_infrastructure` sentinelled every producer queue but never awaited or cancelled the pump tasks themselves, so a slow pump could still be draining when the checkpointer pool closed underneath it; fixed by draining pump tasks with a timeout, then cancelling stragglers, before the pool closes. | `backend/app/api/run_engine.py` (generation tokens, eviction, dispatch scoping), `backend/app/api/run_stream.py` (replay/live dedup, try/finally unsubscribe), `backend/app/api/run_shutdown.py` (pump-task drain/cancel step), `backend/tests/unit/test_sse_stream.py` (TestFanOutPump/TestReplayLiveDedup/TestPumpGenerationSafety/TestBoundedQueueEviction/TestSubscriberLeakOnErrorPaths/TestLastEventOfTypes), `backend/tests/unit/test_run_shutdown.py` (new) | Phase 44 (SSE transport, KAN-134 fan-out bus) | INV-1/3/12/SC-001 ✅ (transport-layer only, run_id-keyed, no engine branches, one pump/one dispatch path per generation) | Done |
 | FIX-162 | 2026-07-31 | KAN-151 (D8): Application lifespan shutdown unreachable with live SSE streams — graceful-shutdown timeout + orchestrated teardown | uvicorn's default `timeout_graceful_shutdown=None` leaves streaming SSE connections open indefinitely; H11Protocol.shutdown() only clears keep_alive but does NOT close the transport. A live SSE stream makes lifespan.shutdown() unreachable; docker SIGKILLs at stop_grace_period=30s. Deploy downtime: 30s → 5-8s graceful exit. Concierge tasks must be AWAITED (never cancelled first) so durable chat_reply writes complete. Checkpointer pool must be closed LAST (after steps may still hold connections). Queue registries must be sentinelled. Part 2 (optional, behind SHUTDOWN_STOP_RUNS flag) optionally stops in-flight drivers and converts runs to "cancelled". | `backend/docker-entrypoint.sh` (added --timeout-graceful-shutdown 5 flag), `backend/app/core/config.py` (added 3 settings: SHUTDOWN_CONCIERGE_DRAIN_SECONDS/SHUTDOWN_TASK_DRAIN_SECONDS/SHUTDOWN_STOP_RUNS), `backend/app/api/run_shutdown.py` (new, ~170 lines, shutdown orchestrator), `backend/app/main.py` (import json, shutdown body calls orchestrator, logs JSON summary) | quick-260731-w9m (application infrastructure, no migration) | INV-1 ✅ (app-layer, `run_id`-keyed, no engine branches), INV-3 ✅ (shutdown path unreachable from scripted harness; 5 goldens unaffected), INV-12 ✅ (reuses _CANCEL_EVENTS/task.cancel()/existing durable-write paths; no duplication), SC-001 ✅ (workflow-agnostic; zero engine edits), Ports&Adapters ✅ (leaf module, no reverse app←agents edge; lint-imports 4/0), Q3 ✅ (no migration, app-layer config only) | Done |
@@ -178,6 +179,138 @@
 ## Detailed Fix Entries
 
 *Entries are appended below after each `/velocity-ai-fix` session.*
+
+---
+
+### FIX-165 — KAN-167: Bootstrap Orphans a Cognito Pool User on Partial Provisioning
+
+**Date:** 2026-08-06
+**Triggered by:** `velocity-fix KAN-167 jira ticket`
+
+#### Root Cause
+
+`_bootstrap_cognito_admin` (`backend/app/scripts/bootstrap_admin.py:277-298`) provisions the
+initial administrator's Cognito identity in four steps, and the pool user is created by the
+FIRST one while the `sub` is returned by the LAST one:
+
+```
+create_resp = cognito.admin_create_user(email)          # :291 — pool user now EXISTS
+cognito.admin_set_user_password(email, password, True)  # :292 — fallible
+cognito.admin_add_user_to_group(email, ADMIN_GROUP)     # :293 — fallible
+return next(... "sub" ...)                              # :294-298 — fallible (StopIteration/KeyError)
+```
+
+`create_admin` initialises `cognito_sub: str | None = None` (:220), assigns it ONLY from that
+return value (:248-249), and gates its compensating delete on `if cognito_sub is not None`
+(:269-270). So for any failure in steps 2–4 the exception propagates while `cognito_sub` is
+still `None`: the local `users` row is rolled back, the table lock is released, `EXIT_ERROR` is
+returned — and the Cognito pool user is left behind with no local row and no cleanup.
+
+The failure is self-perpetuating, which is what makes it more than cosmetic. Because the fix's
+own invariant is "any row → no-op", an empty `users` table means the NEXT deploy runs bootstrap
+again — and `AdminCreateUser` now fails with `UsernameExistsException` against the leftover
+user. Every subsequent deploy fails the same way, so a fresh environment stays unreachable
+until an operator manually deletes or reconciles the pool user. This is exactly risk **R1** in
+`COGNITO-MIGRATION-PLAN.md:481` ("Fresh environment unreachable").
+
+Trace: `remote-deploy.sh` §12 (:519 check → :567 create) → `create_admin` → `_lock_users_table`
+→ `_users_exist` False → `_bootstrap_cognito_admin` → `admin_create_user` OK →
+**[FAILURE HERE]** → raise → `create_admin` except → `session.rollback()` →
+`if cognito_sub is not None` **False, compensation skipped** → `EXIT_ERROR` → orphan.
+
+An orphan is also invisible in normal operation: it authenticates against Cognito but has no
+local row, so it 401s at `resolve_principal` and only surfaces via the reconciliation report.
+
+#### Phase Context
+
+- **Phase(s) involved:** Cognito Authentication & Authorization Migration §7 Phase 3 —
+  "Bootstrap admin — **Critical path** — a fresh environment is otherwise unreachable"
+  (`COGNITO-MIGRATION-PLAN.md:403`); risk register R1 (`:481`).
+- **Relevant register section:** `.planning/IMPLEMENTATION-REGISTER.md:9-27` (Cognito/auth work
+  is governed by the migration artifacts, outside the workflow-engine phase index).
+- **Deleted code verified (not resurrected):** yes — nothing deliberately deleted was re-added.
+  The fix adds a guard around existing calls and reuses the already-present
+  `_compensate_delete_cognito_admin` helper; no new module, class, or second delete path.
+- **Locked decisions respected:**
+  - The single local break-glass admin stays (`IMPLEMENTATION-REGISTER.md:26-27`) — the local
+    path is byte-unchanged; `backend/scripts/create_break_glass_admin.py` untouched.
+  - The bootstrap invariant stays "any row → successful no-op", NOT "no admin → backfill". This
+    fix only changes the failure path of a brand-new pool user; it does not widen when bootstrap
+    runs, and it never modifies or promotes an existing user.
+  - The exit-code contract `remote-deploy.sh` §12 branches on (0 / 10 / 1) is unchanged — the
+    helper re-raises, so `create_admin`'s rollback, log line, and return value are identical.
+  - `permanent=True` on the bootstrap password was deliberately NOT touched (separate hardening
+    item, tracked outside this defect).
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/scripts/bootstrap_admin.py` | `_bootstrap_cognito_admin`: wrapped `admin_set_user_password`, `admin_add_user_to_group`, and the `sub` extraction in `try/except` that calls `_compensate_delete_cognito_admin(email)` then bare-`raise`s | Compensation must belong to the function that owns the `AdminCreateUser` call. The caller cannot know a pool user exists until the helper returns, so a caller-side guard is structurally incapable of covering this window. |
+| `backend/app/scripts/bootstrap_admin.py` | `admin_create_user` left OUTSIDE the guard | If the create itself fails, nothing was created; an unconditional delete would issue `AdminDeleteUser` against a user this attempt never made. Pinned by `test_create_failure_deletes_nothing`. |
+| `backend/app/scripts/bootstrap_admin.py` | Re-raise unchanged rather than swallowing/returning a sentinel | Keeps `create_admin`'s rollback, error message, and the 0/10/1 exit contract byte-identical. |
+| `backend/app/scripts/bootstrap_admin.py` | `_compensate_delete_cognito_admin`: added an `else` branch logging the successful delete; rewrote the docstring for both callers | "Was the pool left dirty?" is the first question after a failed bootstrap and the answer was previously unlogged. Still logs the email only — never the password. |
+| `backend/app/scripts/bootstrap_admin.py` | Comments at both compensation sites explain the split and why the outer guard must NOT fire when the helper already compensated | Single-shot compensation is enforced by `cognito_sub` staying `None`, which is subtle enough to be "tidied" back into a double-delete later. |
+| `backend/tests/unit/test_bootstrap_admin.py` | New `TestCognitoPartialProvisioningCompensation` (9 tests) with a `FakePool` that raises on duplicate create, mirroring `UsernameExistsException` | The duplicate-create behaviour IS the bug's mechanism; without it the retry test passes even with the orphan present. |
+| `backend/tests/integration/test_bootstrap_admin_postgres.py` | Added the autouse `AUTH_PROVIDER=local` fixture the unit module already had | Second defect, found while verifying: the suite had no pin, so on a developer `.env` set to `cognito` it called the LIVE user pool. |
+
+#### Invariants Verified
+
+- **INV-1** (no `pipeline_type` branches): not affected — `app/scripts` + tests only; zero engine edits.
+- **INV-2** (no per-run state on the singleton): not affected — no engine/singleton state; compensation is single-shot by construction (`cognito_sub` stays `None`), adding no new state.
+- **INV-3** (golden parity): not affected — the 5 characterization goldens never execute `bootstrap_admin`; no golden regenerated.
+- **INV-12** (no duplication): verified — reuses the existing `_compensate_delete_cognito_admin`; no second delete path, no new abstraction.
+- **INV-13** (deepagents only): not affected — no agent loop touched.
+- **SC-001** (zero engine edits for new workflows): not affected — no engine edit.
+- **Security:** the password is still stdin-only and never logged; both compensation log sites interpolate the email only, pinned by `test_no_compensation_log_leaks_the_password`. No migration, no new table.
+
+#### Verification
+
+Full detail in `.planning/quick/260806-q4c-kan-167-bootstrap-cognito-orphan-compensation/260806-q4c-VERIFICATION.md`.
+
+- `uv run pytest tests/unit/test_bootstrap_admin.py` → **62 passed** (53 pre-existing + 9 new).
+- **RED proof:** with only `bootstrap_admin.py` stashed, `TestCognitoPartialProvisioningCompensation`
+  → **8 failed / 1 passed**. The single pass is `test_create_failure_deletes_nothing`, which must
+  be green in both directions by design.
+- **Real PostgreSQL:** `tests/integration/test_bootstrap_admin_postgres.py` → **9 passed** against
+  a throwaway `bootstrap_admin_test` database (created and dropped by a temporary helper, since
+  deleted). Covers the real `LOCK TABLE ... SHARE ROW EXCLUSIVE`, lock release on
+  commit/no-op-rollback, 2- and 5-way racing callers creating exactly one user, and an ordinary
+  INSERT being serialised by the lock.
+- **No regression:** `uv run pytest tests/unit` → 39 failed / 1233 passed / 4 errors, versus a
+  stashed baseline of 39 failed / 1224 passed / 4 errors — identical failure count, delta exactly
+  +9 passes.
+- `ruff` clean on all three files; `pyright` 0 errors; `vulture` clean; `lint-imports` unchanged
+  (its 1 broken contract is pre-existing in `agents.capabilities.strategies.task_loop`, confirmed
+  identical with all changes stashed).
+- No backend restart needed for a running dev server: `bootstrap_admin` is a deploy-time CLI, not
+  imported by `app/main.py`'s lifespan or any request path.
+
+#### Notes
+
+- **Live-pool incident during verification (handled).** The first PostgreSQL run hit the real
+  Cognito pool because the integration module lacked an `AUTH_PROVIDER` pin. It created live users
+  for `admin@`/`first@`/`second@example.com` and failed on `InvalidPasswordException` — the
+  module's `VALID_PASSWORD` satisfies the command's 16-char floor but not the pool's uppercase
+  policy. The 3 leftover users were deleted with `admin_delete_user`, and the pool was re-listed
+  and confirmed back to exactly its 4 seeded accounts (`qa-basic`/`qa-pro`/`qa-enterprise`/
+  `qa-admin@flowinqa.com`), before and after the second run. Note the `admin0..admin4@example.com`
+  users from the 5-way race were correctly compensated and absent, which is independent live
+  evidence that the new compensation path works.
+- **Pre-existing, deliberately NOT fixed here (no collateral cleanup):**
+  `TestSecretHygiene::test_rejection_message_does_not_echo_the_password` passes in isolation and
+  fails under `pytest tests/unit`. It asserts through `caplog`, which hangs a handler on the ROOT
+  logger, while `configure_logging()` calls `logging.basicConfig(force=True)` and removes every
+  root handler. Confirmed pre-existing by running the full suite with all changes stashed. The new
+  tests sidestep this by substituting the module's `logger` attribute, so they are
+  order-independent — worth applying the same treatment to the old test in a separate change.
+- **Watch in future fixes:** do not "simplify" the two compensation sites into one unconditional
+  delete in `create_admin`. The helper-side guard exists because `cognito_sub` is unknowable to the
+  caller until the helper returns, and the `cognito_sub is not None` gate is what prevents a
+  double `AdminDeleteUser`. Both are pinned by tests.
+- **Follow-up (separate item, not this fix):** the bootstrap password is still set with
+  `permanent=True`. Switching to a temporary password + forced `NEW_PASSWORD_REQUIRED` is a
+  security hardening change with its own operator-facing implications.
 
 ---
 

@@ -586,3 +586,291 @@ class TestCognitoBranch:
         assert row.password_hash is not None
         assert verify_password("a-valid-password-123", row.password_hash)
         assert "created_email" not in fake_cognito, "the local path must not call Cognito"
+
+
+class TestCognitoPartialProvisioningCompensation:
+    """KAN-167 — a failure AFTER AdminCreateUser must not orphan the pool user.
+
+    ``_bootstrap_cognito_admin`` creates the pool user first and returns its
+    ``sub`` last, with three fallible steps in between. Until that return value
+    reaches ``create_admin``'s ``cognito_sub``, the caller cannot know a pool
+    user exists, so the outer compensating delete is gated off. Left unguarded,
+    a transient failure in any post-create step leaves an orphaned pool user
+    behind an EMPTY users table — and because the table is still empty, the next
+    deploy re-runs bootstrap and dies on ``UsernameExistsException``, so a fresh
+    environment stays unreachable until the pool is cleaned by hand.
+
+    ``TestCognitoBranch`` above covers the OTHER failure window (the helper
+    succeeded, the local commit failed). These tests cover the in-helper window.
+    AWS is stubbed throughout — the suite stays offline.
+    """
+
+    @pytest.fixture
+    def cognito_provider(self, monkeypatch):
+        # Overrides the module-level autouse fixture for this class only.
+        monkeypatch.setattr(settings, "AUTH_PROVIDER", "cognito")
+
+    @pytest.fixture
+    def pool(self, monkeypatch):
+        """A tiny in-memory stand-in for the Cognito user pool.
+
+        Models the one property these tests are about: whether the pool still
+        holds the user after a failed bootstrap. ``fail_on`` injects a fault at
+        a named step; ``sub_attribute`` drops the ``sub`` from the create
+        response to exercise the extraction failure.
+        """
+
+        class FakePool:
+            def __init__(self) -> None:
+                self.users: set[str] = set()
+                self.groups: list[tuple[str, str]] = []
+                self.fail_on: str | None = None
+                self.sub_attribute = True
+                self.delete_calls: list[str] = []
+                self.delete_raises = False
+                self.sub = "11111111-2222-3333-4444-555555555555"
+
+            def _maybe_fail(self, step: str) -> None:
+                if self.fail_on == step:
+                    raise RuntimeError(f"simulated Cognito failure in {step}")
+
+            def admin_create_user(self, email):
+                self._maybe_fail("admin_create_user")
+                # Cognito rejects a duplicate username with
+                # UsernameExistsException. Modelling that is the whole point:
+                # it is what turns a leftover pool user into a PERMANENTLY
+                # failing bootstrap, and without it the retry test would pass
+                # even with the orphan still present.
+                if email in self.users:
+                    raise RuntimeError(f"UsernameExistsException: {email}")
+                self.users.add(email)
+                attributes = (
+                    [{"Name": "sub", "Value": self.sub}] if self.sub_attribute else []
+                )
+                return {"User": {"Attributes": attributes}}
+
+            def admin_set_user_password(self, email, password, permanent=True):
+                self._maybe_fail("admin_set_user_password")
+
+            def admin_add_user_to_group(self, email, group):
+                self._maybe_fail("admin_add_user_to_group")
+                self.groups.append((email, group))
+
+            def admin_delete_user(self, email):
+                self.delete_calls.append(email)
+                if self.delete_raises:
+                    raise RuntimeError("simulated AdminDeleteUser failure")
+                self.users.discard(email)
+
+        fake = FakePool()
+        from app.core import cognito as cognito_module
+
+        for name in (
+            "admin_create_user",
+            "admin_set_user_password",
+            "admin_add_user_to_group",
+            "admin_delete_user",
+        ):
+            monkeypatch.setattr(cognito_module, name, getattr(fake, name))
+        return fake
+
+    @pytest.fixture
+    def bootstrap_logs(self, monkeypatch):
+        """Record what the module logs, by substituting the module's logger.
+
+        Deliberately NOT ``caplog``, and not a handler on the named logger
+        either. Both route through global logging state that other modules in a
+        full-suite run mutate — ``configure_logging()`` alone calls
+        ``logging.basicConfig(force=True)``, which closes and removes every root
+        handler. That fragility is already demonstrated in this file:
+        ``TestSecretHygiene::test_rejection_message_does_not_echo_the_password``
+        passes in isolation and fails under ``pytest tests/unit`` (pre-existing,
+        NOT introduced by KAN-167). Substituting the module attribute asserts
+        the same behaviour with zero dependency on global logging state, so
+        these tests return the same verdict in any run order.
+        """
+        messages: list[str] = []
+
+        class _LoggerSpy:
+            @staticmethod
+            def _record(msg, *args):
+                messages.append(str(msg) % args if args else str(msg))
+
+            debug = info = warning = error = exception = critical = _record
+
+        monkeypatch.setattr(bootstrap_admin, "logger", _LoggerSpy())
+        return messages
+
+    @pytest.mark.parametrize(
+        "failing_step",
+        ["admin_set_user_password", "admin_add_user_to_group"],
+    )
+    def test_aws_failure_after_create_deletes_the_pool_user(
+        self, session_factory, cognito_provider, pool, failing_step
+    ):
+        """The two AWS calls that run while the pool user already exists."""
+        pool.fail_on = failing_step
+
+        rc = create_admin(
+            email="admin@example.com",
+            password=VALID_PASSWORD,
+            session_factory=session_factory,
+        )
+
+        assert rc == EXIT_ERROR
+        assert pool.delete_calls == ["admin@example.com"], (
+            f"a failure in {failing_step} must compensate by deleting the pool user"
+        )
+        assert pool.users == set(), "the pool user was left orphaned"
+        assert _users(session_factory) == [], "no local row may survive a failed bootstrap"
+
+    def test_missing_sub_in_create_response_deletes_the_pool_user(
+        self, session_factory, cognito_provider, pool
+    ):
+        """A response with no ``sub`` orphans just as surely as an API error.
+
+        ``users.cognito_sub`` is what ``resolve_principal`` matches on, so a row
+        without it could never log in — the extraction failure is a real failure
+        mode, not a defensive branch, and it happens with the pool user already
+        created.
+        """
+        pool.sub_attribute = False
+
+        rc = create_admin(
+            email="admin@example.com",
+            password=VALID_PASSWORD,
+            session_factory=session_factory,
+        )
+
+        assert rc == EXIT_ERROR
+        assert pool.delete_calls == ["admin@example.com"]
+        assert pool.users == set()
+        assert _users(session_factory) == []
+
+    def test_create_failure_deletes_nothing(
+        self, session_factory, cognito_provider, pool
+    ):
+        """No pool user was created, so there is nothing to compensate.
+
+        Guards against over-correcting this fix into an unconditional delete,
+        which would fire AdminDeleteUser on a user this attempt never made.
+        """
+        pool.fail_on = "admin_create_user"
+
+        rc = create_admin(
+            email="admin@example.com",
+            password=VALID_PASSWORD,
+            session_factory=session_factory,
+        )
+
+        assert rc == EXIT_ERROR
+        assert pool.delete_calls == [], "nothing was created — nothing may be deleted"
+        assert _users(session_factory) == []
+
+    def test_compensation_happens_exactly_once(
+        self, session_factory, cognito_provider, pool
+    ):
+        """The helper compensated, so create_admin's except branch must not.
+
+        ``cognito_sub`` stays None when the helper raises, which is precisely
+        what keeps the outer guard shut. A second delete would emit a spurious
+        cleanup-failure log against an already-absent user.
+        """
+        pool.fail_on = "admin_add_user_to_group"
+
+        create_admin(
+            email="admin@example.com",
+            password=VALID_PASSWORD,
+            session_factory=session_factory,
+        )
+
+        assert len(pool.delete_calls) == 1, (
+            "both compensation sites fired for one failure"
+        )
+
+    def test_retry_after_compensation_succeeds(
+        self, session_factory, cognito_provider, pool
+    ):
+        """The point of the fix: the next deploy attempt gets in.
+
+        This is the acceptance criterion. The fake pool raises on a duplicate
+        create, exactly as Cognito does, so without compensation this retry
+        fails on UsernameExistsException against a still-empty database and the
+        environment stays unreachable — no matter how many times it is redeployed.
+        """
+        pool.fail_on = "admin_set_user_password"
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_ERROR
+        )
+
+        pool.fail_on = None
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+        )
+
+        rows = _users(session_factory)
+        assert len(rows) == 1
+        assert rows[0].cognito_sub == pool.sub
+        assert rows[0].auth_provider == "cognito"
+        assert rows[0].is_admin is True
+        assert rows[0].password_hash is None
+        assert ("admin@example.com", "flowin-admins") in pool.groups
+
+    def test_failed_compensation_is_logged_and_still_returns_error(
+        self, session_factory, cognito_provider, pool, bootstrap_logs
+    ):
+        """A cleanup that itself fails must not mask the original failure.
+
+        The operator has to learn the pool was left dirty, and the exit code
+        must still describe the ORIGINAL cause, not the cleanup error.
+        """
+        pool.fail_on = "admin_add_user_to_group"
+        pool.delete_raises = True
+
+        rc = create_admin(
+            email="admin@example.com",
+            password=VALID_PASSWORD,
+            session_factory=session_factory,
+        )
+
+        assert rc == EXIT_ERROR
+        assert any("failed to compensate-delete" in m for m in bootstrap_logs)
+        assert any("admin_add_user_to_group" in m for m in bootstrap_logs), (
+            "the original failure must still be reported"
+        )
+        assert _users(session_factory) == []
+
+    def test_successful_compensation_is_logged(
+        self, session_factory, cognito_provider, pool, bootstrap_logs
+    ):
+        """"Was the pool left dirty?" is the first post-failure question."""
+        pool.fail_on = "admin_set_user_password"
+
+        create_admin(
+            email="admin@example.com",
+            password=VALID_PASSWORD,
+            session_factory=session_factory,
+        )
+
+        assert any("compensated" in m for m in bootstrap_logs), (
+            "a successful pool-user cleanup must be visible to the operator"
+        )
+
+    def test_no_compensation_log_leaks_the_password(
+        self, session_factory, cognito_provider, pool, bootstrap_logs
+    ):
+        """The compensation paths are new log sites — pin the secret hygiene."""
+        pool.fail_on = "admin_set_user_password"
+
+        create_admin(
+            email="admin@example.com",
+            password=VALID_PASSWORD,
+            session_factory=session_factory,
+        )
+
+        logged = "\n".join(bootstrap_logs)
+        assert VALID_PASSWORD not in logged
+        assert "admin@example.com" in logged, (
+            "the email is the identifier operators need in the cleanup log"
+        )

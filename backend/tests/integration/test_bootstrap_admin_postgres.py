@@ -55,6 +55,32 @@ ENV_VAR = "BOOTSTRAP_ADMIN_TEST_DATABASE_URL"
 VALID_PASSWORD = "bootstrap-password-0123456789"
 
 
+@pytest.fixture(autouse=True)
+def _force_local_auth_provider(monkeypatch):
+    """Pin AUTH_PROVIDER=local for every test in this module.
+
+    The same rail ``tests/unit/test_bootstrap_admin.py`` has, and for the same
+    reason — it was missing here, which is a real defect, not a formality.
+    ``create_admin`` branches on ``settings.AUTH_PROVIDER``, so on a developer
+    machine whose ``.env`` sets ``cognito`` (the normal state since the
+    migration) this suite called the LIVE ``AdminCreateUser`` / -
+    ``AdminSetUserPassword`` / ``AdminAddUserToGroup`` against the real user
+    pool. Observed 2026-08-06 while verifying KAN-167: the run created real pool
+    users for ``admin@``/``first@``/``second@example.com`` and then failed on
+    ``InvalidPasswordException`` (``VALID_PASSWORD`` satisfies this module's
+    16-char floor but not the pool's uppercase policy), so every lock and
+    concurrency assertion below failed for a reason that has nothing to do with
+    PostgreSQL locking.
+
+    What this suite exists to prove — the real ``LOCK TABLE`` statement and
+    genuine cross-connection contention — is provider-independent. The Cognito
+    branch is covered offline with stubs in the unit module. So the correct
+    posture is the unit module's: pin the provider, keep the suite offline, and
+    never let a test mutate a live pool.
+    """
+    monkeypatch.setattr(settings, "AUTH_PROVIDER", "local")
+
+
 def _resolve_test_database_url() -> str:
     """Return a URL that is safe to create and drop tables in, or skip.
 
