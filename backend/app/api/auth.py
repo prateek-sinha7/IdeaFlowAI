@@ -197,30 +197,150 @@ def _challenge_response(resp: dict) -> AuthChallengeResponse:
 _DUMMY_PASSWORD_HASH = hash_password(str(uuid_module.uuid4()))
 
 
-def _burn_unknown_email_latency(email: str) -> None:
-    """Pay approximately the same latency an existing account's login would
-    incur, for an email that does not exist (P2 fix — login timing
-    enumeration).
+# --- Audit `reason` values for a login attempt with no local row -------------
+#
+# These are ``reason`` strings on LOGIN_FAILURE rather than new AuthEvent
+# members, deliberately: core/auth_events.py documents the AuthEvent values as
+# a PUBLISHED INTERFACE that infra/terraform/modules/monitoring builds metric
+# filters against, and warns that adding/renaming one without a matching
+# Terraform change leaves an alarm reporting no-data (which looks healthy). A
+# new `reason` needs no infrastructure change and is just as greppable in
+# CloudWatch Logs Insights ({ $.reason = "orphaned_pool_user" }).
 
-    Branches on ``AUTH_PROVIDER`` exactly like the real login path does for a
-    known account: local auth pays a bcrypt verify against a fixed dummy
-    hash (the same cost class as ``verify_password`` against a real hash);
-    Cognito pays a REAL ``AdminInitiateAuth`` call against the submitted
-    (nonexistent) email, which Cognito rejects with
-    ``UserNotFoundException`` after doing the same network/provider work it
-    would for any other unauthorized attempt — the SAME code path a known
-    email's wrong-password attempt exercises, just with a different
-    rejection reason. Failures are swallowed: this call exists purely to
-    burn time, never to change the outcome (which stays the generic 401 the
-    caller already raises).
+#: No such account in EITHER store — an ordinary typo or a credential-stuffing
+#: probe. The pre-existing value; unchanged so existing queries keep working.
+_REASON_UNKNOWN_USER = "unknown_user"
+
+#: The account EXISTS in the Cognito pool but has no local row, so login can
+#: never succeed for it. This is the real-time counterpart to check C5 in
+#: scripts/verify_cognito_cutover.py ("every pool user has a local row"), which
+#: until now was the ONLY way to discover an orphan — a batch reconciliation
+#: script nobody runs while staring at a failed login. Almost always means the
+#: user was created out-of-band (AWS console / CLI / raw boto3) instead of
+#: through POST /api/admin/users, which provisions both stores in lockstep.
+_REASON_ORPHANED_POOL_USER = "orphaned_pool_user"
+
+#: We could not determine which of the two above applies, because Cognito was
+#: unreachable/throttled or credentials were missing. Distinct on purpose: "we
+#: don't know" must not be silently recorded as "definitely absent".
+_REASON_PROVIDER_UNAVAILABLE = "unknown_user_provider_unavailable"
+
+#: A /login/challenge call for an account whose local row is not Cognito-backed
+#: (break-glass). There is no Cognito session for such an account to echo back,
+#: so this is a client bug or a probe — either way previously invisible.
+_REASON_CHALLENGE_NON_COGNITO = "challenge_for_non_cognito_account"
+
+
+def _classify_pool_presence(email: str) -> str:
+    """Is this email present in the Cognito pool? Returns an audit ``reason``.
+
+    Uses ``AdminGetUser``, NOT the outcome of the ``AdminInitiateAuth`` call the
+    caller just made. That distinction is the whole point of this function and
+    must not be "simplified" away:
+
+    AWS documents that ``ADMIN_USER_PASSWORD_AUTH`` (the flow
+    ``cognito.admin_initiate_auth`` uses) returns ``NotAuthorizedException`` for
+    a NONEXISTENT user whenever the app client has
+    ``prevent_user_existence_errors = ENABLED`` — which this pool's client does
+    (``infra/terraform/modules/cognito``), and which the pool reinforces by
+    using ``username_attributes = ["email"]``, an alias attribute AWS says is
+    fully existence-suppressed on that flow. So a wrong password and a missing
+    account are INDISTINGUISHABLE on the auth call by design, and classifying
+    from it would label every typo'd email an orphan.
+
+    ``AdminGetUser`` is an admin READ API, outside the scope of that setting: it
+    raises ``UserNotFoundException`` when the user genuinely is not in the pool.
+    The rest of this codebase already relies on exactly that
+    (``cognito.admin_get_user``'s contract, and checks C4/C5 in
+    ``scripts/verify_cognito_cutover.py``).
+
+    Never raises — an unclassifiable probe reports
+    ``_REASON_PROVIDER_UNAVAILABLE`` rather than turning an audit detail into a
+    500 on the login path.
+    """
+    try:
+        cognito.admin_get_user(email)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code == "UserNotFoundException":
+            return _REASON_UNKNOWN_USER
+        logger.warning(
+            "Could not classify a login attempt for an email with no local row: "
+            "Cognito AdminGetUser returned %s",
+            code,
+        )
+        return _REASON_PROVIDER_UNAVAILABLE
+    except Exception as exc:  # noqa: BLE001 - no creds / endpoint / DNS failure
+        logger.warning(
+            "Could not classify a login attempt for an email with no local row: %s",
+            exc,
+        )
+        return _REASON_PROVIDER_UNAVAILABLE
+
+    return _REASON_ORPHANED_POOL_USER
+
+
+def _probe_unknown_email(email: str) -> str:
+    """Burn login-equivalent latency for an email with no local row, AND report
+    why it had none. Returns the ``reason`` to record on LOGIN_FAILURE.
+
+    Two jobs. The second is a byproduct of the first, which is why they live
+    together rather than in separate helpers the caller has to remember to pair.
+
+    **Job 1 — latency (P2 fix, behaviour unchanged).** Branches on
+    ``AUTH_PROVIDER`` exactly like the real login path does for a known account:
+    local auth pays a bcrypt verify against a fixed dummy hash (the same cost
+    class as ``verify_password`` against a real hash); Cognito pays a REAL
+    ``AdminInitiateAuth`` call against the submitted email, doing the same
+    network/provider work a known email's wrong-password attempt does. Without
+    this, an unknown email returned in ~ms off a bare indexed DB miss while a
+    known one cost hundreds of ms — a ~100x oracle for enumerating registered
+    addresses one request at a time.
+
+    **Job 2 — classification (observability fix).** Previously this call's
+    outcome was discarded by a bare ``except Exception: pass``, so a user who
+    exists in the pool but has no local row (an orphan — unable to log in, ever)
+    produced a LOGIN_FAILURE identical to a typo. An operator who had just
+    created a user in the AWS console got no signal telling those two apart. The
+    reason recorded is now specific; see the ``_REASON_*`` constants.
+
+    Client-visible behaviour is UNCHANGED: the caller still raises the same
+    generic 401 regardless of what this returns, so nothing here is an
+    enumeration oracle. Neither is the added ``AdminGetUser`` call: it happens
+    only on the ambiguous branch, only when there is no local row (so never for
+    legitimate traffic), and its result is written to the server-side audit log
+    only. Both branches also reach the same 401 after doing provider work, so
+    the latency envelope Job 1 establishes is preserved.
     """
     if settings.AUTH_PROVIDER.lower() != "cognito":
         verify_password("not-a-real-password", _DUMMY_PASSWORD_HASH)
-        return
+        # Local auth has no second store to be out of sync with, so "no local
+        # row" is the complete explanation.
+        return _REASON_UNKNOWN_USER
+
     try:
         cognito.admin_initiate_auth(email, str(uuid_module.uuid4()))
-    except Exception:  # noqa: BLE001 - deliberately doomed call, outcome unused
-        pass
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code == "UserNotFoundException":
+            # The client is on LEGACY prevent_user_existence_errors, so the auth
+            # call itself is authoritative and no second round-trip is needed.
+            return _REASON_UNKNOWN_USER
+        if code == "NotAuthorizedException":
+            # Ambiguous under ENABLED (this pool): either the account is absent,
+            # or it exists and our deliberately-random password was wrong. Only
+            # this branch pays for a classifying read.
+            return _classify_pool_presence(email)
+        logger.warning("Cognito AdminInitiateAuth probe returned %s", code)
+        return _REASON_PROVIDER_UNAVAILABLE
+    except Exception as exc:  # noqa: BLE001 - no creds / endpoint / DNS failure
+        logger.warning("Cognito AdminInitiateAuth probe failed: %s", exc)
+        return _REASON_PROVIDER_UNAVAILABLE
+
+    # Authentication SUCCEEDED against a random UUID password. Cryptographically
+    # implausible rather than impossible, and it proves the pool user exists
+    # while no local row does — the orphan case, confirmed without a second call.
+    return _REASON_ORPHANED_POOL_USER
 
 
 @router.post("/login", response_model=AuthResponse | AuthChallengeResponse)
@@ -254,14 +374,26 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     latency distribution either way. This does not need to be
     cryptographically constant-time; it only needs to remove the
     order-of-magnitude gap that made the oracle cheap to exploit.
+
+    Observability fix: that same doomed probe now also CLASSIFIES the miss, so
+    an account present in the pool but missing its local row (an orphan, which
+    can never log in) is distinguishable in the audit log from a plain typo. It
+    was not before — both emitted ``reason="unknown_user"``, leaving
+    ``scripts/verify_cognito_cutover.py --check-pool`` as the only way to find
+    an orphan. See :func:`_probe_unknown_email` and the ``_REASON_*`` constants.
+    The client response is unchanged in every case.
     """
     user = db.query(User).filter(User.email == request.email).first()
     if not user:
-        _burn_unknown_email_latency(request.email)
+        # Burns login-equivalent latency AND reports WHY there was no local row
+        # (typo vs. an orphaned pool user vs. Cognito unreachable). The 401
+        # below is identical in every case — the distinction is server-side only.
+        reason = _probe_unknown_email(request.email)
         # Email is included here precisely BECAUSE no user_id exists — without
         # it a credential-stuffing run would be invisible in the audit trail.
+        # (auth_events hashes it; the plaintext never reaches the log line.)
         auth_events.emit(
-            AuthEvent.LOGIN_FAILURE, email=request.email, reason="unknown_user"
+            AuthEvent.LOGIN_FAILURE, email=request.email, reason=reason
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -383,7 +515,28 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
     will reject, this returns an actionable error -- see the guard below.
     """
     user = db.query(User).filter(User.email == request.email).first()
-    if not user or user.auth_provider != "cognito":
+    # Both rejections below previously returned a bare 401 and emitted NOTHING,
+    # so a challenge that could never succeed left no trace at all — the same
+    # blind spot the unknown-email path had on /login. Deliberately does NOT
+    # probe Cognito: unlike /login there is no password here to burn latency
+    # with, and this endpoint is not an enumeration oracle (it additionally
+    # requires a valid provider-issued `session`). The 401 is unchanged.
+    if not user:
+        auth_events.emit(
+            AuthEvent.LOGIN_FAILURE,
+            email=request.email,
+            reason=_REASON_UNKNOWN_USER,
+            challenge=request.challenge,
+        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if user.auth_provider != "cognito":
+        auth_events.emit(
+            AuthEvent.LOGIN_FAILURE,
+            user_id=user.id,
+            provider=user.auth_provider,
+            reason=_REASON_CHALLENGE_NON_COGNITO,
+            challenge=request.challenge,
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     challenge_responses: dict[str, str] = {}
