@@ -67,5 +67,7 @@ skills/opendesign/design-templates/*/thumbnail.jpg
 backend/runs/
 
 
-# Kiro IDE files (personal, not for team use)
-.kiro/
+# Kiro IDE files are personal by default; workspace skills are team-shared.
+.kiro/*
+!.kiro/skills/
+!.kiro/skills/**
