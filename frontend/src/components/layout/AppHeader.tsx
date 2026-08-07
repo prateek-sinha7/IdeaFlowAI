@@ -37,7 +37,7 @@ const RUN_STATUS_TONE: Record<string, { label: string; dotClass: string }> = {
 // Statuses that mean "the run is still in flight and needs your attention or
 // is actively building". Used to filter recentRuns for the badge.
 const LIVE_STATUSES = new Set([
-  "running", "revising", "planning", "generating", "waiting_for_user", "clarifying",
+  "running", "revising", "planning", "generating", "waiting_for_user", "clarifying", "analyzing",
 ]);
 
 interface AppHeaderProps {
@@ -276,6 +276,12 @@ export function AppHeader({
                 if (serverRun) {
                   handleRunClick(serverRun);
                 } else {
+                  // FIX-201 (KAN-168): fallback when serverRun not yet in recentRuns —
+                  // attempt to switch by run id directly so viewport still updates.
+                  const runId = runningPipelines[0].workflowRunId;
+                  if (runId && onSwitchToLiveRun) {
+                    onSwitchToLiveRun(runId);
+                  }
                   onGoToPipeline?.();
                 }
               }}

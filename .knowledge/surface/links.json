@@ -62,7 +62,11 @@
       "FIX-129"
     ],
     "FIX-133": [
-      "FIX-195"
+      "FIX-195",
+      "FIX-201"
+    ],
+    "FIX-134": [
+      "FIX-201"
     ],
     "FIX-135": [
       "FIX-153"
@@ -102,6 +106,12 @@
       "FIX-173",
       "FIX-175",
       "FIX-176"
+    ],
+    "FIX-194": [
+      "FIX-201"
+    ],
+    "FIX-195": [
+      "FIX-201"
     ],
     "ISS-007": [
       "ISS-035"
@@ -739,6 +749,7 @@
       "FIX-193",
       "FIX-194",
       "FIX-195",
+      "FIX-201",
       "ISS-022",
       "ISS-025",
       "TEST-0-1",
@@ -925,6 +936,7 @@
       "FIX-173",
       "FIX-175",
       "FIX-177",
+      "FIX-201",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1080,6 +1092,7 @@
       "FIX-190",
       "FIX-194",
       "FIX-195",
+      "FIX-201",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1592,6 +1605,12 @@
     "frontend/src/.../workflowChaining.test.ts": [
       "ISS-025"
     ],
+    "frontend/src/app/dashboard/freshLaunchTranscriptReset.source.test.ts": [
+      "FIX-201"
+    ],
+    "frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts": [
+      "FIX-201"
+    ],
     "frontend/src/app/dashboard/page.tsx": [
       "FIX-005",
       "FIX-023",
@@ -1630,7 +1649,8 @@
       "FIX-176",
       "FIX-178",
       "FIX-188",
-      "FIX-195"
+      "FIX-195",
+      "FIX-201"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
@@ -1727,7 +1747,8 @@
       "FIX-146",
       "FIX-147",
       "FIX-156",
-      "FIX-157"
+      "FIX-157",
+      "FIX-201"
     ],
     "frontend/src/components/layout/DashboardLayout.fix194.test.tsx": [
       "FIX-194"
@@ -1769,7 +1790,8 @@
       "FIX-186",
       "FIX-188",
       "FIX-194",
-      "FIX-195"
+      "FIX-195",
+      "FIX-201"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
       "FIX-078"
@@ -1932,6 +1954,9 @@
       "FIX-180",
       "FIX-188"
     ],
+    "frontend/src/hooks/useRunStateStore.ts": [
+      "FIX-201"
+    ],
     "frontend/src/hooks/useRunStream.test.ts": [
       "FIX-129"
     ],
@@ -2084,6 +2109,12 @@
     "FIX-195": [
       "FIX-133",
       "FIX-146"
+    ],
+    "FIX-201": [
+      "FIX-133",
+      "FIX-134",
+      "FIX-194",
+      "FIX-195"
     ],
     "ISS-012": [
       "ISS-014"

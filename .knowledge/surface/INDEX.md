@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-564 cards · rules 1 · fixes 200 · issues 49 · phases 23 · built 2026-08-06 19:47
+565 cards · rules 1 · fixes 201 · issues 49 · phases 23 · built 2026-08-07 16:29
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (200)
+## Fixes (201)
 
+FIX-201 2026-08-07 [frontend,workflow,sse] ISS-061 continued: concurrent run cross-contamination — agents/clarify questions/review gates from one run appearing in another; per-run state store (useRunStateStore) with viewport pattern; agent progress not showing after clarify submit / gate approval; infinite re-render loop (setCursor); duplicate toast keys
 FIX-195 2026-08-06 [frontend,workflow] ISS-061: Header badge/notification clicks navigate to wrong run; Steps panel shows two-run hybrid; notification row tap does nothing (KAN-166)
 FIX-194 2026-08-06 [frontend,workflow,agents] ISS-060: Completion notification/toast is not run-scoped — finishing run marks a DIFFERENT live run as "complete"; toast shows wrong label (KAN-166)
 FIX-193 2026-08-06 [frontend,agents] ISS-059: Concierge free-text ask during an active ("building") run silently no-ops — every message typed while agents are running returns HTTP 200 {"channel":"steering"} with no reply (KAN-165)

@@ -1,5 +1,5 @@
 {
-  "count": 564,
+  "count": 565,
   "entries": [
     {
       "area": [
@@ -4809,6 +4809,34 @@
     },
     {
       "area": [
+        "frontend",
+        "workflow",
+        "sse"
+      ],
+      "date": "2026-08-07",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/components/layout/AppHeader.tsx",
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/hooks/useRunStateStore.ts",
+        "frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts",
+        "frontend/src/app/dashboard/freshLaunchTranscriptReset.source.test.ts"
+      ],
+      "id": "FIX-201",
+      "path": ".knowledge/cards/FIX-201.md",
+      "relates": [
+        "FIX-195",
+        "FIX-194",
+        "FIX-134",
+        "FIX-133"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-201",
+      "status": "done",
+      "summary": "ISS-061 continued: concurrent run cross-contamination \u2014 agents/clarify questions/review gates from one run appearing in another; per-run state store (useRunStateStore) with viewport pattern; agent progress not showing after clarify submit / gate approval; infinite re-render loop (setCursor); duplicate toast keys",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8454,19 +8482,19 @@
       "backend": 74,
       "docs": 2,
       "evals": 9,
-      "frontend": 159,
+      "frontend": 160,
       "harness": 2,
       "infra": 1,
       "product": 29,
       "resume": 40,
       "runtime": 31,
-      "sse": 125,
+      "sse": 126,
       "test-infra": 4,
-      "workflow": 182
+      "workflow": 183
     },
     "status": {
       "accepted": 1,
-      "done": 534,
+      "done": 535,
       "open": 20,
       "shipped": 1
     },
@@ -8474,7 +8502,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 200,
+      "fix": 201,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8493,5 +8521,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-06 19:47"
+  "generated": "2026-08-07 16:29"
 }

@@ -507,12 +507,16 @@ export function DashboardLayout({
           // than the shared workflowType state variable, which may still hold a
           // previous run's value when the completion batches with the sync effect.
           const n = notifications.find((x) => x.id === notifId);
-          setToasts(prev => [...prev, {
-            id: notifId + "-toast",
-            workflowType: n?.workflowType ?? workflowType,
-            title: n?.title ?? "",
-            status: "completed",
-          }]);
+          setToasts(prev => {
+            // Dedup: if a toast with this id already exists, don't add again.
+            if (prev.some(t => t.id === notifId + "-toast")) return prev;
+            return [...prev, {
+              id: notifId + "-toast",
+              workflowType: n?.workflowType ?? workflowType,
+              title: n?.title ?? "",
+              status: "completed",
+            }];
+          });
         }
       }
 
@@ -564,11 +568,17 @@ export function DashboardLayout({
   // BEFORE the run id is known. Once pipelineState.pipelineRunId arrives (via the
   // pipeline_start frame), stamp it onto the notification so onViewResults can
   // resolve the exact run without falling back to a type-based stale search.
+  // FIX-201 (KAN-168): also look up the notification by id match to avoid stamping
+  // the wrong run id when currentPipelineNotifId has been shifted by a badge switch.
+  // If currentPipelineNotifId points to a notification that already has a DIFFERENT
+  // workflowRunId (a previous run's stamp), skip it — it belongs to another run.
   useEffect(() => {
     const runId = pipelineState?.pipelineRunId;
     if (!runId || !currentPipelineNotifId.current) return;
     const notif = notifications.find(n => n.id === currentPipelineNotifId.current);
-    // Only stamp if not already populated (reactive-launch paths set it above)
+    // Only stamp if not already populated, AND the notification doesn't already
+    // belong to a different run (prevents cross-run workflowRunId contamination
+    // when currentPipelineNotifId was updated by a badge switch to a different run).
     if (notif && !notif.workflowRunId) {
       setNotifWorkflowRunId(currentPipelineNotifId.current, runId);
     }
@@ -816,10 +826,19 @@ export function DashboardLayout({
   }, [userStoryContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle incoming questionnaire data from WebSocket
+  // FIX-201 (KAN-168): also clear questionnaireQuestions when questionnaireData
+  // becomes null (run switch, questionnaire_complete, run terminal). Without this,
+  // stale questions from a previous run persist in questionnaireQuestions even
+  // after questionnaireData is cleared, causing the Steps panel to show the wrong
+  // clarify form when switching between concurrent runs.
   useEffect(() => {
     if (questionnaireData && questionnaireData.questions) {
       setQuestionnaireQuestions(questionnaireData.questions);
       setQuestionnaireLoading(false);
+    } else if (!questionnaireData) {
+      // questionnaireData was cleared — clear the questions so the Steps panel
+      // does not show stale questions from a previous run.
+      setQuestionnaireQuestions([]);
     }
   }, [questionnaireData]);
 
@@ -1869,7 +1888,16 @@ export function DashboardLayout({
         activePipelineRunId={pipelineState?.pipelineRunId ?? null}
         onGoToPipeline={() => setMainView("execution")}
         recentRuns={recentRuns}
-        onSwitchToLiveRun={onSwitchToLiveRun}
+        onSwitchToLiveRun={(runId) => {
+          // FIX-201 (KAN-168): sync currentPipelineNotifId and currentPipelineNotifRunId
+          // when switching via the header badge dropdown. Mirrors the onViewResults fix.
+          const targetNotif = notifications.find(nn => nn.id === `pipeline-${runId}` || nn.workflowRunId === runId);
+          if (targetNotif) {
+            currentPipelineNotifId.current = targetNotif.id;
+            currentPipelineNotifRunId.current = runId;
+          }
+          onSwitchToLiveRun?.(runId);
+        }}
         onSelectWorkflowRun={(run) => {
           onSelectWorkflowRun?.(run);
           setMainView("execution");
@@ -1898,10 +1926,31 @@ export function DashboardLayout({
                   (n.workflowType === "prototype" && (r.type === "od_prototype" || r.type === "prototype"))),
             )?.id;
             if (targetRunId && onSwitchToLiveRun) {
+              // FIX-201 (KAN-168): sync currentPipelineNotifId and currentPipelineNotifRunId
+              // to the notification for the target run. Without this, Fix-C
+              // (setNotifWorkflowRunId effect) stamps the pipelineRunId from the durable
+              // replay onto the WRONG notification (the old run's), and the title-stamp
+              // effect also operates on the wrong notif after a badge switch.
+              // Find the notification entry for this run and point the tracking refs at it.
+              const targetNotif = notifications.find(nn => nn.id === `pipeline-${targetRunId}` || nn.workflowRunId === targetRunId);
+              if (targetNotif) {
+                currentPipelineNotifId.current = targetNotif.id;
+                currentPipelineNotifRunId.current = targetRunId;
+              }
               onSwitchToLiveRun(targetRunId);
             }
             setMainView("execution");
           } else if (n.status === "completed") {
+            // FIX-201 (KAN-168): switch the store viewport to the completed run
+            // so the history detail shows correctly. Without this, "View results"
+            // on a completion notification navigated to the execution view but the
+            // store still projected whichever run was last active.
+            if (n.workflowRunId) {
+              const completedRun = recentRuns?.find(r => r.id === n.workflowRunId);
+              if (completedRun) {
+                onSelectWorkflowRun?.(completedRun);
+              }
+            }
             setMainView("execution");
           } else {
             setMainView("history");

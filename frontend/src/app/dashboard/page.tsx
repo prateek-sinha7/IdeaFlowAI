@@ -29,6 +29,8 @@ import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents
 // KAN-116 (title markers in submittedBrief): use the SAME single-source parser
 // DashboardLayout already uses for notification titles (INV-12 — no dual impl).
 import { parseRunInput } from "@/lib/runInput";
+import { useRunStateStore } from "@/hooks/useRunStateStore";
+import type { PerRunState } from "@/hooks/useRunStateStore";
 
 /**
  * Map the SSE connection phase (RunConnectionPhase) onto the ConnectionStatus
@@ -198,6 +200,84 @@ export default function DashboardPage() {
     } catch { /* non-fatal */ }
   };
 
+  // ─── Per-run state store (FIX-201 / KAN-168 concurrent-run isolation) ────────
+  // Root cause of all cross-contamination: questionnaireData and reviewGateData
+  // are SINGLE React state values shared by all concurrent runs. Every new
+  // questionnaire_ready from any run overwrites them. Guards patch timing holes
+  // but cannot eliminate all races across async operations.
+  //
+  // Solution: maintain a per-run state Map (not React state — a ref, so mutations
+  // don't trigger renders). When a questionnaire_ready / review_gate_ready /
+  // questionnaire_complete arrives for run X:
+  //   • Always update the map[X] entry
+  //   • Only project to React state when X === trackedRunIdRef.current (viewed run)
+  //
+  // On handleSwitchToLiveRun(newRunId): load map[newRunId] into React state
+  // synchronously — no async gap, no race.
+  //
+  // This is the viewport pattern: each run has its own state; the viewport
+  // (trackedRunIdRef) decides which run's state the UI sees.
+  interface PerRunViewState {
+    questionnaireData: {
+      questions: {
+        id: string; question: string; options: string[]; answerType?: string;
+        recommendedAnswer?: string; recommendedReasoning?: string;
+        recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
+      }[]
+    } | null;
+    reviewGateData: {
+      gateKey: string; agentId: string; agentName: string; output: string;
+      pipelineRunId: string; redoable?: boolean; updateSpecsEligible?: boolean;
+      artifactKind?: string;
+    } | null;
+    activePipelineRunId: string | null;
+  }
+  const runStateMapRef = useRef<Map<string, PerRunViewState>>(new Map());
+
+  /** Get or create the per-run state entry for a run id. */
+  const getRunViewState = (runId: string): PerRunViewState => {
+    if (!runStateMapRef.current.has(runId)) {
+      runStateMapRef.current.set(runId, { questionnaireData: null, reviewGateData: null, activePipelineRunId: null });
+    }
+    return runStateMapRef.current.get(runId)!;
+  };
+
+  /** Update the per-run state map and optionally project to React state.
+   *  Call with project=true only when runId === trackedRunIdRef.current. */
+  const updateRunQuestionnaire = (
+    runId: string,
+    data: PerRunViewState["questionnaireData"],
+  ) => {
+    const entry = getRunViewState(runId);
+    entry.questionnaireData = data;
+    // Project to React state only when this is the currently viewed run
+    if (runId === trackedRunIdRef.current || trackedRunIdRef.current === null) {
+      setQuestionnaireData(data);
+      if (data !== null && runId) setActivePipelineRunId(runId);
+    }
+  };
+
+  const updateRunReviewGate = (
+    runId: string,
+    data: PerRunViewState["reviewGateData"],
+  ) => {
+    const entry = getRunViewState(runId);
+    entry.reviewGateData = data;
+    if (runId === trackedRunIdRef.current || trackedRunIdRef.current === null) {
+      setReviewGateData(data);
+    }
+  };
+
+  /** Load a run's persisted state into React state (called on run switch). */
+  const projectRunStateToUI = (runId: string) => {
+    const entry = runStateMapRef.current.get(runId);
+    setQuestionnaireData(entry?.questionnaireData ?? null);
+    setReviewGateData(entry?.reviewGateData ?? null);
+    if (entry?.activePipelineRunId) {
+      setActivePipelineRunId(entry.activePipelineRunId);
+    }
+  };
+
   // KAN-125 FIX — track the MOST-RECENTLY-LAUNCHED run id to gate the pipelineState
   // reducer. Unlike trackedRunIdRef (which gets overwritten by contentSourceRunId
   // from completed runs), this ref is ONLY updated when a new run is launched
@@ -211,6 +291,12 @@ export default function DashboardPage() {
   // preventing a slow-responding first-launched run's .then() from overwriting
   // the second-launched run's ID (HTTP responses can arrive out of click order).
   const launchCounterRef = useRef<number>(0);
+  // FIX-201 (KAN-168): launch-window sentinel. Set to true in onStartPipeline
+  // !isRevision block, cleared in the POST .then(). While true, all pipeline-scoped
+  // frames from runs other than the one being launched are blocked from reaching
+  // pipelineState — prevents PPT/prototype agent frames from contaminating the
+  // next User Stories pipelineState during the async POST gap.
+  const launchPendingRef = useRef<boolean>(false);
   // BUG-015 — the provider's detachRun, reached through a ref so the empty-deps
   // handleWebSocketMessage (a useCallback([])) can release a completed run's focus
   // WITHOUT closing over `runConnection` (declared later, which would break the
@@ -630,12 +716,35 @@ export default function DashboardPage() {
             launchedRunIdsRef.current.size === 0 ||
             // Same-tab concurrent: if we're tracking a specific run, a different run's
             // pipeline_start must not reset the tracked run's clarify/seen-set.
-            (!!trackedRunIdRef.current && incomingRunId !== trackedRunIdRef.current)
+            (!!trackedRunIdRef.current && incomingRunId !== trackedRunIdRef.current) ||
+            // FIX-201 (KAN-168): launch window — launchPendingRef=true means a new run
+            // was started but its id is not yet known. Any pipeline_start for a run
+            // already in launchedRunIdsRef (a PREVIOUS run's concurrent SSE) is foreign.
+            // Only pipeline_start for the NEW run (not yet in the set) should reset.
+            // We can't know the new run's id yet, so block ALL pipeline_starts for
+            // known-launched runs during the pending window.
+            (launchPendingRef.current && launchedRunIdsRef.current.has(incomingRunId))
           );
         if (isForeignRun) {
           // Foreign concurrent run — forward the frame to the reducer (below) but
           // do NOT reset THIS tab's clarify / seen-set / review-gate.
         } else {
+          // FIX-201 (KAN-168): when launchPendingRef=true, this pipeline_start is
+          // for the new run being launched (not yet in launchedRunIdsRef). Register
+          // it immediately so the isForeignFrame check below passes for subsequent
+          // frames (agent_start, agent_chunk, etc.) that arrive before .then() adds
+          // the run to launchedRunIdsRef. Without this, all frames during the POST
+          // window are treated as foreign and dropped from the store.
+          // Also switch the store viewport to this run immediately so frames project.
+          if (launchPendingRef.current && incomingRunId && !launchedRunIdsRef.current.has(incomingRunId)) {
+            launchedRunIdsRef.current.add(incomingRunId);
+            persistLaunchedIds();
+            // Point all tracking refs at the new run immediately — same as .then()
+            trackedRunIdRef.current = incomingRunId;
+            activelyBuildingRunIdRef.current = incomingRunId;
+            // Switch the store viewport so frames project to the UI immediately.
+            runStoreSwitchViewToRef.current(incomingRunId);
+          }
           resetReplayState({
             seen: seenEventIdsRef.current,
             setLastSeq: (n) => {
@@ -735,30 +844,41 @@ export default function DashboardPage() {
       // trackedRunIdRef (which gets re-pointed by contentSourceRunId of completed
       // runs). Using trackedRunIdRef here would cause a completing concurrent run
       // to re-point the gate and block the still-building run's live progress.
+      // FIX-201 (KAN-168): also block during launchPendingRef window (between
+      // onStartPipeline click and POST .then() registering the new run id).
+      // During this window, activelyBuildingRunIdRef still points to the PREVIOUS
+      // run, so its live SSE frames would pass isForActiveRun and contaminate the
+      // new run's pipelineState. launchPendingRef=true blocks all run-scoped frames
+      // until the new run id is known.
       const isForActiveRun =
         !frameRunId || // no run id on frame → infra event (Concierge /messages), always pass through
-        !activelyBuildingRunIdRef.current || // no run launched yet → first launch, pass through
-        frameRunId === activelyBuildingRunIdRef.current; // frame is for the actively-building run
+        // During launch window: block frames ONLY for runs we don't know yet.
+        // Once a run is registered (via pipeline_start early-registration or .then()),
+        // its frames must flow through even if launchPendingRef is still true.
+        // The old "block all frames during launchPendingRef" caused agent_start/agent_chunk
+        // frames for already-registered runs to be dropped from useWorkflow.pipelineState.
+        (
+          !activelyBuildingRunIdRef.current || // no run launched yet → first launch, pass through
+          frameRunId === activelyBuildingRunIdRef.current // frame is for the actively-building run
+        );
+
+      // FIX-201 (KAN-168): route ALL tab-local pipeline frames to the per-run store.
+      // runStore.handleFrame stores pipeline state per run and projects to the UI
+      // only for the viewed run — no cross-contamination between concurrent runs.
+      // This runs BEFORE the isForActiveRun check so background runs accumulate
+      // their state correctly while the user watches a different run.
+      if (!isForeignFrame && frameRunId) {
+        runStoreHandleFrameRef.current(frameRunId, msg as unknown as { type: string; [key: string]: unknown });
+      }
 
       if (!isForeignFrame && isForActiveRun) {
-        // KAN-101 — detect a spec revision cycle: an agent_start for an agent
-        // that was previously "done" means the update_specs sub-pipeline fired.
-        // This is a generic signal (keyed on status, not on agent/workflow name —
-        // SC-001/INV-1). FIX-039's reset still fires in handlePipelineMsgRef
-        // AFTER this check, which is why we check pipelineAgentsRef.current here
-        // (captures the pre-reset status). Also guard on !isForeignFrame so a
-        // concurrent run's re-runs don't falsely increment the counter.
-        // revisionCycleArmedRef ensures we increment ONCE per cycle, not once
-        // per agent — the arm is set when all agents settle to "done", then
-        // consumed on the first re-starting agent (FIX-164 over-count fix).
+        // KAN-101 — detect a spec revision cycle
         if (msg.type === "agent_start") {
           const agentId = (msg.data as Record<string, unknown> | undefined)?.agent_id as string | undefined
             ?? (msg as unknown as Record<string, unknown>).agent_id as string | undefined;
           if (agentId && revisionCycleArmedRef.current) {
             const prevAgent = pipelineAgentsRef.current.find((a) => a.id === agentId);
             if (prevAgent && prevAgent.status === "done") {
-              // Consume the arm so subsequent agent re-starts in this cycle don't
-              // each increment the counter again.
               revisionCycleArmedRef.current = false;
               setSpecRevisionCountRef.current((c) => c + 1);
             }
@@ -1210,7 +1330,16 @@ export default function DashboardPage() {
 
       case "questionnaire": {
         if (msg.data && "questions" in msg.data) {
-          setQuestionnaireData(msg.data as { questions: { id: string; question: string; options: string[] }[] });
+          // Per-run map (FIX-201 / KAN-168): store questionnaire by run id, project only when viewed.
+          const qSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
+            ?? frameRunId;
+          const qData = msg.data as { questions: { id: string; question: string; options: string[] }[] };
+          if (qSrcRunId) {
+            getRunViewState(qSrcRunId).questionnaireData = qData;
+            if (qSrcRunId === trackedRunIdRef.current) setQuestionnaireData(qData);
+          } else if (!trackedRunIdRef.current) {
+            setQuestionnaireData(qData);
+          }
         }
         break;
       }
@@ -1220,33 +1349,18 @@ export default function DashboardPage() {
           const data = msg.data as {
             pipeline_run_id?: string;
             questions: Array<{
-              question_id: string;
-              question_text: string;
-              options?: string[] | null;
-              answer_type?: string;
-              recommended_answer?: string;
-              recommended_reasoning?: string;
-              recommended_display?: string;
-              ambiguity_category?: string;
-              impact_level?: string;
+              question_id: string; question_text: string; options?: string[] | null;
+              answer_type?: string; recommended_answer?: string; recommended_reasoning?: string;
+              recommended_display?: string; ambiguity_category?: string; impact_level?: string;
             }>;
           };
-          // KAN-146: only accept this questionnaire for the run the user is CURRENTLY VIEWING.
-          // Uses trackedRunIdRef (the viewed run) — same reasoning as isForeignGate:
-          // for 3+ concurrent runs, activelyBuildingRunIdRef only holds the latest-launched
-          // run, which may differ from the run the user has switched to via the header
-          // notification dropdown. trackedRunIdRef follows all run-switch paths.
-          const qRunId = data.pipeline_run_id;
-          const isForeignQuestionnaire =
-            !!qRunId &&
-            !!trackedRunIdRef.current &&
-            qRunId !== trackedRunIdRef.current;
-          if (isForeignQuestionnaire) break;
+          // Resolve which run this questionnaire belongs to (priority order).
+          const qRunId = data.pipeline_run_id
+            ?? (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
+            ?? frameRunId;
 
           const mapped = (data.questions || []).map((q) => ({
-            id: q.question_id,
-            question: q.question_text,
-            options: q.options || [],
+            id: q.question_id, question: q.question_text, options: q.options || [],
             answerType: q.answer_type || "single_choice",
             recommendedAnswer: q.recommended_answer || "",
             recommendedReasoning: q.recommended_reasoning || "",
@@ -1254,52 +1368,86 @@ export default function DashboardPage() {
             ambiguityCategory: q.ambiguity_category || "",
             impactLevel: q.impact_level || "medium",
           }));
-          setQuestionnaireData({ questions: mapped });
-          if (data.pipeline_run_id) {
-            setActivePipelineRunId(data.pipeline_run_id);
+
+          if (qRunId) {
+            // Store for this run; runStore.update projects to UI only if viewed.
+            runStore.update(qRunId, {
+              questionnaireData: { questions: mapped },
+              activePipelineRunId: qRunId,
+            });
+            // Also keep the legacy React state in sync for the viewed run
+            // (DashboardLayout reads questionnaireData and activePipelineRunId as props).
+            if (qRunId === trackedRunIdRef.current) {
+              setQuestionnaireData({ questions: mapped });
+              setActivePipelineRunId(qRunId);
+            }
+            // Refresh recentRuns so the header badge shows the correct "WAITING FOR YOU"
+            // status instead of the stale "planning"/"clarifying" status snapshot.
+            // When questionnaire_ready fires, the backend has already transitioned the
+            // run to waiting_for_user — recentRuns needs to reflect this for the badge.
+            const refreshToken = getToken();
+            if (refreshToken) {
+              getWorkflows(refreshToken, { limit: 50 })
+                .then(({ runs }) => setRecentRuns(runs))
+                .catch(() => { /* non-fatal — badge will show stale status */ });
+            }
+          } else if (!trackedRunIdRef.current) {
+            setQuestionnaireData({ questions: mapped });
+            if (data.pipeline_run_id) setActivePipelineRunId(data.pipeline_run_id);
           }
         }
         break;
       }
 
       case "questionnaire_complete": {
-        // Clarify gate resolved — clear the pending questionnaire UI.
-        setQuestionnaireData(null);
+        // Per-run store: clear this run's questionnaire.
+        const qcSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
+          ?? frameRunId;
+        if (qcSrcRunId) {
+          runStore.update(qcSrcRunId, { questionnaireData: null });
+          if (qcSrcRunId === trackedRunIdRef.current) setQuestionnaireData(null);
+        } else {
+          setQuestionnaireData(null);
+        }
+        // Refresh recentRuns so the badge reflects the resumed status.
+        const qcToken = getToken();
+        if (qcToken) {
+          getWorkflows(qcToken, { limit: 50 })
+            .then(({ runs }) => setRecentRuns(runs))
+            .catch(() => { /* non-fatal */ });
+        }
         break;
       }
 
       case "review_gate_ready": {
-        // Agent completed and declared Human_Gate — pause for user review.
+        // Per-run store: store gate data, project only when viewed.
         if (msg.data) {
           const data = msg.data as unknown as ReviewGateReadyData;
-          // KAN-146: only accept this gate for the run the user is CURRENTLY VIEWING.
-          // Uses trackedRunIdRef (the viewed run) not activelyBuildingRunIdRef (the
-          // latest-launched run). When 3+ workflows run concurrently and the user
-          // switches to workflow B via the header dropdown, activelyBuildingRunIdRef
-          // still holds run C (last launched), but trackedRunIdRef correctly holds
-          // run B. Using activelyBuildingRunIdRef would silently drop B's gate even
-          // though the user is watching B. trackedRunIdRef is updated by every
-          // run-switch path (launch, handleSwitchToLiveRun, handleSelectWorkflowRun)
-          // so it always reflects the correct currently-viewed run.
-          const isForeignGate =
-            !!data.pipeline_run_id &&
-            !!trackedRunIdRef.current &&
-            data.pipeline_run_id !== trackedRunIdRef.current;
-          if (isForeignGate) break;
+          const gateRunId = data.pipeline_run_id
+            ?? (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
+            ?? frameRunId;
 
-          setReviewGateData({
-            gateKey: data.gate_key,
-            agentId: data.agent_id,
-            agentName: data.agent_name,
-            output: data.output,
-            pipelineRunId: data.pipeline_run_id,
-            // REDO-GATE (F-fe3): capture the generic server flag (default false).
+          const gateData = {
+            gateKey: data.gate_key, agentId: data.agent_id, agentName: data.agent_name,
+            output: data.output, pipelineRunId: data.pipeline_run_id,
             redoable: data.redoable ?? false,
-            // SC-001 (plan 04): defensively parse the name-free eligibility flag
-            // + artifact kind (undefined/false when the backend omits them).
             updateSpecsEligible: data.update_specs_eligible ?? false,
             artifactKind: data.artifact_kind,
-          });
+          };
+
+          if (gateRunId) {
+            runStore.update(gateRunId, { reviewGateData: gateData });
+            if (gateRunId === trackedRunIdRef.current) setReviewGateData(gateData);
+          } else {
+            setReviewGateData(gateData);
+          }
+          // Refresh recentRuns so the badge shows "WAITING FOR YOU" when gate fires.
+          const gateToken = getToken();
+          if (gateToken) {
+            getWorkflows(gateToken, { limit: 50 })
+              .then(({ runs }) => setRecentRuns(runs))
+              .catch(() => { /* non-fatal */ });
+          }
         }
         break;
       }
@@ -1313,16 +1461,29 @@ export default function DashboardPage() {
           pendingGateEditRef.current = null;
           retainAgentEdit(agentId, editedContent);
         }
+        // Clear in the store too
+        const approvedSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? frameRunId;
+        if (approvedSrcRunId) {
+          runStore.update(approvedSrcRunId, { reviewGateData: null });
+        }
         setReviewGateData(null);
+        // Refresh recentRuns so badge shows resumed status after gate approval.
+        const approveToken = getToken();
+        if (approveToken) {
+          getWorkflows(approveToken, { limit: 50 })
+            .then(({ runs }) => setRecentRuns(runs))
+            .catch(() => { /* non-fatal */ });
+        }
         break;
       }
 
       case "pipeline_cancelled":
       case "pipeline_failed": {
-        // KAN-100: pipeline stopped or failed — clear the review gate panel so the
-        // user is not left with live Approve/Reject/Redo buttons on a dead pipeline.
-        // reviewGateData is not cleared by useWorkflow (which only sets isRunning=false)
-        // or by onResetPipeline(), so this is the canonical place to clear it.
+        // Per-run store: clear this run's gate/questionnaire state.
+        const termSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? frameRunId;
+        if (termSrcRunId) {
+          runStore.update(termSrcRunId, { reviewGateData: null, questionnaireData: null });
+        }
         setReviewGateData(null);
         // KAN-115: also clear stale questionnaire state — if the pipeline was
         // cancelled/failed while the clarify gate was open, questionnaire_complete
@@ -1403,6 +1564,31 @@ export default function DashboardPage() {
   // (previously dropped). Reopen/history use fullRun.input / selectedRun.input.
   const [submittedBrief, setSubmittedBrief] = useState<string>("");
 
+  // ─── Per-run state store (FIX-201 / KAN-168 — concurrent run isolation) ──────
+  // The store holds a PerRunState entry per run id. SSE handlers write to
+  // store.update(sourceRunId, ...) — background runs store silently, the viewed
+  // run also triggers React re-renders. store.switchViewTo(runId) atomically
+  // projects the new run's state to the UI — no async gap, no race.
+  const runStore = useRunStateStore();
+  // Convenience: the viewed run's state (what the UI actually renders).
+  // Non-contamination-prone fields (pipelineState, waveGroups) still go through
+  // the existing useWorkflow / waveGroups path which is already gated by
+  // isForeignFrame + isForActiveRun guards. The store covers the fields that were
+  // not properly guarded: questionnaireData, reviewGateData, content, submittedBrief.
+  const viewedRun = runStore.viewed;
+
+  // FIX-201: stable ref to runStore.handleFrame so the zero-deps handleWebSocketMessage
+  // useCallback can call it without closing over a stale runStore object.
+  const runStoreHandleFrameRef = useRef(runStore.handleFrame);
+  useEffect(() => {
+    runStoreHandleFrameRef.current = runStore.handleFrame;
+  }, [runStore.handleFrame]);
+
+  const runStoreSwitchViewToRef = useRef(runStore.switchViewTo);
+  useEffect(() => {
+    runStoreSwitchViewToRef.current = runStore.switchViewTo;
+  }, [runStore.switchViewTo]);
+
   // Keep pipeline handler ref in sync
   useEffect(() => {
     handlePipelineMsgRef.current = handlePipelineMsg;
@@ -1413,21 +1599,16 @@ export default function DashboardPage() {
   // agents and increment the counter without closing over stale state.
   const pipelineAgentsRef = useRef<import("@/types/index").AgentRunState[]>([]);
   useEffect(() => {
-    pipelineAgentsRef.current = pipelineState.agents;
-    // KAN-101 cycle-arm: when ALL agents are "done" and the pipeline is still running,
-    // the revision sub-pipeline has settled — arm the ref so the NEXT agent_start
-    // for a "done" agent triggers exactly ONE counter increment (not one per agent).
-    // This prevents the "Cycle 6" bug where each of the 3 sub-pipeline agents
-    // incremented the counter individually on every re-start.
-    const agents = pipelineState.agents;
+    pipelineAgentsRef.current = runStore.viewed.pipelineState.agents;
+    const agents = runStore.viewed.pipelineState.agents;
     if (
-      pipelineState.isRunning &&
+      runStore.viewed.pipelineState.isRunning &&
       agents.length > 0 &&
       agents.every((a) => a.status === "done")
     ) {
       revisionCycleArmedRef.current = true;
     }
-  }, [pipelineState.agents, pipelineState.isRunning]);
+  }, [runStore.viewed.pipelineState.agents, runStore.viewed.pipelineState.isRunning]);
   const setSpecRevisionCountRef = useRef(setSpecRevisionCount);
   // Armed = true once all agents are "done" mid-run (ready to detect next cycle).
   // Flips to false when the first re-starting agent is detected → increments once.
@@ -1443,6 +1624,25 @@ export default function DashboardPage() {
   useEffect(() => {
     trackedRunIdRef.current = activePipelineRunId ?? contentSourceRunId ?? trackedRunIdRef.current;
   }, [activePipelineRunId, contentSourceRunId]);
+
+  // FIX-201: sync useWorkflow.pipelineState → store for the currently-viewed run.
+  // This is the BRIDGE between useWorkflow (reliable React setState, always fires for
+  // agent frames) and the store (projection layer for the UI).
+  // ISOLATION: only sync when pipelineState.pipelineRunId EXACTLY matches:
+  //   1. runStore.viewedRunId — the run on screen
+  //   2. activelyBuildingRunIdRef — the run this tab is actively building
+  // If either doesn't match (different run's state leaked into useWorkflow, or
+  // user is watching a different run than is building), skip the sync.
+  useEffect(() => {
+    const runId = pipelineState.pipelineRunId;
+    if (!runId) return;
+    // Both guards: pipelineState must belong to exactly the run being viewed AND built
+    if (runId !== activelyBuildingRunIdRef.current) return;
+    if (runId !== runStore.viewedRunId) return;
+    // Push into store — project fires automatically since runId === viewedRunIdRef
+    runStore.updatePipelineState(runId, () => pipelineState);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineState]);
 
   // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
 
@@ -1465,11 +1665,27 @@ export default function DashboardPage() {
   }, [runSubscribe, handleWebSocketMessage]);
 
   // The chat transcript frame subscription — the SSE per-run fan-out.
+  // FIX-201 (KAN-168): filter frames by _sourceRunId so only frames from the
+  // currently-viewed run (trackedRunIdRef) reach useRunChat. Without this filter,
+  // chat_message/chat_reply frames from all concurrently-running SSE streams
+  // (e.g. 4 active pipelines) get mixed into the transcript after a badge switch.
+  // _sourceRunId is injected per-stream by RunConnectionProvider (onMessage prop).
+  // Frames with no _sourceRunId (infra events, Concierge /messages) always pass through.
   const chatSubscribe = useCallback(
     (fn: (f: RunChatFrame) => void) => {
-      return runConnection.subscribe((m) =>
-        fn({ type: m.type, data: (m.data as Record<string, unknown>) ?? {} }),
-      );
+      return runConnection.subscribe((m) => {
+        const srcRunId = (m as unknown as Record<string, unknown>)._sourceRunId as string | undefined;
+        // If the frame carries a source run id and it does NOT match the currently
+        // tracked/viewed run, discard it — it belongs to a different concurrent run.
+        // trackedRunIdRef follows every run-switch path (handleSwitchToLiveRun,
+        // handleSelectWorkflowRun, onStartPipeline), so it always holds the correct
+        // viewed run id. Frames without _sourceRunId (e.g. Concierge /messages reply
+        // streaming via sendCommand) are always allowed through.
+        if (srcRunId && trackedRunIdRef.current && srcRunId !== trackedRunIdRef.current) {
+          return;
+        }
+        fn({ type: m.type, data: (m.data as Record<string, unknown>) ?? {} });
+      });
     },
     [runConnection],
   );
@@ -1482,7 +1698,9 @@ export default function DashboardPage() {
     // set on history/recents reopen) so a Concierge/steering/revision turn on an
     // opened terminal run posts to POST /{id}/messages — NOT the null->/api/runs
     // launch branch (which 422'd pre-fix). A live pipeline still wins the precedence.
-    runId: pipelineState.pipelineRunId ?? activePipelineRunId ?? contentSourceRunId,
+    // FIX-201 (KAN-168): use store's viewed pipelineState.pipelineRunId so the
+    // chat hook targets the correct run after a badge switch.
+    runId: runStore.viewed.pipelineState.pipelineRunId ?? activePipelineRunId ?? contentSourceRunId,
     subscribe: chatSubscribe,
     // W1 (44-01): sendCommand resolves to the launched run_id (for
     // launch->attach); the chat up-channel ignores that value, so adapt it to the
@@ -1730,52 +1948,129 @@ export default function DashboardPage() {
   );
 
   // FIX-149 (Bug 2 — KAN-132): switch to a LIVE running run WITHOUT resetting
-  // pipeline state. This is used when the user clicks a running notification
-  // in the header dropdown — the run is live and must NOT call
+  // pipeline state externally. This is used when the user clicks a running
+  // badge/notification in the header — the run is live and must NOT call
   // handleSelectWorkflowRun which is a history-reopen that calls resetPipeline()
   // and wipes live Step traces / gate state / questionnaire state.
   //
-  // Only performs the minimal operations needed to switch which run is "viewed":
-  // - Attaches the SSE stream for that run (so live events still flow in).
-  // - Updates trackedRunIdRef so foreign-run guard allows the run's frames.
-  // - Updates activelyBuildingRunIdRef so the reducer gate routes frames.
-  // - Updates contentSourceRunId so DashboardLayout routes to it.
-  // - Updates contentSourceRunType so PreviewPanel uses the right renderer.
+  // Performs all operations needed to switch which run is "viewed":
+  // - Registers in launchedRunIdsRef so isForeignFrame guard accepts replay frames.
+  // - Updates trackedRunIdRef + activelyBuildingRunIdRef so pipeline reducer gates.
+  // - Updates activePipelineRunId so useRunChat.runId targets the run immediately.
+  // - Updates submittedBrief so Steps "Starting point" shows the correct brief.
+  // - Clears questionnaireData so the old run's clarify UI disappears immediately
+  //   (the durable replay pipeline_start will also clear it, but doing it here gives
+  //   instant feedback before the async fetch resolves).
+  // - Attaches the SSE stream for the run.
+  // - Updates contentSourceRunId / contentSourceRunType so DashboardLayout routes.
+  // - Replays all durable frames through handleWebSocketMessage (same as
+  //   handleSelectWorkflowRun at page.tsx:1947) so questionnaire_ready / agent_*
+  //   frames rebuild pipelineState and questionnaireData correctly (FIX-201).
+  //   Using seedRunChatTranscript alone was wrong — it only handles chat frames,
+  //   leaving questionnaire_ready and agent frames unprocessed.
+  // - Seeds the chat transcript separately from the replayed chat frames so the
+  //   left panel shows the correct conversation (FIX-201 / KAN-168).
   //
-  // Does NOT call resetPipeline(), getWorkflow() fetch, resetReplayState(),
-  // or clear pipeline state — the run is live and its state is correct.
+  // Does NOT call resetPipeline() or resetReplayState() externally — the durable
+  // replay's pipeline_start fires the correct in-handler reset. (FIX-149)
   const handleSwitchToLiveRun = useCallback(
-    (runId: string) => {
-      // Find the run's type from recentRuns so we know the correct renderer.
+    async (runId: string) => {
+      // Find the run's type and brief from recentRuns so we know the correct renderer.
       const run = recentRuns.find((r) => r.id === runId);
-      if (!run) {
-        // Not in recents yet — just attach and switch view without content-type.
-        // FIX-195 Fix-B — ISS-061: register in launchedRunIdsRef BEFORE attachRun so the
-        // isForeignFrame guard lets this run's durable replay frames through to pipelineState.
-        // Without this, the Steps panel keeps showing the previous run's agents/questionnaire
-        // (the same fix handleSelectWorkflowRun already applies at page.tsx:1869, FIX-133).
-        launchedRunIdsRef.current.add(runId);
-        persistLaunchedIds();
-        trackedRunIdRef.current = runId;
-        activelyBuildingRunIdRef.current = runId;
-        runConnection.attachRun(runId);
-        setContentSourceRunId(runId);
-        return;
-      }
-      // FIX-195 Fix-B — same registration for the "found in recents" branch.
+
+      // FIX-195 Fix-B — register in launchedRunIdsRef BEFORE attachRun so the
+      // isForeignFrame guard lets this run's durable replay frames through to pipelineState.
       launchedRunIdsRef.current.add(runId);
       persistLaunchedIds();
+
       // Point tracking refs at the selected run.
       trackedRunIdRef.current = runId;
       activelyBuildingRunIdRef.current = runId;
+
+      // FIX-201 (KAN-168): set activePipelineRunId synchronously so useRunChat.runId
+      // targets the newly-switched run immediately (beats the stale pipelineState.pipelineRunId).
+      setActivePipelineRunId(runId);
+
+      // FIX-201 (KAN-168): update submittedBrief to the new run's brief so the
+      // Steps panel "Starting point" card shows the correct brief immediately.
+      // Mirrors handleSelectWorkflowRun at page.tsx:1884.
+      if (run?.input) {
+        const _switchParsed = parseRunInput(run.input);
+        const _switchBrief = (_switchParsed.revisionInstruction ?? _switchParsed.brief ?? "").split("\n")[0].trim();
+        setSubmittedBrief(_switchBrief || run.title || "");
+      } else if (run?.title) {
+        setSubmittedBrief(run.title);
+      }
+
+      // FIX-201 (KAN-168): switch the store viewport to the new run so it projects
+      // the correct pipelineState (agents, waveGroups) to the UI immediately.
+      // This is the key call that isolates concurrent run state.
+      runStore.switchViewTo(runId);
+      // The DashboardLayout now reads questionnaireData/reviewGateData from
+      // runStore.viewed directly (not legacy React state), so no separate
+      // setQuestionnaireData/setReviewGateData calls needed here.
+
       // Make the selected run the sticky SSE focus.
       runConnection.attachRun(runId);
+
       // Update the content-source so DashboardLayout and PreviewPanel use the
       // correct renderer (effectiveReviseType derives from contentSourceRunType).
       setContentSourceRunId(runId);
-      setContentSourceRunType(run.type ?? null);
+      if (run) setContentSourceRunType(run.type ?? null);
+
+      // FIX-201 (KAN-168): fetch durable events and replay them through
+      // handleWebSocketMessage — the same path handleSelectWorkflowRun uses
+      // at page.tsx:1947. This is critical: seedRunChatTranscript alone only
+      // handles chat frames (chat_message/chat_reply), leaving questionnaire_ready,
+      // pipeline_start, and agent_* frames unprocessed. Without this, the Steps
+      // panel shows "Run complete" (stale pipelineState) and no clarify questions
+      // appear. With this replay, pipeline_start resets the reducer, questionnaire_ready
+      // restores the clarify gate, and agent frames rebuild the agent list.
+      const switchToken = getToken();
+      if (switchToken) {
+        try {
+          const durableFrames = await getRunEvents(switchToken, runId);
+          // Replay each frame through the full page router so questionnaire_ready,
+          // pipeline_start, and agent_* update pipelineState and the per-run map.
+          for (const frame of durableFrames) {
+            handleWebSocketMessage(
+              {
+                type: frame.type,
+                data: frame.data,
+              } as unknown as StreamMessage,
+              runId,
+            );
+          }
+          // FIX-201: after durable replay, directly replay all pipeline frames
+          // through the store (bypassing seenEventIdsRef dedup) so the store
+          // gets the LATEST agent state. The durable replay via handleWebSocketMessage
+          // above may have dropped agent_start/complete frames (already in
+          // seenEventIdsRef from live SSE). The final switchViewTo below projects
+          // the correct current state.
+          // Skip pipeline_start in this pass if the store already has running agents
+          // (live SSE already set them — pipeline_start would reset to idle).
+          const existingEntry = runStore.get(runId);
+          const hasLiveAgents = existingEntry?.pipelineState?.agents?.some(
+            (a) => a.status !== "idle"
+          ) ?? false;
+          for (const frame of durableFrames) {
+            if (frame.type === "pipeline_start" && hasLiveAgents) continue;
+            runStoreHandleFrameRef.current(runId, { type: frame.type, ...(frame.data as Record<string, unknown> || {}) });
+          }
+          // Seed the chat transcript from the same frames so the left panel shows
+          // the correct conversation (chat_message/chat_reply frames only).
+          // seedRunChatTranscript resets the seen-set + messages then folds frames.
+          seedRunChatTranscript(durableFrames, false);
+          // After replay, the per-run store has the correct state. Project it to UI
+          // (the store already projected during replay via runStore.update calls,
+          // but we call switchViewTo again to ensure a clean final projection).
+          runStore.switchViewTo(runId);
+        } catch {
+          // Non-fatal: pipelineState and transcript will populate via live SSE frames.
+        }
+      }
     },
-    [recentRuns, runConnection],
+    [recentRuns, runConnection, seedRunChatTranscript, handleWebSocketMessage],
   );
 
   // FIX-170: called by DashboardLayout's postRevision path when the REST revision
@@ -1802,6 +2097,23 @@ export default function DashboardPage() {
   // Handle selecting a workflow run from sidebar/hub
   const handleSelectWorkflowRun = useCallback(
     async (run: WorkflowRun) => {
+      // FIX-201 (KAN-168): switch the store viewport to the selected run IMMEDIATELY
+      // (synchronous, before any async work). This eliminates the 1-second flash
+      // where the previous live run's agents were visible during the async gap
+      // between click and durable replay completion. getOrCreate creates an empty
+      // initial entry if the run hasn't been seen before — the empty state
+      // (no agents, no questions) is better than showing a different run's data.
+      runStoreSwitchViewToRef.current(run.id);
+
+      // FIX-201 (KAN-168): set activelyBuildingRunIdRef SYNCHRONOUSLY so that
+      // displayedPipelineState selects useWorkflow.pipelineState for this run
+      // (condition: pipelineState.pipelineRunId === runStore.viewedRunId).
+      // Without this, another run's live SSE frames could update useWorkflow's
+      // pipelineState before the durable replay sets it, causing the condition
+      // to fail and falling back to an empty store entry.
+      activelyBuildingRunIdRef.current = run.id;
+      trackedRunIdRef.current = run.id;
+
       // Clear existing content
       setUserStoryContent("");
       setPptContent("");
@@ -1849,6 +2161,12 @@ export default function DashboardPage() {
         // the live launched run: re-seeding the launched run would replay-from-0
         // over live progress and wipe gate/questionnaire state (page.tsx pipeline_start
         // reset side effects). The same fetched frames feed Piece 3's transcript seed.
+        // FIX-201 (KAN-168): always replay for store population. The old condition
+        // skipped replay when fullRun.id === runStore.viewed.pipelineState.pipelineRunId
+        // (same run was previously opened). This left the store with stale state from
+        // the previous visit instead of fresh durable events. Use pipelineState
+        // (useWorkflow's actively-building run) as the comparison to skip only when
+        // this is TRULY the current live build (not just a cached store entry).
         if (fullRun.id !== pipelineState.pipelineRunId) {
           // Wire the VIEWED run's brief into the Steps surface (runInput=submittedBrief
           // via DashboardLayout) so AgentThinkingTab's hasAnyData gate + header reflect
@@ -2003,6 +2321,11 @@ export default function DashboardPage() {
             // Pass isTerminalRun=true for completed/failed/cancelled/degraded runs so
             // gate chat_reply cards are auto-resolved (no pending review box).
             seedRunChatTranscript(familyChatFrames, REOPEN_TERMINAL_STATUSES.has(fullRun.status));
+            // FIX-201 (KAN-168): switch the store viewport to the reopened run so
+            // its pipelineState (agents, progress) renders correctly. Without this,
+            // the store still projects whichever live run was previously viewed —
+            // Jump Back In / Run History selections always showed the live run's agents.
+            runStoreSwitchViewToRef.current(fullRun.id);
           } catch (seedErr) {
             // Log-and-continue: a seed fetch failure must not break the reopen
             // content path already set above.
@@ -2083,7 +2406,7 @@ export default function DashboardPage() {
     // resetPipeline/setWaveGroups/handleWebSocketMessage/setSubmittedBrief, so
     // they MUST be deps (refs seenEventIdsRef/lastSeqRef are stable, omitted).
     // BUG-013: handleSelectWorkflowRun now calls runConnection.attachRun on reopen.
-    [pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection]
+    [runStore.viewed.pipelineState.pipelineRunId, resetPipeline, setWaveGroups, handleWebSocketMessage, setSubmittedBrief, seedRunChatTranscript, runConnection]
   );
 
   // Handle new chat creation from sidebar
@@ -2142,6 +2465,13 @@ export default function DashboardPage() {
     return null;
   }
 
+  // FIX-201 (KAN-168): use runStore.viewed.pipelineState as the single source of truth.
+  // The store's handleFrame always populates map[runId].pipelineState correctly for
+  // every SSE frame. switchViewTo(runId) projects the correct run's state to the UI.
+  // For live progress: pipeline_start early-registration calls switchViewTo immediately
+  // so all subsequent agent frames project to the viewed state in real-time.
+  const displayedPipelineState = runStore.viewed.pipelineState;
+
   return (
     <DashboardLayout
       activeChatId={activeChatId}
@@ -2161,7 +2491,12 @@ export default function DashboardPage() {
       messageMode={currentMode}
       chatTitleUpdate={chatTitleUpdate}
       processSteps={processSteps}
-      pipelineState={pipelineState}
+      // FIX-201 (KAN-168): use the correct pipelineState for the viewed run.
+      // - activelyBuildingRunIdRef = the run this tab is currently building/watching
+      // - pipelineState (useWorkflow) = updated by React setState, always correct for the active run
+      // - runStore.viewed.pipelineState = populated from durable replay for history/reopened runs
+      // Pick useWorkflow when the viewed run IS the active run; store when it's a history run.
+      pipelineState={displayedPipelineState}
       reopenedRunStatus={reopenedRunStatus}
       reopenedFailedAgents={reopenedFailedAgents}
       reopenedAgentNameById={reopenedAgentNameById}
@@ -2239,6 +2574,11 @@ export default function DashboardPage() {
           // they stream). Reuses the seedTranscript reset primitive with []; the
           // history-open seed at :1336 (durableFrames) is untouched.
           seedRunChatTranscript([]);
+          // FIX-201 (KAN-168): mark the launch window. While launchPendingRef=true,
+          // the isForActiveRun guard blocks all frames whose _sourceRunId does NOT
+          // match the previous tracked run (stale) OR the new run (not yet known).
+          // The .then() block clears this flag once the new run id is registered.
+          launchPendingRef.current = true;
         }
         // For revisions, keep existing content visible until new output arrives.
         // W1 (44-01) launch->attach (R4): the SSE launch (POST /api/runs) resolves
@@ -2278,7 +2618,13 @@ export default function DashboardPage() {
             if (thisLaunchSeq === launchCounterRef.current) {
               trackedRunIdRef.current = launchedRunId;
               activelyBuildingRunIdRef.current = launchedRunId;
+              // FIX-201: switch the store viewport to the new run so it starts
+              // receiving agent/pipeline frames as the viewed run.
+              runStoreSwitchViewToRef.current(launchedRunId);
             }
+            // FIX-201 (KAN-168): clear the launch-pending sentinel so the
+            // isForActiveRun guard resumes normal per-run filtering.
+            launchPendingRef.current = false;
             // FIX-195 Fix-A — ISS-061: refresh recentRuns so the newly-launched run
             // appears in the header badge/dropdown immediately. Without this refresh
             // the snapshot stays stale until a run finishes (pipeline_complete) and
@@ -2290,6 +2636,9 @@ export default function DashboardPage() {
                 .catch(() => {/* best-effort — stale list is recoverable on next terminal event */});
             }
           }
+          // Always clear launchPendingRef regardless of whether we got a run id
+          // (failure case — launch failed or returned no id).
+          else { launchPendingRef.current = false; }
         });
       }}
       onResetPipeline={resetPipeline}
@@ -2299,70 +2648,63 @@ export default function DashboardPage() {
       contentSourceRunType={contentSourceRunType}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       onSwitchToLiveRun={handleSwitchToLiveRun}
-      questionnaireData={questionnaireData}
-      activePipelineRunId={activePipelineRunId}
+      // FIX-201 (KAN-168): read questionnaireData and reviewGateData from the
+      // per-run store (runStore.viewed) instead of the legacy shared React state.
+      // This ensures Jump Back In / Run History open the correct run's clarify
+      // questions and review gates — the store is keyed per-run and switched
+      // atomically by switchViewTo(). The legacy state was shared across all
+      // concurrent runs and only updated after the async durable replay.
+      questionnaireData={runStore.viewed.questionnaireData}
+      activePipelineRunId={runStore.viewed.activePipelineRunId ?? activePipelineRunId}
       lastCancelledRunId={lastCancelledRunId}
       onSubmitQuestionnaire={submitQuestionnaire}
       onRetainClarifyRound={retainClarifyRound}
-      reviewGateData={reviewGateData}
+      reviewGateData={runStore.viewed.reviewGateData}
       onApproveReview={(gateKey, editedContent) => {
-        // KAN-98: if the user approved with edits, stash the (agentId, editedContent)
-        // so review_gate_approved can update pipelineState.agents[agentId].output
-        // for the Thinking tab — the backend writes the edit to the artifact graph
-        // but never echoes it back, so the FE state stays stale without this.
-        if (editedContent && reviewGateData) {
-          pendingGateEditRef.current = { agentId: reviewGateData.agentId, editedContent };
+        // Use store's viewed reviewGateData so gate actions target the correct run
+        // regardless of which run was last active (FIX-201 / KAN-168).
+        const activeGate = runStore.viewed.reviewGateData;
+        if (editedContent && activeGate) {
+          pendingGateEditRef.current = { agentId: activeGate.agentId, editedContent };
         }
-        // W2 (44-04): POST /{id}/gate carries edited_content (WR-03 — /messages
-        // CHANNEL_GATE would drop it). REST is the sole up-channel (44-06).
-        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+        void postGate(getToken() ?? "", activeGate?.pipelineRunId ?? "", {
           gate_key: gateKey,
           action: "approve",
           approved: true,
           edited_content: editedContent ?? null,
         }).catch((e) => console.error("postGate approve failed", e));
-        // FIX-165: clear gate data immediately so InlineGateActions unmounts and
-        // its `submitted` latch resets. Without this, the button stays disabled
-        // (submitted=true) until review_gate_approved arrives from the backend
-        // (async), making it appear the first click did nothing. All other gate
-        // handlers (reject, redo, update_specs) already do this — approve was the
-        // only one missing it. review_gate_approved still calls setReviewGateData(null)
-        // as a safe no-op.
         setReviewGateData(null);
+        if (activeGate?.pipelineRunId) runStore.update(activeGate.pipelineRunId, { reviewGateData: null });
       }}
       onRejectReview={(gateKey) => {
-        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+        const activeGate = runStore.viewed.reviewGateData;
+        void postGate(getToken() ?? "", activeGate?.pipelineRunId ?? "", {
           gate_key: gateKey,
           action: "reject",
           approved: false,
         }).catch((e) => console.error("postGate reject failed", e));
         setReviewGateData(null);
+        if (activeGate?.pipelineRunId) runStore.update(activeGate.pipelineRunId, { reviewGateData: null });
       }}
       onRedoReview={(gateKey, instructions) => {
-        // REDO-GATE (F-fe3): re-run the gated agent in place. Rides the SAME
-        // owner-gated gate seam as approve/reject — action="redo".
-        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+        const activeGate = runStore.viewed.reviewGateData;
+        void postGate(getToken() ?? "", activeGate?.pipelineRunId ?? "", {
           gate_key: gateKey,
           action: "redo",
           instructions,
         }).catch((e) => console.error("postGate redo failed", e));
-        // Clear the panel; the re-run re-emits a fresh review_gate_ready (same
-        // gate_key, redoable=true) that re-opens it with the new output.
         setReviewGateData(null);
+        if (activeGate?.pipelineRunId) runStore.update(activeGate.pipelineRunId, { reviewGateData: null });
       }}
       onUpdateSpecsReview={(gateKey, analysisReport) => {
-        // KAN-101: trigger the spec revision sub-pipeline (specify → plan → analyze)
-        // with the analysis report as context. Rides the SAME owner-gated gate
-        // seam — action="update_specs", analysis_report carries the text. The
-        // backend re-emits review_gate_ready when the analyze gate re-opens.
-        void postGate(getToken() ?? "", reviewGateData?.pipelineRunId ?? "", {
+        const activeGate = runStore.viewed.reviewGateData;
+        void postGate(getToken() ?? "", activeGate?.pipelineRunId ?? "", {
           gate_key: gateKey,
           action: "update_specs",
           analysis_report: analysisReport,
         }).catch((e) => console.error("postGate update_specs failed", e));
-        // Clear the panel immediately; it will re-open when the backend
-        // emits review_gate_ready with the new analysis output.
         setReviewGateData(null);
+        if (activeGate?.pipelineRunId) runStore.update(activeGate.pipelineRunId, { reviewGateData: null });
       }}
       pendingOdProtoParams={pendingOdProtoParams}
       onClearPendingOdProto={() => setPendingOdProtoParams(null)}
@@ -2370,7 +2712,7 @@ export default function DashboardPage() {
       onClearPendingOdPpt={() => setPendingOdPptParams(null)}
       userTier={user?.tier ?? "basic"}
       userEmail={user?.email}
-      waves={waveGroups}
+      waves={runStore.viewed.waveGroups}
     />
   );
 }
