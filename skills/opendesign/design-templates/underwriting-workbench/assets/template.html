@@ -1,0 +1,107 @@
+<!doctype html>
+<!--
+UNDERWRITING WORKBENCH — SEED SKELETON. Copy to index.html, fill every [REPLACE].
+This is the ONLY template material in context on build task 2+ (example.html and
+SKILL.md inject on task 1 only), so the inventory below IS the vocabulary. Never
+invent a global class. Palette/type live ONLY in :root. Full CSS is already in
+prototype.html — read_file it before editing.
+
+CLASS FAMILIES — every member is already defined in prototype.html; read_file it
+for the exact names rather than inventing one.
+  topbar brand nav nav-item | page is-active wrap eyebrow page-head
+  btn btn-primary|ghost|accent|go|sm|disabled icon-btn | card card-head|title|sub|body
+  thead trow g-<name> cell-strong cell-sub | chip chip-sub|bound|quoted|renewal|draft|ok
+  banner banner-info|warn | form-grid cols-2|3 span-2 lbl inp sel txa seg searchbar
+  steps step-tab step-num on done | sidenav topic tabs state-btn box radio set-btn opt-row
+  doc-toolbar doc-stage letter watermark stamp | summary summary-row | mail mail-row tpl-pill
+  kpis kpi bar stat-row | task-row task-box | overlay open modal modal-head|body|foot toast show
+  mono flex between mid col right center gap-6|8|10|16
+
+ROUTER CONTRACT — static_check FAILS the build if any of these break:
+- data-page on <section> ONLY, never on <a>. Nav anchors carry all three of
+  class="nav-item" data-page-link="<id>" href="#/<id>".
+- Section ids and routes keys are 1:1. Exactly one starts class="page is-active".
+- data-od-id on every top-level region.
+- Wizard steps / sub-tabs / modals are `store` state, NEVER extra routes.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>[REPLACE] Org</title>
+<style>
+:root{
+  --bg:#eaeef3; --fg:#16233b; --accent:#2f6fd0; --surface:#fff; --border:#dde3ec; --muted:#8592a6;
+  --navy:#0f2547; --navy-2:#12315f; --teal:#0f766e; --green:#0f9d6d; --amber:#8a5a00;
+  --danger:#c0392b; --plum:#5b3fb0; --ink-2:#33405a; --ink-4:#5a6577; --line-soft:#eef1f6;
+  --field:#cdd4df; --wash:#f6f8fb; --r-sm:7px; --r-lg:12px; --r-pill:20px;
+  --font-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:ui-monospace,Menlo,monospace;
+}
+/* Structural only; full CSS in prototype.html. Top bar, NOT a sidebar. */
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--font-body);color:var(--fg);background:var(--bg)}
+.topbar{height:54px;display:flex;align-items:center;gap:20px;padding:0 22px;background:var(--navy);color:#fff}
+.page{display:none}
+.page.is-active{display:block}
+.wrap{padding:26px 34px 60px;max-width:1240px;margin:0 auto}
+.overlay{position:fixed;inset:0;background:rgba(15,29,54,.5);display:none}
+.overlay.open{display:flex}
+.toast{position:fixed;bottom:26px;left:50%;display:none}
+</style>
+</head>
+<body>
+<header class="topbar" data-od-id="app-chrome"><b>[REPLACE] Org</b>
+  <nav class="nav">
+    <a href="#/accounts" class="nav-item" data-page-link="accounts">[REPLACE] Register</a>
+    <a href="#/submissions" class="nav-item" data-page-link="submissions">[REPLACE] Queue</a>
+    <a href="#/tasks" class="nav-item" data-page-link="tasks">Tasks</a>
+    <a href="#/reports" class="nav-item" data-page-link="reports">Reports</a>
+  </nav><span class="spacer"></span>
+</header>
+<main>
+  <section data-page="accounts" class="page is-active" data-od-id="accounts"><div class="wrap">[REPLACE] register table</div></section>
+  <section data-page="account" class="page" data-od-id="account-detail"><div class="wrap">[REPLACE] facts + ledger</div></section>
+  <section data-page="txn" class="page" data-od-id="transaction"><div class="wrap"><div id="stepTabs"></div><div id="stepPane"></div></div></section>
+  <section data-page="submissions" class="page" data-od-id="submissions"><div class="wrap">[REPLACE] queue</div></section>
+  <section data-page="tasks" class="page" data-od-id="tasks"><div class="wrap">[REPLACE] tasks</div></section>
+  <section data-page="reports" class="page" data-od-id="reports"><div class="wrap">[REPLACE] KPIs</div></section>
+</main>
+<div class="overlay" id="ovNewSub" onclick="closeModal()" data-od-id="modals"><div class="modal" onclick="stopProp(event)">[REPLACE] form</div></div>
+<div class="toast" id="toast" data-od-id="toast"><span id="toastMsg"></span></div>
+<script>
+/* All state on one object. No globals outside it. */
+const store = {
+  ACCOUNTS: [ /* [REPLACE] records: id, name, status, kind + domain fields */ ],
+  currentId: null, step: 0, txType: 'Quote', finalized: false,
+  idTopic: 'business', formsTab: 'states', subFilter: 'All', modal: null, txn: {}
+};
+/* Router — copy verbatim; only the routes keys change. */
+const routes = {
+  accounts: '#/accounts',
+  account: '#/account',
+  txn: '#/txn',
+  submissions: '#/submissions',
+  tasks: '#/tasks',
+  reports: '#/reports'
+};
+function navigateTo(pageId){ window.location.hash = routes[pageId] || ('#/' + pageId); }
+function handleRouteChange(){
+  const hash = window.location.hash.replace(/^#\/?/, '') || 'accounts';
+  document.querySelectorAll('section[data-page]').forEach(function(s){ s.classList.remove('is-active'); });
+  const page = document.querySelector('section[data-page="' + hash + '"]');
+  if (page) page.classList.add('is-active');
+  document.querySelectorAll('a[data-page-link]').forEach(function(a){ a.classList.remove('active'); });
+  const navKey = (hash === 'account' || hash === 'txn') ? 'accounts' : hash;
+  document.querySelectorAll('a[data-page-link="' + navKey + '"]').forEach(function(a){ a.classList.add('active'); });
+  render();
+}
+function render(){ /* [REPLACE] repaint the active page from `store` */ }
+function closeModal(){ document.querySelectorAll('.overlay').forEach(function(o){ o.classList.remove('open'); }); }
+function stopProp(e){ e.stopPropagation(); }
+window.addEventListener('hashchange', handleRouteChange);
+window.addEventListener('load', handleRouteChange);
+</script>
+</body>
+</html>

@@ -65,9 +65,21 @@ copy and re-shape the domain data.
 
 ```
 underwriting-workbench/
-├── SKILL.md         ← you're reading this
-└── example.html     ← rendered, self-contained reference workbench (READ FIRST)
+├── SKILL.md              ← you're reading this        (build task 1 only)
+├── example.html          ← the full, rendered, self-contained reference workbench
+│                            (READ FIRST — builders, build task 1 only)
+└── assets/
+    └── template.html     ← the seed skeleton: tokens, class families, router
+                             (injected on EVERY build task — the only template
+                              material you still have on task 2+)
 ```
+
+**What you see when.** The per-task build loop injects the SKILL.md body and
+`example.html` on **task 1 only**. From **task 2 onward the seed is the only template
+material in context**, which is why the engine's per-task compliance line says *"use ONLY
+its CSS classes from the TEMPLATE SEED"*. The seed therefore carries the `:root` tokens,
+the class families, and the verbatim router. For anything else on a later task, call
+`read_file('prototype.html')` — the file you already wrote holds the full CSS.
 
 ## When to use this skill
 
@@ -122,9 +134,13 @@ when a screen deserves its own URL.
 
 ### Step 1 — Copy the reference
 
-Copy `example.html` to the project root as `index.html`. Replace the org name in the top bar and
-the letterhead, the `<title>`, and the environment pill. Keep the shell (top bar + routed
-sections + modals + toast) intact.
+Copy `example.html` to the project root as `index.html` — it is the full workbench, so start
+from it, not from the seed. (`assets/template.html` is the same skeleton reduced to tokens +
+class families + router; it exists so those survive into later build tasks. If you ever find
+yourself on task 2+ without the example, the seed is the authoritative contract.)
+
+Replace the org name in the top bar and the letterhead, the `<title>`, and the environment
+pill. Keep the shell (top bar + routed sections + modals + toast) intact.
 
 ### Step 2 — Reshape the domain data
 
@@ -192,6 +208,9 @@ Write the single `index.html`. One sentence before it describing what's there.
   most domain-true part of the reference. Rename them, don't remove them.
 - **Every number must be plausible and internally consistent** — the premium breakdown must add
   up, and the document must show the same figures as the summary panel.
+- **Keep `assets/template.html` under 6,000 characters.** The seed is injected as
+  `seed[:6000]`, so a byte past that is silently dropped mid-file — and the router lives at
+  the end. If you extend the seed, trim elsewhere first and re-check the length.
 
 ## Output contract
 
