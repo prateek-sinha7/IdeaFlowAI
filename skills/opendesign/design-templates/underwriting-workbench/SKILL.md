@@ -36,7 +36,7 @@ od:
       - accessibility-baseline
       - anti-ai-slop
   outputs:
-    primary: index.html
+    primary: prototype.html
   example_prompt: "Build an underwriting workbench for a specialty marine cargo insurer — an account register, an account detail with a transaction ledger, a five-step quote wizard ending in a quote letter with a specimen watermark, plus a submissions queue, tasks, and a reports view."
   inputs:
     - name: domain
@@ -134,10 +134,15 @@ when a screen deserves its own URL.
 
 ### Step 1 — Copy the reference
 
-Copy `example.html` to the project root as `index.html` — it is the full workbench, so start
-from it, not from the seed. (`assets/template.html` is the same skeleton reduced to tokens +
-class families + router; it exists so those survive into later build tasks. If you ever find
-yourself on task 2+ without the example, the seed is the authoritative contract.)
+Start from `example.html` — it is the full workbench, not the seed. (`assets/template.html` is
+the same skeleton reduced to tokens + class families + router; it exists so those survive into
+later build tasks. If you are ever on task 2+ without the example, the seed is the
+authoritative contract.)
+
+**Write it to `prototype.html`.** That filename is the deliverable the engine reads back from
+the run sandbox — follow your own build-agent instructions on this, not any other filename
+mentioned in a template. Task 1 creates it with `write_file`; every later task makes surgical
+`edit_file` changes. Never rebuild from scratch on a later task.
 
 Replace the org name in the top bar and the letterhead, the `<title>`, and the environment
 pill. Keep the shell (top bar + routed sections + modals + toast) intact.
@@ -178,13 +183,15 @@ with a `PRE-FILLED` tag; fields the user owns stay editable.
 - Every modal opens, closes on backdrop click, on Cancel, and on Escape.
 - Zero console errors; no external network requests.
 
-### Step 5 — Emit the artifact
+### Step 5 — Persist the deliverable
 
-Write the single `index.html`. One sentence before it describing what's there.
+Write the single self-contained file to disk as `prototype.html` via `write_file` (task 1) or
+`edit_file` (every later task). **Do not stream the HTML as chat text** — in this pipeline the
+file on disk *is* the deliverable, and a streamed response leaves it empty.
 
 ## Hard rules
 
-- **Single self-contained `index.html`** — one inline `<style>` in `<head>`, one inline
+- **Single self-contained `prototype.html`** — one inline `<style>` in `<head>`, one inline
   vanilla-JS `<script>` at the end of `<body>`. No CDN, no external fonts, no framework runtime,
   no build step.
 - **System font stack** — `system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` for text,
@@ -214,11 +221,10 @@ Write the single `index.html`. One sentence before it describing what's there.
 
 ## Output contract
 
-```
-<artifact identifier="kebab-case-slug" type="text/html" title="Human Title">
-<!doctype html>
-<html>...</html>
-</artifact>
-```
+One self-contained document, starting `<!doctype html>`, persisted to disk as
+`prototype.html`. No markdown fences, no prose before or after the HTML inside the file.
 
-One sentence before the artifact. Nothing after.
+> Other templates in this catalog end with an `<artifact identifier=… type="text/html">`
+> wrapper. That is the single-shot/daemon shape and does **not** apply to the `od_prototype`
+> pipeline, whose build agent writes the file with `write_file` / `edit_file` and never
+> streams. If your own agent instructions say to write `prototype.html` to disk, they win.
