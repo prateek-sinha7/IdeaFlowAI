@@ -26,6 +26,9 @@ od:
   mode: prototype
   platform: desktop
   scenario: finance
+  preview:
+    type: html
+    entry: prototype.html
   design_system:
     requires: true
     sections: [color, typography, layout, components]
@@ -68,18 +71,34 @@ underwriting-workbench/
 ├── SKILL.md              ← you're reading this        (build task 1 only)
 ├── example.html          ← the full, rendered, self-contained reference workbench
 │                            (READ FIRST — builders, build task 1 only)
-└── assets/
-    └── template.html     ← the seed skeleton: tokens, class families, router
-                             (injected on EVERY build task — the only template
-                              material you still have on task 2+)
+├── assets/
+│   └── template.html     ← the seed skeleton: tokens, class families, router
+│                            (injected on EVERY build task — the only template
+│                             material left in the context message on task 2+)
+└── references/
+    └── checklist.md      ← P0/P1/P2 pre-emit gate (build task 1 + the validator)
 ```
 
-**What you see when.** The per-task build loop injects the SKILL.md body and
-`example.html` on **task 1 only**. From **task 2 onward the seed is the only template
-material in context**, which is why the engine's per-task compliance line says *"use ONLY
-its CSS classes from the TEMPLATE SEED"*. The seed therefore carries the `:root` tokens,
-the class families, and the verbatim router. For anything else on a later task, call
-`read_file('prototype.html')` — the file you already wrote holds the full CSS.
+**What you see when.** Two channels, gated differently:
+
+| | build task 1 | build task 2+ | validate | fix-loop |
+|---|---|---|---|---|
+| SKILL.md body (system prompt) | yes | **yes** | yes | yes |
+| SKILL.md body (context message) | yes | no | yes | no |
+| `example.html` | yes | **no** | yes | no |
+| seed (`assets/template.html`) | yes | **yes — the only one left** | yes | no |
+
+So on task 2+ this document is still in your system prompt, but it is *prose* — the CSS
+class vocabulary reaches you **only through the seed**, which is why the engine's per-task
+compliance line says *"use ONLY its CSS classes from the TEMPLATE SEED"*. The seed
+therefore carries the `:root` tokens, the class families, and the verbatim router.
+
+**On any later task, two files on the run sandbox outrank both:**
+- `read_file('prototype.html')` — what you already wrote, with the full CSS.
+- `read_file('template.html')` — the engine seeds the **complete `example.html`** here
+  before task 1. This is the authoritative class reference; prefer it over guessing.
+  (Note the name collision: the sandbox's `template.html` is the full example, *not* this
+  template's `assets/template.html` seed.)
 
 ## When to use this skill
 
@@ -172,6 +191,9 @@ Keep the pre-filled / read-only distinction honest: fields the system supplies s
 with a `PRE-FILLED` tag; fields the user owns stay editable.
 
 ### Step 4 — Self-check
+
+Run `references/checklist.md` (injected alongside this file) top to bottom. Every **P0**
+must pass. The short version:
 
 - All six screens route from the top nav and from the drill-down buttons; reload on a deep
   link (`#/reports`) restores that screen.

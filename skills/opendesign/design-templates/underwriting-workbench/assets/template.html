@@ -1,19 +1,20 @@
 <!doctype html>
 <!--
-UNDERWRITING WORKBENCH — SEED SKELETON. Copy to index.html, fill every [REPLACE].
-This is the ONLY template material in context on build task 2+ (example.html and
-SKILL.md inject on task 1 only), so the inventory below IS the vocabulary. Never
-invent a global class. Palette/type live ONLY in :root. Full CSS is already in
-prototype.html — read_file it before editing.
+UNDERWRITING WORKBENCH — SEED SKELETON. Fill every [REPLACE]. Write the result to
+prototype.html (write_file task 1, edit_file after) — that name IS the deliverable.
+On task 2+ this seed is the only template material left in your context message
+(example.html drops; the SKILL.md body stays in the system prompt but is prose, not
+CSS), so the families below are your class vocabulary. Never invent a global class.
+Palette/type live ONLY in :root.
 
-CLASS FAMILIES — every member is already defined in prototype.html; read_file it
-for the exact names rather than inventing one.
+CLASS FAMILIES — for exact definitions read_file('prototype.html'), or
+read_file('template.html') = the full example.html the engine seeds into the sandbox.
   topbar brand nav nav-item | page is-active wrap eyebrow page-head
   btn btn-primary|ghost|accent|go|sm|disabled icon-btn | card card-head|title|sub|body
   thead trow g-<name> cell-strong cell-sub | chip chip-sub|bound|quoted|renewal|draft|ok
   banner banner-info|warn | form-grid cols-2|3 span-2 lbl inp sel txa seg searchbar
   steps step-tab step-num on done | sidenav topic tabs state-btn box radio set-btn opt-row
-  doc-toolbar doc-stage letter watermark stamp | summary summary-row | mail mail-row tpl-pill
+  doc-toolbar doc-stage letter watermark stamp | summary summary-row | mail mail-row
   kpis kpi bar stat-row | task-row task-box | overlay open modal modal-head|body|foot toast show
   mono flex between mid col right center gap-6|8|10|16
 
@@ -22,7 +23,7 @@ ROUTER CONTRACT — static_check FAILS the build if any of these break:
   class="nav-item" data-page-link="<id>" href="#/<id>".
 - Section ids and routes keys are 1:1. Exactly one starts class="page is-active".
 - data-od-id on every top-level region.
-- Wizard steps / sub-tabs / modals are `store` state, NEVER extra routes.
+- Wizard steps / sub-tabs / modals are `store` state, never routes.
 -->
 <html lang="en">
 <head>
@@ -38,7 +39,7 @@ ROUTER CONTRACT — static_check FAILS the build if any of these break:
   --font-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --font-mono:ui-monospace,Menlo,monospace;
 }
-/* Structural only; full CSS in prototype.html. Top bar, NOT a sidebar. */
+/* Structural only. Top bar, NOT a sidebar. */
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{font-family:var(--font-body);color:var(--fg);background:var(--bg)}
@@ -71,7 +72,7 @@ body{font-family:var(--font-body);color:var(--fg);background:var(--bg)}
 <div class="overlay" id="ovNewSub" onclick="closeModal()" data-od-id="modals"><div class="modal" onclick="stopProp(event)">[REPLACE] form</div></div>
 <div class="toast" id="toast" data-od-id="toast"><span id="toastMsg"></span></div>
 <script>
-/* All state on one object. No globals outside it. */
+/* All state on one object. */
 const store = {
   ACCOUNTS: [ /* [REPLACE] records: id, name, status, kind + domain fields */ ],
   currentId: null, step: 0, txType: 'Quote', finalized: false,
