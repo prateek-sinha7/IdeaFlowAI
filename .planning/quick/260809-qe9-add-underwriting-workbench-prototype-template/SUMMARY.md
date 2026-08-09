@@ -84,7 +84,32 @@ Workflow Steps 0–5, hard rules, output contract.
 
 - `thumbnail.jpg` — generated at image build, gitignored. Cards fall back to the live
   `example.html` iframe until then.
-- `assets/template.html` seed and `references/*.md` — optional; the example is the reference.
+- `references/*.md` — optional; the example plus the seed carry the reference.
+
+## Correction (post-review) — the seed was NOT optional
+
+The first cut of this task shipped only `SKILL.md` + `example.html` and recorded the seed as
+out of scope. **That was wrong**, caught by the user on review. `prototype-build` declares
+`tools: [prototype_emit_only]`; in `context_providers/opendesign.py` the `template_body` and
+`example.html` blocks are both nested inside `if not is_build_task_2_plus`, and the
+injection-part filter is `[p for p in all_parts if "TEMPLATE SEED" in p]`. So from build
+task 2 onward the seed is the **only** template material in context — while `engine.py:8470`
+still appends, every task, `use ONLY its CSS classes from the TEMPLATE SEED`. The build is a
+per-task sub-agent loop, so tasks 2..N were running with zero template guidance.
+
+Fixed in `6249ae00` by adding `assets/template.html` (5,946 chars): `:root` tokens, class
+families, router contract, and the verbatim routes map / `navigateTo` / `handleRouteChange`.
+
+Sizing was the hard part — `od_context.py:216` injects `seed[:6000]`, truncating silently
+mid-file. Drafts at 10,118 / 7,895 / 6,904 chars each lost the router at the tail. The class
+inventory was compressed to families to buy room, since every class is recoverable via
+`read_file('prototype.html')` whereas a half-written router is not. `web-prototype`'s
+16,364-char seed *is* truncated today — that latent flaw is what this avoids. The 6,000-char
+limit is now a hard rule in SKILL.md so a later edit cannot silently re-break it.
+
+Verified: seed 5,946/6,000, injected payload 6,072 chars with every marker present and no
+truncation marker; `static_check` on the seed `ok=True`; headless Chromium on the seed routes
+all 4 nav targets plus both drill-downs with 0 console errors.
 - **Not pushed.** A `dev` push auto-fires a CodeBuild→Docker→EC2 deploy; that needs explicit
   authorization.
 - **Backend restart required** before the template appears — `_all_templates()` is
