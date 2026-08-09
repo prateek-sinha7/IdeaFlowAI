@@ -114,3 +114,57 @@ all 4 nav targets plus both drill-downs with 0 console errors.
   authorization.
 - **Backend restart required** before the template appears — `_all_templates()` is
   `@lru_cache(maxsize=1)`, process-lifetime.
+
+
+## Completeness audit (post-review round 2) — 4 more findings
+
+Prompted by "did you check if everything is covered?". Answer was no: the earlier passes
+verified the seams I happened to think of. A systematic sweep (full lifecycle trace +
+differential vs all 50 templates) found four more, all fixed in `a6ec6aa7`.
+
+1. **`render_check` had never been run.** The engine runs Both-validation —
+   `static_check` *and* `render_check` (Chromium: nav switching, console errors, plus a
+   coverage gate that fails on 0 nav targets). Now run: ok=True on both files, 4 navs
+   exercised, 0 broken, 0 console errors. (It needs an absolute path; `as_uri()` throws
+   on a relative one.)
+
+2. **121 raw hex outside `:root`** in example.html — 2nd highest of 46 examples. Broke the
+   template's own hard rule, the injected guardrail, and the DS-reskin promise. Converted:
+   104 → `var()`, 17 SVG `stroke=`/`fill=` → `currentColor` + class (`var()` is invalid in
+   an SVG presentation attribute). Now 0.
+
+   *Proven* paint-identical. Screenshot hashing was rejected as an oracle after a control
+   showed Chromium is non-deterministic on 3 of 7 pages (same file, different hashes).
+   Used computed styles across 12 screens instead — 0 colour differences; the only deltas
+   were one element's in-flight `opacity` mid-`fadeIn`.
+
+3. **A claim in the template was false.** SKILL.md and the seed said the seed is "the ONLY
+   template material in context on task 2+". `factory._compose_injection` has zero
+   task-number gating, so the SKILL.md body stays in the *system prompt* every task; only
+   context-message copies drop. Replaced with a per-channel table. Also documented that
+   `task_loop.py:559-572` seeds the full example.html into the sandbox as `template.html`
+   (name collides with the seed) — the best task-2+ class reference.
+
+4. **House-norm gaps.** Added `od.preview` (49/50 declare it; UW was the only one without)
+   and `references/checklist.md` (3,506/4,000). The checklist earns its place beyond
+   convention: `prototype-validate` runs with `build_task_number == ""` so it receives ALL
+   injection parts — a checklist is the one artifact that reaches the *validator* as a
+   named block.
+
+### Also measured (not defects in this template)
+
+- `GET /api/prototype/templates/{id}` **500s for `ai-coach-hub` and `process-canvas`** —
+  swept all 50; exactly those two, both from list-of-string `od.inputs`. Pre-existing;
+  underwriting-workbench returns 200 because it uses mappings.
+- `web-prototype`'s 16,364-char seed **is** silently truncated at 6,000 today.
+- 10 templates declare `outputs.primary: index.html` and every template carries the
+  `<artifact>` block, both of which conflict with the live runtime.
+
+### Final state
+
+files: SKILL.md 13,916 · example.html 103,238 · assets/template.html 5,987 ·
+references/checklist.md 3,538.
+All injections whole: body 11,625 (uncapped) · example 103,132/120,000 · seed 5,977/6,000 ·
+checklist 3,506/4,000. static_check + render_check ok on both HTML files. 47/47 interaction
+checks. API list/detail/preview/asset 200, traversal 404. 0 hex outside `:root`, 0 external
+refs. Still NOT pushed.
