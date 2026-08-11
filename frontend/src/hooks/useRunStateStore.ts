@@ -114,6 +114,10 @@ export interface ReviewGateData {
   redoable?: boolean;
   updateSpecsEligible?: boolean;
   artifactKind?: string;
+  // ISS-052: the per-FIRING revision discriminator. Held per-run so a gate re-opened
+  // after a spec-revision pass is still identifiable when the run is re-projected.
+  revisionCycle?: number;
+  revisionInFlight?: boolean;
 }
 
 export interface WaveGroup {

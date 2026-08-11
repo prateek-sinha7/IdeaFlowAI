@@ -160,6 +160,12 @@ export interface DashboardLayoutProps {
     // Specs" affordance and artifactKind into the approve relabel. Additive.
     updateSpecsEligible?: boolean;
     artifactKind?: string;
+    // ISS-052: which spec-revision cycle this gate FIRING belongs to (0 = none) and
+    // whether the pass is still on the stack. The lane maps both into the gate card so
+    // the in-pass and re-opened analyze gates — same gateKey, same output bytes — do
+    // not read identically. Additive.
+    revisionCycle?: number;
+    revisionInFlight?: boolean;
   } | null;
   onApproveReview?: (gateKey: string, editedContent?: string) => void;
   onRejectReview?: (gateKey: string) => void;
@@ -1940,11 +1946,20 @@ export function DashboardLayout({
         // the correct preview for agents whose output has no XML wrapper tags
         // (e.g. user_stories domain-analyst produces plain markdown, kind="summary").
         artifactKind: reviewGateData.artifactKind,
+        // ISS-052: the per-firing discriminator, so the card can name the cycle.
+        revisionCycle: reviewGateData.revisionCycle,
+        revisionInFlight: reviewGateData.revisionInFlight,
         // KAN-101: the analyze gate (artifactKind="summary") is the final human
         // decision before the build agents fire — label it clearly. Generic
         // fallback for other gate kinds (spec, task_list). SC-001: keyed on the
         // server-provided artifactKind string, never a workflow/agent-name literal.
-        approveLabel: reviewGateData.artifactKind === "summary"
+        // ISS-052: EXCEPT while a spec-revision pass is in flight — approving that
+        // firing finishes the pass and re-opens this same gate; it does NOT continue
+        // to the build (live 5ecb990f: approve seq 24654 -> gate 24655, and only the
+        // SECOND approval reached agent_start). Keyed on the generic in-flight flag.
+        approveLabel: reviewGateData.revisionInFlight
+          ? "Approve & finish the revision"
+          : reviewGateData.artifactKind === "summary"
           ? "Accept & continue to build"
           : reviewGateData.artifactKind
           ? `Approve the ${reviewGateData.artifactKind.replace(/_/g, " ")}`

@@ -126,6 +126,11 @@ async def _drive_cycles(run_id: str, click_at: set[int]):
             # attribute read raises AttributeError on a fresh context.
             "context_set": bool(getattr(_ectx, "spec_revision_context", "")),
             "eligible": kwargs.get("update_specs_eligible"),
+            # ISS-052 / FIX-220: the per-firing discriminator that tells the in-pass and
+            # re-opened gates apart on the wire. Recorded here (not in a second harness —
+            # INV-12) and asserted by test_gate_revision_discriminator.py.
+            "revision_cycle": kwargs.get("revision_cycle"),
+            "revision_in_flight": kwargs.get("revision_in_flight"),
         })
         yield {
             "type": "review_gate_ready",

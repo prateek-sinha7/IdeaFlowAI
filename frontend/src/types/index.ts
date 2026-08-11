@@ -132,6 +132,18 @@ export interface ReviewGateReadyData {
   // Optional/additive; absent on gates that do not carry them.
   update_specs_eligible?: boolean;
   artifact_kind?: string;
+  /**
+   * ISS-052 — the per-FIRING discriminator. `gate_key` is `{run_id}:{agent_id}`, so it
+   * names a gate SLOT: the analyze gate opened INSIDE a spec-revision pass and the one
+   * re-opened after that pass returns arrive with the same key AND the same `output`
+   * bytes, milliseconds apart, while carrying opposite affordances. `revision_cycle`
+   * says which cycle the firing belongs to (0 = no revision has run) and
+   * `revision_in_flight` says whether the pass is still on the stack. The PAIR is what
+   * identifies a firing — cycle alone cannot separate the in-pass gate from the
+   * re-opened one. Optional/additive; absent ⇒ treated as (0, false).
+   */
+  revision_cycle?: number;
+  revision_in_flight?: boolean;
 }
 
 /** One worker leaf under a wave group — an agent + its lifecycle status. */

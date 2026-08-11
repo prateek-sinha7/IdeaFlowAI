@@ -109,6 +109,15 @@ export interface GateContext {
    * structurally from _AGENT_KIND_MAP (with "summary" as the generic fallback).
    */
   artifactKind?: string;
+  /**
+   * ISS-052 — the per-FIRING discriminator from the backend. `gateKey` names a gate
+   * SLOT, so the analyze gate opened INSIDE a spec-revision pass and the one re-opened
+   * after that pass returns share it AND their output bytes. `revisionCycle` is which
+   * cycle the firing belongs to (0 = none has run); `revisionInFlight` is whether the
+   * pass is still on the stack. SC-001: generic run state, never a workflow/agent name.
+   */
+  revisionCycle?: number;
+  revisionInFlight?: boolean;
 }
 
 /** A generic quick-reply suggestion chip (never a workflow-name literal). */

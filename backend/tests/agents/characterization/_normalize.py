@@ -154,6 +154,17 @@ _VOLATILE_STRIP_KEYS = frozenset(
         "redoable",
         "update_specs_eligible",
         "artifact_kind",
+        # ── Additive-but-parity-neutral review_gate_ready keys (ISS-052 / FIX-220) ──
+        # The engine also stamps the per-FIRING discriminator on every
+        # ``review_gate_ready``: ``revision_cycle`` (which spec-revision cycle this gate
+        # belongs to, 0 = none) + ``revision_in_flight`` (is the gate INSIDE that pass).
+        # Without them the analyze gate opened inside a revision pass and the one
+        # re-opened after it returns are identical on the wire — same gate_key, same
+        # output bytes. Metadata-only and NOT in _REQUIRED_DATA_KEYS, so they are
+        # STRIPPED here, mirroring the redoable / update_specs_eligible precedent, to
+        # keep the characterization event goldens byte-identical (INV-3).
+        "revision_cycle",
+        "revision_in_flight",
         # ── Additive-but-parity-neutral prompt-cache keys (ISS-032 / FIX-036) ────
         # The runner now surfaces the Bedrock prompt-cache split
         # (input_token_details.cache_read/cache_creation) → the engine threads it

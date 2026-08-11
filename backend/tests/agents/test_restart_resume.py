@@ -1280,7 +1280,8 @@ async def test_gate_reentry_all_five_actions_post_restart(action):
     gate_n = {"n": 0}
 
     async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
-                    update_specs_eligible=False, artifact_kind=None, cancel_event=None):
+                    update_specs_eligible=False, artifact_kind=None, cancel_event=None,
+                    **kwargs):  # absorb additive gate discriminators (ISS-052 / FIX-220)
         i = gate_n["n"]
         gate_n["n"] += 1
         captured_outputs.append(output)
@@ -1358,7 +1359,8 @@ async def test_gate_reentry_redo_numbering_continues_past_pre_restart_redos():
     gate_n = {"n": 0}
 
     async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
-                    update_specs_eligible=False, artifact_kind=None, cancel_event=None):
+                    update_specs_eligible=False, artifact_kind=None, cancel_event=None,
+                    **kwargs):  # absorb additive gate discriminators (ISS-052 / FIX-220)
         i = gate_n["n"]
         gate_n["n"] += 1
         yield {"type": "review_gate_ready", "data": {
@@ -1405,7 +1407,8 @@ async def test_gate_reentry_update_specs_writes_audit_row_a2():
     gate_n = {"n": 0}
 
     async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
-                    update_specs_eligible=False, artifact_kind=None, cancel_event=None):
+                    update_specs_eligible=False, artifact_kind=None, cancel_event=None,
+                    **kwargs):  # absorb additive gate discriminators (ISS-052 / FIX-220)
         i = gate_n["n"]
         gate_n["n"] += 1
         yield {"type": "review_gate_ready", "data": {

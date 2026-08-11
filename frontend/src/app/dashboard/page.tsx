@@ -229,6 +229,9 @@ export default function DashboardPage() {
       gateKey: string; agentId: string; agentName: string; output: string;
       pipelineRunId: string; redoable?: boolean; updateSpecsEligible?: boolean;
       artifactKind?: string;
+      // ISS-052: which spec-revision cycle this gate FIRING belongs to, and whether the
+      // pass is still on the stack. Two firings share a gateKey and their output bytes.
+      revisionCycle?: number; revisionInFlight?: boolean;
     } | null;
     activePipelineRunId: string | null;
   }
@@ -371,6 +374,9 @@ export default function DashboardPage() {
     // defensively (undefined when the backend omits them).
     updateSpecsEligible?: boolean;
     artifactKind?: string;
+    // ISS-052: the per-FIRING revision discriminator (see ReviewGateReadyData).
+    revisionCycle?: number;
+    revisionInFlight?: boolean;
   } | null>(null);
   // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout.
   // `gateAgentIds` (Phase 6, T5b) flows into DashboardLayout's `gate_agent_ids`
@@ -1472,6 +1478,10 @@ export default function DashboardPage() {
             redoable: data.redoable ?? false,
             updateSpecsEligible: data.update_specs_eligible ?? false,
             artifactKind: data.artifact_kind,
+            // ISS-052: the only fields that differ between the analyze gate opened
+            // inside a spec-revision pass and the one re-opened after it returns.
+            revisionCycle: data.revision_cycle ?? 0,
+            revisionInFlight: data.revision_in_flight ?? false,
           };
 
           if (gateRunId) {

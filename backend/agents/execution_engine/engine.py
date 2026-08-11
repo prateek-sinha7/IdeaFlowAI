@@ -3356,6 +3356,11 @@ class ExecutionEngine:
                     # sub-pipeline from a re-entered gate. The success criterion "update_specs
                     # sub-pipeline fires" requires the post-stream consumer.
                     _ek = self._artifact_kind_for(spec)
+                    # ISS-052: name WHICH firing this is. The analyze gate opened inside a
+                    # revision pass and the one re-opened after it returns share a gate_key
+                    # AND their output bytes, so without this the user (and any consumer
+                    # keyed on those two) cannot tell them apart.
+                    _rev_cycle, _rev_in_flight = self._revision_stamp(ectx)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
@@ -3364,6 +3369,8 @@ class ExecutionEngine:
                         redoable=True,
                         update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
+                        revision_cycle=_rev_cycle,
+                        revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
@@ -3473,6 +3480,11 @@ class ExecutionEngine:
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
                     # artifact-kind (name-free), mirroring redoable's inline True.
                     _ek = self._artifact_kind_for(spec)
+                    # ISS-052: name WHICH firing this is. The analyze gate opened inside a
+                    # revision pass and the one re-opened after it returns share a gate_key
+                    # AND their output bytes, so without this the user (and any consumer
+                    # keyed on those two) cannot tell them apart.
+                    _rev_cycle, _rev_in_flight = self._revision_stamp(ectx)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
@@ -3481,6 +3493,8 @@ class ExecutionEngine:
                         redoable=True,
                         update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
+                        revision_cycle=_rev_cycle,
+                        revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
@@ -4364,6 +4378,11 @@ class ExecutionEngine:
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
                     # artifact-kind (name-free), mirroring redoable's inline True.
                     _ek = self._artifact_kind_for(spec)
+                    # ISS-052: name WHICH firing this is. The analyze gate opened inside a
+                    # revision pass and the one re-opened after it returns share a gate_key
+                    # AND their output bytes, so without this the user (and any consumer
+                    # keyed on those two) cannot tell them apart.
+                    _rev_cycle, _rev_in_flight = self._revision_stamp(ectx)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
@@ -4372,6 +4391,8 @@ class ExecutionEngine:
                         redoable=True,
                         update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
+                        revision_cycle=_rev_cycle,
+                        revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
@@ -5451,6 +5472,8 @@ class ExecutionEngine:
         redoable: bool = False,
         update_specs_eligible: bool = False,
         artifact_kind: str = "",
+        revision_cycle: int = 0,
+        revision_in_flight: bool = False,
         cancel_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Pause the pipeline for human review of an agent's output.
@@ -5479,6 +5502,16 @@ class ExecutionEngine:
         agent-id string. A declared/user gate defaults to
         ``update_specs_eligible=False`` (as ``redoable`` defaults False). Both keys
         are added to ``_VOLATILE_STRIP_KEYS`` so the goldens stay byte-identical.
+
+        ``revision_cycle`` / ``revision_in_flight`` (ISS-052) are the same pattern once
+        more: the per-FIRING discriminator. ``gate_key`` is ``f"{run_id}:{agent_id}"`` — it
+        names a gate SLOT, so the analyze gate re-run inside a revision pass and the gate
+        re-opened after that pass returns are indistinguishable on the wire (same key, same
+        output bytes, milliseconds apart). Publishing ``(cycle, in_flight)`` makes every
+        firing identifiable: ``(0, False)`` before any revision, ``(N, True)`` inside pass
+        N, ``(N, False)`` at pass N's re-opened gate. Both come from generic run scratch
+        (see ``_revision_stamp``) — no workflow or agent name — and both default to the
+        no-revision value on the declared/user gate path, exactly as ``redoable`` does.
         """
         gate_key = f"{pipeline_run_id}:{agent_id}"
 
@@ -5517,6 +5550,12 @@ class ExecutionEngine:
                 # stripped by _VOLATILE_STRIP_KEYS so the goldens stay byte-id.
                 "update_specs_eligible": update_specs_eligible,
                 "artifact_kind": artifact_kind,
+                # ISS-052: the per-FIRING discriminator. gate_key names a gate SLOT, so
+                # without these two the in-pass and re-opened analyze gates are identical
+                # on the wire while carrying opposite affordances. Also stripped by
+                # _VOLATILE_STRIP_KEYS (INV-3).
+                "revision_cycle": revision_cycle,
+                "revision_in_flight": revision_in_flight,
                 "timestamp": _now(),
             },
         }
@@ -6648,6 +6687,35 @@ class ExecutionEngine:
         return (
             artifact_kind in self._UPDATE_SPECS_ELIGIBLE_KINDS
             and not getattr(ectx, "revision_attempt", 0)
+        )
+
+    def _revision_stamp(self, ectx) -> tuple[int, bool]:
+        """Which spec-revision cycle is THIS gate firing part of, and is it inside it?
+
+        Returns ``(revision_cycle, revision_in_flight)``, published on every inline
+        ``review_gate_ready`` (ISS-052). Both values are read from generic per-run scratch
+        that already exists — this invents no counter and no state (INV-12):
+
+          * ``revision_high_water`` — the MONOTONE mark of the highest revision index ever
+            published in this run. Never cleared, never restored, so it still names the
+            cycle at the gate re-opened AFTER the pass has unwound.
+          * ``revision_attempt`` — non-zero for EXACTLY the duration of a pass (set at
+            entry, restored in the ``finally``), so it answers "is this gate inside the
+            revision, or after it".
+
+        The PAIR is what identifies a firing; neither half does it alone. Over one cycle
+        the three analyze-gate firings are ``(0, False)`` outer, ``(1, True)`` in-pass,
+        ``(1, False)`` re-opened — the in-pass and re-opened gates share a cycle and are
+        told apart by the in-flight flag alone. That matters downstream: they also share a
+        ``gate_key`` and their output bytes, so a consumer keyed on those two (the FE's
+        one-action latch) cannot see the second gate arrive without this.
+
+        Structural throughout — no workflow name, no agent id (INV-1 / SC-001). Default
+        ``(0, False)`` on a context that has never revised ⇒ dormant on every normal run.
+        """
+        return (
+            getattr(ectx, "revision_high_water", 0),
+            bool(getattr(ectx, "revision_attempt", 0)),
         )
 
     async def _dual_write_artifact(
