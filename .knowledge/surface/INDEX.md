@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-572 cards · rules 1 · fixes 208 · issues 49 · phases 23 · built 2026-08-07 19:27
+577 cards · rules 1 · fixes 213 · issues 49 · phases 23 · built 2026-08-11 15:16
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,13 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (208)
+## Fixes (213)
 
+FIX-213 2026-08-11 [backend,agents] Concierge system prompt overhaul — emojis, internals leakage, verbose agent detail, no proactive next-step, wrong run state label
+FIX-212 2026-08-11 [backend,frontend,workflow] "Start this workflow" chain chip persisted after clicking; revision pipeline_not_entitled; blank bubble on confirm; confirm button no feedback
+FIX-211 2026-08-11 [backend] chat_router auto-approved gate / auto-submitted clarify on plain chat text — PHASE_GATE_PAUSED: plain text with no gate action defaulted to action="approve" — any chat message during a review gate silently approved it
+FIX-210 2026-08-11 [backend,frontend,sse] Concierge proposal chips not appearing; revision confirm posting wrong run; revision UI not switching to new run — Concierge called propose_chain but chain_hints had no target_id exposed — only labels
+FIX-209 2026-08-11 [frontend] useSmoothText re-render loop — "Maximum update depth exceeded" at tick function; useMeasuredVirtualWindow scroll handler infinite loop
 FIX-208 2026-08-07 [frontend,agents] Notification panel agent progress shows 0/N for background concurrent runs — only viewed run shows live progress
 FIX-207 2026-08-07 [frontend,sse,auth] useRunStream "Maximum update depth exceeded" — setCursor and setLastMessage called on every SSE frame causing re-render storm with concurrent runs
 FIX-206 2026-08-07 [frontend,sse,agents] Concurrent background run agent frames contaminate Steps panel of a clarify-paused run — Domain Discovery Agent shown below clarify questions
