@@ -18,9 +18,11 @@ export interface PipelineNotification {
 }
 
 // ── localStorage persistence (FIX-202) ────────────────────────────────────────
-// v2 schema — bump the key when PipelineNotification shape changes incompatibly.
-const STORAGE_KEY = "flowin.notifications.v2";
-const DISMISSED_KEY = "flowin.notifications.dismissed.v2";
+// v3 schema — bumped from v2 to purge old notifications that lack workflowRunId.
+// Without workflowRunId, clicking a completed notification opens the wrong run.
+// All new notifications now get workflowRunId stamped at markCompleted time.
+const STORAGE_KEY = "flowin.notifications.v3";
+const DISMISSED_KEY = "flowin.notifications.dismissed.v3";
 
 function loadFromStorage(): PipelineNotification[] {
   if (typeof window === "undefined") return [];
