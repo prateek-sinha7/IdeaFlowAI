@@ -115,7 +115,7 @@ Use ALL available read tools: **Read files · Search for patterns · Trace call 
 | Frontend connection provider | `frontend/src/providers/RunConnectionProvider.tsx` | |
 | Frontend run screen | `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | |
 | Auth / entitlements | `backend/app/api/auth.py`, `backend/app/core/entitlements.py` | |
-| DB / migrations | `backend/alembic/versions/`, `backend/app/models/` | Head: 0026 |
+| DB / migrations | `backend/alembic/versions/`, `backend/app/models/` | Head: read it — `ls backend/alembic/versions/ \| sort \| tail -1` (0030 as of 2026-08-12) |
 | Scoped store / IDOR | `backend/agents/authz.py` | |
 | Concierge | `backend/app/agents/chat/concierge.py` | |
 
