@@ -2,7 +2,7 @@
 
 # Project knowledge — entry point
 
-You were redirected here because you asked to read a `.planning/` register whole. All 16.9 MB of `.planning/` is carried as **586 cards** in `.knowledge/cards/`; the registers themselves are unchanged on disk.
+You were redirected here because you asked to read a `.planning/` register whole. All 16.8 MB of `.planning/` is carried as **584 cards** in `.knowledge/cards/`; the registers themselves are unchanged on disk.
 
 This is not a failure. Query below — do not retry the original path.
 
@@ -32,7 +32,7 @@ python3 scripts/knowledge/ctx.py --show <ID>             # one card, full prose
 | `phase` | 23 | phase pointers → _register-parts/ shards | `ctx.py --type phase "compiler"` |
 | `test` | 49 | test-register sections | `ctx.py --type test "compiler"` |
 | `req` | 40 | requirement sections | `ctx.py --type req "artifacts"` |
-| `doc` | 67 | pointers to planning documents | `ctx.py --type doc "roadmap"` |
+| `doc` | 65 | pointers to planning documents | `ctx.py --type doc "roadmap"` |
 | `task` | 111 | pointers to quick/ and phases/ work folders | `ctx.py --type task "resume"` |
 
 **Areas:** `agents` (199), `workflow` (186), `frontend` (170), `sse` (131), `artifacts` (79), `backend` (79), `auth` (73), `resume` (43), `runtime` (31), `product` (29)
@@ -45,7 +45,7 @@ python3 scripts/knowledge/ctx.py --show <ID>             # one card, full prose
 | `.knowledge/INVARIANTS.md` | project-wide constraints | always |
 | `.knowledge/surface/RULES.md` | decisions in force | always |
 | `.knowledge/surface/INDEX.md` | 291 primary cards (decision, fix, issue, phase) | always |
-| `.knowledge/surface/CATALOG.md` | 295 secondary cards (bug, test, req, doc, task) | on demand |
+| `.knowledge/surface/CATALOG.md` | 293 secondary cards (bug, test, req, doc, task) | on demand |
 | `.knowledge/surface/index.json` | every entry + `facets` for filtering | tools only |
 
 ## If you genuinely need the raw register
