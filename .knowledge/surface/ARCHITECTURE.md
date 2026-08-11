@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (201), `workflow` (186), `frontend` (170), `sse` (131), `backend` (80), `artifacts` (79), `auth` (74), `resume` (44).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (203), `workflow` (187), `frontend` (170), `sse` (134), `backend` (81), `artifacts` (80), `auth` (74), `resume` (45).
 
 ## Constraints that bind every phase
 

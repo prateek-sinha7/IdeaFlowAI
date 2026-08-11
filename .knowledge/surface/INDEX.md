@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-587 cards · rules 1 · fixes 215 · issues 55 · phases 23 · built 2026-08-12 00:01
+591 cards · rules 1 · fixes 215 · issues 59 · phases 23 · built 2026-08-12 00:04
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -230,8 +230,12 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (55)
+## Issues (59)
 
+ISS-068 - [sse,resume,agents,test-infra] Shared red baseline on dev blocks the goldens from serving as a CI gate: 5 of 5 characterization event-snapshot tests fail (prototype, od_prototype, od_ppt, app_builder
+ISS-067 - [backend,sse,agents,test-infra] .kiro/steering/velocity-ai-fix.md carries five facts that are wrong on this machine and will mislead any agent that follows it: (1) it prescribes uv run --no-sync pytest but backend/.venv does NOT exist, so every command in it fails
+ISS-066 - [-] Register drift: ISS-054..ISS-061 have NO rows in ISSUES-REGISTER.md, yet those ids are live in FIX-190/192/193/194/195 rows, in cards, and in commit messages. ISS-055 is a free gap inside a used range
+ISS-065 - [sse,workflow,artifacts] No UI surfaces PER-ARTIFACT versions inside a run. artifact_refs durably stores every version (run d5dbc9f2 holds spec v1/v2/v3, task_list v1/v2, summary v1/v2) and GET /api/runs/{id}/artifacts already returns version per node
 ISS-064 - [agents] A second "Update the Specs" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline
 ISS-063 - [auth] The violet "Spec Revision Cycle N" banner (FIX-163) is LIVE-SESSION-ONLY state and never back-fills from durable events, so reopening a run that was revised shows no sign a revision ever happened
 ISS-062 - [agents] A/B measured across two live Bedrock runs: PRE-si4 run 5ecb990f reported eligible=True at every analyze gate including both re-opens (seq 9572/24652/24655)

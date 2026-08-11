@@ -111,6 +111,9 @@
       "FIX-175",
       "FIX-176"
     ],
+    "FIX-190": [
+      "ISS-066"
+    ],
     "FIX-194": [
       "FIX-201"
     ],
@@ -131,7 +134,9 @@
     ],
     "FIX-217": [
       "FIX-218",
-      "ISS-063"
+      "ISS-063",
+      "ISS-065",
+      "ISS-068"
     ],
     "FIX-218": [
       "ISS-062",
@@ -182,13 +187,24 @@
       "FIX-218",
       "ISS-051",
       "ISS-052",
-      "ISS-053"
+      "ISS-053",
+      "ISS-066"
     ],
     "ISS-051": [
       "FIX-218"
     ],
+    "ISS-054": [
+      "ISS-066"
+    ],
+    "ISS-055": [
+      "ISS-066"
+    ],
+    "ISS-061": [
+      "ISS-066"
+    ],
     "ISS-064": [
-      "ISS-062"
+      "ISS-062",
+      "ISS-066"
     ]
   },
   "by_area": {
@@ -330,6 +346,8 @@
       "ISS-053",
       "ISS-062",
       "ISS-064",
+      "ISS-067",
+      "ISS-068",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -440,6 +458,7 @@
       "ISS-027",
       "ISS-028",
       "ISS-038",
+      "ISS-065",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -632,6 +651,7 @@
       "FIX-213",
       "FIX-217",
       "FIX-218",
+      "ISS-067",
       "TEST-46"
     ],
     "docs": [
@@ -883,6 +903,7 @@
       "FIX-218",
       "ISS-048",
       "ISS-051",
+      "ISS-068",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1029,6 +1050,9 @@
       "ISS-048",
       "ISS-049",
       "ISS-051",
+      "ISS-065",
+      "ISS-067",
+      "ISS-068",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1076,7 +1100,9 @@
       "ISS-022",
       "ISS-025",
       "ISS-026",
-      "ISS-049"
+      "ISS-049",
+      "ISS-067",
+      "ISS-068"
     ],
     "workflow": [
       "BUG-002-sse",
@@ -1196,6 +1222,7 @@
       "ISS-047",
       "ISS-048",
       "ISS-049",
+      "ISS-065",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -1615,6 +1642,9 @@
     "backend/app/services/od_loader.py": [
       "FIX-040",
       "FIX-042b"
+    ],
+    "backend/dev.db": [
+      "ISS-067"
     ],
     "backend/requirements.txt": [
       "FIX-191"
@@ -2345,6 +2375,20 @@
     ],
     "ISS-064": [
       "FIX-218"
+    ],
+    "ISS-065": [
+      "FIX-217"
+    ],
+    "ISS-066": [
+      "FIX-190",
+      "ISS-050",
+      "ISS-054",
+      "ISS-055",
+      "ISS-061",
+      "ISS-064"
+    ],
+    "ISS-068": [
+      "FIX-217"
     ]
   },
   "rules_by_file": {

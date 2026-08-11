@@ -1,5 +1,5 @@
 {
-  "count": 587,
+  "count": 591,
   "entries": [
     {
       "area": [
@@ -6012,6 +6012,80 @@
       "type": "issue"
     },
     {
+      "area": [
+        "sse",
+        "workflow",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-065",
+      "path": ".knowledge/cards/ISS-065.md",
+      "relates": [
+        "FIX-217"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-065",
+      "status": "open",
+      "summary": "No UI surfaces PER-ARTIFACT versions inside a run. artifact_refs durably stores every version (run d5dbc9f2 holds spec v1/v2/v3, task_list v1/v2, summary v1/v2) and GET /api/runs/{id}/artifacts already returns version per node",
+      "type": "issue"
+    },
+    {
+      "area": [],
+      "date": "",
+      "files": [],
+      "id": "ISS-066",
+      "path": ".knowledge/cards/ISS-066.md",
+      "relates": [
+        "ISS-054",
+        "ISS-061",
+        "FIX-190",
+        "ISS-055",
+        "ISS-050",
+        "ISS-064"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-066",
+      "status": "open",
+      "summary": "Register drift: ISS-054..ISS-061 have NO rows in ISSUES-REGISTER.md, yet those ids are live in FIX-190/192/193/194/195 rows, in cards, and in commit messages. ISS-055 is a free gap inside a used range",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-067",
+      "path": ".knowledge/cards/ISS-067.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-067",
+      "status": "open",
+      "summary": ".kiro/steering/velocity-ai-fix.md carries five facts that are wrong on this machine and will mislead any agent that follows it: (1) it prescribes uv run --no-sync pytest but backend/.venv does NOT exist, so every command in it fails",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-068",
+      "path": ".knowledge/cards/ISS-068.md",
+      "relates": [
+        "FIX-217"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-068",
+      "status": "open",
+      "summary": "Shared red baseline on dev blocks the goldens from serving as a CI gate: 5 of 5 characterization event-snapshot tests fail (prototype, od_prototype, od_ppt, app_builder",
+      "type": "issue"
+    },
+    {
       "area": [],
       "date": "",
       "files": [],
@@ -8878,26 +8952,26 @@
   ],
   "facets": {
     "area": {
-      "agents": 201,
-      "artifacts": 79,
+      "agents": 203,
+      "artifacts": 80,
       "auth": 74,
-      "backend": 80,
+      "backend": 81,
       "docs": 2,
       "evals": 10,
       "frontend": 170,
       "harness": 2,
       "infra": 1,
       "product": 29,
-      "resume": 44,
+      "resume": 45,
       "runtime": 31,
-      "sse": 131,
-      "test-infra": 4,
-      "workflow": 186
+      "sse": 134,
+      "test-infra": 6,
+      "workflow": 187
     },
     "status": {
       "accepted": 1,
       "done": 551,
-      "open": 26,
+      "open": 30,
       "shipped": 1
     },
     "type": {
@@ -8905,7 +8979,7 @@
       "decision": 1,
       "doc": 65,
       "fix": 215,
-      "issue": 55,
+      "issue": 59,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -8923,5 +8997,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 00:01"
+  "generated": "2026-08-12 00:04"
 }
