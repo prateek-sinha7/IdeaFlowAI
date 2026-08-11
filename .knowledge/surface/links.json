@@ -276,6 +276,7 @@
       "FIX-194",
       "FIX-206",
       "FIX-208",
+      "FIX-213",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -594,6 +595,10 @@
       "FIX-189",
       "FIX-190",
       "FIX-191",
+      "FIX-210",
+      "FIX-211",
+      "FIX-212",
+      "FIX-213",
       "TEST-46"
     ],
     "docs": [
@@ -775,6 +780,9 @@
       "FIX-206",
       "FIX-207",
       "FIX-208",
+      "FIX-209",
+      "FIX-210",
+      "FIX-212",
       "ISS-022",
       "ISS-025",
       "TEST-0-1",
@@ -965,6 +973,7 @@
       "FIX-202",
       "FIX-206",
       "FIX-207",
+      "FIX-210",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1123,6 +1132,7 @@
       "FIX-201",
       "FIX-202",
       "FIX-205",
+      "FIX-212",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1454,7 +1464,9 @@
     ],
     "backend/app/agents/chat/concierge.py": [
       "FIX-115",
-      "FIX-116"
+      "FIX-116",
+      "FIX-210",
+      "FIX-213"
     ],
     "backend/app/agents/chat_narrator.py": [
       "FIX-083",
@@ -1482,6 +1494,9 @@
     "backend/app/api/agents.py": [
       "FIX-001"
     ],
+    "backend/app/api/chat_router.py": [
+      "FIX-211"
+    ],
     "backend/app/api/file_extract.py": [
       "FIX-191"
     ],
@@ -1502,7 +1517,10 @@
       "FIX-130",
       "FIX-152",
       "FIX-171",
-      "FIX-189"
+      "FIX-189",
+      "FIX-210",
+      "FIX-212",
+      "FIX-213"
     ],
     "backend/app/api/run_engine.py": [
       "FIX-152"
@@ -1684,7 +1702,8 @@
       "FIX-203",
       "FIX-205",
       "FIX-206",
-      "FIX-208"
+      "FIX-208",
+      "FIX-210"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
@@ -1752,10 +1771,14 @@
       "FIX-168",
       "FIX-171",
       "FIX-192",
-      "FIX-193"
+      "FIX-193",
+      "FIX-212"
     ],
     "frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx": [
       "FIX-085"
+    ],
+    "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.ts": [
+      "FIX-209"
     ],
     "frontend/src/components/history/RevisionFamilyView.tsx": [
       "FIX-053",
@@ -1832,7 +1855,8 @@
       "FIX-203",
       "FIX-204",
       "FIX-205",
-      "FIX-208"
+      "FIX-208",
+      "FIX-210"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
       "FIX-078"
@@ -2003,7 +2027,9 @@
       "FIX-176",
       "FIX-178",
       "FIX-180",
-      "FIX-188"
+      "FIX-188",
+      "FIX-210",
+      "FIX-212"
     ],
     "frontend/src/hooks/useRunStateStore.ts": [
       "FIX-201"
@@ -2018,6 +2044,9 @@
       "FIX-129",
       "FIX-135",
       "FIX-207"
+    ],
+    "frontend/src/hooks/useSmoothText.ts": [
+      "FIX-209"
     ],
     "frontend/src/hooks/useWorkflow.ts": [
       "FIX-007b",
@@ -2052,7 +2081,8 @@
       "FIX-135",
       "FIX-137",
       "FIX-144",
-      "FIX-152"
+      "FIX-152",
+      "FIX-210"
     ],
     "frontend/src/types/index.ts": [
       "FIX-001",
