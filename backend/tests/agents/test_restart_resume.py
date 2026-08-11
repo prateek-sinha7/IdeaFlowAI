@@ -3701,3 +3701,206 @@ async def test_stop_at_clarify_yields_pipeline_cancelled(monkeypatch):
 
     assert saw_cancelled, "Stop at clarify must yield the existing pipeline_cancelled terminal"
     session.close()
+
+
+# ===========================================================================
+# D2 (BUGFIX-SPEC-REVISION-CONTEXT §2) — a resumed run must REHYDRATE its
+# planning context from the durable rows, not rebuild it from the stub.
+#
+# `_execute_impl`'s skip-planner branch calls `_default_planning_context(user_message)`
+# on every resume, so `inferred_intent` collapses to `user_message[:200]` and every
+# list comes back empty — measured 4,591 -> 291 chars across 16 of 18 dispatches on the
+# reported run. The durable `planning_context` + `clarifications` rows ARE already in
+# `ectx.artifacts` at that point (RESUME-04 hydrates every kind at engine.py:1406), so
+# the fix is a pure read: rehydrate, never re-invoke (TRAP 4 / BUG-R05 —
+# `test_offset0_gate_resume_does_not_replan_or_reclarify` guards the re-invoke).
+#
+# Both tests carry `rehydrat` in their name so `-k rehydrat` selects exactly this pair.
+# ===========================================================================
+
+
+_REHYDRATE_INTENT = "PLANNER-INTENT-SENTINEL: a governed claims-intake workbench"
+_REHYDRATE_ANSWER = "SPINNAKER-SENTINEL"
+_REHYDRATE_QUESTION = "Which deployment target?"
+
+
+def _rehydrate_planner_json() -> str:
+    return _json.dumps({
+        "inferred_intent": _REHYDRATE_INTENT,
+        "has_topic": True,
+        "topic": "claims intake",
+        "explicit_constraints": [],
+        "implicit_constraints": ["IMPLICIT-SENTINEL: must stay auditable"],
+        "missing_information": ["deployment target"],
+        "execution_strategy": "sequential",
+        "execution_gate": "CLARIFY_REQUIRED",
+        "inferred_personas": [],
+        "inferred_nfrs": [],
+        "quality_targets": [],
+        "domain_insights": [],
+        "planner_timed_out": False,
+    })
+
+
+def _rehydrate_clarifications_json(round_num: int, qid: str, question: str, answer) -> str:
+    return _json.dumps([{
+        "question_id": qid,
+        "question_text": question,
+        "impact_level": "high",
+        "answer": answer,
+        "round": round_num,
+    }])
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_planning_context_rebuilds_planner_and_answers():
+    """D2 unit: the rehydrator reconstructs the planner's REAL intent plus every
+    answered clarification, and those constraints render in the composed prompt."""
+    from agents.execution_engine.engine import ExecutionEngine, PLANNER_AGENT_ID
+    from agents.loader import load_agent_spec
+
+    from tests.agents.test_redo_gate_safety import _make_ectx
+
+    run_id = "rehydrate-unit"
+    user_message = "Build me a governed claims intake workbench for inland marine."
+    ectx = _make_ectx(run_id)
+
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="planning_context",
+        producer_step="planner", producer_agent=PLANNER_AGENT_ID, task_id=None,
+        content=_rehydrate_planner_json(), location="artifact_refs/planning_context",
+    )
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
+        producer_step="clarify_round_1", producer_agent="clarify-agent", task_id=None,
+        content=_rehydrate_clarifications_json(1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER),
+        location="artifact_refs/clarifications",
+    )
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
+        producer_step="clarify_round_2", producer_agent="clarify-agent", task_id=None,
+        content=_rehydrate_clarifications_json(
+            2, "r2_q1", "Which auth model?", "ROUND2-SENTINEL"
+        ),
+        location="artifact_refs/clarifications",
+    )
+
+    engine = ExecutionEngine()
+    rebuilt = engine._rehydrate_planning_context(ectx, user_message)
+
+    assert rebuilt["inferred_intent"] == _REHYDRATE_INTENT, (
+        "the rehydrated intent must be the PLANNER's, not the user_message[:200] stub"
+    )
+    assert rebuilt["inferred_intent"] != user_message[:200]
+    assert "IMPLICIT-SENTINEL: must stay auditable" in rebuilt["implicit_constraints"]
+
+    constraints = rebuilt["explicit_constraints"]
+    assert f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in constraints, (
+        f"round 1's answered clarification must be merged back: {constraints}"
+    )
+    assert "Which auth model? → ROUND2-SENTINEL" in constraints, (
+        f"round 2's answered clarification must be merged back: {constraints}"
+    )
+    # A resumed run is mid-build — a stale CLARIFY_REQUIRED must not leak to a consumer.
+    assert rebuilt["execution_gate"] == "PROCEED"
+
+    # Idempotent: re-merging an already-merged base must not double-count.
+    again = engine._rehydrate_planning_context(ectx, user_message)
+    assert again["explicit_constraints"] == constraints
+
+    # The reconstruction is observable where it matters — the composed prompt.
+    spec = load_agent_spec("domain-analyst")
+    composed = await engine._compose_context_message(
+        spec, 0, [spec], user_message, rebuilt, ectx,
+    )
+    assert "**Explicit Constraints**" in composed
+    assert _REHYDRATE_ANSWER in composed, (
+        "the merged clarification answers must reach the dispatched prompt"
+    )
+    assert _REHYDRATE_INTENT in composed
+
+
+@pytest.mark.asyncio
+async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
+    """D2 wiring: driving the REAL resume tier on a run holding durable
+    `planning_context` + `clarifications` rows, the dispatched prompt carries the
+    planner's intent and the user's answer — not the truncated stub.
+
+    The unit test above would pass against a helper nobody calls; this is the proof
+    that the skip-planner branch actually routes through it.
+    """
+    from agents.artifacts.graph import ArtifactRef
+    from agents.authz import ScopedStore
+    from agents.execution_engine.engine import PLANNER_AGENT_ID
+
+    session, db_engine = _make_session()
+    run_id = f"rh-{uuid.uuid4().hex[:8]}"
+    owner = "rh-user"
+    ws = "ws-rh"
+    # The seeded brief IS the resumed run's user_message, so the stub intent the fix
+    # must displace (`user_message[:200]`) is a real, assertable string in the prompt.
+    user_message = "Run the wave workflow."
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="failed", workspace_id=ws,
+        input_=user_message,
+    )
+
+    # One durable run_events row = the in-flight evidence the resume classifier needs,
+    # WITHOUT an open review gate — so the resume re-enters step 0 and DISPATCHES it
+    # (a gate re-entry would skip the model call, and with it the compose under test).
+    pre_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    await pre_store.append_event(
+        run_id, seq=1, event_id="rh-1", type="agent_start",
+        payload_json={"agent_id": "sample-wave-plan"},
+    )
+
+    planner_json = _rehydrate_planner_json()
+    await pre_store.write_ref(ArtifactRef(
+        id=str(uuid.uuid4()), run_id=run_id, owner_id=owner, workspace_id=ws,
+        kind="planning_context", producer_step="planner", producer_agent=PLANNER_AGENT_ID,
+        task_id=None, content=planner_json, content_hash=_pb_hash(planner_json),
+        location="artifact_refs/planning_context", version=1, visibility="workspace",
+    ))
+    clar_json = _rehydrate_clarifications_json(
+        1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
+    )
+    await pre_store.write_ref(ArtifactRef(
+        id=str(uuid.uuid4()), run_id=run_id, owner_id=owner, workspace_id=ws,
+        kind="clarifications", producer_step="clarify_round_1",
+        producer_agent="clarify-agent", task_id=None, content=clar_json,
+        content_hash=_pb_hash(clar_json), location="artifact_refs/clarifications",
+        version=1, visibility="workspace",
+    ))
+    session.commit()
+
+    composed: list[str] = []
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+
+        _orig_compose = engine_b._compose_context_message
+
+        async def _spy_compose(*a, **k):
+            msg = await _orig_compose(*a, **k)
+            composed.append(msg)
+            return msg
+
+        engine_b._compose_context_message = _spy_compose  # type: ignore[assignment]
+
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+        await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+
+    assert composed, "the resumed run dispatched no agent — nothing to assert on"
+    first = composed[0]
+    assert _REHYDRATE_ANSWER in first, (
+        "D2: a resumed dispatch must carry the user's clarification answers; got:\n"
+        f"{first[:1500]}"
+    )
+    assert _REHYDRATE_INTENT in first, (
+        "D2: a resumed dispatch must carry the planner's real inferred_intent, not the "
+        f"user_message[:200] stub; got:\n{first[:1500]}"
+    )
+    assert f"**Inferred Intent**: {user_message[:200]}" not in first, (
+        "the truncated stub intent must be gone from the resumed dispatch"
+    )
+    session.close()
