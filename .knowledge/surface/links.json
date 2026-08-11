@@ -128,6 +128,9 @@
       "FIX-204",
       "FIX-205"
     ],
+    "FIX-217": [
+      "FIX-218"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -170,9 +173,13 @@
       "ISS-048"
     ],
     "ISS-050": [
+      "FIX-218",
       "ISS-051",
       "ISS-052",
       "ISS-053"
+    ],
+    "ISS-051": [
+      "FIX-218"
     ]
   },
   "by_area": {
@@ -283,6 +290,7 @@
       "FIX-208",
       "FIX-213",
       "FIX-217",
+      "FIX-218",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -612,6 +620,7 @@
       "FIX-212",
       "FIX-213",
       "FIX-217",
+      "FIX-218",
       "TEST-46"
     ],
     "docs": [
@@ -860,6 +869,7 @@
       "FIX-125",
       "FIX-152",
       "FIX-217",
+      "FIX-218",
       "ISS-048",
       "ISS-051",
       "PH-12-wave-scheduler-durable-resume-6",
@@ -1285,7 +1295,8 @@
       "FIX-190"
     ],
     "backend/agents/execution_engine/context.py": [
-      "FIX-217"
+      "FIX-217",
+      "FIX-218"
     ],
     "backend/agents/execution_engine/engine.py": [
       "FIX-016",
@@ -1303,7 +1314,8 @@
       "FIX-171",
       "FIX-175",
       "FIX-190",
-      "FIX-217"
+      "FIX-217",
+      "FIX-218"
     ],
     "backend/agents/execution_engine/kernel_services.py": [
       "FIX-007b"
@@ -1640,12 +1652,18 @@
     "backend/tests/agents/test_phase5_revision_validation.py": [
       "FIX-049"
     ],
+    "backend/tests/agents/test_redo_gate_safety.py": [
+      "FIX-218"
+    ],
     "backend/tests/agents/test_restart_resume.py": [
       "FIX-175",
       "FIX-217"
     ],
     "backend/tests/agents/test_spec_revision_context.py": [
       "FIX-217"
+    ],
+    "backend/tests/agents/test_spec_revision_cycles.py": [
+      "FIX-218"
     ],
     "backend/tests/unit/test_chat_narrator.py": [
       "FIX-083",
@@ -2240,6 +2258,11 @@
     ],
     "FIX-208": [
       "FIX-202"
+    ],
+    "FIX-218": [
+      "FIX-217",
+      "ISS-050",
+      "ISS-051"
     ],
     "ISS-012": [
       "ISS-014"

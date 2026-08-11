@@ -13,10 +13,73 @@
 | TEST-001 | FIX-001 (KAN-76) | 2026-06-22 | `backend/tests/unit/test_prompt_overrides.py` | 21 | 21 | 0 | ✅ Pass |
 | TEST-002 | FIX-002 (KAN-75) | 2026-06-22 | `backend/tests/unit/test_catalogue_nav.py` | 7 | 7 | 0 | ✅ Pass |
 | TEST-003 | FIX-217 (quick-260811-mxg) | 2026-08-11 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 11 | 11 | 0 | ✅ Pass |
+| TEST-004 | FIX-218 (quick-260811-si4) | 2026-08-11 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 8 | 8 | 0 | ✅ Pass |
 
 ---
 
 ## Detailed Test Entries
+
+### TEST-004 — FIX-218 (quick-260811-si4): nested + second-cycle spec revision
+
+```
+TEST COVERAGE — FIX-218
+Unit tests:        8 total, ALL GREEN
+                     5 NEW in backend/tests/agents/test_spec_revision_cycles.py
+                     3 REVIVED in backend/tests/agents/test_redo_gate_safety.py
+                   The 3 revived ones are guards that have been DEAD since KAN-101:
+                   _run_agent grew a keyword-only `update_specs_eligible` gate arg and
+                   swallows a stub TypeError into an `agent_error` event, so the four
+                   stale `_fake_gate` signatures produced a silently-ZERO gate count
+                   rather than an error. Adding `**kwargs` (test-only, no production
+                   diff) took the file 3 failed / 4 passed -> 7 passed.
+Integration tests: N/A — both defects are ENGINE CONTROL FLOW (which branch runs, at what
+                   stack depth, with which checkpoint thread id). The scripted-model
+                   harness drives the real _run_agent + real _run_spec_revision_sub_pipeline
+                   offline with no Bedrock call, so a separate integration tier would add
+                   cost without adding coverage. Live acceptance is DEFERRED, with its
+                   recipe recorded in 260811-si4-BASELINE.md.
+Frontend tests:    N/A — no frontend file was changed. InlineGateActions.tsx:130 already
+                   drives the button purely from the server flag and
+                   InlineGateActions.test.tsx:153 already asserts the hide path, so
+                   flipping the flag is the whole FE story.
+Goldens:           5 failed / 5 passed — IDENTICAL counts AND identical failing ids at the
+                   pre-change commit bf51a170 and after. Asserted by an automated
+                   string-diff against the GOLDENS-BASELINE line in
+                   260811-si4-BASELINE.md, in BOTH Task 2 and Task 3 — never eyeballed
+                   and never compared against a remembered figure.
+lint-imports:      3 kept / 1 broken — IDENTICAL at bf51a170. The broken contract is the
+                   pre-existing agents.capabilities -> execution_engine.od_context ->
+                   app.services.od_loader chain.
+Adjacent suites:   test_restart_resume.py 7 failed / 48 passed — unchanged, same ids.
+                   tests/unit/test_execution_engine.py 3 failed / 11 passed — unchanged,
+                   the 3 pre-existing clarify-engine reds.
+Regression guards:
+  - test_spec_revision_context.py (4, quick-260811-mxg): the prior-artifact injection at
+    BOTH consumer sites, the no-leak scoping and the :rev{N} fresh thread. Merged and
+    LIVE-PROVEN on Bedrock (run 5ecb990f), so these staying green is what proves FIX-217
+    is intact. The [reentry] parametrisation is also the only coverage of the RESUME-17
+    consumer site, which this fix re-routed through the shared helper.
+  - test_restart_resume.py -k rehydrat (7, quick-260811-mxg): the resume planning-context
+    rehydration is untouched.
+  - test_single_cycle_shape_is_unchanged (NEW): one revision cycle still yields exactly 4
+    dispatches, all sub-runs on :rev1, and the scratch fields clear on return. GREEN
+    BEFORE the engine change and green after — dormancy proven at the test level, not
+    only at the golden level.
+  - test_f2_unbounded_redos_keep_a_flat_stack (REVIVED): the flat-stack idiom this fix's
+    whole design leans on. It was dead while the design was being reasoned about.
+```
+
+**Discipline note.** The four defect tests were written FIRST and observed RED against the
+unmodified engine, with verbatim output recorded in `260811-si4-BASELINE.md`. The RED gate was
+deliberately strict — exactly 4 failed / 0 passed, and it REJECTS a pytest collection or
+fixture error as not-RED, because a swallowed stub error looks like a failing assertion from
+the outside. Every pre-fix failure reason matched the prediction: 4 dispatches instead of 7 and
+no `:rev2`; eligibility `[True, True, True]`; and 7 thread ids of which only 4 were unique.
+
+**Trap worth keeping.** Every gate stub in this area MUST accept `**kwargs`, and every drive of
+`_drive_agent` against the revision path MUST pass `index=2` explicitly — the default `index=0`
+makes `_run_spec_revision_sub_pipeline` `return` behind a `logger.warning`, so the test observes
+zero sub-dispatches and fails on a baffling count assertion instead of an obvious error.
 
 ### TEST-003 — FIX-217 (quick-260811-mxg): spec-revision context loss
 
