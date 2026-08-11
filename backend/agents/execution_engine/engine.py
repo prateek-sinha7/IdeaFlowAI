@@ -2981,8 +2981,9 @@ class ExecutionEngine:
         The planner is NOT re-invoked. Re-running it regresses BUG-R05 (quick 260719-hd5),
         which ``test_offset0_gate_resume_does_not_replan_or_reclarify`` guards.
 
-        Never raises into the run: a missing row, unparseable JSON, or a malformed
-        clarifications shape each degrade to the best context available.
+        Never raises into the run: a missing row, unparseable JSON, a malformed
+        clarifications shape, or a planner row whose ``explicit_constraints`` is not a
+        list of strings each degrade to the best context available.
 
         KNOWN LOSSINESS. ``_persist_qa`` (clarify_engine.py:867-884) writes the raw
         ``responses`` map BEFORE ``_merge_answers`` (:931-938) auto-fills a
@@ -3016,6 +3017,32 @@ class ExecutionEngine:
                 ectx.run_id, exc,
             )
             return self._default_planning_context(user_message)
+
+        # The planner row is raw, UNVALIDATED LLM JSON (smart_planner.py persists whatever
+        # the model returned), so ``explicit_constraints`` can be a non-list or hold
+        # non-string members. The idempotency ``set()`` below and the summary log's
+        # ``len()`` would then raise TypeError straight OUT of this helper — breaking the
+        # "never raises into the run" contract above on a resumed run, a path that did not
+        # exist before D2 became the first reader of this row. Normalise ONCE, here, so
+        # every later use is total. A well-formed row is unchanged (INV-3 dormant).
+        _constraints = base.get("explicit_constraints")
+        if not isinstance(_constraints, list):
+            if _constraints:
+                logger.warning(
+                    "resume rehydrate: planning_context for run %s has explicit_constraints "
+                    "as %s, not a list — dropping it and merging onto an empty list",
+                    ectx.run_id, type(_constraints).__name__,
+                )
+            base["explicit_constraints"] = []
+        else:
+            _strs = [c for c in _constraints if isinstance(c, str)]
+            if len(_strs) != len(_constraints):
+                logger.warning(
+                    "resume rehydrate: planning_context for run %s carried %d non-string "
+                    "explicit_constraint(s) — dropped",
+                    ectx.run_id, len(_constraints) - len(_strs),
+                )
+            base["explicit_constraints"] = _strs
 
         clar_refs = sorted(
             (r for r in ectx.artifacts.tree(ectx.run_id) if r.kind == "clarifications"),

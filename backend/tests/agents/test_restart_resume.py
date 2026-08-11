@@ -3724,12 +3724,15 @@ _REHYDRATE_ANSWER = "SPINNAKER-SENTINEL"
 _REHYDRATE_QUESTION = "Which deployment target?"
 
 
-def _rehydrate_planner_json() -> str:
+def _rehydrate_planner_json(explicit_constraints=None) -> str:
+    """The durable planner row. ``explicit_constraints`` is overridable so the
+    malformed-shape test can inject the raw, unvalidated LLM JSON the planner really
+    persists (a non-list, or a list holding non-strings)."""
     return _json.dumps({
         "inferred_intent": _REHYDRATE_INTENT,
         "has_topic": True,
         "topic": "claims intake",
-        "explicit_constraints": [],
+        "explicit_constraints": [] if explicit_constraints is None else explicit_constraints,
         "implicit_constraints": ["IMPLICIT-SENTINEL: must stay auditable"],
         "missing_information": ["deployment target"],
         "execution_strategy": "sequential",
@@ -3904,3 +3907,122 @@ async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
         "the truncated stub intent must be gone from the resumed dispatch"
     )
     session.close()
+
+
+# ===========================================================================
+# D2 hardening — the two findings the verifier raised against the first cut of
+# `_rehydrate_planning_context` (quick-260811-mxg, VERIFICATION.md C1 + C2).
+# Both carry `rehydrat` in their name so `-k rehydrat` still selects the set.
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    "bad_constraints,expected_kept",
+    [
+        ([{"c": "a dict, not a string"}], []),          # set() -> unhashable type: 'dict'
+        (5, []),                                         # set() -> int is not iterable
+        ("a bare string", []),                           # a str is iterable -> silent charwise set
+        (["keep me", 7, None, "and me"], ["keep me", "and me"]),
+    ],
+    ids=["list-of-dicts", "scalar-int", "bare-string", "mixed-list"],
+)
+@pytest.mark.asyncio
+async def test_rehydrate_survives_malformed_planner_constraints(bad_constraints, expected_kept):
+    """C1: the planner row is raw, unvalidated LLM JSON, so `explicit_constraints`
+    can be a non-list or hold non-strings. The idempotency `set()` and the summary
+    log's `len()` sit outside the merge guard, so before the normalisation these
+    shapes raised TypeError straight out of the helper — breaking its documented
+    "never raises into the run" contract on a resumed run. D2 is the first code to
+    read this row on resume, so the crash path did not exist before this fix.
+    """
+    from agents.execution_engine.engine import ExecutionEngine, PLANNER_AGENT_ID
+
+    from tests.agents.test_redo_gate_safety import _make_ectx
+
+    run_id = "rehydrate-malformed-planner"
+    ectx = _make_ectx(run_id)
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="planning_context",
+        producer_step="planner", producer_agent=PLANNER_AGENT_ID, task_id=None,
+        content=_rehydrate_planner_json(bad_constraints),
+        location="artifact_refs/planning_context",
+    )
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
+        producer_step="clarify_round_1", producer_agent="clarify-agent", task_id=None,
+        content=_rehydrate_clarifications_json(
+            1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
+        ),
+        location="artifact_refs/clarifications",
+    )
+
+    # Must not raise — this is the whole point.
+    rebuilt = ExecutionEngine()._rehydrate_planning_context(ectx, "Build the workbench.")
+
+    # Degrading on the malformed field must NOT cost us the rest of the row...
+    assert rebuilt["inferred_intent"] == _REHYDRATE_INTENT
+    # ...nor the clarification merge, which is D2's actual payload.
+    assert f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in rebuilt["explicit_constraints"]
+    # Well-formed members survive; malformed ones are dropped, never coerced.
+    for kept in expected_kept:
+        assert kept in rebuilt["explicit_constraints"]
+    assert all(isinstance(c, str) for c in rebuilt["explicit_constraints"])
+    assert not any(isinstance(c, (dict, int, type(None))) for c in rebuilt["explicit_constraints"])
+    # Exact-count, not just membership. Without the normalisation a bare string is
+    # ITERABLE, so `set()`/`list()` explode it charwise and every character becomes its
+    # own "constraint" — all of them str, so the isinstance assertions above would pass
+    # on a badly corrupted context. The count is what actually discriminates.
+    assert rebuilt["explicit_constraints"] == [
+        *expected_kept, f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}"
+    ], (
+        "the rebuilt constraints must be exactly the well-formed survivors plus the "
+        f"merged answer, with nothing coerced or exploded: {rebuilt['explicit_constraints']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_merge_survives_monkeypatched_clarify_engine():
+    """C2: the import-time `ClarifyEngine` bind is load-bearing and nothing covered it.
+
+    `test_offset0_gate_resume_does_not_replan_or_reclarify` monkeypatches the
+    `clarify_engine` MODULE attribute. A late-bound `from ... import ClarifyEngine`
+    inside the rehydrator would resolve to that fake, whose `_merge_answers` does not
+    exist -> AttributeError -> caught by the narrow guard -> a resumed run silently
+    carrying ZERO clarification answers. That is the exact silent degradation this
+    task exists to remove, so it gets a test rather than a comment.
+    """
+    import agents.execution_engine.clarify_engine as _clar_mod
+    from agents.execution_engine.engine import ExecutionEngine, PLANNER_AGENT_ID
+
+    from tests.agents.test_redo_gate_safety import _make_ectx
+
+    class _FakeClarifyNoMerge:
+        """Stands in for the fakes the resume tests install — no `_merge_answers`."""
+
+    run_id = "rehydrate-patched-clarify"
+    ectx = _make_ectx(run_id)
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="planning_context",
+        producer_step="planner", producer_agent=PLANNER_AGENT_ID, task_id=None,
+        content=_rehydrate_planner_json(), location="artifact_refs/planning_context",
+    )
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
+        producer_step="clarify_round_1", producer_agent="clarify-agent", task_id=None,
+        content=_rehydrate_clarifications_json(
+            1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
+        ),
+        location="artifact_refs/clarifications",
+    )
+
+    original = _clar_mod.ClarifyEngine
+    _clar_mod.ClarifyEngine = _FakeClarifyNoMerge  # exactly what the resume tests do
+    try:
+        rebuilt = ExecutionEngine()._rehydrate_planning_context(ectx, "Build the workbench.")
+    finally:
+        _clar_mod.ClarifyEngine = original
+
+    assert f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in rebuilt["explicit_constraints"], (
+        "the rehydrator must use the IMPORT-TIME ClarifyEngine bind — a late binding "
+        "would pick up the monkeypatched fake and silently drop every answer"
+    )
