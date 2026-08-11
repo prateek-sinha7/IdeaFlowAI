@@ -227,7 +227,11 @@ async def test_f2_unbounded_redos_keep_a_flat_stack() -> None:
     depths: list[int] = []
     gate_calls = {"n": 0}
 
-    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False):
+    # `**kwargs` is load-bearing, not tidiness: _run_agent passes keyword-only extras to the
+    # gate (e.g. `update_specs_eligible`) and swallows any stub TypeError into an `agent_error`
+    # event via its broad `except Exception`. A stale stub signature therefore does NOT error —
+    # the test silently observes ZERO gate firings and fails on a confusing count assertion.
+    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
         # Stack depth measured at the gate, inside _run_agent's loop body.
         depths.append(len(inspect.stack()))
         gate_calls["n"] += 1
@@ -262,7 +266,7 @@ async def test_f3_empty_output_after_redo_does_not_leak_lineage() -> None:
 
     gate_calls = {"n": 0}
 
-    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False):
+    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
         gate_calls["n"] += 1
         yield {
             "type": "review_gate_ready",
@@ -329,7 +333,7 @@ async def test_f3_exception_after_redo_does_not_leak_lineage() -> None:
 
     gate_calls = {"n": 0}
 
-    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False):
+    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
         gate_calls["n"] += 1
         yield {
             "type": "review_gate_ready",
@@ -444,7 +448,7 @@ async def test_redo_uses_fresh_checkpoint_thread_per_attempt() -> None:
     REDOS = 2
     gate_calls = {"n": 0}
 
-    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False):
+    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
         gate_calls["n"] += 1
         yield {
             "type": "review_gate_ready",
