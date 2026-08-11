@@ -692,6 +692,7 @@ secrets are masked.
 | `AWS_REGION` | `eu-central-1` | |
 | `ECR_REGISTRY` | `<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com` | |
 | `EC2_INSTANCE_ID` | `i-0abc123def456` | The tagged instance from §2.2 |
+| `KMS_KEY_ALIAS` | `velocityai-dev-euc1` | The project CMK that encrypts this environment's SecureString parameters. Copy the alias **exactly** as the KMS console shows it; the `alias/` prefix is optional. Leave unset only if your aliases follow the legacy `velocityai-<env>` (`velocityai` for prod) convention, which `deploy.yml` derives as a fallback. A mismatch fails the deploy at the first SecureString push with `InvalidKeyId`. |
 | `CORS_ORIGINS` | `["https://dev.velocityai.example.com"]` | JSON array string |
 | `PUBLIC_BASE_URL` | `https://dev.velocityai.example.com` | |
 | `BEDROCK_MODEL_ID` | `anthropic.claude-haiku-4-5-20251001-v1:0` | → `llm/model_id` |
@@ -827,6 +828,8 @@ Do this for **dev** first.
 | SSM command runs but status = `Failed` | On-box error (compose pull, ECR login, health check) | Read the printed stdout/stderr in the poll step; SSM into the box and check `journalctl -u velocityai-app.service` |
 | SSM command fails immediately with `_script.sh: 1: set: Illegal option -o pipefail` / `failed to run commands: exit status 2` | The generated `remote.sh` has no shebang, so `AWS-RunShellScript` executed it with the box's default `/bin/sh` (dash) instead of bash — dash doesn't support `set -o pipefail` | Confirmed fixed in `deploy.yml`: the heredoc now starts with `#!/bin/bash` before `set -euo pipefail` so SSM always runs it under bash regardless of the instance's default shell |
 | Health check times out | Image tag not in ECR yet, or app boot error (bad `SECRET_KEY`, DB unreachable) | Confirm `build` pushed the tag; check backend logs; verify `SECRET_KEY` is set and non-default in SSM |
+| Config push fails with `InvalidKeyId ... Alias alias/velocityai-<env> is not found` | The KMS alias in the account doesn't match the name `deploy.yml` derived. Real aliases often carry a region suffix (e.g. `velocityai-dev-euc1`), which the derivation doesn't know about | Set `KMS_KEY_ALIAS` on this Environment (§3.2) to the alias exactly as the KMS console shows it. The step aborts on the **first** SecureString, so no partial config was written — just fix the variable and re-run. |
+| Config push fails with `AccessDeniedException` on a SecureString | The deploy role's `KMSEncryptSecureStringViaSSM` statement doesn't cover this key | Add the key ARN to `github_cicd_kms_key_arns` for this environment's role (§2.1). Note the role is granted `kms:Encrypt` **only**, via SSM — it deliberately cannot call KMS directly. |
 | Config value not reaching the app | Wrong SSM key name — `velocityai-load-secrets` silently drops unknown keys | Use the exact names in [§10](#10-reference-config-key-mapping); Bedrock keys live under `llm/*` |
 | `docker compose pull` fails with `manifest unknown` | The digest isn't in the repo the box is pulling from (build job skipped/failed, or `ECR_REGISTRY` points at another account) | Re-run the workflow; confirm the `build` job completed and compare its digests with `/etc/velocityai/app.env` |
 | Push to ECR fails with `denied` | Build role missing ECR push actions, or repo ARN mismatch | Re-check the `ECRPushPull` statement resource ARNs (§2.1) |
