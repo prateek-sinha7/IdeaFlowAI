@@ -351,14 +351,6 @@ export default function DashboardPage() {
   // activePipelineRunId (cleared on cancel), this is NEVER cleared so handleResumeRun
   // in DashboardLayout can still find the run id after pipeline_cancelled fires.
   const [lastCancelledRunId, setLastCancelledRunId] = useState<string | null>(null);
-  // KAN-101 — spec revision cycle counter. Incremented each time an agent that
-  // was already "done" re-starts during an active pipeline run — the generic
-  // signal that update_specs fired and the specify→plan→analyze sub-pipeline is
-  // re-running. Reset to 0 on every pipeline_start (fresh or resumed run).
-  // SC-001/INV-1: keyed on generic "was already done" status, never an agent/
-  // workflow-name literal. INV-3: frontend-only, no backend event emitted.
-  const [specRevisionCount, setSpecRevisionCount] = useState(0);
-
   // Review gate state — set when review_gate_ready fires
   const [reviewGateData, setReviewGateData] = useState<{
     gateKey: string;
@@ -802,10 +794,6 @@ export default function DashboardPage() {
           // KAN-120: clear the lastCancelledRunId so the resumed run's pipeline_start
           // removes the "Cancelled" state from history and the chat lane.
           setLastCancelledRunId(null);
-          // KAN-101: reset the spec revision cycle counter on every new run start.
-          setSpecRevisionCount(0);
-          // KAN-101: disarm the cycle detector on new run start.
-          revisionCycleArmedRef.current = false;
         }
       }
 
@@ -906,19 +894,6 @@ export default function DashboardPage() {
       }
 
       if (!isForeignFrame && isForActiveRun) {
-        // KAN-101 — detect a spec revision cycle
-        if (msg.type === "agent_start") {
-          const agentId = (msg.data as Record<string, unknown> | undefined)?.agent_id as string | undefined
-            ?? (msg as unknown as Record<string, unknown>).agent_id as string | undefined;
-          if (agentId && revisionCycleArmedRef.current) {
-            const prevAgent = pipelineAgentsRef.current.find((a) => a.id === agentId);
-            if (prevAgent && prevAgent.status === "done") {
-              revisionCycleArmedRef.current = false;
-              setSpecRevisionCountRef.current((c) => c + 1);
-            }
-          }
-        }
-
         handlePipelineMsgRef.current?.({
           type: msg.type,
           ...(msg.data as Record<string, unknown> || {}),
@@ -1642,26 +1617,6 @@ export default function DashboardPage() {
   useEffect(() => {
     handlePipelineMsgRef.current = handlePipelineMsg;
   }, [handlePipelineMsg]);
-
-  // KAN-101 — keep refs to the live agents list and the spec revision counter setter
-  // so handleWebSocketMessage (a useCallback([])) can detect re-runs of already-done
-  // agents and increment the counter without closing over stale state.
-  const pipelineAgentsRef = useRef<import("@/types/index").AgentRunState[]>([]);
-  useEffect(() => {
-    pipelineAgentsRef.current = runStore.viewed.pipelineState.agents;
-    const agents = runStore.viewed.pipelineState.agents;
-    if (
-      runStore.viewed.pipelineState.isRunning &&
-      agents.length > 0 &&
-      agents.every((a) => a.status === "done")
-    ) {
-      revisionCycleArmedRef.current = true;
-    }
-  }, [runStore.viewed.pipelineState.agents, runStore.viewed.pipelineState.isRunning]);
-  const setSpecRevisionCountRef = useRef(setSpecRevisionCount);
-  // Armed = true once all agents are "done" mid-run (ready to detect next cycle).
-  // Flips to false when the first re-starting agent is detected → increments once.
-  const revisionCycleArmedRef = useRef(false);
 
   // BUG-005 — keep `trackedRunIdRef` pointed at the run this tab is driving/viewing
   // so the pipeline_start reset (handleWebSocketMessage) can run-scope itself. Sync
@@ -2567,9 +2522,10 @@ export default function DashboardPage() {
       reopenedFailedAgents={reopenedFailedAgents}
       reopenedAgentNameById={reopenedAgentNameById}
       submittedBrief={submittedBrief}
-      // KAN-101 — spec revision cycle counter, incremented when update_specs fires
-      // and the specify→plan→analyze sub-pipeline re-runs. Reset per new run.
-      specRevisionCount={specRevisionCount}
+      // ISS-063 — which spec-revision cycle this run is in. Derived per run inside
+      // the pipeline reducer from the accumulated agent restart counts, so the
+      // banner reads the same live, after a reload, and after a reconnect.
+      specRevisionCount={runStore.viewed.specRevisionCount}
       // Phase 31 (CHATUI-01/02/03) — the family-anchored transcript + the
       // transport-agnostic send, plus the nonce'd deep-link seam. The lane
       // (mounted in DashboardLayout) consumes messages/send/requestOpenTab;

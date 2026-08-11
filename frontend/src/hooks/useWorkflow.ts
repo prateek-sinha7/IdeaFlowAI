@@ -199,6 +199,26 @@ export function useWorkflow(): UseWorkflowReturn {
 }
 
 /**
+ * ISS-063 — which spec-revision cycle this run is in, derived from `agentStartCounts`.
+ *
+ * An `update_specs` pass re-runs a contiguous head of the pipeline, so the agent that
+ * has started the most times names the cycle: its first start is the original pass and
+ * every start after it is one revision. Deriving instead of counting events makes this
+ * a pure function of accumulated state — order-independent, idempotent under the event
+ * dedup, and identical whether frames arrive network-paced (live) or in one synchronous
+ * burst (the durable REST replay at dashboard/page.tsx). FIX-163/164's arm/consume
+ * detector needed neither property and had both failure modes.
+ *
+ * SC-001/INV-1: keyed on restart counts alone — no agent id, no workflow name.
+ */
+export function deriveSpecRevisionCount(counts: Record<string, number> | undefined): number {
+  if (!counts) return 0;
+  let max = 0;
+  for (const n of Object.values(counts)) if (n > max) max = n;
+  return max > 1 ? max - 1 : 0;
+}
+
+/**
  * Process an incoming pipeline WebSocket message and update state.
  * Call this from the parent component's onMessage handler.
  */
@@ -278,6 +298,15 @@ export function handlePipelineMessage(
         // render a relative age ("23h ago"). ADDITIVE optional — falls back to
         // the receipt time when the event omits it.
         createdAt: (msg.created_at as string) || prev.createdAt || new Date().toISOString(),
+        // ISS-063: a `pipeline_start` naming the SAME run is a resume or a
+        // replay-from-zero, not a new run — the restart history it re-announces has
+        // already happened, so carry it. Only a genuinely different run clears it.
+        // Without this the trailing resume frame lands last on every replay and
+        // zeroes the revision count the user is meant to be reading.
+        agentStartCounts:
+          pipelineRunIdFromStart && prev.pipelineRunId === pipelineRunIdFromStart
+            ? (prev.agentStartCounts ?? {})
+            : {},
       }));
 
       // Persist pipeline_run_id to sessionStorage so reconnection works
@@ -337,6 +366,14 @@ export function handlePipelineMessage(
           ...prev,
           agents: updated,
           currentAgentIndex: agentIdx,
+          // ISS-063: the only writer of the restart history. Lives here, inside the
+          // updater, so it reads `prev` rather than a post-commit ref — that is what
+          // makes it correct during the synchronous durable-replay loop, where no
+          // React commit can interleave between frames.
+          agentStartCounts: {
+            ...(prev.agentStartCounts ?? {}),
+            [agentId]: (prev.agentStartCounts?.[agentId] ?? 0) + 1,
+          },
         };
       });
       return true;

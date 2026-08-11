@@ -41,7 +41,7 @@
 import { useCallback, useRef, useState } from "react";
 import type React from "react";
 import type { PipelineRunState, WorkflowType, RunFamily } from "@/types/index";
-import { handlePipelineMessage } from "@/hooks/useWorkflow";
+import { deriveSpecRevisionCount, handlePipelineMessage } from "@/hooks/useWorkflow";
 
 // ─── Per-run state shape ───────────────────────────────────────────────────────
 
@@ -77,7 +77,10 @@ export interface PerRunState {
   // Run family for version timeline
   runFamily: RunFamily | null;
 
-  // Spec revision cycle counter (KAN-101)
+  // ISS-063 — which spec-revision cycle this run is in, derived from
+  // pipelineState.agentStartCounts by the reducer. Written in exactly one place
+  // (handleFrame); the arm/consume detector that used to compute this in page.tsx
+  // is deleted, not shadowed.
   specRevisionCount: number;
 
   // Terminal state (history reopen)
@@ -414,6 +417,11 @@ export function useRunStateStore(): RunStateStoreReturn {
     };
 
     handlePipelineMessage(flatMsg, fakeSetState as React.Dispatch<React.SetStateAction<PipelineRunState>>, agentStartTimes);
+
+    // ISS-063: the ONE writer of specRevisionCount. Derived from the restart history
+    // the reducer just accumulated, so the banner reports the same number live, after
+    // a reload, and after an SSE reconnect replays the log from zero.
+    entry.specRevisionCount = deriveSpecRevisionCount(entry.pipelineState.agentStartCounts);
 
     // Always project after any frame for the viewed run.
     if (runId === viewedRunIdRef.current) {
