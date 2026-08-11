@@ -6157,7 +6157,7 @@
         "ISS-064"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-062",
-      "status": "open",
+      "status": "done",
       "summary": "A/B measured across two live Bedrock runs: PRE-si4 run 5ecb990f reported eligible=True at every analyze gate including both re-opens (seq 9572/24652/24655)",
       "type": "issue"
     },
@@ -6190,7 +6190,7 @@
         "FIX-218"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-064",
-      "status": "open",
+      "status": "done",
       "summary": "A second \"Update the Specs\" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline",
       "type": "issue"
     },
@@ -9221,8 +9221,8 @@
     },
     "status": {
       "accepted": 1,
-      "done": 562,
-      "open": 31,
+      "done": 564,
+      "open": 29,
       "shipped": 1
     },
     "type": {
@@ -9248,5 +9248,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 01:05"
+  "generated": "2026-08-12 01:10"
 }
