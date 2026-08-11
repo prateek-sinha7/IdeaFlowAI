@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-585 cards · rules 1 · fixes 215 · issues 53 · phases 23 · built 2026-08-11 22:43
+587 cards · rules 1 · fixes 215 · issues 55 · phases 23 · built 2026-08-11 23:02
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -230,8 +230,10 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (53)
+## Issues (55)
 
+ISS-063 - [auth] The violet "Spec Revision Cycle N" banner (FIX-163) is LIVE-SESSION-ONLY state and never back-fills from durable events, so reopening a run that was revised shows no sign a revision ever happened
+ISS-062 - [agents] The update_specs_eligible fence added by FIX-218 OVER-FIRES at the re-opened analyze gate. Measured live on run d5dbc9f2 (2026-08-11): original analyze gate seq 9283 eligible=True, RE-OPENED analyze gate seq 20360 eligible=False
 ISS-053 - [agents,evals,auth] update_specs_eligible is an FE affordance only — _run_review_gate (engine.py:5470) acts on the gate action WITHOUT ever consulting it
 ISS-052 - [agents] One "Update the Specs" click costs FOUR approvals: the re-run specify gate, the re-run plan gate, then the analyze gate RE-OPENS after the sub-pipeline returns
 ISS-051 - [sse,resume,agents] A nested revision reaches depth 2 with BOTH levels computing revision_index=1, so two passes collide on the same :rev1 checkpoint thread (measured: 7 dispatches, only 4 unique thread ids)

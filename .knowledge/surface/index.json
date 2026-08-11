@@ -1,5 +1,5 @@
 {
-  "count": 585,
+  "count": 587,
   "entries": [
     {
       "area": [
@@ -5917,6 +5917,9 @@
       "files": [],
       "id": "ISS-050",
       "path": ".knowledge/cards/ISS-050.md",
+      "relates": [
+        "FIX-218"
+      ],
       "source": ".planning/ISSUES-REGISTER.md#iss-050",
       "status": "open",
       "summary": "A second \"Update the Specs\" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline",
@@ -5972,6 +5975,40 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-053",
       "status": "open",
       "summary": "update_specs_eligible is an FE affordance only \u2014 _run_review_gate (engine.py:5470) acts on the gate action WITHOUT ever consulting it",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-062",
+      "path": ".knowledge/cards/ISS-062.md",
+      "relates": [
+        "FIX-218",
+        "ISS-050"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-062",
+      "status": "open",
+      "summary": "The update_specs_eligible fence added by FIX-218 OVER-FIRES at the re-opened analyze gate. Measured live on run d5dbc9f2 (2026-08-11): original analyze gate seq 9283 eligible=True, RE-OPENED analyze gate seq 20360 eligible=False",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-063",
+      "path": ".knowledge/cards/ISS-063.md",
+      "relates": [
+        "FIX-163",
+        "FIX-217"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-063",
+      "status": "open",
+      "summary": "The violet \"Spec Revision Cycle N\" banner (FIX-163) is LIVE-SESSION-ONLY state and never back-fills from durable events, so reopening a run that was revised shows no sign a revision ever happened",
       "type": "issue"
     },
     {
@@ -8841,9 +8878,9 @@
   ],
   "facets": {
     "area": {
-      "agents": 200,
+      "agents": 201,
       "artifacts": 79,
-      "auth": 73,
+      "auth": 74,
       "backend": 80,
       "docs": 2,
       "evals": 10,
@@ -8860,7 +8897,7 @@
     "status": {
       "accepted": 1,
       "done": 551,
-      "open": 24,
+      "open": 26,
       "shipped": 1
     },
     "type": {
@@ -8868,7 +8905,7 @@
       "decision": 1,
       "doc": 65,
       "fix": 215,
-      "issue": 53,
+      "issue": 55,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -8886,5 +8923,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-11 22:43"
+  "generated": "2026-08-11 23:02"
 }

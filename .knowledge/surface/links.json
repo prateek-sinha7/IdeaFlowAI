@@ -97,7 +97,8 @@
       "FIX-194"
     ],
     "FIX-163": [
-      "FIX-164"
+      "FIX-164",
+      "ISS-063"
     ],
     "FIX-166": [
       "FIX-177"
@@ -129,7 +130,12 @@
       "FIX-205"
     ],
     "FIX-217": [
-      "FIX-218"
+      "FIX-218",
+      "ISS-063"
+    ],
+    "FIX-218": [
+      "ISS-050",
+      "ISS-062"
     ],
     "ISS-007": [
       "ISS-035"
@@ -176,7 +182,8 @@
       "FIX-218",
       "ISS-051",
       "ISS-052",
-      "ISS-053"
+      "ISS-053",
+      "ISS-062"
     ],
     "ISS-051": [
       "FIX-218"
@@ -320,6 +327,7 @@
       "ISS-051",
       "ISS-052",
       "ISS-053",
+      "ISS-062",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -505,6 +513,7 @@
       "ISS-048",
       "ISS-049",
       "ISS-053",
+      "ISS-063",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -2315,6 +2324,9 @@
     "ISS-048": [
       "ISS-045"
     ],
+    "ISS-050": [
+      "FIX-218"
+    ],
     "ISS-051": [
       "ISS-050"
     ],
@@ -2323,6 +2335,14 @@
     ],
     "ISS-053": [
       "ISS-050"
+    ],
+    "ISS-062": [
+      "FIX-218",
+      "ISS-050"
+    ],
+    "ISS-063": [
+      "FIX-163",
+      "FIX-217"
     ]
   },
   "rules_by_file": {
