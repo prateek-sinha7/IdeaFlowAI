@@ -14,10 +14,95 @@
 | TEST-002 | FIX-002 (KAN-75) | 2026-06-22 | `backend/tests/unit/test_catalogue_nav.py` | 7 | 7 | 0 | ✅ Pass |
 | TEST-003 | FIX-217 (quick-260811-mxg) | 2026-08-11 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 11 | 11 | 0 | ✅ Pass |
 | TEST-004 | FIX-218 (quick-260811-si4) | 2026-08-11 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 8 | 8 | 0 | ✅ Pass |
+| TEST-005 | FIX-219 (quick-260812-12t) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/agents/capabilities/gates/human.py`, `backend/agents/capabilities/gates/approval.py`, `backend/app/api/run_engine.py`, `backend/app/api/run_commands.py` | 18 | 18 | 0 | ✅ Pass |
 
 ---
 
 ## Detailed Test Entries
+
+### TEST-005 — FIX-219 (quick-260812-12t): update_specs eligibility is enforced
+
+```
+TEST COVERAGE — FIX-219
+Unit tests:        18 total, ALL GREEN
+                     5 NEW in backend/tests/agents/test_update_specs_enforcement.py
+                    13 NEW in backend/tests/unit/test_update_specs_ingress_fence.py
+                   RED FIRST, observed and recorded, never assumed:
+                     engine file  4 failed / 1 passed  -> 5 passed
+                     ingress file 3 failed / 10 passed -> 13 passed
+                   The engine file's 1 pre-fix pass is the DORMANCY guard
+                   (test_eligible_update_specs_still_fires): green before AND after, which
+                   is what proves the fence narrows nothing the rule permits. The ingress
+                   file's 10 pre-fix passes are the predicate's own abstain cases plus the
+                   eligible-path dormancy — the predicate existed before its 3 call sites
+                   were wired, so only the 3 wiring tests were red.
+Integration tests: N/A — the defect is ENGINE CONTROL FLOW plus REST dispatch. The engine
+                   half drives the REAL _run_review_gate offline (no stub) with a client
+                   task posting through the real ArtifactStore seam; the ingress half
+                   drives the REAL router over TestClient + in-memory SQLite. Both already
+                   exercise the exact code a live POST reaches, so a separate integration
+                   tier would add cost without coverage. Live Bedrock acceptance DEFERRED
+                   (end-of-milestone rule).
+Frontend tests:    N/A — no frontend file changed. The FE already drives the button from
+                   the server flag; this fix makes the server agree with what it published,
+                   so a correct FE sees no behaviour change at all. A stale tab now gets a
+                   409 instead of a silently-ignored 200.
+Goldens:           5 failed / 5 passed — IDENTICAL counts AND identical failing ids at the
+                   pre-change commit d62bfe4d and after (prototype, od_prototype, od_ppt,
+                   app_builder, prototype_revision event snapshots). NO golden regenerated.
+                   Worth recording WHY they cannot move: all 10 golden files contain ZERO
+                   review_gate_ready events (the harness runs gate_agent_ids=[],
+                   _scripted_model.py:649), so the goldens are structurally blind to any
+                   _run_review_gate change. INV-3 dormancy therefore had to be proven by
+                   the test-level dormancy guards above, NOT by the goldens.
+lint-imports:      3 kept / 1 broken — IDENTICAL at d62bfe4d. The broken contract is the
+                   pre-existing agents.capabilities -> execution_engine.od_context ->
+                   app.services.od_loader chain, untouched here.
+Adjacent suites:   Both measured in a DETACHED WORKTREE at d62bfe4d, not assumed:
+                     sweep A (spec_revision_cycles, spec_revision_context, redo_gate_safety,
+                       gates, declared_gate_streaming, sc001_gate_flag, rest_gate_commands,
+                       chat_messages_endpoint, concierge_proposal_channels,
+                       approve_review_ownership, sse_stream)
+                       10 failed / 159 passed BEFORE and AFTER — byte-identical failing ids
+                       (diff showed only the elapsed-time line).
+                     sweep B (banned_patterns, capability_resolution, restart_resume,
+                       execution_engine) 10 failed / 83 passed -> 10 failed / 101 passed,
+                       same ids; +18 passed = exactly this fix's new tests.
+                   The pre-existing reds are _Ctx/_Ectx harness drift, an expired AWS SSO
+                   token, and the known clarify-engine trio — none touched by this change.
+Regression guards:
+  - test_three_gate_vector_is_enforced_and_leaves_a_second_cycle_reachable (NEW): the
+    load-bearing one. HARVESTS the eligibility values the engine actually computes at the
+    outer / in-pass / re-opened analyze gates (never hardcoded) and feeds each into the
+    REAL _run_review_gate, asserting honored / REFUSED / honored. This is what proves
+    enforcement did not make a second revision cycle unreachable — if the rule ever changes
+    so the re-opened gate stops advertising eligibility, this fails loudly, which is the
+    signal to STOP rather than loosen the rule (loosening re-opens the nesting recursion
+    ISS-051 closed).
+  - test_gate_endpoint_leaves_the_other_actions_untouched (NEW, parametrised approve /
+    reject / redo): the fence is scoped to ONE action, so an ineligible gate is never a
+    trap — every other action still resolves it.
+  - test_predicate_abstains_* (NEW, 3): the ingress predicate must never FABRICATE a denial
+    when the durable log cannot answer (no row — persistence is best-effort; a different
+    gate; a pre-KAN-101 payload). A fabricated denial would 409 a LEGITIMATE revision
+    whenever a durable write degraded. Abstaining is only safe because the engine layer
+    never abstains — these two properties are load-bearing for each other.
+  - test_predicate_reads_the_LATEST_verdict_not_the_first (NEW): gate_key names a SLOT, not
+    a firing, so the same key fires repeatedly with DIFFERENT verdicts. Reading the first
+    row instead of the highest-seq one would re-open the whole hole.
+  - test_spec_revision_cycles.py (5, FIX-218): unchanged and still green — in particular
+    test_update_specs_not_offered_while_a_revision_is_in_flight, which already asserted the
+    True/False/True vector at the STUB level. It was verified green at d62bfe4d BEFORE this
+    work started (the brief's premise that the vector had no test was wrong) and is what
+    this fix's new vector test composes with rather than duplicates.
+  - test_nested_revision_keeps_distinct_threads_and_restores_the_outer_pass (FIX-218): the
+    si4 nesting safety. No client can reach a nested pass through _run_review_gate any more,
+    so its docstring was corrected to say it now pins DEFENCE IN DEPTH — kept deliberately
+    rather than deleted, because it is what keeps the engine correct if a future call site
+    ever passes the flag wrongly.
+  - test_banned_patterns.py (R15 CI gate) + test_sc001_gate_flag.py: green, so no workflow
+    name or agent-id literal entered the kernel on any new path.
+```
 
 ### TEST-004 — FIX-218 (quick-260811-si4): nested + second-cycle spec revision
 

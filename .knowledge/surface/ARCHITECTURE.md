@@ -18,7 +18,7 @@ Where the project is right now, and what constrains a change to it. Every other 
 - Phase: ALL COMPLETE — 45 [R0] 4/4 · 46 [R1] 8/8 · 47 [R2] 4/4 · 48 [R3] 4/4 · 49 [R4] 5/5 (KAN-88 green) · 50 [R5] 5/5
 - Plan: 14/14 plans complete across 6 phases; register reconciliation batch appended; requirements RESUME-05..18 all Complete
 - Status: Milestone v3.0 OFFLINE-COMPLETE — remaining: the consolidated live-Bedrock pass (orchestrator-owned) + /gsd-complete-milestone (user step; v2.0 close-out also still pending)
-- Last activity: 2026-08-11 — Completed quick task 260811-si4: flat sibling revision cycles from the re-opened gate, an in-flight affordance fence, and a re-entrant spec-revision sub-pipeline (FIX-218; closes ISS-064/051)
+- Last activity: 2026-08-12 — Completed quick task 260812-12t: `update_specs` eligibility enforced server-side — an engine fence that keeps the gate waiting plus one shared 409 predicate on all three ingresses (FIX-219; closes ISS-053, files ISS-070/071)
 
 ## Enforced boundaries
 
@@ -35,18 +35,18 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 
 | component | what it is | cards | on disk |
 |---|---|---:|---|
-| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 40 | 27 files |
+| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 45 | 27 files |
 | `backend/app/services` | application services | 2 | 5 files |
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
-| `backend/agents/execution_engine` | the execution kernel | 28 | 11 files |
+| `backend/agents/execution_engine` | the execution kernel | 29 | 11 files |
 | `backend/agents/workflows` | workflow manifests — data, not code paths | 23 | 5 files |
-| `backend/agents/capabilities` | capability adapters | 11 | 82 files |
+| `backend/agents/capabilities` | capability adapters | 13 | 82 files |
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
 | `backend/agents/artifact_store` | artifact persistence | 1 | 2 files |
 | `backend/agents/guardrails` | policy enforcement | 0 | 0 files |
 | `frontend/src/app` | Next.js routes | 51 | 22 files |
-| `frontend/src/components` | UI components | 193 | 189 files |
-| `frontend/src/hooks` | client state + stream handling | 29 | 23 files |
+| `frontend/src/components` | UI components | 195 | 189 files |
+| `frontend/src/hooks` | client state + stream handling | 30 | 23 files |
 
 **18 workflows** registered — `app_builder`, `app_builder_revision`, `chat`, `custom`, `dotnet_to_azure`, `mulesoft_to_springboot`, `od_ppt`, `od_ppt_revision`, `ppt`, `ppt_revision`, `prototype`, `prototype_revision`, `reverse_engineer`, `sample_brownfield`, `sample_fanout`, `sample_wave`, `user_stories`, `user_stories_revision`
 
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (203), `workflow` (187), `frontend` (170), `sse` (134), `backend` (81), `artifacts` (80), `auth` (74), `resume` (45).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (208), `workflow` (189), `frontend` (174), `sse` (139), `backend` (85), `artifacts` (81), `auth` (76), `resume` (45).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 243 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 244 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.
