@@ -168,6 +168,11 @@
     ],
     "ISS-045": [
       "ISS-048"
+    ],
+    "ISS-050": [
+      "ISS-051",
+      "ISS-052",
+      "ISS-053"
     ]
   },
   "by_area": {
@@ -277,6 +282,7 @@
       "FIX-206",
       "FIX-208",
       "FIX-213",
+      "FIX-217",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -302,6 +308,10 @@
       "ISS-047",
       "ISS-048",
       "ISS-049",
+      "ISS-050",
+      "ISS-051",
+      "ISS-052",
+      "ISS-053",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -403,6 +413,7 @@
       "FIX-154",
       "FIX-167",
       "FIX-167b",
+      "FIX-217",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -485,6 +496,7 @@
       "ISS-047",
       "ISS-048",
       "ISS-049",
+      "ISS-053",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -599,6 +611,7 @@
       "FIX-211",
       "FIX-212",
       "FIX-213",
+      "FIX-217",
       "TEST-46"
     ],
     "docs": [
@@ -612,6 +625,7 @@
       "FIX-100",
       "ISS-027",
       "ISS-029",
+      "ISS-053",
       "REQ-8",
       "TEST-2-1",
       "TEST-2-5"
@@ -833,6 +847,7 @@
       "BUG-R03-resume",
       "BUG-R04-resume",
       "BUG-R05-resume",
+      "DOC-bugfix-spec-revision-context",
       "DOC-resume-capability-design-draft",
       "DOC-resume-qa-test-sheet",
       "FIX-047",
@@ -844,7 +859,9 @@
       "FIX-121",
       "FIX-125",
       "FIX-152",
+      "FIX-217",
       "ISS-048",
+      "ISS-051",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -990,6 +1007,7 @@
       "ISS-047",
       "ISS-048",
       "ISS-049",
+      "ISS-051",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1266,6 +1284,9 @@
       "FIX-126",
       "FIX-190"
     ],
+    "backend/agents/execution_engine/context.py": [
+      "FIX-217"
+    ],
     "backend/agents/execution_engine/engine.py": [
       "FIX-016",
       "FIX-018",
@@ -1281,7 +1302,8 @@
       "FIX-121",
       "FIX-171",
       "FIX-175",
-      "FIX-190"
+      "FIX-190",
+      "FIX-217"
     ],
     "backend/agents/execution_engine/kernel_services.py": [
       "FIX-007b"
@@ -1619,7 +1641,11 @@
       "FIX-049"
     ],
     "backend/tests/agents/test_restart_resume.py": [
-      "FIX-175"
+      "FIX-175",
+      "FIX-217"
+    ],
+    "backend/tests/agents/test_spec_revision_context.py": [
+      "FIX-217"
     ],
     "backend/tests/unit/test_chat_narrator.py": [
       "FIX-083",
@@ -2265,6 +2291,15 @@
     ],
     "ISS-048": [
       "ISS-045"
+    ],
+    "ISS-051": [
+      "ISS-050"
+    ],
+    "ISS-052": [
+      "ISS-050"
+    ],
+    "ISS-053": [
+      "ISS-050"
     ]
   },
   "rules_by_file": {

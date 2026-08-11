@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-577 cards · rules 1 · fixes 213 · issues 49 · phases 23 · built 2026-08-11 15:16
+586 cards · rules 1 · fixes 214 · issues 53 · phases 23 · built 2026-08-11 21:00
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (213)
+## Fixes (214)
 
+FIX-217 2026-08-11 [backend,resume,agents,artifacts] update_specs regenerated the spec from scratch instead of revising it, and every resumed run rebuilt its planning context from a 200-char stub — the degraded spec then drove the planner and the finished prototype, with no UI signal
 FIX-213 2026-08-11 [backend,agents] Concierge system prompt overhaul — emojis, internals leakage, verbose agent detail, no proactive next-step, wrong run state label
 FIX-212 2026-08-11 [backend,frontend,workflow] "Start this workflow" chain chip persisted after clicking; revision pipeline_not_entitled; blank bubble on confirm; confirm button no feedback
 FIX-211 2026-08-11 [backend] chat_router auto-approved gate / auto-submitted clarify on plain chat text — PHASE_GATE_PAUSED: plain text with no gate action defaulted to action="approve" — any chat message during a review gate silently approved it
@@ -228,8 +229,12 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (49)
+## Issues (53)
 
+ISS-053 - [agents,evals,auth] update_specs_eligible is an FE affordance only — _run_review_gate (engine.py:5470) acts on the gate action WITHOUT ever consulting it
+ISS-052 - [agents] One "Update the Specs" click costs FOUR approvals: the re-run specify gate, the re-run plan gate, then the analyze gate RE-OPENS after the sub-pipeline returns
+ISS-051 - [sse,resume,agents] A nested revision reaches depth 2 with BOTH levels computing revision_index=1, so two passes collide on the same :rev1 checkpoint thread (measured: 7 dispatches, only 4 unique thread ids)
+ISS-050 - [agents] A second "Update the Specs" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline
 ISS-049 - [sse,workflow,agents,auth,test-infra] Surfaced by the 37-07 rebuild agent's careful re-analysis (corrects the earlier "~10 pre-existing" hand-wave): the FE suite has 2 DETERMINISTIC failures (both pre-existing, unrelated to 37-07) + ~8 FLAKY
 ISS-048 - [sse,resume,workflow,agents,auth,product] Phase-38 review (verifier PASS 11/11, 0 crit/high): (MD-1) useNotifications.ts:99/DashboardLayout.tsx:489 gate notification never reverts
 ISS-047 - [sse,workflow,agents,auth,product] 37-07 unified-launch rebuild re-review (verifier PASSED 3/3, 0 blockers, contract byte-identical, 0 dropped behaviors): (WR-05

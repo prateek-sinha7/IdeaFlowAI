@@ -3,7 +3,7 @@
 
 # Catalog
 
-291 cards · built 2026-08-11 15:16
+295 cards · built 2026-08-11 21:00
 
 Migrated for completeness — **not** loaded by default. Search with
 `ctx.py "<terms>"`; these rank alongside fixes and decisions.
@@ -134,7 +134,7 @@ REQ-7 [sse,workflow,artifacts] Prototype as Manifest — Parity Proof (Phase 2)
 REQ-8 [workflow,agents,evals,artifacts,runtime] Capability Registry, Gates & Tool Permissions (Phase 3)
 REQ-9 [workflow,artifacts,runtime] Local Workspace Runtime & Repo Workflows — No Exec (Phase 4A)
 
-## Documents (63)
+## Documents (67)
 
 DOC-bug-004-grounded-context [sse] BUG-004 — SSE stream DB connection leak (grounded fix spec)
 DOC-bug-006-007-grounded-context [-] BUG-006 + BUG-007 — grounded fix spec (cluster close-out)
@@ -149,6 +149,8 @@ DOC-bug-017-grounded-context [-] BUG-017 — grounded fix spec (Concierge chat r
 DOC-bug-018-grounded-context [-] BUG-018 — grounded fix spec (Concierge reply overwrites the user's question + footer takes over the last slot)
 DOC-bug-019-020-grounded-context [-] BUG-019 + BUG-020 — grounded fix spec (left chat lane header: stale name on fresh launch + raw un-humanized type)
 DOC-bug-021-grounded-context [-] BUG-021 — grounded fix spec (left chat transcript BODY carries over the previous run on a fresh launch)
+DOC-bugfix-nested-revision [-] Bugfix brief — the two deferred update_specs defects (A: nested revision, B: silent no-op)
+DOC-bugfix-spec-revision-context [resume] Bugfix brief — update_specs regenerates the spec; resume loses planning context
 DOC-chat-and-ui-convergence-plan [-] Universal Run Chat & VelocityAI UI Convergence — Plan of Record (Milestone v2.0)
 DOC-concierge-streaming-scope [-] Scope — Stream the Concierge reply (left chat lane)
 DOC-custom-workflow-qa-test-sheet [workflow] Custom Workflow Composer — Variation QA Test Sheet
@@ -179,8 +181,10 @@ DOC-resume-capability-design-draft [resume] Top-Tier Resume Capability — PLAN 
 DOC-resume-qa-test-sheet [resume] Resume QA Test Sheet — milestone v3.0 live-Bedrock pass (feat/ui-2)
 DOC-revision-family-and-run-inputs-plan [-] Revision Families & Run-Inputs Surfacing — Plan of Record
 DOC-roadmap [workflow,runtime] Roadmap: Workflow Engine Decoupling & Universal Workflow Runtime
+DOC-route-migration-cost-analysis [-] Route Migration Cost Analysis — mainView state-switching vs. real Next.js routes
 DOC-sse-qa-launch-journeys [sse] SSE QA — UI Launch-Journey Scenarios (listed + tracked)
 DOC-sse-qa-test-sheet [sse] SSE QA Test Sheet — feat/ui-2 (live Bedrock, post SSE-only cutover)
+DOC-test-harness-offline-design [-] Offline (No-LLM) Regression Harness — Design Proposal
 DOC-v1-0-milestone-audit [workflow,runtime] Milestone v1.0 — Audit: Workflow Engine Decoupling & Universal Workflow Runtime
 DOC-v2-0-evidence-01-run-ui-teardown [-] Run-Screen Mock Teardown (Hexaware Run / Run-Live / Run-Failed / Design System .dc.html)
 DOC-v2-0-evidence-02-workspace-shell-teardown [-] Workspace Shell Teardown (Hexaware Workspace v2.dc.html + sibling pages)

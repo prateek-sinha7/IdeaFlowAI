@@ -12,10 +12,70 @@
 |---------|--------|------|--------------|---------------|--------|--------|--------|
 | TEST-001 | FIX-001 (KAN-76) | 2026-06-22 | `backend/tests/unit/test_prompt_overrides.py` | 21 | 21 | 0 | ✅ Pass |
 | TEST-002 | FIX-002 (KAN-75) | 2026-06-22 | `backend/tests/unit/test_catalogue_nav.py` | 7 | 7 | 0 | ✅ Pass |
+| TEST-003 | FIX-217 (quick-260811-mxg) | 2026-08-11 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 11 | 11 | 0 | ✅ Pass |
 
 ---
 
 ## Detailed Test Entries
+
+### TEST-003 — FIX-217 (quick-260811-mxg): spec-revision context loss
+
+```
+TEST COVERAGE — FIX-217
+Unit tests:        11 total, ALL GREEN
+                     4 in backend/tests/agents/test_spec_revision_context.py
+                     7 in backend/tests/agents/test_restart_resume.py  (-k rehydrat)
+Integration tests: N/A — the defect is prompt COMPOSITION; the scripted-model harness
+                   (tests/agents/_scripted_model.py) exercises the full _run_agent
+                   dispatch path offline with no Bedrock call, so a separate
+                   integration tier would add cost without adding coverage.
+Frontend tests:    N/A — no frontend file was changed.
+Goldens:           5 failed / 5 passed — IDENTICAL failing ids at the pre-change commit
+                   edc44daa and at HEAD. Re-measured independently in a detached
+                   worktree at edc44daa rather than trusted as "pre-existing".
+                   (The remembered "10 failed / 6 passed" was stale dev data.)
+lint-imports:      3 kept / 1 broken — IDENTICAL at edc44daa; the broken contract is the
+                   pre-existing agents.capabilities -> execution_engine.od_context ->
+                   app.services.od_loader chain. "kernel imports only capability ports"
+                   stays KEPT, so the new top-level ClarifyEngine import crossed nothing.
+Adjacent suite:    test_restart_resume.py 7 failed / 48 passed vs 7 failed / 41 passed at
+                   edc44daa — same 7 failing ids, +7 from this work.
+Regression guards:
+  - test_revision_prompt_contains_prior_artifact[live] / [reentry]: the composed prompt
+    for the specify re-dispatch CONTAINS the prior spec, at BOTH _run_spec_revision_sub_pipeline
+    call sites. Parametrised because fixing only the live site would leave the bug intact in
+    exactly the restart scenario that exposed it.
+  - test_prior_artifact_does_not_leak_to_plan_or_analyze: the injection is scoped to the
+    specify sub-dispatch and cleared consume-once.
+  - test_revision_uses_fresh_thread: the revision dispatch's thread_id differs from pass 1's.
+  - test_rehydrate_planning_context_rebuilds_planner_and_answers: the resumed prompt carries
+    the planner's real intent and the merged clarification answers, not user_message[:200].
+  - test_rehydrate_survives_malformed_planner_constraints[4 params]: a non-list or
+    non-string explicit_constraints degrades instead of raising TypeError out of the
+    helper. All 4 seen RED against the pre-fix engine; one param initially passed for the
+    wrong reason (a bare string explodes charwise and chars ARE str, so the isinstance
+    assertion held) and was tightened to an exact-count assertion.
+  - test_rehydrate_merge_survives_monkeypatched_clarify_engine: proves the import-time
+    ClarifyEngine bind is load-bearing. Verified discriminating by running the late-binding
+    counterfactual, which silently drops every answer behind one warning line.
+  - test_offset0_gate_resume_does_not_replan_or_reclarify (pre-existing): stays green,
+    proving D2 rehydrates rather than re-invoking the planner (BUG-R05 / quick-260719-hd5).
+```
+
+**Discipline note.** All 5 original tests were written FIRST and observed RED, with verbatim
+output recorded in `260811-mxg-BASELINE.md`. The two added later (malformed-planner-row,
+monkeypatched-ClarifyEngine) were likewise proven RED/discriminating against the pre-fix
+engine before being accepted. The absence of any assertion on the revision payload —
+`spec_revision_context` appeared in ZERO test files — is why this defect shipped.
+
+**Live proof (Bedrock, run `5ecb990f-2c80-4752-a615-2bed3280387a`).** Full incident
+reproduction including a deliberate backend SIGTERM at the plan gate. spec v1 -> v2:
+31,742 -> 36,640 chars (+15.4%), 19 -> 19 headings (0 lost), 97.6% verbatim carry-over, the
+planted `KESTREL` sentinel retained 4x -> 4x; task_list 45,229 -> 87,567 (+93.6%). The
+incident it reproduces lost 8 headings, dropped "Spinnaker" 4x -> 0x and kept only 29.3%.
+
+---
+
 
 *Entries are appended below after each `/velocity-ai-test` session.*
 

@@ -1,5 +1,5 @@
 {
-  "count": 577,
+  "count": 586,
   "entries": [
     {
       "area": [
@@ -610,6 +610,30 @@
       "area": [],
       "date": "",
       "files": [],
+      "id": "DOC-bugfix-nested-revision",
+      "path": ".knowledge/cards/DOC-bugfix-nested-revision.md",
+      "source": ".planning/BUGFIX-NESTED-REVISION.md",
+      "status": "done",
+      "summary": "Bugfix brief \u2014 the two deferred update_specs defects (A: nested revision, B: silent no-op)",
+      "type": "doc"
+    },
+    {
+      "area": [
+        "resume"
+      ],
+      "date": "",
+      "files": [],
+      "id": "DOC-bugfix-spec-revision-context",
+      "path": ".knowledge/cards/DOC-bugfix-spec-revision-context.md",
+      "source": ".planning/BUGFIX-SPEC-REVISION-CONTEXT.md",
+      "status": "done",
+      "summary": "Bugfix brief \u2014 update_specs regenerates the spec; resume loses planning context",
+      "type": "doc"
+    },
+    {
+      "area": [],
+      "date": "",
+      "files": [],
       "id": "DOC-chat-and-ui-convergence-plan",
       "path": ".knowledge/cards/DOC-chat-and-ui-convergence-plan.md",
       "source": ".planning/CHAT-AND-UI-CONVERGENCE-PLAN.md",
@@ -967,6 +991,17 @@
       "type": "doc"
     },
     {
+      "area": [],
+      "date": "",
+      "files": [],
+      "id": "DOC-route-migration-cost-analysis",
+      "path": ".knowledge/cards/DOC-route-migration-cost-analysis.md",
+      "source": ".planning/ROUTE-MIGRATION-COST-ANALYSIS.md",
+      "status": "done",
+      "summary": "Route Migration Cost Analysis \u2014 mainView state-switching vs. real Next.js routes",
+      "type": "doc"
+    },
+    {
       "area": [
         "sse"
       ],
@@ -990,6 +1025,17 @@
       "source": ".planning/SSE-QA-TEST-SHEET.md",
       "status": "done",
       "summary": "SSE QA Test Sheet \u2014 feat/ui-2 (live Bedrock, post SSE-only cutover)",
+      "type": "doc"
+    },
+    {
+      "area": [],
+      "date": "",
+      "files": [],
+      "id": "DOC-test-harness-offline-design",
+      "path": ".knowledge/cards/DOC-test-harness-offline-design.md",
+      "source": ".planning/TEST-HARNESS-OFFLINE-DESIGN.md",
+      "status": "done",
+      "summary": "Offline (No-LLM) Regression Harness \u2014 Design Proposal",
       "type": "doc"
     },
     {
@@ -5067,6 +5113,27 @@
     },
     {
       "area": [
+        "backend",
+        "resume",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/execution_engine/context.py",
+        "backend/tests/agents/test_spec_revision_context.py",
+        "backend/tests/agents/test_restart_resume.py"
+      ],
+      "id": "FIX-217",
+      "path": ".knowledge/cards/FIX-217.md",
+      "source": ".planning/FIX-REGISTER.md#fix-217",
+      "status": "done",
+      "summary": "update_specs regenerated the spec from scratch instead of revising it, and every resumed run rebuilt its planning context from a 200-char stub \u2014 the degraded spec then drove the planner and the finished prototype, with no UI signal",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -5837,6 +5904,71 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-049",
       "status": "done",
       "summary": "Surfaced by the 37-07 rebuild agent's careful re-analysis (corrects the earlier \"~10 pre-existing\" hand-wave): the FE suite has 2 DETERMINISTIC failures (both pre-existing, unrelated to 37-07) + ~8 FLAKY",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-050",
+      "path": ".knowledge/cards/ISS-050.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-050",
+      "status": "open",
+      "summary": "A second \"Update the Specs\" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-051",
+      "path": ".knowledge/cards/ISS-051.md",
+      "relates": [
+        "ISS-050"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-051",
+      "status": "open",
+      "summary": "A nested revision reaches depth 2 with BOTH levels computing revision_index=1, so two passes collide on the same :rev1 checkpoint thread (measured: 7 dispatches, only 4 unique thread ids)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-052",
+      "path": ".knowledge/cards/ISS-052.md",
+      "relates": [
+        "ISS-050"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-052",
+      "status": "open",
+      "summary": "One \"Update the Specs\" click costs FOUR approvals: the re-run specify gate, the re-run plan gate, then the analyze gate RE-OPENS after the sub-pipeline returns",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "agents",
+        "evals",
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-053",
+      "path": ".knowledge/cards/ISS-053.md",
+      "relates": [
+        "ISS-050"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-053",
+      "status": "open",
+      "summary": "update_specs_eligible is an FE affordance only \u2014 _run_review_gate (engine.py:5470) acts on the gate action WITHOUT ever consulting it",
       "type": "issue"
     },
     {
@@ -8706,34 +8838,34 @@
   ],
   "facets": {
     "area": {
-      "agents": 194,
-      "artifacts": 78,
-      "auth": 72,
-      "backend": 78,
+      "agents": 199,
+      "artifacts": 79,
+      "auth": 73,
+      "backend": 79,
       "docs": 2,
-      "evals": 9,
+      "evals": 10,
       "frontend": 170,
       "harness": 2,
       "infra": 1,
       "product": 29,
-      "resume": 40,
+      "resume": 43,
       "runtime": 31,
-      "sse": 130,
+      "sse": 131,
       "test-infra": 4,
       "workflow": 186
     },
     "status": {
       "accepted": 1,
-      "done": 547,
-      "open": 20,
+      "done": 552,
+      "open": 24,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
-      "doc": 63,
-      "fix": 213,
-      "issue": 49,
+      "doc": 67,
+      "fix": 214,
+      "issue": 53,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -8751,5 +8883,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-11 15:16"
+  "generated": "2026-08-11 21:00"
 }
