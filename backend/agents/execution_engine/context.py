@@ -276,6 +276,29 @@ class ExecutionContext:
     # ``derived_from`` lineage of a re-run is intentionally NOT an ectx field — it is
     # a _run_agent loop local so it cannot leak across agents (F3).
     redo_directive: str = ""
+    # spec_revision_prior_artifact: the PRIOR version of the artifact a revision pass is
+    # rewriting, published for exactly ONE dispatch. Joins the consume-once
+    # injection-seam family (``redo_directive`` / ``spec_revision_context`` /
+    # ``steering_notes``) and follows its discipline exactly: set by
+    # ``_run_spec_revision_sub_pipeline`` immediately before the specify sub-dispatch,
+    # cleared in the SAME ``finally`` that clears ``spec_revision_context`` so the
+    # cancel / error / return paths all consume it once. The revision block instructs
+    # the writer to "preserve unchanged sections" while that writer declares
+    # ``consumes: []`` + ``tools: []`` — this field is its ONLY channel to the document
+    # (BUGFIX-SPEC-REVISION-CONTEXT D1). Default-empty ⇒ DORMANT on every non-revision
+    # dispatch (no block appended) ⇒ INV-3 byte-parity holds. Transient per-run scratch
+    # (INV-2 — never the engine singleton).
+    spec_revision_prior_artifact: str = ""
+    # revision_attempt: the revision sub-pipeline's index, published so ``_run_agent``
+    # can derive a FRESH ``:rev{N}`` checkpoint thread for the re-run. Without it the
+    # revision reuses the first pass's thread and correctness depends on the
+    # checkpointer replaying that turn — the P23 replay class the ``:redo{N}`` and
+    # ``:retry{n}`` suffixes already close (BUGFIX-SPEC-REVISION-CONTEXT D3). Mirrors
+    # ``_run_agent``'s ``redo_attempt`` local; named distinctly from that function's
+    # ``spec_revision_attempt`` local so the two are not confused for one another.
+    # Default 0 ⇒ DORMANT (no suffix) ⇒ INV-3 byte-parity holds. Transient per-run
+    # scratch (INV-2).
+    revision_attempt: int = 0
     # steering_notes: the consume-once MID-RUN steering queue (D-06 / CHAT-03 /
     # ND-11 — the THIRD member of the consume-once injection-seam family beside
     # ``redo_directive`` and KAN-101's ``spec_revision_context``; COEXIST, not

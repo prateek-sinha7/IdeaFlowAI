@@ -3538,6 +3538,16 @@ class ExecutionEngine:
                 # exact thread_id (INV-3 dormant).
                 if redo_attempt:
                     thread_id = f"{thread_id}:redo{redo_attempt}"
+                # Same class, same reason for a REVISION re-run: reusing the first pass's
+                # thread lets the checkpointer replay that turn, so the model "remembers"
+                # the pre-revision document and acknowledges it instead of rewriting it.
+                # This also closes a latent case — redo-then-update_specs previously
+                # revised the REJECTED draft (redo ran on :redo1, the revision re-ran on
+                # the base thread). Dormant when revision_attempt is 0, so every normal
+                # run and every characterization golden keeps its exact thread_id (INV-3).
+                _rev = getattr(ectx, "revision_attempt", 0) or 0
+                if _rev:
+                    thread_id = f"{thread_id}:rev{_rev}"
                 agent = create_runner(
                     spec.id,
                     ctx,
@@ -5028,6 +5038,15 @@ class ExecutionEngine:
         so ``_compose_context_message`` can inject it. Cleared on exit (consume-
         once, matching the ``ecto.redo_directive`` pattern — F3 precedent).
 
+        The specify re-dispatch ALSO receives its own prior output on
+        ``ectx.spec_revision_prior_artifact`` — the report instructs it to preserve
+        unchanged sections, and with ``consumes: []`` + ``tools: []`` that field is its
+        only channel to the document (D1). The plan/analyze re-dispatches do NOT get it.
+
+        The whole sub-pipeline runs on ``:rev{N}`` checkpoint threads (via
+        ``ectx.revision_attempt``), so a revision never depends on the checkpointer
+        replaying the pre-revision turn (D3).
+
         The three agents to re-run are identified by looking BACKWARDS from the
         current (analyzer) position in ``ordered_agents`` to find the three agents
         immediately before it: prototype-specify → prototype-plan → this agent.
@@ -5050,8 +5069,17 @@ class ExecutionEngine:
         plan_spec = ordered_agents[index - 1]
         analyze_spec = spec
 
+        # Read the document under revision ONCE, before the loop — the max-version typed
+        # read (F5 discipline), so a rehydrated graph's arbitrary insertion order cannot
+        # serve a stale version. Read before the loop because the specify re-run itself
+        # mints a new version partway through (D1).
+        prior_artifact = self._latest_typed_content(ectx, specify_spec.id) or ""
+
         # Inject the analysis report as revision context onto ectx (consume-once).
         ectx.spec_revision_context = analysis_report
+        # Publish the thread index — this is what makes the previously-dead
+        # ``revision_index`` parameter live (D3).
+        ectx.revision_attempt = revision_index
 
         new_analyze_output = ""
 
@@ -5073,6 +5101,13 @@ class ExecutionEngine:
                 # Drop the previous result entry for this agent so the re-run appends
                 # a fresh one (same pattern as _gate_redo's results.pop()).
                 results[:] = [r for r in results if r.get("agent_id") != sub_spec.id]
+
+                # Publish the prior artifact for the SPECIFY dispatch only. Identity
+                # against the spec object, not an id string (INV-1) — this is the
+                # no-leak guarantee: plan and analyze compose without the block.
+                ectx.spec_revision_prior_artifact = (
+                    prior_artifact if sub_spec is specify_spec else ""
+                )
 
                 # Re-run the agent — reuses the FULL _run_agent path (INV-12).
                 async for event in self._run_agent(
@@ -5114,8 +5149,12 @@ class ExecutionEngine:
                             break
 
         finally:
-            # Always clear the revision context scratch field — consume-once (F3).
+            # Always clear the revision context scratch fields — consume-once (F3).
+            # This finally already covers the cancel / error / early-return paths, so
+            # neither injection nor the :rev{N} thread suffix can outlive the pass.
             ectx.spec_revision_context = ""
+            ectx.spec_revision_prior_artifact = ""
+            ectx.revision_attempt = 0
 
         # Emit internal signal carrying the new analysis text so the gate consumer
         # can re-open the gate with the correct output.
@@ -6376,7 +6415,7 @@ class ExecutionEngine:
 
         On a post-restart gate re-entry the loop locals reset to 0, but a redo /
         update_specs threads a checkpoint id off ``redo_attempt`` / ``spec_revision_attempt``
-        (``:redo{N}`` / ``revision_index``). Reusing a pre-restart id is the P23
+        (``:redo{N}`` / ``:rev{N}``). Reusing a pre-restart id is the P23
         checkpointer-replay bug (the model "remembers" its rejected output). Derive the
         prior counts from TWO durable signals and take the MAX so the next id is STRICTLY
         greater than any pre-restart id — over-estimating is a fresh unused thread id;
@@ -8365,6 +8404,29 @@ class ExecutionEngine:
                 "\n=== ADDITIONAL INSTRUCTIONS (REVISE) ===\n"
                 f"{redo_note}\n"
                 "=== END ADDITIONAL INSTRUCTIONS ==="
+            )
+
+        # ── D1: the artifact UNDER revision — rendered BEFORE the report below ────────
+        # The revision block that follows tells the writer to preserve the sections it
+        # was not asked to change; that instruction is unsatisfiable unless the document
+        # is in the prompt. The writer declares ``consumes: []`` (and self-consumption is
+        # structurally impossible — _filter_consumed_outputs breaks on upstream.id ==
+        # spec.id) plus ``tools: []``, so this block is its ONLY channel to its own prior
+        # output (BUGFIX-SPEC-REVISION-CONTEXT D1). Subject first, instructions second.
+        # Keyed on the generic scratch field — no workflow/agent literal (SC-001) — and
+        # dormant on every non-revision dispatch ⇒ the goldens stay byte-identical
+        # (INV-3). Costs ~11k tokens, once per revision pass.
+        prior_artifact = getattr(ectx, "spec_revision_prior_artifact", "") or ""
+        if prior_artifact:
+            parts.append(
+                "\n=== PRIOR ARTIFACT UNDER REVISION ===\n"
+                "This is YOUR OWN previous output for this run — the document the analysis "
+                "report below refers to. Revise THIS document in place: reproduce every "
+                "section the report does not call out, verbatim, and change only what the "
+                "report identifies. Do NOT regenerate from scratch and do NOT drop sections "
+                "you were not asked to change.\n\n"
+                f"{prior_artifact}\n"
+                "=== END PRIOR ARTIFACT UNDER REVISION ==="
             )
 
         # ── KAN-101: Spec revision context — injected during a revision sub-pipeline ──
