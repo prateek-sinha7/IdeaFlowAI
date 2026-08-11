@@ -3362,7 +3362,7 @@ class ExecutionEngine:
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
-                        update_specs_eligible=_ek in self._UPDATE_SPECS_ELIGIBLE_KINDS,
+                        update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
                         cancel_event=cancel_event,
                     ):
@@ -3426,53 +3426,26 @@ class ExecutionEngine:
                             redo_attempt += 1
                             break
                         elif gate_event.get("type") == "_gate_update_specs":
-                            analysis_report = gate_event.get("analysis_report") or ""
+                            # RESUME-17 gate re-entry: identical to the live consumer, via
+                            # the ONE shared helper (INV-12). spec_revision_attempt was
+                            # seeded FAIL-SAFE HIGH from the durable gate_events above.
                             spec_revision_attempt += 1
-                            _us_runner = getattr(ectx, "runner", None)
-                            if _us_runner is not None and hasattr(_us_runner, "record_gate_event"):
-                                try:
-                                    await _us_runner.record_gate_event(
-                                        spec.id, "human", "update_specs",
-                                        {"has_report": bool(analysis_report)},
-                                    )
-                                except Exception:  # noqa: BLE001 — audit never aborts a run
-                                    logger.debug(
-                                        "update_specs audit row failed for agent %s (ignored)",
-                                        spec.id, exc_info=True,
-                                    )
-                            new_analysis_output = ""
-                            async for sub_event in self._run_spec_revision_sub_pipeline(
-                                spec=spec,
-                                index=index,
-                                ordered_agents=ordered_agents,
-                                user_message=user_message,
-                                sandbox=sandbox,
-                                pipeline_run_id=pipeline_run_id,
-                                pipeline_type=pipeline_type,
-                                planning_context=planning_context,
-                                attached_skills=attached_skills,
-                                attached_hooks=attached_hooks,
-                                model_id=model_id,
-                                results=results,
-                                cancel_event=cancel_event,
-                                ectx=ectx,
-                                analysis_report=analysis_report,
-                                revision_index=spec_revision_attempt,
+                            _us_cancelled = False
+                            async for _us_event in self._consume_update_specs(
+                                gate_event=gate_event, spec=spec, index=index,
+                                ordered_agents=ordered_agents, user_message=user_message,
+                                sandbox=sandbox, pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type, planning_context=planning_context,
+                                attached_skills=attached_skills, attached_hooks=attached_hooks,
+                                model_id=model_id, results=results, cancel_event=cancel_event,
+                                ectx=ectx, revision_index=spec_revision_attempt,
                             ):
-                                if sub_event.get("type") == "_revision_analyze_output":
-                                    new_analysis_output = sub_event.get("output", "")
-                                elif sub_event.get("type") == "_gate_rejected":
-                                    current = self._state_machine.get_state(pipeline_run_id)
-                                    if current not in ("cancelled", "failed"):
-                                        self._state_machine.transition(pipeline_run_id, "cancelled")
-                                    yield {"type": "pipeline_cancelled", "data": {
-                                        "pipeline_run_id": pipeline_run_id,
-                                        "reason": "Cancelled during spec revision sub-pipeline",
-                                    }}
-                                    return
+                                if _us_event.get("type") == "_update_specs_done":
+                                    _us_cancelled = bool(_us_event.get("cancelled"))
                                 else:
-                                    yield sub_event
-                            ectx.spec_revision_pending_output = new_analysis_output
+                                    yield _us_event
+                            if _us_cancelled:
+                                return
                             break
                         else:
                             yield gate_event
@@ -3506,7 +3479,7 @@ class ExecutionEngine:
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
-                        update_specs_eligible=_ek in self._UPDATE_SPECS_ELIGIBLE_KINDS,
+                        update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
                         cancel_event=cancel_event,
                     ):
@@ -3543,8 +3516,45 @@ class ExecutionEngine:
                             redo_attempt += 1
                             break
                         elif gate_event.get("type") == "_gate_update_specs":
-                            ectx.spec_revision_pending_output = gate_event.get("analysis_report") or ""
+                            # ── DEFECT B FIX (quick-260811-si4) ──────────────────────
+                            # This branch previously ONLY re-seeded
+                            # ``spec_revision_pending_output`` and broke. No sub-pipeline
+                            # call, no audit row, no log. So a SECOND "Update the Specs"
+                            # — at the gate the engine re-opens after a revision cycle —
+                            # closed the gate, instantly re-opened it on the IDENTICAL
+                            # content (the FE sends the analyzer's own output as the
+                            # report, InlineGateActions.tsx:163), ran nothing, and the
+                            # build then proceeded from the unrevised spec. A silent
+                            # no-op, invisible on screen, one wasted build.
+                            #
+                            # Driving the shared consumer here is a SIBLING call, NOT
+                            # recursion: _run_spec_revision_sub_pipeline's ``finally``
+                            # precedes its terminal ``_revision_analyze_output`` yield,
+                            # and the driving ``async for`` runs the generator to
+                            # exhaustion before breaking — so by the time control reaches
+                            # this re-opened gate the previous pass is fully unwound and
+                            # this call sits at the SAME stack depth as the live
+                            # consumer's. A flat cycle, the REDO-GATE F2 precedent
+                            # (asserted by test_reopened_gate_cycle_keeps_a_flat_stack).
+                            # The enclosing ``spec_revision_attempt`` local increments
+                            # across siblings, so cycle 2 naturally threads ``:rev2``.
                             spec_revision_attempt += 1
+                            _us_cancelled = False
+                            async for _us_event in self._consume_update_specs(
+                                gate_event=gate_event, spec=spec, index=index,
+                                ordered_agents=ordered_agents, user_message=user_message,
+                                sandbox=sandbox, pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type, planning_context=planning_context,
+                                attached_skills=attached_skills, attached_hooks=attached_hooks,
+                                model_id=model_id, results=results, cancel_event=cancel_event,
+                                ectx=ectx, revision_index=spec_revision_attempt,
+                            ):
+                                if _us_event.get("type") == "_update_specs_done":
+                                    _us_cancelled = bool(_us_event.get("cancelled"))
+                                else:
+                                    yield _us_event
+                            if _us_cancelled:
+                                return
                             break
                         else:
                             yield gate_event
@@ -4360,7 +4370,7 @@ class ExecutionEngine:
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
-                        update_specs_eligible=_ek in self._UPDATE_SPECS_ELIGIBLE_KINDS,
+                        update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
                         cancel_event=cancel_event,
                     ):
@@ -4443,92 +4453,35 @@ class ExecutionEngine:
                             break  # leave the gate consumer; the while-loop re-runs
                         elif gate_event.get("type") == "_gate_update_specs":
                             # KAN-101: "Update the Specs" — run the spec revision
-                            # sub-pipeline (specify → plan → analyze) with the
-                            # analysis report as additional context, then re-open
-                            # this gate with the new analysis output. FLAT loop
-                            # (like _gate_redo) — no recursion (F2 precedent).
-                            # Keyed on GENERIC event type, no agent/workflow literal
-                            # (INV-1 / SC-001).
-                            analysis_report = gate_event.get("analysis_report") or ""
+                            # sub-pipeline (specify → plan → analyze) with the analysis
+                            # report as additional context, then re-open this gate with
+                            # the new analysis output. FLAT loop (like _gate_redo) — no
+                            # recursion (F2 precedent). Keyed on GENERIC event type, no
+                            # agent/workflow literal (INV-1 / SC-001).
+                            #
+                            # si4: the body is the ONE shared _consume_update_specs helper
+                            # (INV-12) — the re-entry and re-open branches drive the
+                            # identical code rather than holding their own copies. The
+                            # helper stores the new output on ectx scratch; breaking here
+                            # lets the while-loop's pending short-circuit re-open the gate
+                            # WITHOUT re-running this agent's model.
                             spec_revision_attempt += 1
-                            # A2 (RESUME-17): best-effort, content-free update_specs audit
-                            # row in the INLINE consumer — SYMMETRIC with the _gate_redo
-                            # audit above, so a post-restart spec_revision_attempt is
-                            # derivable from the durable gate_events (else the sub-pipeline
-                            # thread ids could collide, the P23 replay class). Dormant on
-                            # goldens (they never update_specs). Never aborts the run.
-                            _us_runner = getattr(ectx, "runner", None)
-                            if _us_runner is not None and hasattr(_us_runner, "record_gate_event"):
-                                try:
-                                    await _us_runner.record_gate_event(
-                                        spec.id, "human", "update_specs",
-                                        {"has_report": bool(analysis_report)},
-                                    )
-                                except Exception:  # noqa: BLE001 — audit never aborts a run
-                                    logger.debug(
-                                        "update_specs audit row failed for agent %s (ignored)",
-                                        spec.id, exc_info=True,
-                                    )
-                            logger.info(
-                                "Spec revision sub-pipeline: pipeline=%s attempt=%d",
-                                pipeline_run_id, spec_revision_attempt,
-                            )
-                            # Run specify → plan → analyze with the analysis report
-                            # injected as revision context, collecting the new
-                            # analyze output for the re-opened gate.
-                            new_analysis_output = ""
-                            async for sub_event in self._run_spec_revision_sub_pipeline(
-                                spec=spec,
-                                index=index,
-                                ordered_agents=ordered_agents,
-                                user_message=user_message,
-                                sandbox=sandbox,
-                                pipeline_run_id=pipeline_run_id,
-                                pipeline_type=pipeline_type,
-                                planning_context=planning_context,
-                                attached_skills=attached_skills,
-                                attached_hooks=attached_hooks,
-                                model_id=model_id,
-                                results=results,
-                                cancel_event=cancel_event,
-                                ectx=ectx,
-                                analysis_report=analysis_report,
-                                revision_index=spec_revision_attempt,
+                            _us_cancelled = False
+                            async for _us_event in self._consume_update_specs(
+                                gate_event=gate_event, spec=spec, index=index,
+                                ordered_agents=ordered_agents, user_message=user_message,
+                                sandbox=sandbox, pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type, planning_context=planning_context,
+                                attached_skills=attached_skills, attached_hooks=attached_hooks,
+                                model_id=model_id, results=results, cancel_event=cancel_event,
+                                ectx=ectx, revision_index=spec_revision_attempt,
                             ):
-                                if sub_event.get("type") == "_revision_analyze_output":
-                                    # Internal signal carrying the new analysis text
-                                    new_analysis_output = sub_event.get("output", "")
-                                elif sub_event.get("type") == "_gate_rejected":
-                                    # Stop button fired during the sub-pipeline
-                                    current = self._state_machine.get_state(pipeline_run_id)
-                                    if current not in ("cancelled", "failed"):
-                                        self._state_machine.transition(pipeline_run_id, "cancelled")
-                                    yield {"type": "pipeline_cancelled", "data": {
-                                        "pipeline_run_id": pipeline_run_id,
-                                        "reason": "Cancelled during spec revision sub-pipeline",
-                                    }}
-                                    return
+                                if _us_event.get("type") == "_update_specs_done":
+                                    _us_cancelled = bool(_us_event.get("cancelled"))
                                 else:
-                                    yield sub_event
-                            # Re-open the analyze gate with the new output so the
-                            # user can Accept or request another revision cycle.
-                            # The while-loop top will never re-run THIS agent (analyze)
-                            # in the outer while True: — instead we immediately re-open
-                            # the gate right here by re-calling _run_review_gate and
-                            # looping the gate consumer inline. We achieve this by
-                            # updating `output` (which becomes the new gate content)
-                            # and doing `continue` to restart the gate-consumer for
-                            # the outer while True: — but that would re-run the agent.
-                            # Correct approach: yield the gate events directly here
-                            # by breaking out and letting the outer while True: loop
-                            # re-enter _run_review_gate via a `continue`. We set
-                            # a flag so the next iteration skips the model run and
-                            # goes straight to the gate with new_analysis_output.
-                            # Simplest correct implementation: store the new output on
-                            # ectx scratch and break — the while True: re-enters and
-                            # a sentinel on ectx tells the top of the loop to skip
-                            # the model call and jump straight to the gate.
-                            ectx.spec_revision_pending_output = new_analysis_output
+                                    yield _us_event
+                            if _us_cancelled:
+                                return
                             break  # leave gate consumer; while-loop re-enters
                         else:
                             yield gate_event
@@ -5225,6 +5178,35 @@ class ExecutionEngine:
         current (analyzer) position in ``ordered_agents`` to find the three agents
         immediately before it: prototype-specify → prototype-plan → this agent.
         This is STRUCTURAL (position-based), not name-based (INV-1 / SC-001).
+
+        RE-ENTRANCY (quick-260811-si4, BUGFIX-NESTED-REVISION defect A)
+        --------------------------------------------------------------
+        This method can RE-ENTER ITSELF. The analyze re-run below is a full ``_run_agent``,
+        so it opens its own human gate, and the gate ACTION is client-controlled —
+        ``_run_review_gate`` acts on ``action == "update_specs"`` without consulting the
+        ``update_specs_eligible`` flag, which only ever reaches the frontend. The fence in
+        ``_update_specs_eligible`` stops the UI OFFERING that route; it cannot stop a
+        replayed or crafted POST taking it. So this method is made SAFE at any depth rather
+        than assumed non-re-entrant:
+
+        * **Distinct ``:rev{N}`` at any depth.** ``revision_index`` arrives from the
+          caller's per-``_run_agent`` local, which restarts at 0 for every invocation, so
+          two nesting levels both computed 1. The effective index is instead derived from
+          ``ectx.revision_high_water`` — a MONOTONE per-run mark that is never restored —
+          so no two passes, sibling or nested, can mint the same checkpoint thread id.
+          MEASURED pre-fix: both levels published index 1 and the run minted three
+          duplicate ``:rev1`` ids, so the nested pass was served the outer pass's
+          LangGraph conversation replay (the P23 class).
+        * **An inner pass cannot strip the outer pass's state.** The ``finally`` below
+          RESTORES the three scratch fields to what they held at entry instead of clearing
+          them to zero/empty. MEASURED pre-fix: at the gate reached after the nested pass
+          returned — with the OUTER pass still on the stack — ``revision_attempt`` was 0
+          and ``spec_revision_context`` was empty, so the outer pass's remaining dispatches
+          silently lost both their ``:rev`` suffix and their analysis report.
+
+        At the OUTER nesting level the saved values are ``""`` / ``""`` / ``0``, so the
+        restore is byte-equivalent to the previous unconditional clear and a first cycle
+        still resolves to index 1 → ``:rev1``. Dormant on every non-revision run (INV-3).
         """
         # Identify the three agents to re-run: the two agents before this one
         # in ordered_agents (specify, plan) plus this agent (analyze).
@@ -5243,6 +5225,22 @@ class ExecutionEngine:
         plan_spec = ordered_agents[index - 1]
         analyze_spec = spec
 
+        # ── RE-ENTRANCY (si4) ────────────────────────────────────────────────────────
+        # Derive the EFFECTIVE index from the per-run high-water mark rather than trusting
+        # the caller's per-_run_agent local, which restarts at 0 on every invocation and so
+        # makes two nesting levels both publish 1. The mark is monotone and NEVER restored
+        # — that is the whole guarantee that no two passes mint the same :rev{N}.
+        # First cycle: high-water 0, revision_index 1 → 1 > 0 → 1 ⇒ :rev1 unchanged (INV-3).
+        _prev_high = getattr(ectx, "revision_high_water", 0)
+        effective_index = revision_index if revision_index > _prev_high else _prev_high + 1
+        ectx.revision_high_water = effective_index
+
+        # Capture the state THIS pass is about to overwrite, so the finally can restore it
+        # instead of zeroing an outer pass that is still on the stack.
+        _saved_attempt = ectx.revision_attempt
+        _saved_context = getattr(ectx, "spec_revision_context", "")
+        _saved_prior = ectx.spec_revision_prior_artifact
+
         # Read the document under revision ONCE, before the loop — the max-version typed
         # read (F5 discipline), so a rehydrated graph's arbitrary insertion order cannot
         # serve a stale version. Read before the loop because the specify re-run itself
@@ -5252,8 +5250,9 @@ class ExecutionEngine:
         # Inject the analysis report as revision context onto ectx (consume-once).
         ectx.spec_revision_context = analysis_report
         # Publish the thread index — this is what makes the previously-dead
-        # ``revision_index`` parameter live (D3).
-        ectx.revision_attempt = revision_index
+        # ``revision_index`` parameter live (D3). The EFFECTIVE index, not the caller's
+        # raw one, so a nested pass cannot re-publish the outer pass's number (si4).
+        ectx.revision_attempt = effective_index
 
         new_analyze_output = ""
 
@@ -5323,16 +5322,123 @@ class ExecutionEngine:
                             break
 
         finally:
-            # Always clear the revision context scratch fields — consume-once (F3).
-            # This finally already covers the cancel / error / early-return paths, so
-            # neither injection nor the :rev{N} thread suffix can outlive the pass.
-            ectx.spec_revision_context = ""
-            ectx.spec_revision_prior_artifact = ""
-            ectx.revision_attempt = 0
+            # RESTORE, don't clear (si4). Consume-once still holds: this finally covers
+            # the cancel / error / early-return paths, so neither injection nor the
+            # :rev{N} thread suffix can outlive the pass. But an INNER pass must hand the
+            # outer pass back the index and report it was running with, not zero them
+            # while the outer pass is still on the stack. At the OUTER level the saved
+            # values are ""/""/0, so this is byte-equivalent to the previous
+            # unconditional clear (INV-3 dormancy).
+            # ``revision_high_water`` is deliberately NOT restored — that is the point.
+            ectx.spec_revision_context = _saved_context
+            ectx.spec_revision_prior_artifact = _saved_prior
+            ectx.revision_attempt = _saved_attempt
 
         # Emit internal signal carrying the new analysis text so the gate consumer
         # can re-open the gate with the correct output.
         yield {"type": "_revision_analyze_output", "output": new_analyze_output}
+
+    async def _consume_update_specs(
+        self,
+        *,
+        gate_event,
+        spec,
+        index: int,
+        ordered_agents: list,
+        user_message: str,
+        sandbox,
+        pipeline_run_id: str,
+        pipeline_type: str,
+        planning_context: dict,
+        attached_skills,
+        attached_hooks,
+        model_id,
+        results: list[dict],
+        cancel_event,
+        ectx,
+        revision_index: int,
+    ) -> AsyncGenerator[dict, None]:
+        """The ONE ``_gate_update_specs`` consumer, shared by all three gate branches.
+
+        There are three places a gate can hand back ``_gate_update_specs`` — the RESUME-17
+        restart-parked re-entry gate, the pending-re-open short-circuit, and the live
+        post-stream gate. They previously held two near-identical 50-line copies of this
+        logic (differing only in a ``logger.info``) and one broken stub. This is the single
+        implementation (INV-12): after si4 exactly ONE
+        ``_run_spec_revision_sub_pipeline`` call site exists in this file.
+
+        Writes the content-free audit row, drives the sub-pipeline, forwards its events
+        upstream, and finishes with ONE terminal ``_update_specs_done`` sentinel telling the
+        caller whether the pass was cancelled. That sentinel is INTERNAL — every call site
+        consumes it and it must never reach the wire.
+        """
+        analysis_report = gate_event.get("analysis_report") or ""
+
+        # A2 (RESUME-17): best-effort, content-free update_specs audit row — SYMMETRIC with
+        # the _gate_redo audit, so a post-restart spec_revision_attempt is derivable from
+        # the durable gate_events (else the sub-pipeline thread ids could collide, the P23
+        # replay class). Dormant on goldens (they never update_specs). Never aborts the run.
+        _us_runner = getattr(ectx, "runner", None)
+        if _us_runner is not None and hasattr(_us_runner, "record_gate_event"):
+            try:
+                await _us_runner.record_gate_event(
+                    spec.id, "human", "update_specs",
+                    {"has_report": bool(analysis_report)},
+                )
+            except Exception:  # noqa: BLE001 — audit never aborts a run
+                logger.debug(
+                    "update_specs audit row failed for agent %s (ignored)",
+                    spec.id, exc_info=True,
+                )
+        logger.info(
+            "Spec revision sub-pipeline: pipeline=%s attempt=%d",
+            pipeline_run_id, revision_index,
+        )
+
+        # Run specify → plan → analyze with the analysis report injected as revision
+        # context, collecting the new analyze output for the re-opened gate.
+        new_analysis_output = ""
+        async for sub_event in self._run_spec_revision_sub_pipeline(
+            spec=spec,
+            index=index,
+            ordered_agents=ordered_agents,
+            user_message=user_message,
+            sandbox=sandbox,
+            pipeline_run_id=pipeline_run_id,
+            pipeline_type=pipeline_type,
+            planning_context=planning_context,
+            attached_skills=attached_skills,
+            attached_hooks=attached_hooks,
+            model_id=model_id,
+            results=results,
+            cancel_event=cancel_event,
+            ectx=ectx,
+            analysis_report=analysis_report,
+            revision_index=revision_index,
+        ):
+            if sub_event.get("type") == "_revision_analyze_output":
+                # Internal signal carrying the new analysis text
+                new_analysis_output = sub_event.get("output", "")
+            elif sub_event.get("type") == "_gate_rejected":
+                # Stop button fired during the sub-pipeline
+                current = self._state_machine.get_state(pipeline_run_id)
+                if current not in ("cancelled", "failed"):
+                    self._state_machine.transition(pipeline_run_id, "cancelled")
+                yield {"type": "pipeline_cancelled", "data": {
+                    "pipeline_run_id": pipeline_run_id,
+                    "reason": "Cancelled during spec revision sub-pipeline",
+                }}
+                yield {"type": "_update_specs_done", "cancelled": True}
+                return
+            else:
+                yield sub_event
+
+        # Re-open the gate with the new output so the user can Accept or request another
+        # revision cycle. The while-loop must NOT re-run this agent, so the new output goes
+        # on ectx scratch and the caller breaks: the loop top's pending short-circuit sees
+        # the sentinel, skips the model call and jumps straight to the gate.
+        ectx.spec_revision_pending_output = new_analysis_output
+        yield {"type": "_update_specs_done", "cancelled": False}
 
     async def _run_review_gate(
         self,
@@ -6468,6 +6574,40 @@ class ExecutionEngine:
         so the fallback never affects deliverable content / parity.
         """
         return self._AGENT_KIND_MAP.get(getattr(spec, "id", ""), "summary")
+
+    def _update_specs_eligible(self, artifact_kind: str, ectx) -> bool:
+        """Does THIS gate firing advertise the "Update the Specs" affordance?
+
+        Both conditions are STRUCTURAL — an artifact kind and a generic scratch field.
+        No workflow name and no agent id appears here or at any call site (INV-1 / SC-001).
+
+        1. ``artifact_kind`` is one of the eligible kinds (the analyze gate only — see
+           ``_UPDATE_SPECS_ELIGIBLE_KINDS``).
+        2. **No revision pass is currently in flight.** The sub-pipeline's PUBLISHED index
+           (``ectx.revision_attempt``) doubles as the in-flight signal — it is non-zero for
+           exactly the pass's duration — so this invents no parallel state (INV-12).
+
+        Condition 2 exists to keep revision cycles FLAT. The analyze re-run INSIDE a pass is
+        itself a full ``_run_agent`` and so opens its own gate; advertising "start another
+        revision" there is the one route that NESTS. Withholding it moves the single
+        supported entry point to the gate re-opened AFTER the pass returns, where the next
+        cycle is a SIBLING call at the same stack depth — the REDO-GATE F2 flat-loop
+        precedent (see the redo loop's comment at the top of ``_run_agent``). The user
+        reaches it with the same number of clicks, so no capability is withdrawn.
+
+        This is an AFFORDANCE fence ONLY. ``_run_review_gate`` acts on
+        ``action == "update_specs"`` without ever consulting this flag — it reaches the
+        frontend and nothing else — so a replayed or crafted gate POST at an in-pass gate
+        still nests. The engine must therefore be correct for the nested case regardless,
+        which is what the high-water index + save/restore in
+        ``_run_spec_revision_sub_pipeline`` guarantee (T-si4-01). Server-side ENFORCEMENT is
+        deliberately NOT added here: it would change gate semantics, and it is unnecessary
+        once nesting is safe.
+        """
+        return (
+            artifact_kind in self._UPDATE_SPECS_ELIGIBLE_KINDS
+            and not getattr(ectx, "revision_attempt", 0)
+        )
 
     async def _dual_write_artifact(
         self,
