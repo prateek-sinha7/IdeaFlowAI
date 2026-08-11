@@ -70,6 +70,15 @@ from agents.capabilities.gate_pendency import derive_open_gate
 from agents.capabilities.registry import CapabilityRegistry
 from agents.capabilities.validators.severity import render_coverage_status
 from agents.execution_engine.budget import BudgetExceeded, BudgetManager, BudgetSnapshot
+# _ClarifyEngineImpl is bound at IMPORT time on purpose, and does NOT supersede the
+# function-level ``from ... import ClarifyEngine`` inside the clarify drain loop. There
+# is still exactly one ClarifyEngine and one _merge_answers — only the RESOLUTION TIMING
+# differs, deliberately. The live clarify invocation must stay LATE-bound because two
+# tests monkeypatch the module attribute (test_restart_resume.py's _FakeClarify /
+# _ParkingClarify); the rehydrator must stay EARLY-bound because those same fakes have no
+# _merge_answers and a late binding would silently pick them up, leaving a resumed run
+# with none of its clarification answers. Do not "tidy" either binding away.
+from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngineImpl
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
@@ -1762,7 +1771,23 @@ class ExecutionEngine:
 
         if skip_planner:
             logger.info("Prototype pipeline (Approach 2+3): skipping planner + clarifier")
-            planning_context = self._default_planning_context(user_message)
+            # D2: a RESUME rehydrates its planning context from the durable rows instead
+            # of rebuilding the stub. The planner is still NOT re-invoked (TRAP 4 /
+            # BUG-R05 / quick 260719-hd5, guarded by
+            # test_offset0_gate_resume_does_not_replan_or_reclarify) — RESUME-04 hydration
+            # (:1406) already put the rows in the graph, so this is a pure read.
+            # Gated on ``_resuming`` ALONE. Clarify replay is deliberately excluded: on a
+            # replay the durable rows exist but the questions are about to be RE-ASKED, so
+            # injecting the previously-merged answers into that prompt is a behaviour
+            # change no source artifact analysed. The two flags cannot co-occur (the replay
+            # drive passes _is_resume=False; the resume drive passes _clarify_replay=None),
+            # so this is a clean narrowing that keeps BOTH the planner=="skip" path and the
+            # clarify-replay path byte-identical (INV-3).
+            planning_context = (
+                self._rehydrate_planning_context(ectx, user_message)
+                if _resuming
+                else self._default_planning_context(user_message)
+            )
             planning_context["pipeline_type"] = pipeline_type
             if _replaying_clarify:
                 # Force the clarify gate so Step 3 replays the durable open round. This
@@ -2940,6 +2965,128 @@ class ExecutionEngine:
             "domain_insights": [],
             "planner_timed_out": timed_out,
         }
+
+    def _rehydrate_planning_context(self, ectx: ExecutionContext, user_message: str) -> dict:
+        """Reconstruct a resumed run's planning context from the DURABLE rows.
+
+        BUGFIX-SPEC-REVISION-CONTEXT D2. A resume takes the planner-skip path and used to
+        rebuild the context from ``_default_planning_context`` — ``inferred_intent`` cut to
+        ``user_message[:200]`` and every list empty. Measured on the reported run: the
+        injected block collapsed 4,591 → 291 chars and 16 of the 18 dispatches ran on the
+        stub. The real content was never lost: RESUME-04 hydration (:1406) already adopts
+        EVERY durable kind into ``ectx.artifacts`` before this point, so both the
+        ``planning_context`` row and the ``clarifications`` rounds are in the graph and
+        this is a pure read — no new store call, no new write, no new storage.
+
+        The planner is NOT re-invoked. Re-running it regresses BUG-R05 (quick 260719-hd5),
+        which ``test_offset0_gate_resume_does_not_replan_or_reclarify`` guards.
+
+        Never raises into the run: a missing row, unparseable JSON, or a malformed
+        clarifications shape each degrade to the best context available.
+
+        KNOWN LOSSINESS. ``_persist_qa`` (clarify_engine.py:867-884) writes the raw
+        ``responses`` map BEFORE ``_merge_answers`` (:931-938) auto-fills a
+        ``recommended_answer`` for unanswered questions, and persists neither
+        ``recommended_answer`` nor ``ambiguity_category``. So: questions the user ANSWERED
+        reconstruct exactly; questions the user SKIPPED cannot have their auto-filled
+        constraints recovered, and ``clarified_topics`` comes back empty. The alternative —
+        persisting the merged context as a new ``planning_context`` version on the clarify
+        path — would close the gap at the cost of a write on that path, and is deliberately
+        not taken here.
+        """
+        base_ref = None
+        for ref in ectx.artifacts.tree(ectx.run_id):
+            if ref.kind == "planning_context" and (
+                base_ref is None or ref.version >= base_ref.version
+            ):
+                base_ref = ref
+        if base_ref is None:
+            # No durable planner row (planner == "skip", an offline test, or a run
+            # predating the persist) ⇒ exactly today's behaviour (INV-3 by construction).
+            return self._default_planning_context(user_message)
+
+        try:
+            base = json.loads(base_ref.content)
+            if not isinstance(base, dict):
+                raise ValueError(f"planning_context is {type(base).__name__}, not a dict")
+        except (ValueError, TypeError) as exc:
+            logger.warning(
+                "resume rehydrate: planning_context for run %s is unreadable (%s) — "
+                "falling back to the default stub",
+                ectx.run_id, exc,
+            )
+            return self._default_planning_context(user_message)
+
+        clar_refs = sorted(
+            (r for r in ectx.artifacts.tree(ectx.run_id) if r.kind == "clarifications"),
+            key=lambda r: r.version,
+        )
+        merger = _ClarifyEngineImpl()
+        rounds_merged = 0
+        for ref in clar_refs:
+            try:
+                pairs = json.loads(ref.content)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "resume rehydrate: clarifications v%s for run %s is unreadable — skipped",
+                    ref.version, ectx.run_id, exc_info=True,
+                )
+                continue
+            if not isinstance(pairs, list):
+                logger.warning(
+                    "resume rehydrate: clarifications v%s for run %s is a %s, not a list "
+                    "of Q&A pairs — skipped",
+                    ref.version, ectx.run_id, type(pairs).__name__,
+                )
+                continue
+            # Idempotent: a pair whose rendered constraint is already present is dropped,
+            # so re-merging a base that already carries answers cannot double-count.
+            existing = set(base.get("explicit_constraints") or [])
+            questions, responses = [], []
+            for p in pairs:
+                # A row whose shape is wrong is skipped rather than crashing the resume:
+                # _merge_answers indexes q["question_text"] directly.
+                if not isinstance(p, dict) or not p.get("question_id") or not p.get("question_text"):
+                    continue
+                answer = p.get("answer")
+                if answer and f"{p['question_text']} → {answer}" in existing:
+                    continue
+                questions.append({
+                    "question_id": p["question_id"],
+                    "question_text": p["question_text"],
+                })
+                if answer:
+                    responses.append({"question_id": p["question_id"], "answer": answer})
+            if not questions:
+                continue
+            try:
+                # Reuse the ONE merge implementation (INV-12) — the engine must not
+                # re-derive the "{question} → {answer}" constraint format. The catch is
+                # narrow ON PURPOSE: it exists for a malformed durable row whose JSON
+                # parses but whose shape is wrong. A broad catch here would silently hand
+                # back a context with no clarification answers — the exact silent
+                # degradation this fix removes.
+                base = merger._merge_answers(base, questions, responses)
+                rounds_merged += 1
+            except (AttributeError, TypeError, KeyError):
+                logger.warning(
+                    "resume rehydrate: clarifications v%s for run %s has an unexpected "
+                    "shape — keeping the unmerged context for this round",
+                    ref.version, ectx.run_id, exc_info=True,
+                )
+
+        # A resumed run is mid-build: a stale CLARIFY_REQUIRED on the persisted row must
+        # not leak to a consumer. The caller's gate_verdict local is unaffected.
+        base["execution_gate"] = "PROCEED"
+
+        logger.info(
+            "resume rehydrate: run %s reconstructed planning context from durable rows — "
+            "%d clarification round(s) merged, %d explicit constraint(s), %d chars of "
+            "planner JSON (stub would have been %d chars of intent)",
+            ectx.run_id, rounds_merged, len(base.get("explicit_constraints") or []),
+            len(base_ref.content), len(user_message[:200]),
+        )
+        return base
 
     async def _emit_planner_events(
         self,
