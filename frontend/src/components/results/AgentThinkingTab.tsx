@@ -180,6 +180,8 @@ export function AgentThinkingTab({
           <AgentDetailPanel
             agent={selectedAgent}
             onBack={() => setSelectedAgentId(null)}
+            // ISS-065 — lets the detail list this agent's earlier artifact versions.
+            runId={runId ?? null}
             construction={isConstructionSelected ? {
               completedCount: completedTaskCount,
               totalTasks,

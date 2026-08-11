@@ -23,6 +23,8 @@ import {
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
 import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview } from "./artifactPreview";
+import { ArtifactVersionPicker } from "./ArtifactVersionPicker";
+import { ReadOnlyVersionBanner } from "@/components/preview/ReadOnlyVersionBanner";
 
 // ─── Shared context-source formatting (INV-12 — the single derivation the sticky
 //     panel + any future consumer share; was inline in the retired ContextSourcesRow).
@@ -721,12 +723,21 @@ export interface AgentDetailPanelProps {
   protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
   protoCompletedTaskCount?: number;
   dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
+  // ISS-065 — the run whose artifact_refs back this agent's output, so an earlier
+  // version can be read after an update_specs cycle overwrote it in memory.
+  // Optional: absent → no picker, and the panel renders exactly as before.
+  runId?: string | null;
 }
 
 export function AgentDetailPanel({
   agent, onBack, construction, onOpenTask,
   agents, agentIndex, protoCompletedTasks, protoCompletedTaskCount, dagEdges,
+  runId,
 }: AgentDetailPanelProps) {
+  // ISS-065 — the older artifact version currently on screen, if any.
+  const [viewed, setViewed] = useState<{ index: number; content: string } | null>(null);
+  useEffect(() => { setViewed(null); }, [agent.id]);
+  const shownOutput = viewed?.content ?? agent.output ?? "";
   const isRunning = agent.status === "running" || agent.status === "thinking";
   const isDone = agent.status === "done";
   const isError = agent.status === "error";
@@ -790,6 +801,15 @@ export function AgentDetailPanel({
                 </div>
                 <p className="m-0 text-[11px] text-ink-400 truncate">{agent.role}</p>
               </div>
+              {/* ISS-065 — per-artifact version picker. Renders nothing unless this
+                  agent produced more than one distinct artifact version, so every
+                  un-revised run looks exactly as it did before. */}
+              <ArtifactVersionPicker
+                runId={runId}
+                agentId={agent.id}
+                selectedIndex={viewed?.index}
+                onSelect={setViewed}
+              />
               {metaBits.length > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-ink-200 font-mono flex-none">
                   {metaBits.includes(`${formatTokenCount(agent.totalTokens ?? 0)} tok`) && <Cpu className="h-2.5 w-2.5" />}
@@ -837,8 +857,16 @@ export function AgentDetailPanel({
                 {/* full input */}
                 {agent.inputPrompt && <InputPromptSection prompt={agent.inputPrompt} />}
 
-                {/* output */}
-                {isDone && agent.output && agent.output.trim().length > 0 && <OutputPreviewSection output={agent.output} />}
+                {/* output — an older artifact version when one is selected, else the
+                    agent's live/settled output. ISS-065: the `isDone` gate is widened
+                    for `viewed` because the whole point is reading v1 while v3 is
+                    being rewritten, i.e. while this agent is back in "running". */}
+                {viewed && (
+                  <div className="mt-3">
+                    <ReadOnlyVersionBanner versionNumber={viewed.index} onBackToLatest={() => setViewed(null)} />
+                  </div>
+                )}
+                {(isDone || viewed) && shownOutput.trim().length > 0 && <OutputPreviewSection output={shownOutput} />}
 
                 {/* failed reason card */}
                 {isError && agent.error && (
