@@ -1017,6 +1017,14 @@ async def _dispose_concierge_proposal(
         # Strip any trailing "_revision" suffix from wr_type to get the base artifact
         # family (e.g. "user_stories") before constructing the fallback target.
         base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
+        # FIX-216b: od_prototype has no od_prototype_revision agents AND
+        # od_prototype_revision is excluded from the hexaware tier, so the
+        # revision fails with pipeline_not_entitled or zero agents.
+        # Map od_prototype → prototype (and od_ppt → ppt) so the fallback target
+        # becomes "prototype_output" → revision_pipeline_type "prototype_revision"
+        # which has agents AND is entitled for all tiers.
+        _OD_BASE_MAP = {"od_prototype": "prototype", "od_ppt": "ppt"}
+        base_type = _OD_BASE_MAP.get(base_type, base_type)
         target = params.get("target") or f"{base_type}_output"
         instruction = params.get("instruction", "")
         rdb = _get_db()
