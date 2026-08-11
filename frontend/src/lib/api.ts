@@ -733,28 +733,6 @@ export async function postCancel(
 }
 
 /**
- * FIX-116: Silently classify a settled-run user message as revise / chain / ask.
- * The LLM reads the user text + run deliverable summary + available chain targets
- * and returns ONLY a classification — no chat reply is produced.
- * Generic (SC-001/INV-1) — no workflow-name literal.
- */
-export async function classifyIntent(
-  token: string,
-  runId: string,
-  text: string,
-  chainHints?: { id: string; label: string }[],
-): Promise<{ intent: "revise" | "chain" | "ask"; target_id?: string }> {
-  return request<{ intent: "revise" | "chain" | "ask"; target_id?: string }>(
-    `/api/runs/${encodeURIComponent(runId)}/classify-intent`,
-    {
-      method: "POST",
-      headers: authHeaders(token),
-      body: JSON.stringify({ text, chain_hints: chainHints ?? [] }),
-    },
-  );
-}
-
-/**
  * Resume a terminal-failed or cancelled run over REST (KAN-120 / RESUME-18).
  * Targets POST /api/runs/{id}/resume — the backend resumes from the durable
  * checkpoint (Phase 45–49 resume tier), skipping already-completed steps.

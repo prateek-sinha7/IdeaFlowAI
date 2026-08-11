@@ -266,8 +266,8 @@ export function InlineClarifyActions({
       >
         <ArrowRight className="h-3.5 w-3.5" />
         {answeredCount > 0
-          ? `Submit ${answeredCount} answer${answeredCount !== 1 ? "s" : ""} & start the build`
-          : "Submit answers & start the build"}
+          ? `Submit ${answeredCount} answer${answeredCount !== 1 ? "s" : ""} & proceed`
+          : "Submit answers & proceed"}
       </button>
 
       {/* Skip all — visible only while there are unanswered questions. */}
@@ -279,7 +279,7 @@ export function InlineClarifyActions({
           disabled={submitted}
           className="w-full text-center text-[11px] text-ink-400 hover:text-ink-700 transition-colors py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Skip questions &amp; start the build →
+          Proceed with auto recommendation →
         </button>
       )}
 

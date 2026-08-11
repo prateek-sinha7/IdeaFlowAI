@@ -1,5 +1,5 @@
 {
-  "count": 572,
+  "count": 577,
   "entries": [
     {
       "area": [
@@ -4978,6 +4978,95 @@
     },
     {
       "area": [
+        "frontend"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "frontend/src/hooks/useSmoothText.ts",
+        "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.ts"
+      ],
+      "id": "FIX-209",
+      "path": ".knowledge/cards/FIX-209.md",
+      "source": ".planning/FIX-REGISTER.md#fix-209",
+      "status": "done",
+      "summary": "useSmoothText re-render loop \u2014 \"Maximum update depth exceeded\" at tick function; useMeasuredVirtualWindow scroll handler infinite loop",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "sse"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/app/agents/chat/concierge.py",
+        "backend/app/api/run_commands.py",
+        "frontend/src/hooks/useRunChat.ts",
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/providers/RunConnectionProvider.tsx"
+      ],
+      "id": "FIX-210",
+      "path": ".knowledge/cards/FIX-210.md",
+      "source": ".planning/FIX-REGISTER.md#fix-210",
+      "status": "done",
+      "summary": "Concierge proposal chips not appearing; revision confirm posting wrong run; revision UI not switching to new run \u2014 Concierge called propose_chain but chain_hints had no target_id exposed \u2014 only labels",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/app/api/chat_router.py"
+      ],
+      "id": "FIX-211",
+      "path": ".knowledge/cards/FIX-211.md",
+      "source": ".planning/FIX-REGISTER.md#fix-211",
+      "status": "done",
+      "summary": "chat_router auto-approved gate / auto-submitted clarify on plain chat text \u2014 PHASE_GATE_PAUSED: plain text with no gate action defaulted to action=\"approve\" \u2014 any chat message during a review gate silently approved it",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "workflow"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "frontend/src/components/chat/RunChatLane.tsx",
+        "frontend/src/hooks/useRunChat.ts"
+      ],
+      "id": "FIX-212",
+      "path": ".knowledge/cards/FIX-212.md",
+      "source": ".planning/FIX-REGISTER.md#fix-212",
+      "status": "done",
+      "summary": "\"Start this workflow\" chain chip persisted after clicking; revision pipeline_not_entitled; blank bubble on confirm; confirm button no feedback",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "agents"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/app/agents/chat/concierge.py",
+        "backend/app/api/run_commands.py"
+      ],
+      "id": "FIX-213",
+      "path": ".knowledge/cards/FIX-213.md",
+      "source": ".planning/FIX-REGISTER.md#fix-213",
+      "status": "done",
+      "summary": "Concierge system prompt overhaul \u2014 emojis, internals leakage, verbose agent detail, no proactive next-step, wrong run state label",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8617,25 +8706,25 @@
   ],
   "facets": {
     "area": {
-      "agents": 193,
+      "agents": 194,
       "artifacts": 78,
       "auth": 72,
-      "backend": 74,
+      "backend": 78,
       "docs": 2,
       "evals": 9,
-      "frontend": 167,
+      "frontend": 170,
       "harness": 2,
       "infra": 1,
       "product": 29,
       "resume": 40,
       "runtime": 31,
-      "sse": 129,
+      "sse": 130,
       "test-infra": 4,
-      "workflow": 185
+      "workflow": 186
     },
     "status": {
       "accepted": 1,
-      "done": 542,
+      "done": 547,
       "open": 20,
       "shipped": 1
     },
@@ -8643,7 +8732,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 63,
-      "fix": 208,
+      "fix": 213,
       "issue": 49,
       "phase": 23,
       "req": 40,
@@ -8662,5 +8751,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-07 19:27"
+  "generated": "2026-08-11 15:16"
 }

@@ -69,6 +69,9 @@ export interface HeldProposal {
   params: Record<string, unknown>;
   /** Needed to match the later "resolved" companion row (gate_action/revision only). */
   messageId: string;
+  /** The run id the proposal was written to — needed so the confirm turn POSTs
+   *  to the correct run even if the UI has since switched to a child/revision run. */
+  proposalRunId?: string;
 }
 
 /** The reconnect-handshake state surfaced from the latest `stream_attached`. */
@@ -87,11 +90,13 @@ export interface UseRunChatConfig {
   /**
    * REST up-channel (SSE transport): `sendMessage` posts the turn via this
    * (`POST /api/runs/{id}/messages`). Ignored when `legacyWsSend` is provided.
+   * May return a string (e.g. `revision_run_id` from a confirm-proposal response)
+   * that `sendMessage` forwards to `options.onRevisionLaunched` when set.
    */
   sendCommand: (
     runId: string | null,
     payload: Record<string, unknown>,
-  ) => Promise<void> | void;
+  ) => Promise<string | null | void> | void;
   /**
    * Legacy WS up-channel (flag-OFF). When present, `sendMessage` emits a
    * `user_message` frame through this instead of `sendCommand` — same transcript.
@@ -140,6 +145,27 @@ export interface SendMessageOptions {
    * immediately via `addOptimisticMessage` before the backend call.
    */
   existingMessageId?: string;
+  /**
+   * FIX-210 (confirm-proposal): When set, overrides the payload's `message_id`
+   * with this value. Used by `handleConfirmProposal` to forward the ORIGINAL
+   * ASK turn's `message_id` so the backend's `_load_pending_proposal` can
+   * locate the durable pending row via `concierge-proposal:{messageId}:{channel}`.
+   * Without this, a newly minted id never matches any row → 404 → nothing happens.
+   */
+  proposalMessageId?: string;
+  /**
+   * FIX-211: When set, called with the revision_run_id if the confirm-proposal
+   * response includes one (a concierge-confirmed revision launched a child run).
+   * Lets the caller (handleConfirmProposal) attach + switch the UI to the new run.
+   */
+  onRevisionLaunched?: (runId: string) => void;
+  /**
+   * FIX-211b: When set, overrides the run id used for the POST URL. Used when
+   * the proposal was written to a run that is no longer the viewed run (e.g.
+   * after a revision, the view switches to the child run but the proposal lives
+   * on the parent). Without this, the confirm POSTs to the wrong run → 404.
+   */
+  targetRunId?: string;
 }
 
 export interface UseRunChatReturn {
@@ -543,11 +569,16 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
         const propParams = (data.params && typeof data.params === "object"
           ? data.params
           : {}) as Record<string, unknown>;
-        setProposals((prev) =>
-          prev.some((p) => p.id === propId)
-            ? prev
-            : [...prev, { id: propId, channel: ch, params: propParams, messageId: mid }],
-        );
+        setProposals((prev) => {
+          // Exact-id dedup: already have this exact proposal, nothing to do.
+          if (prev.some((p) => p.id === propId)) return prev;
+          // Same-channel replacement: remove any older proposal for the same
+          // channel (e.g. two consecutive "create prototype" turns both produce
+          // a chain proposal — keep only the latest). This prevents duplicate
+          // chips stacking up from repeated chat turns.
+          const withoutSameChannel = prev.filter((p) => p.channel !== ch);
+          return [...withoutSameChannel, { id: propId, channel: ch, params: propParams, messageId: mid, proposalRunId: runId ?? undefined }];
+        });
         break;
       }
       default:
@@ -578,14 +609,23 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
         attachments,
         runId: runId ?? undefined,
       };
-      // Optimistic render (guarded so a re-invoke cannot double-append).
-      setMessages((prev) =>
-        prev.some((m) => m.id === messageId) ? prev : [...prev, optimistic],
-      );
+      // Optimistic render — skip when text is empty (e.g. confirm-proposal turns
+      // send text="" and should not add a blank bubble). Guarded so a re-invoke
+      // cannot double-append.
+      if (text.trim()) {
+        setMessages((prev) =>
+          prev.some((m) => m.id === messageId) ? prev : [...prev, optimistic],
+        );
+      }
       const payload: Record<string, unknown> = {
         text,
         attachments: attachments ?? [],
-        message_id: messageId,
+        // FIX-210: when `proposalMessageId` is set (confirm-proposal flow), the
+        // backend's `_load_pending_proposal` must receive the ORIGINAL ASK turn's
+        // `message_id` (the one stored in `concierge-proposal:{id}:{channel}`),
+        // NOT a freshly minted client id. Override here; all other sends use the
+        // client-minted id for optimistic-bubble reconciliation.
+        message_id: options?.proposalMessageId ?? messageId,
       };
       // 43-02 (A.1 CRUX): fold the Concierge send flags onto the payload ONLY
       // when supplied — field names match the backend MessageCommand exactly
@@ -615,10 +655,19 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
         // (no duplicate reply, no duplicate echo). The synchronous optimistic
         // render + `return messageId` above are unaffected (Test 5 send routing).
         void (async () => {
-          await sendCommand(runId, payload);
+          // FIX-211b: use targetRunId to POST to the correct run when the proposal
+          // was written to a run that is no longer the currently viewed one.
+          const postRunId = options?.targetRunId ?? runId;
+          const result = await sendCommand(postRunId, payload);
+          // FIX-211: when a confirm-proposal response includes a revision_run_id
+          // (concierge confirmed a revision), call the caller's onRevisionLaunched
+          // callback so the UI can attachRun + switchViewTo the new child run.
+          if (result && options?.onRevisionLaunched) {
+            options.onRevisionLaunched(result);
+          }
           if (!fetchEvents) return;
           try {
-            const newFrames = await fetchEvents(runId, lastSeqRef.current);
+            const newFrames = await fetchEvents(postRunId, lastSeqRef.current);
             for (const f of newFrames) handleFrame(f);
           } catch {
             // A re-fetch failure must not surface — the optimistic turn stands;

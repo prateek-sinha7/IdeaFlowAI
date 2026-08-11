@@ -793,7 +793,7 @@ class _ConciergeCtx:
 
     def __init__(
         self, *, run_id, scoped_store, owner_id, workspace_id, compiled=None,
-        chain_hints=None, run_summary=None,
+        chain_hints=None, run_summary=None, open_gate=None, run_status=None,
     ):
         self.run_id = run_id
         self.scoped_store = scoped_store
@@ -803,6 +803,14 @@ class _ConciergeCtx:
         self.compiled = compiled
         self.chain_hints = chain_hints or []
         self.run_summary = run_summary or ""
+        # FIX-210 (ISS-054): the run's current gate state — "questionnaire", "review",
+        # or None. Injected into the system prompt so the Concierge gives an accurate
+        # status answer when the run is paused at clarify/review instead of reporting
+        # a stale state from reading events. GENERIC — opaque string, no workflow name.
+        self.open_gate = open_gate or ""
+        # The run's persisted status (WorkflowRun.status) — used to distinguish a
+        # live-building run from a completed one so the prompt label is accurate.
+        self.run_status = run_status or ""
 
 
 def _resolve_concierge():
@@ -882,6 +890,7 @@ async def _dispose_concierge_proposal(
     wr_type: str,
     gate_key: str | None,
     ectx,
+    open_gate: str | None = None,
 ) -> dict:
     """Dispose ONE Concierge ``ProposalIntent`` through its matching Phase-29 seam (D-05).
 
@@ -908,9 +917,28 @@ async def _dispose_concierge_proposal(
     params = dict(getattr(intent, "params", {}) or {})
 
     # ── steering_note → apply_steering (best-effort; applied immediately). ───────────
+    # FIX-210 (ISS-054): EXCEPTION — when the run is paused at a questionnaire or
+    # review gate, a steering note would unblock the clarify engine and auto-proceed
+    # without user input. Treat it as consequential in that case: hold it behind a
+    # confirm chip. The user asked a status question; the Concierge should NEVER
+    # silently launch the build by applying a note that skips clarification.
     if channel == "steering_note":
+        if open_gate in ("questionnaire", "review"):
+            # Hold behind a confirm chip — identical to gate_action/revision path.
+            await store.append_event_next_seq(
+                run_id,
+                event_id=f"concierge-proposal:{message_id}:{channel}",
+                type="concierge_proposal",
+                payload_json={
+                    "pipeline_run_id": run_id,
+                    "message_id": message_id,
+                    "channel": channel,
+                    "params": params,
+                    "status": "pending",
+                },
+            )
+            return {"channel": channel, "held": True, "params": params}
         from app.api.chat_router import apply_steering
-
         apply_steering(ectx, {"text": params.get("note", ""), "sticky": False})
         return {"channel": channel, "disposed": "steering"}
 
@@ -928,7 +956,7 @@ async def _dispose_concierge_proposal(
                 "status": "pending",  # awaiting the FE confirm round-trip (33-04)
             },
         )
-        return {"channel": channel, "held": True}
+        return {"channel": channel, "held": True, "params": params}
 
     # ── gate_action → store.set_review_response (KAN-94 armed + KAN-100 fenced). ─────
     if channel == "gate_action":
@@ -982,7 +1010,22 @@ async def _dispose_concierge_proposal(
 
     # ── revision → _mint_revision_row + _drive_revision_to_queue (family child). ────
     if channel == "revision":
-        target = params.get("target") or f"{wr_type}_output"
+        # FIX-211: when the parent run is itself a revision (e.g. user_stories_revision),
+        # wr_type already ends with "_revision". Using it verbatim as the target gives
+        # "user_stories_revision_output" → revision_pipeline_type becomes
+        # "user_stories_revision_revision" which is not in TIER_PIPELINES → 403.
+        # Strip any trailing "_revision" suffix from wr_type to get the base artifact
+        # family (e.g. "user_stories") before constructing the fallback target.
+        base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
+        # FIX-216b: od_prototype has no od_prototype_revision agents AND
+        # od_prototype_revision is excluded from the hexaware tier, so the
+        # revision fails with pipeline_not_entitled or zero agents.
+        # Map od_prototype → prototype (and od_ppt → ppt) so the fallback target
+        # becomes "prototype_output" → revision_pipeline_type "prototype_revision"
+        # which has agents AND is entitled for all tiers.
+        _OD_BASE_MAP = {"od_prototype": "prototype", "od_ppt": "ppt"}
+        base_type = _OD_BASE_MAP.get(base_type, base_type)
+        target = params.get("target") or f"{base_type}_output"
         instruction = params.get("instruction", "")
         rdb = _get_db()
         try:
@@ -1261,7 +1304,7 @@ async def post_message(
                 intent, confirmed=True, store=store, art_store=art_store,
                 run_id=run_id, message_id=body.message_id, current_user=current_user,
                 wr_status=wr_status, wr_type=wr_type, gate_key=resolved_gate_key,
-                ectx=ectx,
+                ectx=ectx, open_gate=open_gate,
             )
             # Mark the durable pending row RESOLVED (additive; namespaced event_id so a
             # replayed confirm is idempotent — the resolved row makes _load_pending_proposal
@@ -1310,6 +1353,12 @@ async def post_message(
             # FIX-116: thread the run's deliverable summary so the Concierge knows
             # what was produced without read_events round-trip (generic, INV-1).
             run_summary=wr_run_summary,
+            # FIX-210 (ISS-054): thread the run's current gate state so the Concierge
+            # gives an accurate status answer when paused at clarify/review.
+            open_gate=open_gate,
+            # Thread the run's persisted status so the prompt label is accurate
+            # (building run vs completed run — avoids "produced" for in-flight runs).
+            run_status=wr_status,
         )
         # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
         # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT
@@ -1372,16 +1421,56 @@ async def post_message(
                 # Drain + dispose proposals EXACTLY as today — still HELD behind a confirm
                 # chip (T-33-03-01), never auto-executed; only the call-site moved here.
                 for intent in _drain_concierge_proposals(concierge, ctx):
-                    held.append(await _dispose_concierge_proposal(
+                    disposed = await _dispose_concierge_proposal(
                         intent, confirmed=False, store=store, art_store=art_store,
                         run_id=run_id, message_id=body.message_id,
                         current_user=current_user, wr_status=wr_status,
                         wr_type=wr_type, gate_key=resolved_gate_key, ectx=ectx,
-                    ))
+                        open_gate=open_gate,
+                    )
+                    held.append(disposed)
+                    logger.info(
+                        "Concierge proposal disposed: run=%s channel=%s held=%s",
+                        run_id,
+                        getattr(intent, "channel", "?"),
+                        disposed.get("held"),
+                    )
             except Exception:  # noqa: BLE001 — never leave the stream hung on a persist error.
                 logger.exception("Concierge durable persist failed for run %s", run_id)
                 errored = True
             finally:
+                # FIX-210 (ISS-054): provide a visible fallback when the Concierge fails
+                # to generate a response. An empty text with errored=True was silently
+                # rendering as a blank invisible bubble — the user saw no reply at all.
+                display_text = answer_text or (
+                    "I'm sorry, I couldn't retrieve the run status right now. "
+                    "Please try again in a moment."
+                    if errored else ""
+                )
+                # FIX-211: emit each HELD proposal as its own concierge_proposal SSE
+                # frame BEFORE the terminal chat_reply, so the FE receives the proposal
+                # events through the same streamed-POST drain path (RunConnectionProvider
+                # fanout → handleFrame → setProposals). This avoids the fetchEvents
+                # timing race where the POST resolves before the background DB writes
+                # finish. The durable rows were already written above; these frames are
+                # TRANSIENT echoes of those rows carrying the same payload shape the
+                # FE's concierge_proposal handleFrame case expects.
+                # The event_id MUST match the durable row so the FE seenRef dedup
+                # treats the later fetchEvents re-fetch of the same row as a duplicate
+                # and drops it — preventing double chips.
+                for h in held:
+                    h_channel = h.get("channel")
+                    if h.get("held") and h_channel:
+                        await frame_q.put(_sse_frame(reply_seq or 0, "concierge_proposal", {
+                            "pipeline_run_id": run_id,
+                            "message_id": body.message_id,
+                            "channel": h_channel,
+                            "params": h.get("params", {}),
+                            "status": "pending",
+                            # Match the durable row's event_id so seenRef dedup
+                            # drops the fetchEvents re-fetch of the same row.
+                            "event_id": f"concierge-proposal:{body.message_id}:{h_channel}",
+                        }))
                 terminal = {
                     "pipeline_run_id": run_id,
                     # Carry the SAME distinct event_id the durable row uses (:1266) so the
@@ -1391,7 +1480,7 @@ async def post_message(
                     # (BUG-018 regression on the streamed-POST path).
                     "event_id": f"chat-reply:{body.message_id}",
                     "message_id": body.message_id,
-                    "text": answer_text or "",
+                    "text": display_text,
                     "seq": reply_seq,
                     "proposals": held,
                 }
@@ -2259,113 +2348,6 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     db.add(wr)
     db.commit()
     return pipeline_run_id, revision_pipeline_type
-
-
-@router.post("/{run_id}/classify-intent")
-async def classify_intent(
-    run_id: str,
-    body: "ClassifyIntentCommand",
-    current_user: User = Depends(get_current_user),
-):
-    """Silently classify a settled-run user message as revise / chain / ask (FIX-116).
-
-    Calls the LLM with ONLY the user text + run deliverable summary + available chain
-    targets. Returns ``{"intent": "revise"|"chain"|"ask", "target_id"?: "..."}`` with
-    NO chat reply — the caller renders the appropriate UI affordance immediately.
-
-    Owner-gated (IDOR → 404). No chat_message row is written; this is a pure
-    read+classify endpoint. Generic (SC-001/INV-1) — no pipeline_type branch.
-    """
-    db = _get_db()
-    try:
-        wr = (
-            db.query(WorkflowRun)
-            .filter(WorkflowRun.id == run_id, WorkflowRun.user_id == current_user.id)
-            .first()
-        )
-        if wr is None:
-            raise HTTPException(status_code=404, detail="Workflow run not found")
-        _wr_title = (wr.title or "").strip()
-        _wr_output = (wr.output or "").strip()
-        _wr_output_preview = _wr_output[:400] + ("…" if len(_wr_output) > 400 else "")
-        run_summary = (
-            (f"Run title: {_wr_title}\n" if _wr_title else "")
-            + (f"Deliverable preview:\n{_wr_output_preview}" if _wr_output_preview else "")
-        ).strip()
-    finally:
-        db.close()
-
-    user_text = (body.text or "").strip()
-    chain_hints = body.chain_hints or []
-
-    # Build a minimal classification prompt — NO conversational preamble, just the
-    # deliverable context + the user message + the available chain targets.
-    chain_targets_str = ""
-    if chain_hints:
-        chain_targets_str = "\nAvailable chain targets (id → label):\n" + "\n".join(
-            f"  {h.get('id','')}: {h.get('label','')}"
-            for h in chain_hints[:8]
-            if isinstance(h, dict) and h.get("id")
-        )
-
-    classify_prompt = (
-        "You are a SILENT INTENT CLASSIFIER. Read the user's message and output ONLY "
-        "a JSON object with no extra text.\n\n"
-        "Rules:\n"
-        "- If the user wants to CHANGE or ADD to THIS run's deliverable "
-        "(revise, update, add Google auth, change a section, etc.) → "
-        "{\"intent\": \"revise\"}\n"
-        "- If the user wants to START A NEW WORKFLOW using this output "
-        "(build a prototype, create a presentation, chain to X) → "
-        "{\"intent\": \"chain\", \"target_id\": \"<id from Available chain targets>\"}\n"
-        "- If the user is just ASKING A QUESTION (what is, how does, explain) → "
-        "{\"intent\": \"ask\"}\n"
-        "- If no chain target matches, use {\"intent\": \"revise\"} for action requests.\n\n"
-        f"What this run produced:\n{run_summary or '(no summary available)'}\n"
-        f"{chain_targets_str}\n\n"
-        f"User message: {user_text}\n\n"
-        "Output ONLY valid JSON, nothing else."
-    )
-
-    # Use the Concierge's DeepAgentRunner but with NO tools — pure text classification.
-    import json as _json
-    from app.agents.deep_agent_runner import DeepAgentRunner
-
-    try:
-        runner = DeepAgentRunner(
-            system_prompt="You are a JSON-only intent classifier. Always output valid JSON.",
-            tools=[],
-            model=None,
-            thread_id=f"{run_id}:classify",
-        )
-        full = ""
-        async for event in runner.astream_events(classify_prompt):
-            if event["type"] == "chunk":
-                full += event["chunk"]
-        # Extract the first JSON object from the response
-        start = full.find("{")
-        end = full.rfind("}") + 1
-        if start >= 0 and end > start:
-            data = _json.loads(full[start:end])
-            intent = str(data.get("intent", "revise")).lower()
-            target_id = str(data.get("target_id", "")) if intent == "chain" else ""
-            # Validate target_id is a known chain hint
-            known_ids = {h.get("id") for h in chain_hints if isinstance(h, dict)}
-            if intent == "chain" and target_id not in known_ids:
-                intent = "revise"
-                target_id = ""
-            return {"intent": intent, "target_id": target_id}
-    except Exception as exc:
-        logger.warning("classify-intent: LLM classification failed (%s) — defaulting to revise", exc)
-
-    return {"intent": "revise", "target_id": ""}
-
-
-class ClassifyIntentCommand(BaseModel):
-    """Body for ``POST /{id}/classify-intent``."""
-
-    text: str
-    chain_hints: list[dict] | None = None
 
 
 @router.post("/{run_id}/revisions")

@@ -31,7 +31,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { parseRunInput } from "@/lib/runInput";
-import { getToken, getChainContext, getRunFamily, postCancel, postRevision, postResume } from "@/lib/api";
+import { getToken, getChainContext, getRunFamily, getWorkflow, postCancel, postRevision, postResume } from "@/lib/api";
 import type { UserWorkflowSummary, WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -460,7 +460,8 @@ export function DashboardLayout({
       );
     }
     if (!notif) return;
-    markCompleted(notif.id);
+    // FIX-215: pass backgroundCompletedRunId so markCompleted stamps workflowRunId.
+    markCompleted(notif.id, backgroundCompletedRunId);
     setToasts(prev => {
       const toastId = notif!.id + "-toast";
       if (prev.some(t => t.id === toastId)) return prev;
@@ -608,7 +609,10 @@ export function DashboardLayout({
           const notifId = currentPipelineNotifId.current;
           currentPipelineNotifId.current = null;  // reset so next run gets a fresh notification
           currentPipelineNotifRunId.current = null; // FIX-194: clear companion ref in lockstep
-          markCompleted(notifId);
+          // FIX-215: pass the run id explicitly so markCompleted stamps workflowRunId
+          // on the notification. Without this, markCompleted(notifId) passes undefined
+          // and the onViewResults handler can't find the correct run to navigate to.
+          markCompleted(notifId, pipelineState.pipelineRunId ?? undefined);
           // FIX-194 — ISS-060: use the notification's own workflowType/title rather
           // than the shared workflowType state variable, which may still hold a
           // previous run's value when the completion batches with the sync effect.
@@ -1731,9 +1735,24 @@ export function DashboardLayout({
       runChatSend("", [], {
         concierge: true,
         confirm_proposal: { channel: p.channel, params: p.params },
+        // FIX-210: forward the original ASK turn's message_id so the backend's
+        // _load_pending_proposal can find the durable row via
+        // `concierge-proposal:{messageId}:{channel}`. Without this the lookup
+        // always misses → confirm does nothing.
+        ...(p.messageId ? { proposalMessageId: p.messageId } : {}),
+        // FIX-211: when the confirm-proposal response includes a revision_run_id
+        // (a concierge-confirmed revision launched a child run), attach + switch
+        // the UI to that run so the user sees the new revision progress immediately.
+        onRevisionLaunched: onRevisionLaunched
+          ? (revRunId: string) => onRevisionLaunched(revRunId)
+          : undefined,
+        // FIX-211b: if the proposal was written to a different run than the
+        // currently viewed one (e.g. view switched to a child after a revision),
+        // use the proposal's original run id so the POST reaches the right run.
+        ...(p.proposalRunId ? { targetRunId: p.proposalRunId } : {}),
       });
     },
-    [runChatSend],
+    [runChatSend, onRevisionLaunched],
   );
 
   // ISS-054 / KAN-160: replace the permanently-empty frozen constant with the
@@ -2072,17 +2091,58 @@ export function DashboardLayout({
             }
             setMainView("execution");
           } else if (n.status === "completed") {
-            // FIX-201 (KAN-168): switch the store viewport to the completed run
-            // so the history detail shows correctly. Without this, "View results"
-            // on a completion notification navigated to the execution view but the
-            // store still projected whichever run was last active.
+            // FIX-215: navigate to the SPECIFIC completed run from the notification.
+            // Strategy:
+            //   1. If workflowRunId is set — use it directly (fetch if not in recentRuns)
+            //   2. Fallback: match recentRuns by title then by type (for old notifications
+            //      persisted before workflowRunId was stamped)
+            //   3. Last resort: open history view
+            const navigateToRun = (runId: string) => {
+              const cached = recentRuns?.find(r => r.id === runId);
+              if (cached) {
+                onSelectWorkflowRun?.(cached);
+                setMainView("execution");
+              } else {
+                const token = getToken();
+                if (token && onSelectWorkflowRun) {
+                  setMainView("execution");
+                  void getWorkflow(token, runId)
+                    .then((fetchedRun) => { onSelectWorkflowRun(fetchedRun); })
+                    .catch(() => { /* non-fatal */ });
+                } else {
+                  setMainView("execution");
+                }
+              }
+            };
+
             if (n.workflowRunId) {
-              const completedRun = recentRuns?.find(r => r.id === n.workflowRunId);
-              if (completedRun) {
-                onSelectWorkflowRun?.(completedRun);
+              navigateToRun(n.workflowRunId);
+            } else {
+              // Old notification: no workflowRunId — try to match by title first,
+              // then fall back to most-recent run of matching type.
+              const COMPLETED_STATUSES = new Set(["completed", "degraded"]);
+              const cleanTitle = n.title?.split("\n")[0]?.trim().toLowerCase();
+              let matched = recentRuns?.find(
+                r => COMPLETED_STATUSES.has(r.status) &&
+                  (r.type === n.workflowType || r.type?.startsWith(n.workflowType)) &&
+                  r.title?.trim().toLowerCase() === cleanTitle
+              );
+              if (!matched) {
+                // Type-only fallback — pick the most recent completed run of this type
+                // that is NOT the currently-viewed run (avoids navigating to same run).
+                matched = recentRuns?.find(
+                  r => COMPLETED_STATUSES.has(r.status) &&
+                    (r.type === n.workflowType || r.type?.startsWith(n.workflowType)) &&
+                    r.id !== contentSourceRunId
+                );
+              }
+              if (matched) {
+                onSelectWorkflowRun?.(matched);
+                setMainView("execution");
+              } else {
+                setMainView("history");
               }
             }
-            setMainView("execution");
           } else {
             setMainView("history");
           }
@@ -2512,6 +2572,14 @@ export function DashboardLayout({
             const completedRun = recentRuns?.find(r => r.id === toast.workflowRunId);
             if (completedRun) {
               onSelectWorkflowRun?.(completedRun);
+            } else {
+              // FIX-215: same as notification panel — fetch run if not in recentRuns.
+              const token = getToken();
+              if (token && onSelectWorkflowRun) {
+                void getWorkflow(token, toast.workflowRunId)
+                  .then((fetchedRun) => { onSelectWorkflowRun(fetchedRun); })
+                  .catch(() => { /* non-fatal */ });
+              }
             }
           }
           setMainView("execution");
