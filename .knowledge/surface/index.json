@@ -1,5 +1,5 @@
 {
-  "count": 603,
+  "count": 608,
   "entries": [
     {
       "area": [
@@ -5166,6 +5166,40 @@
     },
     {
       "area": [
+        "backend",
+        "frontend",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/tests/agents/characterization/_normalize.py",
+        "backend/tests/agents/test_gate_revision_discriminator.py",
+        "backend/tests/agents/test_spec_revision_cycles.py",
+        "backend/tests/agents/test_restart_resume.py",
+        "frontend/src/types/index.ts",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/hooks/useRunStateStore.ts",
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/components/chat/RunChatLane.tsx",
+        "frontend/src/components/results/StepsOverviewSpine.tsx",
+        "frontend/src/components/chat/InlineGateActions.tsx"
+      ],
+      "id": "FIX-220",
+      "path": ".knowledge/cards/FIX-220.md",
+      "relates": [
+        "ISS-052",
+        "ISS-062",
+        "ISS-063",
+        "ISS-072"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-220",
+      "status": "done",
+      "summary": "One \"Update the Specs\" click opened the analyze gate THREE times and nothing on the wire told the firings apart \u2014 A modelling gap, not a mechanism: the sub-pipeline was DESIGNED headless",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -5940,6 +5974,26 @@
     },
     {
       "area": [
+        "tooling"
+      ],
+      "date": "",
+      "files": [
+        "scripts/knowledge/check_ids.py"
+      ],
+      "id": "ISS-050",
+      "path": ".knowledge/cards/ISS-050.md",
+      "relates": [
+        "FIX-185",
+        "ISS-064",
+        "ISS-066"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-050",
+      "status": "open",
+      "summary": "TOMBSTONE. This id was allocated to \"CR-02 guard blocks prototype_revision and user_stories_revision\", closed by FIX-185 (commit fd2ad8f1), and the id lived ONLY in that commit message \u2014 never in a register or card",
+      "type": "issue"
+    },
+    {
+      "area": [
         "sse",
         "resume",
         "agents"
@@ -5958,14 +6012,15 @@
     },
     {
       "area": [
-        "agents"
+        "agents",
+        "artifacts"
       ],
       "date": "",
       "files": [],
       "id": "ISS-052",
       "path": ".knowledge/cards/ISS-052.md",
       "relates": [
-        "ISS-050"
+        "ISS-064"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-052",
       "status": "open",
@@ -6333,6 +6388,72 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-071",
       "status": "open",
       "summary": "The \"Update the Specs\" affordance is advertised at EVERY gate on every non-prototype workflow. _update_specs_eligible keys on artifact_kind in {\"summary\"}",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-072",
+      "path": ".knowledge/cards/ISS-072.md",
+      "relates": [
+        "FIX-220",
+        "FIX-218",
+        "ISS-052",
+        "ISS-064"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-072",
+      "status": "open",
+      "summary": "Collapse the doubled analyze gate by suppressing the IN-PASS firing [1], not the re-opened one. One \"Update the Specs\" click still costs four approvals. FIX-220 made the firings identifiable but suppressed nothing",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/components/chat/InlineGateActions.test.tsx"
+      ],
+      "id": "ISS-073",
+      "path": ".knowledge/cards/ISS-073.md",
+      "relates": [
+        "ISS-052"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-073",
+      "status": "open",
+      "summary": "A stale frontend test asserts a layout the component deliberately abandoned. frontend/src/components/chat/InlineGateActions.test.tsx:54 (\"renders exactly two primary buttons\") asserts queryByTestId(\"chat-gate-update-specs\") is null before",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "resume",
+        "agents",
+        "auth",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/agents/live_harness.py"
+      ],
+      "id": "ISS-074",
+      "path": ".knowledge/cards/ISS-074.md",
+      "relates": [
+        "FIX-220",
+        "FIX-218"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-074",
+      "status": "open",
+      "summary": "The LIVE harness's review-gate wrapper cannot accept the gate's own arguments \u2014 every live gated drive raises TypeError",
       "type": "issue"
     },
     {
@@ -9202,35 +9323,35 @@
   ],
   "facets": {
     "area": {
-      "agents": 208,
-      "artifacts": 81,
-      "auth": 76,
-      "backend": 85,
+      "agents": 211,
+      "artifacts": 84,
+      "auth": 77,
+      "backend": 87,
       "docs": 2,
       "evals": 10,
-      "frontend": 174,
+      "frontend": 176,
       "harness": 2,
       "infra": 1,
       "product": 29,
-      "resume": 45,
+      "resume": 47,
       "runtime": 31,
-      "sse": 139,
-      "test-infra": 7,
-      "tooling": 1,
+      "sse": 141,
+      "test-infra": 9,
+      "tooling": 2,
       "workflow": 189
     },
     "status": {
       "accepted": 1,
-      "done": 564,
-      "open": 29,
+      "done": 565,
+      "open": 33,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 216,
-      "issue": 70,
+      "fix": 217,
+      "issue": 74,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -9248,5 +9369,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 01:10"
+  "generated": "2026-08-12 01:37"
 }

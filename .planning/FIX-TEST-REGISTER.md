@@ -15,10 +15,114 @@
 | TEST-003 | FIX-217 (quick-260811-mxg) | 2026-08-11 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 11 | 11 | 0 | ✅ Pass |
 | TEST-004 | FIX-218 (quick-260811-si4) | 2026-08-11 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 8 | 8 | 0 | ✅ Pass |
 | TEST-005 | FIX-219 (quick-260812-12t) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/agents/capabilities/gates/human.py`, `backend/agents/capabilities/gates/approval.py`, `backend/app/api/run_engine.py`, `backend/app/api/run_commands.py` | 18 | 18 | 0 | ✅ Pass |
+| TEST-006 | FIX-220 (quick-260812-1nz) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/tests/agents/characterization/_normalize.py`, `frontend/src/components/chat/InlineGateActions.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx` | 8 | 8 | 0 | ✅ Pass |
 
 ---
 
 ## Detailed Test Entries
+
+### TEST-006 — FIX-220 (quick-260812-1nz): the doubled analyze gate is identifiable
+
+```
+TEST COVERAGE — FIX-220
+Unit tests:        6 NEW in backend/tests/agents/test_gate_revision_discriminator.py
+                   RED FIRST, observed and recorded, never assumed:
+                     6 failed -> 6 passed
+                   Each failed for its own reason, not one shared import error:
+                     stamp vector      [(None,None) x3]  -> [(0,False),(1,True),(1,False)]
+                     second cycle      [None x5]         -> [0,1,1,2,2]
+                     real gate         TypeError: unexpected kwarg 'revision_cycle'
+                     declared default  "expected a 0 default; got None"
+                     SC-001 grep       "the discriminator never appears in engine.py"
+                     strip-set guard   'revision_cycle' not in _VOLATILE_STRIP_KEYS
+Integration tests: N/A — the defect is EVENT SHAPE plus FE state. Test 3 drives the REAL
+                   _run_review_gate offline and reads the emitted review_gate_ready payload,
+                   which is byte-for-byte what the SSE layer re-emits (run_stream.py:244
+                   forwards payload_json verbatim), so an integration tier would re-assert
+                   the same bytes one hop later. Live Bedrock acceptance DEFERRED
+                   (end-of-milestone rule); the live check is one query —
+                   SELECT revision_cycle, revision_in_flight FROM the run's
+                   review_gate_ready rows must read (0,f)/(N,t)/(N,f).
+Frontend tests:    2 NEW in frontend/src/components/chat/InlineGateActions.test.tsx,
+                   both seen RED first. The first is the load-bearing one and covers a hole
+                   the investigation flagged as UNTESTED: the reset effect's deps were
+                   [output, gateKey] and NEITHER changes between the in-pass and re-opened
+                   firings, so the one-action `submitted` latch stayed stuck and the second
+                   gate rendered with every action disabled.
+                   File went 1 failed / 13 passed -> 1 failed / 15 passed. The 1 red is
+                   PRE-EXISTING and proven so, not labelled so: the same file measured
+                   1 failed / 13 passed in a detached worktree at 28c0111c. It is
+                   "renders exactly two primary buttons", which asserts the update-specs
+                   button is collapsed under "Request changes" while the component
+                   deliberately elevates it (:255-269). Filed as ISS-073.
+Goldens:           5 failed / 5 passed — IDENTICAL counts AND identical failing ids at the
+                   pre-change commit 28c0111c and after (prototype, od_prototype, od_ppt,
+                   app_builder, prototype_revision event snapshots). NO golden regenerated;
+                   `git status` on characterization/golden/ is clean.
+                   As with FIX-219, note WHY they cannot move: all 10 golden files contain
+                   ZERO review_gate_ready events (gate_agent_ids=[], _scripted_model.py:649),
+                   so they are structurally blind to any _run_review_gate change. Golden
+                   silence is NOT evidence here — INV-3 is proven by the strip-set guard and
+                   the dormancy defaults instead.
+lint-imports:      3 kept / 1 broken — IDENTICAL at 28c0111c. The broken contract is the
+                   pre-existing agents.capabilities -> execution_engine.od_context ->
+                   app.services.od_loader chain, untouched here.
+Adjacent suites:   All measured in a DETACHED WORKTREE at 28c0111c, both sides, not assumed:
+                     ISS-053 set (spec_revision_cycles, update_specs_enforcement,
+                       update_specs_ingress_fence, sc001_gate_flag) 32 passed.
+                     engine-adjacent (redo_gate_safety, steering_seam, restart_resume,
+                       spec_revision_context, execution_engine)
+                       10 failed / 76 passed BEFORE and AFTER, same ids.
+                     wider gate surface (declared_gate_streaming, gates, sc001_gate_flag,
+                       task_list_gate_lineage, approve_review_ownership, rest_gate_commands,
+                       sc001_fanout, phase5_revision_validation, chunk_sanitizer,
+                       sample_brownfield_workflow, iss033_aux_token_fold)
+                       8 failed / 92 passed BEFORE and AFTER, same ids.
+                     full frontend vitest 147 failed / 779 passed -> 147 failed / 781 passed
+                       — same 29 failed files; +2 = exactly this fix's new cases.
+                     tsc --noEmit: identical 2 pre-existing errors both sides.
+                   MID-WORK REGRESSION, caught by that baselining and fixed: the first run
+                   of the engine-adjacent sweep was 17 failed / 69 passed (+7). Three
+                   `_gate` stubs in test_restart_resume.py (:1282/:1360/:1407) have FIXED
+                   signatures and raised TypeError on the new kwargs. Given `**kwargs` —
+                   the idiom the sibling stubs in test_spec_revision_cycles.py and
+                   test_redo_gate_safety.py already document — the sweep returned to the
+                   baseline 10 / 76. Test-only; no production diff.
+Regression guards:
+  - test_each_gate_firing_carries_a_distinct_revision_stamp (NEW): the load-bearing one.
+    Drives a REAL revision cycle and asserts the three firings publish
+    (0,False)/(1,True)/(1,False) AND that the three are pairwise distinct. It also pins
+    the specific property the FE depends on — the in-pass and re-opened gates share a
+    cycle and are separated by the in-flight flag ALONE — so a future change that drops
+    revision_in_flight as "redundant with revision_cycle" fails here rather than silently
+    re-sticking the latch.
+  - test_a_second_cycle_advances_the_published_cycle_index (NEW): [0,1,1,2,2] over two
+    sibling cycles. This is the DURABLE per-cycle signal ISS-063 must consume instead of
+    inventing a third counter; the assertion is what stops it drifting.
+  - test_real_gate_stamps_the_discriminator_on_review_gate_ready (NEW): its sibling
+    test_spec_revision_cycles.py stubs _run_review_gate out entirely, so without this the
+    engine could pass the values correctly and never publish them.
+  - test_gate_defaults_the_discriminator_for_the_declared_path (NEW): the declared /
+    user-composed gate path reaches the primitive through run_human_gate, which passes
+    neither key. Pins (0, False) — truthful AND the value that renders no badge — and pins
+    redoable=False alongside it so a signature change cannot make one default true.
+  - test_discriminator_introduces_no_agent_id_literal (NEW): SC-001 source grep over every
+    engine line mentioning either key — no `prototype-` literal, no `pipeline_type` branch.
+    Mirrors test_eligibility_introduces_no_agent_id_literal.
+  - test_discriminator_keys_are_in_volatile_strip_set (NEW): INV-3. Mirrors
+    test_new_keys_are_in_volatile_strip_set, which is the guard that DEMANDED this entry.
+  - ISS-052: re-arms the one-action latch ... (NEW, frontend): approve at the in-pass gate,
+    then re-render with the SAME output and SAME gateKey and only the stamp moved; the
+    approve control must be live again and fire a second time. Fails on the pre-fix
+    dependency array.
+  - ISS-052: names the revision cycle ... (NEW, frontend): the badge is ABSENT at cycle 0
+    (dormancy for every non-revision gate) and reads DIFFERENTLY in-pass vs re-opened while
+    naming the same cycle number.
+  - test_spec_revision_cycles.py (5, FIX-218) + test_update_specs_enforcement.py (5,
+    FIX-219) + test_update_specs_ingress_fence.py (13, FIX-219): all unchanged and green.
+    In particular the ISS-053 409 path is untouched — this fix adds keys, it changes no
+    verdict.
+```
 
 ### TEST-005 — FIX-219 (quick-260812-12t): update_specs eligibility is enforced
 

@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-603 cards · rules 1 · fixes 216 · issues 70 · phases 23 · built 2026-08-12 01:10
+608 cards · rules 1 · fixes 217 · issues 74 · phases 23 · built 2026-08-12 01:37
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (216)
+## Fixes (217)
 
+FIX-220 2026-08-12 [backend,frontend,agents] One "Update the Specs" click opened the analyze gate THREE times and nothing on the wire told the firings apart — A modelling gap, not a mechanism: the sub-pipeline was DESIGNED headless
 FIX-219 2026-08-12 [backend,sse,agents] update_specs_eligible was advertised but never enforced — the review gate ran the spec-revision sub-pipeline at firings that had published the affordance as unavailable
 FIX-218 2026-08-11 [backend,resume,agents] A second "Update the Specs" at the RE-OPENED analyze gate was a silent no-op — the gate closed, instantly re-opened on identical content, no revision ran, and the build proceeded from the unrevised spec (defect B)
 FIX-217 2026-08-11 [backend,resume,agents,artifacts] update_specs regenerated the spec from scratch instead of revising it, and every resumed run rebuilt its planning context from a 200-char stub — the degraded spec then drove the planner and the finished prototype, with no UI signal
@@ -231,8 +232,11 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (70)
+## Issues (74)
 
+ISS-074 - [backend,resume,agents,auth,artifacts,test-infra] The LIVE harness's review-gate wrapper cannot accept the gate's own arguments — every live gated drive raises TypeError
+ISS-073 - [frontend,sse,test-infra] A stale frontend test asserts a layout the component deliberately abandoned. frontend/src/components/chat/InlineGateActions.test.tsx:54 ("renders exactly two primary buttons") asserts queryByTestId("chat-gate-update-specs") is null before
+ISS-072 - [sse,resume,agents,artifacts] Collapse the doubled analyze gate by suppressing the IN-PASS firing [1], not the re-opened one. One "Update the Specs" click still costs four approvals. FIX-220 made the firings identifiable but suppressed nothing
 ISS-071 - [workflow,agents,artifacts] The "Update the Specs" affordance is advertised at EVERY gate on every non-prototype workflow. _update_specs_eligible keys on artifact_kind in {"summary"}
 ISS-070 - [auth] The gate-action discriminator is unvalidated, and an unknown action silently APPROVES. run_commands.py resolve_gate dispatches on action with else: # approve as the fallback, so any unrecognised string — a typo, a stale client, a probe
 ISS-069 - [tooling,test-infra] FIX-REGISTER drift — the ISS-066 defect, in the other register. 11 FIX-NNN ids are in active use with NO row in .planning/FIX-REGISTER.md: FIX-020 (commit messages only), FIX-128, FIX-129 (both: register prose mentions + cards + code)
@@ -252,8 +256,9 @@ ISS-056 - [workflow,agents] Clarify question quality gaps (KAN-162): (H1) 7 mani
 ISS-055 - [backend,sse,auth] Tier entitlement never enforced at launch — any user could run any pipeline regardless of their tier (KAN-161). Introduced a scoped tier for deployments needing prototype + a subset
 ISS-054 - [frontend,backend,sse,agents] Concierge chain / gate_action / revision proposals never surface — the proposals binding was dead, so consequential Concierge proposals (chain, gate_action, revision) were held but never rendered as chips
 ISS-053 - [sse,agents,evals,auth] update_specs_eligible is an FE affordance only — _run_review_gate (engine.py:5470) acts on the gate action WITHOUT ever consulting it
-ISS-052 - [agents] One "Update the Specs" click costs FOUR approvals: the re-run specify gate, the re-run plan gate, then the analyze gate RE-OPENS after the sub-pipeline returns
+ISS-052 - [agents,artifacts] One "Update the Specs" click costs FOUR approvals: the re-run specify gate, the re-run plan gate, then the analyze gate RE-OPENS after the sub-pipeline returns
 ISS-051 - [sse,resume,agents] A nested revision reaches depth 2 with BOTH levels computing revision_index=1, so two passes collide on the same :rev1 checkpoint thread (measured: 7 dispatches, only 4 unique thread ids)
+ISS-050 - [tooling] TOMBSTONE. This id was allocated to "CR-02 guard blocks prototype_revision and user_stories_revision", closed by FIX-185 (commit fd2ad8f1), and the id lived ONLY in that commit message — never in a register or card
 ISS-049 - [sse,workflow,agents,auth,test-infra] Surfaced by the 37-07 rebuild agent's careful re-analysis (corrects the earlier "~10 pre-existing" hand-wave): the FE suite has 2 DETERMINISTIC failures (both pre-existing, unrelated to 37-07) + ~8 FLAKY
 ISS-048 - [sse,resume,workflow,agents,auth,product] Phase-38 review (verifier PASS 11/11, 0 crit/high): (MD-1) useNotifications.ts:99/DashboardLayout.tsx:489 gate notification never reverts
 ISS-047 - [sse,workflow,agents,auth,product] 37-07 unified-launch rebuild re-review (verifier PASSED 3/3, 0 blockers, contract byte-identical, 0 dropped behaviors): (WR-05

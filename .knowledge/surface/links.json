@@ -136,6 +136,9 @@
     "FIX-184": [
       "ISS-069"
     ],
+    "FIX-185": [
+      "ISS-050"
+    ],
     "FIX-188": [
       "ISS-054"
     ],
@@ -193,7 +196,13 @@
     ],
     "FIX-218": [
       "ISS-062",
-      "ISS-064"
+      "ISS-064",
+      "ISS-072",
+      "ISS-074"
+    ],
+    "FIX-220": [
+      "ISS-072",
+      "ISS-074"
     ],
     "ISS-007": [
       "ISS-035"
@@ -239,12 +248,16 @@
     "ISS-050": [
       "FIX-218",
       "ISS-051",
-      "ISS-052",
       "ISS-055",
       "ISS-066"
     ],
     "ISS-051": [
       "FIX-218"
+    ],
+    "ISS-052": [
+      "FIX-220",
+      "ISS-072",
+      "ISS-073"
     ],
     "ISS-053": [
       "FIX-219",
@@ -259,12 +272,22 @@
     "ISS-061": [
       "ISS-066"
     ],
+    "ISS-062": [
+      "FIX-220"
+    ],
+    "ISS-063": [
+      "FIX-220"
+    ],
     "ISS-064": [
+      "ISS-050",
+      "ISS-052",
       "ISS-053",
       "ISS-062",
-      "ISS-066"
+      "ISS-066",
+      "ISS-072"
     ],
     "ISS-066": [
+      "ISS-050",
       "ISS-054",
       "ISS-055",
       "ISS-056",
@@ -280,6 +303,9 @@
     ],
     "ISS-071": [
       "FIX-219"
+    ],
+    "ISS-072": [
+      "FIX-220"
     ]
   },
   "by_area": {
@@ -392,6 +418,7 @@
       "FIX-217",
       "FIX-218",
       "FIX-219",
+      "FIX-220",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -428,6 +455,8 @@
       "ISS-067",
       "ISS-068",
       "ISS-071",
+      "ISS-072",
+      "ISS-074",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -538,8 +567,11 @@
       "ISS-027",
       "ISS-028",
       "ISS-038",
+      "ISS-052",
       "ISS-065",
       "ISS-071",
+      "ISS-072",
+      "ISS-074",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -618,6 +650,7 @@
       "ISS-055",
       "ISS-063",
       "ISS-070",
+      "ISS-074",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -735,10 +768,12 @@
       "FIX-217",
       "FIX-218",
       "FIX-219",
+      "FIX-220",
       "ISS-054",
       "ISS-055",
       "ISS-066",
       "ISS-067",
+      "ISS-074",
       "TEST-46"
     ],
     "docs": [
@@ -924,12 +959,14 @@
       "FIX-209",
       "FIX-210",
       "FIX-212",
+      "FIX-220",
       "ISS-022",
       "ISS-025",
       "ISS-054",
       "ISS-058",
       "ISS-060",
       "ISS-061",
+      "ISS-073",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -995,6 +1032,8 @@
       "ISS-048",
       "ISS-051",
       "ISS-068",
+      "ISS-072",
+      "ISS-074",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1149,6 +1188,8 @@
       "ISS-065",
       "ISS-067",
       "ISS-068",
+      "ISS-072",
+      "ISS-073",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1199,9 +1240,12 @@
       "ISS-049",
       "ISS-067",
       "ISS-068",
-      "ISS-069"
+      "ISS-069",
+      "ISS-073",
+      "ISS-074"
     ],
     "tooling": [
+      "ISS-050",
       "ISS-069"
     ],
     "workflow": [
@@ -1462,7 +1506,8 @@
       "FIX-190",
       "FIX-217",
       "FIX-218",
-      "FIX-219"
+      "FIX-219",
+      "FIX-220"
     ],
     "backend/agents/execution_engine/kernel_services.py": [
       "FIX-007b"
@@ -1773,7 +1818,8 @@
       "FIX-049"
     ],
     "backend/tests/agents/characterization/_normalize.py": [
-      "FIX-036"
+      "FIX-036",
+      "FIX-220"
     ],
     "backend/tests/agents/characterization/golden/od_ppt.events.json": [
       "FIX-031"
@@ -1784,12 +1830,18 @@
     "backend/tests/agents/characterization/golden/prototype_revision.html": [
       "FIX-049"
     ],
+    "backend/tests/agents/live_harness.py": [
+      "ISS-074"
+    ],
     "backend/tests/agents/test_bedrock_cache_and_thinking.py": [
       "FIX-034"
     ],
     "backend/tests/agents/test_context_providers.py": [
       "FIX-031",
       "FIX-032"
+    ],
+    "backend/tests/agents/test_gate_revision_discriminator.py": [
+      "FIX-220"
     ],
     "backend/tests/agents/test_id_alias_resolver.py": [
       "FIX-185"
@@ -1815,14 +1867,16 @@
     ],
     "backend/tests/agents/test_restart_resume.py": [
       "FIX-175",
-      "FIX-217"
+      "FIX-217",
+      "FIX-220"
     ],
     "backend/tests/agents/test_spec_revision_context.py": [
       "FIX-217"
     ],
     "backend/tests/agents/test_spec_revision_cycles.py": [
       "FIX-218",
-      "FIX-219"
+      "FIX-219",
+      "FIX-220"
     ],
     "backend/tests/agents/test_update_specs_enforcement.py": [
       "FIX-219"
@@ -1913,7 +1967,8 @@
       "FIX-205",
       "FIX-206",
       "FIX-208",
-      "FIX-210"
+      "FIX-210",
+      "FIX-220"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
@@ -1948,9 +2003,13 @@
       "FIX-094",
       "FIX-095"
     ],
+    "frontend/src/components/chat/InlineGateActions.test.tsx": [
+      "ISS-073"
+    ],
     "frontend/src/components/chat/InlineGateActions.tsx": [
       "FIX-154",
-      "FIX-163"
+      "FIX-163",
+      "FIX-220"
     ],
     "frontend/src/components/chat/ResultCard.test.tsx": [
       "FIX-128"
@@ -1983,6 +2042,7 @@
       "FIX-192",
       "FIX-193",
       "FIX-212",
+      "FIX-220",
       "ISS-054"
     ],
     "frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx": [
@@ -2068,6 +2128,7 @@
       "FIX-205",
       "FIX-208",
       "FIX-210",
+      "FIX-220",
       "ISS-054"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
@@ -2127,7 +2188,8 @@
       "FIX-124",
       "FIX-154",
       "FIX-163",
-      "FIX-206"
+      "FIX-206",
+      "FIX-220"
     ],
     "frontend/src/components/settings/AccountSettings.tsx": [
       "FIX-019"
@@ -2245,7 +2307,8 @@
       "ISS-054"
     ],
     "frontend/src/hooks/useRunStateStore.ts": [
-      "FIX-201"
+      "FIX-201",
+      "FIX-220"
     ],
     "frontend/src/hooks/useRunStream.test.ts": [
       "FIX-129"
@@ -2306,9 +2369,11 @@
       "FIX-145",
       "FIX-156",
       "FIX-166",
-      "FIX-178"
+      "FIX-178",
+      "FIX-220"
     ],
     "scripts/knowledge/check_ids.py": [
+      "ISS-050",
       "ISS-069"
     ]
   },
@@ -2441,6 +2506,12 @@
       "ISS-070",
       "ISS-071"
     ],
+    "FIX-220": [
+      "ISS-052",
+      "ISS-062",
+      "ISS-063",
+      "ISS-072"
+    ],
     "ISS-012": [
       "ISS-014"
     ],
@@ -2492,11 +2563,16 @@
     "ISS-048": [
       "ISS-045"
     ],
+    "ISS-050": [
+      "FIX-185",
+      "ISS-064",
+      "ISS-066"
+    ],
     "ISS-051": [
       "ISS-050"
     ],
     "ISS-052": [
-      "ISS-050"
+      "ISS-064"
     ],
     "ISS-053": [
       "ISS-064"
@@ -2577,6 +2653,19 @@
     ],
     "ISS-071": [
       "ISS-053"
+    ],
+    "ISS-072": [
+      "FIX-218",
+      "FIX-220",
+      "ISS-052",
+      "ISS-064"
+    ],
+    "ISS-073": [
+      "ISS-052"
+    ],
+    "ISS-074": [
+      "FIX-218",
+      "FIX-220"
     ]
   },
   "rules_by_file": {
