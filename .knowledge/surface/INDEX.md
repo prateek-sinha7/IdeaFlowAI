@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-587 cards · rules 1 · fixes 215 · issues 55 · phases 23 · built 2026-08-11 23:58
+587 cards · rules 1 · fixes 215 · issues 55 · phases 23 · built 2026-08-12 00:01
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -232,12 +232,12 @@ FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline 
 
 ## Issues (55)
 
+ISS-064 - [agents] A second "Update the Specs" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline
 ISS-063 - [auth] The violet "Spec Revision Cycle N" banner (FIX-163) is LIVE-SESSION-ONLY state and never back-fills from durable events, so reopening a run that was revised shows no sign a revision ever happened
 ISS-062 - [agents] A/B measured across two live Bedrock runs: PRE-si4 run 5ecb990f reported eligible=True at every analyze gate including both re-opens (seq 9572/24652/24655)
 ISS-053 - [agents,evals,auth] update_specs_eligible is an FE affordance only — _run_review_gate (engine.py:5470) acts on the gate action WITHOUT ever consulting it
 ISS-052 - [agents] One "Update the Specs" click costs FOUR approvals: the re-run specify gate, the re-run plan gate, then the analyze gate RE-OPENS after the sub-pipeline returns
 ISS-051 - [sse,resume,agents] A nested revision reaches depth 2 with BOTH levels computing revision_index=1, so two passes collide on the same :rev1 checkpoint thread (measured: 7 dispatches, only 4 unique thread ids)
-ISS-050 - [agents] A second "Update the Specs" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline
 ISS-049 - [sse,workflow,agents,auth,test-infra] Surfaced by the 37-07 rebuild agent's careful re-analysis (corrects the earlier "~10 pre-existing" hand-wave): the FE suite has 2 DETERMINISTIC failures (both pre-existing, unrelated to 37-07) + ~8 FLAKY
 ISS-048 - [sse,resume,workflow,agents,auth,product] Phase-38 review (verifier PASS 11/11, 0 crit/high): (MD-1) useNotifications.ts:99/DashboardLayout.tsx:489 gate notification never reverts
 ISS-047 - [sse,workflow,agents,auth,product] 37-07 unified-launch rebuild re-review (verifier PASSED 3/3, 0 blockers, contract byte-identical, 0 dropped behaviors): (WR-05

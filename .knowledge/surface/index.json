@@ -5911,22 +5911,6 @@
     },
     {
       "area": [
-        "agents"
-      ],
-      "date": "",
-      "files": [],
-      "id": "ISS-050",
-      "path": ".knowledge/cards/ISS-050.md",
-      "relates": [
-        "FIX-218"
-      ],
-      "source": ".planning/ISSUES-REGISTER.md#iss-050",
-      "status": "open",
-      "summary": "A second \"Update the Specs\" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline",
-      "type": "issue"
-    },
-    {
-      "area": [
         "sse",
         "resume",
         "agents"
@@ -5987,7 +5971,7 @@
       "path": ".knowledge/cards/ISS-062.md",
       "relates": [
         "FIX-218",
-        "ISS-050"
+        "ISS-064"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-062",
       "status": "open",
@@ -6009,6 +5993,22 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-063",
       "status": "open",
       "summary": "The violet \"Spec Revision Cycle N\" banner (FIX-163) is LIVE-SESSION-ONLY state and never back-fills from durable events, so reopening a run that was revised shows no sign a revision ever happened",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-064",
+      "path": ".knowledge/cards/ISS-064.md",
+      "relates": [
+        "FIX-218"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-064",
+      "status": "open",
+      "summary": "A second \"Update the Specs\" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline",
       "type": "issue"
     },
     {
@@ -8923,5 +8923,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-11 23:58"
+  "generated": "2026-08-12 00:01"
 }

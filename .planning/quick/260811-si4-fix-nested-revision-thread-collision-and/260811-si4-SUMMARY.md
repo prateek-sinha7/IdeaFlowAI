@@ -10,7 +10,7 @@ pushed: false
 requires:
   - FIX-217 (quick-260811-mxg) — the :rev{N} thread suffix and the prior-artifact injection this builds on
 provides:
-  - flat sibling revision cycles from the re-opened analyze gate (ISS-050 closed)
+  - flat sibling revision cycles from the re-opened analyze gate (ISS-064 closed)
   - a re-entrant _run_spec_revision_sub_pipeline safe at any depth (ISS-051 closed)
   - one shared _gate_update_specs consumer (INV-12)
 affects:
@@ -44,7 +44,7 @@ decisions:
 ids:
   fix: FIX-218
   test: TEST-004
-  issues-closed: [ISS-050, ISS-051]
+  issues-closed: [ISS-064, ISS-051]
   issues-cross-referenced: [ISS-052, ISS-053]
 metrics:
   tasks: 3
@@ -147,7 +147,7 @@ ids, so swapping one red for another cannot slip past. Both reported `GOLDEN-DOR
 ## IDs allocated — the max-of-four derivation
 
 Re-derived **at execution time**, not carried from the planning session. The plan's first draft
-allocated `FIX-217` / `TEST-003` / `ISS-050` and commit `de42a7bf` burned every one of them
+allocated `FIX-217` / `TEST-003` / `ISS-064` and commit `de42a7bf` burned every one of them
 before execution — exactly the collision the rule exists to catch.
 
 | Series | Register | Cards (`INDEX.md`) | `origin/dev` commits | This branch's commits | Max | Allocated |
@@ -167,7 +167,7 @@ predecessor.
 therefore start at **062**, not 054. This task needed no new ISS row (Task 1's
 `test_redo_gate_safety.py` was not reverted — it went to 7 passed), so nothing was allocated.
 
-**ISS handling:** `ISS-050` and `ISS-051` **updated to Closed** with their resolutions, not
+**ISS handling:** `ISS-064` and `ISS-051` **updated to Closed** with their resolutions, not
 duplicated. `ISS-052` (the redundant double analyze gate) and `ISS-053`
 (`update_specs_eligible` not server-enforced) **already existed and were cross-referenced
 only** — both keep their OPEN status, each with a note recording why si4 deliberately left it.

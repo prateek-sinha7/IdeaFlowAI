@@ -134,8 +134,8 @@
       "ISS-063"
     ],
     "FIX-218": [
-      "ISS-050",
-      "ISS-062"
+      "ISS-062",
+      "ISS-064"
     ],
     "ISS-007": [
       "ISS-035"
@@ -182,11 +182,13 @@
       "FIX-218",
       "ISS-051",
       "ISS-052",
-      "ISS-053",
-      "ISS-062"
+      "ISS-053"
     ],
     "ISS-051": [
       "FIX-218"
+    ],
+    "ISS-064": [
+      "ISS-062"
     ]
   },
   "by_area": {
@@ -323,11 +325,11 @@
       "ISS-047",
       "ISS-048",
       "ISS-049",
-      "ISS-050",
       "ISS-051",
       "ISS-052",
       "ISS-053",
       "ISS-062",
+      "ISS-064",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -2324,9 +2326,6 @@
     "ISS-048": [
       "ISS-045"
     ],
-    "ISS-050": [
-      "FIX-218"
-    ],
     "ISS-051": [
       "ISS-050"
     ],
@@ -2338,11 +2337,14 @@
     ],
     "ISS-062": [
       "FIX-218",
-      "ISS-050"
+      "ISS-064"
     ],
     "ISS-063": [
       "FIX-163",
       "FIX-217"
+    ],
+    "ISS-064": [
+      "FIX-218"
     ]
   },
   "rules_by_file": {

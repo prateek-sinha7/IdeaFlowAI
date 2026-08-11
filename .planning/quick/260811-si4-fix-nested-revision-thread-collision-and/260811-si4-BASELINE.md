@@ -8,7 +8,7 @@
 **Why this SHA is pre-change for CODE purposes.** The plan was written at `c0d7b46b` and
 revised at `6278368c`. The commits since carry **no source change**:
 
-- `de42a7bf` — docs/bookkeeping (registered quick-260811-mxg as FIX-217 / TEST-003, filed ISS-050..053)
+- `de42a7bf` — docs/bookkeeping (registered quick-260811-mxg as FIX-217 / TEST-003, filed ISS-064..053)
 - `6278368c` — chore/knowledge
 - `bf51a170` — `docs(quick-260811-si4): revise the plan …` — touches `260811-si4-PLAN.md` only
   (verified: `git diff --stat 6278368c..HEAD` = 1 file, the plan)
