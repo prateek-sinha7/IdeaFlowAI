@@ -28,10 +28,23 @@ export function useSmoothText(target: string, enabled = true): string {
 
   useEffect(() => {
     if (!enabled || !hasRaf) return;
+
+    // Reset the cursor when the target string changes in a way that makes our
+    // current position invalid (e.g. a completely different message started
+    // streaming, or the target was trimmed). Without this guard the rAF loop
+    // skips the whole run because shownLenRef.current >= target.length even
+    // though `shown` no longer matches `target`.
+    if (shownLenRef.current > target.length) {
+      shownLenRef.current = 0;
+      setShown("");
+    }
+
     if (shownLenRef.current >= target.length) return; // already caught up
 
     let raf = 0;
+    let active = true; // guard: don't setShown after unmount / effect cleanup
     const tick = () => {
+      if (!active) return;
       const curLen = shownLenRef.current;
       if (curLen >= target.length) {
         raf = 0;
@@ -49,6 +62,7 @@ export function useSmoothText(target: string, enabled = true): string {
     };
     raf = requestAnimationFrame(tick);
     return () => {
+      active = false;
       if (raf) cancelAnimationFrame(raf);
     };
   }, [target, enabled, hasRaf]);

@@ -136,6 +136,20 @@ export interface LaneProposal {
   params: Record<string, unknown>;
   /** Human-readable description of the consequential action (rendered escaped). */
   summary?: string;
+  /**
+   * The original ASK turn's message_id — required by the backend's
+   * `_load_pending_proposal` to locate the durable pending row via
+   * `concierge-proposal:{messageId}:{channel}`. Must be forwarded as
+   * `body.message_id` in the confirm turn so the backend H1 fence finds it.
+   */
+  messageId?: string;
+  /**
+   * The run id the proposal was written to. Used by handleConfirmProposal to
+   * POST the confirm turn to the correct run even after a view switch (e.g. a
+   * completed revision moves viewedRunId to the child run, but the proposal
+   * lives on the parent).
+   */
+  proposalRunId?: string;
 }
 
 export interface RunChatLaneProps {
@@ -267,32 +281,6 @@ export interface RunChatLaneProps {
   onCancelWorkflow?: () => void;
 }
 
-/**
- * GENERIC ask-vs-change classifier for a SETTLED-run free-text turn (43-02, the
- * A.1 CRUX / SC-001·INV-1). Keys ONLY on the generic text — NEVER a
- * workflow-name or agent-id literal. A CHANGE REQUEST (an imperative edit) still
- * launches the revision pipeline (onRevise); an ASK (a status/question turn) is
- * answered by the Concierge (`sendMessage(..., { concierge: true })`).
- *
- * Change-intent is weighed FIRST so a question-SHAPED change request
- * ("can you make the button bigger?") routes as a CHANGE, not an ask — a bare
- * question-mark heuristic would misroute it. Ambiguous settled free text falls
- * through to the historical default (a revision); misclassification is bounded —
- * the consequential path stays confirm-gated server-side (T-43-02-ROUTE).
- */
-const CHANGE_INTENT =
-  /\b(make|change|changed|add|added|remove|removed|delete|deleted|drop|update|fix|fixed|rename|reorder|move|resize|replace|swap|set|turn|redesign|restyle|recolor|tweak|adjust|convert|increase|decrease|reduce|expand|shrink|revise|revamp|modify|edit|improve|refactor|rework|redo|shorten|lengthen|simplify|bigger|smaller|larger|wider|narrower|taller|shorter|darker|lighter|bolder)\b/i;
-const ASK_INTENT =
-  /(^\s*(what|whats|what's|why|how|is|are|was|were|do|does|did|where|when|who|which|can|could|should|would|will)\b|\bstatus\b|\bexplain\b|\bprogress\b|\?\s*$)/i;
-// FIX-104: vague chain intent — the user wants to start a follow-up workflow but
-// hasn't named a specific target yet. Fires BEFORE change/ask so it isn't
-// swallowed by the revision hold. GENERIC (SC-001/INV-1) — no workflow-name literal.
-// Covers: "chain this", "chaining", "chained to", "chain it", "next workflow",
-// "build on this", "follow-up", "what can I do next", "continue with", etc.
-// Also covers "covert/convert this to X" style phrases that indicate chain intent.
-const CHAIN_INTENT =
-  /\b(chain(ing|ed|s)?(\s+this|\s+it|\s+into|\s+to|\s+from)?|next\s+workflow|follow.?up|build\s+on|what.?s\s+next|what\s+can\s+i|continue\s+with|extend\s+this|what\s+else|next\s+step|next\s+pipeline|pipeline\s+chain|chained?(\s+workflow)?|i\s+want\s+to\s+chain|convert?\s+this|covert\s+this)\b/i;
-
 // Safety-net window for the settled-run Concierge "reply pending" indicator.
 // Comfortably longer than a normal 2–8s reply so it only fires on a genuinely
 // failed / never-arriving reply (fire-and-forget send → no chat_reply to clear it).
@@ -337,21 +325,17 @@ function ReadingIndicator() {
           />
         ))}
       </span>
-      reading run data…
+      VelocityAI is Thinking…
     </div>
   );
 }
 
-function classifyFreeText(text: string): "ask" | "change" | "chain" {
-  const t = text.trim();
-  // FIX-104: chain intent is checked first so "chain this to a prototype" never
-  // falls through to the revision hold. Named-target phrases that also contain a
-  // transform verb are caught earlier by matchChainTarget; this handles the vague
-  // "I want to chain this" case where no target was named.
-  if (CHAIN_INTENT.test(t)) return "chain";
-  if (CHANGE_INTENT.test(t)) return "change";
-  if (ASK_INTENT.test(t)) return "ask";
-  return "change";
+function classifyFreeText(_text: string): "ask" | "change" | "chain" {
+  // FIX-210 (ISS-054): classifyFreeText is replaced by the Concierge.
+  // All run chat routes through sendMessage({concierge:true}) — the Concierge
+  // handles chain/revise/ask classification itself. This stub is kept only
+  // to avoid breaking any callers; it is no longer called from handleFreeText.
+  return "ask";
 }
 
 // A settled-run "<transform> into <target>" chain phrase (BUG-1, quick-260720-ec4):
@@ -525,12 +509,16 @@ function PipelineMini({
   building,
   completedCount,
   pipelineState,
+  hideHeader,
 }: {
   agents: AgentRunState[];
   onOpen?: () => void;
   building?: boolean;
   completedCount?: number;
   pipelineState?: import("@/types/index").PipelineRunState;
+  /** When true, suppress the internal "Pipeline · N agents" header row (used when
+   *  the component is embedded inside a collapsible toggle that already shows it). */
+  hideHeader?: boolean;
 }) {
   // FIX-182: same constructionComplete guard as AgentThinkingTab/StepsOverviewSpine —
   // prevents premature DONE checkmark on the build agent during task-loop iterations.
@@ -548,25 +536,11 @@ function PipelineMini({
     if (idx !== constructionIdx) return true;
     return !isRunning || (laterAgentStarted && allTasksDone);
   };
-  return (
-    <TranscriptCard
-      testid="lane-pipeline-mini"
-      onOpen={onOpen}
-      className="border-line-border bg-surface-card px-[14px] py-3 hover:border-line-faint"
-    >
-      <div className="mb-[10px] flex items-center justify-between">
-        <span className="font-sans text-[10.5px] font-semibold uppercase tracking-[0.11em] text-ink-300">
-          Pipeline · {agents.length} agents
-        </span>
-        {building ? (
-          <span className="inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-brand">
-            <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-brand" />
-            {completedCount ?? 0} / {agents.length}
-          </span>
-        ) : (
-          <span className="font-sans text-[11px] font-medium text-brand">Open Steps →</span>
-        )}
-      </div>
+  // When hideHeader=true the agent rows live inside the collapsible toggle wrapper —
+  // skip TranscriptCard entirely and render a plain flush div so width matches the
+  // toggle button exactly (no double border, no indent mismatch).
+  const agentRows = (
+    <>
       {agents.map((a, agentIdx) => {
         const done = agentIsReallyDone(agentIdx);
         const running = !done && (a.status === "running" || a.status === "thinking");
@@ -608,6 +582,40 @@ function PipelineMini({
           Open Steps for the full live trace →
         </p>
       )}
+    </>
+  );
+
+  if (hideHeader) {
+    return (
+      <div
+        data-testid="lane-pipeline-mini"
+        className="rounded-b-[var(--radius-node)] border border-t-0 border-line-border bg-surface-card px-[14px] py-3"
+      >
+        {agentRows}
+      </div>
+    );
+  }
+
+  return (
+    <TranscriptCard
+      testid="lane-pipeline-mini"
+      onOpen={onOpen}
+      className="border-line-border bg-surface-card px-[14px] py-3 hover:border-line-faint"
+    >
+      <div className="mb-[10px] flex items-center justify-between">
+        <span className="font-sans text-[10.5px] font-semibold uppercase tracking-[0.11em] text-ink-300">
+          Pipeline · {agents.length} agents
+        </span>
+        {building ? (
+          <span className="inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-brand">
+            <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-brand" />
+            {completedCount ?? 0} / {agents.length}
+          </span>
+        ) : (
+          <span className="font-sans text-[11px] font-medium text-brand">Open Steps →</span>
+        )}
+      </div>
+      {agentRows}
     </TranscriptCard>
   );
 }
@@ -1089,6 +1097,9 @@ export function RunChatLane({
   // arrives) is covered by the safety-net timeout further below — so the spinner
   // can never stick on ANY path.
   const [replyPending, setReplyPending] = useState(false);
+  // Collapse the Pipeline mini when the user is chatting with the Concierge
+  // (replyPending=true) — auto-collapses on send, user must click to re-expand.
+  const [pipelineMiniCollapsed, setPipelineMiniCollapsed] = useState(false);
 
   // Clear the pending flag once the awaited assistant reply lands as the tail.
   useEffect(() => {
@@ -1096,6 +1107,12 @@ export function RunChatLane({
     const last = messages[messages.length - 1];
     if (last && last.role === "assistant") setReplyPending(false);
   }, [messages, replyPending]);
+
+  // Auto-collapse the Pipeline mini when the user sends a chat message so the
+  // Concierge reply is front-and-center. The user can re-expand it by clicking.
+  useEffect(() => {
+    if (replyPending) setPipelineMiniCollapsed(true);
+  }, [replyPending]);
 
   // Bind the flag to the VIEWED run: RunChatLane does NOT remount per run (no
   // key/runId in the parent — DashboardLayout), so a run switch before the reply
@@ -1197,117 +1214,59 @@ export function RunChatLane({
           ? addOptimisticMessage(text, attachments)
           : undefined;
 
-        // Show TypingIndicator while classifying intent via LLM (~1–3s).
-        setReplyPending(true);
-
         const runId = viewedRunId ?? "";
         const chainHints = suggestions?.map((s) => ({ id: s.id, label: s.label }));
 
-        if (runId) {
-          import("@/lib/api").then(({ classifyIntent, getToken }) => {
-            const jwt = getToken() ?? "";
-            if (!jwt) {
-              setReplyPending(false);
-              if (onRevise) setHeldRefinement(text);
-              return;
-            }
-            classifyIntent(jwt, runId, text, chainHints).then((result) => {
-              setReplyPending(false);   // ← clears TypingIndicator when result arrives
-              if (result.intent === "chain") {
-                if (result.target_id && onSuggestion) {
-                  onSuggestion(result.target_id);
-                } else if (suggestions && suggestions.length > 0 && onSuggestion) {
-                  setChainPickerOpen(true);
-                } else if (onRevise) {
-                  setHeldRefinement(text);
-                }
-              } else if (result.intent === "ask") {
-                // Conversational question → send to Concierge.
-                // Reuse the existing optimistic bubble via existingMessageId so
-                // sendMessage reconciles it in place instead of adding a duplicate.
-                setReplyPending(true);
-                sendMessage(text, attachments, {
-                  concierge: true,
-                  ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
-                  ...(chainHints ? { chain_hints: chainHints } : {}),
-                });
-              } else {
-                // "revise" → show confirm chip (the optimistic bubble is already visible)
-                if (onRevise) setHeldRefinement(text);
-              }
-            }).catch(() => {
-              setReplyPending(false);
-              if (onRevise) setHeldRefinement(text);
-            });
-          });
-          return;
-        }
-
-        // No runId — fall back to revision hold
-        setReplyPending(false);
-        if (onRevise) setHeldRefinement(text);
+        // FIX-210 (ISS-054): route all settled-run free-text through the Concierge.
+        // The Concierge handles chain/revise/ask classification itself via its tools
+        // (propose_chain, propose_revision, propose_steering_note, direct answers).
+        // The old classify-intent LLM pre-call is removed — it was a redundant round
+        // trip that also bypassed the proposal-chip flow for chain intents.
+        //
+        // Only exception: exact named-target chain (matchChainTarget fast-path above)
+        // — the user literally named a workflow, which is a confirmed intent equivalent
+        // to clicking the chip, so no Concierge round-trip is needed.
+        setReplyPending(true);
+        sendMessage(text, attachments, {
+          concierge: true,
+          ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
+          ...(chainHints ? { chain_hints: chainHints } : {}),
+        });
         return;
       }
 
-      // FIX-193 — ISS-059: extend ask-vs-steer classification to the "building"
-      // composer mode. The backend's route_chat_turn escalation check (chat_router.py
-      // :203-204) is phase-independent — it routes to CHANNEL_CONCIERGE whenever
-      // turn.concierge is True, regardless of run phase. The FE never set that marker
-      // for "building", so every question during an active run silently became a
-      // steering note (no reply, HTTP 200, user confused).
-      //
-      // Pattern mirrors the "complete" branch exactly (FIX-116/FIX-119 precedent):
-      //   1. addOptimisticMessage — echo immediately so there's no stall
-      //   2. classifyIntent via the existing generic LLM endpoint (no run-status gate)
-      //   3. intent === "ask"  → sendMessage with {concierge: true} (Concierge reply)
-      //      anything else     → sendMessage with no concierge key  (steering, today's behavior)
-      //
-      // SAFE: every non-"ask" path is byte-identical to unmodified dev HEAD behavior.
-      // LOCKED: "clarify"/"gate"/"terminal" are NOT touched (Group-C decision, 42-03).
+      // FIX-210 (ISS-054): all "building" state chat routes through the Concierge.
+      // The old classify-intent pre-call (FIX-193) is removed — one Concierge call
+      // handles all intent types (questions, steering, status checks) without an
+      // extra round-trip. Behaviour is identical: the Concierge answers questions
+      // and issues steering notes; non-ask turns get a Concierge reply + no proposal.
+      // LOCKED: "gate"/"terminal" states are NOT touched (42-03).
       if (runState === "building") {
         const echoMessageId = addOptimisticMessage
           ? addOptimisticMessage(text, attachments)
           : undefined;
-
-        const runId = viewedRunId ?? "";
-        const sendOpts = echoMessageId ? { existingMessageId: echoMessageId } : undefined;
-
-        if (!runId) {
-          // No runId — degrade to plain steering (identical to pre-fix behavior).
-          if (sendOpts) {
-            sendMessage(text, attachments, sendOpts);
-          } else {
-            sendMessage(text, attachments);
-          }
-          return;
-        }
-
-        // Show TypingIndicator while classifyIntent LLM call is in flight (~1–3s).
         setReplyPending(true);
+        sendMessage(text, attachments, {
+          concierge: true,
+          ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
+        });
+        return;
+      }
 
-        import("@/lib/api").then(({ classifyIntent, getToken }) => {
-          const jwt = getToken() ?? "";
-          if (!jwt) {
-            setReplyPending(false);
-            if (sendOpts) { sendMessage(text, attachments, sendOpts); } else { sendMessage(text, attachments); }
-            return;
-          }
-          classifyIntent(jwt, runId, text).then((result) => {
-            if (result.intent === "ask") {
-              // Conversational question → Concierge. Keep replyPending=true so the
-              // TypingIndicator stays until the assistant turn arrives (mirrors
-              // the "complete" ask path — setReplyPending(false) is NOT called here).
-              sendMessage(text, attachments, { ...sendOpts, concierge: true });
-            } else {
-              // Steering instruction / change request — degrade to today's behavior.
-              setReplyPending(false);
-              if (sendOpts) { sendMessage(text, attachments, sendOpts); } else { sendMessage(text, attachments); }
-            }
-          }).catch(() => {
-            // Classify failure — degrade to today's behavior, never leave spinner stuck.
-            setReplyPending(false);
-            if (sendOpts) { sendMessage(text, attachments, sendOpts); } else { sendMessage(text, attachments); }
-          });
+      // FIX-210 (ISS-054): "clarify" state — run is paused waiting for answers.
+      // The user may ask questions about the run while the clarify form is open.
+      // Route through the Concierge so it can answer status questions accurately.
+      // The backend's steering_note guard (run_commands.py) prevents the Concierge
+      // from accidentally unblocking the clarify gate via a steering note.
+      // LOCKED: "gate"/"terminal" states are NOT touched (42-03).
+      if (runState === "clarify") {
+        const echoMessageId = addOptimisticMessage
+          ? addOptimisticMessage(text, attachments)
+          : undefined;
+        setReplyPending(true);
+        sendMessage(text, attachments, {
+          concierge: true,
+          ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
         });
         return;
       }
@@ -1358,6 +1317,9 @@ export function RunChatLane({
   // default JSX escaping (no raw-HTML injection sink) — XSS-safe (T-33-04-02).
   // FIX-115: "chain" proposals confirm via onSuggestion(target_id) — the EXISTING
   // suggestion-chip seam — rather than a server round-trip (no new execution path).
+  // Track which proposal id is currently being confirmed (for loading state).
+  const [confirmingProposalId, setConfirmingProposalId] = useState<string | null>(null);
+
   const renderProposals = () => {
     if (!proposals || proposals.length === 0) return null;
     return (
@@ -1367,9 +1329,36 @@ export function RunChatLane({
           const isChain = p.channel === "chain";
           const chainTargetId = isChain ? String(p.params?.target_id ?? "") : "";
           const confirmLabel = isChain ? "Start this workflow" : "Confirm";
+          const isConfirming = confirmingProposalId === p.id;
           const handleConfirm = isChain
-            ? () => { if (chainTargetId && onSuggestion) onSuggestion(chainTargetId); }
-            : () => onConfirmProposal?.(p);
+            ? () => {
+                if (chainTargetId && onSuggestion) {
+                  setConfirmingProposalId(p.id);
+                  // Dismiss chip immediately from local state.
+                  onRejectProposal?.(p.id);
+                  // Fire onSuggestion to start the chain workflow.
+                  onSuggestion(chainTargetId);
+                  // Also post the confirm turn so the backend writes the resolved row —
+                  // without this the pending concierge_proposal row is never marked done
+                  // and the chip re-appears every time the user reopens the run.
+                  onConfirmProposal?.(p);
+                }
+              }
+            : () => {
+                if (isConfirming) return; // prevent double-click
+                setConfirmingProposalId(p.id);
+                // Dismiss the chip immediately — don't wait for the resolved event.
+                onRejectProposal?.(p.id);
+                // Add an optimistic message so the user sees something happening.
+                if (addOptimisticMessage) {
+                  addOptimisticMessage(
+                    p.channel === "revision"
+                      ? "Starting revision…"
+                      : "Confirming action…",
+                  );
+                }
+                onConfirmProposal?.(p);
+              };
           return (
           <Card
             key={p.id}
@@ -1391,19 +1380,27 @@ export function RunChatLane({
                 data-testid="chat-proposal-confirm"
                 data-proposal-id={p.id}
                 onClick={handleConfirm}
-                className="rounded-[var(--radius-pill)] bg-brand px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed"
+                disabled={isConfirming}
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] bg-brand px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {confirmLabel}
+                {isConfirming ? (
+                  <>
+                    <span className="h-[9px] w-[9px] animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    {p.channel === "revision" ? "Starting…" : "Confirming…"}
+                  </>
+                ) : confirmLabel}
               </button>
-              <button
-                type="button"
-                data-testid="chat-proposal-reject"
-                data-proposal-id={p.id}
-                onClick={() => onRejectProposal?.(p.id)}
-                className="rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-500 transition-colors hover:border-ink-300 hover:text-ink-700"
-              >
-                Dismiss
-              </button>
+              {!isConfirming && (
+                <button
+                  type="button"
+                  data-testid="chat-proposal-reject"
+                  data-proposal-id={p.id}
+                  onClick={() => onRejectProposal?.(p.id)}
+                  className="rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-500 transition-colors hover:border-ink-300 hover:text-ink-700"
+                >
+                  Dismiss
+                </button>
+              )}
             </div>
           </Card>
           );
@@ -1845,18 +1842,82 @@ export function RunChatLane({
     // Live — building: an answered note + the live pipeline mini (k/N, per-agent dots).
     if (runState === "building") {
       const answered = countClarifications(pipelineState?.clarifications);
-      if (answered === 0 && agents.length === 0) return null;
+      // While the planner runs (no agents yet), show an animated "Analyzing…"
+      // indicator so the chat lane doesn't look dead. Uses the same three-dot
+      // brand animation as ReadingIndicator — generic, no workflow name (SC-001).
+      if (answered === 0 && agents.length === 0) {
+        // Show the "Analyzing…" indicator while:
+        // (a) planner is actively running, OR
+        // (b) planner just finished but we're still in the gap before
+        //     clarify questions or agents arrive (executionGate = CLARIFY_REQUIRED
+        //     but questionnaire_ready hasn't fired yet, or pipeline_start hasn't
+        //     arrived yet). Condition: pipeline isRunning + nothing to show yet.
+        const plannerRunning = pipelineState?.plannerStatus === "running"
+          || (pipelineState?.isRunning && !pipelineState?.plannerStatus)
+          || (pipelineState?.isRunning && pipelineState?.plannerStatus === "complete");
+        if (!plannerRunning) return null;
+        return (
+          <div className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500">
+            <span className="flex items-center gap-[3px]">
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="h-[5px] w-[5px] rounded-full bg-brand"
+                  animate={{ opacity: [0.3, 0.9, 0.3] }}
+                  transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
+                />
+              ))}
+            </span>
+            {pipelineState?.plannerStatus === "complete"
+              ? "Preparing your questions…"
+              : "Analyzing your brief…"}
+          </div>
+        );
+      }
       return (
         <div data-testid="lane-adornments" className="flex flex-col gap-4">
           {answered > 0 && <AnsweredNote count={answered} planApproved />}
           {agents.length > 0 && (
-            <PipelineMini
-              agents={agents}
-              onOpen={goSteps}
-              building
-              completedCount={pipelineState?.completedCount}
-              pipelineState={pipelineState}
-            />
+            <div className="flex flex-col">
+              {/* Collapse toggle header — acts as the card header */}
+              <button
+                type="button"
+                data-testid="lane-pipeline-mini-toggle"
+                onClick={() => setPipelineMiniCollapsed((v) => !v)}
+                className={`group flex w-full items-center gap-2 border border-line-border bg-surface-card px-[13px] py-[9px] text-left transition-colors hover:border-line-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${pipelineMiniCollapsed ? "rounded-[var(--radius-node)]" : "rounded-t-[var(--radius-node)]"}`}
+                aria-expanded={!pipelineMiniCollapsed}
+              >
+                {pipelineMiniCollapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5 flex-none text-ink-500" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 flex-none text-ink-500" aria-hidden="true" />
+                )}
+                <span className="font-sans text-[10.5px] font-semibold uppercase tracking-[0.11em] text-ink-300">
+                  Pipeline · {agents.length} agents
+                </span>
+                <span className="inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-brand">
+                  <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-brand" />
+                  {(pipelineState?.completedCount ?? 0)} / {agents.length}
+                </span>
+              </button>
+              {/* Animated body — PipelineMini without its own header */}
+              <motion.div
+                initial={false}
+                animate={{ height: pipelineMiniCollapsed ? 0 : "auto", opacity: pipelineMiniCollapsed ? 0 : 1 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="overflow-hidden"
+                aria-hidden={pipelineMiniCollapsed}
+              >
+                <PipelineMini
+                  agents={agents}
+                  onOpen={goSteps}
+                  building
+                  completedCount={pipelineState?.completedCount}
+                  pipelineState={pipelineState}
+                  hideHeader
+                />
+              </motion.div>
+            </div>
           )}
         </div>
       );

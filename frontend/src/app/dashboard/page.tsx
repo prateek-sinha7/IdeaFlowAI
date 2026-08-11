@@ -1748,7 +1748,7 @@ export default function DashboardPage() {
     // blocks until the reply is persisted — the DEF-44-12-2 re-fetch then lands
     // after chat_reply exists and the Concierge reply renders on a completed run.
     sendCommand: async (runId, payload) => {
-      await runConnection.sendCommand(runId, payload);
+      return runConnection.sendCommand(runId, payload);
     },
     // SSE + REST is the sole transport (44-06) — the up-channel is sendCommand;
     // there is no legacy WS send.
@@ -2125,12 +2125,16 @@ export default function DashboardPage() {
       launchCounterRef.current += 1;
       trackedRunIdRef.current = runId;
       activelyBuildingRunIdRef.current = runId;
+      // FIX-211: attach the SSE stream for the new child run so its pipeline_start
+      // / agent frames arrive. Also switch the store viewport immediately so the UI
+      // shows the new run rather than the parent. Without attachRun the child SSE
+      // stream is never connected; without switchViewTo the UI stays on the old run.
+      runStoreSwitchViewToRef.current(runId);
+      runConnection.attachRun(runId);
     },
-    // persistLaunchedIds is a stable function defined at component scope — not a
-    // dep. All other refs are stable. No reactive deps needed (mirrors the
-    // onStartPipeline .then() which also captures refs without listing them).
+    // runConnection is stable (memo'd in RunConnectionProvider). All others are refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [runConnection],
   );
 
   // Handle selecting a workflow run from sidebar/hub

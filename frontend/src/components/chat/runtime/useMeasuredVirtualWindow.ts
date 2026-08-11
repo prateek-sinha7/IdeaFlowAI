@@ -126,13 +126,31 @@ export function useMeasuredVirtualWindow(
 
   // Subscribe to the scroll surface so the window recomputes as the user
   // scrolls. Guarded so a plain mock ref (no addEventListener) is a no-op.
+  // Use a ref to the scroll element captured at mount time — depending on
+  // `scrollRef` (the ref OBJECT) in the dependency array means the effect never
+  // re-runs after mount, but scrollRef.current may not yet be set. We instead
+  // capture scrollRef.current inside the effect body (run after mount) and store
+  // the unsub in a cleanup. A `requestAnimationFrame` gate batches scroll events
+  // so a layout shift caused by a bump()-induced re-render cannot synchronously
+  // fire the scroll handler again and create an infinite loop.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || typeof el.addEventListener !== "function") return;
-    const onScroll = () => bump();
+    let rafId = 0;
+    const onScroll = () => {
+      if (rafId) return; // already queued — coalesce
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        bump();
+      });
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener?.("scroll", onScroll);
-  }, [scrollRef]);
+    return () => {
+      el.removeEventListener?.("scroll", onScroll);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const estimate =
     typeof estimateHeight === "function"

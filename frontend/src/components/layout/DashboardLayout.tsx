@@ -1731,9 +1731,24 @@ export function DashboardLayout({
       runChatSend("", [], {
         concierge: true,
         confirm_proposal: { channel: p.channel, params: p.params },
+        // FIX-210: forward the original ASK turn's message_id so the backend's
+        // _load_pending_proposal can find the durable row via
+        // `concierge-proposal:{messageId}:{channel}`. Without this the lookup
+        // always misses → confirm does nothing.
+        ...(p.messageId ? { proposalMessageId: p.messageId } : {}),
+        // FIX-211: when the confirm-proposal response includes a revision_run_id
+        // (a concierge-confirmed revision launched a child run), attach + switch
+        // the UI to that run so the user sees the new revision progress immediately.
+        onRevisionLaunched: onRevisionLaunched
+          ? (revRunId: string) => onRevisionLaunched(revRunId)
+          : undefined,
+        // FIX-211b: if the proposal was written to a different run than the
+        // currently viewed one (e.g. view switched to a child after a revision),
+        // use the proposal's original run id so the POST reaches the right run.
+        ...(p.proposalRunId ? { targetRunId: p.proposalRunId } : {}),
       });
     },
-    [runChatSend],
+    [runChatSend, onRevisionLaunched],
   );
 
   // ISS-054 / KAN-160: replace the permanently-empty frozen constant with the
