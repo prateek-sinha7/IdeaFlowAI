@@ -19,11 +19,14 @@ started from the RE-OPENED gate (B), and a pass that re-enters itself (A).
   * A-affordance — the analyze re-run INSIDE a pass is itself gated and used to advertise
     "Update the Specs" there, which is the one route that nests. The eligibility flag is
     now withheld while a pass is in flight. Test 3.
-  * A-safety — that flag is an FE affordance the engine never enforces
-    (``_run_review_gate`` acts on ``action == "update_specs"`` without consulting it), so
-    a replayed or crafted gate POST still nests. A nested pass must therefore be SAFE:
-    distinct ``:rev{N}`` at any depth (a monotone per-run high-water mark) and an inner
-    pass that RESTORES rather than zeroes the outer pass's scratch. Test 4.
+  * A-safety — a nested pass must be SAFE regardless: distinct ``:rev{N}`` at any depth (a
+    monotone per-run high-water mark) and an inner pass that RESTORES rather than zeroes
+    the outer pass's scratch. Test 4. Since ISS-053 the engine ENFORCES the eligibility
+    flag, so the in-pass route is fenced and no client can reach a nested pass through
+    ``_run_review_gate``; this test drives the sub-pipeline directly (it stubs the gate
+    out) and so still pins that safety as DEFENCE IN DEPTH — what keeps the engine correct
+    if a future call site ever passes the flag wrongly. The fence itself is proven in
+    ``test_update_specs_enforcement.py``.
   * Safety boundary — one cycle is unchanged. This one PASSES pre-fix; it is the
     dormancy guard. Test 5.
 
@@ -267,13 +270,17 @@ async def test_update_specs_not_offered_while_a_revision_is_in_flight() -> None:
 
 @pytest.mark.asyncio
 async def test_nested_revision_keeps_distinct_threads_and_restores_the_outer_pass() -> None:
-    """A-safety: a client that posts ``update_specs`` at the in-pass gate anyway (the
-    engine never enforces the eligibility flag) still gets a SAFE nested pass.
+    """A-safety: a nested pass is SAFE — proven by driving one directly.
 
     Two guarantees: the nested pass mints DISTINCT ``:rev{N}`` ids rather than a second
     ``:rev1``, and its exit RESTORES the outer pass's ``revision_attempt`` /
     ``spec_revision_context`` instead of zeroing them while the outer pass is still on
     the stack.
+
+    This drive stubs ``_run_review_gate``, so it bypasses the ISS-053 fence that now
+    refuses ``update_specs`` at the in-pass gate. That is deliberate: no client can reach
+    this state any more, and this test keeps the nesting safety honest as defence in depth
+    rather than letting it rot behind the fence.
     """
     run_id = "cycles-nested"
     records, thread_ids, _ectx, ordered, events = await _drive_cycles(run_id, {0, 1})

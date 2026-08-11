@@ -778,6 +778,60 @@ def _review_gate_run_is_terminal(gate_key: str) -> bool:
     return row.status in ("cancelled", "failed", "degraded")
 
 
+def _review_gate_advertises_update_specs(gate_key: str) -> bool:
+    """True unless the gate named by ``gate_key`` PUBLISHED ``update_specs_eligible:
+    False`` on its most recent ``review_gate_ready``.
+
+    ISS-053 layer 1. The engine already decides eligibility once, in
+    ``ExecutionEngine._update_specs_eligible``, and stamps that verdict onto the durable
+    ``review_gate_ready`` payload. This reads the verdict back so an ingress can answer a
+    caller with a 409 instead of a silently-ignored 200. It does NOT restate the rule —
+    there is exactly one rule and this is not it (INV-3 / INV-12).
+
+    Returns False ONLY on an explicit published ``False`` for exactly this ``gate_key``.
+    Every other shape ABSTAINS (returns True):
+
+      * no ``review_gate_ready`` row — event persistence is best-effort
+        (``_RunEventSink.persist`` degrades a DB failure to a warning), so a missing row
+        means "unknown", never "ineligible";
+      * the latest ready is for a DIFFERENT gate_key — not the gate being resolved;
+      * the payload has no ``update_specs_eligible`` key — a pre-KAN-101 row.
+
+    Abstaining is safe, and it is deliberate: a fabricated denial would 409 a LEGITIMATE
+    revision whenever a persist degraded. It is only safe because the engine-side fence in
+    ``_run_review_gate`` re-checks the same verdict from memory and never abstains — this
+    layer is caller feedback, that layer is the guarantee.
+
+    NOT owner-scoped, mirroring ``_review_gate_run_is_terminal``: every caller has already
+    passed the ownership boundary, and filtering on ``run_events.owner_id`` here would risk
+    a FALSE 409 (which blocks legitimate work) the moment that column diverged from
+    ``WorkflowRun.user_id``.
+    """
+    from app.models.run_event import RunEvent
+
+    run_id = (gate_key or "").split(":", 1)[0]
+    if not run_id:
+        return True
+    db = _get_db()
+    try:
+        row = (
+            db.query(RunEvent.payload_json)
+            .filter(RunEvent.run_id == run_id, RunEvent.type == "review_gate_ready")
+            .order_by(RunEvent.seq.desc())
+            .first()
+        )
+    finally:
+        db.close()
+    if row is None:
+        return True
+    payload = row.payload_json if isinstance(row.payload_json, dict) else {}
+    if payload.get("gate_key") != gate_key:
+        return True
+    if "update_specs_eligible" not in payload:
+        return True
+    return bool(payload["update_specs_eligible"])
+
+
 def _authenticate_token(token: str, db: Session) -> User | None:
     """Validate JWT token and return the user, or None if invalid.
 

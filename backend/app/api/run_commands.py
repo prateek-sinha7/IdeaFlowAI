@@ -77,6 +77,7 @@ from app.api.run_engine import (
     _get_or_create_queue,
     _is_run_live,
     _resolve_owned_parent_run_id,
+    _review_gate_advertises_update_specs,
     _review_gate_owned_by,
     _review_gate_run_is_terminal,
     _revalidate_selections_trust_user,
@@ -158,6 +159,34 @@ def _deny_unknown_gate() -> HTTPException:
     )
 
 
+def _deny_update_specs_not_offered(gate_key: str) -> HTTPException:
+    """ISS-053: this gate firing did not offer the spec-revision affordance.
+
+    The verdict is the engine's own, read back off the ``review_gate_ready`` it published
+    (``_review_gate_advertises_update_specs``) — this restates no rule. Raised by ALL
+    THREE ``set_review_response`` ingresses so no channel is privileged; a fence on
+    ``POST /gate`` alone would leave both ``/messages`` routes open.
+
+    409 rather than 403: the request is well-formed and authorised, it just conflicts with
+    the run's current state — the same shape as the KAN-100 terminal fence beside it.
+    ``recoverable: false`` because retrying the identical POST cannot succeed; the user
+    must approve to the gate where a revision cycle IS offered.
+    """
+    logger.warning(
+        "gate update_specs REFUSED at ingress: gate_key=%s — the gate published "
+        "update_specs_eligible=False",
+        gate_key,
+    )
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "error": "This review gate does not offer a spec-revision cycle",
+            "code": "update_specs_not_offered",
+            "recoverable": False,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # POST /api/runs/{run_id}/gate — approve / reject / redo / update_specs
 # ---------------------------------------------------------------------------
@@ -228,6 +257,10 @@ async def resolve_gate(
     elif action == "update_specs":
         # KAN-101: route to the shipped spec-revision sub-pipeline. The analysis
         # report is carried in the generic ``instructions`` field (SC-001 / INV-1).
+        # ISS-053: only at a gate that ADVERTISED the affordance — the engine's own
+        # published verdict, read back rather than recomputed.
+        if not _review_gate_advertises_update_specs(gate_key):
+            raise _deny_update_specs_not_offered(gate_key)
         analysis_report = body.analysis_report or ""
         await store.set_review_response(
             gate_key, approved=False, action="update_specs", instructions=analysis_report
@@ -987,6 +1020,9 @@ async def _dispose_concierge_proposal(
                 gate_key, approved=False, action="redo", instructions=rationale
             )
         elif action == "update_specs":
+            # ISS-053: the Concierge reaches the same seam, so it rides the same fence.
+            if not _review_gate_advertises_update_specs(gate_key):
+                raise _deny_update_specs_not_offered(gate_key)
             await art_store.set_review_response(
                 gate_key, approved=False, action="update_specs",
                 instructions=rationale or "",
@@ -1204,6 +1240,10 @@ async def post_message(
                 _gk, approved=False, action="redo", instructions=dispatch.instructions
             )
         elif dispatch.action == "update_specs":
+            # ISS-053: this route needs no gate_key from the caller (the server derives it
+            # from the event log), so it is the EASIEST ingress to replay — fence it too.
+            if not _review_gate_advertises_update_specs(_gk):
+                raise _deny_update_specs_not_offered(_gk)
             await art_store.set_review_response(
                 _gk, approved=False, action="update_specs",
                 instructions=dispatch.instructions or "",

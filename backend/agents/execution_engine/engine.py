@@ -5182,12 +5182,14 @@ class ExecutionEngine:
         RE-ENTRANCY (quick-260811-si4, BUGFIX-NESTED-REVISION defect A)
         --------------------------------------------------------------
         This method can RE-ENTER ITSELF. The analyze re-run below is a full ``_run_agent``,
-        so it opens its own human gate, and the gate ACTION is client-controlled —
-        ``_run_review_gate`` acts on ``action == "update_specs"`` without consulting the
-        ``update_specs_eligible`` flag, which only ever reaches the frontend. The fence in
-        ``_update_specs_eligible`` stops the UI OFFERING that route; it cannot stop a
-        replayed or crafted POST taking it. So this method is made SAFE at any depth rather
-        than assumed non-re-entrant:
+        so it opens its own human gate, and the gate ACTION is client-controlled.
+
+        Since ISS-053 that route is FENCED: ``_run_review_gate`` refuses an
+        ``update_specs`` whose firing published ``update_specs_eligible=False`` (which the
+        in-pass analyze gate always does) and keeps waiting, so a replayed or crafted POST
+        no longer nests. The safety below is therefore no longer the ONLY protection — but
+        it is kept, and kept tested, as defence in depth: it is what makes this method
+        correct at any depth if a future call site ever passes the flag wrongly.
 
         * **Distinct ``:rev{N}`` at any depth.** ``revision_index`` arrives from the
           caller's per-``_run_agent`` local, which restarts at 0 for every invocation, so
@@ -5519,69 +5521,103 @@ class ExecutionEngine:
             },
         }
 
-        # Wait for user response, but stop immediately if the pipeline is
-        # cancelled (Stop button). KAN-100: without this check, cancel_event.set()
-        # is observed at the next pre-agent step (engine.py:1842) but the gate
-        # stays blocked here indefinitely, allowing a subsequent Redo to unblock
-        # the cancelled pipeline and resume agent execution.
-        if cancel_event is not None:
-            # Race: gate event set by approve_review vs cancel event set by Stop.
-            gate_task = asyncio.ensure_future(event.wait())
-            cancel_task = asyncio.ensure_future(cancel_event.wait())
-            done, pending = await asyncio.wait(
-                {gate_task, cancel_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for p in pending:
-                p.cancel()
-            if cancel_task in done and gate_task not in done:
-                # Cancel fired before the user responded — bail out.
-                logger.info(
-                    "Review gate cancelled: pipeline=%s agent=%s — cancel_event set",
-                    pipeline_run_id, agent_id,
+        # Loop, because ONE gate firing may consume more than one response: an
+        # ineligible ``update_specs`` (ISS-053, below) is refused and the gate goes back
+        # to waiting. Every other action still resolves the gate on the first response.
+        while True:
+            # Wait for user response, but stop immediately if the pipeline is
+            # cancelled (Stop button). KAN-100: without this check, cancel_event.set()
+            # is observed at the next pre-agent step (engine.py:1842) but the gate
+            # stays blocked here indefinitely, allowing a subsequent Redo to unblock
+            # the cancelled pipeline and resume agent execution.
+            if cancel_event is not None:
+                # Race: gate event set by approve_review vs cancel event set by Stop.
+                gate_task = asyncio.ensure_future(event.wait())
+                cancel_task = asyncio.ensure_future(cancel_event.wait())
+                done, pending = await asyncio.wait(
+                    {gate_task, cancel_task},
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-                yield {"type": "_gate_rejected"}
+                for p in pending:
+                    p.cancel()
+                if cancel_task in done and gate_task not in done:
+                    # Cancel fired before the user responded — bail out.
+                    logger.info(
+                        "Review gate cancelled: pipeline=%s agent=%s — cancel_event set",
+                        pipeline_run_id, agent_id,
+                    )
+                    yield {"type": "_gate_rejected"}
+                    return
+            else:
+                # No cancel_event available — plain wait (safe for declared-gate path
+                # which does not receive cancel_event from the dispatch loop).
+                await event.wait()
+
+            response = await self._store.get_review_response(gate_key)
+            approved = response.get("approved", True) if response else True
+            edited_content = response.get("edited_content") if response else None
+            action = response.get("action", "approve") if response else "approve"
+            instructions = response.get("instructions") if response else None
+
+            # REDO-GATE: a "redo" action re-runs the gated agent in place (a fresh model
+            # call), then re-pauses at the SAME gate. Keyed on the GENERIC ``action``
+            # discriminator (no workflow/agent literal — SC-001). Emit the internal
+            # ``_gate_redo`` signal (mirroring ``_gate_rejected``: consumed by the
+            # inline consumer, never forwarded to the wire) and return; the consumer's
+            # while-loop re-runs the agent. The declared-path consumers (human/approval
+            # gate) CONSUME this signal safely (T-human) — never PASS, never leak.
+            if action == "redo":
+                self._state_machine.transition(pipeline_run_id, "generating")
+                logger.info(
+                    "Review gate redo: pipeline=%s agent=%s has_instructions=%s",
+                    pipeline_run_id, agent_id, bool(instructions),
+                )
+                yield {"type": "_gate_redo", "instructions": instructions or ""}
                 return
-        else:
-            # No cancel_event available — plain wait (safe for declared-gate path
-            # which does not receive cancel_event from the dispatch loop).
-            await event.wait()
 
-        response = await self._store.get_review_response(gate_key)
-        approved = response.get("approved", True) if response else True
-        edited_content = response.get("edited_content") if response else None
-        action = response.get("action", "approve") if response else "approve"
-        instructions = response.get("instructions") if response else None
+            # KAN-101: "update_specs" action — trigger spec revision sub-pipeline that
+            # re-runs the preceding specify + plan + analyze agents with the analysis
+            # report as additional context, then re-opens this same gate with the new
+            # analysis output. Keyed on the GENERIC action discriminator (SC-001 / INV-1).
+            if action == "update_specs":
+                # ISS-053: the eligibility verdict this firing PUBLISHED on
+                # ``review_gate_ready`` is BINDING, not advisory. ``gate_key`` names a
+                # gate SLOT, not a firing (see above), so replaying a legitimate earlier
+                # click on the same agent lands on whichever firing is armed now — no
+                # crafting required. Unenforced, that ran the sub-pipeline at gates the
+                # rule excludes: positionally-chosen targets mean the same action means
+                # "re-run specify/plan/analyze" at one gate and "re-run
+                # plan/analyze/build" at the next, and below index 2 it revises NOTHING
+                # while still blanking the agent's output.
+                #
+                # The degrade is KEEP WAITING. Approving would be fail-open on a HITL
+                # gate — what the Phase-23 F1a redo defence exists to prevent, and
+                # against WR-07's fail-closed rule; rejecting would cancel the user's
+                # run, a semantic change nobody asked for. So the gate re-arms and every
+                # legitimate action stays available. This is the LAST line of defence:
+                # the ingresses reject it earlier with a 409
+                # (``run_engine._review_gate_advertises_update_specs``), but that check
+                # reads the durable log and abstains when the row is missing — it is
+                # allowed to abstain only because this one never does.
+                if not update_specs_eligible:
+                    logger.warning(
+                        "Review gate update_specs REFUSED: pipeline=%s agent=%s "
+                        "kind=%s — this firing published update_specs_eligible=False; "
+                        "gate stays open (ISS-053)",
+                        pipeline_run_id, agent_id, artifact_kind,
+                    )
+                    event.clear()
+                    continue
+                self._state_machine.transition(pipeline_run_id, "generating")
+                analysis_report = instructions or ""
+                logger.info(
+                    "Review gate update_specs: pipeline=%s agent=%s has_report=%s",
+                    pipeline_run_id, agent_id, bool(analysis_report),
+                )
+                yield {"type": "_gate_update_specs", "analysis_report": analysis_report}
+                return
 
-        # REDO-GATE: a "redo" action re-runs the gated agent in place (a fresh model
-        # call), then re-pauses at the SAME gate. Keyed on the GENERIC ``action``
-        # discriminator (no workflow/agent literal — SC-001). Emit the internal
-        # ``_gate_redo`` signal (mirroring ``_gate_rejected``: consumed by the
-        # inline consumer, never forwarded to the wire) and return; the consumer's
-        # while-loop re-runs the agent. The declared-path consumers (human/approval
-        # gate) CONSUME this signal safely (T-human) — never PASS, never leak.
-        if action == "redo":
-            self._state_machine.transition(pipeline_run_id, "generating")
-            logger.info(
-                "Review gate redo: pipeline=%s agent=%s has_instructions=%s",
-                pipeline_run_id, agent_id, bool(instructions),
-            )
-            yield {"type": "_gate_redo", "instructions": instructions or ""}
-            return
-
-        # KAN-101: "update_specs" action — trigger spec revision sub-pipeline that
-        # re-runs the preceding specify + plan + analyze agents with the analysis
-        # report as additional context, then re-opens this same gate with the new
-        # analysis output. Keyed on the GENERIC action discriminator (SC-001 / INV-1).
-        if action == "update_specs":
-            self._state_machine.transition(pipeline_run_id, "generating")
-            analysis_report = instructions or ""
-            logger.info(
-                "Review gate update_specs: pipeline=%s agent=%s has_report=%s",
-                pipeline_run_id, agent_id, bool(analysis_report),
-            )
-            yield {"type": "_gate_update_specs", "analysis_report": analysis_report}
-            return
+            break
 
         # Only transition back to generating if we're still in waiting_for_user.
         # If the user rejected (approved=False), we'll transition to cancelled below.
@@ -6595,14 +6631,19 @@ class ExecutionEngine:
         precedent (see the redo loop's comment at the top of ``_run_agent``). The user
         reaches it with the same number of clicks, so no capability is withdrawn.
 
-        This is an AFFORDANCE fence ONLY. ``_run_review_gate`` acts on
-        ``action == "update_specs"`` without ever consulting this flag — it reaches the
-        frontend and nothing else — so a replayed or crafted gate POST at an in-pass gate
-        still nests. The engine must therefore be correct for the nested case regardless,
-        which is what the high-water index + save/restore in
-        ``_run_spec_revision_sub_pipeline`` guarantee (T-si4-01). Server-side ENFORCEMENT is
-        deliberately NOT added here: it would change gate semantics, and it is unnecessary
-        once nesting is safe.
+        This verdict is BINDING, not merely an affordance (ISS-053). It is published on
+        ``review_gate_ready`` and then ENFORCED in two places, neither of which restates
+        the rule computed here — so there is exactly one rule and changing it changes both
+        layers (INV-3 / INV-12):
+
+          * ``_run_review_gate`` refuses an ineligible ``update_specs`` and keeps the gate
+            waiting (the unbypassable layer — it holds this verdict in memory);
+          * the three REST ingresses answer 409 ``update_specs_not_offered`` by reading the
+            published value back (``run_engine._review_gate_advertises_update_specs``).
+
+        Enforcement is what stops a replayed or crafted POST from nesting. The high-water
+        index + save/restore in ``_run_spec_revision_sub_pipeline`` (T-si4-01) remain as
+        defence in depth, so a nested pass would still be SAFE if it were ever reached.
         """
         return (
             artifact_kind in self._UPDATE_SPECS_ELIGIBLE_KINDS
