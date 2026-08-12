@@ -289,28 +289,26 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # ── Shutdown sequence (D7 — KAN-139): gracefully close the checkpointer pool
-    # BEFORE the process exits so Postgres async connections are returned cleanly
-    # instead of being abruptly dropped (each drop leaks one Postgres connection
-    # that the pool never reclaims until the server-side idle timeout). This is
-    # the SINGLE wiring site — close_checkpointer() was defined but never called.
+    # ── Shutdown sequence (D7 — KAN-139). The checkpointer pool close is NOT wired
+    # here. It is step 4 of shutdown_run_infrastructure() below, which must run LAST
+    # among the awaits because the Concierge drain and the pump teardown ahead of it
+    # may still hold a pooled connection. Closing it here as well ran it FIRST, which
+    # made that documented ordering guarantee false in every environment — and with
+    # SHUTDOWN_STOP_RUNS on it would leave stop_pipeline_drivers() driving runs against
+    # an already-closed pool (get_checkpointer() raises after close).
     _sweep_task.cancel()
     try:
         await _sweep_task
     except _asyncio.CancelledError:
         pass
-    try:
-        from app.agents.checkpointer import close_checkpointer
-        await close_checkpointer()
-        logger.info("Checkpointer pool closed.")
-    except Exception as _shutdown_exc:  # noqa: BLE001
-        logger.warning("Checkpointer shutdown failed (non-fatal): %s", _shutdown_exc)
-    logger.info("🔴 Shut down complete.")
 
     # ── KAN-151 D8: the shutdown half of the application lifecycle. ────────────
-    # Reachable only because docker-entrypoint.sh passes --timeout-graceful-shutdown;
-    # uvicorn's unbounded default plus a live SSE stream makes this code unreachable
-    # (measured: the process is SIGKILLed at the 30s stop_grace_period instead).
+    # Reachable only because the process is launched with --timeout-graceful-shutdown
+    # (docker-entrypoint.sh in production; the documented local run command otherwise —
+    # see README.txt). With uvicorn's unbounded default a live SSE stream makes this
+    # code unreachable: measured, the process stayed alive past 30s on SIGTERM and only
+    # `startup_complete` was ever recorded (ISS-088, pinned by
+    # tests/unit/test_shutdown_reachability.py).
     # The body itself lives in app.api.run_shutdown so main.py never reaches into
     # the private per-run registries; it never raises, so a teardown failure cannot
     # turn a clean exit into uvicorn's "Application shutdown failed".
@@ -321,6 +319,7 @@ async def lifespan(app: FastAPI):
         logger.info("shutdown summary: %s", json.dumps(_summary, default=str))
     except Exception as _shutdown_exc:  # noqa: BLE001
         logger.error("Shutdown teardown failed (non-fatal): %s", _shutdown_exc, exc_info=True)
+    logger.info("🔴 Shut down complete.")
 
 
 app = FastAPI(
