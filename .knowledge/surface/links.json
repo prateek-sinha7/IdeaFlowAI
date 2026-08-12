@@ -133,6 +133,9 @@
       "FIX-175",
       "FIX-176"
     ],
+    "FIX-175": [
+      "ISS-078"
+    ],
     "FIX-183": [
       "ISS-069"
     ],
@@ -194,8 +197,7 @@
     "FIX-217": [
       "FIX-218",
       "ISS-063",
-      "ISS-065",
-      "ISS-068"
+      "ISS-065"
     ],
     "FIX-218": [
       "ISS-062",
@@ -216,6 +218,10 @@
     "FIX-222": [
       "FIX-221",
       "ISS-063"
+    ],
+    "FIX-223": [
+      "ISS-078",
+      "ISS-079"
     ],
     "ISS-007": [
       "ISS-035"
@@ -322,7 +328,9 @@
       "ISS-069"
     ],
     "ISS-068": [
-      "ISS-076"
+      "ISS-076",
+      "ISS-078",
+      "ISS-079"
     ],
     "ISS-070": [
       "FIX-219"
@@ -453,6 +461,8 @@
       "FIX-220",
       "FIX-221",
       "FIX-222",
+      "FIX-223",
+      "FIX-224",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -488,12 +498,13 @@
       "ISS-063",
       "ISS-064",
       "ISS-067",
-      "ISS-068",
       "ISS-071",
       "ISS-072",
       "ISS-074",
       "ISS-075",
       "ISS-077",
+      "ISS-078",
+      "ISS-079",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -611,6 +622,7 @@
       "ISS-072",
       "ISS-074",
       "ISS-077",
+      "ISS-078",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -674,6 +686,7 @@
       "FIX-137",
       "FIX-207",
       "FIX-221",
+      "FIX-223",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -694,6 +707,7 @@
       "ISS-074",
       "ISS-075",
       "ISS-076",
+      "ISS-078",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -812,17 +826,24 @@
       "FIX-218",
       "FIX-219",
       "FIX-220",
+      "FIX-223",
+      "FIX-224",
       "ISS-054",
       "ISS-055",
       "ISS-066",
       "ISS-067",
       "ISS-074",
       "ISS-075",
+      "ISS-078",
+      "ISS-079",
       "TEST-46"
     ],
     "docs": [
       "ISS-012",
       "ISS-043"
+    ],
+    "engine": [
+      "ISS-078"
     ],
     "evals": [
       "BUG-007-sse",
@@ -1078,13 +1099,14 @@
       "FIX-217",
       "FIX-218",
       "FIX-221",
+      "FIX-223",
       "ISS-048",
       "ISS-051",
       "ISS-063",
-      "ISS-068",
       "ISS-072",
       "ISS-074",
       "ISS-075",
+      "ISS-078",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1216,6 +1238,7 @@
       "FIX-210",
       "FIX-219",
       "FIX-221",
+      "FIX-223",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1245,6 +1268,8 @@
       "ISS-073",
       "ISS-075",
       "ISS-076",
+      "ISS-078",
+      "ISS-079",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1298,7 +1323,8 @@
       "ISS-069",
       "ISS-073",
       "ISS-074",
-      "ISS-076"
+      "ISS-076",
+      "ISS-079"
     ],
     "tooling": [
       "ISS-050",
@@ -1400,6 +1426,7 @@
       "FIX-212",
       "FIX-221",
       "FIX-222",
+      "FIX-223",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1430,6 +1457,8 @@
       "ISS-071",
       "ISS-075",
       "ISS-077",
+      "ISS-078",
+      "ISS-079",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -1539,6 +1568,9 @@
       "FIX-035",
       "FIX-038"
     ],
+    "backend/agents/capabilities/strategies/task_loop.py": [
+      "FIX-224"
+    ],
     "backend/agents/execution_engine/clarify_engine.py": [
       "FIX-003",
       "FIX-024",
@@ -1644,7 +1676,8 @@
     "backend/agents/prompts/prototype-build/AGENT.md": [
       "FIX-009",
       "FIX-127",
-      "FIX-190"
+      "FIX-190",
+      "FIX-223"
     ],
     "backend/agents/prompts/prototype-plan/AGENT.md": [
       "FIX-006",
@@ -1881,19 +1914,24 @@
     ],
     "backend/tests/agents/characterization/_normalize.py": [
       "FIX-036",
-      "FIX-220"
+      "FIX-220",
+      "FIX-223"
     ],
     "backend/tests/agents/characterization/golden/od_ppt.events.json": [
       "FIX-031"
     ],
     "backend/tests/agents/characterization/golden/prototype_revision.events.json": [
-      "FIX-049"
+      "FIX-049",
+      "FIX-223"
     ],
     "backend/tests/agents/characterization/golden/prototype_revision.html": [
       "FIX-049"
     ],
     "backend/tests/agents/live_harness.py": [
       "ISS-074"
+    ],
+    "backend/tests/agents/test_banned_patterns.py": [
+      "FIX-224"
     ],
     "backend/tests/agents/test_bedrock_cache_and_thinking.py": [
       "FIX-034"
@@ -1914,6 +1952,9 @@
     "backend/tests/agents/test_iss056_clarify_quality_fixes.py": [
       "FIX-190"
     ],
+    "backend/tests/agents/test_loader.py": [
+      "FIX-223"
+    ],
     "backend/tests/agents/test_manifest_parity.py": [
       "FIX-185"
     ],
@@ -1924,13 +1965,17 @@
     "backend/tests/agents/test_phase5_revision_validation.py": [
       "FIX-049"
     ],
+    "backend/tests/agents/test_phase6_frontend_consistency.py": [
+      "ISS-079"
+    ],
     "backend/tests/agents/test_redo_gate_safety.py": [
       "FIX-218"
     ],
     "backend/tests/agents/test_restart_resume.py": [
       "FIX-175",
       "FIX-217",
-      "FIX-220"
+      "FIX-220",
+      "ISS-078"
     ],
     "backend/tests/agents/test_spec_revision_context.py": [
       "FIX-217"
@@ -2735,9 +2780,6 @@
       "ISS-061",
       "ISS-064"
     ],
-    "ISS-068": [
-      "FIX-217"
-    ],
     "ISS-069": [
       "FIX-020",
       "FIX-128",
@@ -2775,6 +2817,15 @@
     ],
     "ISS-076": [
       "FIX-221",
+      "ISS-068"
+    ],
+    "ISS-078": [
+      "FIX-175",
+      "FIX-223",
+      "ISS-068"
+    ],
+    "ISS-079": [
+      "FIX-223",
       "ISS-068"
     ]
   },

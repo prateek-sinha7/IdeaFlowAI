@@ -18,7 +18,7 @@ Where the project is right now, and what constrains a change to it. Every other 
 - Phase: ALL COMPLETE — 45 [R0] 4/4 · 46 [R1] 8/8 · 47 [R2] 4/4 · 48 [R3] 4/4 · 49 [R4] 5/5 (KAN-88 green) · 50 [R5] 5/5
 - Plan: 14/14 plans complete across 6 phases; register reconciliation batch appended; requirements RESUME-05..18 all Complete
 - Status: Milestone v3.0 OFFLINE-COMPLETE — remaining: the consolidated live-Bedrock pass (orchestrator-owned) + /gsd-complete-milestone (user step; v2.0 close-out also still pending)
-- Last activity: 2026-08-12 — Completed quick task 260812-2ci: in-run revisions are now visible — the "Spec Revision Cycle N" banner is derived from the durable event stream instead of a live-session detector (it was DEAD on every path for od_prototype, not just on reload), and a new per-artifact version picker in the Steps agent detail makes spec v1/v2/v3 readable inside a run (FIX-221 + FIX-222; closes ISS-063 + ISS-065, files ISS-075/076/077)
+- Last activity: 2026-08-12 — Completed quick task 260812-35u: the characterization goldens are a working INV-3 oracle again — **10 passed / 0 failed** (was 5/5) and **lint-imports 4 kept / 0 broken** (was 3/1). The 5 red goldens reduced to exactly 3 causes, each adjudicated separately per the ISS-029 method: a stale NORMALIZER (`resume_offset` stripped, zero golden bytes touched), a REAL code regression (`prototype-build` lost `icon: "🏗️"` to a clobbered line in FIX-190 — the golden was right, and regenerating would have pinned a user-visible UI regression), and exactly ONE genuinely stale golden (`prototype_revision`, regenerated alone in its own revertable commit, strictly after the normalizer fix, with a 33-deletion/0-insertion diff accounted for line by line). The `agents.capabilities` import contract was restored by breaking the import through an already-existing port, not by amending the contract. Both coverage gaps that let these ship silently are now pinned (FIX-223 + FIX-224 · TEST-008; closes ISS-068, files ISS-078/079). Previous: quick task 260812-2ci: in-run revisions are now visible — the "Spec Revision Cycle N" banner is derived from the durable event stream instead of a live-session detector (it was DEAD on every path for od_prototype, not just on reload), and a new per-artifact version picker in the Steps agent detail makes spec v1/v2/v3 readable inside a run (FIX-221 + FIX-222; closes ISS-063 + ISS-065, files ISS-075/076/077)
 
 ## Enforced boundaries
 
@@ -40,7 +40,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
 | `backend/agents/execution_engine` | the execution kernel | 30 | 11 files |
 | `backend/agents/workflows` | workflow manifests — data, not code paths | 23 | 5 files |
-| `backend/agents/capabilities` | capability adapters | 13 | 82 files |
+| `backend/agents/capabilities` | capability adapters | 14 | 82 files |
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
 | `backend/agents/artifact_store` | artifact persistence | 1 | 2 files |
 | `backend/agents/guardrails` | policy enforcement | 0 | 0 files |
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (216), `workflow` (194), `frontend` (180), `sse` (145), `backend` (88), `artifacts` (86), `auth` (81), `resume` (50).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (219), `workflow` (197), `frontend` (180), `sse` (148), `backend` (92), `artifacts` (87), `auth` (83), `resume` (51).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 247 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 249 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.

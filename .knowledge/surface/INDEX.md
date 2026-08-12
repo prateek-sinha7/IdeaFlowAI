@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-613 cards · rules 1 · fixes 219 · issues 77 · phases 23 · built 2026-08-12 02:11
+617 cards · rules 1 · fixes 221 · issues 79 · phases 23 · built 2026-08-12 02:34
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,10 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (219)
+## Fixes (221)
 
+FIX-224 2026-08-12 [backend,agents] The agents.capabilities must not import the execution kernel or the web layer import-linter contract had been BROKEN since 2026-07-20, so Ports & Adapters was at 3 kept / 1 broken against a documented intended state of 4/0
+FIX-223 2026-08-12 [backend,sse,resume,workflow,agents,auth] The 5 characterization event goldens — the project's INV-3 parity oracle — had been red on dev for weeks, so INV-3 could only be checked by diffing failure counts against a hand-captured baseline
 FIX-222 2026-08-12 [frontend,workflow,agents,artifacts] No UI surfaced PER-ARTIFACT versions inside a run. artifact_refs durably stores every version and GET /api/runs/{id}/artifacts?kind=X&include=content already returns each one WITH its body
 FIX-221 2026-08-12 [frontend,sse,resume,workflow,agents,auth] The violet "Spec Revision Cycle N" banner was dead on every path for od_prototype, not merely absent on reload as ISS-063 filed it
 FIX-220 2026-08-12 [backend,frontend,agents] One "Update the Specs" click opened the analyze gate THREE times and nothing on the wire told the firings apart — A modelling gap, not a mechanism: the sub-pipeline was DESIGNED headless
@@ -234,8 +236,10 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (77)
+## Issues (79)
 
+ISS-079 - [backend,sse,workflow,agents,test-infra] 2 further reds in the shared baseline that ISS-068 never recorded: backend/tests/agents/test_phase6_frontend_consistency.py
+ISS-078 - [backend,sse,resume,workflow,agents,auth,artifacts,engine] 7 reds in backend/tests/agents/test_restart_resume.py (7 failed / 48 passed), and at least two of them may be describing a LIVE PRODUCTION RESUME BUG rather than test rot
 ISS-077 - [frontend,workflow,agents,artifacts] ArtifactNode's TypeScript declaration disagrees with the wire shape on three fields. frontend/src/lib/api.ts:602-604 declares derived_from: string[] and children: string[], but the backend returns `derived_from: string \
 ISS-076 - [sse,auth,test-infra] The mocked Playwright suite has a 33-red baseline, not the "132 green" the records claim. Measured on bugfix/spec-revision-context-loss at b13d5c33: 33 failed / 43 skipped / 108 passed
 ISS-075 - [backend,sse,resume,workflow,agents,auth,frontend] Reopening a run resets the whole Steps trace to idle. The trailing resume pipeline_start carries resume_offset = 0 (run d5dbc9f2 seq 24791
@@ -245,7 +249,7 @@ ISS-072 - [sse,resume,agents,artifacts] Collapse the doubled analyze gate by sup
 ISS-071 - [workflow,agents,artifacts] The "Update the Specs" affordance is advertised at EVERY gate on every non-prototype workflow. _update_specs_eligible keys on artifact_kind in {"summary"}
 ISS-070 - [auth] The gate-action discriminator is unvalidated, and an unknown action silently APPROVES. run_commands.py resolve_gate dispatches on action with else: # approve as the fallback, so any unrecognised string — a typo, a stale client, a probe
 ISS-069 - [tooling,test-infra] FIX-REGISTER drift — the ISS-066 defect, in the other register. 11 FIX-NNN ids are in active use with NO row in .planning/FIX-REGISTER.md: FIX-020 (commit messages only), FIX-128, FIX-129 (both: register prose mentions + cards + code)
-ISS-068 - [sse,resume,agents,test-infra] Shared red baseline on dev blocks the goldens from serving as a CI gate: 5 of 5 characterization event-snapshot tests fail (prototype, od_prototype, od_ppt, app_builder
+ISS-068 - [sse,test-infra] Measured repeatedly 2026-08-11 across quick-260811-mxg and -si4. NOTE: an older memory recorded "10 failed / 6 passed" — that was stale feat/ui-2 data; the current figure is 5/5
 ISS-067 - [backend,sse,agents,test-infra] .kiro/steering/velocity-ai-fix.md carries five facts that are wrong on this machine and will mislead any agent that follows it: (1) it prescribes uv run --no-sync pytest but backend/.venv does NOT exist, so every command in it fails
 ISS-066 - [backend] Register drift: ISS-054..ISS-061 have NO rows in ISSUES-REGISTER.md, yet those ids are live in FIX-190/192/193/194/195 rows, in cards, and in commit messages
 ISS-065 - [sse,workflow,auth,artifacts] No UI surfaces PER-ARTIFACT versions inside a run. artifact_refs durably stores every version (run d5dbc9f2 holds spec v1/v2/v3, task_list v1/v2, summary v1/v2) and GET /api/runs/{id}/artifacts already returns version per node

@@ -17,6 +17,7 @@
 | TEST-005 | FIX-219 (quick-260812-12t) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/agents/capabilities/gates/human.py`, `backend/agents/capabilities/gates/approval.py`, `backend/app/api/run_engine.py`, `backend/app/api/run_commands.py` | 18 | 18 | 0 | ✅ Pass |
 | TEST-006 | FIX-220 (quick-260812-1nz) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/tests/agents/characterization/_normalize.py`, `frontend/src/components/chat/InlineGateActions.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx` | 8 | 8 | 0 | ✅ Pass |
 | TEST-007 | FIX-221 + FIX-222 (quick-260812-2ci) | 2026-08-12 | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useRunStateStore.ts`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/types/index.ts`, `frontend/src/components/results/ArtifactVersionPicker.tsx`, `frontend/src/components/results/AgentDetailPanel.tsx`, `frontend/src/components/results/AgentThinkingTab.tsx` | 27 | 27 | 0 | ✅ Pass |
+| TEST-008 | FIX-223 + FIX-224 (quick-260812-35u) | 2026-08-12 | `backend/tests/agents/test_loader.py`, `backend/tests/agents/test_banned_patterns.py`, `backend/tests/agents/characterization/_normalize.py`, `backend/agents/prompts/prototype-build/AGENT.md`, `backend/agents/capabilities/strategies/task_loop.py`, `backend/tests/agents/characterization/golden/prototype_revision.events.json` | 4 | 4 | 0 | ✅ Pass |
 
 ---
 
@@ -556,3 +557,96 @@ Regression guards:
 - [x] **High** for FIX-222 — the REST contract it consumes was verified live on :8010
   before implementation, and the component degrades to rendering nothing on every failure
   path. Not yet seen against a real multi-version run in a browser (deferred with the above).
+
+---
+
+### TEST-008 — FIX-223 + FIX-224 (quick-260812-35u): the golden oracle is an oracle again, and both gaps that let this ship are closed
+
+```
+TEST COVERAGE — FIX-223 + FIX-224
+Unit tests:        4 NEW backend pins, ALL GREEN. Every one seen RED first.
+
+  test_loader.py::TestSchemaValidationAllAgents
+    test_all_agents_declare_an_explicit_icon              1 case
+      RED BEFORE (observed, at the unfixed AGENT.md):
+        AssertionError: 1 of 86 AGENT.md files do not declare an explicit
+        `icon:` and will silently fall back to the loader default '🤖',
+        changing what the UI shows and moving the characterization event
+        goldens: ['prototype-build'].
+      GREEN AFTER: tests/agents/test_loader.py — 45 passed.
+      Reads the RAW frontmatter (python-frontmatter, the same parser
+      agents/loader.py uses), deliberately NOT spec.icon: the loader
+      substitutes "🤖" for a missing key, so a spec.icon assertion is true by
+      construction and would have been green-from-birth.
+
+  test_banned_patterns.py
+    test_capabilities_do_not_import_kernel_or_web_layer   1 case
+      RED BEFORE (observed, with the fix temporarily reverted):
+        Offenders:
+          agents/capabilities/strategies/task_loop.py:572:
+            from agents.execution_engine.od_context import get_example_html
+      GREEN AFTER: tests/agents/test_banned_patterns.py — 14 passed.
+    test_capability_boundary_gate_catches_the_iss068_violation  1 case
+      NON-VACUITY (the file's own convention): replays the exact ISS-068
+      statements plus a bare kernel import and asserts the scanner reports
+      all 3. Without it a never-matching regex would pass on the clean tree.
+    test_capability_boundary_gate_ignores_lookalikes      1 case
+      FALSE-POSITIVE guard: a commented import, a sibling
+      agents.capabilities.* import, `application_config`, `appdirs`.
+
+Integration tests: N/A — no cross-service behaviour changed. FIX-223 C1/C2 are a
+                   test-normalizer entry and an AGENT.md frontmatter line; FIX-224
+                   swaps a direct import for an existing port with identical
+                   semantics (same function, same EXAMPLE_MAX_CHARS cap, same
+                   swallow-and-return-None), already inside a try/except.
+Frontend tests:    N/A — zero frontend files touched.
+
+Goldens:           BEFORE  5 failed / 5 passed   at f5f2f7c6
+                   AFTER  10 passed / 0 failed   (the target end state)
+                   Progression observed step by step, which independently
+                   confirmed the 3-cause decomposition:
+                     + C1 (normalizer strip)     5F/5P -> 3F/7P  (od_ppt, app_builder green)
+                     + C2 (icon restored)        3F/7P -> 1F/9P  (prototype, od_prototype green)
+                     + C3 (regen prototype_revision) -> 10 passed
+                   C1 and C2 changed ZERO golden bytes.
+lint-imports:      BEFORE 3 kept / 1 broken  at f5f2f7c6
+                   AFTER  4 kept / 0 broken   (run from backend/ — from the repo
+                   root it prints "Could not read any configuration" and exits)
+test_restart_resume.py:
+                   7 failed / 48 passed — IDENTICAL to f5f2f7c6, same 7 ids,
+                   before and after. Deliberately NOT fixed here; filed as ISS-078.
+Regression sweep:  119 passed across test_update_specs_enforcement.py,
+                   test_update_specs_ingress_fence.py, test_spec_revision_cycles.py,
+                   test_gate_revision_discriminator.py (the ISS-052/053 suites, 29),
+                   test_loader.py, test_banned_patterns.py, test_strategies.py,
+                   test_context_providers.py.
+                   Plus 143 passed across test_strategies / test_capability_resolution /
+                   test_registry_capabilities / test_sc001_nonprototype_task_loop /
+                   test_per_task_capture / test_context_providers (task_loop blast radius).
+
+Golden-regeneration proof obligation (the reason this fix is safe):
+  git diff --stat -> 1 file changed, 33 deletions(-), 0 insertions(+)
+  Programmatic accounting of the regenerated prototype_revision.events.json:
+    event count      17 -> 14
+    REMOVED types    exactly {gate_status, planner_complete, planner_start}
+    ADDED types      NONE
+    survivors        all 14 byte-identical AND in the same order as before
+    resume_offset    absent from the file (proof C1 landed first, as required)
+    icons            untouched (this pipeline has no prototype-build)
+  33 lines = the 3 event objects (32) + the trailing comma on the new last element.
+
+Regression guards:
+  - test_all_agents_declare_an_explicit_icon: an AGENT.md can never again lose its
+    icon silently. This is the gap that let FIX-190 ship a UI regression that 86-agent
+    config review, code review and CI all missed and only a golden caught, 6 days late.
+  - test_capabilities_do_not_import_kernel_or_web_layer: the Ports & Adapters boundary
+    now fails PYTEST, not only the separately-invoked lint-imports binary. That gap is
+    exactly why a one-line violation survived ~3 weeks.
+  - The two non-vacuity/false-positive guards keep the boundary scanner honest in both
+    directions.
+```
+
+**Two findings deliberately NOT fixed here, both filed rather than left in a transcript:**
+`ISS-078` (the 7 `test_restart_resume.py` reds — possibly a LIVE production resume
+regression, multi-day) and `ISS-079` (2 `test_phase6_frontend_consistency.py` reds,
+re-baselined as pre-existing at `f5f2f7c6` in a detached worktree).
