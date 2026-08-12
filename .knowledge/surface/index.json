@@ -1,5 +1,5 @@
 {
-  "count": 622,
+  "count": 624,
   "entries": [
     {
       "area": [
@@ -6786,6 +6786,46 @@
       "type": "issue"
     },
     {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-084",
+      "path": ".knowledge/cards/ISS-084.md",
+      "relates": [
+        "ISS-078"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-084",
+      "status": "open",
+      "summary": "Stop / cancel does not stop a building run. POST /api/runs/{id}/cancel returns HTTP 200 {\"ok\":true,\"cancelled\":true} and the run keeps generating",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "artifacts",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-085",
+      "path": ".knowledge/cards/ISS-085.md",
+      "relates": [
+        "ISS-065",
+        "FIX-222"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-085",
+      "status": "open",
+      "summary": "Switching artifact versions does not change the spec cards \u2014 only the raw output below them. The owner tested the new ISS-065 picker and reported: \"while changing the version there, i couldnt see the older version's content\"",
+      "type": "issue"
+    },
+    {
       "area": [],
       "date": "",
       "files": [],
@@ -9652,20 +9692,20 @@
   ],
   "facets": {
     "area": {
-      "agents": 223,
-      "artifacts": 89,
-      "auth": 83,
+      "agents": 225,
+      "artifacts": 90,
+      "auth": 84,
       "backend": 93,
       "docs": 2,
       "engine": 1,
       "evals": 10,
-      "frontend": 185,
+      "frontend": 186,
       "harness": 2,
       "infra": 1,
       "product": 29,
-      "resume": 52,
+      "resume": 54,
       "runtime": 31,
-      "sse": 151,
+      "sse": 153,
       "test-infra": 11,
       "tooling": 2,
       "workflow": 201
@@ -9673,7 +9713,7 @@
     "status": {
       "accepted": 1,
       "done": 578,
-      "open": 34,
+      "open": 36,
       "shipped": 1
     },
     "type": {
@@ -9681,7 +9721,7 @@
       "decision": 1,
       "doc": 65,
       "fix": 222,
-      "issue": 83,
+      "issue": 85,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -9699,5 +9739,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 04:15"
+  "generated": "2026-08-12 05:05"
 }

@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-622 cards · rules 1 · fixes 222 · issues 83 · phases 23 · built 2026-08-12 04:15
+624 cards · rules 1 · fixes 222 · issues 85 · phases 23 · built 2026-08-12 05:05
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -237,8 +237,10 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (83)
+## Issues (85)
 
+ISS-085 - [sse,resume,agents,artifacts,frontend] Switching artifact versions does not change the spec cards — only the raw output below them. The owner tested the new ISS-065 picker and reported: "while changing the version there, i couldnt see the older version's content"
+ISS-084 - [sse,resume,agents,auth] Stop / cancel does not stop a building run. POST /api/runs/{id}/cancel returns HTTP 200 {"ok":true,"cancelled":true} and the run keeps generating
 ISS-083 - [sse,frontend] A third, dormant counter in the spec-revision family: ResultCard.tsx:97-100,119 renders Revising spec — cycle {cycle ?? 1} for the spec_revision card kind and NOTHING passes cycle (grep -rn "cycle={" src
 ISS-082 - [workflow,agents,frontend] The sibling reducer accumulators carry no identity key either — agent_chunk (output: prev.output + chunk) and hook_run (hookRuns: [...prev.hookRuns, entry]) in useWorkflow.ts
 ISS-081 - [workflow,agents,artifacts,frontend] deriveSpecRevisionCount takes max over ALL agents, but prototype-build restarts once per task. Even with ISS-080's double-counting fully fixed

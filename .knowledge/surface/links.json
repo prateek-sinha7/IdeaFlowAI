@@ -222,7 +222,8 @@
     "FIX-222": [
       "FIX-221",
       "ISS-063",
-      "ISS-075"
+      "ISS-075",
+      "ISS-085"
     ],
     "FIX-223": [
       "ISS-078",
@@ -326,7 +327,8 @@
       "FIX-221",
       "FIX-222",
       "ISS-063",
-      "ISS-075"
+      "ISS-075",
+      "ISS-085"
     ],
     "ISS-066": [
       "ISS-050",
@@ -361,6 +363,9 @@
     ],
     "ISS-076": [
       "FIX-221"
+    ],
+    "ISS-078": [
+      "ISS-084"
     ],
     "ISS-080": [
       "ISS-081",
@@ -531,6 +536,8 @@
       "ISS-080",
       "ISS-081",
       "ISS-082",
+      "ISS-084",
+      "ISS-085",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -651,6 +658,7 @@
       "ISS-078",
       "ISS-080",
       "ISS-081",
+      "ISS-085",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -736,6 +744,7 @@
       "ISS-075",
       "ISS-076",
       "ISS-078",
+      "ISS-084",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -1070,6 +1079,7 @@
       "ISS-081",
       "ISS-082",
       "ISS-083",
+      "ISS-085",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1142,6 +1152,8 @@
       "ISS-074",
       "ISS-075",
       "ISS-078",
+      "ISS-084",
+      "ISS-085",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1308,6 +1320,8 @@
       "ISS-079",
       "ISS-080",
       "ISS-083",
+      "ISS-084",
+      "ISS-085",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -2899,6 +2913,13 @@
     "ISS-083": [
       "FIX-164",
       "ISS-039"
+    ],
+    "ISS-084": [
+      "ISS-078"
+    ],
+    "ISS-085": [
+      "FIX-222",
+      "ISS-065"
     ]
   },
   "rules_by_file": {
