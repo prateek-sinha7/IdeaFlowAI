@@ -379,7 +379,9 @@ def _arm_cancel_escalation(run_id: str) -> None:
     task.add_done_callback(_CANCEL_ESCALATIONS.discard)
 
 
-async def _record_cancellation_in_the_durable_tail(run_id: str) -> None:
+async def _record_cancellation_in_the_durable_tail(
+    run_id: str, *, reason: str = "owner_stopped_run_with_no_live_driver"
+) -> None:
     """Append the ``pipeline_cancelled`` row a driver would have emitted (ISS-089).
 
     Best-effort: audit + SSE replay + ``_reconcile_terminal_status`` agreement, none of
@@ -391,6 +393,13 @@ async def _record_cancellation_in_the_durable_tail(run_id: str) -> None:
     Principal resolution is ``_reconcile_terminal_status``'s, verbatim: never the nullable
     ``owner_id`` alone, and the run's RECOVERED workspace (the value the sink actually
     wrote under) rather than the WS-path row's frequently-NULL ``workspace_id``.
+
+    ``reason`` is parameterised for ISS-124 — the two app-layer DRIVER terminals
+    (``_drive_launch_to_queue`` / ``_drive_revision_to_queue``) reach this same append
+    from their ``except asyncio.CancelledError`` branches, where a driver WAS live and
+    was destructively cancelled. The default is FIX-243's original string, unchanged, so
+    the no-live-driver payload stays byte-identical. Extended, not copied (INV-12): one
+    durable-terminal writer, three callers.
     """
     from agents.authz import ScopedStore
     from agents.execution_engine.engine import get_execution_engine
@@ -412,7 +421,7 @@ async def _record_cancellation_in_the_durable_tail(run_id: str) -> None:
             (await store._max_event_seq(run_id)) + 1,
             str(_uuid.uuid4()),
             "pipeline_cancelled",
-            {"pipeline_run_id": run_id, "reason": "owner_stopped_run_with_no_live_driver"},
+            {"pipeline_run_id": run_id, "reason": reason},
         )
     except Exception as exc:  # noqa: BLE001 — the audit row must never fail the Stop
         logger.warning(
@@ -2591,7 +2600,21 @@ async def _drive_launch_to_queue(
                 db.close()
     except asyncio.CancelledError:
         await event_queue.put({"type": "pipeline_cancelled", "data": {"message": "Pipeline cancelled"}})
+        # ISS-124: make the terminal DURABLE, not queue-only. This branch is the
+        # ``stop_run_driver`` escalation path (``task.cancel()`` for a driver that could
+        # not observe the cooperative event in bounded time), and it wrote no ``run_events``
+        # row at all — so (a) the run's durable log ended on whatever came before, which is
+        # how ISS-126's dangling ``review_gate_ready`` reopens are still being MINTED, and
+        # (b) ``stop_run_driver`` then runs ``_reconcile_terminal_status``, which decides
+        # from the durable tail alone and took its D2 fail-safe → the owner's Stop was
+        # recorded as ``failed``, overwriting the ``cancelled`` written just below.
+        # The frame above is already emitted unconditionally; this only makes the row agree
+        # with it. Best-effort by construction (the helper swallows its own failures), so a
+        # cancelled driver can never be made worse by the audit write.
         if workflow_run_id:
+            await _record_cancellation_in_the_durable_tail(
+                workflow_run_id, reason="driver_task_cancelled"
+            )
             db = _get_db()
             try:
                 wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
@@ -2824,6 +2847,12 @@ async def _drive_revision_to_queue(
             "type": "pipeline_cancelled",
             "data": {"message": "Revision cancelled"},
         })
+        # ISS-124 (second locus) — identical hole, identical fix. See the launch driver's
+        # CancelledError branch for the full rationale; the two drivers stay behaviorally
+        # identical by design (LOCK-B).
+        await _record_cancellation_in_the_durable_tail(
+            workflow_run_id, reason="driver_task_cancelled"
+        )
         _persist_terminal_status("cancelled")
     except Exception as exc:
         logger.error("REST revision driver failed: %s", exc, exc_info=True)

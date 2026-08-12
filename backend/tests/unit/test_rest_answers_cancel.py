@@ -658,3 +658,197 @@ def test_cancel_unknown_run_is_denied(env):
 
     resp = env["client"].post(f"/api/runs/{run_id}/cancel")
     assert resp.status_code == 404
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# ISS-124 — the two APP-LAYER driver terminals must be DURABLE, not queue-only
+# ────────────────────────────────────────────────────────────────────────────
+#
+# ``_drive_launch_to_queue`` and ``_drive_revision_to_queue`` both catch
+# ``asyncio.CancelledError`` (the escalation path ``stop_run_driver`` takes when a
+# driver cannot observe the cooperative event in time), push a ``pipeline_cancelled``
+# FRAME onto the queue and set ``status="cancelled"`` — but write NO ``run_events``
+# row. Two consequences, both live today:
+#
+#   1. The durable log of such a run has no terminal at all, so a fresh reopen
+#      replays a dangling ``review_gate_ready`` (ISS-126) — i.e. this path keeps
+#      MINTING the corrupted runs ISS-126 has to render.
+#   2. ``stop_run_driver`` calls ``_reconcile_terminal_status`` once the task is
+#      provably gone, and that function decides purely from the durable tail:
+#      no ``pipeline_cancelled`` row → ``cancelled=[]``, ``completes=[]`` → the D2
+#      fail-safe ``"failed"``, which OVERWRITES the driver's own "cancelled".
+#      The owner's Stop is recorded as a failure.
+#
+# Every assertion below is on the durable ROW, never on the queued frame — the
+# frame is already correct today, which is exactly why earlier probes missed this.
+
+
+def _terminal_rows(env, run_id: str) -> list:
+    """The durable ``pipeline_cancelled`` rows, with their event_ids."""
+    from app.models.run_event import RunEvent
+
+    db = env["ws"]._get_db()
+    try:
+        return [
+            (r.seq, r.type, r.event_id, r.payload_json)
+            for r in db.query(RunEvent)
+            .filter(RunEvent.run_id == run_id, RunEvent.type == "pipeline_cancelled")
+            .order_by(RunEvent.seq.asc())
+            .all()
+        ]
+    finally:
+        db.close()
+
+
+class _CancellingEngine:
+    """Stands in for the ExecutionEngine: raises CancelledError out of the drive."""
+
+    def __init__(self, workspace_id: str = "ws-124"):
+        self._workspace_id = workspace_id
+
+    async def _recover_workspace_id(self, owner_id, run_id):
+        return self._workspace_id
+
+    async def execute(self, **kwargs):
+        raise asyncio.CancelledError()
+        yield  # pragma: no cover — makes this an async generator
+
+    async def _handle_revision(self, **kwargs):
+        raise asyncio.CancelledError()
+
+
+class _HangingEngine(_CancellingEngine):
+    """Blocks inside the drive so a REAL ``task.cancel()`` lands mid-await."""
+
+    def __init__(self, workspace_id: str = "ws-124"):
+        super().__init__(workspace_id)
+        self.started = asyncio.Event()
+
+    async def execute(self, **kwargs):
+        self.started.set()
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+
+def _patch_engine(monkeypatch, engine) -> None:
+    import agents.execution_engine.engine as eng_mod
+
+    monkeypatch.setattr(eng_mod, "get_execution_engine", lambda: engine)
+
+
+async def _drive_launch(env, user, run_id, *, queue=None):
+    from app.api.run_commands import _drive_launch_to_queue
+
+    await _drive_launch_to_queue(
+        workflow_run_id=run_id,
+        pipeline_run_id=run_id,
+        agents=[],
+        content="idea",
+        pipeline_type="user_stories",
+        cancel_event=asyncio.Event(),
+        user=user,
+        attached_skills=[],
+        attached_hooks=[],
+        od_context=None,
+        validated_images=[],
+        gate_agent_ids=[],
+        parent_run_id=None,
+        model_overrides={},
+        selections=None,
+        event_queue=queue if queue is not None else asyncio.Queue(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_launch_driver_cancellation_is_durable(env, monkeypatch):
+    """ISS-124: the launch driver's CancelledError branch must APPEND a durable
+    ``pipeline_cancelled`` row carrying a real ``event_id`` — not only queue a frame."""
+    user = _seed_user(env, "l124")
+    run_id = _seed_run(env, user.id, owner_id=user.id, workspace_id="ws-124")
+    _patch_engine(monkeypatch, _CancellingEngine())
+
+    await _drive_launch(env, user, run_id)
+
+    rows = _terminal_rows(env, run_id)
+    assert len(rows) == 1, f"expected exactly one durable pipeline_cancelled row, got {rows}"
+    _seq, _type, event_id, payload = rows[0]
+    assert event_id, "the durable row must carry a real event_id (the replay de-dup key)"
+    assert payload.get("pipeline_run_id") == run_id
+    # and the status the driver itself writes is unchanged
+    assert _run_status(env, run_id)[0] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_launch_driver_durable_row_survives_a_real_task_cancel(env, monkeypatch):
+    """ISS-124, the discriminating case: the append lives inside an
+    ``except asyncio.CancelledError`` block and therefore must complete while the
+    task is being cancelled FOR REAL — ``stop_run_driver`` reaches this branch via
+    ``task.cancel()``, not by the engine raising. If the await were cut short the
+    row would be missing exactly on the path that matters."""
+    user = _seed_user(env, "l124real")
+    run_id = _seed_run(env, user.id, owner_id=user.id, workspace_id="ws-124")
+    engine = _HangingEngine()
+    _patch_engine(monkeypatch, engine)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    task = asyncio.get_running_loop().create_task(
+        _drive_launch(env, user, run_id, queue=queue)
+    )
+    await engine.started.wait()  # the drive is provably INSIDE the engine await
+    task.cancel()
+    # The driver deliberately CONVERTS the cancellation into a terminal rather than
+    # re-raising it — ``_drain_then_cancel`` only needs ``task.done()``. Observed, not
+    # assumed: an earlier version of this test asserted a re-raise and was wrong.
+    await task
+    assert task.done() and not task.cancelled()
+
+    rows = _terminal_rows(env, run_id)
+    assert len(rows) == 1, f"a real task.cancel() left no durable terminal: {rows}"
+    assert rows[0][2], "the durable row must carry a real event_id"
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_driver_reconciles_to_cancelled_not_failed(env, monkeypatch):
+    """ISS-124's user-visible half: ``stop_run_driver`` runs
+    ``_reconcile_terminal_status`` once the driver is provably gone, and that decides
+    from the DURABLE TAIL alone. With no ``pipeline_cancelled`` row the D2 fail-safe
+    fires and the owner's Stop is recorded as ``failed``."""
+    from app.api.run_commands import _reconcile_terminal_status
+
+    user = _seed_user(env, "l124rec")
+    run_id = _seed_run(env, user.id, owner_id=user.id, workspace_id="ws-124")
+    _patch_engine(monkeypatch, _CancellingEngine())
+
+    await _drive_launch(env, user, run_id)
+    await _reconcile_terminal_status(run_id)
+
+    assert _run_status(env, run_id)[0] == "cancelled", (
+        "the reconcile overwrote the owner's Stop with the D2 fail-safe"
+    )
+
+
+@pytest.mark.asyncio
+async def test_revision_driver_cancellation_is_durable(env, monkeypatch):
+    """ISS-124, second locus: ``_drive_revision_to_queue`` has the same shape and
+    the same hole."""
+    from app.api.run_commands import _drive_revision_to_queue
+
+    user = _seed_user(env, "r124")
+    parent_id = _seed_run(env, user.id, owner_id=user.id, workspace_id="ws-124")
+    run_id = _seed_run(env, user.id, owner_id=user.id, workspace_id="ws-124")
+    _patch_engine(monkeypatch, _CancellingEngine())
+
+    await _drive_revision_to_queue(
+        workflow_run_id=run_id,
+        parent_run_id=parent_id,
+        target_artifact_type="prototype",
+        instruction="tweak it",
+        user=user,
+        cancel_event=asyncio.Event(),
+        event_queue=asyncio.Queue(),
+    )
+
+    rows = _terminal_rows(env, run_id)
+    assert len(rows) == 1, f"expected exactly one durable pipeline_cancelled row, got {rows}"
+    assert rows[0][2], "the durable row must carry a real event_id"
+    assert _run_status(env, run_id)[0] == "cancelled"
