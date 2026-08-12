@@ -187,10 +187,52 @@ mv "$TMP_ENV" "$BOOTSTRAP_ENV"
 echo "[provision] wrote ${BOOTSTRAP_ENV}"
 
 # ── 2. AWS CLI v2 assurance (mirrors bootstrap-ec2.sh §2b / user_data.sh.tpl) ─
+
+# Force apt over HTTPS before the first fetch. This host egresses on 443 only
+# (single SG rule, tcp/443 to 0.0.0.0/0) and routes via a Transit Gateway, not
+# a NAT/internet gateway. Ubuntu ships its apt sources as http:// (port 80), so
+# every archive fetch times out and the install below dies with exit 100 —
+# while SSM, S3 and KMS keep working, which makes it look unrelated to
+# networking. archive.ubuntu.com, security.ubuntu.com and the regional
+# <region>.ec2.archive.ubuntu.com mirrors all serve TLS, so the in-region
+# mirror is preserved. apt has had native HTTPS support since 1.5 and
+# ca-certificates ships on the Canonical AMI, so this needs no package to be
+# installed first — which matters, because installing one is what's blocked.
+#
+# This duplicates bootstrap-ec2.sh §2a on purpose: this script runs FIRST and
+# must survive its own apt call, and bootstrap-ec2.sh also runs standalone via
+# velocityai-firstboot.service. Both are idempotent, so whichever runs first
+# leaves nothing for the other to rewrite.
+UBUNTU_APT_HOST_RE='http://([A-Za-z0-9.-]*\.)?(archive|security)\.ubuntu\.com'
+apt_rewritten=0
+for apt_src in /etc/apt/sources.list \
+               /etc/apt/sources.list.d/*.sources \
+               /etc/apt/sources.list.d/*.list; do
+    [ -f "$apt_src" ] || continue
+    grep -Eq "$UBUNTU_APT_HOST_RE" "$apt_src" || continue
+    [ -f "${apt_src}.pre-https.bak" ] || cp -a "$apt_src" "${apt_src}.pre-https.bak"
+    sed -E -i "s#${UBUNTU_APT_HOST_RE}#https://\1\2.ubuntu.com#g" "$apt_src"
+    echo "[provision] apt sources: rewrote http -> https in ${apt_src}"
+    apt_rewritten=1
+done
+if [ "$apt_rewritten" -eq 0 ]; then
+    echo "[provision] apt sources: already https (nothing to rewrite)"
+fi
+
 echo "[provision] waiting for apt lock"
 while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 2; done
+
+# `apt-get update` exits 0 even when every index fetch fails (it warns and
+# reuses stale lists), so a failure here would otherwise surface as an opaque
+# `exit status 100` from the install below. Assert reachability explicitly.
 apt-get update -y
-apt-get install -y --no-install-recommends curl unzip ca-certificates jq
+if ! apt-get install -y --no-install-recommends curl unzip ca-certificates jq; then
+    echo "[provision] FATAL: apt could not install the provisioning prerequisites." >&2
+    echo "[provision]        Sources are HTTPS, so this is not the port-80 egress issue." >&2
+    echo "[provision]        Verify outbound 443 on this instance's security group and the" >&2
+    echo "[provision]        upstream Transit Gateway path to the Ubuntu archive." >&2
+    exit 1
+fi
 
 AWSCLI_VERSION="2.17.42"
 if ! command -v aws >/dev/null 2>&1 \
