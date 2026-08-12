@@ -6438,7 +6438,7 @@
       "id": "ISS-067",
       "path": ".knowledge/cards/ISS-067.md",
       "source": ".planning/ISSUES-REGISTER.md#iss-067",
-      "status": "open",
+      "status": "done",
       "summary": ".kiro/steering/velocity-ai-fix.md carries five facts that are wrong on this machine and will mislead any agent that follows it: (1) it prescribes uv run --no-sync pytest but backend/.venv does NOT exist, so every command in it fails",
       "type": "issue"
     },
@@ -9672,8 +9672,8 @@
     },
     "status": {
       "accepted": 1,
-      "done": 577,
-      "open": 35,
+      "done": 578,
+      "open": 34,
       "shipped": 1
     },
     "type": {
@@ -9699,5 +9699,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 03:58"
+  "generated": "2026-08-12 04:15"
 }
