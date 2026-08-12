@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-641 cards · rules 1 · fixes 228 · issues 96 · phases 23 · built 2026-08-12 11:19
+645 cards · rules 1 · fixes 229 · issues 99 · phases 23 · built 2026-08-12 11:53
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (228)
+## Fixes (229)
 
+FIX-232 2026-08-12 [backend,sse,resume,workflow,agents,auth,runtime] Rejecting at a review gate did not stop the run — every remaining step still ran, the run reported pipeline_complete, and the fake complete/completed rows it left behind made a later resume skip every wave and produce NOTHING
 FIX-231 2026-08-12 [backend,sse,agents] The live harness's review-gate wrapper could not accept the gate's own arguments — every gated harness drive raised TypeError and then reported the run COMPLETE without gating
 FIX-230 2026-08-12 [agents,auth] Two model call-sites spent the owner's money without it appearing in the run's reported cost. (1) The validation fix-loop re-invokes the build sub-agent on a …:fixN thread and drains its stream INTERNALLY
 FIX-229 2026-08-12 [sse,resume,workflow,agents,artifacts] A user who resumes a run parked at a review gate and then REJECTS at that gate had the run recorded in history as completed. The rejection was silently discarded from the record and the deliverable appeared accepted
@@ -243,8 +244,11 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (96)
+## Issues (99)
 
+ISS-099 - [sse,workflow,agents,engine] A retry-enabled step records a CANCELLED step as reusable. When step.retry.max_attempts > 0, _dispatch_step_with_retry (engine.py:7236-7274) runs the strategy inside an attempt loop and, on normal completion of strategy.run
+ISS-098 - [resume,workflow,auth,runtime,engine] A mid-wave CancelledError leaves its wave_runs row stuck at running forever. wave_scheduler.py:340 catches except Exception: to flip the in-flight wave's row terminal
+ISS-097 - [sse,workflow,agents,engine] Gating a fan-out step's own agent may open an inline review gate in EVERY worker. kernel_services.py:971-984 builds the per-worker step view with gates=[], which reads as "this worker has no gates"
 ISS-096 - [backend,sse,agents,auth,artifacts,test-infra] Stale prompt-contract pin: tests/agents/test_prompt_contracts.py::test_od_ppt_validator_deck_reemission_contract asserts a sentence that is no longer in the agent's prompt
 ISS-095 - [sse,agents] 3 reds in tests/agents/test_declared_gate_streaming.py, and the register's "environmental" label for them looks WRONG — a real defect may be hiding behind it
 ISS-094 - [sse,agents,evals,artifacts,test-infra] 3 reds in tests/agents/test_gates.py — hand-rolled context doubles drifted from the real engine contract on an ATTRIBUTE, so no signature guard can catch them

@@ -25,6 +25,7 @@
 | TEST-013 | FIX-229 (quick-260812-97f) | 2026-08-12 | `backend/app/api/run_commands.py`, `backend/tests/agents/test_restart_resume.py` | 60 | 60 | 0 | ✅ Pass |
 | TEST-014 | FIX-230 (quick-260812-9tq) | 2026-08-12 | `backend/tests/agents/test_iss033a_fixloop_token_fold_offline.py`, `backend/tests/unit/test_handoff_agents.py`, `backend/tests/agents/test_model_pricing.py` | 8 | 8 | 0 | ✅ Pass |
 | TEST-015 | FIX-231 (quick-260812-fbk) | 2026-08-12 | `backend/tests/agents/test_gate_stub_signature_drift.py` (new), `backend/tests/agents/test_live_harness.py` | 5 | 5 | 0 | ✅ Pass |
+| TEST-016 | FIX-232 (quick-260812-g1c) | 2026-08-12 | `backend/tests/agents/test_restart_resume.py`, `backend/tests/agents/test_fanout_cancel.py`, `backend/tests/agents/test_fanout.py` | 7 | 7 | 0 | ✅ Pass |
 
 ---
 
@@ -1238,3 +1239,84 @@ Pre-existing reds re-measured UNCHANGED after the fix (not caused by it):
   test_gates.py 3 failed/39 passed (ISS-094) · test_declared_gate_streaming.py 3 failed (ISS-095)
   test_wire_parity.py 4 failed/2 passed · test_prompt_contracts.py 1 failed (ISS-096, reproduced at fab9b646)
 ```
+
+---
+
+### TEST-016 — FIX-232 (quick-260812-g1c): ISS-091 — a review-gate rejection did not stop the run
+
+**Fail-before (HEAD `c0bbb6e2`, before any edit), verbatim:**
+
+```
+env -u RUN_LIVE_BEDROCK ANTHROPIC_API_KEY="" python3.11 -m pytest \
+  tests/agents/test_restart_resume.py -q -k "inline_gate_rejection or gate_rejection_writes \
+  or rejected_run_resumes or declared_gate_rejection_still"
+
+E   AssertionError: a rejected run must END on pipeline_cancelled; it ended on 'pipeline_complete'.
+E   Tail after the cancel: ['wave_started', 'subagent_spawned', 'subagent_spawned', 'subagent_result',
+E   'subagent_result', 'merge_started', 'merge_completed', 'wave_completed', 'wave_started',
+E   'subagent_spawned', 'subagent_spawned', 'subagent_result', 'subagent_result', 'merge_started',
+E   'merge_completed', 'wave_completed', 'pipeline_complete']
+
+E   AssertionError: a rejected run dispatched waves it must never have started:
+E   [(0, 'completed'), (1, 'completed')]
+
+E   AssertionError: the resumed run produced nothing — the rejection poisoned the durable wave
+E   record and every wave was skipped as already-done. Produced: []
+
+============ 3 failed, 1 passed, 60 deselected, 1 warning in 1.25s =============
+```
+
+The third failure is the one that matters. It is not a cosmetic terminal-event bug: the rejection
+writes `subagent_runs='complete'` / `wave_runs='completed'` rows for work that never happened, and
+`wave_scheduler.py:251-256` trusts exactly those rows on resume — so the run's deliverable becomes
+permanently unproducible while the run reports `completed`.
+
+**After: 7 passed, 0 failed** (4 in `test_restart_resume.py`, 3 in `test_fanout_cancel.py`).
+
+**7 tests written (6 seen RED first; the 7th proven by mutation — none green-from-birth):**
+
+| Test | What it proves |
+|---|---|
+| `test_restart_resume.py::test_inline_gate_rejection_stops_the_pipeline` | The stream ENDS on `pipeline_cancelled`, `pipeline_complete` is never emitted, and no `agent_start`/`wave_started`/`subagent_spawned`/`merge_started` follows it. RED: terminal was `pipeline_complete` with a 17-event tail. |
+| `…::test_gate_rejection_writes_no_wave_or_subagent_rows` | Zero `wave_runs` and zero `subagent_runs` rows survive a rejection — the rows the resume skip later trusts. RED: 2 waves `completed` + 4 workers `complete`. |
+| `…::test_rejected_run_resumes_and_still_produces_its_deliverable` | **The data-loss regression test.** Reject → restart → resume actually runs the waves and writes all four `part_*.txt`. RED: produced `[]`, worker calls `{}`, run `completed`. |
+| `…::test_declared_gate_rejection_still_cancels_the_run` | Guard over the declared-gate sibling WR-03 (`engine.py:2454-2479`), so the new observation cannot disturb it. Green before and after **by design**; its teeth were proven by deleting WR-03's `return`, which makes it fail with *"WR-03 regressed: … it ended on 'pipeline_complete'"*. |
+| `test_fanout_cancel.py::test_terminal_run_stops_the_fanout_without_any_cancel_event` | The fan-out boundary honours run terminality even with NO `cancel_event` — the review-gate-rejection shape. RED: `DID NOT RAISE CancelledError`. |
+| `…::test_non_terminal_run_is_undisturbed_by_the_terminality_check` | The added check is inert on a healthy run: both workers run and the merge still completes. RED: `terminal_checks == 0`. |
+| `…::test_kernel_services_is_run_terminal_reads_the_real_state_machine` | Drives `KernelServices.is_run_terminal()` against the REAL `StateMachine` so the terminal-state set cannot drift from the engine's own guard. RED: `AttributeError: 'KernelServices' object has no attribute 'is_run_terminal'`. |
+
+**Two repro traps encoded so they cannot be re-hit:** `make_engine()` installs `_run_review_gate` as an
+INSTANCE attribute (patching the class is silently shadowed), and `gate_agent_ids=[]` means *"no gates
+this run"* since FIX-041 — the gated agent must be named explicitly. T4 additionally requires
+`gate_agent_ids=None`, or `_should_gate` claims the agent for the inline path and the WR-02 dedupe
+(`engine.py:5052-5066`) skips the declared gate entirely. The shared stub takes `*_a, **kwargs` so it
+binds whatever the engine's signature grows into (`test_gate_stub_signature_drift.py`).
+
+**Collateral fixed, not worked around:** `test_fanout.py`'s two `_FakeEngine` doubles construct a REAL
+`KernelServices` and had no `_state_machine`, so the new predicate raised `AttributeError` there
+(3 tests). The production predicate was kept direct — every other `self._engine.X` access in
+`kernel_services.py` is unguarded, production's only construction is `engine.py:2101` with
+`engine=self`, and a silent degrade would make broken engine wiring read as "not terminal", hiding the
+exact bug class the check exists to catch. The doubles now carry their own `StateMachine`.
+
+**Regression gates, all measured against `c0bbb6e2`:**
+
+```
+goldens        10 passed / 0 failed   + 0 golden files modified   (IDENTICAL to c0bbb6e2)
+lint-imports   4 kept / 0 broken                                   (IDENTICAL to c0bbb6e2)
+test_restart_resume.py            60 passed  →  64 passed
+test_fanout_cancel.py              6 passed  →   9 passed
+fanout/wave/kernel_services/budget sweep     141 passed, 3 skipped
+every other real-KernelServices double site  130 passed
+known pre-existing reds  11 failed / 54 passed → 11 failed / 54 passed, IDENTICAL ids
+  (test_gates.py x3 = ISS-094, test_declared_gate_streaming.py x3 = ISS-095,
+   test_wire_parity.py x4 = stale wire goldens, test_prompt_contracts.py x1 = ISS-096)
+```
+
+**The oracle limitation, stated plainly:** the characterization goldens compile `gate_agent_ids=[]`
+(`_scripted_model.py:649`), so **not one golden contains a `review_gate_ready` or a
+`pipeline_cancelled`**. They are structurally incapable of detecting this change and prove only that
+nothing else moved. The seven tests above are the only real oracle for FIX-232.
+
+Not live-proven, deliberately: every assertion here is offline-decidable and one `od_prototype` build
+costs 5–21M Bedrock tokens. Deferred to the end-of-milestone live pass.

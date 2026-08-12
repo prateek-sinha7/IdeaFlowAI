@@ -1,5 +1,5 @@
 {
-  "count": 641,
+  "count": 645,
   "entries": [
     {
       "area": [
@@ -5421,6 +5421,32 @@
     },
     {
       "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "runtime"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/execution_engine/fanout.py",
+        "backend/agents/execution_engine/kernel_services.py",
+        "backend/tests/agents/test_restart_resume.py",
+        "backend/tests/agents/test_fanout_cancel.py",
+        "backend/tests/agents/test_fanout.py"
+      ],
+      "id": "FIX-232",
+      "path": ".knowledge/cards/FIX-232.md",
+      "source": ".planning/FIX-REGISTER.md#fix-232",
+      "status": "done",
+      "summary": "Rejecting at a review gate did not stop the run \u2014 every remaining step still ran, the run reported pipeline_complete, and the fake complete/completed rows it left behind made a later resume skip every wave and produce NOTHING",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -7059,7 +7085,7 @@
         "FIX-229"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-091",
-      "status": "open",
+      "status": "done",
       "summary": "Rejecting at a review gate does not STOP the pipeline: every remaining step still runs and the run ends on pipeline_complete. Measured at 99fcf4a2 \u2014 i.e. WITH FIX-227 and FIX-228 already landed, so FIX-227 does NOT cover this",
       "type": "issue"
     },
@@ -7173,6 +7199,65 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-096",
       "status": "open",
       "summary": "Stale prompt-contract pin: tests/agents/test_prompt_contracts.py::test_od_ppt_validator_deck_reemission_contract asserts a sentence that is no longer in the agent's prompt",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-097",
+      "path": ".knowledge/cards/ISS-097.md",
+      "relates": [
+        "ISS-091"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-097",
+      "status": "open",
+      "summary": "Gating a fan-out step's own agent may open an inline review gate in EVERY worker. kernel_services.py:971-984 builds the per-worker step view with gates=[], which reads as \"this worker has no gates\"",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "resume",
+        "workflow",
+        "auth",
+        "runtime",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-098",
+      "path": ".knowledge/cards/ISS-098.md",
+      "relates": [
+        "ISS-091"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-098",
+      "status": "open",
+      "summary": "A mid-wave CancelledError leaves its wave_runs row stuck at running forever. wave_scheduler.py:340 catches except Exception: to flip the in-flight wave's row terminal",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-099",
+      "path": ".knowledge/cards/ISS-099.md",
+      "relates": [
+        "ISS-091",
+        "FIX-232"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-099",
+      "status": "open",
+      "summary": "A retry-enabled step records a CANCELLED step as reusable. When step.retry.max_attempts > 0, _dispatch_step_with_retry (engine.py:7236-7274) runs the strategy inside an attempt loop and, on normal completion of strategy.run",
       "type": "issue"
     },
     {
@@ -10042,36 +10127,36 @@
   ],
   "facets": {
     "area": {
-      "agents": 239,
+      "agents": 242,
       "artifacts": 98,
-      "auth": 93,
-      "backend": 98,
+      "auth": 95,
+      "backend": 99,
       "docs": 2,
-      "engine": 2,
+      "engine": 5,
       "evals": 11,
       "frontend": 188,
       "harness": 2,
       "infra": 1,
       "product": 30,
-      "resume": 61,
-      "runtime": 32,
-      "sse": 166,
+      "resume": 63,
+      "runtime": 34,
+      "sse": 169,
       "test-infra": 14,
       "tooling": 2,
-      "workflow": 205
+      "workflow": 209
     },
     "status": {
       "accepted": 1,
-      "done": 590,
-      "open": 41,
+      "done": 592,
+      "open": 43,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 228,
-      "issue": 96,
+      "fix": 229,
+      "issue": 99,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10089,5 +10174,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 11:19"
+  "generated": "2026-08-12 11:53"
 }

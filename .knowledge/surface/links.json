@@ -273,6 +273,9 @@
       "ISS-095",
       "ISS-096"
     ],
+    "FIX-232": [
+      "ISS-099"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -450,7 +453,10 @@
       "ISS-084"
     ],
     "ISS-091": [
-      "ISS-095"
+      "ISS-095",
+      "ISS-097",
+      "ISS-098",
+      "ISS-099"
     ],
     "ISS-092": [
       "ISS-033",
@@ -578,6 +584,7 @@
       "FIX-229",
       "FIX-230",
       "FIX-231",
+      "FIX-232",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -634,6 +641,8 @@
       "ISS-094",
       "ISS-095",
       "ISS-096",
+      "ISS-097",
+      "ISS-099",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -830,6 +839,7 @@
       "FIX-227",
       "FIX-228",
       "FIX-230",
+      "FIX-232",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -858,6 +868,7 @@
       "ISS-092",
       "ISS-093",
       "ISS-096",
+      "ISS-098",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -979,6 +990,7 @@
       "FIX-223",
       "FIX-224",
       "FIX-231",
+      "FIX-232",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -1000,7 +1012,10 @@
     ],
     "engine": [
       "ISS-078",
-      "ISS-091"
+      "ISS-091",
+      "ISS-097",
+      "ISS-098",
+      "ISS-099"
     ],
     "evals": [
       "BUG-007-sse",
@@ -1271,6 +1286,7 @@
       "FIX-227",
       "FIX-228",
       "FIX-229",
+      "FIX-232",
       "ISS-048",
       "ISS-051",
       "ISS-063",
@@ -1284,6 +1300,7 @@
       "ISS-089",
       "ISS-090",
       "ISS-091",
+      "ISS-098",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1317,10 +1334,12 @@
       "FIX-018",
       "FIX-042b",
       "FIX-059",
+      "FIX-232",
       "ISS-011",
       "ISS-018",
       "ISS-036",
       "ISS-091",
+      "ISS-098",
       "PH-02-executioncontext-ownership-0b",
       "PH-08-capabilities-hardened-registry-gates-tool-per",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -1422,6 +1441,7 @@
       "FIX-227",
       "FIX-229",
       "FIX-231",
+      "FIX-232",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1466,6 +1486,8 @@
       "ISS-094",
       "ISS-095",
       "ISS-096",
+      "ISS-097",
+      "ISS-099",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1628,6 +1650,7 @@
       "FIX-223",
       "FIX-225",
       "FIX-229",
+      "FIX-232",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1666,6 +1689,9 @@
       "ISS-084",
       "ISS-089",
       "ISS-091",
+      "ISS-097",
+      "ISS-098",
+      "ISS-099",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -1807,10 +1833,15 @@
       "FIX-217",
       "FIX-218",
       "FIX-219",
-      "FIX-220"
+      "FIX-220",
+      "FIX-232"
+    ],
+    "backend/agents/execution_engine/fanout.py": [
+      "FIX-232"
     ],
     "backend/agents/execution_engine/kernel_services.py": [
-      "FIX-007b"
+      "FIX-007b",
+      "FIX-232"
     ],
     "backend/agents/execution_engine/od_context.py": [
       "FIX-032",
@@ -2155,6 +2186,12 @@
       "FIX-031",
       "FIX-032"
     ],
+    "backend/tests/agents/test_fanout.py": [
+      "FIX-232"
+    ],
+    "backend/tests/agents/test_fanout_cancel.py": [
+      "FIX-232"
+    ],
     "backend/tests/agents/test_gate_revision_discriminator.py": [
       "FIX-220"
     ],
@@ -2196,6 +2233,7 @@
       "FIX-175",
       "FIX-217",
       "FIX-220",
+      "FIX-232",
       "ISS-078"
     ],
     "backend/tests/agents/test_spec_revision_context.py": [
@@ -3150,6 +3188,16 @@
       "FIX-014",
       "FIX-109",
       "FIX-231"
+    ],
+    "ISS-097": [
+      "ISS-091"
+    ],
+    "ISS-098": [
+      "ISS-091"
+    ],
+    "ISS-099": [
+      "FIX-232",
+      "ISS-091"
     ]
   },
   "rules_by_file": {

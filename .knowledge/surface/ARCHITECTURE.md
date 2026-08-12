@@ -18,7 +18,7 @@ Where the project is right now, and what constrains a change to it. Every other 
 - Phase: ALL COMPLETE — 45 [R0] 4/4 · 46 [R1] 8/8 · 47 [R2] 4/4 · 48 [R3] 4/4 · 49 [R4] 5/5 (KAN-88 green) · 50 [R5] 5/5
 - Plan: 14/14 plans complete across 6 phases; register reconciliation batch appended; requirements RESUME-05..18 all Complete
 - Status: Milestone v3.0 OFFLINE-COMPLETE — remaining: the consolidated live-Bedrock pass (orchestrator-owned) + /gsd-complete-milestone (user step; v2.0 close-out also still pending)
-- Last activity: 2026-08-12 — Completed quick task 260812-fbk: **the harness gate that reported success without gating (ISS-074).** `live_harness.py:672` pinned a four-parameter `_run_review_gate` while the engine grew to ten, and all four call sites — including `kernel_services.py:1116`, the declared-gate delegate the row missed — pass them by keyword. The `TypeError` was swallowed by the per-agent error handler, so every gated harness drive since 2026-06-30 reported `gated=False, completed=True`: a **false-green HITL oracle**, which is why severity went minor → major. **The row's central claim was refuted** — it said the fix was *"UNVERIFIABLE offline"*, but five tests were already red at HEAD in **2.19 s** with no credentials; the 43-day blindness came from excluding offline suites by **filename** (`*_live*`), i.e. coverage selection, not the credential gate the row blamed. **Both tokens proved load-bearing:** widening only the `def` greens the whole pre-existing suite while dropping `cancel_event` (a gate that cannot honour Stop) and the SC-001 discriminators. Shipped the signature-drift guard the row asked for — it **derives** the engine's signature by AST, covers class-based stubs the assignment census misses, fails loudly on unresolvable stubs, and was **demonstrated against a NEW parameter**, not just this one. **5 failed / 3 passed → 8 passed / 0 failed**; goldens 10 passed with 0 goldens modified and lint 4 kept / 0 broken, identical to `fab9b646`; 0 production modules changed (FIX-231 / TEST-015; closes ISS-074, files ISS-094 + ISS-095 + ISS-096).
+- Last activity: 2026-08-12 — Completed quick task 260812-g1c: **a review-gate rejection now stops the run (ISS-091).** The dispatch loop (`engine.py:2523`) observed only `agent_error`, so the gate's `pipeline_cancelled` was forwarded and ignored and every remaining step ran to `pipeline_complete`; the step-boundary check reads `cancel_event`, which a gate rejection never sets. **The row's cost claim was wrong in both directions** — the real token spend is **zero** (workers short-circuit on the terminal guard), but each no-op worker was still recorded `complete` and each wave `completed`, and `wave_scheduler` trusts exactly those rows on resume: reject → restart → resume skipped both waves, wrote **zero files** and reported `completed`. Silent, permanent loss of a fan-out run's output. Fixed as the exact sibling of the declared-gate handler **WR-03**, ending in **`return`, not `break`** — `break` falls through to Step 5 and still emits `pipeline_complete`. Rejected the seductive `cancel_event.set()` shortcut (it inverts app/kernel ownership and flips the re-raise decision FIX-227 depends on). Blast radius re-verified: no `pipeline_cancelled` reaching that loop means "continue". **0 trailing events / 0 wave_runs / 0 subagent_runs, and the resumed run produces all four files.** 60 → **64 passed** and 6 → **9 passed**; goldens **10 passed, 0 goldens modified**, lint **4 kept / 0 broken**, 11 pre-existing reds unmoved — all vs `c0bbb6e2`. **The goldens compile `gate_agent_ids=[]`, so they contain no gate event and cannot detect this change; the 7 tests are the only oracle.** (FIX-232 / TEST-016; closes ISS-091, files ISS-097 + ISS-098 + ISS-099).
 
 ## Enforced boundaries
 
@@ -38,7 +38,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 45 | 27 files |
 | `backend/app/services` | application services | 2 | 5 files |
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
-| `backend/agents/execution_engine` | the execution kernel | 30 | 11 files |
+| `backend/agents/execution_engine` | the execution kernel | 33 | 11 files |
 | `backend/agents/workflows` | workflow manifests — data, not code paths | 23 | 5 files |
 | `backend/agents/capabilities` | capability adapters | 14 | 82 files |
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (239), `workflow` (205), `frontend` (188), `sse` (166), `artifacts` (98), `backend` (98), `auth` (93), `resume` (61).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (242), `workflow` (209), `frontend` (188), `sse` (169), `backend` (99), `artifacts` (98), `auth` (95), `resume` (63).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 256 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 257 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.
