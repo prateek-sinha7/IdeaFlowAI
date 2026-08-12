@@ -37,6 +37,13 @@ def _isolate_registries(monkeypatch):
         "app.agents.checkpointer.close_checkpointer", _noop_close_checkpointer
     )
 
+    # ISS-088: SHUTDOWN_STOP_RUNS' default is now environment-differentiated (True in
+    # ENV=development, False everywhere else), so whether step 3 runs would otherwise
+    # depend on the ambient ENV of whoever runs pytest. Every test below asserts the
+    # stop-runs-OFF behaviour, so pin that branch explicitly; the ON branch has its own
+    # class (TestShutdownStopsRunsWhenEnabled) which re-pins it.
+    monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_STOP_RUNS", False)
+
     run_engine_mod._PIPELINE_QUEUES.clear()
     run_engine_mod._PIPELINE_TASKS.clear()
     run_engine_mod._CANCEL_EVENTS.clear()
@@ -142,6 +149,66 @@ class TestShutdownDrainsPumpTasks:
 
         assert any("pump_drain" in e for e in summary["errors"])
         assert summary["checkpointer_closed"] is True
+
+
+class TestShutdownStopsRunsWhenEnabled:
+    """ISS-088 — step 3, which no test exercised until the default became env-differentiated.
+
+    ``SHUTDOWN_STOP_RUNS`` now resolves True in ``ENV=development``, so on every developer
+    machine this is the branch that actually runs. It was previously dead in tests: the
+    only coverage of ``_drain_then_cancel`` came through ``stop_run_driver`` (the per-run
+    Stop), never through the shutdown sweep.
+    """
+
+    @pytest.mark.asyncio
+    async def test_enabled_stop_runs_cancels_drivers_and_empties_the_boot_restore_set(
+        self, monkeypatch
+    ):
+        """With the switch on, in-flight drivers are stopped and nothing is left for the
+        next boot's ``restore_non_terminal_runs`` to auto-resume — which is the whole
+        point of turning it on locally (an od_prototype build survives a restart today
+        and bills 5-21M Bedrock tokens finishing itself)."""
+        monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_STOP_RUNS", True)
+        monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 0.05)
+
+        cooperative_event = asyncio.Event()
+
+        async def _driver() -> None:
+            await cooperative_event.wait()  # the engine's cooperative boundary
+
+        task = asyncio.create_task(_driver())
+        run_engine_mod._PIPELINE_TASKS["run-live"] = task
+        run_engine_mod._CANCEL_EVENTS["run-live"] = cooperative_event
+
+        summary = await run_shutdown_mod.shutdown_run_infrastructure()
+
+        assert summary["pipeline_drivers_stopped"] == 1
+        assert summary["runs_left_for_boot_restore"] == 0
+        assert task.done()
+        # The cooperative event is the mechanism; cancel() is only the fallback, so a
+        # driver that observes it must NOT be force-cancelled (ISS-007's contract).
+        assert not task.cancelled()
+        assert summary["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_disabled_stop_runs_leaves_the_run_for_boot_restore(self, monkeypatch):
+        """The production branch: the driver is untouched and the run stays in the set the
+        next boot re-adopts. This is what keeps the Phase 45-50 resume tier working."""
+        monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_STOP_RUNS", False)
+
+        async def _driver() -> None:
+            await asyncio.Event().wait()
+
+        task = asyncio.create_task(_driver())
+        run_engine_mod._PIPELINE_TASKS["run-live"] = task
+        try:
+            summary = await run_shutdown_mod.shutdown_run_infrastructure()
+
+            assert summary["pipeline_drivers_stopped"] == 0
+            assert summary["runs_left_for_boot_restore"] == 1
+            assert not task.done(), "the driver must survive a stop-runs-off shutdown"
+        finally:
+            task.cancel()
 
 
 class TestPerRunStopEscalation:
