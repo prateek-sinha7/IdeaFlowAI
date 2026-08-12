@@ -254,8 +254,7 @@
       "ISS-111"
     ],
     "FIX-226": [
-      "ISS-085",
-      "ISS-087"
+      "ISS-085"
     ],
     "FIX-227": [
       "ISS-084",
@@ -298,6 +297,9 @@
     ],
     "FIX-236": [
       "ISS-114"
+    ],
+    "FIX-237": [
+      "ISS-115"
     ],
     "ISS-007": [
       "ISS-035"
@@ -482,7 +484,9 @@
     ],
     "ISS-087": [
       "ISS-085",
-      "ISS-109"
+      "ISS-109",
+      "ISS-116",
+      "ISS-117"
     ],
     "ISS-088": [
       "ISS-084",
@@ -512,6 +516,10 @@
     ],
     "ISS-110": [
       "ISS-113"
+    ],
+    "ISS-116": [
+      "ISS-087",
+      "ISS-117"
     ]
   },
   "by_area": {
@@ -639,6 +647,7 @@
       "FIX-233",
       "FIX-235",
       "FIX-236",
+      "FIX-237",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -705,6 +714,9 @@
       "ISS-109",
       "ISS-111",
       "ISS-112",
+      "ISS-115",
+      "ISS-116",
+      "ISS-117",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -813,6 +825,7 @@
       "FIX-229",
       "FIX-233",
       "FIX-236",
+      "FIX-237",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -839,6 +852,7 @@
       "ISS-096",
       "ISS-111",
       "ISS-114",
+      "ISS-115",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -1077,6 +1091,7 @@
       "ISS-078",
       "ISS-079",
       "ISS-080",
+      "ISS-087",
       "ISS-092",
       "ISS-093",
       "ISS-096",
@@ -1289,6 +1304,7 @@
       "FIX-226",
       "FIX-234",
       "FIX-236",
+      "FIX-237",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -1311,6 +1327,8 @@
       "ISS-110",
       "ISS-112",
       "ISS-113",
+      "ISS-115",
+      "ISS-117",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1554,6 +1572,7 @@
       "FIX-234",
       "FIX-235",
       "FIX-236",
+      "FIX-237",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1607,6 +1626,8 @@
       "ISS-112",
       "ISS-113",
       "ISS-114",
+      "ISS-116",
+      "ISS-117",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1774,6 +1795,7 @@
       "FIX-225",
       "FIX-229",
       "FIX-232",
+      "FIX-237",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1810,6 +1832,7 @@
       "ISS-081",
       "ISS-082",
       "ISS-084",
+      "ISS-087",
       "ISS-089",
       "ISS-091",
       "ISS-097",
@@ -1820,6 +1843,8 @@
       "ISS-110",
       "ISS-113",
       "ISS-114",
+      "ISS-115",
+      "ISS-116",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -2285,6 +2310,7 @@
       "ISS-067",
       "ISS-075",
       "ISS-080",
+      "ISS-087",
       "ISS-092",
       "ISS-100",
       "ISS-101"
@@ -2750,6 +2776,9 @@
       "FIX-163",
       "FIX-206",
       "FIX-220"
+    ],
+    "frontend/src/components/results/artifactPreview.tsx": [
+      "FIX-237"
     ],
     "frontend/src/components/settings/AccountSettings.tsx": [
       "FIX-019"
@@ -3326,8 +3355,8 @@
       "FIX-217"
     ],
     "ISS-087": [
-      "FIX-226",
-      "ISS-085"
+      "ISS-085",
+      "ISS-116"
     ],
     "ISS-088": [
       "ISS-084",
@@ -3437,6 +3466,16 @@
       "FIX-236",
       "ISS-076",
       "ISS-083"
+    ],
+    "ISS-115": [
+      "FIX-237"
+    ],
+    "ISS-116": [
+      "ISS-087"
+    ],
+    "ISS-117": [
+      "ISS-087",
+      "ISS-116"
     ]
   },
   "rules_by_file": {

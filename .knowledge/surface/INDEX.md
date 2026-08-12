@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-664 cards · rules 1 · fixes 233 · issues 114 · phases 23 · built 2026-08-12 14:44
+668 cards · rules 1 · fixes 234 · issues 117 · phases 23 · built 2026-08-12 15:11
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (233)
+## Fixes (234)
 
+FIX-237 2026-08-12 [frontend,sse,workflow,agents,artifacts] The settled "Task plan · N planned" card rendered the number COMPLETED, not the number planned — wrong at the latest version and frozen under the artifact version picker (ISS-087)
 FIX-236 2026-08-12 [frontend,sse,agents,artifacts] The spec_revision chat card held a SECOND, contradicting copy of the revision-cycle number — and the register row's proposed fix would have made it a THIRD
 FIX-235 2026-08-12 [sse,resume,agents] A re-delivered frame appended a second copy to every accumulating field in handlePipelineMessage — the reducer's correctness was a property of its CALLERS' dedup, the exact arrangement ISS-080 died of behind 15 green tests
 FIX-234 2026-08-12 [backend,docs,frontend,sse,resume] The local backend could not be stopped by SIGTERM while any run was streaming, so the entire graceful-shutdown half never ran on a developer machine — and even when reached it did not stop the run
@@ -248,8 +249,11 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (114)
+## Issues (117)
 
+ISS-117 - [sse,agents,frontend] Validation frames are dropped on replay, so no run reopened from history can ever show a gate verdict. useRunStateStore.ts:395-403 lists pipelineFrameTypes and omits validator_result, gate_passed and gate_blocked
+ISS-116 - [sse,workflow,agents] The governance-checks verdict badge is DEAD CODE, not merely un-versioned. checksPassed requires validationPassed === true (AgentDetailPanel.tsx:145), which only case "gate_passed" sets (useWorkflow.ts:1078)
+ISS-115 - [workflow,agents,artifacts,frontend] Two non-equivalent ## Task N: parsers still ship (INV-12 debt). FIX-237 extracted parseTasks (artifactPreview.tsx:80-104) and pointed the settled tasks CARD at it, but useWorkflow.ts:1020 keeps its own copy
 ISS-114 - [sse,workflow,artifacts,test-infra] ResultCard.test.tsx's LOCK-F case is RED and belongs to no register row, and the underlying LOCK-F guarantee may actually be broken in the product
 ISS-113 - [sse,workflow,frontend] runMeta is dormant on AuditTab, so the audit header's owner and workspace are permanently null. Declared AuditTab.tsx:59, destructured :443, consumed :649-655
 ISS-112 - [sse,agents,frontend] attachmentRefs is dormant on StartingPointCard, so the "image not retained" placeholder can NEVER render. Declared StartingPointCard.tsx:44, destructured :47, consumed :55-57 as (attachmentRefs ?? []).filter(...) → notRetainedImageCount
@@ -277,7 +281,7 @@ ISS-091 - [sse,resume,workflow,agents,auth,runtime,engine] Rejecting at a review
 ISS-090 - [resume,agents,artifacts] redoable has no eligibility fence — unlike update_specs_eligible it is an inline True literal at all three gate call sites, so ANY agent named in a per-run gate_agent_ids gets a Redo button with no server-side rule
 ISS-089 - [sse,resume,workflow,auth] A cancel is purely in-process, so a Stop that arrives when no driver is live is lost — and the next boot auto-resumes the run the owner just tried to stop
 ISS-088 - [frontend,docs,sse,resume,agents,auth,artifacts,runtime] The local backend cannot be stopped by SIGTERM while any run is streaming, so shutdown_run_infrastructure() never executes locally at all — and even where it does execute it does not stop the runs
-ISS-087 - [sse,agents,artifacts,frontend] The un-versioned halves of the agent-detail cards do not follow the artifact version picker. FIX-226 made every CONTENT-derived surface follow the selection
+ISS-087 - [backend,sse,workflow,agents,artifacts,frontend] The un-versioned halves of the agent-detail cards do not follow the artifact version picker. The mechanism was real: deriveArtifactCardModel took protoCompletedTasks (the "Task plan · N planned" rows)
 ISS-086 - [sse,agents,artifacts] "Request changes" (redo) at an agent's own gate re-runs that agent WITHOUT injecting its prior output, so the agent returns only the delta and the previous work is destroyed
 ISS-085 - [sse,resume,agents,artifacts,frontend] Switching artifact versions does not change the spec cards — only the raw output below them. The owner tested the new ISS-065 picker and reported: "while changing the version there, i couldnt see the older version's content"
 ISS-084 - [sse,resume,workflow,agents,auth] Stop / cancel does not stop a building run. POST /api/runs/{id}/cancel returns HTTP 200 {"ok":true,"cancelled":true} and the run keeps generating

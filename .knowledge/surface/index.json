@@ -1,5 +1,5 @@
 {
-  "count": 664,
+  "count": 668,
   "entries": [
     {
       "area": [
@@ -5532,6 +5532,25 @@
     },
     {
       "area": [
+        "frontend",
+        "sse",
+        "workflow",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/components/results/artifactPreview.tsx"
+      ],
+      "id": "FIX-237",
+      "path": ".knowledge/cards/FIX-237.md",
+      "source": ".planning/FIX-REGISTER.md#fix-237",
+      "status": "done",
+      "summary": "The settled \"Task plan \u00b7 N planned\" card rendered the number COMPLETED, not the number planned \u2014 wrong at the latest version and frozen under the artifact version picker (ISS-087)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -7073,22 +7092,26 @@
     },
     {
       "area": [
+        "backend",
         "sse",
+        "workflow",
         "agents",
         "artifacts",
         "frontend"
       ],
       "date": "",
-      "files": [],
+      "files": [
+        "backend/dev.db"
+      ],
       "id": "ISS-087",
       "path": ".knowledge/cards/ISS-087.md",
       "relates": [
-        "FIX-226",
+        "ISS-116",
         "ISS-085"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-087",
-      "status": "open",
-      "summary": "The un-versioned halves of the agent-detail cards do not follow the artifact version picker. FIX-226 made every CONTENT-derived surface follow the selection",
+      "status": "done",
+      "summary": "The un-versioned halves of the agent-detail cards do not follow the artifact version picker. The mechanism was real: deriveArtifactCardModel took protoCompletedTasks (the \"Task plan \u00b7 N planned\" rows)",
       "type": "issue"
     },
     {
@@ -7647,6 +7670,62 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-114",
       "status": "open",
       "summary": "ResultCard.test.tsx's LOCK-F case is RED and belongs to no register row, and the underlying LOCK-F guarantee may actually be broken in the product",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "artifacts",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-115",
+      "path": ".knowledge/cards/ISS-115.md",
+      "relates": [
+        "FIX-237"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-115",
+      "status": "open",
+      "summary": "Two non-equivalent ## Task N: parsers still ship (INV-12 debt). FIX-237 extracted parseTasks (artifactPreview.tsx:80-104) and pointed the settled tasks CARD at it, but useWorkflow.ts:1020 keeps its own copy",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-116",
+      "path": ".knowledge/cards/ISS-116.md",
+      "relates": [
+        "ISS-087"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-116",
+      "status": "open",
+      "summary": "The governance-checks verdict badge is DEAD CODE, not merely un-versioned. checksPassed requires validationPassed === true (AgentDetailPanel.tsx:145), which only case \"gate_passed\" sets (useWorkflow.ts:1078)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-117",
+      "path": ".knowledge/cards/ISS-117.md",
+      "relates": [
+        "ISS-116",
+        "ISS-087"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-117",
+      "status": "open",
+      "summary": "Validation frames are dropped on replay, so no run reopened from history can ever show a gate verdict. useRunStateStore.ts:395-403 lists pipelineFrameTypes and omits validator_result, gate_passed and gate_blocked",
       "type": "issue"
     },
     {
@@ -10516,39 +10595,39 @@
   ],
   "facets": {
     "area": {
-      "agents": 253,
-      "artifacts": 103,
+      "agents": 257,
+      "artifacts": 105,
       "auth": 102,
-      "backend": 104,
+      "backend": 105,
       "cost": 1,
       "docs": 4,
       "engine": 5,
       "evals": 12,
-      "frontend": 197,
+      "frontend": 200,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
       "resume": 68,
       "runtime": 36,
-      "sse": 180,
+      "sse": 183,
       "test": 1,
       "test-infra": 15,
       "tooling": 2,
-      "workflow": 214
+      "workflow": 218
     },
     "status": {
       "accepted": 1,
-      "done": 600,
-      "open": 54,
+      "done": 602,
+      "open": 56,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 233,
-      "issue": 114,
+      "fix": 234,
+      "issue": 117,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10566,5 +10645,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 14:44"
+  "generated": "2026-08-12 15:11"
 }

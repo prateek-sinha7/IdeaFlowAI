@@ -30,6 +30,7 @@
 | TEST-018 | FIX-234 (quick-260812-hsx) | 2026-08-12 | `backend/tests/unit/test_shutdown_reachability.py`, `backend/tests/unit/test_run_shutdown.py` | 10 | 10 | 0 | ✅ Pass |
 | TEST-019 | FIX-235 (quick-260812-iqh) | 2026-08-12 | `frontend/src/hooks/useWorkflow.accumulators.test.ts`, `frontend/src/lib/wsReplayState.test.ts`, `frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts` | 37 | 37 | 0 | ✅ Pass |
 | TEST-020 | FIX-236 (quick-260812-jn9) | 2026-08-12 | `frontend/src/components/chat/ResultCard.test.tsx`, `frontend/e2e/tests/ts-chat-cards.spec.ts` | 3 | 3 | 0 | ✅ Pass |
+| TEST-021 | FIX-237 (quick-260812-kpb) | 2026-08-12 | `frontend/src/components/results/artifactPreview.tsx`, `frontend/src/components/results/AgentDetailPanel.tsx`, `frontend/src/components/results/AgentThinkingTab.tsx` | 7 (4 new + 3 reconciled) | 7 | 0 | ✅ Pass |
 
 ---
 
@@ -1701,3 +1702,87 @@ Regression guards:
   - locks the spec_revision header to the static CARD_SPECS title: the chrome cannot re-acquire a cycle number
   - reducer specs held at 63: deriveSpecRevisionCount gained no new consumer (we deleted, not wired)
 ```
+
+
+---
+
+### TEST-021 — FIX-237 (quick-260812-kpb): ISS-087 — the tasks card must count the PLAN, not the build's progress
+
+```
+TEST COVERAGE — FIX-237
+Unit tests:        N/A — frontend-only change; zero backend files touched.
+Integration tests: N/A — no transport, endpoint, engine or manifest behaviour changed.
+Frontend tests:    7 cases in
+                   frontend/src/components/results/AgentDetailPanel.artifactCards.test.tsx (5)
+                   frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx (2)
+                   = 4 NEW + 3 RECONCILED 42-09 pins. ALL GREEN.
+                   ALL SEVEN seen RED first against the UNMODIFIED source (sources reverted
+                   to HEAD 1f79ae64 with the final test files in place; observed
+                   "Tests  7 failed | 18 passed (25)"), then restored.
+Goldens:           10 passed / 0 failed — IDENTICAL to the pre-change commit 1f79ae64, AND
+                   all 15 golden files sha256-IDENTICAL before/after (0 files moved).
+lint-imports:      4 kept / 0 broken — IDENTICAL to 1f79ae64. Run from backend/ (from the
+                   repo root it prints "Could not read any configuration" and reads as a pass).
+tsc --noEmit:      2 errors — IDENTICAL to 1f79ae64 (NotificationPanel.fix195 +
+                   useNotifications.fix202, both pre-existing). No third error introduced.
+Mocked Playwright: e2e/tests/ts-n.review-gate.spec.ts — 8 passed / 1 skipped, including
+                   "TS-N-02 preview mode: tasks render via the TasksPreview list". This is a
+                   REAL BROWSER proof that the parser EXTRACTION is behaviour-preserving.
+                   NB: the ISS-087 investigation asserted e2e reaches none of these surfaces.
+                   That is WRONG — the gate plan-preview renders TasksPreview and is covered.
+Blast radius:      src/components/results — 12 failed / 112 passed (124). The failing ID SET is
+                   IDENTICAL to baseline (10 AuditTab + 2 FilesTab, both pre-existing); the
+                   count moved only by the 4 new passing cases. Compared by ID, never by count.
+                   Reducer specs 65 passed; AgentThinkingTab + StepsDrilldown 14 passed;
+                   ResultCard 1 failed / 12 passed (ISS-114, pre-existing, untouched).
+```
+
+**RED-BEFORE, observed per case** (the whole point — a test that has never failed proves nothing):
+
+| Case | RED message |
+|---|---|
+| counts the tasks in the artifact body, not the build's completed tasks | `AssertionError: expected false to be true` (no card rendered at all) |
+| reads the plan after the build's `task_progress` frames are delivered TWICE | `AssertionError: expected +0 to be 7` |
+| selecting v1 repaints the rows + count (run `6e38b9a7`) | `Unable to find an element with the text: /11 planned/` |
+| repaints the TITLES at equal counts (run `5ecb990f`) | `Unable to find an element with the text: /8 planned/` |
+| *reconciled* — selects the tasks card and counts the `<tasks>` body | `AssertionError: expected false to be true` |
+| *reconciled* — single_shot shows its plan; empty body → no card | `AssertionError: expected false to be true` |
+| *reconciled* — renders the tasks card + handoff | `Unable to find an element with the text: /3 planned/` |
+
+**The three reconciled 42-09 pins** (`artifactCards.test.tsx:42-55`, `:57-67`, `:173-188`) — none deleted,
+skipped or loosened:
+
+1. *"selects the tasks card when output is `<tasks>` AND protoCompletedTasks is non-empty"* →
+   **APPROVED BEHAVIOUR CHANGE + FIXTURE CORRECTION.** It asserted `taskCount === 3` and titles
+   `["Scaffold","Wire","Style"]` from run state while its `TASKS_OUT` fixture was a **one-task** body —
+   i.e. the fixture contradicted the assertion, which only passed because the numbers came from
+   somewhere else. `TASKS_OUT` is now a genuine three-task plan and the same assertions hold for the
+   right reason.
+2. *"renders NO tasks card ... when protoCompletedTasks is empty (single_shot)"* →
+   **APPROVED BEHAVIOUR CHANGE.** A `single_shot` agent carrying a `<tasks>` body now SHOWS its plan
+   (owner D1). The conditional-degrade guarantee this case existed to protect is **preserved**, re-pointed
+   at a `<tasks>` body containing no `## Task N:` rows.
+3. *"renders the tasks card ('N planned' + task rows) + handoff"* → **APPROVED BEHAVIOUR CHANGE.** The
+   panel is now given **no task props at all** and still renders the plan. `getAllByText` for the row
+   assertion because an early task title also appears in the truncated raw-output preview below the card.
+
+**Regression guards:**
+  - *"reads the plan after task_progress delivered TWICE"*: uses the ONE existing reducer driver
+    (`src/hooks/__fixtures__/reducerHarness.ts`), not a hand-rolled replay, and asserts the accumulator
+    still reads **6** while the card reads **7** — proving they are different quantities and that the card
+    no longer depends on the accumulator at all. This is ISS-082's multiplicity rule applied here.
+  - *"repaints the TITLES when both versions plan the same number"* (run `5ecb990f`): the count is 8 in
+    BOTH versions, so a count-only assertion would pass while the screen was still wrong. Only the titles
+    discriminate.
+  - *"Back to latest"* returns the card to 11 — the fix cannot strand the panel on an old version.
+
+**REAL-DATA verification** (free — read-only `backend/dev.db`, no run launched, no Bedrock):
+every `prototype-plan` artifact version of three terminal runs was fed through the **actual shipped**
+`parseTasks` + `deriveArtifactCardModel`, and the latest version rendered through the real
+`AgentDetailPanel` with the DOM read back:
+
+| Run | build `completed_count` (what the card USED to show) | card now |
+|---|---:|---|
+| `d5dbc9f2` | 6 | v1/v2/v3 all **7 planned**; DOM reads **"7 planned"** |
+| `6e38b9a7` | 11 | v1 **10 planned** (task 4 "Transaction Wizard Page (Steps 1–2)", absent from v2), v2 **11**; DOM **11** |
+| `5ecb990f` | 8 | v1 **8**, v2 **8** — counts equal, task-4 titles differ ("Intake Wizard (…)" vs "Intake Wizard Page (…)") |
