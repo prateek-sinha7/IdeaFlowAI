@@ -80,9 +80,19 @@ python3.11 -m pytest tests/agents/test_characterization_{prototype,od_prototype,
   tests/agents/test_migration_ledger.py tests/agents/test_banned_patterns.py -q     # 44 passed, 7 skipped
 # SC-001 zero-engine-edit proofs
 python3.11 -m pytest tests/agents/test_sc001_nonprototype_task_loop.py tests/agents/test_sc001_fanout.py -q
+# HITL / review-gate seam — OFFLINE-safe despite the *_live* filenames (ISS-074, ~40s)
+python3.11 -m pytest tests/agents/test_live_harness.py tests/agents/test_phase8_live.py -q  # 34 passed, 16 skipped
+# Gate-stub signature-drift guard (ISS-074) — <1s, catches the next _run_review_gate param
+python3.11 -m pytest tests/agents/test_gate_stub_signature_drift.py -q
 # Hexagonal boundary (4 contracts kept / 0 broken)
-lint-imports                                  # binary: /opt/homebrew/bin/lint-imports
-# Avoid offline: anything *_live*, -m requires_api_key, tests/integration (Postgres)
+lint-imports          # binary: /opt/homebrew/bin/lint-imports — MUST be run from backend/;
+                      # elsewhere it prints "Could not read any configuration" and reads as a false pass
+# Avoid offline: -m requires_api_key, tests/integration (Postgres)
+# NOT a reason to skip: the *_live* filename. It is not a gate — test_live_harness.py has no
+# module skip, and test_phase8_live.py gates only TestLiveHITL/TestLivePipelines, leaving
+# TestOfflineHITL ungated. Excluding those two files by NAME is what hid ISS-074 for 43 days:
+# five offline reds, from 2026-06-30 to 2026-08-12, that no sweep ever ran. Check the actual
+# skip marks (`-m requires_api_key`, `@requires_live`), never the filename.
 
 # ── FRONTEND unit (vitest — NOT in CI; 102 pass / 7 known-fail baseline) ──
 cd frontend && npm test

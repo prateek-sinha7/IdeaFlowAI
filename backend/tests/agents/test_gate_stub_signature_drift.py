@@ -231,6 +231,24 @@ def test_engine_signature_is_discoverable() -> None:
     assert len(real) >= 4
 
 
+def test_bind_predicate_actually_discriminates() -> None:
+    """Pin the guard's own teeth.
+
+    A stub pinning today's exact parameters passes today and fails the moment the engine
+    grows one — which is the entire failure mode this file exists for, and the reason the
+    predicate must stay ``bind`` rather than anything cheaper.
+    """
+    real = _real_parameters()
+    pinned = ast.parse(
+        "async def _pinned({}): ...".format(", ".join(f"{p}=None" for p in real))
+    ).body[0]
+
+    _signature_of(pinned, drop_self=False).bind(**{p: None for p in real})
+
+    with pytest.raises(TypeError):
+        _signature_of(pinned, drop_self=False).bind(**{p: None for p in [*real, "a_new_param"]})
+
+
 def test_stub_census_is_not_vacuous() -> None:
     """A resolver that quietly finds nothing would pass forever. Make that loud."""
     stubs = _collect_stubs()

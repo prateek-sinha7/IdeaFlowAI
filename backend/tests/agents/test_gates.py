@@ -918,8 +918,10 @@ class _FakeReviewEngine:
         self.seen_cancel = None
 
     async def _run_review_gate(
-        self, *, pipeline_run_id, agent_id, agent_name, output, cancel_event=None
+        self, *, pipeline_run_id, agent_id, agent_name, output, cancel_event=None, **kwargs
     ):
+        # ``**kwargs`` absorbs the engine parameters run_human_gate does not forward TODAY.
+        # Without it this double is one forwarded parameter away from the ISS-074 TypeError.
         self.seen_output = output
         self.seen_cancel = cancel_event
         for ev in self._events:
