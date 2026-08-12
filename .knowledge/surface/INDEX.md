@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-681 cards · rules 1 · fixes 238 · issues 126 · phases 23 · built 2026-08-12 20:45
+682 cards · rules 1 · fixes 238 · issues 127 · phases 23 · built 2026-08-12 20:46
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -253,8 +253,9 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (126)
+## Issues (127)
 
+ISS-128 - [sse,agents] A gate REJECTION persists an audit record that says action="approve". run_commands.py's reject branch calls store.set_review_response(gate_key, approved=False, edited_content=...) without passing action=
 ISS-127 - [workflow,agents,auth] GateCommand.analysis_report has no length cap anywhere on its path into the composed prompt. Traced end to end at e6b24ae5: run_commands.py:115 (`analysis_report: str \
 ISS-126 - [sse] FIX-240's data-repair guard only covers the CURSORED reattach; a fresh reopen of an already-corrupted run still renders an open gate
 ISS-125 - [resume,engine] _stamp_resume_marker still allocates its seq the slow, unprotected way. engine.py:6309-6311 reads the ENTIRE durable log (store.read_events(run_id, after_seq=0)) to compute max(seq)+1

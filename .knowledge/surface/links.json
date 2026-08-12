@@ -317,6 +317,9 @@
       "ISS-125",
       "ISS-126"
     ],
+    "FIX-241": [
+      "ISS-128"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -447,7 +450,8 @@
       "ISS-079"
     ],
     "ISS-070": [
-      "FIX-219"
+      "FIX-219",
+      "ISS-128"
     ],
     "ISS-071": [
       "FIX-219"
@@ -764,6 +768,7 @@
       "ISS-121",
       "ISS-123",
       "ISS-127",
+      "ISS-128",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -1709,6 +1714,7 @@
       "ISS-123",
       "ISS-124",
       "ISS-126",
+      "ISS-128",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -3639,6 +3645,10 @@
     "ISS-126": [
       "FIX-240",
       "ISS-123"
+    ],
+    "ISS-128": [
+      "FIX-241",
+      "ISS-070"
     ]
   },
   "rules_by_file": {

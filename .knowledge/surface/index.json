@@ -1,5 +1,5 @@
 {
-  "count": 681,
+  "count": 682,
   "entries": [
     {
       "area": [
@@ -8003,6 +8003,24 @@
       "type": "issue"
     },
     {
+      "area": [
+        "sse",
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-128",
+      "path": ".knowledge/cards/ISS-128.md",
+      "relates": [
+        "ISS-070",
+        "FIX-241"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-128",
+      "status": "open",
+      "summary": "A gate REJECTION persists an audit record that says action=\"approve\". run_commands.py's reject branch calls store.set_review_response(gate_key, approved=False, edited_content=...) without passing action=",
+      "type": "issue"
+    },
+    {
       "area": [],
       "date": "",
       "files": [],
@@ -10869,7 +10887,7 @@
   ],
   "facets": {
     "area": {
-      "agents": 266,
+      "agents": 267,
       "artifacts": 106,
       "auth": 108,
       "backend": 114,
@@ -10884,7 +10902,7 @@
       "product": 30,
       "resume": 72,
       "runtime": 36,
-      "sse": 193,
+      "sse": 194,
       "test": 3,
       "test-infra": 15,
       "tooling": 2,
@@ -10893,7 +10911,7 @@
     "status": {
       "accepted": 1,
       "done": 610,
-      "open": 61,
+      "open": 62,
       "shipped": 1
     },
     "type": {
@@ -10901,7 +10919,7 @@
       "decision": 1,
       "doc": 65,
       "fix": 238,
-      "issue": 126,
+      "issue": 127,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10919,5 +10937,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 20:45"
+  "generated": "2026-08-12 20:46"
 }
