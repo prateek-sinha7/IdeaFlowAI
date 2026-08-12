@@ -282,7 +282,8 @@
     ],
     "FIX-234": [
       "ISS-104",
-      "ISS-105"
+      "ISS-105",
+      "ISS-106"
     ],
     "ISS-007": [
       "ISS-035"
@@ -456,7 +457,8 @@
     ],
     "ISS-088": [
       "ISS-084",
-      "ISS-105"
+      "ISS-105",
+      "ISS-106"
     ],
     "ISS-089": [
       "ISS-084",
@@ -896,6 +898,7 @@
       "ISS-101",
       "ISS-102",
       "ISS-103",
+      "ISS-106",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -1267,7 +1270,8 @@
       "ISS-018",
       "ISS-103",
       "ISS-104",
-      "ISS-105"
+      "ISS-105",
+      "ISS-106"
     ],
     "perf": [
       "ISS-101"
@@ -1348,6 +1352,7 @@
       "ISS-091",
       "ISS-098",
       "ISS-103",
+      "ISS-106",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -3315,6 +3320,10 @@
       "ISS-089"
     ],
     "ISS-105": [
+      "FIX-234",
+      "ISS-088"
+    ],
+    "ISS-106": [
       "FIX-234",
       "ISS-088"
     ]

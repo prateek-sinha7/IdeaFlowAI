@@ -1,5 +1,5 @@
 {
-  "count": 653,
+  "count": 654,
   "entries": [
     {
       "area": [
@@ -7436,6 +7436,25 @@
       "type": "issue"
     },
     {
+      "area": [
+        "resume",
+        "auth",
+        "infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-106",
+      "path": ".knowledge/cards/ISS-106.md",
+      "relates": [
+        "FIX-234",
+        "ISS-088"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-106",
+      "status": "open",
+      "summary": "The graceful-shutdown budget is bounded only in its drain steps; the final pool close is unbounded, so the documented worst case is not a worst case",
+      "type": "issue"
+    },
+    {
       "area": [],
       "date": "",
       "files": [],
@@ -10304,7 +10323,7 @@
     "area": {
       "agents": 248,
       "artifacts": 100,
-      "auth": 100,
+      "auth": 101,
       "backend": 104,
       "cost": 1,
       "docs": 4,
@@ -10312,10 +10331,10 @@
       "evals": 11,
       "frontend": 190,
       "harness": 2,
-      "infra": 4,
+      "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 65,
+      "resume": 66,
       "runtime": 36,
       "sse": 173,
       "test": 1,
@@ -10326,7 +10345,7 @@
     "status": {
       "accepted": 1,
       "done": 596,
-      "open": 47,
+      "open": 48,
       "shipped": 1
     },
     "type": {
@@ -10334,7 +10353,7 @@
       "decision": 1,
       "doc": 65,
       "fix": 231,
-      "issue": 105,
+      "issue": 106,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10352,5 +10371,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 13:11"
+  "generated": "2026-08-12 13:14"
 }

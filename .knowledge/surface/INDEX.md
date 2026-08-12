@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-653 cards · rules 1 · fixes 231 · issues 105 · phases 23 · built 2026-08-12 13:11
+654 cards · rules 1 · fixes 231 · issues 106 · phases 23 · built 2026-08-12 13:14
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -246,8 +246,9 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (105)
+## Issues (106)
 
+ISS-106 - [resume,auth,infra] The graceful-shutdown budget is bounded only in its drain steps; the final pool close is unbounded, so the documented worst case is not a worst case
 ISS-105 - [sse,infra] lifespan.shutdown() is entered BEFORE the SSE request generators finish unwinding, so shutdown_run_infrastructure() snapshots _PIPELINE_QUEUES / _PUMP_TASKS while stream teardown is still in flight
 ISS-104 - [backend,infra] Stale line-number citations in the shutdown-path comments — each points at code that has since moved, and a fixer following them lands in the wrong place
 ISS-103 - [resume,agents,auth,runtime,infra] Ctrl-C already cancels in-flight runs — by an uncontrolled path that runs AFTER the checkpointer pool is closed — while kill/docker stop does not
