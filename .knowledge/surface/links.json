@@ -346,10 +346,17 @@
     ],
     "ISS-075": [
       "FIX-221",
-      "ISS-080"
+      "ISS-080",
+      "ISS-081"
     ],
     "ISS-076": [
       "FIX-221"
+    ],
+    "ISS-080": [
+      "ISS-081"
+    ],
+    "ISS-081": [
+      "ISS-080"
     ]
   },
   "by_area": {
@@ -510,6 +517,7 @@
       "ISS-078",
       "ISS-079",
       "ISS-080",
+      "ISS-081",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -629,6 +637,7 @@
       "ISS-077",
       "ISS-078",
       "ISS-080",
+      "ISS-081",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -1044,6 +1053,7 @@
       "ISS-075",
       "ISS-077",
       "ISS-080",
+      "ISS-081",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1468,6 +1478,8 @@
       "ISS-077",
       "ISS-078",
       "ISS-079",
+      "ISS-080",
+      "ISS-081",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -2842,7 +2854,12 @@
       "FIX-164",
       "FIX-221",
       "ISS-063",
-      "ISS-075"
+      "ISS-075",
+      "ISS-081"
+    ],
+    "ISS-081": [
+      "ISS-075",
+      "ISS-080"
     ]
   },
   "rules_by_file": {

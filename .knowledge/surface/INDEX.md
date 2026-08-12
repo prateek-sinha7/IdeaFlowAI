@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-618 cards · rules 1 · fixes 221 · issues 80 · phases 23 · built 2026-08-12 02:47
+619 cards · rules 1 · fixes 221 · issues 81 · phases 23 · built 2026-08-12 03:26
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -236,9 +236,10 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (80)
+## Issues (81)
 
-ISS-080 - [backend,sse,agents,artifacts,frontend] The revision banner back-fills but over-counts: it renders "Spec Revision Cycle 5" on a run that had 2 revision cycles — Observed by me in a live headless-browser pass on 2026-08-12 against the running stack (backend :8010 on current code
+ISS-081 - [workflow,agents,artifacts,frontend] deriveSpecRevisionCount takes max over ALL agents, but prototype-build restarts once per task. Even with ISS-080's double-counting fully fixed
+ISS-080 - [backend,sse,workflow,agents,artifacts,frontend] The revision banner back-fills but over-counts: it renders "Spec Revision Cycle 5" on a run that had 2 revision cycles — Observed by me in a live headless-browser pass on 2026-08-12 against the running stack (backend :8010 on current code
 ISS-079 - [backend,sse,workflow,agents,test-infra] 2 further reds in the shared baseline that ISS-068 never recorded: backend/tests/agents/test_phase6_frontend_consistency.py
 ISS-078 - [backend,sse,resume,workflow,agents,auth,artifacts,engine] 7 reds in backend/tests/agents/test_restart_resume.py (7 failed / 48 passed), and at least two of them may be describing a LIVE PRODUCTION RESUME BUG rather than test rot
 ISS-077 - [frontend,workflow,agents,artifacts] ArtifactNode's TypeScript declaration disagrees with the wire shape on three fields. frontend/src/lib/api.ts:602-604 declares derived_from: string[] and children: string[], but the backend returns `derived_from: string \
