@@ -25,8 +25,35 @@ from agents.capabilities.model_pricing import (
 )
 
 _BACKEND = Path(__file__).resolve().parents[2]
+#: The TWO run-cost sites. ``engine.py`` prices the LIVE ``pipeline_complete`` event;
+#: ``run_commands.py`` prices the DURABLE ``workflow_runs.token_usage`` row.
+#:
+#: This second path used to read ``app/api/websocket.py``. Phase 44's SSE cutover
+#: DELETED that file, so from then until FIX-230 the guard raised ``FileNotFoundError``
+#: instead of checking anything — the INV-12 contract for the persistence site was
+#: unenforced. The existence assertion in ``_read_cost_site`` is what stops the next
+#: file move from killing the guard silently again.
 _ENGINE = _BACKEND / "agents" / "execution_engine" / "engine.py"
-_WEBSOCKET = _BACKEND / "app" / "api" / "websocket.py"
+_RUN_COMMANDS = _BACKEND / "app" / "api" / "run_commands.py"
+
+#: The shared cost function's canonical import line. A cost site must IMPORT it —
+#: matching the mere string ``estimate_cost_usd`` would be satisfied by a comment.
+_SHARED_IMPORT = "from agents.capabilities.model_pricing import estimate_cost_usd"
+
+#: Per-token rate literals. Their presence at a cost site means a second, hand-rolled
+#: pricing implementation has appeared (the INV-12 violation this guard exists for).
+_RATE_LITERALS = ("0.00000025", "0.00000125", "0.000001", "0.000005")
+
+
+def _read_cost_site(path: Path) -> str:
+    assert path.is_file(), (
+        f"INV-12 cost-site guard points at a file that does not exist: {path}. "
+        "A cost site moved or was deleted — REPOINT this guard rather than deleting "
+        "it, or the 'both cost sites share one pricing implementation' contract "
+        "silently stops being checked (which is exactly what the SSE cutover did to "
+        "the old app/api/websocket.py path)."
+    )
+    return path.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -186,13 +213,20 @@ def test_regional_premium_compounds_on_opus() -> None:
 # ---------------------------------------------------------------------------
 # INV-12: both cost sites route through the shared function
 # ---------------------------------------------------------------------------
-def test_engine_cost_site_uses_shared_function() -> None:
-    src = _ENGINE.read_text(encoding="utf-8")
-    assert "estimate_cost_usd" in src
-    assert "0.00000025" not in src and "0.00000125" not in src
-
-
-def test_websocket_cost_site_uses_shared_function() -> None:
-    src = _WEBSOCKET.read_text(encoding="utf-8")
-    assert "estimate_cost_usd" in src
-    assert "0.00000025" not in src and "0.00000125" not in src
+@pytest.mark.parametrize(
+    "site",
+    [
+        pytest.param(_ENGINE, id="live-pipeline_complete"),
+        pytest.param(_RUN_COMMANDS, id="durable-workflow_runs"),
+    ],
+)
+def test_both_cost_sites_use_the_shared_pricing_function(site: Path) -> None:
+    """Each run-cost site imports the ONE shared ``estimate_cost_usd`` and carries no
+    per-token rate literal of its own — so a rate change has exactly one home
+    (``agents/capabilities/model_catalog.py``) and the two sites cannot drift."""
+    src = _read_cost_site(site)
+    assert _SHARED_IMPORT in src, (
+        f"{site.name} must import the shared pricing function ({_SHARED_IMPORT})"
+    )
+    found = [lit for lit in _RATE_LITERALS if lit in src]
+    assert not found, f"{site.name} carries hand-rolled rate literal(s) {found}"

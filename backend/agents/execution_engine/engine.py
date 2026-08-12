@@ -1272,14 +1272,20 @@ class ExecutionEngine:
                 logger.warning(
                     "live_ectx_register failed for run %s", pipeline_run_id, exc_info=True
                 )
-        # ISS-033 (43-04): run-usage accumulator for the DIRECT one-shot model calls
-        # that run OUTSIDE the per-agent stream — the SmartPlanner and the clarify
-        # question-generation call. Their tokens historically dropped on the floor
-        # (uncounted). Each call routes through the shared cached_invoke; this sink
-        # collects their usage dicts, folded into the run totals at pipeline_complete
-        # (below). Empty on the offline characterization goldens (the planner is
-        # neutralised and clarify.mode="off"), so the golden token totals — and thus
-        # the byte/event snapshots — are unchanged (INV-3).
+        # ISS-033: run-usage accumulator for the model calls that run OUTSIDE the
+        # per-agent stream and so never reach ``results``. Three sources feed it:
+        # the SmartPlanner and the clarify question-generation one-shots (43-04, via
+        # the shared cached_invoke), and the validation fix-loop's sub-agent (ISS-033-A
+        # / FIX-230, via the KernelServices ``aux_usage_sink``). All of their tokens
+        # historically dropped on the floor. Folded into the run totals at
+        # pipeline_complete (below).
+        #
+        # On the offline characterization goldens the two one-shots contribute nothing
+        # (the planner is neutralised, clarify.mode="off") but the FIX-LOOP DOES fire
+        # on both prototype goldens, so this list is non-empty there and the run token
+        # totals grow. That is golden-neutral only because the totals are normalized
+        # (_VOLATILE_REQUIRED_KEYS) and the cost/cache keys stripped
+        # (_VOLATILE_STRIP_KEYS) — verified by re-running the goldens, not assumed.
         aux_token_usage: list[dict] = []
         # KAN-73: wire the live WS queue onto ectx so KernelServices.emit_hook_event
         # can push hook_run events into the real-time stream. The queue is the same
@@ -2110,6 +2116,10 @@ class ExecutionEngine:
             # named-worker allow-list onto the LIVE handle so run_fanout's
             # pre-spawn worker selection reads the real declaration.
             allowed_workers=list(getattr(compiled, "allowed_workers", None) or []),
+            # ISS-033-A: bind the run's aux usage accumulator onto the handle so the
+            # validation fix-loop's sub-agent tokens fold into the run totals below
+            # (the same sink the SmartPlanner + clarify one-shots already feed).
+            aux_usage_sink=aux_token_usage.append,
         )
 
         # ── KAN-73: persist attached behavioral hooks as audit records ───────────
@@ -2785,11 +2795,11 @@ class ExecutionEngine:
         # cost math is unchanged and the goldens stay byte/event-identical).
         _cache_read = sum(r.get("cache_read_tokens", 0) or 0 for r in results)
         _cache_write = sum(r.get("cache_write_tokens", 0) or 0 for r in results)
-        # ISS-033 (43-04): fold in the DIRECT one-shot model calls that run OUTSIDE the
-        # per-agent stream (SmartPlanner + clarify question-generation) so their tokens
-        # are COUNTED in the run totals instead of being silently dropped. Empty on the
-        # goldens (planner neutralised, clarify.mode="off") → the totals and the
-        # byte/event snapshots are unchanged (INV-3).
+        # ISS-033: fold in every model call that ran OUTSIDE the per-agent stream —
+        # the SmartPlanner + clarify one-shots (43-04) and the validation fix-loop's
+        # sub-agent (ISS-033-A / FIX-230) — so their tokens are COUNTED in the run
+        # totals instead of being silently dropped. ONE fold, ONE accumulator: a new
+        # aux source registers by feeding this sink, never by adding a second sum.
         _tok_in += sum(u.get("input_tokens", 0) or 0 for u in aux_token_usage)
         _tok_out += sum(u.get("output_tokens", 0) or 0 for u in aux_token_usage)
         _cache_read += sum(u.get("cache_read_tokens", 0) or 0 for u in aux_token_usage)
@@ -4615,6 +4625,7 @@ class ExecutionEngine:
         label: str = "",
         checkpointer: object | None = None,
         require_render: bool | None = None,
+        aux_usage_sink: "Callable[[dict], None] | None" = None,
     ) -> None:
         """Both-validation + bounded INTERNAL fix-loop (Region C — build & revision).
 
@@ -4796,6 +4807,25 @@ class ExecutionEngine:
                     checkpointer=checkpointer,
                 )
                 async for _ev in fix_agent.astream_events(fix_message):
+                    # ISS-033-A: the fix sub-agent is REAL run spend (300k-600k input
+                    # tokens per call) that this drain used to discard wholesale. Route
+                    # its ``usage`` into the run's aux accounting — the SAME sink and
+                    # the SAME four keys the planner/clarify one-shots feed, so the
+                    # tokens land in the pipeline_complete totals with no second fold.
+                    # It must NOT reach ``results``: agents_completed = len(results),
+                    # so a fix attempt counted there would become a phantom agent.
+                    # ORDERING: capture BEFORE the cancel check — a token the model has
+                    # already reported was already paid for, and a cancel must not
+                    # erase it from the bill.
+                    if aux_usage_sink is not None and _ev.get("type") == "usage":
+                        aux_usage_sink(
+                            {
+                                "input_tokens": _ev.get("input_tokens", 0) or 0,
+                                "output_tokens": _ev.get("output_tokens", 0) or 0,
+                                "cache_read_tokens": _ev.get("cache_read_tokens", 0) or 0,
+                                "cache_write_tokens": _ev.get("cache_write_tokens", 0) or 0,
+                            }
+                        )
                     if cancel_event and cancel_event.is_set():
                         return
                     # INTERNAL: consume only — do NOT yield. The runner writes

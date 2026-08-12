@@ -178,6 +178,7 @@ class KernelServices:
         results: list[dict],
         cancel_event: Any,
         allowed_workers: list[str] | None = None,
+        aux_usage_sink: Any = None,
     ) -> None:
         self._engine = engine
         self._ectx = ectx
@@ -192,6 +193,12 @@ class KernelServices:
         self._model_id = model_id
         self._results = results
         self.cancel_event = cancel_event
+        # ISS-033-A: the run's aux token-usage sink (``aux_token_usage.append``), bound
+        # per-run at construction rather than stashed on the engine singleton (INV-2).
+        # The validation fix-loop's sub-agent spend is routed here so it reaches the
+        # pipeline_complete totals. None ⇒ the loop counts nothing (direct unit-style
+        # invocations), which is exactly today's behavior.
+        self._aux_usage_sink = aux_usage_sink
         # The exec-granted Workspace bound by 10-02's host seam (the §15 wiring):
         # validators reach exec via ``target.runner.workspace.exec_command(argv)``.
         # Declared here so the attribute always exists; stays None until an
@@ -1333,6 +1340,9 @@ class KernelServices:
             # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB):
             # None → the loop falls back to settings.PROTOTYPE_REQUIRE_RENDER (parity).
             require_render=getattr(step, "require_render", None),
+            # ISS-033-A: the run's aux usage sink, so the fix sub-agent's tokens are
+            # COUNTED in the run totals instead of discarded by the internal drain.
+            aux_usage_sink=self._aux_usage_sink,
         )
 
     # ── Post-task typed dual-write (keeps _latest_typed_content current) ───────
