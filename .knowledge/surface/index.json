@@ -6482,7 +6482,7 @@
         "FIX-215"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-069",
-      "status": "open",
+      "status": "done",
       "summary": "FIX-REGISTER drift \u2014 the ISS-066 defect, in the other register. 11 FIX-NNN ids are in active use with NO row in .planning/FIX-REGISTER.md: FIX-020 (commit messages only), FIX-128, FIX-129 (both: register prose mentions + cards + code)",
       "type": "issue"
     },
@@ -9672,8 +9672,8 @@
     },
     "status": {
       "accepted": 1,
-      "done": 576,
-      "open": 36,
+      "done": 577,
+      "open": 35,
       "shipped": 1
     },
     "type": {
@@ -9699,5 +9699,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 03:50"
+  "generated": "2026-08-12 03:58"
 }

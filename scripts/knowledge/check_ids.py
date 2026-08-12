@@ -101,8 +101,14 @@ def _commits(prefix: str) -> set[int]:
 
 
 def _source(prefix: str) -> set[int]:
-    """Citations in code and planning docs — where ISS-054/055 were hiding."""
+    """Citations in code and planning docs — where ISS-054/055 were hiding.
+
+    Skips this file. Its docstrings cite real ids (FIX-214, ISS-050, ISS-055) as
+    worked examples, and counting them made the tool report drift it had invented —
+    found 2026-08-12 while backfilling ISS-069.
+    """
     found: set[int] = set()
+    me = (REPO / "scripts/knowledge/check_ids.py").resolve()
     for root in ("backend", "frontend/src", "frontend/e2e", ".planning", ".kiro", "scripts"):
         base = REPO / root
         if not base.exists():
@@ -110,7 +116,7 @@ def _source(prefix: str) -> set[int]:
         for p in base.rglob("*"):
             if not p.is_file() or p.suffix not in SWEEP_SUFFIXES:
                 continue
-            if SKIP_DIRS & set(p.parts):
+            if SKIP_DIRS & set(p.parts) or p.resolve() == me:
                 continue
             found |= _ids(_read(p), prefix)
     return found
@@ -162,7 +168,10 @@ def main() -> int:
 
     print(
         "\nNote: a gap inside a used range is NOT free — ISS-055 looked free and was not.\n"
-        "Always take max-across-all-sources + 1."
+        "Always take max-across-all-sources + 1.\n"
+        "\nKnown blind spot: ids written as a range or slash-list (`FIX-158..FIX-182`,\n"
+        "`FIX-182/183/184`) do not contain the literal token `FIX-183`, so this tool cannot\n"
+        "see them. If a report looks too clean for a busy range, grep the commit log by hand."
     )
     return 1 if any_drift else 0
 
