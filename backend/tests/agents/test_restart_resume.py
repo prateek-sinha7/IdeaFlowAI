@@ -427,8 +427,14 @@ async def test_midwave_resume_does_not_reinvoke_completed_workers():
         # exception) and leaves the run non-terminal — either way wave 0 is durably
         # complete. Tolerate both shapes (the dispatch loop may catch + surface, or
         # propagate) so the test asserts on the DURABLE state, not the control flow.
+        # Drive the PUBLIC entry: ``execute`` is where the durable ``_RunEventSink`` is
+        # built and every stamped event persisted (engine.py:1020/:1065). ``_execute_impl``
+        # persists nothing, so calling it directly would leave instance A with artifacts
+        # but ZERO ``run_events`` — and the resume classifier reads its completeness
+        # evidence from exactly those rows. The point of this test is that instance A
+        # writes its own durable substrate, so it must go through the sink (TEST-013).
         try:
-            async for ev in engine_a._execute_impl(
+            async for ev in engine_a.execute(
                 agents=list(h.specs),
                 user_message="Run the wave workflow.",
                 pipeline_run_id=run_id,
@@ -1116,7 +1122,9 @@ async def test_waiting_for_user_uncompilable_type_keeps_wr05_fail():
 # five-action consumer so approve/reject/edit/redo/update_specs all work post-restart.
 
 
-async def _build_open_review_gate_fixture(session, *, gated_index=1, seed_gate=True):
+async def _build_open_review_gate_fixture(
+    session, *, gated_index=1, seed_gate=True, lifecycle="complete"
+):
     """Seed a durable single_shot run PARKED at a review gate on ``ordered_agents[gated_index]``.
 
     Three single_shot agents; agent[0] AND the gated agent BOTH produced their typed
@@ -1125,6 +1133,16 @@ async def _build_open_review_gate_fixture(session, *, gated_index=1, seed_gate=T
     ``review_gate_ready`` with ``gate_key = {run}:{gated agent}`` is appended (no
     resolution ⇒ ``derive_open_gate`` → ``("review", key)``). Returns
     ``(ordered_agents, compiled, tmp, gated_index)`` for a direct classifier call.
+
+    ``lifecycle`` selects the durable AGENT-lifecycle evidence written beside each
+    artifact — the second half of the completeness predicate (FIX-121):
+
+      * ``"complete"`` (default, what a finished agent persists) — ``agent_complete``;
+      * ``"start_only"`` — ``agent_start`` with no terminal event: the agent was STOPPED
+        between its artifact write and its completion event;
+      * ``"none"`` — no lifecycle rows at all.
+
+    The last two are the fail-safe shapes: an artifact ALONE never proves completeness.
     """
     import types
 
@@ -1143,7 +1161,12 @@ async def _build_open_review_gate_fixture(session, *, gated_index=1, seed_gate=T
     agent_ids = ["og-a", "og-b", "og-c"]
     gated_id = agent_ids[gated_index]
     pre_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
-    # agent[0] and the gated agent both produced their durable summary artifact.
+    # agent[0] and the gated agent both produced their durable summary artifact — and,
+    # as a real run does, each also persisted its terminal ``agent_complete`` beside it
+    # (engine.py:4392). The classifier requires BOTH (FIX-121: an artifact with no
+    # terminal event means the agent was stopped mid-flight and MUST be re-entered), so
+    # a fixture that seeds the ref alone is not modelling a completed agent (TEST-013).
+    _seq = 0
     for produced_id in (agent_ids[0], gated_id):
         content = f"<output of {produced_id}>"
         await pre_store.write_ref(
@@ -1154,9 +1177,16 @@ async def _build_open_review_gate_fixture(session, *, gated_index=1, seed_gate=T
                 location=f"artifact_refs/{produced_id}", version=1,
             )
         )
+        if lifecycle != "none":
+            _seq += 1
+            _ltype = "agent_complete" if lifecycle == "complete" else "agent_start"
+            await pre_store.append_event(
+                run_id, seq=_seq, event_id=f"og-{_ltype}-{produced_id}", type=_ltype,
+                payload_json={"agent_id": produced_id},
+            )
     if seed_gate:
         await pre_store.append_event(
-            run_id, seq=1, event_id="og-rg", type="review_gate_ready",
+            run_id, seq=_seq + 1, event_id="og-rg", type="review_gate_ready",
             payload_json={"gate_key": f"{run_id}:{gated_id}"},
         )
     session.commit()
@@ -1200,8 +1230,43 @@ async def test_open_gate_override_is_noop_without_review_gate():
         session, seed_gate=False
     )
     idx = await ExecutionEngine()._first_incomplete_step(tmp, ordered_agents, compiled)
-    # agent[0] + gated agent produced; agent[2] did NOT → first incomplete is index 2.
+    # agent[0] + gated agent produced AND persisted agent_complete; agent[2] did NOT
+    # → first incomplete is index 2.
     assert idx == 2, f"no open gate ⇒ the normal produced-disjunct offset (2); got {idx}"
+    session.close()
+
+
+@pytest.mark.parametrize("lifecycle", ["start_only", "none"])
+@pytest.mark.asyncio
+async def test_artifact_without_agent_complete_is_reentered_not_skipped(lifecycle):
+    """FIX-121 (TEST-013 — the shipped predicate had NO test): a durable typed artifact
+    is NOT on its own proof that a step finished. A step is complete only when the
+    artifact is corroborated by a terminal ``agent_complete`` (or a
+    ``step_completed``/``step_reused`` event); absent that, the classifier re-enters.
+
+    This is the invariant behind the user-reported bug ``c71f3d9c`` fixed: a Stop during
+    the Spec Kit Analyzer re-raises ``CancelledError`` WITHOUT emitting ``agent_error``
+    (engine.py:4521-4522), so the analyzer had persisted its artifact and no terminal
+    event — and the pre-fix ``produced_agents`` disjunct skipped it on resume, showing
+    the user no data for that step.
+
+    Both shapes must re-enter, and for the same reason — absence of terminal evidence is
+    never evidence of completion. The fail-safe direction is re-run (correct-but-wasteful),
+    because the inverse is silent data loss. ``agent[0]`` and the gated agent BOTH hold a
+    durable artifact, so a predicate that trusted the artifact alone would answer 2.
+    """
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, db_engine = _make_session()
+    ordered_agents, compiled, tmp, _gated = await _build_open_review_gate_fixture(
+        session, seed_gate=False, lifecycle=lifecycle
+    )
+    idx = await ExecutionEngine()._first_incomplete_step(tmp, ordered_agents, compiled)
+    assert idx == 0, (
+        f"an artifact with lifecycle={lifecycle!r} (no agent_complete) must re-enter its "
+        f"step (idx == 0); got idx={idx} — the classifier skipped a step it cannot prove "
+        f"finished, which is FIX-121's data-loss bug"
+    )
     session.close()
 
 
@@ -1498,6 +1563,15 @@ async def _build_partial_build_fixture(session, *, seed_task_ids):
             location="tasks.md",
             version=1,
         )
+    )
+    # The plan step is a completed single_shot agent, so a real run persisted its
+    # terminal ``agent_complete`` alongside the ref (engine.py:4392). Without it the
+    # classifier stops at index 0 on the PLAN step — fail-safe and correct (FIX-121) —
+    # and the task_loop branch these two tests exist to exercise is never reached
+    # (TEST-013).
+    await pre_store.append_event(
+        run_id, seq=1, event_id="pb-ac-plan", type="agent_complete",
+        payload_json={"agent_id": "prototype-plan"},
     )
     for tid in seed_task_ids:
         body = f"<partial task {tid}>"
@@ -2632,15 +2706,20 @@ async def test_resumed_run_is_wired_live_ectx_and_milestone_cards():
             return None
         card_state["emitted"] = True
         src_event_id = (event.get("data") or {}).get("event_id")
+        reply_eid = f"chat_reply:{src_event_id}"
         created, card_seq = await store.append_event_next_seq(
             rid,
-            event_id=f"chat_reply:{src_event_id}",
+            event_id=reply_eid,
             type="chat_reply",
             payload_json={"kind": "milestone", "text": "resumed"},
         )
         card = {"kind": "milestone", "text": "resumed"}
-        emitted_cards.append((created, card_seq, card))
-        return (created, card_seq, card)
+        # FIX-175 contract: the sink returns (created, seq, card, reply_eid) — the
+        # DB row's own event_id, so the engine can stamp it on the live SSE yield
+        # (chat_narrator.persist_milestone_card:287-289; unpacked at engine.py:1077
+        # and :8491). A 3-tuple breaks the drive itself, not just this test.
+        emitted_cards.append((created, card_seq, card, reply_eid))
+        return (created, card_seq, card, reply_eid)
 
     call_log: dict[str, int] = {}
     with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
@@ -3045,8 +3124,11 @@ async def test_failed_run_resumes_skips_completed_tasks(monkeypatch):
         session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=2
     ) as h:
         engine_a = h.make_engine()
+        # ``execute``, not ``_execute_impl`` — the durable ``_RunEventSink`` lives in the
+        # public entry (engine.py:1020/:1065), and this test's whole premise is a resume
+        # that reads the durable rows instance A wrote for itself (TEST-013).
         try:
-            async for _ev in engine_a._execute_impl(
+            async for _ev in engine_a.execute(
                 agents=list(h.specs),
                 user_message="Run the wave workflow.",
                 pipeline_run_id=run_id,
@@ -3498,6 +3580,71 @@ def test_apply_terminal_output_columns_populates_all_columns():
     assert wr.deliverable_mimetype == "text/markdown"
     assert wr.deliverable_filename == "backlog.md"
     assert wr.model_id == "claude-x"
+
+
+@pytest.mark.parametrize(
+    "tail,expected",
+    [
+        # KAN-120, the case ``resume_supersedes`` exists for: attempt 1 was cancelled,
+        # a LATER attempt (run_resuming + pipeline_start) ran to completion.
+        (
+            [("pipeline_start", 1), ("pipeline_cancelled", 2), ("run_resuming", 3),
+             ("pipeline_start", 4), ("pipeline_complete", 5)],
+            "completed",
+        ),
+        # FIX-229 / ISS-078: the user REJECTED at a re-entered gate. The cancellation and
+        # the completion are the SAME attempt — the engine emits pipeline_cancelled and the
+        # dispatch loop falls through to the run's single pipeline_complete emitter — so
+        # the rejection stands. Pre-fix this reconciled to "completed": a silent status lie.
+        (
+            [("run_resuming", 1), ("pipeline_start", 2), ("review_gate_ready", 3),
+             ("pipeline_cancelled", 4), ("pipeline_complete", 5)],
+            "cancelled",
+        ),
+        # A rejection on a LATER attempt than a completion is still a rejection.
+        (
+            [("pipeline_start", 1), ("pipeline_complete", 2), ("run_resuming", 3),
+             ("pipeline_start", 4), ("pipeline_cancelled", 5)],
+            "cancelled",
+        ),
+    ],
+    ids=["later-attempt-completes", "same-attempt-rejection", "later-attempt-rejects"],
+)
+@pytest.mark.asyncio
+async def test_reconcile_supersedes_only_across_an_attempt_boundary(
+    monkeypatch, tail, expected
+):
+    """FIX-229 (TEST-013 — ``resume_supersedes`` shipped with NO test): the reconcile must
+    ask *"did a LATER ATTEMPT succeed?"*, not *"is there a pipeline_complete at a higher
+    seq?"*. An attempt boundary is a ``run_resuming``/``pipeline_start`` row; only a
+    completion separated from the last cancellation by one supersedes it."""
+    from agents.authz import ScopedStore
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"rc-{uuid.uuid4().hex[:8]}"
+    owner = "rc-user"
+    ws = "ws-rc"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="generating", workspace_id=ws
+    )
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    for type_, seq in tail:
+        await store.append_event(
+            run_id, seq=seq, event_id=f"rc-{seq}", type=type_, payload_json={},
+        )
+    session.commit()
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, h.make_engine())
+        await rc._reconcile_terminal_status(run_id)
+
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row.status == expected, (
+        f"tail {[t for t, _ in tail]} must reconcile to {expected!r}; got {row.status!r}"
+    )
+    session.close()
 
 
 @pytest.mark.asyncio
