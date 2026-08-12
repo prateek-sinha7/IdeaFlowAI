@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-634 cards · rules 1 · fixes 226 · issues 91 · phases 23 · built 2026-08-12 06:59
+637 cards · rules 1 · fixes 227 · issues 93 · phases 23 · built 2026-08-12 07:34
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (226)
+## Fixes (227)
 
+FIX-230 2026-08-12 [agents,auth] Two model call-sites spent the owner's money without it appearing in the run's reported cost. (1) The validation fix-loop re-invokes the build sub-agent on a …:fixN thread and drains its stream INTERNALLY
 FIX-229 2026-08-12 [sse,resume,workflow,agents,artifacts] A user who resumes a run parked at a review gate and then REJECTS at that gate had the run recorded in history as completed. The rejection was silently discarded from the record and the deliverable appeared accepted
 FIX-228 2026-08-12 [resume,agents,auth,artifacts] "Request changes" (redo) at an agent's gate re-ran that agent with the user's instruction and WITHOUT the document the instruction was about, so the model wrote only the delta and the previous work was destroyed
 FIX-227 2026-08-12 [sse,resume,auth] There was NO way for anyone — user or operator — to stop a running build once it had crossed a backend restart, and every un-stoppable od_prototype build costs 5–21M Bedrock tokens of the owner's money
@@ -241,8 +242,10 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (91)
+## Issues (93)
 
+ISS-093 - [backend,sse,auth,test-infra] 3 stale clarify-round tests in backend/tests/unit/test_execution_engine.py assert an event vocabulary the product no longer emits
+ISS-092 - [backend,agents,auth,product] A single Concierge chat question can feed the model up to 2.3M tokens, and not one of them is counted or capped. Two compounding facts, both verified 2026-08-12
 ISS-091 - [sse,resume,workflow,agents,auth,runtime,engine] Rejecting at a review gate does not STOP the pipeline: every remaining step still runs and the run ends on pipeline_complete. Measured at 99fcf4a2 — i.e. WITH FIX-227 and FIX-228 already landed, so FIX-227 does NOT cover this
 ISS-090 - [resume,agents,artifacts] redoable has no eligibility fence — unlike update_specs_eligible it is an inline True literal at all three gate call sites, so ANY agent named in a per-run gate_agent_ids gets a Redo button with no server-side rule
 ISS-089 - [sse,resume,workflow,auth] A cancel is purely in-process, so a Stop that arrives when no driver is live is lost — and the next boot auto-resumes the run the owner just tried to stop
@@ -300,8 +303,8 @@ ISS-038 - [artifacts,product] "Update the Specs" gate affordance BROADENED from 
 ISS-037 - [agents,product] Phase-31 review MED/LOW cluster: (M) unhandled sendMessage rejection strands the optimistic bubble; (M) sent attachments not rendered in transcript; (M) transcript not cleared on historical-run switch
 ISS-036 - [sse,runtime,product] Latent (SSE-ON only, inert today: flag OFF + RunConnectionProvider unmounted): useRunChat.runId bound to clarify-only activePipelineRunId (null while "building")
 ISS-035 - [sse,workflow,product] Run chat lane shows no "Cancelled by you" acknowledgement after Stop — pipeline_cancelled sets no cancelled flag and pushes no chat message, so runLaneState falls through to idle (violates LIVE-STATE-CONTRACT §1)
-ISS-034 - [auth,product] Optional dollar-savings — surface cache $ saved. Backend would emit estimated_cost_full_usd (cost as-if-uncached) → FE shows "saved $Y (Z%)"
-ISS-033 - [workflow,agents,auth,product] SmartPlanner + ClarifyEngine + the handoff Test/Compliance agents call the model DIRECTLY (not via the shared cached deep-agent runner)
+ISS-034 - [workflow,agents,auth,product] Optional dollar-savings — surface cache $ saved. Backend would emit estimated_cost_full_usd (cost as-if-uncached) → FE shows "saved $Y (Z%)"
+ISS-033 - [backend,agents,auth,product] The row below was STALE for a month and is corrected here. Original finding: SmartPlanner + ClarifyEngine + the handoff Test/Compliance agents call the model DIRECTLY (not via the shared cached deep-agent runner)
 ISS-032 - [sse,agents,auth,product] Run cost not yet cache-discounted — the runner did not surface cache_read_tokens / cache_write_tokens from LangChain usage_metadata.input_token_details, so both cost sites passed 0 for the cache args
 ISS-031 - [agents,auth,product] Bedrock prompt caching silently OFF in prod + no operator knob for extended thinking. deepagents' built-in AnthropicPromptCachingMiddleware caches ONLY ChatAnthropic, but production runs ChatBedrockConverse
 ISS-030 - [workflow,agents,product] Files tab renders no run-input prompt.md for REVISION runs — derived only from parsed.brief while a revision parses to revisionInstruction with empty brief

@@ -18,7 +18,7 @@ Where the project is right now, and what constrains a change to it. Every other 
 - Phase: ALL COMPLETE — 45 [R0] 4/4 · 46 [R1] 8/8 · 47 [R2] 4/4 · 48 [R3] 4/4 · 49 [R4] 5/5 (KAN-88 green) · 50 [R5] 5/5
 - Plan: 14/14 plans complete across 6 phases; register reconciliation batch appended; requirements RESUME-05..18 all Complete
 - Status: Milestone v3.0 OFFLINE-COMPLETE — remaining: the consolidated live-Bedrock pass (orchestrator-owned) + /gsd-complete-milestone (user step; v2.0 close-out also still pending)
-- Last activity: 2026-08-12 — Completed quick task 260812-97f: **ISS-078's seven `test_restart_resume.py` reds were three causes, and six of them were the tests, not the engine.** The register's live hypothesis — a resume re-invoking completed work and burning tokens — is refuted: five fixtures persisted zero `run_events` (two of them bypassing the durable sink by calling `_execute_impl` instead of `execute()`), and one stub returned a 3-tuple against a 4-tuple contract. The recommended engine relaxation was **rejected on measured live-DB evidence** — zero effect on any ordered pipeline step, and a no-op for the very case it was argued from — so `engine.py` is byte-identical. The one real defect: a rejection at a gate on a resumed run was recorded as `completed`, because the reconcile confused *later seq* with *later attempt* (FIX-229 / TEST-013; closes ISS-078, files ISS-091). 7 failed / 48 passed → 60 passed / 0 failed
+- Last activity: 2026-08-12 — Completed quick task 260812-9tq: **ISS-033-A — the model calls nobody was billing for.** Two call-sites spent real money invisibly: the validation fix-loop drained its sub-agent's stream with a bare `continue`, discarding **every** `usage` event (~929,000 input tokens on the live run `fa66227a` = **6.9% of that run's input, +$0.176 of a reported $2.550**), and `handoff/TestAgent.analyse` still called `llm.ainvoke` raw — neither cached nor counted, a **Phase 43-04 miss** that routed `classifier.py` instead of the real Test agent. Both now fold into the ONE existing `aux_token_usage` accumulator / the ONE shared `cached_invoke` seam. **The register was also stale:** ISS-033 read `OPEN (deferred)` while Phase 43-04 had silently fixed ~70% of it on 2026-07-15 — corrected in place. Also repaired the **INV-12 cost-site guard**, which had pointed at the SSE-cutover-deleted `app/api/websocket.py` since Phase 44 and so raised `FileNotFoundError` instead of checking (FIX-230 / TEST-014; closes ISS-033, files ISS-092 + ISS-093, blocks ISS-034). Proven offline end-to-end: on the real prototype pipeline the reported totals now exceed the visible per-agent totals by exactly the fix spend (**220 → 460 input**), where the difference used to be **zero**. Goldens 10/10 and lint 4 kept / 0 broken, identical to `d24c576a`.
 
 ## Enforced boundaries
 
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (232), `workflow` (205), `frontend` (188), `sse` (161), `artifacts` (96), `backend` (93), `auth` (89), `resume` (61).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (235), `workflow` (205), `frontend` (188), `sse` (162), `artifacts` (96), `backend` (96), `auth` (92), `resume` (61).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 254 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 255 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.

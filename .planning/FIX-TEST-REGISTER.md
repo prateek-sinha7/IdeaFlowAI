@@ -23,6 +23,7 @@
 | TEST-011 | FIX-227 (quick-260812-7sk) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/app/api/run_engine.py`, `backend/app/main.py`, `backend/app/api/run_commands.py`, `backend/app/api/run_shutdown.py` | 9 | 9 | 0 | ✅ Pass |
 | TEST-012 | FIX-228 (quick-260812-8j4) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 11 | 11 | 0 | ✅ Pass |
 | TEST-013 | FIX-229 (quick-260812-97f) | 2026-08-12 | `backend/app/api/run_commands.py`, `backend/tests/agents/test_restart_resume.py` | 60 | 60 | 0 | ✅ Pass |
+| TEST-014 | FIX-230 (quick-260812-9tq) | 2026-08-12 | `backend/tests/agents/test_iss033a_fixloop_token_fold_offline.py`, `backend/tests/unit/test_handoff_agents.py`, `backend/tests/agents/test_model_pricing.py` | 8 | 8 | 0 | ✅ Pass |
 
 ---
 
@@ -1106,3 +1107,61 @@ Regression guards:
 **Not live-proven, deliberately.** No run was launched, resumed or gate-approved: one build is
 5–21M tokens of the owner's money, and this session's parent lost 16.5M to an accident. Every
 proof above is offline.
+
+---
+
+### TEST-014 — FIX-230 (quick-260812-9tq): ISS-033-A — the model calls nobody was billing for
+
+**Files:** `backend/tests/agents/test_iss033a_fixloop_token_fold_offline.py` (5 new),
+`backend/tests/unit/test_handoff_agents.py` (2 new, 17 total), `backend/tests/agents/test_model_pricing.py`
+(1 dead guard repaired, 27 total). Fully offline: no Bedrock, no Postgres, no Chromium.
+
+**The RED that names the defect exactly.** Driving the real `prototype` pipeline offline, the
+run's reported input tokens and the sum of its *visible* per-agent `agent_complete` tokens were
+**identical** — `assert (220 - 220) == 240`. A difference of zero is the whole bug: four fix
+sub-agents ran (`internal fix attempt 1/2`, `2/2` on both tasks — read out of the engine's own
+INFO log, not assumed) and contributed nothing to the bill. After FIX-230 the same run reports
+**460 in / 213 out** against 220 / 113 visible: **+240 input, +100 output** that were previously
+invisible, and `estimated_cost_usd` moves `$0.000864 → $0.001678`.
+
+| test | what it proves | RED before |
+|---|---|---|
+| `test_fix_loop_routes_usage_to_aux_sink` | the loop routes `usage` — and only `usage` — into the injected sink, all four keys intact | `TypeError: unexpected keyword argument 'aux_usage_sink'` |
+| `test_fix_loop_without_a_sink_still_runs` | no sink ⇒ a no-op, not a crash (the direct/unit call shape) | green before and after — a degrade guard |
+| `test_kernel_services_threads_aux_usage_sink_into_fix_loop` | the PRODUCTION wiring: the constructor sink reaches the engine loop, and it is the same callable | `TypeError` on the ctor kwarg |
+| `test_prototype_run_total_includes_fix_loop_tokens` | **end-to-end on the real pipeline** — run totals now exceed the visible per-agent totals by exactly the fix spend | `assert (220 - 220) == 240` |
+| `test_fix_loop_tokens_do_not_inflate_agents_completed` | `agents_completed` stays 6 — the fix spend goes to `aux_token_usage`, never to `results` | green before and after — a regression guard |
+| `test_test_agent_counts_its_tokens_through_the_usage_sink` | `TestAgent` counts, with the Bedrock cache split split out correctly | `TypeError: TestAgent.__init__() got an unexpected keyword argument 'usage_sink'` |
+| `test_test_agent_sends_a_cache_eligible_system_prefix` | the stable prompt stays a separate `SystemMessage` (where `langchain_aws` puts the cachePoint) | green before and after — a shape pin, stated as such |
+
+**`agents_completed == 6` while `agents_total == 5` is CORRECT and was nearly mis-pinned.** The
+first draft of the guard asserted they were equal; it failed at HEAD. `agents_completed` counts
+`_run_agent` INVOCATIONS — the prototype's 5 steps plus the build agent's second task — so it
+legitimately exceeds the step count. The test now pins the literal 6, which is what makes a
+regression (6 → 10, one per fix attempt) loud.
+
+**The repaired INV-12 guard, and what it now pins.** `test_websocket_cost_site_uses_shared_function`
+read `app/api/websocket.py` — a file Phase 44's SSE cutover **deleted** — so since then it raised
+`FileNotFoundError` instead of checking, and the "both cost sites share ONE pricing implementation"
+contract was unenforced for the persistence site. It is now a parametrized
+`test_both_cost_sites_use_the_shared_pricing_function` over `engine.py` (live `pipeline_complete`)
+and `app/api/run_commands.py` (durable `workflow_runs.token_usage`), and it pins three things:
+the file **exists** (an explicit assertion naming the contract, so the next move fails loudly
+rather than silently); each site **imports** `estimate_cost_usd` (the old substring check was
+satisfiable by a comment); and neither carries a per-token rate literal. **Mutation-tested, not
+assumed** — all three arms were made to fail on purpose: a missing file, a site that only mentions
+the function, and a site that imports it but hand-rolls a rate.
+
+**Baselines, with the SHA.** Goldens **10 passed / 0 failed** and lint-imports **4 kept / 0
+broken** — both re-run and identical to `d24c576a`, no golden regenerated. The 8 protected suites:
+**112 passed / 0 failed**, identical to `d24c576a` (`test_restart_resume.py` = 60/0). Wider sweep
+of the fix-loop, cost and KernelServices consumers: **157 passed / 0 failed**.
+
+**One pre-existing red, verified not mine.** `tests/unit/test_execution_engine.py` has 3 failing
+clarify-round tests (`assert 'clarification_limit_reached' in ['questionnaire_ready', …]`).
+Re-measured at `d24c576a` in a detached worktree: **the identical 3 fail there** with none of this
+change present. Filed as ISS-093.
+
+**Not live-proven, deliberately.** No run was launched, resumed or gate-approved: one build is
+5–21M tokens of the owner's money. The dollar figures come from a read-only query of the live
+`backend/dev.db` priced through the real shared `estimate_cost_usd`.

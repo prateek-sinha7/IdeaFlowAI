@@ -1,5 +1,5 @@
 {
-  "count": 634,
+  "count": 637,
   "entries": [
     {
       "area": [
@@ -5389,6 +5389,20 @@
     {
       "area": [
         "agents",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [],
+      "id": "FIX-230",
+      "path": ".knowledge/cards/FIX-230.md",
+      "source": ".planning/FIX-REGISTER.md#fix-230",
+      "status": "done",
+      "summary": "Two model call-sites spent the owner's money without it appearing in the run's reported cost. (1) The validation fix-loop re-invokes the build sub-agent on a \u2026:fixN thread and drains its stream INTERNALLY",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "agents",
         "artifacts",
         "product"
       ],
@@ -5885,27 +5899,35 @@
     },
     {
       "area": [
-        "workflow",
+        "backend",
         "agents",
         "auth",
         "product"
       ],
       "date": "",
-      "files": [],
+      "files": [
+        "backend/app/agents/cached_invoke.py",
+        "backend/dev.db"
+      ],
       "id": "ISS-033",
       "path": ".knowledge/cards/ISS-033.md",
       "relates": [
         "FIX-034",
+        "FIX-230",
         "FIX-036",
-        "ISS-032"
+        "ISS-032",
+        "ISS-092",
+        "ISS-034"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-033",
-      "status": "open",
-      "summary": "SmartPlanner + ClarifyEngine + the handoff Test/Compliance agents call the model DIRECTLY (not via the shared cached deep-agent runner)",
+      "status": "done",
+      "summary": "The row below was STALE for a month and is corrected here. Original finding: SmartPlanner + ClarifyEngine + the handoff Test/Compliance agents call the model DIRECTLY (not via the shared cached deep-agent runner)",
       "type": "issue"
     },
     {
       "area": [
+        "workflow",
+        "agents",
         "auth",
         "product"
       ],
@@ -5916,7 +5938,10 @@
       "relates": [
         "FIX-037",
         "FIX-036",
-        "ISS-032"
+        "ISS-032",
+        "ISS-033",
+        "FIX-230",
+        "ISS-092"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-034",
       "status": "open",
@@ -7017,6 +7042,51 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-091",
       "status": "open",
       "summary": "Rejecting at a review gate does not STOP the pipeline: every remaining step still runs and the run ends on pipeline_complete. Measured at 99fcf4a2 \u2014 i.e. WITH FIX-227 and FIX-228 already landed, so FIX-227 does NOT cover this",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "agents",
+        "auth",
+        "product"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-092",
+      "path": ".knowledge/cards/ISS-092.md",
+      "relates": [
+        "FIX-230",
+        "ISS-033",
+        "ISS-034"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-092",
+      "status": "open",
+      "summary": "A single Concierge chat question can feed the model up to 2.3M tokens, and not one of them is counted or capped. Two compounding facts, both verified 2026-08-12",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "auth",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/unit/test_execution_engine.py"
+      ],
+      "id": "ISS-093",
+      "path": ".knowledge/cards/ISS-093.md",
+      "relates": [
+        "ISS-027",
+        "FIX-230"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-093",
+      "status": "open",
+      "summary": "3 stale clarify-round tests in backend/tests/unit/test_execution_engine.py assert an event vocabulary the product no longer emits",
       "type": "issue"
     },
     {
@@ -9886,36 +9956,36 @@
   ],
   "facets": {
     "area": {
-      "agents": 232,
+      "agents": 235,
       "artifacts": 96,
-      "auth": 89,
-      "backend": 93,
+      "auth": 92,
+      "backend": 96,
       "docs": 2,
       "engine": 2,
       "evals": 10,
       "frontend": 188,
       "harness": 2,
       "infra": 1,
-      "product": 29,
+      "product": 30,
       "resume": 61,
       "runtime": 32,
-      "sse": 161,
-      "test-infra": 11,
+      "sse": 162,
+      "test-infra": 12,
       "tooling": 2,
       "workflow": 205
     },
     "status": {
       "accepted": 1,
-      "done": 586,
-      "open": 38,
+      "done": 588,
+      "open": 39,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 226,
-      "issue": 91,
+      "fix": 227,
+      "issue": 93,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -9933,5 +10003,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 06:59"
+  "generated": "2026-08-12 07:34"
 }

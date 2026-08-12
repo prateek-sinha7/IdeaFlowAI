@@ -253,6 +253,12 @@
     "FIX-229": [
       "ISS-091"
     ],
+    "FIX-230": [
+      "ISS-033",
+      "ISS-034",
+      "ISS-092",
+      "ISS-093"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -275,6 +281,9 @@
     "ISS-022": [
       "ISS-025"
     ],
+    "ISS-027": [
+      "ISS-093"
+    ],
     "ISS-029": [
       "FIX-031"
     ],
@@ -284,6 +293,14 @@
     "ISS-032": [
       "ISS-033",
       "ISS-034"
+    ],
+    "ISS-033": [
+      "ISS-034",
+      "ISS-092"
+    ],
+    "ISS-034": [
+      "ISS-033",
+      "ISS-092"
     ],
     "ISS-035": [
       "ISS-036"
@@ -412,6 +429,10 @@
     ],
     "ISS-089": [
       "ISS-084"
+    ],
+    "ISS-092": [
+      "ISS-033",
+      "ISS-034"
     ]
   },
   "by_area": {
@@ -533,6 +554,7 @@
       "FIX-226",
       "FIX-228",
       "FIX-229",
+      "FIX-230",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -553,6 +575,7 @@
       "ISS-031",
       "ISS-032",
       "ISS-033",
+      "ISS-034",
       "ISS-037",
       "ISS-046",
       "ISS-047",
@@ -584,6 +607,7 @@
       "ISS-087",
       "ISS-090",
       "ISS-091",
+      "ISS-092",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -777,6 +801,7 @@
       "FIX-223",
       "FIX-227",
       "FIX-228",
+      "FIX-230",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -802,6 +827,8 @@
       "ISS-088",
       "ISS-089",
       "ISS-091",
+      "ISS-092",
+      "ISS-093",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -922,6 +949,7 @@
       "FIX-220",
       "FIX-223",
       "FIX-224",
+      "ISS-033",
       "ISS-054",
       "ISS-055",
       "ISS-066",
@@ -931,6 +959,8 @@
       "ISS-078",
       "ISS-079",
       "ISS-080",
+      "ISS-092",
+      "ISS-093",
       "TEST-46"
     ],
     "docs": [
@@ -1179,7 +1209,8 @@
       "ISS-045",
       "ISS-046",
       "ISS-047",
-      "ISS-048"
+      "ISS-048",
+      "ISS-092"
     ],
     "resume": [
       "BUG-016-sse",
@@ -1398,6 +1429,7 @@
       "ISS-088",
       "ISS-089",
       "ISS-091",
+      "ISS-093",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1452,7 +1484,8 @@
       "ISS-073",
       "ISS-074",
       "ISS-076",
-      "ISS-079"
+      "ISS-079",
+      "ISS-093"
     ],
     "tooling": [
       "ISS-050",
@@ -1571,7 +1604,7 @@
       "ISS-027",
       "ISS-029",
       "ISS-030",
-      "ISS-033",
+      "ISS-034",
       "ISS-035",
       "ISS-039",
       "ISS-042",
@@ -1918,6 +1951,9 @@
     "backend/alembic/versions/0030_workflow_runs_user_created_index.py": [
       "FIX-144"
     ],
+    "backend/app/agents/cached_invoke.py": [
+      "ISS-033"
+    ],
     "backend/app/agents/chat/concierge.py": [
       "FIX-115",
       "FIX-116",
@@ -2036,9 +2072,11 @@
       "FIX-042b"
     ],
     "backend/dev.db": [
+      "ISS-033",
       "ISS-067",
       "ISS-075",
-      "ISS-080"
+      "ISS-080",
+      "ISS-092"
     ],
     "backend/requirements.txt": [
       "FIX-191"
@@ -2128,6 +2166,9 @@
     "backend/tests/unit/test_chat_narrator.py": [
       "FIX-083",
       "FIX-175"
+    ],
+    "backend/tests/unit/test_execution_engine.py": [
+      "ISS-093"
     ],
     "backend/tests/unit/test_file_extract_fix191.py": [
       "FIX-191"
@@ -2827,12 +2868,18 @@
     "ISS-033": [
       "FIX-034",
       "FIX-036",
-      "ISS-032"
+      "FIX-230",
+      "ISS-032",
+      "ISS-034",
+      "ISS-092"
     ],
     "ISS-034": [
       "FIX-036",
       "FIX-037",
-      "ISS-032"
+      "FIX-230",
+      "ISS-032",
+      "ISS-033",
+      "ISS-092"
     ],
     "ISS-035": [
       "FIX-039",
@@ -3032,6 +3079,15 @@
       "FIX-228",
       "FIX-229",
       "ISS-078"
+    ],
+    "ISS-092": [
+      "FIX-230",
+      "ISS-033",
+      "ISS-034"
+    ],
+    "ISS-093": [
+      "FIX-230",
+      "ISS-027"
     ]
   },
   "rules_by_file": {
