@@ -30,7 +30,7 @@ NOT stop the drivers and does NOT write any
 ``WorkflowRun.status``. That is deliberate: every stop path makes the engine yield
 ``pipeline_cancelled``, which ``engine.py:1032`` persists unconditionally and which
 makes the driver write ``status="cancelled"`` - and ``cancelled`` is outside
-``restore_non_terminal_runs``' ``NON_TERMINAL`` set (``engine.py:5263``), so the run
+``restore_non_terminal_runs``' ``NON_TERMINAL_RUN_STATUSES`` set, so the run
 would never auto-resume on the next boot. Leaving the row ``running`` is what keeps
 the Phase 45-50 resume tier working. See ``stop_pipeline_drivers`` below and the
 KAN-151 D8 investigation section I11 for the alternative.

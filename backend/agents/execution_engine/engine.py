@@ -466,6 +466,20 @@ class _RunEventSink:
 PLANNER_TIMEOUT_SECONDS = 120.0  # SmartPlanner: single call (generous — large chained prompts run slower). On timeout it defaults to PROCEED, so it never discards agent work.
 PLANNER_AGENT_ID = "deep-planner"
 
+# The statuses a boot re-adopts. ``restore_non_terminal_runs`` filters on this set, so a
+# run is auto-resumed by the next process IFF its status is in here — which makes the
+# tuple the system's single definition of "still owed work", read by the startup scan AND
+# by every caller that must decide whether a run would be picked up again (ISS-089's
+# durable cancel).
+#
+# Module scope, not an inline literal: this value was copied into three places and cited by
+# five different ``file:line`` values in one week, and every citation was wrong within days.
+# One definition, imported — never re-stated (INV-12).
+NON_TERMINAL_RUN_STATUSES: tuple[str, ...] = (
+    "running", "planning", "clarifying", "waiting_for_user",
+    "generating", "analyzing", "revising",
+)
+
 # ── Human-in-the-loop: always ask clarifying questions ────────────────────────
 # (Migrated L6, 07-05) The former module-level always-clarify flag is GONE; the
 # "force CLARIFY_REQUIRED on every run" behavior is now declared per-workflow by the
@@ -5918,16 +5932,11 @@ class ExecutionEngine:
             from app.models.database import SessionLocal
             from app.models.workflow import WorkflowRun
 
-            NON_TERMINAL = (
-                "running", "planning", "clarifying", "waiting_for_user",
-                "generating", "analyzing", "revising",
-            )
-
             db = SessionLocal()
             try:
                 stuck_runs = (
                     db.query(WorkflowRun)
-                    .filter(WorkflowRun.status.in_(NON_TERMINAL))
+                    .filter(WorkflowRun.status.in_(NON_TERMINAL_RUN_STATUSES))
                     .all()
                 )
                 restored = 0

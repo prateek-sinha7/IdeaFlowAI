@@ -379,6 +379,110 @@ def _arm_cancel_escalation(run_id: str) -> None:
     task.add_done_callback(_CANCEL_ESCALATIONS.discard)
 
 
+async def _record_cancellation_in_the_durable_tail(run_id: str) -> None:
+    """Append the ``pipeline_cancelled`` row a driver would have emitted (ISS-089).
+
+    Best-effort: audit + SSE replay + ``_reconcile_terminal_status`` agreement, none of
+    which the money guarantee depends on. It rides ``append_event_at_or_after`` — the
+    COLLISION-SAFE append — because the chat lane allocates from the same per-run seq
+    space and FIX-240 (ISS-121) proved a ``uq_run_events_scope_seq`` rejection here is
+    swallowed by the persist degrade rather than retried.
+
+    Principal resolution is ``_reconcile_terminal_status``'s, verbatim: never the nullable
+    ``owner_id`` alone, and the run's RECOVERED workspace (the value the sink actually
+    wrote under) rather than the WS-path row's frequently-NULL ``workspace_id``.
+    """
+    from agents.authz import ScopedStore
+    from agents.execution_engine.engine import get_execution_engine
+
+    db = _get_db()
+    try:
+        wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        if wr is None:
+            return
+        owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
+    finally:
+        db.close()
+
+    try:
+        workspace_id = await get_execution_engine()._recover_workspace_id(owner_id, run_id)
+        store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+        await store.append_event_at_or_after(
+            run_id,
+            (await store._max_event_seq(run_id)) + 1,
+            str(_uuid.uuid4()),
+            "pipeline_cancelled",
+            {"pipeline_run_id": run_id, "reason": "owner_stopped_run_with_no_live_driver"},
+        )
+    except Exception as exc:  # noqa: BLE001 — the audit row must never fail the Stop
+        logger.warning(
+            "cancel(run=%s): durable pipeline_cancelled append failed: %s", run_id, exc
+        )
+
+
+async def _cancel_run_without_a_live_driver(run_id: str) -> dict:
+    """Make the owner's Stop DURABLE when no in-process driver can carry it (ISS-089).
+
+    The cooperative ``asyncio.Event`` and the escalation task both die with the process,
+    so before this a Stop that arrived with no live driver wrote NOTHING — and the run
+    stayed inside ``NON_TERMINAL_RUN_STATUSES``, so the next boot re-adopted it and drove
+    it to completion at the owner's expense (the ``d5dbc9f2`` incident: 45% of a
+    16,530,718-token run billed AFTER the API answered ``cancelled: true``).
+
+    Writing the terminal status HERE needs no migration, no new event type and no change
+    to ``restore_non_terminal_runs``: ``cancelled`` is already outside
+    ``NON_TERMINAL_RUN_STATUSES``, so the boot scan consults this decision through the
+    filter it already has, and ``POST /resume`` already accepts ``cancelled`` — the run
+    moves from AUTOMATIC resume to EXPLICIT, owner-authenticated resume, which is what a
+    Stop should mean.
+
+    SCOPE — single-process only. ``_is_run_live`` is process-local, and today the
+    deployment is single-process (``exec uvicorn``, no ``--workers``, no replicas), so
+    "not live here" == "not live anywhere". Under the locked ECS Fargate to-be, a Stop
+    landing on instance B would mark a row cancelled while instance A kept billing; that
+    needs a cross-process liveness fact (lease/heartbeat) and is NOT solved here.
+    """
+    from agents.execution_engine.engine import NON_TERMINAL_RUN_STATUSES
+
+    db = _get_db()
+    try:
+        wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        status_now = wr.status if wr is not None else None
+    finally:
+        db.close()
+
+    # Already terminal (or gone) — nothing is owed, so answer exactly as before, key order
+    # included, and write nothing. This is what makes a repeated Stop idempotent.
+    if status_now not in NON_TERMINAL_RUN_STATUSES:
+        return {
+            "ok": True, "run_id": run_id, "accepted": False, "cancelled": False,
+            "status": "not_running", "message": "No active pipeline",
+        }
+
+    await _record_cancellation_in_the_durable_tail(run_id)
+    try:
+        # AUTHORITATIVE, unlike the audit row above: this is the write that closes the
+        # money hole, so it must not inherit _reconcile_terminal_status's best-effort
+        # degrade. A failure is reported as a failure.
+        _persist_resume_status(run_id, "cancelled")
+    except Exception as exc:  # noqa: BLE001 — surfaced, never swallowed into a false ack
+        logger.error(
+            "cancel(run=%s): terminal status write FAILED: %s", run_id, exc, exc_info=True
+        )
+        raise _reject(
+            "cancel_not_persisted",
+            "The run could not be marked cancelled; it may still resume on the next "
+            "restart. Retry the Stop.",
+            http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            recoverable=True,
+        ) from exc
+
+    return {
+        "ok": True, "run_id": run_id, "accepted": True, "cancelled": True,
+        "status": "cancelled",
+    }
+
+
 @router.post("/{run_id}/cancel")
 async def cancel_run(
     run_id: str,
@@ -403,6 +507,9 @@ async def cancel_run(
 
       * ``accepted: true`` + ``status: "stopping"`` — a live driver was signalled. The
         terminal follows on the event stream; it is not asserted here.
+      * ``accepted: true`` + ``cancelled: true`` + ``status: "cancelled"`` — no live
+        driver, but the run was still owed work, so the Stop was made DURABLE here
+        (ISS-089). Nothing follows on the event stream; the row is already terminal.
       * ``accepted: false`` + ``status: "not_running"`` — nothing to stop (idempotent ack,
         so the client UI still returns to idle).
     """
@@ -412,10 +519,7 @@ async def cancel_run(
     # Ordering: the liveness probe self-heals (and clears _CANCEL_EVENTS for) a stale
     # registration, so it must run BEFORE the event lookup.
     if not _is_run_live(run_id):
-        return {
-            "ok": True, "run_id": run_id, "accepted": False, "cancelled": False,
-            "status": "not_running", "message": "No active pipeline",
-        }
+        return await _cancel_run_without_a_live_driver(run_id)
 
     event: asyncio.Event | None = _CANCEL_EVENTS.get(run_id)
     if event is not None:
