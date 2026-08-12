@@ -6,7 +6,7 @@
  * driver (Phase 29-06 chatReply) — no driver rewrite. Proves:
  *   (a) a `deliverable` chat_reply renders a "Deliverable" card (LOCK-F) whose
  *       deep-link switches the PreviewPanel tab via the nonce'd seam (borrow #6);
- *   (b) a `spec_revision` card reads "Revising spec — cycle N" (KAN-101 loop);
+ *   (b) a `spec_revision` card renders the narrator's revision text (KAN-101 loop);
  *   (c) a dropped/picked attachment renders a chat-attach-chip.
  *
  * Assertions ride the NEW data-testids so they survive the Phase-32 reskin.
@@ -53,16 +53,22 @@ test.describe("TS-CHAT-CARDS — result cards, deep-link, attachments (mocked)",
     await expect(filesTab).toHaveAttribute("aria-selected", "false");
   });
 
-  // ── TS-CHAT-CARDS-02 — spec_revision card reads "Revising spec — cycle N" ────
-  test("TS-CHAT-CARDS-02 a spec_revision card reads 'Revising spec — cycle N' (KAN-101 loop, distinct from a family revision)", async ({ dashboard, mockSse }) => {
+  // ── TS-CHAT-CARDS-02 — spec_revision card renders the narrator revision text ─
+  test("TS-CHAT-CARDS-02 a spec_revision card renders the narrator's revision text (KAN-101 loop, distinct from a family revision)", async ({ dashboard, mockSse }) => {
     const page = dashboard.page;
 
-    mockSse.chatReply({ cardKind: "spec_revision", text: "Reworking the specification from the analysis." });
+    mockSse.chatReply({ cardKind: "spec_revision", text: "Revising spec — cycle 2" });
 
     const card = page.getByTestId("chat-result-card");
     await expect(card).toBeVisible();
     await expect(card).toHaveAttribute("data-card-kind", "spec_revision");
-    await expect(card).toContainText("Revising spec — cycle 1");
+    // ISS-083: the cycle number has ONE producer — the narrator text, rendered in the
+    // card body. The header is the static "Revising spec"; the FE no longer defaults a
+    // second copy into the chrome (which is why "cycle 1" must NOT appear). This test
+    // cannot reach here until ISS-076's beforeEach is repaired; the assertion is
+    // corrected now so that repair does not inherit a false green.
+    await expect(card).toContainText("Revising spec — cycle 2");
+    await expect(card).not.toContainText("cycle 1");
   });
 
   // ── TS-CHAT-CARDS-03 — an attachment renders a chip ─────────────────────────
