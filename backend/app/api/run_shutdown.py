@@ -23,7 +23,10 @@ Ordering is load-bearing and is NOT the simple "signal then cancel":
   4. Counts are logged so D9's thundering herd is measurable (D11 pairs the same
      JSON shape on the stream side).
 
-By default this does NOT stop the pipeline drivers and does NOT write any
+Whether this stops the pipeline drivers is the ``SHUTDOWN_STOP_RUNS`` switch, whose
+default is environment-differentiated (ISS-088): OFF in production, ON in
+``ENV=development``. With it OFF - the production behaviour described below - this does
+NOT stop the drivers and does NOT write any
 ``WorkflowRun.status``. That is deliberate: every stop path makes the engine yield
 ``pipeline_cancelled``, which ``engine.py:1032`` persists unconditionally and which
 makes the driver write ``status="cancelled"`` - and ``cancelled`` is outside
@@ -259,10 +262,11 @@ async def _drain_then_cancel(tasks: set[asyncio.Task], *, context: str) -> None:
 async def stop_pipeline_drivers() -> int:
     """Cooperatively stop, then cancel, every live pipeline driver. Returns the count.
 
-    NOT called by default (``SHUTDOWN_STOP_RUNS`` is False). Enabling it converts
-    every in-flight run to ``WorkflowRun.status = "cancelled"`` and removes it from
-    the boot-time auto-resume set. See KAN-151 D8 investigation section I11 - this
-    is a product decision, not a technical one.
+    Called only when ``SHUTDOWN_STOP_RUNS`` is set - False in production, True in
+    ``ENV=development`` (ISS-088). It converts every in-flight run to
+    ``WorkflowRun.status = "cancelled"`` and removes it from the boot-time auto-resume
+    set. See KAN-151 D8 investigation section I11 - this is a product decision, not a
+    technical one.
 
     Reuses the ONE sanctioned stop mechanism (Phase 16-02 / quick-260720-ec4): set
     the per-run cooperative ``cancel_event``, which the engine observes at the
