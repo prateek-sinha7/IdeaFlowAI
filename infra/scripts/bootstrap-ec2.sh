@@ -114,6 +114,62 @@ fi
 
 # ── 2. Patch & baseline tools ──────────────────────────────────────────
 export DEBIAN_FRONTEND=noninteractive
+
+# ── 2a. Force apt over HTTPS ───────────────────────────────────────────
+# This host egresses on 443 only (security group has a single outbound
+# rule, tcp/443 to 0.0.0.0/0) and routes via a Transit Gateway rather than
+# a NAT/internet gateway. Ubuntu ships its apt sources as http:// (port
+# 80), so every archive fetch times out and `apt-get install` dies with
+# exit 100 — while SSM, S3 and KMS all keep working, which makes the
+# failure look unrelated to networking.
+#
+# Rewriting the scheme to https:// keeps package fetches on the one port
+# the SG permits. archive.ubuntu.com, security.ubuntu.com and the
+# regional <region>.ec2.archive.ubuntu.com mirrors all serve TLS, so the
+# in-region mirror is preserved (lower latency, no cross-region egress).
+# apt has had native HTTPS support since 1.5 and ca-certificates ships on
+# the Canonical AMI, so this needs no bootstrap package — which matters,
+# because installing one is exactly what's blocked.
+#
+# Idempotent: a second pass finds no http:// Ubuntu URLs left to rewrite.
+# Matched by hostname so third-party lists are untouched (Docker's, added
+# in §7, is already https). Covers both Noble's deb822
+# /etc/apt/sources.list.d/*.sources and the legacy .list format.
+UBUNTU_APT_HOST_RE='http://([A-Za-z0-9.-]*\.)?(archive|security)\.ubuntu\.com'
+apt_rewritten=0
+for apt_src in /etc/apt/sources.list \
+               /etc/apt/sources.list.d/*.sources \
+               /etc/apt/sources.list.d/*.list; do
+    [[ -f "$apt_src" ]] || continue
+    grep -Eq "$UBUNTU_APT_HOST_RE" "$apt_src" || continue
+    [[ -f "${apt_src}.pre-https.bak" ]] || cp -a "$apt_src" "${apt_src}.pre-https.bak"
+    sed -E -i "s#${UBUNTU_APT_HOST_RE}#https://\1\2.ubuntu.com#g" "$apt_src"
+    echo "[bootstrap] apt sources: rewrote http -> https in ${apt_src}"
+    apt_rewritten=1
+done
+if [[ "$apt_rewritten" -eq 0 ]]; then
+    echo "[bootstrap] apt sources: already https (nothing to rewrite)"
+fi
+
+# Fail fast, and diagnosably, if the archive is still unreachable.
+# `apt-get update` returns 0 even when every index fetch fails, so without
+# this probe the run continues on stale package lists and surfaces the
+# problem several sections later as a bare `exit status 100`.
+. /etc/os-release
+apt_probe_uri="$(
+    grep -hEo 'https://([A-Za-z0-9.-]*\.)?archive\.ubuntu\.com[^ ]*' \
+        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources \
+        /etc/apt/sources.list.d/*.list 2>/dev/null | head -n1
+)"
+if [[ -n "$apt_probe_uri" ]] \
+   && ! curl -fsS --max-time 20 -o /dev/null \
+        "${apt_probe_uri%/}/dists/${VERSION_CODENAME}/InRelease"; then
+    echo "[bootstrap] ERROR: cannot reach the Ubuntu archive over HTTPS at ${apt_probe_uri}." >&2
+    echo "[bootstrap]        Package installation cannot proceed. Verify outbound 443 on this" >&2
+    echo "[bootstrap]        instance's security group and the upstream Transit Gateway path." >&2
+    exit 1
+fi
+
 apt-get update
 apt-get -y full-upgrade
 # Note on awscli: Ubuntu Noble (24.04 LTS) removed the `awscli` apt package
