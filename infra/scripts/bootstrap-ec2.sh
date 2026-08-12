@@ -135,12 +135,20 @@ export DEBIAN_FRONTEND=noninteractive
 # Matched by hostname so third-party lists are untouched (Docker's, added
 # in §7, is already https). Covers both Noble's deb822
 # /etc/apt/sources.list.d/*.sources and the legacy .list format.
-UBUNTU_APT_HOST_RE='http://([A-Za-z0-9.-]*\.)?(archive|security)\.ubuntu\.com'
-apt_rewritten=0
+# Collect the source files that actually exist. Globbing inline into grep
+# is unsafe here: Noble ships no *.list in sources.list.d, bash leaves the
+# unmatched glob literal, grep then exits 2 on the nonexistent path, and
+# `set -e` + `pipefail` turn that into a silent abort of the whole run.
+apt_src_files=()
 for apt_src in /etc/apt/sources.list \
                /etc/apt/sources.list.d/*.sources \
                /etc/apt/sources.list.d/*.list; do
-    [[ -f "$apt_src" ]] || continue
+    [[ -f "$apt_src" ]] && apt_src_files+=("$apt_src")
+done
+
+UBUNTU_APT_HOST_RE='http://([A-Za-z0-9.-]*\.)?(archive|security)\.ubuntu\.com'
+apt_rewritten=0
+for apt_src in ${apt_src_files[@]+"${apt_src_files[@]}"}; do
     grep -Eq "$UBUNTU_APT_HOST_RE" "$apt_src" || continue
     [[ -f "${apt_src}.pre-https.bak" ]] || cp -a "$apt_src" "${apt_src}.pre-https.bak"
     sed -E -i "s#${UBUNTU_APT_HOST_RE}#https://\1\2.ubuntu.com#g" "$apt_src"
@@ -155,13 +163,18 @@ fi
 # `apt-get update` returns 0 even when every index fetch fails, so without
 # this probe the run continues on stale package lists and surfaces the
 # problem several sections later as a bare `exit status 100`.
+# The `|| true` is load-bearing: grep exits 1 on no-match and head closing
+# the pipe early can leave grep on SIGPIPE, either of which would abort the
+# run through pipefail rather than simply skipping the probe.
 . /etc/os-release
-apt_probe_uri="$(
-    grep -hEo 'https://([A-Za-z0-9.-]*\.)?archive\.ubuntu\.com[^ ]*' \
-        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources \
-        /etc/apt/sources.list.d/*.list 2>/dev/null | head -n1
-)"
-if [[ -n "$apt_probe_uri" ]] \
+apt_probe_uri=""
+if (( ${#apt_src_files[@]} > 0 )); then
+    apt_probe_uri="$(
+        grep -hEo 'https://([A-Za-z0-9.-]*\.)?archive\.ubuntu\.com[^[:space:]]*' \
+            "${apt_src_files[@]}" 2>/dev/null | head -n1 || true
+    )"
+fi
+if [[ -n "$apt_probe_uri" && -n "${VERSION_CODENAME:-}" ]] \
    && ! curl -fsS --max-time 20 -o /dev/null \
         "${apt_probe_uri%/}/dists/${VERSION_CODENAME}/InRelease"; then
     echo "[bootstrap] ERROR: cannot reach the Ubuntu archive over HTTPS at ${apt_probe_uri}." >&2
