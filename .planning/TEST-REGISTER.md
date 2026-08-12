@@ -36,10 +36,14 @@ This is the **single QA reference** for taking Flowin to production. It enumerat
 ### 1.1 Run the stack
 
 ```bash
-# BACKEND — python3.11, NO venv, port 8000, --reload
+# BACKEND — python3.11, NO venv, port 8000, NO --reload
+# --timeout-graceful-shutdown is REQUIRED (ISS-088): a live SSE stream keeps
+# uvicorn waiting forever on SIGTERM, so without it the server survives Ctrl-C
+# and `kill` (only kill -9 ends it) and its shutdown code never runs.
 cd backend
 RUNS_ROOT=/tmp/flowin-runs AWS_PROFILE=default AWS_REGION=eu-central-1 \
-  python3.11 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+  python3.11 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 \
+    --timeout-graceful-shutdown 5
 #   API   http://localhost:8000      WS  ws://localhost:8000/ws/chat      health GET /health
 #   one-time dep if missing:  python3.11 -m pip install --user python-frontmatter
 #   DB init (sqlite dev):     python3.11 backend/init_db.py   (alembic upgrade head)

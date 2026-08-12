@@ -75,7 +75,17 @@ cross-platform compatible syntax.
 
   d) Run the backend server:
 
-     uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
+     uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 \
+         --timeout-graceful-shutdown 5
+
+     --timeout-graceful-shutdown is REQUIRED, not a nicety. Without it, a live
+     SSE stream (i.e. any workflow you are watching) makes uvicorn wait forever
+     on SIGTERM: the server cannot be stopped with Ctrl-C or `kill`, only
+     `kill -9`, and its shutdown code never runs at all. Production passes it
+     from backend/docker-entrypoint.sh; this is the same flag.
+
+     --reload is deliberately NOT used: it masks crashes, and without the flag
+     above it leaves TWO stuck processes (the reloader waits on the child).
 
      The backend API will be available at http://localhost:8000
 
@@ -111,7 +121,11 @@ simultaneously in separate terminal windows.
 Terminal 1 - Backend:
 
   (activate your virtual environment first)
-  uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
+  uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 \
+      --timeout-graceful-shutdown 5
+
+  (see section 2d — without --timeout-graceful-shutdown the server cannot be
+   stopped while a workflow is streaming)
 
 Terminal 2 - Frontend:
 

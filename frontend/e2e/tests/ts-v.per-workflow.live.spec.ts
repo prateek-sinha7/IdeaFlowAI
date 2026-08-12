@@ -12,8 +12,11 @@
  *   1. Backend up on :8000 with Bedrock reachable:
  *        cd backend
  *        RUNS_ROOT=/tmp/flowin-runs AWS_PROFILE=default AWS_REGION=eu-central-1 \
- *          python3.11 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+ *          python3.11 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 \
+ *            --timeout-graceful-shutdown 5
  *      (profile `default` = acct 473293451041, eu-central-1, Haiku 4.5 — working).
+ *      --timeout-graceful-shutdown is required: these specs hold an SSE stream
+ *      open, and without it the backend ignores SIGTERM forever afterwards.
  *   2. Frontend dev server on :3000 (auto-started/reused by playwright.config.ts).
  *   3. Seeded users (qa-basic / qa-pro / qa-enterprise + admin):
  *        python3.11 backend/scripts/seed_test_users.py

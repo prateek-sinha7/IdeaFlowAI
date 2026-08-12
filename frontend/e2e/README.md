@@ -32,9 +32,12 @@ Real backend + real Bedrock. Prerequisites:
 ```bash
 # 1. seed users (registration is admin-only — see backend/scripts/seed_test_users.py)
 cd backend && python3.11 scripts/seed_test_users.py
-# 2. backend on :8000 with Bedrock
+# 2. backend on :8000 with Bedrock.
+#    --timeout-graceful-shutdown is required: a live-spec run holds an SSE stream
+#    open, and without it uvicorn ignores SIGTERM forever (only kill -9 ends the
+#    process). No --reload — it masks crashes and doubles the stuck-process count.
 RUNS_ROOT=/tmp/flowin-runs AWS_PROFILE=default AWS_REGION=eu-central-1 \
-  python3.11 -m uvicorn app.main:app --reload --port 8000
+  python3.11 -m uvicorn app.main:app --port 8000 --timeout-graceful-shutdown 5
 # 3. run the live project
 cd ../frontend && npm run e2e:live
 ```
