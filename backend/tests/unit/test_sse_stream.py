@@ -429,6 +429,40 @@ class TestGateRearm:
         rearmed = [p for p in parsed if p["type"] == "review_gate_ready"]
         assert rearmed == [], "a resolved gate must NOT re-arm"
 
+    def test_terminal_run_does_not_rearm_even_with_a_dangling_gate(self, db_session):
+        """FIX-240 (ISS-121): a run whose PERSISTED status is terminal must never re-arm
+        a gate, however open the durable log looks.
+
+        This is the shape of every run cancelled BEFORE FIX-240: the engine's terminal
+        event lost a seq collision with the chat lane and was discarded, so the log still
+        ends on an unresolved ``review_gate_ready``. Those rows are not retroactively
+        recoverable and no synthetic event is back-filled — the persisted status is
+        consulted at the app boundary instead.
+        """
+        _seed_run(db_session, status="cancelled")
+        _seed_events(
+            db_session,
+            [
+                (1, "agent_complete", {"seq": 1}),
+                (2, "review_gate_ready", {"seq": 2, "gate_key": "gk"}),
+                (3, "chat_message", {"seq": 3, "text": "Not what I wanted — stop."}),
+                # seq 4 — pipeline_cancelled — is the row the collision destroyed.
+            ],
+        )
+        frames = asyncio.run(
+            _collect(
+                _iter_sse_frames(
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=3,
+                    live_queue=None,
+                    run_is_terminal=True,
+                )
+            )
+        )
+        rearmed = [p for p in (_parse(f) for f in frames) if p["type"] == "review_gate_ready"]
+        assert rearmed == [], "a terminal run must NOT re-arm a dangling gate"
+
     def test_rearm_is_read_only(self, db_session):
         """Re-arm reads gate state; it must not write/append any row (no mutation)."""
         _seed_run(db_session, status="waiting_for_user")

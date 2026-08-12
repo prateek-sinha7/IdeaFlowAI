@@ -459,10 +459,18 @@ class ScopedStore:
 
         Returns ``(created, seq)``: ``created=False`` when a row with ``event_id``
         already exists (a replayed turn → no second row, D-01); ``seq`` is that row's
-        per-run seq. The engine's own sink is UNCHANGED — it keeps its fast in-memory
-        counter; on the rare seq collision the loser is arbitrated by the constraint
-        (the sink's best-effort ``persist`` degrades a dropped row to a warning; the
-        chat writer here retries) — so the DURABLE log never holds a duplicate seq.
+        per-run seq. The engine's own sink keeps its fast in-memory counter and does NOT
+        allocate through here (that would materialise the whole log per event); it
+        appends through :meth:`append_event_at_or_after`, which retries past a collision
+        the same way this does. Both writers therefore SURVIVE losing the race, and the
+        DURABLE log holds neither a duplicate seq nor a hole.
+
+        FIX-240 (ISS-121) corrected the original note here, which claimed the collision
+        was "rare" and that arbitrating it by dropping the engine's row was acceptable.
+        It is not rare — an app-layer row is written on EVERY chat turn during a live run
+        — and the dropped row was silent: ``_RunEventSink.persist`` catches
+        ``SQLAlchemyError``, ``IntegrityError`` is one, so a production seq collision took
+        the branch written for "the offline harness has no schema".
         """
         from sqlalchemy.exc import IntegrityError
 
@@ -489,6 +497,83 @@ class ScopedStore:
         raise RuntimeError(
             f"append_event_next_seq: exhausted seq-allocation retries for run {run_id!r}"
         )
+
+    async def _max_event_seq(self, run_id: str) -> int:
+        """The highest in-scope ``run_events.seq`` for ``run_id`` (0 when there are none).
+
+        A bounded aggregate over the ``uq_run_events_scope_seq`` index — deliberately NOT
+        ``read_events``, which materialises every row (the local corpus holds a 36k-row
+        run) and is why the engine sink cannot allocate through
+        :meth:`append_event_next_seq`.
+        """
+        from sqlalchemy import func
+
+        from app.models.run_event import RunEvent
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(func.max(RunEvent.seq)).filter(RunEvent.run_id == run_id)
+            query = self._scope_owner_ws(query, RunEvent)
+            return int(query.scalar() or 0)
+        finally:
+            if owned:
+                session.close()
+
+    async def append_event_at_or_after(
+        self,
+        run_id: str,
+        seq: int,
+        event_id: str,
+        type: str,
+        payload_json: Any,
+        _max_attempts: int = 8,
+    ) -> int:
+        """Append ONE ``run_events`` row at ``seq`` — or past a writer that took it —
+        and return the seq it ACTUALLY landed on (FIX-240 / ISS-121).
+
+        The allocation policy for a writer that already HAS a seq in mind: the engine's
+        event sink, whose fast in-memory counter is the run's primary allocator. When the
+        chat lane (:meth:`append_event_next_seq`) has committed a row at ``seq`` first,
+        the insert is rejected by ``uq_run_events_scope_seq``; this re-derives the tail and
+        re-appends past it rather than letting the event fall out of the durable log.
+
+        The caller MUST re-stamp the returned seq onto the event it is about to emit:
+        ``run_stream`` renders the SSE ``id:`` cursor from ``row.seq`` on replay and from
+        ``data["seq"]`` live, so a durable row and a live frame that disagree corrupt
+        ``Last-Event-ID`` resumption.
+
+        A rejection is only retried when the tail actually REACHES the attempted seq. If
+        it does not, nothing occupies that seq and the constraint that fired was a
+        different one — a missing ``workflow_runs`` FK target (the offline
+        characterization harness) or a duplicate ``event_id`` — which retrying cannot
+        resolve. Those re-raise immediately, so the caller's degrade path still sees them
+        and the harness keeps its contiguous 1,2,3,… seqs (SAFE-03).
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        attempt_seq = int(seq)
+        last_rejection: IntegrityError | None = None
+        for _ in range(max(1, _max_attempts)):
+            try:
+                await self.append_event(run_id, attempt_seq, event_id, type, payload_json)
+                return attempt_seq
+            except IntegrityError as rejected:
+                last_rejection = rejected
+                # An injected session is left in a failed transaction by the rejected
+                # flush; roll it back before the tail probe (a fresh/owned session was
+                # already closed by append_event's finally). Same idiom as
+                # append_event_next_seq.
+                if self._session is not None:
+                    self._session.rollback()
+                tail = await self._max_event_seq(run_id)
+                if tail < attempt_seq:
+                    raise
+                attempt_seq = tail + 1
+        # Exhaustion re-raises the DB's OWN rejection rather than a RuntimeError, so the
+        # engine sink's degrade branch (which narrows to SQLAlchemyError, treating anything
+        # else as a real bug worth propagating) still absorbs it: a contended run must
+        # never break the live event stream.
+        raise last_rejection  # type: ignore[misc]  # set: the loop body always ran
 
     # ------------------------------------------------------------------
     # DeepLinkNonce — owner+workspace-scoped single-use deep-link store (WR-02)

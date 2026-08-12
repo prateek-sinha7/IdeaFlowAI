@@ -428,12 +428,21 @@ class _RunEventSink:
 
     async def persist(
         self, seq: int, event_id: str, type: str, payload_json: dict
-    ) -> None:
-        """Append one ``run_events`` row for the stamped event (best-effort)."""
+    ) -> int | None:
+        """Append one ``run_events`` row for the stamped event (best-effort).
+
+        Returns the seq the row ACTUALLY landed on, or ``None`` when the sink is unarmed
+        or the write degraded. ``seq`` is a REQUEST, not a guarantee: the chat lane writes
+        into the same per-run seq space on every turn, so a live run's engine event can
+        find its seq already taken (FIX-240 / ISS-121). ``append_event_at_or_after``
+        re-appends past the racing writer instead of losing the row; the caller must
+        re-stamp the returned seq onto the event it is about to yield, because the SSE
+        ``id:`` cursor is ``row.seq`` on replay and ``data["seq"]`` live.
+        """
         if self._store is None or self._run_id is None:
-            return
+            return None
         try:
-            await self._store.append_event(
+            return await self._store.append_event_at_or_after(
                 self._run_id, seq, event_id, type, payload_json
             )
         except Exception as exc:  # noqa: BLE001 — never break the live stream
@@ -451,6 +460,7 @@ class _RunEventSink:
                 "stream unaffected (PERSIST-03 best-effort)",
                 self._run_id, seq, exc,
             )
+            return None
 
 
 PLANNER_TIMEOUT_SECONDS = 120.0  # SmartPlanner: single call (generous — large chained prompts run slower). On timeout it defaults to PROCEED, so it never discards agent work.
@@ -1062,7 +1072,20 @@ class ExecutionEngine:
                 data["event_id"] = event_id
                 # Durable sink (best-effort — see docstring). Persist the now-stamped
                 # event; a DB/FK failure must not break the live stream.
-                await sink.persist(seq, event_id, event.get("type", ""), data)
+                #
+                # FIX-240 (ISS-121): the row may land PAST the requested seq — the chat
+                # lane allocates from this same per-run space on every turn, so a live
+                # run's engine event can find its seq already taken. Re-stamp the seq the
+                # row actually got and advance the allocator past it: the SSE id: cursor
+                # is row.seq on replay but data["seq"] live, so a divergence corrupts
+                # Last-Event-ID resumption. Identical to the milestone-card re-sync below.
+                # ``None`` (unarmed sink / degraded write — the goldens) ⇒ no re-stamp, so
+                # the offline seq stays contiguous 1,2,3,… (SAFE-03 / INV-3).
+                actual_seq = await sink.persist(seq, event_id, event.get("type", ""), data)
+                if actual_seq is not None and actual_seq != seq:
+                    data["seq"] = actual_seq
+                    if actual_seq >= next_seq:
+                        next_seq = actual_seq + 1
                 yield event
                 # A.4 (Phase 43, DEF-43-03-1): project + persist a chat_reply milestone card for
                 # this event via the INJECTED narrator callback (self-filtering; DORMANT when
@@ -8533,7 +8556,16 @@ class ExecutionEngine:
                 event_id = str(uuid.uuid4())
                 data["seq"] = seq
                 data["event_id"] = event_id
-                await sink.persist(seq, event_id, event.get("type", ""), data)
+                # FIX-240 (ISS-121): re-stamp the seq the row ACTUALLY landed on and
+                # advance the allocator past it — a resumed run is exactly as exposed to
+                # the chat lane's concurrent seq allocation as a launched one, and the
+                # live push below carries data["seq"] onto the wire. Same contract as the
+                # execute() wrapper (engine.py:1065).
+                actual_seq = await sink.persist(seq, event_id, event.get("type", ""), data)
+                if actual_seq is not None and actual_seq != seq:
+                    data["seq"] = actual_seq
+                    if actual_seq >= next_seq:
+                        next_seq = actual_seq + 1
                 # 12-09 Gap 2a: ALSO push the resumed event onto the WS live
                 # queue (when the bridge is wired) so a connected/reconnecting
                 # client receives the resumed tail incl. pipeline_complete in
