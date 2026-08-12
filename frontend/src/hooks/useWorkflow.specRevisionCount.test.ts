@@ -30,6 +30,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { deriveSpecRevisionCount, handlePipelineMessage } from "./useWorkflow";
+import { EMPTY_STATE, runFrames } from "./__fixtures__/reducerHarness";
 import type { PipelineRunState } from "@/types/index";
 
 const RUN_ID = "d5dbc9f2-dbe8-480f-8b13-788794a6788e";
@@ -119,35 +120,6 @@ const BUILD_LOOP_FRAMES: Array<{ type: string; [k: string]: unknown }> = [
   ]),
   start("prototype-validate"), complete("prototype-validate"),
 ];
-
-const EMPTY_STATE: PipelineRunState = {
-  isRunning: false,
-  pipeline_type: "",
-  agents: [],
-  currentAgentIndex: -1,
-  totalDuration: null,
-  completedCount: 0,
-};
-
-/**
- * Feed frames through the reducer the way `useRunStateStore.handleFrame` does:
- * a synchronous dispatch that writes straight back into the same object. This is
- * the replay model — one tight loop with no React commit between frames.
- */
-function runFrames(frames: Array<{ type: string; [k: string]: unknown }>): PipelineRunState {
-  let state: PipelineRunState = { ...EMPTY_STATE };
-  const times = { current: {} as Record<string, number> };
-  for (const f of frames) {
-    handlePipelineMessage(
-      f,
-      ((updater) => {
-        state = typeof updater === "function" ? (updater as (p: PipelineRunState) => PipelineRunState)(state) : updater;
-      }) as React.Dispatch<React.SetStateAction<PipelineRunState>>,
-      times,
-    );
-  }
-  return state;
-}
 
 /** The number the banner renders, computed exactly as `useRunStateStore` computes it. */
 const bannerCount = (state: PipelineRunState): number => deriveSpecRevisionCount(state);
