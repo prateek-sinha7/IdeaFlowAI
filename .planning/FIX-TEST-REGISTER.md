@@ -34,6 +34,7 @@
 | TEST-022 | FIX-238 (quick-260812-lfv) | 2026-08-12 | `backend/tests/unit/test_iss102_live_model_guard.py` (new), `backend/tests/conftest.py`, `backend/tests/unit/test_chat_messages_endpoint.py` | 6 | 6 | 0 | ✅ Pass |
 | TEST-023 | FIX-239 (quick-260812-mq5) | 2026-08-12 | `backend/tests/agents/test_iss034_cost_full.py` (new), `backend/tests/unit/test_analytics_api.py`, `frontend/src/components/analytics/AnalyticsPage.test.tsx` | 17 | 17 | 0 | ✅ Pass |
 | TEST-024 | FIX-240 (quick-260812-ppu) | 2026-08-12 | `backend/tests/unit/test_run_events.py`, `backend/tests/unit/test_sse_stream.py` | 3 | 3 | 0 | ✅ Pass |
+| TEST-025 | FIX-241 (quick-260812-sgu) | 2026-08-12 | `backend/tests/unit/test_rest_gate_commands.py` | 13 | 13 | 0 | ✅ Pass |
 
 ---
 
@@ -1996,3 +1997,97 @@ implies. A naive "retry on IntegrityError" would therefore have fired 8 attempts
 every golden **and** re-stamped the seq. The shipped discriminator - retry only when the measured
 tail actually reaches the attempted seq - re-raises immediately in that case, which is why the
 goldens stay 10 passed with 0 files moved.
+
+---
+
+### TEST-025 — FIX-241 (quick-260812-sgu): ISS-070 — the gate action that approved a denial
+
+```
+TEST COVERAGE — FIX-241
+Unit tests:        13 in backend/tests/unit/test_rest_gate_commands.py  (15 -> 28)  -> ALL GREEN
+                   (1 unknown-action refusal + 10 parametrised denial variants
+                    + 1 bare-POST default pin + 1 vocabulary set-equality)
+Integration tests: N/A - no new IO boundary. Every case already drives the REAL FastAPI route
+                   through a TestClient over the real `run_commands` router, the REAL
+                   ArtifactStore singleton, and the REAL owner/terminal predicates against
+                   in-memory SQLite - i.e. the HTTP boundary IS what is under test.
+Frontend tests:    N/A - zero frontend files changed (`git status` shows 2 backend files).
+                   `frontend/src/lib/api.ts:694` already declares the closed union
+                   `"approve" | "reject" | "redo" | "update_specs"`; this fix makes the server
+                   ENFORCE what the TS type only annotated, so no FE edit is required or wanted.
+Goldens:           0 failed / 10 passed - IDENTICAL to the pre-change commit e6b24ae5,
+                   and 0 golden FILES modified (`git status --porcelain -- golden/` empty)
+lint-imports:      4 kept / 0 broken - IDENTICAL to e6b24ae5
+Pre-existing reds: 14 failed / 104 passed across the 5 gate-adjacent suites
+                   (test_chat_messages_endpoint, test_gates, test_declared_gate_streaming,
+                    test_mechanical_router, test_rest_run_launch) - IDENTICAL ID SET to
+                   e6b24ae5, re-measured by swapping in `git show HEAD:...run_commands.py`
+                   and diffing the sorted FAILED lines (never a stash).
+                   Plus 2 failed / 70 passed on the directly-affected four suites, the two ids
+                   being the known pre-existing
+                   test_concierge_proposal_channels::test_confirm_round_trip_executes_revision_seam
+                   and test_attach_replay_matrix::test_last_event_id_header_resumes_over_http.
+ruff:              3 errors on run_commands.py - IDENTICAL to e6b24ae5 (F401 :482, E402 :1852,
+                   F841 :2425), all outside the changed regions; line numbers shifted only.
+Regression guards:
+  - test_case_and_whitespace_variants_of_reject_never_approve: the headline. Ten spellings a
+    real user could plausibly send to STOP a run - 'Reject', 'REJECT', ' reject', 'reject\n',
+    'rejct', 'no', 'deny', 'Redo', 'redo ', 'update-specs' - must each be refused, write
+    NOTHING to the store, and leave the review event ARMED.
+  - test_unknown_gate_action_is_refused_not_approved: pins the three-part contract (refused /
+    nothing written / gate still armed) on a single typo, so the intent survives if the
+    parametrise list is ever edited.
+  - test_bare_gate_post_still_defaults_to_approve: the REGRESSION PIN. `action` must stay
+    OPTIONAL with its `approve` default. Green BEFORE and AFTER - it is the only test here
+    that was never red, and that is the point.
+  - test_gate_action_literal_matches_the_single_vocabulary_authority: INV-12. Set-equality
+    between the schema Literal and `chat_router.GATE_ACTIONS`, so a fifth action cannot be
+    added to one home and silently diverge from the other.
+```
+
+**Seen RED first — 12 of the 13, at `e6b24ae5`, verbatim:** `12 failed, 16 passed`. The ten
+parametrised variants each failed as `AssertionError: action='...' was accepted: {"ok":true,
+"action":"...","gate_key":"..."}` / `assert 200 in (400, 422)`; the set-equality case failed as
+`set() != {'redo', 'update_specs', 'reject', 'approve'}` (a bare `str` annotation has no
+`get_args`). The 13th, `test_bare_gate_post_still_defaults_to_approve`, was green before and
+after by design.
+
+**The laundering, observed rather than inferred.** A throwaway in-process probe against the
+HEAD endpoint printed what the STORE actually received, not just the HTTP status:
+
+```
+action='reject'         HTTP200 approved=False stored_action='approve'    gate_still_armed=False
+action='Reject'         HTTP200 approved=True  stored_action='approve'    gate_still_armed=False
+action='rejct'          HTTP200 approved=True  stored_action='approve'    gate_still_armed=False
+action='update-specs'   HTTP200 approved=True  stored_action='approve'    gate_still_armed=False
+```
+
+Every garbage action persisted `action="approve"` while the HTTP response echoed the raw string
+back. After the fix the same probe reads `HTTP422 / approved=None / stored_action=None /
+gate_still_armed=True` for all ten. Note row 1: a legitimate `reject` ALSO stores
+`action="approve"` — functionally inert (the engine keys on `approved`, `engine.py:5852`/`:5859`)
+and deliberately left alone as out of scope; recorded here so it is not rediscovered.
+
+**Both layers mutation-proved independently — the reason there are two.**
+
+| Mutation | Result on the ten variants |
+|---|---|
+| Layer A reverted (`action: str`), Layer B kept | all **HTTP400** from the dispatch's fail-closed `else`; nothing stored; gate armed. 12 passed. |
+| Layer B reverted (`else: # approve`), Layer A kept | all **HTTP422** from the schema; nothing stored; gate armed. 12 passed. |
+
+Neither layer is decoration: A validates the wire and publishes the enum, B holds for any
+in-process caller or a future fifth `Literal` member added without a branch.
+
+**Traps this suite exists to survive.** (1) `test_attach_replay_matrix.py:551` posts
+`{"gate_key": ...}` with no `action` key at all; a `Literal[...] = "approve"` keeps it green,
+making `action` *required* would not — verified after the change that OpenAPI still reports
+`required: ['gate_key']` with `"default": "approve"` alongside the new enum. (2)
+`test_rest_gate_commands.py:362` is a grep-ratchet reading `resolve_gate`'s SOURCE TEXT for the
+literal substring `action == "redo"`; refactoring the if/elif chain into a dict or `match`
+turns it red, so only the `else` branches were touched and `:253`/`:257`/`:268` are byte-identical.
+
+**Why the goldens cannot protect this, stated as a limitation rather than a pass:**
+`grep -c review_gate_ready` returns **0 for all 15 golden files** — they compile
+`gate_agent_ids=[]`, so no golden contains any gate event at all. They are the NEUTRALITY gate
+here (proof nothing else moved), never the detection gate — the same framing FIX-232 and FIX-240
+both recorded.

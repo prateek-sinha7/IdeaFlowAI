@@ -3,7 +3,7 @@
 
 # Rules in force
 
-1 decisions · built 2026-08-12 18:51
+1 decisions · built 2026-08-12 20:45
 
 These constrain new work. A change that contradicts one of these is a defect,
 not a preference — either follow it or supersede the decision explicitly.

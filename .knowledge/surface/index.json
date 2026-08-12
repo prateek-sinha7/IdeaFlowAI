@@ -1,5 +1,5 @@
 {
-  "count": 679,
+  "count": 681,
   "entries": [
     {
       "area": [
@@ -5620,6 +5620,27 @@
     },
     {
       "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "backend/tests/unit/test_rest_gate_commands.py"
+      ],
+      "id": "FIX-241",
+      "path": ".knowledge/cards/FIX-241.md",
+      "source": ".planning/FIX-REGISTER.md#fix-241",
+      "status": "done",
+      "summary": "A human-in-the-loop gate that fails OPEN: every near-miss of a DENIAL silently APPROVED (ISS-070). resolve_gate dispatched on action with else: # approve (default) as the fallback (run_commands.py:272), an exact, case-sensitive",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -6796,15 +6817,13 @@
       "type": "issue"
     },
     {
-      "area": [
-        "auth"
-      ],
+      "area": [],
       "date": "",
       "files": [],
       "id": "ISS-070",
       "path": ".knowledge/cards/ISS-070.md",
       "source": ".planning/ISSUES-REGISTER.md#iss-070",
-      "status": "open",
+      "status": "done",
       "summary": "The gate-action discriminator is unvalidated, and an unknown action silently APPROVES. run_commands.py resolve_gate dispatches on action with else: # approve as the fallback, so any unrecognised string \u2014 a typo, a stale client, a probe",
       "type": "issue"
     },
@@ -7966,6 +7985,21 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-126",
       "status": "open",
       "summary": "FIX-240's data-repair guard only covers the CURSORED reattach; a fresh reopen of an already-corrupted run still renders an open gate",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-127",
+      "path": ".knowledge/cards/ISS-127.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-127",
+      "status": "open",
+      "summary": "GateCommand.analysis_report has no length cap anywhere on its path into the composed prompt. Traced end to end at e6b24ae5: run_commands.py:115 (`analysis_report: str \\",
       "type": "issue"
     },
     {
@@ -10835,10 +10869,10 @@
   ],
   "facets": {
     "area": {
-      "agents": 264,
+      "agents": 266,
       "artifacts": 106,
-      "auth": 107,
-      "backend": 113,
+      "auth": 108,
+      "backend": 114,
       "cost": 1,
       "docs": 4,
       "engine": 8,
@@ -10848,17 +10882,17 @@
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 71,
+      "resume": 72,
       "runtime": 36,
-      "sse": 192,
+      "sse": 193,
       "test": 3,
       "test-infra": 15,
       "tooling": 2,
-      "workflow": 223
+      "workflow": 225
     },
     "status": {
       "accepted": 1,
-      "done": 608,
+      "done": 610,
       "open": 61,
       "shipped": 1
     },
@@ -10866,8 +10900,8 @@
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 237,
-      "issue": 125,
+      "fix": 238,
+      "issue": 126,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10885,5 +10919,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 18:51"
+  "generated": "2026-08-12 20:45"
 }

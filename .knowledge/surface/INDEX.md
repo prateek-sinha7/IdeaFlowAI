@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-679 cards · rules 1 · fixes 237 · issues 125 · phases 23 · built 2026-08-12 18:51
+681 cards · rules 1 · fixes 238 · issues 126 · phases 23 · built 2026-08-12 20:45
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (237)
+## Fixes (238)
 
+FIX-241 2026-08-12 [backend,sse,resume,workflow,agents,auth] A human-in-the-loop gate that fails OPEN: every near-miss of a DENIAL silently APPROVED (ISS-070). resolve_gate dispatched on action with else: # approve (default) as the fallback (run_commands.py:272), an exact, case-sensitive
 FIX-240 2026-08-12 [backend,sse,resume,workflow,agents,auth] Every chat turn during a live run silently destroyed one engine event from the durable log (ISS-121). The register row's own root cause was WRONG and is corrected in place
 FIX-239 2026-08-12 [backend,frontend,sse,workflow,agents,auth] The product could not tell you whether prompt caching was saving money or costing it — and the obvious version of this feature would have printed a catastrophic wrong number on day one. ISS-034 asked for "saved $Y (Z%)"
 FIX-238 2026-08-12 [backend,sse,agents,auth,artifacts] The offline unit suite made REAL, billable AWS Bedrock calls, and nothing in the repo could have stopped it (ISS-102) — Nothing anywhere asserted that an offline test may not reach a live model
@@ -252,8 +253,9 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (125)
+## Issues (126)
 
+ISS-127 - [workflow,agents,auth] GateCommand.analysis_report has no length cap anywhere on its path into the composed prompt. Traced end to end at e6b24ae5: run_commands.py:115 (`analysis_report: str \
 ISS-126 - [sse] FIX-240's data-repair guard only covers the CURSORED reattach; a fresh reopen of an already-corrupted run still renders an open gate
 ISS-125 - [resume,engine] _stamp_resume_marker still allocates its seq the slow, unprotected way. engine.py:6309-6311 reads the ENTIRE durable log (store.read_events(run_id, after_seq=0)) to compute max(seq)+1
 ISS-124 - [sse,backend] Two app-layer synthesised pipeline_cancelled frames never persist a durable row at all — a different cause with the same reopen symptom as ISS-121
@@ -309,7 +311,7 @@ ISS-074 - [backend,resume,agents,auth,artifacts,test-infra] The LIVE harness's r
 ISS-073 - [frontend,sse,test-infra] A stale frontend test asserts a layout the component deliberately abandoned. frontend/src/components/chat/InlineGateActions.test.tsx:54 ("renders exactly two primary buttons") asserts queryByTestId("chat-gate-update-specs") is null before
 ISS-072 - [sse,resume,agents,artifacts] Collapse the doubled analyze gate by suppressing the IN-PASS firing [1], not the re-opened one. One "Update the Specs" click still costs four approvals. FIX-220 made the firings identifiable but suppressed nothing
 ISS-071 - [workflow,agents,artifacts] The "Update the Specs" affordance is advertised at EVERY gate on every non-prototype workflow. _update_specs_eligible keys on artifact_kind in {"summary"}
-ISS-070 - [auth] The gate-action discriminator is unvalidated, and an unknown action silently APPROVES. run_commands.py resolve_gate dispatches on action with else: # approve as the fallback, so any unrecognised string — a typo, a stale client, a probe
+ISS-070 - [-] The gate-action discriminator is unvalidated, and an unknown action silently APPROVES. run_commands.py resolve_gate dispatches on action with else: # approve as the fallback, so any unrecognised string — a typo, a stale client, a probe
 ISS-069 - [tooling,test-infra] FIX-REGISTER drift — the ISS-066 defect, in the other register. 11 FIX-NNN ids are in active use with NO row in .planning/FIX-REGISTER.md: FIX-020 (commit messages only), FIX-128, FIX-129 (both: register prose mentions + cards + code)
 ISS-068 - [sse,test-infra] Measured repeatedly 2026-08-11 across quick-260811-mxg and -si4. NOTE: an older memory recorded "10 failed / 6 passed" — that was stale feat/ui-2 data; the current figure is 5/5
 ISS-067 - [backend,sse,agents,test-infra] .kiro/steering/velocity-ai-fix.md carries five facts that are wrong on this machine and will mislead any agent that follows it: (1) it prescribes uv run --no-sync pytest but backend/.venv does NOT exist, so every command in it fails
