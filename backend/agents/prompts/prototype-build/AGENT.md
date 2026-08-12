@@ -7,6 +7,7 @@ estimated_duration: 60.0
 guardrails:
 - html-prototype
 - accessibility
+icon: "🏗️"
 id: prototype-build
 injects:
 - template

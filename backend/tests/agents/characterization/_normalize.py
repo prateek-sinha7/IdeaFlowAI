@@ -200,6 +200,21 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # the ``chat_reply`` card discriminators are stable, so neither is stripped.
         "message_id",
         "replayed_through_seq",
+        # ── Additive-but-parity-neutral pipeline_start key (KAN-120 / ISS-068) ───
+        # The engine stamps ``resume_offset`` on ``pipeline_start`` — how many leading
+        # agents a resumed run skips — so the FE can mark them "done" immediately
+        # instead of waiting for the durable SSE replay. It is 0 on every non-resumed
+        # run, and the characterization harness never resumes, so it is 0 in all 5
+        # goldens; but a key whose VALUE is 0 is still a NEW KEY, and the snapshot
+        # compares whole canonical-JSON dicts — which is why all 5 event goldens went
+        # red when it landed. ``_REQUIRED_DATA_KEYS`` has no ``pipeline_start`` entry
+        # at all, so this is metadata-only and stripping it cannot weaken the
+        # required-keys assertion; resume-offset behaviour is pinned directly by
+        # ``test_restart_resume.py``, so no oracle power is lost. Stripping (rather
+        # than regenerating) keeps all 5 golden files byte-untouched — maximum INV-3
+        # conservation — mirroring the deliverable_mimetype / redoable / cache_* /
+        # image_count precedents above.
+        "resume_offset",
     }
 )
 

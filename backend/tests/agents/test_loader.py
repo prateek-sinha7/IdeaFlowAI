@@ -558,3 +558,44 @@ class TestSchemaValidationAllAgents:
                 f"Agent {agent_id!r}: pipeline_type={spec.pipeline_type!r} "
                 f"is not in SUPPORTED_PIPELINE_TYPES"
             )
+
+    def test_all_agents_declare_an_explicit_icon(self):
+        """TEST-008 / ISS-068 C2: every AGENT.md must DECLARE an explicit ``icon:``.
+
+        This reads the RAW frontmatter, deliberately NOT ``spec.icon`` — the loader
+        substitutes a default ``"🤖"`` for a missing key, so a ``spec.icon`` assertion
+        is true by construction and pins nothing.
+
+        Why this pin exists: commit ``f608e4bc`` (FIX-190) appended an ``accessibility``
+        guardrail to four prototype-family agents. In three of them the ``+`` line was a
+        pure insertion; in ``prototype-build/AGENT.md`` it landed ON TOP OF the
+        ``icon: "🏗️"`` line, silently deleting it. The agent then fell through to the
+        ``"🤖"`` default, changing the icon in ``pipeline_start.agents[]`` and every
+        ``agent_start`` — a user-visible UI regression that config review, code review
+        and CI all missed. Only the ``prototype``/``od_prototype`` characterization event
+        goldens caught it, ~6 days later. ``icon`` is contractual: it is a member of
+        ``_REQUIRED_DATA_KEYS["agent_start"]``.
+
+        An icon-less agent is therefore always a mistake, never a design choice: it makes
+        the UI silently lie and it moves a golden. Adding a new agent means giving it an
+        icon.
+        """
+        import frontmatter  # python-frontmatter — same parser agents/loader.py uses
+        import agents.loader as _loader
+
+        agent_ids = self._discover_agent_ids()
+        assert agent_ids, "No agent directories found"
+
+        missing: list[str] = []
+        for agent_id in agent_ids:
+            raw = (_loader._PROMPTS_DIR / agent_id / "AGENT.md").read_text(encoding="utf-8")
+            declared = frontmatter.loads(raw).metadata.get("icon")
+            if not isinstance(declared, str) or not declared.strip():
+                missing.append(agent_id)
+
+        assert not missing, (
+            f"{len(missing)} of {len(agent_ids)} AGENT.md files do not declare an "
+            f"explicit `icon:` and will silently fall back to the loader default '🤖', "
+            f"changing what the UI shows and moving the characterization event goldens: "
+            f"{sorted(missing)}. Add an `icon:` line to each — do NOT relax this test."
+        )
