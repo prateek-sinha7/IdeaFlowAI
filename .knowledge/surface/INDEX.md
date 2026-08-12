@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-632 cards · rules 1 · fixes 225 · issues 90 · phases 23 · built 2026-08-12 06:30
+634 cards · rules 1 · fixes 226 · issues 91 · phases 23 · built 2026-08-12 06:59
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (225)
+## Fixes (226)
 
+FIX-229 2026-08-12 [sse,resume,workflow,agents,artifacts] A user who resumes a run parked at a review gate and then REJECTS at that gate had the run recorded in history as completed. The rejection was silently discarded from the record and the deliverable appeared accepted
 FIX-228 2026-08-12 [resume,agents,auth,artifacts] "Request changes" (redo) at an agent's gate re-ran that agent with the user's instruction and WITHOUT the document the instruction was about, so the model wrote only the delta and the previous work was destroyed
 FIX-227 2026-08-12 [sse,resume,auth] There was NO way for anyone — user or operator — to stop a running build once it had crossed a backend restart, and every un-stoppable od_prototype build costs 5–21M Bedrock tokens of the owner's money
 FIX-226 2026-08-12 [frontend,sse,agents,artifacts] The ISS-065 artifact-version picker only moved the raw output — the prominent artifact CARD kept rendering the LATEST version, so the owner selected v1, saw v3's page grid, and reported "while changing the version there
@@ -240,8 +241,9 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (90)
+## Issues (91)
 
+ISS-091 - [sse,resume,workflow,agents,auth,runtime,engine] Rejecting at a review gate does not STOP the pipeline: every remaining step still runs and the run ends on pipeline_complete. Measured at 99fcf4a2 — i.e. WITH FIX-227 and FIX-228 already landed, so FIX-227 does NOT cover this
 ISS-090 - [resume,agents,artifacts] redoable has no eligibility fence — unlike update_specs_eligible it is an inline True literal at all three gate call sites, so ANY agent named in a per-run gate_agent_ids gets a Redo button with no server-side rule
 ISS-089 - [sse,resume,workflow,auth] A cancel is purely in-process, so a Stop that arrives when no driver is live is lost — and the next boot auto-resumes the run the owner just tried to stop
 ISS-088 - [sse,resume,auth] The local backend cannot be stopped by SIGTERM while any run is streaming, so shutdown_run_infrastructure() never executes locally at all — and even where it does execute it does not stop the runs

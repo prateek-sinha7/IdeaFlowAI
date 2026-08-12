@@ -22,6 +22,7 @@
 | TEST-010 | FIX-226 (quick-260812-77g) | 2026-08-12 | `frontend/src/components/results/AgentDetailPanel.tsx` | 4 | 4 | 0 | ✅ Pass |
 | TEST-011 | FIX-227 (quick-260812-7sk) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/app/api/run_engine.py`, `backend/app/main.py`, `backend/app/api/run_commands.py`, `backend/app/api/run_shutdown.py` | 9 | 9 | 0 | ✅ Pass |
 | TEST-012 | FIX-228 (quick-260812-8j4) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 11 | 11 | 0 | ✅ Pass |
+| TEST-013 | FIX-229 (quick-260812-97f) | 2026-08-12 | `backend/app/api/run_commands.py`, `backend/tests/agents/test_restart_resume.py` | 60 | 60 | 0 | ✅ Pass |
 
 ---
 
@@ -987,3 +988,121 @@ Regression guards:
                    after, sha256 9f84b82e3736f045bde1c243770de255782252315e11cafceedc1a876b5bd24c
                    — identical (INV-3, and the one thing the goldens cannot show)
 ```
+
+---
+
+### TEST-013 — FIX-229 (quick-260812-97f): ISS-078's seven reds — six were the tests
+
+**File:** `backend/tests/agents/test_restart_resume.py` — **60 passed / 0 failed**, up from the
+**7 failed / 48 passed** ISS-078 baseline measured at `99fcf4a2`. Offline: no Bedrock, no
+Postgres, no Chromium; the whole file runs in ~4.5 s.
+
+**The headline finding: only ONE of the seven was a product defect.** Five were fixture drift
+and one was a stale stub. The register's live hypothesis — *"resume re-invokes completed work
+and duplicates token spend"* — is **not supported**, and the recommended remedy would have made
+it worse.
+
+**Why the five fixtures could not pass.** `_first_incomplete_step` classifies a step complete
+only when its typed artifact is corroborated by a terminal `agent_complete` (FIX-121). Every
+one of the five fixtures persisted **zero** `run_events`, so that evidence could not exist in
+them by construction:
+
+* **#1 `test_midwave_resume_does_not_reinvoke_completed_workers`** and
+  **#6 `test_failed_run_resumes_skips_completed_tasks`** drove `engine._execute_impl` directly
+  (`:431`, `:3049`). The durable `_RunEventSink` is built in the **public** entry
+  (`engine.py:1020`, persisted at `:1065`); `_execute_impl` persists nothing. Both tests
+  described themselves as end-to-end while silently skipping the durability layer their own
+  premise depends on. **Fixed by driving `execute()`** — instance A now writes its own durable
+  rows, which is what these two always claimed to prove. This makes them *stronger*, not
+  weaker: the repair is the assertion.
+* **#2 `test_open_gate_override_is_noop_without_review_gate`**, **#3
+  `test_partial_task_loop_build_reenters_step_not_skipped`**, **#4
+  `test_completed_task_loop_build_stays_complete_no_rerun`** hand-seeded `ArtifactRef` rows
+  only. A real run persists an `agent_complete` beside every produced artifact
+  (`engine.py:4392`); the fixtures now do too. #3/#4 were failing at **index 0 on the PLAN
+  step** and never reaching the `task_loop` branch they exist to exercise.
+* **#5 `test_resumed_run_is_wired_live_ectx_and_milestone_cards`** — the milestone-card stub at
+  `:2642` returned a 3-tuple against the 4-tuple contract
+  (`chat_narrator.persist_milestone_card:287-289`, unpacked at `engine.py:1077` and `:8491`).
+  It broke the **resumed drive itself** — `resumed-stream drive failed mid-drive: not enough
+  values to unpack (expected 4, got 3)` at `engine.py:8509`, swallowed by the drive's
+  `except Exception` — and the test then tripped on its own list. One line.
+
+**The engine predicate was NOT loosened, and that was the decision of this task.** The prior
+investigation recommended replacing the predicate with an interruption test
+(`agent_id in agent_start_events and agent_id not in agent_complete_events`). Rejected on
+measured evidence, read-only against the live `backend/dev.db`:
+
+```
+runs with artifacts: 14
+DIFFERENTIAL SET (no agent_start AND no agent_complete): 27
+  producers: [('deep-planner', 14), ('clarify-agent', 13)]
+SEC 5.2 SET (agent_start present, agent_complete missing): 0
+```
+
+1. The scenario it was argued from — a lost `agent_complete` write making a step permanently
+   unskippable — has **never occurred** (count 0), and the proposal is a **no-op for it
+   anyway**: `agent_start` present + `agent_complete` missing is `_interrupted=True` under the
+   proposal, i.e. still re-run, byte-identical to today.
+2. Its entire live differential is 27 rows produced by `deep-planner` / `clarify-agent`, and
+   **neither appears in any `agents/workflows/*/workflow.yaml` step list nor in
+   `registry.PIPELINE_AGENTS`** (grep: zero hits). They are never members of `ordered_agents`,
+   so the classifier never evaluates them.
+
+So the proposal changes production behaviour for **zero ordered pipeline steps**, and its only
+observable effect anywhere is that five broken fixtures go green. That is loosening a
+production predicate to satisfy a test. FIX-121's fail-safe — absent terminal evidence,
+re-enter; never skip — stands untouched. **`engine.py` is byte-identical to `99fcf4a2`.**
+
+**Two shipped decisions had NO test at all; both are now pinned.**
+
+| # | Test | Property | Pre-fix |
+|---|------|----------|---------|
+| 1 | `test_artifact_without_agent_complete_is_reentered_not_skipped[start_only]` | FIX-121: an artifact whose agent has an `agent_start` and **no** terminal event was stopped mid-flight ⇒ re-enter. This is the user-reported bug `c71f3d9c` fixed (Stop during the Spec Kit Analyzer re-raises `CancelledError` without emitting `agent_error`, `engine.py:4521-4522`) | RED under the pre-FIX-121 artifact-alone predicate: `idx=2`, expected `0` |
+| 2 | `test_artifact_without_agent_complete_is_reentered_not_skipped[none]` | the same invariant with no lifecycle rows at all — absence of evidence is never evidence of completion | RED, same mutation |
+| 3 | `test_reconcile_supersedes_only_across_an_attempt_boundary[same-attempt-rejection]` | FIX-229: a rejection and the trailing `pipeline_complete` in ONE attempt keep the cancellation | RED — reconciled to `completed` |
+| 4 | `…[later-attempt-completes]` | KAN-120's genuine case still supersedes ⇒ `completed` | GREEN before **and** after |
+| 5 | `…[later-attempt-rejects]` | a rejection in a later attempt than a completion is still a rejection | GREEN before **and** after |
+| 6 | `test_failed_run_with_open_gate_resumes_into_gate` (existing, red #7) | end-to-end: resume into the gate, reject, run recorded `cancelled` | RED — `completed` |
+
+Cases 4 and 5 stay green under the FIX-229 mutation **on purpose**: they prove the new clause
+discriminates exactly the one behaviour it changes and leaves KAN-120 alone. A pin that went
+red for every mutation would not tell us that.
+
+**RED-before evidence, observed not inferred.** Each mutation was applied to the shipped file,
+run, and reverted; `git diff` confirmed byte-identical restoration afterwards.
+
+```
+baseline at 99fcf4a2                    : 7 failed / 48 passed
+after the fixture + stub repairs        : 2 failed / 58 passed   (commit 1c7569db, measured)
+after FIX-229                           : 60 passed / 0 failed   (commit d3184e10)
+
+predicate mutated to pre-FIX-121 form   : pins 1+2 RED (idx=2, expected 0)
+resume_supersedes mutated to bare-seq   : pin 3 + red #7 RED ('completed' != 'cancelled')
+```
+
+**Baselines, with the SHA they were compared against — all re-measured at `99fcf4a2`, not
+inherited:**
+
+```
+TEST COVERAGE — FIX-229
+Unit tests:        60 in backend/tests/agents/test_restart_resume.py   → ALL GREEN (was 7F/48P)
+Integration tests: N/A — the reconcile is exercised end-to-end by the same file's
+                   _drive_user_resume tests; no separate integration tier exists for it
+Frontend tests:    N/A — backend-only change
+Goldens:           0 failed / 10 passed — IDENTICAL to 99fcf4a2; no golden regenerated
+lint-imports:      4 kept / 0 broken   — IDENTICAL to 99fcf4a2
+Regression guards:
+  - protected 7 suites (redo contract/safety, cancel-resumed, update_specs ×2,
+    spec-revision cycles, gate discriminator): 52 passed — IDENTICAL to 99fcf4a2
+  - resume/cancel/shutdown adjacent (7 files): 44 passed — IDENTICAL to 99fcf4a2
+  - run_commands consumer sweep (14 files): 14 failed / 156 passed WITH the fix and
+    14 failed / 156 passed with the fix clause reverted — the reds are pre-existing and
+    untouched (measured both ways rather than labelled)
+  - tests/agents/test_gates.py: 3 failed / 39 passed — pre-existing at 99fcf4a2,
+    unrelated to ISS-078 and NOT currently in any register
+```
+
+**Not live-proven, deliberately.** No run was launched, resumed or gate-approved: one build is
+5–21M tokens of the owner's money, and this session's parent lost 16.5M to an accident. Every
+proof above is offline.

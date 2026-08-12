@@ -243,10 +243,15 @@
     ],
     "FIX-227": [
       "ISS-084",
-      "ISS-089"
+      "ISS-089",
+      "ISS-091"
     ],
     "FIX-228": [
-      "ISS-090"
+      "ISS-090",
+      "ISS-091"
+    ],
+    "FIX-229": [
+      "ISS-091"
     ],
     "ISS-007": [
       "ISS-035"
@@ -379,7 +384,8 @@
       "FIX-221"
     ],
     "ISS-078": [
-      "ISS-084"
+      "ISS-084",
+      "ISS-091"
     ],
     "ISS-080": [
       "ISS-081",
@@ -526,6 +532,7 @@
       "FIX-225",
       "FIX-226",
       "FIX-228",
+      "FIX-229",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -576,6 +583,7 @@
       "ISS-086",
       "ISS-087",
       "ISS-090",
+      "ISS-091",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -681,6 +689,7 @@
       "FIX-222",
       "FIX-226",
       "FIX-228",
+      "FIX-229",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -792,6 +801,7 @@
       "ISS-084",
       "ISS-088",
       "ISS-089",
+      "ISS-091",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -928,7 +938,8 @@
       "ISS-043"
     ],
     "engine": [
-      "ISS-078"
+      "ISS-078",
+      "ISS-091"
     ],
     "evals": [
       "BUG-007-sse",
@@ -1196,6 +1207,7 @@
       "FIX-225",
       "FIX-227",
       "FIX-228",
+      "FIX-229",
       "ISS-048",
       "ISS-051",
       "ISS-063",
@@ -1208,6 +1220,7 @@
       "ISS-088",
       "ISS-089",
       "ISS-090",
+      "ISS-091",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1244,6 +1257,7 @@
       "ISS-011",
       "ISS-018",
       "ISS-036",
+      "ISS-091",
       "PH-02-executioncontext-ownership-0b",
       "PH-08-capabilities-hardened-registry-gates-tool-per",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -1343,6 +1357,7 @@
       "FIX-225",
       "FIX-226",
       "FIX-227",
+      "FIX-229",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1382,6 +1397,7 @@
       "ISS-087",
       "ISS-088",
       "ISS-089",
+      "ISS-091",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1540,6 +1556,7 @@
       "FIX-222",
       "FIX-223",
       "FIX-225",
+      "FIX-229",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1577,6 +1594,7 @@
       "ISS-082",
       "ISS-084",
       "ISS-089",
+      "ISS-091",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -3008,6 +3026,12 @@
       "FIX-228",
       "ISS-053",
       "ISS-086"
+    ],
+    "ISS-091": [
+      "FIX-227",
+      "FIX-228",
+      "FIX-229",
+      "ISS-078"
     ]
   },
   "rules_by_file": {

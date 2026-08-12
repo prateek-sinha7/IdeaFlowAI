@@ -18,7 +18,7 @@ Where the project is right now, and what constrains a change to it. Every other 
 - Phase: ALL COMPLETE — 45 [R0] 4/4 · 46 [R1] 8/8 · 47 [R2] 4/4 · 48 [R3] 4/4 · 49 [R4] 5/5 (KAN-88 green) · 50 [R5] 5/5
 - Plan: 14/14 plans complete across 6 phases; register reconciliation batch appended; requirements RESUME-05..18 all Complete
 - Status: Milestone v3.0 OFFLINE-COMPLETE — remaining: the consolidated live-Bedrock pass (orchestrator-owned) + /gsd-complete-milestone (user step; v2.0 close-out also still pending)
-- Last activity: 2026-08-12 — Completed quick task 260812-8j4: **a redo now shows the agent its own prior output (ISS-086).** "Request changes" at an agent's gate re-ran that agent with the user's instruction and without the document the instruction was about, so the model wrote only the delta and the previous work was destroyed — live-measured at 12,542 → 3,495 chars with 0 of 7 headings kept, broken for every agent. FIX-228 completes the pair FIX-217 established (fresh checkpoint thread + prior-artifact injection), reusing that seam rather than building a parallel one and collapsing three `_gate_redo` consumers into one (FIX-228 / TEST-012; closes ISS-086, files ISS-090)
+- Last activity: 2026-08-12 — Completed quick task 260812-97f: **ISS-078's seven `test_restart_resume.py` reds were three causes, and six of them were the tests, not the engine.** The register's live hypothesis — a resume re-invoking completed work and burning tokens — is refuted: five fixtures persisted zero `run_events` (two of them bypassing the durable sink by calling `_execute_impl` instead of `execute()`), and one stub returned a 3-tuple against a 4-tuple contract. The recommended engine relaxation was **rejected on measured live-DB evidence** — zero effect on any ordered pipeline step, and a no-op for the very case it was argued from — so `engine.py` is byte-identical. The one real defect: a rejection at a gate on a resumed run was recorded as `completed`, because the reconcile confused *later seq* with *later attempt* (FIX-229 / TEST-013; closes ISS-078, files ISS-091). 7 failed / 48 passed → 60 passed / 0 failed
 
 ## Enforced boundaries
 
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (230), `workflow` (203), `frontend` (188), `sse` (159), `artifacts` (95), `backend` (93), `auth` (88), `resume` (59).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (232), `workflow` (205), `frontend` (188), `sse` (161), `artifacts` (96), `backend` (93), `auth` (89), `resume` (61).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 253 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 254 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.
