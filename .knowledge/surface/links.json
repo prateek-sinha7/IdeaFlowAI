@@ -120,7 +120,8 @@
       "ISS-063"
     ],
     "FIX-164": [
-      "ISS-063"
+      "ISS-063",
+      "ISS-080"
     ],
     "FIX-166": [
       "FIX-177"
@@ -213,7 +214,8 @@
       "FIX-222",
       "ISS-065",
       "ISS-075",
-      "ISS-076"
+      "ISS-076",
+      "ISS-080"
     ],
     "FIX-222": [
       "FIX-221",
@@ -299,7 +301,8 @@
       "FIX-221",
       "FIX-222",
       "ISS-065",
-      "ISS-075"
+      "ISS-075",
+      "ISS-080"
     ],
     "ISS-064": [
       "ISS-050",
@@ -342,7 +345,8 @@
       "FIX-220"
     ],
     "ISS-075": [
-      "FIX-221"
+      "FIX-221",
+      "ISS-080"
     ],
     "ISS-076": [
       "FIX-221"
@@ -505,6 +509,7 @@
       "ISS-077",
       "ISS-078",
       "ISS-079",
+      "ISS-080",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -623,6 +628,7 @@
       "ISS-074",
       "ISS-077",
       "ISS-078",
+      "ISS-080",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -836,6 +842,7 @@
       "ISS-075",
       "ISS-078",
       "ISS-079",
+      "ISS-080",
       "TEST-46"
     ],
     "docs": [
@@ -1036,6 +1043,7 @@
       "ISS-073",
       "ISS-075",
       "ISS-077",
+      "ISS-080",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1270,6 +1278,7 @@
       "ISS-076",
       "ISS-078",
       "ISS-079",
+      "ISS-080",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1901,7 +1910,8 @@
     ],
     "backend/dev.db": [
       "ISS-067",
-      "ISS-075"
+      "ISS-075",
+      "ISS-080"
     ],
     "backend/requirements.txt": [
       "FIX-191"
@@ -2827,6 +2837,12 @@
     "ISS-079": [
       "FIX-223",
       "ISS-068"
+    ],
+    "ISS-080": [
+      "FIX-164",
+      "FIX-221",
+      "ISS-063",
+      "ISS-075"
     ]
   },
   "rules_by_file": {

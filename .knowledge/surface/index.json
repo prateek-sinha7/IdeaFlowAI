@@ -1,5 +1,5 @@
 {
-  "count": 617,
+  "count": 618,
   "entries": [
     {
       "area": [
@@ -6674,6 +6674,31 @@
       "type": "issue"
     },
     {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "artifacts",
+        "frontend"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-080",
+      "path": ".knowledge/cards/ISS-080.md",
+      "relates": [
+        "FIX-221",
+        "ISS-063",
+        "FIX-164",
+        "ISS-075"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-080",
+      "status": "open",
+      "summary": "The revision banner back-fills but over-counts: it renders \"Spec Revision Cycle 5\" on a run that had 2 revision cycles \u2014 Observed by me in a live headless-browser pass on 2026-08-12 against the running stack (backend :8010 on current code",
+      "type": "issue"
+    },
+    {
       "area": [],
       "date": "",
       "files": [],
@@ -9540,20 +9565,20 @@
   ],
   "facets": {
     "area": {
-      "agents": 219,
-      "artifacts": 87,
+      "agents": 220,
+      "artifacts": 88,
       "auth": 83,
-      "backend": 92,
+      "backend": 93,
       "docs": 2,
       "engine": 1,
       "evals": 10,
-      "frontend": 180,
+      "frontend": 181,
       "harness": 2,
       "infra": 1,
       "product": 29,
       "resume": 51,
       "runtime": 31,
-      "sse": 148,
+      "sse": 149,
       "test-infra": 11,
       "tooling": 2,
       "workflow": 197
@@ -9561,7 +9586,7 @@
     "status": {
       "accepted": 1,
       "done": 572,
-      "open": 35,
+      "open": 36,
       "shipped": 1
     },
     "type": {
@@ -9569,7 +9594,7 @@
       "decision": 1,
       "doc": 65,
       "fix": 221,
-      "issue": 79,
+      "issue": 80,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -9587,5 +9612,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 02:34"
+  "generated": "2026-08-12 02:47"
 }
