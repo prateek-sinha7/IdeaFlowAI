@@ -2176,6 +2176,16 @@ def _apply_terminal_output_columns(
                 cache_write_tokens=total_cache_write,
                 cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
             ),
+            # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base, so
+            # Analytics can report the SIGNED effect of prompt caching. Rows written
+            # before this key existed simply lack it — every reader is a tolerant
+            # json.loads and the Analytics fold treats an absent key as a ZERO delta
+            # (never a fabricated $0 baseline), so no migration is needed.
+            "estimated_cost_full_usd": estimate_cost_usd(
+                wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
+                input_tokens=total_input,
+                output_tokens=total_output,
+            ),
         })
     if not wr.completed_at:
         wr.completed_at = datetime.now(timezone.utc)

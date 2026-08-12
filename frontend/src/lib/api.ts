@@ -423,6 +423,10 @@ export interface AnalyticsSummary {
   pipelines: AnalyticsPipelineRollup[];
   models: AnalyticsModelRollup[];
   spend: number;
+  /** ISS-034 — the same window priced as-if prompt caching had been OFF. */
+  spend_full: number;
+  /** How many runs in the window carry the counterfactual (pre-ISS-034 rows do not). */
+  metered_runs: number;
   token_totals: AnalyticsTokenTotals;
   type_avg_duration_sec: Record<string, number>;
 }

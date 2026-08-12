@@ -2878,6 +2878,18 @@ class ExecutionEngine:
                 cache_write_tokens=_cache_write,
                 cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL,
             ),
+            # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base —
+            # every input token at 1x, no cache tiers. ``full - estimated`` is the
+            # SIGNED effect of prompt caching on this run, and it is NEGATIVE
+            # whenever the run wrote cache entries it never re-read (cache_write_5m
+            # is 1.25x input). Same shared estimate_cost_usd (INV-12) — no second
+            # rate table. Additive + stripped by _VOLATILE_STRIP_KEYS, so the
+            # goldens stay byte/event-identical (INV-3).
+            "estimated_cost_full_usd": estimate_cost_usd(
+                model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
+                input_tokens=_tok_in,
+                output_tokens=_tok_out,
+            ),
             "model_id": model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
         }
         # ── F3 (13-06): degraded completion — STRICTLY CONDITIONAL fields ───────

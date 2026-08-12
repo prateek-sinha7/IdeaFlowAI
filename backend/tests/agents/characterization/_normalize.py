@@ -215,6 +215,15 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # conservation — mirroring the deliverable_mimetype / redoable / cache_* /
         # image_count precedents above.
         "resume_offset",
+        # ── Additive-but-parity-neutral pipeline_complete key (ISS-034) ──────────
+        # The engine also prices the run as-if-UNCACHED (``estimated_cost_full_usd``
+        # — the same token base with the cache tiers switched off) so Analytics can
+        # report the SIGNED effect of prompt caching. It is a run-specific cost
+        # rollup exactly like its ``estimated_cost_usd`` sibling six lines above, and
+        # is NOT in _REQUIRED_DATA_KEYS, so it is STRIPPED here. Stripping (rather
+        # than regenerating) keeps all 5 event goldens byte-untouched — mirroring the
+        # deliverable_mimetype / redoable / cache_* / resume_offset precedents.
+        "estimated_cost_full_usd",
     }
 )
 
