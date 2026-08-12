@@ -24,6 +24,7 @@
 | TEST-012 | FIX-228 (quick-260812-8j4) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 11 | 11 | 0 | ✅ Pass |
 | TEST-013 | FIX-229 (quick-260812-97f) | 2026-08-12 | `backend/app/api/run_commands.py`, `backend/tests/agents/test_restart_resume.py` | 60 | 60 | 0 | ✅ Pass |
 | TEST-014 | FIX-230 (quick-260812-9tq) | 2026-08-12 | `backend/tests/agents/test_iss033a_fixloop_token_fold_offline.py`, `backend/tests/unit/test_handoff_agents.py`, `backend/tests/agents/test_model_pricing.py` | 8 | 8 | 0 | ✅ Pass |
+| TEST-015 | FIX-231 (quick-260812-fbk) | 2026-08-12 | `backend/tests/agents/test_gate_stub_signature_drift.py` (new), `backend/tests/agents/test_live_harness.py` | 5 | 5 | 0 | ✅ Pass |
 
 ---
 
@@ -1165,3 +1166,75 @@ change present. Filed as ISS-093.
 **Not live-proven, deliberately.** No run was launched, resumed or gate-approved: one build is
 5–21M tokens of the owner's money. The dollar figures come from a read-only query of the live
 `backend/dev.db` priced through the real shared `estimate_cost_usd`.
+
+### TEST-015 — FIX-231 (quick-260812-fbk): ISS-074 — the gate stub that could not accept the gate's own arguments
+
+**Fail-before (HEAD `fab9b646`, before any edit), verbatim:**
+
+```
+env -u RUN_LIVE_BEDROCK ANTHROPIC_API_KEY="" python3.11 -m pytest \
+  tests/agents/test_live_harness.py::TestEngineGate \
+  tests/agents/test_phase8_live.py::TestOfflineHITL -p no:randomly -q
+FAILED tests/agents/test_live_harness.py::TestEngineGate::test_gate_on_pauses_then_auto_resumes_to_complete
+FAILED tests/agents/test_live_harness.py::TestEngineGate::test_custom_approver_is_honoured
+FAILED tests/agents/test_phase8_live.py::TestOfflineHITL::test_gate_on_auto_resume_offline
+FAILED tests/agents/test_phase8_live.py::TestOfflineHITL::test_gate_on_custom_approver_offline
+FAILED tests/agents/test_phase8_live.py::TestOfflineHITL::test_gate_on_manual_resume_seam_offline
+========================= 5 failed, 3 passed in 2.19s ==========================
+```
+
+Cause visible in captured stderr, and the observable damage in the same frame:
+`TypeError: drive_engine_pipeline.<locals>._auto_resume_review_gate() got an unexpected keyword argument 'redoable'`
+→ `CaptureResult(..., gated=False, completed=True, error="...")`. The gate never opened **and the
+run reported success** — a false-green HITL oracle, which is why ISS-074's severity was raised to major.
+
+**After: 8 passed, 0 failed.**
+
+**5 tests written (all seen RED first, none green-from-birth):**
+
+| Test | What it proves |
+|---|---|
+| `test_gate_stub_signature_drift.py::test_every_gate_stub_accepts_the_real_signature` | Every substitute for `_run_review_gate` binds the engine's full keyword call. RED at HEAD naming `live_harness.py:672 (installed at :683)` (6 params unaccepted) and `test_gates.py:920 _FakeReviewEngine` (5 unaccepted). |
+| `…::test_engine_signature_is_discoverable` | The AST derivation still resolves — without it every other assertion here is vacuous. |
+| `…::test_bind_predicate_actually_discriminates` | Pins the guard's teeth: a stub pinning today's exact parameters binds today and raises on one more. Stops the predicate being "simplified" into something that always passes. |
+| `…::test_stub_census_is_not_vacuous` | Floor + known-sites check, so a broken AST sweep fails loudly instead of finding zero stubs and passing forever. |
+| `test_live_harness.py::TestEngineGate::test_gate_on_pauses_then_auto_resumes_to_complete` (strengthened) | Reads `redoable`/`update_specs_eligible` off the `review_gate_ready` payload — the **only** assertion that rejects the def-only shadow fix. |
+
+**Discriminating experiment — why both tokens are load-bearing.** With `**kwargs` on the `def` but
+NOT on the forwarded call: the arity guard is **3 passed** (blind to it) and the suite is
+**1 failed / 7 passed** — the shadow fix greens every pre-existing assertion, and only the new
+forwarding assertion catches it (`test_live_harness.py:208: assert False is True` on `redoable`).
+Dropped kwargs include `cancel_event` (a gate that cannot honour Stop, silently undoing
+quick-260720-ec4's BUG-2 Cond B) and the name-free SC-001 discriminators.
+
+**Guard proven against the NEXT drift, not just this one.** A throwaway stub pinning today's ten
+parameters plus a temporary 11th engine parameter (`throwaway_drift_probe`) →
+`1 failed`, message naming `_drift_probe_tmp.py:10` and `cannot accept: ['throwaway_drift_probe']`,
+with the derived parameter list correctly showing all eleven. Control: engine reverted, probe
+retained → `3 passed`. Both the probe and the engine edit were removed; `git status` confirms
+**0 files changed under `backend/agents/` or `backend/app/`**.
+
+**Coverage fix (the actual root cause).** `tests/agents/test_live_harness.py` and
+`tests/agents/test_phase8_live.py` (34 passed / 16 skipped, ~40 s) plus the new guard are now in
+the curated offline suite in `.planning/TEST-REGISTER.md` §1.6, and the filename heuristic
+*"Avoid offline: anything `*_live*`"* — which is what hid this for 43 days — was replaced with
+"check the actual skip marks". The same note now records that `lint-imports` must be run from
+`backend/` or it prints "Could not read any configuration" and reads as a false pass.
+
+```
+TEST COVERAGE — FIX-231
+Unit tests:        5 in backend/tests/agents/          → ALL GREEN (4 new guard + 1 strengthened)
+Integration tests: N/A — test-infra defect, no service boundary involved
+Frontend tests:    N/A — no frontend surface
+Goldens:           0 failed / 10 passed — IDENTICAL to the pre-change commit fab9b646; 0 golden files modified
+lint-imports:      4 kept / 0 broken — IDENTICAL to fab9b646 (run from backend/; 215 files, 526 deps)
+Regression guards:
+  - test_every_gate_stub_accepts_the_real_signature: any new _run_review_gate parameter goes red
+    in the same commit, offline, in <1s, naming every stub that needs updating.
+  - test_bind_predicate_actually_discriminates: the guard's own predicate cannot be weakened silently.
+  - test_stub_census_is_not_vacuous: a broken AST sweep fails loudly instead of passing on zero stubs.
+  - test_gate_on_pauses_then_auto_resumes_to_complete: rejects the def-only shadow fix (measured).
+Pre-existing reds re-measured UNCHANGED after the fix (not caused by it):
+  test_gates.py 3 failed/39 passed (ISS-094) · test_declared_gate_streaming.py 3 failed (ISS-095)
+  test_wire_parity.py 4 failed/2 passed · test_prompt_contracts.py 1 failed (ISS-096, reproduced at fab9b646)
+```

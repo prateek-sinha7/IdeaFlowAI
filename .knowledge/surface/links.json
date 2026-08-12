@@ -9,6 +9,12 @@
     "BUG-015-sse": [
       "ADR-0001"
     ],
+    "FIX-001": [
+      "ISS-096"
+    ],
+    "FIX-014": [
+      "ISS-096"
+    ],
     "FIX-020": [
       "ISS-069"
     ],
@@ -50,6 +56,9 @@
     ],
     "FIX-065": [
       "FIX-096"
+    ],
+    "FIX-109": [
+      "ISS-096"
     ],
     "FIX-119": [
       "FIX-168"
@@ -259,6 +268,11 @@
       "ISS-092",
       "ISS-093"
     ],
+    "FIX-231": [
+      "ISS-094",
+      "ISS-095",
+      "ISS-096"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -392,6 +406,10 @@
     "ISS-072": [
       "FIX-220"
     ],
+    "ISS-074": [
+      "ISS-094",
+      "ISS-095"
+    ],
     "ISS-075": [
       "FIX-221",
       "ISS-080",
@@ -402,7 +420,8 @@
     ],
     "ISS-078": [
       "ISS-084",
-      "ISS-091"
+      "ISS-091",
+      "ISS-094"
     ],
     "ISS-080": [
       "ISS-081",
@@ -429,6 +448,9 @@
     ],
     "ISS-089": [
       "ISS-084"
+    ],
+    "ISS-091": [
+      "ISS-095"
     ],
     "ISS-092": [
       "ISS-033",
@@ -555,6 +577,7 @@
       "FIX-228",
       "FIX-229",
       "FIX-230",
+      "FIX-231",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -608,6 +631,9 @@
       "ISS-090",
       "ISS-091",
       "ISS-092",
+      "ISS-094",
+      "ISS-095",
+      "ISS-096",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -735,6 +761,8 @@
       "ISS-086",
       "ISS-087",
       "ISS-090",
+      "ISS-094",
+      "ISS-096",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -829,6 +857,7 @@
       "ISS-091",
       "ISS-092",
       "ISS-093",
+      "ISS-096",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -949,6 +978,7 @@
       "FIX-220",
       "FIX-223",
       "FIX-224",
+      "FIX-231",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -961,6 +991,7 @@
       "ISS-080",
       "ISS-092",
       "ISS-093",
+      "ISS-096",
       "TEST-46"
     ],
     "docs": [
@@ -979,6 +1010,7 @@
       "ISS-027",
       "ISS-029",
       "ISS-053",
+      "ISS-094",
       "REQ-8",
       "TEST-2-1",
       "TEST-2-5"
@@ -1389,6 +1421,7 @@
       "FIX-226",
       "FIX-227",
       "FIX-229",
+      "FIX-231",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1430,6 +1463,9 @@
       "ISS-089",
       "ISS-091",
       "ISS-093",
+      "ISS-094",
+      "ISS-095",
+      "ISS-096",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1485,7 +1521,9 @@
       "ISS-074",
       "ISS-076",
       "ISS-079",
-      "ISS-093"
+      "ISS-093",
+      "ISS-094",
+      "ISS-096"
     ],
     "tooling": [
       "ISS-050",
@@ -1831,7 +1869,8 @@
       "FIX-001b",
       "FIX-014",
       "FIX-054",
-      "FIX-109"
+      "FIX-109",
+      "ISS-096"
     ],
     "backend/agents/prompts/performance-optimizer/AGENT.md": [
       "FIX-061"
@@ -2103,6 +2142,7 @@
       "FIX-049"
     ],
     "backend/tests/agents/live_harness.py": [
+      "FIX-231",
       "ISS-074"
     ],
     "backend/tests/agents/test_banned_patterns.py": [
@@ -2118,6 +2158,9 @@
     "backend/tests/agents/test_gate_revision_discriminator.py": [
       "FIX-220"
     ],
+    "backend/tests/agents/test_gates.py": [
+      "FIX-231"
+    ],
     "backend/tests/agents/test_id_alias_resolver.py": [
       "FIX-185"
     ],
@@ -2126,6 +2169,9 @@
     ],
     "backend/tests/agents/test_iss056_clarify_quality_fixes.py": [
       "FIX-190"
+    ],
+    "backend/tests/agents/test_live_harness.py": [
+      "FIX-231"
     ],
     "backend/tests/agents/test_loader.py": [
       "FIX-223"
@@ -3088,6 +3134,22 @@
     "ISS-093": [
       "FIX-230",
       "ISS-027"
+    ],
+    "ISS-094": [
+      "FIX-231",
+      "ISS-074",
+      "ISS-078"
+    ],
+    "ISS-095": [
+      "FIX-231",
+      "ISS-074",
+      "ISS-091"
+    ],
+    "ISS-096": [
+      "FIX-001",
+      "FIX-014",
+      "FIX-109",
+      "FIX-231"
     ]
   },
   "rules_by_file": {

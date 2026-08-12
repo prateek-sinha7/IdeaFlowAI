@@ -1,5 +1,5 @@
 {
-  "count": 637,
+  "count": 641,
   "entries": [
     {
       "area": [
@@ -5402,6 +5402,25 @@
     },
     {
       "area": [
+        "backend",
+        "sse",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/tests/agents/live_harness.py",
+        "backend/tests/agents/test_gates.py",
+        "backend/tests/agents/test_live_harness.py"
+      ],
+      "id": "FIX-231",
+      "path": ".knowledge/cards/FIX-231.md",
+      "source": ".planning/FIX-REGISTER.md#fix-231",
+      "status": "done",
+      "summary": "The live harness's review-gate wrapper could not accept the gate's own arguments \u2014 every gated harness drive raised TypeError and then reported the run COMPLETE without gating",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -6670,7 +6689,7 @@
         "FIX-218"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-074",
-      "status": "open",
+      "status": "done",
       "summary": "The LIVE harness's review-gate wrapper cannot accept the gate's own arguments \u2014 every live gated drive raises TypeError",
       "type": "issue"
     },
@@ -7087,6 +7106,73 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-093",
       "status": "open",
       "summary": "3 stale clarify-round tests in backend/tests/unit/test_execution_engine.py assert an event vocabulary the product no longer emits",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "evals",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-094",
+      "path": ".knowledge/cards/ISS-094.md",
+      "relates": [
+        "FIX-231",
+        "ISS-074",
+        "ISS-078"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-094",
+      "status": "open",
+      "summary": "3 reds in tests/agents/test_gates.py \u2014 hand-rolled context doubles drifted from the real engine contract on an ATTRIBUTE, so no signature guard can catch them",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-095",
+      "path": ".knowledge/cards/ISS-095.md",
+      "relates": [
+        "FIX-231",
+        "ISS-091",
+        "ISS-074"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-095",
+      "status": "open",
+      "summary": "3 reds in tests/agents/test_declared_gate_streaming.py, and the register's \"environmental\" label for them looks WRONG \u2014 a real defect may be hiding behind it",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "auth",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/agents/prompts/od-ppt-validator/AGENT.md"
+      ],
+      "id": "ISS-096",
+      "path": ".knowledge/cards/ISS-096.md",
+      "relates": [
+        "FIX-231",
+        "FIX-001",
+        "FIX-014",
+        "FIX-109"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-096",
+      "status": "open",
+      "summary": "Stale prompt-contract pin: tests/agents/test_prompt_contracts.py::test_od_ppt_validator_deck_reemission_contract asserts a sentence that is no longer in the agent's prompt",
       "type": "issue"
     },
     {
@@ -9956,36 +10042,36 @@
   ],
   "facets": {
     "area": {
-      "agents": 235,
-      "artifacts": 96,
-      "auth": 92,
-      "backend": 96,
+      "agents": 239,
+      "artifacts": 98,
+      "auth": 93,
+      "backend": 98,
       "docs": 2,
       "engine": 2,
-      "evals": 10,
+      "evals": 11,
       "frontend": 188,
       "harness": 2,
       "infra": 1,
       "product": 30,
       "resume": 61,
       "runtime": 32,
-      "sse": 162,
-      "test-infra": 12,
+      "sse": 166,
+      "test-infra": 14,
       "tooling": 2,
       "workflow": 205
     },
     "status": {
       "accepted": 1,
-      "done": 588,
-      "open": 39,
+      "done": 590,
+      "open": 41,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 227,
-      "issue": 93,
+      "fix": 228,
+      "issue": 96,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10003,5 +10089,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 07:34"
+  "generated": "2026-08-12 11:19"
 }
