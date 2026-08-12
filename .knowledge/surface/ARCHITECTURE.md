@@ -18,7 +18,7 @@ Where the project is right now, and what constrains a change to it. Every other 
 - Phase: ALL COMPLETE — 45 [R0] 4/4 · 46 [R1] 8/8 · 47 [R2] 4/4 · 48 [R3] 4/4 · 49 [R4] 5/5 (KAN-88 green) · 50 [R5] 5/5
 - Plan: 14/14 plans complete across 6 phases; register reconciliation batch appended; requirements RESUME-05..18 all Complete
 - Status: Milestone v3.0 OFFLINE-COMPLETE — remaining: the consolidated live-Bedrock pass (orchestrator-owned) + /gsd-complete-milestone (user step; v2.0 close-out also still pending)
-- Last activity: 2026-08-12 — Completed quick task 260812-tni: **The owner's Stop was thrown away whenever no in-process driver was live — and the next boot re-adopted the run and finished it at the owner's expense (ISS-089).** `POST /cancel`'s not-live branch wrote **no status at all**: it set an in-memory `asyncio.Event` and armed an in-process task, both of which die with the process. So the row stayed inside `restore_non_terminal_runs`' non-terminal filter and the next startup drove it to completion — the second half of the `d5dbc9f2` incident (16,530,718 tokens, **$3.58**, **≈$1.61 / ~45% billed AFTER the API answered `cancelled: true`**; measured ceiling on this corpus is **37.3M tokens / $7.07**, all 14 metered runs total **$17.75** — a correctness-and-trust defect first, a cost defect second on Haiku, ~10x worse on an Opus-tier model). **The row's own proposed fix was REJECTED and recorded as such:** a durable `cancel_requested` marker checked inside `restore_non_terminal_runs` needs a migration or a new event type, edits the resume tier's three-branch classifier, **misses branch (a)** (`waiting_for_user` spawns `_rearm_gate_run` without ever calling `_stamp_resume_marker`), and leaves the row reading `running` until the next boot — possibly forever. **Shipped instead: write the terminal status at cancel time.** One function; terminal ⇒ the pre-existing `not_running` ack byte-identical, no write; non-terminal ⇒ a durable `pipeline_cancelled` row via the collision-safe `append_event_at_or_after` (best-effort) + `status="cancelled"` via `_persist_resume_status` (**authoritative**, 500 on failure). **No migration, no new table/column/event type, no engine logic edit** — `cancelled` is already outside the non-terminal set and `/resume` already accepts it, so the run moves from AUTOMATIC to EXPLICIT owner-authenticated resume. **Prerequisite (INV-12):** the non-terminal tuple — cited by **five** wrong `file:line` values in one week and copied into `cutover_legacy_runs.py` — is now ONE module constant `NON_TERMINAL_RUN_STATUSES`, pinned by an AST source guard that matches the VALUE, not the name. **Proof is a task count:** at `2df5324b` the same test observed `restore_non_terminal_runs.<locals>._admitted_resume` spawned for a run whose Stop had just answered `not_running`; post-fix, zero tasks. Every new case seen RED first in a detached worktree; the source guard mutation-tested against the surviving duplicate; 2 existing cases **reconciled, not loosened** (they asserted `accepted:false` for a `running` run — that assertion IS the defect — and now seed a terminal run, keeping ISS-084's anti-lie invariant). **ISS-103 reassessed:** direction fixed (**SIGINT must match SIGTERM, never the reverse** — the reverse cancels every run on every deploy), severity **major → minor** (production never sends SIGINT; FIX-234 already defused it locally), code change **deferred with a mechanical reason** (uvicorn snapshots the signal handlers **before** `config.load()` imports `app.main`, so no in-process seam exists; the only clean fix changes the production start command). Its open question is now **answered by probe: 0 LangGraph checkpoint writes after a cancel**, so sub-claim (b) is latent by measurement. Files **ISS-133** (FIX-240's collision-unsafe append idiom survives in `_stamp_resume_marker`, the double-drive guard) and **ISS-134** (no cancel path is multi-instance-safe — the explicit ECS scope boundary on this fix). Goldens 10 passed / 0 files moved, lint-imports 4/0, the 32-id pre-existing-red set unchanged; no run launched or resumed, port 8010 never signalled, `dev.db` re-verified byte-identical.
+- Last activity: 2026-08-12 — Completed quick task 260812-wir: durable app-layer driver terminals (FIX-244/ISS-124), a reopened TERMINAL run renders as terminal (FIX-245/ISS-126, live-proven A/B on 808612bf vs 1ea6d262), and a read-only forensic audit of the historical event loss (FIX-246/ISS-123, corrected to 15 destroyed across 9 runs). 7 new findings filed as ISS-135..141.
 
 ## Enforced boundaries
 
@@ -35,7 +35,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 
 | component | what it is | cards | on disk |
 |---|---|---:|---|
-| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 52 | 27 files |
+| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 53 | 27 files |
 | `backend/app/services` | application services | 2 | 5 files |
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
 | `backend/agents/execution_engine` | the execution kernel | 37 | 11 files |
@@ -44,9 +44,9 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
 | `backend/agents/artifact_store` | artifact persistence | 1 | 2 files |
 | `backend/agents/guardrails` | policy enforcement | 0 | 0 files |
-| `frontend/src/app` | Next.js routes | 56 | 23 files |
+| `frontend/src/app` | Next.js routes | 58 | 24 files |
 | `frontend/src/components` | UI components | 209 | 192 files |
-| `frontend/src/hooks` | client state + stream handling | 37 | 26 files |
+| `frontend/src/hooks` | client state + stream handling | 39 | 27 files |
 
 **18 workflows** registered — `app_builder`, `app_builder_revision`, `chat`, `custom`, `dotnet_to_azure`, `mulesoft_to_springboot`, `od_ppt`, `od_ppt_revision`, `ppt`, `ppt_revision`, `prototype`, `prototype_revision`, `reverse_engineer`, `sample_brownfield`, `sample_fanout`, `sample_wave`, `user_stories`, `user_stories_revision`
 
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (272), `workflow` (231), `frontend` (202), `sse` (201), `backend` (116), `auth` (113), `artifacts` (107), `resume` (77).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (274), `workflow` (238), `sse` (210), `frontend` (209), `backend` (118), `auth` (115), `artifacts` (109), `resume` (79).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 268 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 271 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.

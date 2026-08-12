@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-691 cards · rules 1 · fixes 240 · issues 134 · phases 23 · built 2026-08-12 21:47
+702 cards · rules 1 · fixes 243 · issues 142 · phases 23 · built 2026-08-13 00:05
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,11 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (240)
+## Fixes (243)
 
+FIX-246 2026-08-12 [backend,sse,workflow,agents,auth,artifacts] The historical event loss was recorded as an unmeasured range with a half-wrong justification (ISS-123); it is now a read-only, re-runnable audit. Shipped backend/scripts/audit_lost_run_events.py — mode=ro, zero INSERT/UPDATE/DELETE/ALTER
+FIX-245 2026-08-12 [frontend,sse,workflow] A reopened TERMINAL run rendered as if it were still live — header "Awaiting approval", an armed Stop button, armed gate cards (ISS-126)
+FIX-244 2026-08-12 [backend,sse,resume] The two app-layer driver terminals wrote no durable row at all, so the owner's Stop was recorded as a FAILURE and fresh corrupted runs were still being minted (ISS-124)
 FIX-243 2026-08-12 [backend,sse,resume,workflow,auth] The owner's Stop was thrown away whenever no in-process driver was live — and the next boot re-adopted the run and finished it at the owner's expense (ISS-089)
 FIX-242 2026-08-12 [backend,sse,resume,workflow,agents,evals,auth,artifacts,runtime] A gated fan-out step parked the run at a review gate nobody could see, discover or resolve (ISS-097). _should_gate (engine.py:4908-4925) is a per-INVOCATION predicate on spec.id
 FIX-241 2026-08-12 [backend,sse,resume,workflow,agents,auth] A human-in-the-loop gate that fails OPEN: every near-miss of a DENIAL silently APPROVED (ISS-070). resolve_gate dispatched on action with else: # approve (default) as the fallback (run_commands.py:272), an exact, case-sensitive
@@ -255,8 +258,16 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (134)
+## Issues (142)
 
+ISS-142 - [sse,workflow,evals] The WS->SSE cutover DROPPED status from the reconnect ack, breaking parity with locked decision D-13. IMPLEMENTATION-REGISTER.md records for D-13/12-09 that the pipeline_reconnected reply carries live/status/replayed_through_seq
+ISS-141 - [sse,frontend] A reopened TERMINAL run still renders an actionable clarify card. useRunChat.ts's terminal auto-resolve covers only cardKind === "gate"
+ISS-140 - [frontend] The LIVE terminal path clears only the legacy React state, never the run store. page.tsx:1196-1201 calls setReviewGateData(null) / setQuestionnaireData(null) / setActivePipelineRunId(null)
+ISS-139 - [sse,frontend] page.tsx's case "pipeline_cancelled": case "pipeline_failed": switch arm is UNREACHABLE dead code (~:1527-1562) — Verified during the ISS-126 investigation; the trap is that the arm reads exactly like the right place to fix ISS-126
+ISS-138 - [sse,workflow,frontend] The FIX-201 legacy->store bridge overwrites the run store's pipelineState WHOLESALE, silently discarding any store-only correction
+ISS-137 - [sse,workflow,agents,evals,frontend] pipeline_reconnected is a DEAD frame with a live handler, a live test suite and a divergent status list. Verified: NO backend path emits it — grep over backend/app + backend/agents finds it only in comments
+ISS-136 - [sse,workflow,frontend] Four divergent FE definitions of "terminal", and they disagree. page.tsx:64 {completed,failed,cancelled,degraded} (correct, matches backend chat_router.py:62)
+ISS-135 - [engine] FIX-240 residual — payload_json.seq diverges from run_events.seq on a re-append. _RunEventSink.persist re-stamps data["seq"] AFTER append_event_at_or_after returns, but the row was already serialised with the ORIGINAL value
 ISS-134 - [-] No cancel path in the system is multi-instance-safe, and FIX-243 makes that boundary load-bearing rather than academic — Recorded as an explicit scope note during FIX-243 rather than discovered as a failure
 ISS-133 - [sse,resume,engine] FIX-240 / ISS-121's collision-unsafe append idiom survives, unfixed, in the resume tier's double-drive guard. ExecutionEngine._stamp_resume_marker (engine.py:6309) allocates its seq the naive way
 ISS-132 - [workflow,agents,engine] The task-loop sibling of ISS-097: ticking a task-loop agent opens ONE GATE PER TASK. Same root cause — _should_gate is per-INVOCATION on spec.id while gate_agent_ids is a per-STEP selection
@@ -265,12 +276,12 @@ ISS-130 - [workflow,agents,runtime,engine] KernelServices.run_agent mutates SHAR
 ISS-129 - [sse,resume,workflow,agents,auth,engine] run_fanout swallows EVERY worker event, including terminal ones. fanout.py:414-429 iterates runner.run_worker(...) and forwards nothing; the loop body reads only agent_complete to accumulate worker_tokens
 ISS-128 - [sse,agents] A gate REJECTION persists an audit record that says action="approve". run_commands.py's reject branch calls store.set_review_response(gate_key, approved=False, edited_content=...) without passing action=
 ISS-127 - [workflow,agents,auth] GateCommand.analysis_report has no length cap anywhere on its path into the composed prompt. Traced end to end at e6b24ae5: run_commands.py:115 (`analysis_report: str \
-ISS-126 - [sse] FIX-240's data-repair guard only covers the CURSORED reattach; a fresh reopen of an already-corrupted run still renders an open gate
+ISS-126 - [sse,workflow] LOCUS AND SCOPE BOTH CORRECTED 2026-08-12 (FIX-245). (1) The stated locus is wrong and it changed the fix. A terminal run NEVER opens an SSE stream — page.tsx:2171 gates attachRun on non-terminal
 ISS-125 - [resume,engine] _stamp_resume_marker still allocates its seq the slow, unprotected way. engine.py:6309-6311 reads the ENTIRE durable log (store.read_events(run_id, after_seq=0)) to compute max(seq)+1
-ISS-124 - [sse,backend] Two app-layer synthesised pipeline_cancelled frames never persist a durable row at all — a different cause with the same reopen symptom as ISS-121
-ISS-123 - [backend,sse,resume,workflow,agents,engine] FIX-240 stops NEW losses; it cannot recover the rows already destroyed. The pre-fix defect ran for as long as the chat lane has shared the engine's seq space, and a dropped run_events row has no provenance to reconstruct from
+ISS-124 - [sse,resume,backend] SEVERITY WAS UNDERSTATED — this was not minor. Beyond the durable hole, stop_run_driver runs _reconcile_terminal_status once the driver is provably gone
+ISS-123 - [backend,sse,resume,workflow,agents,auth,artifacts,engine] COUNT + REASONING CORRECTED 2026-08-12 (FIX-246). The damage is 15 destroyed engine events across 9 runs, NOT ~29 across 10 — agent_chunk 11, questionnaire_complete 2, review_gate_approved 1, pipeline_cancelled 1
 ISS-122 - [sse,frontend] The cache-delta line is invisible in practice, because an unmetered-legacy window dilutes the percentage below the zero-suppression threshold — and the metered_runs signal that would explain this is fetched but never shown
-ISS-121 - [sse,workflow,agents,auth,engine] A gate-rejected run reopens from history looking ALIVE: header "Awaiting approval", a "Stop" button, and the stale clarify line "The run is paused and waiting for you to answer clarification questions"
+ISS-121 - [sse,workflow,agents,auth,engine] A gate-rejected run reopens from history looking ALIVE: header "Awaiting approval" and a "Stop" button. SYMPTOM CORRECTED 2026-08-12 (quick-260812-wir): this row also listed a third symptom
 ISS-120 - [backend,workflow,agents] Bedrock prompt caching is a single process-wide on/off switch, and on short runs it is a MEASURED net cost INCREASE — Split out of ISS-034 item (d) so a behaviour change to the model-call path is not folded into a telemetry-only change
 ISS-119 - [sse,test] Two TestRouting tests assert a routing contract the product deliberately superseded, and they will stay red until someone decides which side is right
 ISS-118 - [backend,sse,agents,auth,test] Eight offline tests CONSTRUCT a real LLM provider client. They cost nothing today only because none of them invokes it — one added .ainvoke/.astream in any of them is live spend

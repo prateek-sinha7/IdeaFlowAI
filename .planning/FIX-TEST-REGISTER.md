@@ -39,6 +39,8 @@
 | TEST-025 | FIX-241 (quick-260812-sgu) | 2026-08-12 | `backend/tests/unit/test_rest_gate_commands.py` | 13 | 13 | 0 | ✅ Pass |
 | TEST-026 | FIX-242 (quick-260812-syf) | 2026-08-12 | `backend/tests/agents/test_restart_resume.py`, `backend/tests/agents/test_merge_conflict.py`, `backend/tests/agents/test_fanout.py`, `backend/tests/unit/test_pipeline_failure_semantics.py` | 4 (3 new + 1 strengthened) | 4 | 0 | ✅ Pass |
 | TEST-027 | FIX-243 (quick-260812-tni) | 2026-08-12 | `backend/tests/unit/test_rest_answers_cancel.py` | 10 new + 2 reconciled (10 → 20 in file) | 20 | 0 | ✅ Pass |
+| TEST-028 | FIX-244 (quick-260812-wir) | 2026-08-12 | `backend/tests/unit/test_rest_answers_cancel.py` | 4 new (20 → 24 in file) | 24 | 0 | ✅ Pass |
+| TEST-029 | FIX-245 (quick-260812-wir) | 2026-08-12 | `frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts`, `frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts` | 23 new | 23 | 0 | ✅ Pass |
 
 ---
 
@@ -2295,3 +2297,31 @@ fully decidable from a synthetic registry plus a durable store, and the assertio
 matters is a task count. One `od_prototype` build costs 5–21M tokens on the register's old
 figure — the **measured ceiling on this corpus is 37.3M tokens / $7.07**, and the incident
 that motivated the row cost **$3.58**, ≈**$1.61** of it after the cancel.
+
+### TEST-028 — FIX-244 (ISS-124): the app-layer driver terminals must be DURABLE
+
+`backend/tests/unit/test_rest_answers_cancel.py`, 4 new (file 20 → 24). **All 4 seen RED at `ce2db22e`**, each failing on its own assertion.
+
+| test | what it proves | RED evidence at `ce2db22e` |
+|---|---|---|
+| `test_launch_driver_cancellation_is_durable` | the launch driver's `CancelledError` branch appends a durable `pipeline_cancelled` ROW carrying a real `event_id` | `expected exactly one durable pipeline_cancelled row, got []` |
+| `test_launch_driver_durable_row_survives_a_real_task_cancel` | **the discriminating case** — the append lives inside an `except asyncio.CancelledError` block, so it must complete while the task is being cancelled FOR REAL (`stop_run_driver` reaches this branch via `task.cancel()`, not by the engine raising) | `a real task.cancel() left no durable terminal: []` |
+| `test_a_cancelled_driver_reconciles_to_cancelled_not_failed` | the user-visible half: `_reconcile_terminal_status` (which `stop_run_driver` runs once the driver is gone) no longer takes the D2 fail-safe and overwrite the owner's Stop | `assert 'failed' == 'cancelled'` |
+| `test_revision_driver_cancellation_is_durable` | the second locus, `_drive_revision_to_queue`, has the same shape and the same hole | `expected exactly one durable pipeline_cancelled row, got []` |
+
+**Discipline notes.** Every assertion is on the durable ROW, never on the queued frame — the frame is already correct today, which is exactly why earlier probes for this class of defect missed it. The real-`task.cancel()` test also **corrected a wrong assumption of my own**: its first version asserted the task re-raises `CancelledError` and failed with `DID NOT RAISE`, because the driver deliberately CONVERTS the cancellation into a terminal (`_drain_then_cancel` only needs `task.done()`). The assertion was fixed against observed behaviour, and the observation is recorded in the test body so the next reader does not re-derive it.
+
+**Regression gates:** goldens 10 passed / **0 golden files moved** (SHA-256 compared vs `ce2db22e`); `lint-imports` 4 kept / 0 broken; `test_run_events.py` 12, `test_sse_stream.py` 43, `test_restart_resume.py` 66, `test_rest_gate_commands.py` 28 — all identical to `ce2db22e`. Combined final run: **183 passed**.
+
+### TEST-029 — FIX-245 (ISS-126): a reopened terminal run renders as terminal
+
+23 new frontend tests across two files. **20 seen RED at `ce2db22e`**; the 3 added after the live-browser findings pin strings **proven absent at `e3c38594`** (`git show e3c38594:… | grep -cF` → 0 for each), which is the same fail-before evidence in a form a source-lock test can carry.
+
+**`terminalStatusReconcile.test.ts` (reducer + INV-12 guards).** `terminalMarkers` per status; `applyTerminalStatus` flipping a gate-paused run to terminal-cancelled and standing agents down; the **one-way** rule (a non-terminal status returns `prev` by identity, so a slow `getWorkflow` on a live run cannot clear an open gate); a source assertion that the three live terminal event cases **spread** `terminalMarkers` (a *copy* would drift — this is the anti-shadow guard); a behavioural cross-check that the EVENT path and the STATUS path agree; and a test pinning the marker map's membership **EQUAL** to `page.tsx`'s `REOPEN_TERMINAL_STATUSES`, which is what stops the fix becoming a fifth divergent terminal list.
+
+**`terminalReopenReconcile.source.test.ts` (page wiring).** Ordering is the whole point: the reconciliation must run **AFTER** the `for (const frame of durableFrames)` loop — placed before it, the replayed `review_gate_ready`/`pipeline_start` overwrite it and a naive presence assertion still passes. Also pins: both containers are reconciled (store **and** legacy — see ISS-138); the clarify panel is cleared; `reviewGateData` is **not** cleared within the reconciliation window; and the fix is **not** inside the unreachable `case "pipeline_cancelled": case "pipeline_failed":` arm (ISS-139), with the unreachability itself re-proven in the test.
+
+**Regression method — IDs, never counts.** Full vitest **871 → 894 passed** (+23 = exactly the new tests) with the failing set **147 → 147** and the failing **test IDs byte-identical**, diffed against a baseline measured in a **detached git worktree at `e3c38594`** (`git worktree add --detach`, never `git stash`). `tsc --noEmit` the same 2 pre-existing errors. The pinned reducer guards — the ISS-035 cancel-marker suite, the FIX-039 accumulator-reset guard, `useWorkflow.reconnect`, `attachRunOnOpen.source` — are all green, which is what proves the routing was a **move, not a copy**.
+
+**And the tests were still not enough.** With all of the above green, the fix was INVISIBLE in a real browser. The live A/B on `808612bf` (corrupted) vs `1ea6d262` (clean control) is the gate that caught it — twice, for two different reasons (ISS-138's wholesale bridge overwrite, then the `laneClarifyOpen` branch). Final live result: both runs render `lane-run-status` **"Cancelled"** (tone=neutral) with no Stop control and no gate actions.
+

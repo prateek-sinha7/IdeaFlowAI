@@ -191,7 +191,9 @@
       "FIX-206",
       "FIX-235",
       "ISS-080",
-      "ISS-110"
+      "ISS-110",
+      "ISS-126",
+      "ISS-138"
     ],
     "FIX-202": [
       "FIX-203",
@@ -319,7 +321,9 @@
       "ISS-124",
       "ISS-125",
       "ISS-126",
-      "ISS-133"
+      "ISS-133",
+      "ISS-135",
+      "ISS-142"
     ],
     "FIX-241": [
       "ISS-128"
@@ -332,8 +336,26 @@
       "ISS-132"
     ],
     "FIX-243": [
+      "ISS-124",
       "ISS-133",
       "ISS-134"
+    ],
+    "FIX-244": [
+      "ISS-124",
+      "ISS-126",
+      "ISS-135"
+    ],
+    "FIX-245": [
+      "ISS-123",
+      "ISS-126",
+      "ISS-137",
+      "ISS-138",
+      "ISS-140",
+      "ISS-141",
+      "ISS-142"
+    ],
+    "FIX-246": [
+      "ISS-123"
     ],
     "ISS-007": [
       "ISS-035"
@@ -590,16 +612,35 @@
     ],
     "ISS-123": [
       "ISS-121",
+      "ISS-126",
+      "ISS-135"
+    ],
+    "ISS-124": [
       "ISS-126"
     ],
     "ISS-126": [
-      "ISS-121"
+      "ISS-121",
+      "ISS-123",
+      "ISS-138",
+      "ISS-139",
+      "ISS-140",
+      "ISS-141",
+      "ISS-142"
     ],
     "ISS-131": [
       "ISS-097"
     ],
     "ISS-134": [
       "ISS-089"
+    ],
+    "ISS-136": [
+      "ISS-137"
+    ],
+    "ISS-137": [
+      "ISS-142"
+    ],
+    "ISS-138": [
+      "ISS-126"
     ]
   },
   "by_area": {
@@ -733,6 +774,7 @@
       "FIX-240",
       "FIX-241",
       "FIX-242",
+      "FIX-246",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -812,6 +854,7 @@
       "ISS-130",
       "ISS-131",
       "ISS-132",
+      "ISS-137",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -923,6 +966,7 @@
       "FIX-237",
       "FIX-238",
       "FIX-242",
+      "FIX-246",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -950,6 +994,7 @@
       "ISS-111",
       "ISS-114",
       "ISS-115",
+      "ISS-123",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -1025,6 +1070,7 @@
       "FIX-241",
       "FIX-242",
       "FIX-243",
+      "FIX-246",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -1062,6 +1108,7 @@
       "ISS-111",
       "ISS-118",
       "ISS-121",
+      "ISS-123",
       "ISS-127",
       "ISS-129",
       "ISS-131",
@@ -1195,6 +1242,8 @@
       "FIX-241",
       "FIX-242",
       "FIX-243",
+      "FIX-244",
+      "FIX-246",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -1241,7 +1290,8 @@
       "ISS-130",
       "ISS-131",
       "ISS-132",
-      "ISS-133"
+      "ISS-133",
+      "ISS-135"
     ],
     "evals": [
       "BUG-007-sse",
@@ -1256,6 +1306,8 @@
       "ISS-097",
       "ISS-111",
       "ISS-131",
+      "ISS-137",
+      "ISS-142",
       "REQ-8",
       "TEST-2-1",
       "TEST-2-5"
@@ -1436,6 +1488,7 @@
       "FIX-236",
       "FIX-237",
       "FIX-239",
+      "FIX-245",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -1461,6 +1514,12 @@
       "ISS-115",
       "ISS-117",
       "ISS-122",
+      "ISS-136",
+      "ISS-137",
+      "ISS-138",
+      "ISS-139",
+      "ISS-140",
+      "ISS-141",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1544,6 +1603,7 @@
       "FIX-241",
       "FIX-242",
       "FIX-243",
+      "FIX-244",
       "ISS-048",
       "ISS-051",
       "ISS-063",
@@ -1563,6 +1623,7 @@
       "ISS-106",
       "ISS-111",
       "ISS-123",
+      "ISS-124",
       "ISS-125",
       "ISS-129",
       "ISS-133",
@@ -1723,6 +1784,9 @@
       "FIX-241",
       "FIX-242",
       "FIX-243",
+      "FIX-244",
+      "FIX-245",
+      "FIX-246",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1790,6 +1854,12 @@
       "ISS-129",
       "ISS-131",
       "ISS-133",
+      "ISS-136",
+      "ISS-137",
+      "ISS-138",
+      "ISS-139",
+      "ISS-141",
+      "ISS-142",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1966,6 +2036,8 @@
       "FIX-241",
       "FIX-242",
       "FIX-243",
+      "FIX-245",
+      "FIX-246",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -2018,11 +2090,16 @@
       "ISS-120",
       "ISS-121",
       "ISS-123",
+      "ISS-126",
       "ISS-127",
       "ISS-129",
       "ISS-130",
       "ISS-131",
       "ISS-132",
+      "ISS-136",
+      "ISS-137",
+      "ISS-138",
+      "ISS-142",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -2431,6 +2508,7 @@
       "FIX-233",
       "FIX-239",
       "FIX-241",
+      "FIX-244",
       "ISS-054",
       "ISS-055",
       "ISS-066"
@@ -2511,6 +2589,10 @@
     ],
     "backend/requirements.txt": [
       "FIX-191"
+    ],
+    "backend/scripts/audit_lost_run_events.py": [
+      "FIX-246",
+      "ISS-123"
     ],
     "backend/scripts/seed_test_users.py": [
       "TEST-46"
@@ -2642,7 +2724,8 @@
       "FIX-030"
     ],
     "backend/tests/unit/test_rest_answers_cancel.py": [
-      "FIX-243"
+      "FIX-243",
+      "FIX-244"
     ],
     "backend/tests/unit/test_rest_gate_commands.py": [
       "FIX-241"
@@ -2760,7 +2843,11 @@
       "FIX-210",
       "FIX-220",
       "FIX-221",
-      "FIX-225"
+      "FIX-225",
+      "FIX-245"
+    ],
+    "frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts": [
+      "FIX-245"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
@@ -3096,6 +3183,9 @@
     "frontend/src/data/skills.ts": [
       "ISS-088"
     ],
+    "frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts": [
+      "FIX-245"
+    ],
     "frontend/src/hooks/useNotifications.fix202.test.tsx": [
       "FIX-202"
     ],
@@ -3151,7 +3241,8 @@
       "FIX-120",
       "FIX-166",
       "FIX-221",
-      "FIX-225"
+      "FIX-225",
+      "FIX-245"
     ],
     "frontend/src/lib/__tests__/wsRunScope.test.ts": [
       "FIX-129"
@@ -3741,10 +3832,15 @@
     ],
     "ISS-123": [
       "FIX-240",
-      "ISS-121"
+      "FIX-245",
+      "FIX-246",
+      "ISS-121",
+      "ISS-126"
     ],
     "ISS-124": [
       "FIX-240",
+      "FIX-243",
+      "FIX-244",
       "ISS-121"
     ],
     "ISS-125": [
@@ -3752,8 +3848,13 @@
       "ISS-121"
     ],
     "ISS-126": [
+      "FIX-201",
       "FIX-240",
-      "ISS-123"
+      "FIX-244",
+      "FIX-245",
+      "ISS-123",
+      "ISS-124",
+      "ISS-138"
     ],
     "ISS-128": [
       "FIX-241",
@@ -3787,6 +3888,37 @@
     "ISS-134": [
       "FIX-243",
       "ISS-089"
+    ],
+    "ISS-135": [
+      "FIX-240",
+      "FIX-244",
+      "ISS-123"
+    ],
+    "ISS-137": [
+      "FIX-245",
+      "ISS-136"
+    ],
+    "ISS-138": [
+      "FIX-201",
+      "FIX-245",
+      "ISS-126"
+    ],
+    "ISS-139": [
+      "ISS-126"
+    ],
+    "ISS-140": [
+      "FIX-245",
+      "ISS-126"
+    ],
+    "ISS-141": [
+      "FIX-245",
+      "ISS-126"
+    ],
+    "ISS-142": [
+      "FIX-240",
+      "FIX-245",
+      "ISS-126",
+      "ISS-137"
     ]
   },
   "rules_by_file": {

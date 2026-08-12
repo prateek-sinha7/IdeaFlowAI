@@ -1,18 +1,18 @@
 {
-  "built_at": "2026-08-12 21:47",
-  "card_count": 691,
+  "built_at": "2026-08-13 00:05",
+  "card_count": 702,
   "counts": {
     "bug": 28,
     "decision": 1,
     "doc": 65,
-    "fix": 240,
-    "issue": 134,
+    "fix": 243,
+    "issue": 142,
     "phase": 23,
     "req": 40,
     "task": 111,
     "test": 49
   },
-  "frontmatter_sha1": "1b0adb5e8ff2e0acfb37c003fb8978e614b20200",
+  "frontmatter_sha1": "23a30eb68d870217d2dd8a9fbbd4e4e1a650cec6",
   "pack_version": 1,
   "sources": {
     "content_ref": "ui-2-dev-fixes",
