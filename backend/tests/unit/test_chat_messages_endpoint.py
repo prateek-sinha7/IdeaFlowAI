@@ -237,6 +237,29 @@ def _arm_review(env, gate_key):
 
 
 class TestRouting:
+    @pytest.fixture(autouse=True)
+    def _no_live_concierge(self, monkeypatch):
+        """ISS-102 — keep this class's Concierge seam off the wire. DO NOT DELETE.
+
+        A bare-text turn at ``PHASE_CLARIFY_WAITING`` / ``PHASE_GATE_PAUSED`` is
+        *deliberately* routed to ``CHANNEL_CONCIERGE`` by
+        ``app/api/chat_router.py::route_chat_turn`` — a plain text turn must NOT be
+        auto-submitted as a freeform clarify answer, and must NOT default to
+        ``approve``. The REAL ``ConciergeCapability`` resolved by
+        ``run_commands._resolve_concierge`` (:918, called at :1442) carries
+        ``model=None``, so it goes ``build_model()`` → ``ChatBedrockConverse`` → a live
+        AWS ``ConverseStream`` call that bills real money.
+
+        Class-wide rather than per-test because only 2 of the 8 methods reach the seam
+        today but any of them could tomorrow; a per-test patch on the other 6 would be
+        dead code (INV-12, "no shadows"). ``_StreamingConcierge`` is defined later in
+        this file — the body resolves it as a module global at call time.
+        """
+        from app.api import run_commands as rc_module
+
+        fake = _StreamingConcierge()
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
     def test_clarify_waiting_routes_to_answers_seam(self, env):
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
