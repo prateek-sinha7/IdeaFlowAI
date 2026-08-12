@@ -715,6 +715,12 @@ export default function DashboardPage() {
           // _sourceRunId is injected per SSE stream — more reliable than data parsing
           (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
           ?? (msg.data as Record<string, unknown> | undefined)?.pipeline_run_id as string | undefined;
+        // ISS-080 — the page-side half of the same-run re-announce predicate the
+        // reducer uses (useWorkflow.ts `isSameRunReannounce`). Captured HERE, before
+        // the launch-window block below re-points `trackedRunIdRef` at a brand-new run
+        // — read after that assignment, a fresh launch would misread as "same run".
+        const isSameRunReannounce =
+          !!incomingRunId && trackedRunIdRef.current === incomingRunId;
         const isForeignRun =
           !!incomingRunId && (
             // KAN-125 MULTI-TAB: if this tab has never launched anything (empty set),
@@ -771,13 +777,25 @@ export default function DashboardPage() {
               runStoreSwitchViewToRef.current(incomingRunId);
             }
           }
-          resetReplayState({
-            seen: seenEventIdsRef.current,
-            setLastSeq: (n) => {
-              lastSeqRef.current = n;
-            },
-            setWaveGroups,
-          });
+          // ISS-080 — reset the per-run replay state only for a run we are NOT already
+          // showing. A same-run `pipeline_start` re-announces the run in progress (a
+          // resume, a restart while parked, or the durable replay's own copy), and
+          // wiping the seen-set there voids the CR-05 idempotency contract mid-replay:
+          // on a history reopen it discarded 24 783 ids, so the SSE replay re-applied
+          // every event the REST replay had already applied and the revision banner
+          // read 5 for 2 revisions. The seq cursor and the wave groups belong to that
+          // same run too, so keeping all three is what "same run" means.
+          // Scoped to `resetReplayState`: the four clears below are still wanted on a
+          // genuine resume and are deliberately left running.
+          if (!isSameRunReannounce) {
+            resetReplayState({
+              seen: seenEventIdsRef.current,
+              setLastSeq: (n) => {
+                lastSeqRef.current = n;
+              },
+              setWaveGroups,
+            });
+          }
           if (topEventId) seenEventIdsRef.current.add(topEventId);
           // KAN-89: clear any stale reviewGateData from a previous run so the
           // ReviewGatePanel never blocks the new pipeline's preview area.

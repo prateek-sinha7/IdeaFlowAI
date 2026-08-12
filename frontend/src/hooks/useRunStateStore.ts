@@ -77,8 +77,8 @@ export interface PerRunState {
   // Run family for version timeline
   runFamily: RunFamily | null;
 
-  // ISS-063 — which spec-revision cycle this run is in, derived from
-  // pipelineState.agentStartCounts by the reducer. Written in exactly one place
+  // ISS-063 — which spec-revision cycle this run is in, derived from the pipeline
+  // head's entry in pipelineState.agentStartEventIds. Written in exactly one place
   // (handleFrame); the arm/consume detector that used to compute this in page.tsx
   // is deleted, not shadowed.
   specRevisionCount: number;
@@ -421,7 +421,7 @@ export function useRunStateStore(): RunStateStoreReturn {
     // ISS-063: the ONE writer of specRevisionCount. Derived from the restart history
     // the reducer just accumulated, so the banner reports the same number live, after
     // a reload, and after an SSE reconnect replays the log from zero.
-    entry.specRevisionCount = deriveSpecRevisionCount(entry.pipelineState.agentStartCounts);
+    entry.specRevisionCount = deriveSpecRevisionCount(entry.pipelineState);
 
     // Always project after any frame for the viewed run.
     if (runId === viewedRunIdRef.current) {

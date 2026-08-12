@@ -707,14 +707,18 @@ export interface PipelineRunState {
   // so the lane header can render a relative age ("23h ago") for a settled run.
   // ADDITIVE optional.
   createdAt?: string;
-  // ISS-063 — how many times each agent has been (re)started in this run, keyed by
-  // agent id. An update_specs pass re-runs a contiguous head of the pipeline, so the
-  // restart counts are what name the current spec-revision cycle
-  // (see `deriveSpecRevisionCount`). Accumulated in the `agent_start` reducer and
-  // CARRIED ACROSS a same-run `pipeline_start`: a resume or a replay-from-zero
-  // re-delivers that frame after the revisions, and rebuilding the map there would
-  // erase the history the banner is reporting. ADDITIVE optional.
-  agentStartCounts?: Record<string, number>;
+  // ISS-063/ISS-080 — the restart history of this run: per agent id, the durable
+  // IDENTITIES (`event_id`, else `seq`) of the `agent_start` events seen so far. An
+  // update_specs pass re-runs a contiguous head of the pipeline, so the number of
+  // starts of the pipeline HEAD names the current spec-revision cycle (see
+  // `deriveSpecRevisionCount`). Accumulated in the `agent_start` reducer and CARRIED
+  // ACROSS a same-run `pipeline_start`: a resume or a replay-from-zero re-delivers
+  // that frame after the revisions, and rebuilding the map there would erase the
+  // history the banner is reporting.
+  // A SET of identities, never a tally: a history reopen delivers every durable event
+  // TWICE (the REST replay and the SSE replay), so anything shaped `+= 1` counts
+  // deliveries instead of events and doubles. ADDITIVE optional.
+  agentStartEventIds?: Record<string, string[]>;
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

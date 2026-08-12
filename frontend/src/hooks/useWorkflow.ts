@@ -199,23 +199,48 @@ export function useWorkflow(): UseWorkflowReturn {
 }
 
 /**
- * ISS-063 — which spec-revision cycle this run is in, derived from `agentStartCounts`.
+ * ISS-063/ISS-080/ISS-081 — which spec-revision cycle this run is in, derived from the
+ * restart history in `agentStartEventIds`.
  *
- * An `update_specs` pass re-runs a contiguous head of the pipeline, so the agent that
- * has started the most times names the cycle: its first start is the original pass and
- * every start after it is one revision. Deriving instead of counting events makes this
- * a pure function of accumulated state — order-independent, idempotent under the event
- * dedup, and identical whether frames arrive network-paced (live) or in one synchronous
- * burst (the durable REST replay at dashboard/page.tsx). FIX-163/164's arm/consume
- * detector needed neither property and had both failure modes.
+ * An `update_specs` pass re-runs a contiguous head of the pipeline, so the number of
+ * times the pipeline's FIRST step has started names the cycle: its first start is the
+ * original pass and every start after it is one revision.
  *
- * SC-001/INV-1: keyed on restart counts alone — no agent id, no workflow name.
+ * ISS-081 — scoped to the HEAD, not `max` over every agent. A later step restarts for
+ * reasons that are not revisions: a per-task agent loop restarts one step once per task
+ * (11 starts on run 6e38b9a7, a run with ONE revision), and a partial resume re-drives
+ * from the first incomplete step. `max` read those as revisions.
+ * SC-001/INV-1: the head is POSITIONAL — the first step of whatever roster the compiled
+ * manifest announced on `pipeline_start`. No agent id, no workflow name, no artifact
+ * kind. A workflow whose revision window excludes step 0 under-reports (the banner
+ * stays hidden) rather than over-reports.
+ *
+ * ISS-080 — counts DISTINCT event identities, never deliveries, so the value is a pure
+ * function of the SET of events: order-independent and idempotent under ANY delivery
+ * multiplicity rather than merely under the event dedup. A history reopen delivers each
+ * durable event twice (the REST replay and the SSE replay).
  */
-export function deriveSpecRevisionCount(counts: Record<string, number> | undefined): number {
-  if (!counts) return 0;
-  let max = 0;
-  for (const n of Object.values(counts)) if (n > max) max = n;
-  return max > 1 ? max - 1 : 0;
+export function deriveSpecRevisionCount(
+  state: Pick<PipelineRunState, "agents" | "agentStartEventIds"> | undefined,
+): number {
+  const headAgentId = state?.agents?.[0]?.id;
+  if (!headAgentId) return 0;
+  const headStarts = state?.agentStartEventIds?.[headAgentId]?.length ?? 0;
+  return headStarts > 1 ? headStarts - 1 : 0;
+}
+
+/**
+ * The durable identity of a frame. Every persisted `run_events` row and every live SSE
+ * event carries `event_id` (and `seq`), and `getRunEvents` merges both onto the
+ * replayed payload (lib/api.ts) — so the two transports' copies of one durable event
+ * share a key. An UNSTAMPED frame has no identity and, exactly as `shouldApplyEvent`
+ * treats it (lib/wsReplayState.ts), is never deduped: `positionKey` keeps each of its
+ * deliveries distinct so legacy frames still count one apiece.
+ */
+function frameIdentity(msg: { [key: string]: unknown }, positionKey: number): string {
+  if (typeof msg.event_id === "string" && msg.event_id) return msg.event_id;
+  if (typeof msg.seq === "number") return `seq:${msg.seq}`;
+  return `unstamped:${positionKey}`;
 }
 
 /**
@@ -251,63 +276,99 @@ export function handlePipelineMessage(
       // → byte-identical to the pre-fix behaviour (INV-3).
       const resumeOffset = (msg.resume_offset as number | undefined) ?? 0;
 
-      const agentStates: AgentRunState[] = agents.map((a, idx) => ({
-        id: a.id,
-        name: a.name,
-        role: a.role,
-        icon: a.icon || "🤖",
-        // KAN-120 BUG-2: agents before the resume offset are already done.
-        status: idx < resumeOffset ? "done" : "idle",
-        output: "",
-        thinking: "",
-        duration: null,
-        error: null,
-        index: idx,
-      }));
+      setPipelineState((prev) => {
+        // ISS-063/ISS-075/ISS-080 — THE predicate this branch is built on: a
+        // `pipeline_start` naming the run we are ALREADY showing RE-ANNOUNCES it (a
+        // resume, a restart while parked at a gate, or a durable replay from seq 0);
+        // it does not start it. Everything it re-announces has already happened, so
+        // nothing it carries may be rebuilt from zero. FIX-221 introduced this test
+        // for one field; it now governs the whole branch (INV-12 — one concept, one
+        // expression). Its sibling in dashboard/page.tsx gates `resetReplayState`.
+        const isSameRunReannounce =
+          !!pipelineRunIdFromStart && prev.pipelineRunId === pipelineRunIdFromStart;
+        // Either shape of "this frame continues an in-flight run" — a mid-build resume
+        // (KAN-120) or a re-announcement of the run on screen.
+        const isContinuation = resumeOffset > 0 || isSameRunReannounce;
 
-      setPipelineState((prev) => ({
-        ...prev,
-        isRunning: true,
-        pipeline_type: (msg.pipeline_type as string) || prev.pipeline_type,
-        pipelineRunId: pipelineRunIdFromStart ?? prev.pipelineRunId,
-        agents: agentStates,
-        currentAgentIndex: resumeOffset > 0 ? resumeOffset : 0,
-        // KAN-120 BUG-2: on resume, seed completedCount from the offset so
-        // the progress bar shows correct proportion immediately.
-        completedCount: resumeOffset > 0 ? resumeOffset : 0,
-        // KAN-120 BUG-3: on resume, carry over protoCompletedTasks from prev
-        // so task data already recorded before the stop is not wiped. The
-        // task_progress max-wins handler below will extend it as new tasks
-        // complete. On a fresh run (resumeOffset==0) prev.protoCompletedTasks
-        // is undefined/empty → same as before (byte-identical, INV-3).
-        protoCompletedTasks: resumeOffset > 0 ? (prev.protoCompletedTasks ?? []) : [],
-        protoCompletedTaskCount: resumeOffset > 0 ? (prev.protoCompletedTaskCount ?? 0) : 0,
-        // KAN-153: reset the known total on a fresh run; preserve on resume so
-        // the ConstructionBlock keeps showing the full task list while catching up.
-        protoTotalTasks: resumeOffset > 0 ? (prev.protoTotalTasks ?? 0) : 0,
-        protoPlannedTasks: resumeOffset > 0 ? prev.protoPlannedTasks : undefined,
-        // KAN-120: clear terminal markers so a resumed run does not stay in
-        // the "terminal" state (cancelled/failed) after pipeline_start fires.
-        // Without this, pipeline_complete resolves isRunning→false but
-        // cancelled/failed is still true → runLaneState falls back to "terminal"
-        // and shows "Cancelled by you" / "Run Again" instead of the deliverable.
-        cancelled: undefined,
-        failed: undefined,
-        degraded: undefined,
-        // Phase 39 (RUNUI-06): surface the run's created_at so the lane header can
-        // render a relative age ("23h ago"). ADDITIVE optional — falls back to
-        // the receipt time when the event omits it.
-        createdAt: (msg.created_at as string) || prev.createdAt || new Date().toISOString(),
-        // ISS-063: a `pipeline_start` naming the SAME run is a resume or a
-        // replay-from-zero, not a new run — the restart history it re-announces has
-        // already happened, so carry it. Only a genuinely different run clears it.
-        // Without this the trailing resume frame lands last on every replay and
-        // zeroes the revision count the user is meant to be reading.
-        agentStartCounts:
-          pipelineRunIdFromStart && prev.pipelineRunId === pipelineRunIdFromStart
-            ? (prev.agentStartCounts ?? {})
-            : {},
-      }));
+        // ISS-075: MERGE the roster on a re-announcement instead of rebuilding it. The
+        // engine's `resume_offset` is the first INCOMPLETE step, which is 0 for a run
+        // parked at a gate on step 0 — so rebuilding from it repainted a fully-run
+        // trace as "nothing has run" (every Steps row then renders disabled, because
+        // StepsOverviewSpine gates navigation on status !== "idle"). The live per-agent
+        // state we already hold is the better evidence; the frame supplies identity.
+        const carried = isSameRunReannounce
+          ? new Map(prev.agents.map((a) => [a.id, a]))
+          : undefined;
+        const agentStates: AgentRunState[] = agents.map((a, idx) => {
+          const identity = {
+            id: a.id,
+            name: a.name,
+            role: a.role,
+            icon: a.icon || "🤖",
+            index: idx,
+          };
+          const existing = carried?.get(a.id);
+          if (existing) return { ...existing, ...identity };
+          return {
+            ...identity,
+            // KAN-120 BUG-2: agents before the resume offset are already done.
+            status: idx < resumeOffset ? "done" : "idle",
+            output: "",
+            thinking: "",
+            duration: null,
+            error: null,
+          };
+        });
+        // One rule on both paths: the roster is the evidence, the offset is the floor.
+        // On a fresh run the two agree by construction (idx < resumeOffset ⇒ "done"),
+        // so this is byte-identical to the old `resumeOffset > 0 ? resumeOffset : 0`.
+        const completedCount = Math.max(
+          agentStates.filter((a) => a.status === "done").length,
+          resumeOffset,
+        );
+
+        return {
+          ...prev,
+          isRunning: true,
+          pipeline_type: (msg.pipeline_type as string) || prev.pipeline_type,
+          pipelineRunId: pipelineRunIdFromStart ?? prev.pipelineRunId,
+          agents: agentStates,
+          currentAgentIndex: isSameRunReannounce
+            ? Math.max(prev.currentAgentIndex, resumeOffset, 0)
+            : (resumeOffset > 0 ? resumeOffset : 0),
+          // KAN-120 BUG-2: on resume, seed completedCount from the offset so
+          // the progress bar shows correct proportion immediately.
+          completedCount,
+          // KAN-120 BUG-3: on a continuation, carry over protoCompletedTasks from prev
+          // so task data already recorded before the stop is not wiped. The
+          // task_progress max-wins handler below will extend it as new tasks
+          // complete. On a fresh run prev.protoCompletedTasks is undefined/empty
+          // → same as before (byte-identical, INV-3).
+          protoCompletedTasks: isContinuation ? (prev.protoCompletedTasks ?? []) : [],
+          protoCompletedTaskCount: isContinuation ? (prev.protoCompletedTaskCount ?? 0) : 0,
+          // KAN-153: reset the known total on a fresh run; preserve on a continuation so
+          // the ConstructionBlock keeps showing the full task list while catching up.
+          protoTotalTasks: isContinuation ? (prev.protoTotalTasks ?? 0) : 0,
+          protoPlannedTasks: isContinuation ? prev.protoPlannedTasks : undefined,
+          // KAN-120: clear terminal markers so a resumed run does not stay in
+          // the "terminal" state (cancelled/failed) after pipeline_start fires.
+          // Without this, pipeline_complete resolves isRunning→false but
+          // cancelled/failed is still true → runLaneState falls back to "terminal"
+          // and shows "Cancelled by you" / "Run Again" instead of the deliverable.
+          cancelled: undefined,
+          failed: undefined,
+          degraded: undefined,
+          // Phase 39 (RUNUI-06): surface the run's created_at so the lane header can
+          // render a relative age ("23h ago"). ADDITIVE optional — falls back to
+          // the receipt time when the event omits it.
+          createdAt: (msg.created_at as string) || prev.createdAt || new Date().toISOString(),
+          // ISS-063: the restart history a re-announcement re-announces has already
+          // happened, so carry it. Only a genuinely different run clears it. Without
+          // this the trailing resume frame lands last on every replay and zeroes the
+          // revision count the user is meant to be reading.
+          agentStartEventIds: isSameRunReannounce ? (prev.agentStartEventIds ?? {}) : {},
+        };
+      });
 
       // Persist pipeline_run_id to sessionStorage so reconnection works
       // even if the browser tab is closed and re-opened while a long-running
@@ -362,18 +423,22 @@ export function handlePipelineMessage(
           contextSources: undefined,
         };
 
+        // ISS-063/ISS-080: the only writer of the restart history. Lives here, inside
+        // the updater, so it reads `prev` rather than a post-commit ref — that is what
+        // makes it correct during the synchronous durable-replay loop, where no React
+        // commit can interleave between frames. Keyed on the event's own identity, so
+        // a SECOND delivery of one durable start adds nothing: a history reopen replays
+        // the log over REST and again over SSE, and a tally (`+= 1`) cannot tell those
+        // apart from two real starts (ISS-080 — the banner read 5 for 2 revisions).
+        const priorStarts = prev.agentStartEventIds?.[agentId] ?? [];
+        const startIdentity = frameIdentity(msg, priorStarts.length);
         return {
           ...prev,
           agents: updated,
           currentAgentIndex: agentIdx,
-          // ISS-063: the only writer of the restart history. Lives here, inside the
-          // updater, so it reads `prev` rather than a post-commit ref — that is what
-          // makes it correct during the synchronous durable-replay loop, where no
-          // React commit can interleave between frames.
-          agentStartCounts: {
-            ...(prev.agentStartCounts ?? {}),
-            [agentId]: (prev.agentStartCounts?.[agentId] ?? 0) + 1,
-          },
+          agentStartEventIds: priorStarts.includes(startIdentity)
+            ? (prev.agentStartEventIds ?? {})
+            : { ...(prev.agentStartEventIds ?? {}), [agentId]: [...priorStarts, startIdentity] },
         };
       });
       return true;
