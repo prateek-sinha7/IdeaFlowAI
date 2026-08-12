@@ -399,9 +399,13 @@ class _StreamingConcierge:
     """A scripted concierge (no live model): ``converse`` streams two deltas via the
     ``on_chunk`` sink then returns the full text, and surfaces one held gate proposal."""
 
-    def __init__(self, deltas=("Hel", "lo"), answer="Hello"):
+    def __init__(self, deltas=("Hel", "lo"), answer="Hello", usage=None):
         self._deltas = list(deltas)
         self._answer = answer
+        # ISS-092 — the OBSERVED model spend this turn, surfaced on the ctx exactly as
+        # the real capability does. ``None`` models a converse that reported nothing:
+        # the endpoint must then write NO chat_usage row (unmeasured is never invented).
+        self._usage = usage
         self.seen: list = []
         # c72 — capture the ctx.chain_hints threaded onto each converse turn.
         self.seen_hints: list = []
@@ -409,6 +413,8 @@ class _StreamingConcierge:
     async def converse(self, ctx, user_message, on_chunk=None):
         self.seen.append(user_message)
         self.seen_hints.append(getattr(ctx, "chain_hints", None))
+        if self._usage is not None:
+            ctx.usage = dict(self._usage)
         for delta in self._deltas:
             if on_chunk is not None:
                 res = on_chunk(delta)
@@ -507,3 +513,112 @@ class TestConciergeStreaming:
         assert resp.status_code == 200, resp.text
         assert resp.headers["content-type"].startswith("application/json")
         assert resp.json()["channel"] == "steering"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ISS-092 — the Concierge's own model spend becomes a durable, readable number
+# ════════════════════════════════════════════════════════════════════════════
+_USAGE = {
+    "input_tokens": 1200, "output_tokens": 340,
+    "cache_read_tokens": 900, "cache_write_tokens": 100,
+    "model_id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+}
+
+
+class TestChatUsageAccounting:
+    def test_chat_usage_row_records_observed_tokens_once_per_message_id(self, env, monkeypatch):
+        """One durable ``chat_usage`` row per answered turn, idempotent on message_id.
+
+        ``append_event_next_seq`` is keyed on ``event_id`` (``chat-usage:{message_id}``),
+        so a retried/double-submitted POST resolves to the SAME row — a replay can never
+        double-count the spend.
+        """
+        from app.api import run_commands as rc_module
+
+        fake = _StreamingConcierge(usage=_USAGE)
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="completed")
+        env["state"]["user"] = owner
+
+        r1 = _post(env, run_id, text="what did it cost?", concierge=True, message_id="u1")
+        assert r1.status_code == 200, r1.text
+
+        rows = _events_of_type(env, run_id, "chat_usage")
+        assert len(rows) == 1, "one answered turn must record exactly one chat_usage row"
+        payload = rows[0].payload_json
+        assert rows[0].event_id == "chat-usage:u1"
+        assert payload["message_id"] == "u1"
+        assert payload["input_tokens"] == 1200
+        assert payload["output_tokens"] == 340
+        assert payload["cache_read_tokens"] == 900
+        assert payload["cache_write_tokens"] == 100
+        assert payload["model_id"] == _USAGE["model_id"]
+        # Priced from the OBSERVED counters — the number exists, so it can be reported.
+        assert isinstance(payload["estimated_cost_usd"], (int, float))
+        # Owner + workspace stamped by the ScopedStore (every durable row carries them).
+        assert rows[0].owner_id == owner.id and rows[0].workspace_id == "ws-1"
+
+        # A replayed POST with the SAME message_id must not add a second row.
+        r2 = _post(env, run_id, text="what did it cost?", concierge=True, message_id="u1")
+        assert r2.status_code == 200, r2.text
+        assert len(_events_of_type(env, run_id, "chat_usage")) == 1, "replay double-counted"
+
+    def test_chat_usage_never_mutates_workflow_run_token_usage(self, env, monkeypatch):
+        """Chat spend is a SEPARATE line — it never touches the run's headline cost.
+
+        ``workflow_runs.token_usage`` answers "what does this workflow cost to run", is
+        written solely by ``_apply_terminal_completion`` (documented SOLE writer) and is
+        pinned by the characterization goldens. Folding a user's chattiness into it would
+        make two runs of the same workflow non-comparable and put a second writer on a
+        deliberately consolidated seam.
+        """
+        from app.api import run_commands as rc_module
+        from app.models.workflow import WorkflowRun
+
+        fake = _StreamingConcierge(usage=_USAGE)
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="completed")
+        env["state"]["user"] = owner
+
+        db = env["Session"]()
+        try:
+            before = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first().token_usage
+        finally:
+            db.close()
+
+        assert _post(env, run_id, text="hi", concierge=True, message_id="u2").status_code == 200
+        # The row proves the turn WAS counted — so an unchanged headline is a decision,
+        # not an accident of the spend never being observed.
+        assert len(_events_of_type(env, run_id, "chat_usage")) == 1
+
+        db = env["Session"]()
+        try:
+            after = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first().token_usage
+        finally:
+            db.close()
+        assert after == before, "chat spend must NOT be folded into the run's headline cost"
+
+    def test_no_chat_usage_row_when_spend_was_not_observed(self, env, monkeypatch):
+        """A converse that reports no usage writes NO row — unmeasured is never invented.
+
+        The absolute rule for ISS-092: a token that was not observed is reported as
+        unmeasured. Deriving a count from ``len(chat_reply)`` would poison the downstream
+        cache-savings figures (ISS-034), so the absence of a measurement stays an absence.
+        """
+        from app.api import run_commands as rc_module
+
+        fake = _StreamingConcierge(usage=None)  # converse surfaces nothing
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="completed")
+        env["state"]["user"] = owner
+
+        assert _post(env, run_id, text="hi", concierge=True, message_id="u3").status_code == 200
+        # The reply still landed — counting never gates the product.
+        assert len(_events_of_type(env, run_id, "chat_reply")) == 1
+        assert _events_of_type(env, run_id, "chat_usage") == []

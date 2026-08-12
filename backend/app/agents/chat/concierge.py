@@ -361,8 +361,25 @@ class ConciergeCapability:
         # each ordered text delta is handed to it (awaited iff awaitable) so the app layer
         # can stream the reply token-by-token; the proposal capture below is unchanged.
         full_output = ""
+        # ISS-092: the runner emits ONE ``usage`` event per MODEL TURN, and a
+        # tool-calling Concierge takes several turns per question — so these must be
+        # SUMMED, never overwritten, or the recorded spend is only the final turn.
+        # A turn whose model reports no usage metadata contributes 0: an unobserved
+        # token is reported as unmeasured, NEVER estimated from len(answer).
+        usage_total: dict[str, Any] = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+        }
         async for event in runner.astream_events(user_message):
-            if event["type"] != "chunk":
+            etype = event["type"]
+            if etype == "usage":
+                for key in ("input_tokens", "output_tokens",
+                            "cache_read_tokens", "cache_write_tokens"):
+                    usage_total[key] += int(event.get(key, 0) or 0)
+                continue
+            if etype != "chunk":
                 continue
             delta = event["chunk"]
             full_output += delta
@@ -371,6 +388,13 @@ class ConciergeCapability:
                 if inspect.isawaitable(res):
                     await res
         answer = full_output
+        # The effective model rides with the counters so the cost site prices the turn
+        # against the model that actually ran, not a default inference profile.
+        usage_total["model_id"] = getattr(runner, "model_id", "") or ""
+        try:
+            ctx.usage = usage_total
+        except Exception:  # a ctx that forbids attribute set — degrade, never crash.
+            pass
         # Surface the surfaced proposals on the PER-REQUEST ctx (never on ``self`` — the
         # capability is a shared singleton). ``drain_proposals(ctx)`` reads/clears the
         # SAME per-request buffer, so overlapping requests never cross-contaminate.

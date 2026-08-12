@@ -1519,6 +1519,62 @@ async def post_message(
                         "text": answer_text or "",
                     },
                 )
+                # ── ISS-092: record the Concierge's OWN model spend, durably. ──────
+                # ``converse`` runs here, in a background task spawned AFTER the run
+                # settled — outside execute()'s lifetime — so neither the engine's
+                # aux_token_usage fold nor _apply_terminal_completion can ever see it.
+                # Without this row a chat turn's cost does not exist anywhere.
+                #
+                # It is a run_events row, NOT a workflow_runs column: token_usage is
+                # written solely by _apply_terminal_completion (the documented SOLE
+                # writer, already run and never run again) and answers "what does this
+                # workflow cost to RUN" — folding a user's chattiness into it would make
+                # two runs of the same workflow non-comparable. Reported as a separate
+                # line instead.
+                #
+                # event_id is namespaced on message_id, so append_event_next_seq's
+                # idempotency makes a retried/double-submitted POST a no-op rather than
+                # a double count. An ABSENT ctx.usage writes NO row: a token that was not
+                # observed is reported as unmeasured, never estimated from len(answer).
+                # Its own try/except — telemetry must never break the reply.
+                try:
+                    chat_usage = getattr(ctx, "usage", None)
+                    if isinstance(chat_usage, dict):
+                        _in = int(chat_usage.get("input_tokens", 0) or 0)
+                        _out = int(chat_usage.get("output_tokens", 0) or 0)
+                        _cr = int(chat_usage.get("cache_read_tokens", 0) or 0)
+                        _cw = int(chat_usage.get("cache_write_tokens", 0) or 0)
+                        _model = (
+                            chat_usage.get("model_id")
+                            or settings.BEDROCK_INFERENCE_PROFILE_ID
+                        )
+                        await store.append_event_next_seq(
+                            run_id,
+                            event_id=f"chat-usage:{body.message_id}",
+                            type="chat_usage",
+                            payload_json={
+                                "pipeline_run_id": run_id,
+                                "message_id": body.message_id,
+                                "model_id": _model,
+                                "input_tokens": _in,
+                                "output_tokens": _out,
+                                "total_tokens": _in + _out,
+                                "cache_read_tokens": _cr,
+                                "cache_write_tokens": _cw,
+                                # Same pricing convention as the run's headline cost
+                                # site (:2107): input_tokens is the UNCACHED portion.
+                                "estimated_cost_usd": estimate_cost_usd(
+                                    _model,
+                                    input_tokens=max(0, _in - _cr - _cw),
+                                    output_tokens=_out,
+                                    cache_read_tokens=_cr,
+                                    cache_write_tokens=_cw,
+                                    cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+                                ),
+                            },
+                        )
+                except Exception:  # noqa: BLE001 — telemetry never breaks the answer.
+                    logger.exception("chat_usage record failed for run %s", run_id)
                 # Drain + dispose proposals EXACTLY as today — still HELD behind a confirm
                 # chip (T-33-03-01), never auto-executed; only the call-site moved here.
                 for intent in _drain_concierge_proposals(concierge, ctx):

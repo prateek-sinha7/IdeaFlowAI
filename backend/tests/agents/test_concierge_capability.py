@@ -478,3 +478,63 @@ def test_overlapping_converse_calls_are_ctx_isolated() -> None:
     b = ConciergeCapability.drain_proposals(ctx_b)
     assert [p.params["action"] for p in a] == ["approve"], "ctx A leaked/lost proposals"
     assert [p.params["action"] for p in b] == ["reject"], "ctx B leaked/lost proposals"
+
+
+# ── counting: the Concierge's OWN model spend must be observed (ISS-092) ─────────
+
+
+def test_converse_accumulates_usage_across_turns() -> None:
+    """ISS-092 (D1): converse SUMS the runner's per-turn ``usage`` onto the ctx.
+
+    ``DeepAgentRunner`` emits one ``{"type":"usage", ...}`` event per model turn. A
+    tool-calling Concierge takes several turns, so the drain must ACCUMULATE — an
+    overwrite would report only the last turn and silently undercount. The totals ride
+    the PER-REQUEST ctx (never the singleton capability), the same idiom as
+    ``ctx.proposals``.
+    """
+    import json
+
+    scripted = ScriptedFakeChatModel(
+        [
+            _ScriptedTurn(
+                texts=["Checking. "],
+                tool_calls=[("propose_gate_action", json.dumps({"action": "approve"}), "c1")],
+                usage=(10, 5),
+            ),
+            _ScriptedTurn(texts=["Done."], usage=(7, 3)),
+        ]
+    )
+    ctx = _concierge_ctx(scripted, "run-usage", "owner-A")
+
+    impl = ConciergeCapability()
+    asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "should I approve?"))
+
+    usage = getattr(ctx, "usage", None)
+    assert isinstance(usage, dict), "converse must surface the model spend on the ctx"
+    # SUMMED across both turns — not the last turn alone (10+7, 5+3).
+    assert usage["input_tokens"] == 17, f"usage must SUM across turns, got {usage}"
+    assert usage["output_tokens"] == 8, f"usage must SUM across turns, got {usage}"
+    assert usage["cache_read_tokens"] == 0
+    assert usage["cache_write_tokens"] == 0
+    # The effective model is recorded alongside the counters so the cost site can
+    # price the turn instead of falling back to a default profile id.
+    assert usage.get("model_id"), "usage must carry the effective model id"
+
+
+def test_converse_reports_zero_usage_rather_than_estimating() -> None:
+    """A model turn that emits NO usage metadata reports zeros — never an estimate.
+
+    The absolute rule for ISS-092: a token that was not OBSERVED is reported as
+    unmeasured. Deriving a count from ``len(answer)`` would poison the cache-savings
+    figures downstream (ISS-034), so the drain must leave the counters at 0.
+    """
+    scripted = ScriptedFakeChatModel([_ScriptedTurn(texts=["A long answer body."], usage=None)])
+    ctx = _concierge_ctx(scripted, "run-nousage", "owner-A")
+
+    impl = ConciergeCapability()
+    answer = asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "hi"))
+
+    assert answer == "A long answer body."
+    usage = getattr(ctx, "usage", None)
+    assert isinstance(usage, dict)
+    assert usage["input_tokens"] == 0 and usage["output_tokens"] == 0
