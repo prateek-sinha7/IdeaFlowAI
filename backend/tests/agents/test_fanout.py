@@ -25,6 +25,7 @@ import pytest
 
 from agents.execution_engine.fanout import run_fanout, FanoutError
 from agents.execution_engine.budget import BudgetManager
+from agents.execution_engine.state_machine import StateMachine
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +579,12 @@ async def test_kernel_handle_run_fanout_writes_rows_and_events():
         current_step = None
 
     class _FakeEngine:
+        # A per-instance StateMachine (not the module singleton) so the real
+        # KernelServices.is_run_terminal() the fan-out cancel boundary consults
+        # (ISS-091) is genuinely exercised here and stays test-independent. An
+        # unknown run id reads None -> not terminal, so the fan-out proceeds.
+        _state_machine = StateMachine()
+
         async def _run_agent(self, *a, **k):
             yield {"type": "agent_chunk", "data": {"chunk": "x"}}
 
@@ -641,6 +648,12 @@ def _real_kernel_services(*, allowed_workers=None):
         od_context = None
 
     class _FakeEngine:
+        # A per-instance StateMachine (not the module singleton) so the real
+        # KernelServices.is_run_terminal() the fan-out cancel boundary consults
+        # (ISS-091) is genuinely exercised here and stays test-independent. An
+        # unknown run id reads None -> not terminal, so the fan-out proceeds.
+        _state_machine = StateMachine()
+
         async def _run_agent(self, *a, **k):
             yield {"type": "agent_chunk", "data": {"chunk": "x"}}
 

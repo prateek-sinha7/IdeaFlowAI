@@ -217,6 +217,22 @@ class KernelServices:
     def od_context(self) -> dict | None:
         return self._ectx.od_context
 
+    # ── Run terminality (ISS-091) ─────────────────────────────────────────────
+    def is_run_terminal(self) -> bool:
+        """True once the run has reached a terminal state.
+
+        The fan-out cancel boundary (``fanout._check_cancel``) reads this in
+        addition to ``cancel_event``, because a run driven terminal by anything
+        OTHER than the Stop button — a review-gate rejection — sets no
+        ``cancel_event`` at all. No run is ever ``failed`` while fan-out is in
+        flight (both transitions live outside the step loop), so a True here
+        always means the run genuinely ended.
+        """
+        return self._engine._state_machine.get_state(self.run_id) in (
+            "cancelled",
+            "failed",
+        )
+
     # ── The run's user message (read/write) ────────────────────────────────────
     # The previous_run provider (07-10 / CR-06) reads this to extract the existing
     # artifact for an in-place revision and writes back the SLIMMED message (the
