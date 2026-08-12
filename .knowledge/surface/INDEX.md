@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-668 cards · rules 1 · fixes 234 · issues 117 · phases 23 · built 2026-08-12 15:11
+671 cards · rules 1 · fixes 235 · issues 119 · phases 23 · built 2026-08-12 16:11
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (234)
+## Fixes (235)
 
+FIX-238 2026-08-12 [backend,sse,agents,auth,artifacts] The offline unit suite made REAL, billable AWS Bedrock calls, and nothing in the repo could have stopped it (ISS-102) — Nothing anywhere asserted that an offline test may not reach a live model
 FIX-237 2026-08-12 [frontend,sse,workflow,agents,artifacts] The settled "Task plan · N planned" card rendered the number COMPLETED, not the number planned — wrong at the latest version and frozen under the artifact version picker (ISS-087)
 FIX-236 2026-08-12 [frontend,sse,agents,artifacts] The spec_revision chat card held a SECOND, contradicting copy of the revision-cycle number — and the register row's proposed fix would have made it a THIRD
 FIX-235 2026-08-12 [sse,resume,agents] A re-delivered frame appended a second copy to every accumulating field in handlePipelineMessage — the reducer's correctness was a property of its CALLERS' dedup, the exact arrangement ISS-080 died of behind 15 green tests
@@ -249,8 +250,10 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (117)
+## Issues (119)
 
+ISS-119 - [sse,test] Two TestRouting tests assert a routing contract the product deliberately superseded, and they will stay red until someone decides which side is right
+ISS-118 - [backend,sse,agents,auth,test] Eight offline tests CONSTRUCT a real LLM provider client. They cost nothing today only because none of them invokes it — one added .ainvoke/.astream in any of them is live spend
 ISS-117 - [sse,agents,frontend] Validation frames are dropped on replay, so no run reopened from history can ever show a gate verdict. useRunStateStore.ts:395-403 lists pipelineFrameTypes and omits validator_result, gate_passed and gate_blocked
 ISS-116 - [sse,workflow,agents] The governance-checks verdict badge is DEAD CODE, not merely un-versioned. checksPassed requires validationPassed === true (AgentDetailPanel.tsx:145), which only case "gate_passed" sets (useWorkflow.ts:1078)
 ISS-115 - [workflow,agents,artifacts,frontend] Two non-equivalent ## Task N: parsers still ship (INV-12 debt). FIX-237 extracted parseTasks (artifactPreview.tsx:80-104) and pointed the settled tasks CARD at it, but useWorkflow.ts:1020 keeps its own copy
@@ -266,7 +269,7 @@ ISS-106 - [resume,auth,infra] The graceful-shutdown budget is bounded only in it
 ISS-105 - [sse,infra] lifespan.shutdown() is entered BEFORE the SSE request generators finish unwinding, so shutdown_run_infrastructure() snapshots _PIPELINE_QUEUES / _PUMP_TASKS while stream teardown is still in flight
 ISS-104 - [backend,infra] Stale line-number citations in the shutdown-path comments — each points at code that has since moved, and a fixer following them lands in the wrong place
 ISS-103 - [resume,agents,auth,runtime,infra] Ctrl-C already cancels in-flight runs — by an uncontrolled path that runs AFTER the checkpointer pool is closed — while kill/docker stop does not
-ISS-102 - [sse,agents,auth,test] Three offline unit tests attempt a REAL Bedrock model call; they only 'pass as failures' because the SSO token was expired
+ISS-102 - [backend,sse,agents,auth,test] [TWO CORRECTIONS TO THIS ROW, both verified by re-running it at d31a5a7b — read these before trusting anything below.] (1) It is TWO tests, not three
 ISS-101 - [backend,agents,auth,perf] context_provider:conversation still materialises a whole run's event log server-side to keep six chat turns. agents/capabilities/context_providers/conversation.py:99 calls scoped_store.read_events(run_id
 ISS-100 - [backend,agents,auth,cost] The handoff pipeline's model spend is 100% invisible: there is nowhere to even put the number. Three call sites construct/call agents that ACCEPT a usage_sink and are given none
 ISS-099 - [sse,workflow,agents,engine] A retry-enabled step records a CANCELLED step as reusable. When step.retry.max_attempts > 0, _dispatch_step_with_retry (engine.py:7236-7274) runs the strategy inside an attempt loop and, on normal completion of strategy.run

@@ -1,5 +1,5 @@
 {
-  "count": 668,
+  "count": 671,
   "entries": [
     {
       "area": [
@@ -5551,6 +5551,27 @@
     },
     {
       "area": [
+        "backend",
+        "sse",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/tests/conftest.py",
+        "backend/tests/unit/test_chat_messages_endpoint.py",
+        "backend/tests/unit/test_iss102_live_model_guard.py"
+      ],
+      "id": "FIX-238",
+      "path": ".knowledge/cards/FIX-238.md",
+      "source": ".planning/FIX-REGISTER.md#fix-238",
+      "status": "done",
+      "summary": "The offline unit suite made REAL, billable AWS Bedrock calls, and nothing in the repo could have stopped it (ISS-102) \u2014 Nothing anywhere asserted that an offline test may not reach a live model",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -7426,18 +7447,27 @@
     },
     {
       "area": [
+        "backend",
         "sse",
         "agents",
         "auth",
         "test"
       ],
       "date": "",
-      "files": [],
+      "files": [
+        "backend/tests/conftest.py"
+      ],
       "id": "ISS-102",
       "path": ".knowledge/cards/ISS-102.md",
+      "relates": [
+        "ISS-055",
+        "FIX-238",
+        "ISS-118",
+        "ISS-119"
+      ],
       "source": ".planning/ISSUES-REGISTER.md#iss-102",
-      "status": "open",
-      "summary": "Three offline unit tests attempt a REAL Bedrock model call; they only 'pass as failures' because the SSO token was expired",
+      "status": "done",
+      "summary": "[TWO CORRECTIONS TO THIS ROW, both verified by re-running it at d31a5a7b \u2014 read these before trusting anything below.] (1) It is TWO tests, not three",
       "type": "issue"
     },
     {
@@ -7726,6 +7756,46 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-117",
       "status": "open",
       "summary": "Validation frames are dropped on replay, so no run reopened from history can ever show a gate verdict. useRunStateStore.ts:395-403 lists pipelineFrameTypes and omits validator_result, gate_passed and gate_blocked",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "auth",
+        "test"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/conftest.py"
+      ],
+      "id": "ISS-118",
+      "path": ".knowledge/cards/ISS-118.md",
+      "relates": [
+        "FIX-238"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-118",
+      "status": "open",
+      "summary": "Eight offline tests CONSTRUCT a real LLM provider client. They cost nothing today only because none of them invokes it \u2014 one added .ainvoke/.astream in any of them is live spend",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "test"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-119",
+      "path": ".knowledge/cards/ISS-119.md",
+      "relates": [
+        "FIX-238",
+        "ISS-055"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-119",
+      "status": "open",
+      "summary": "Two TestRouting tests assert a routing contract the product deliberately superseded, and they will stay red until someone decides which side is right",
       "type": "issue"
     },
     {
@@ -10595,10 +10665,10 @@
   ],
   "facets": {
     "area": {
-      "agents": 257,
-      "artifacts": 105,
-      "auth": 102,
-      "backend": 105,
+      "agents": 259,
+      "artifacts": 106,
+      "auth": 104,
+      "backend": 108,
       "cost": 1,
       "docs": 4,
       "engine": 5,
@@ -10610,24 +10680,24 @@
       "product": 30,
       "resume": 68,
       "runtime": 36,
-      "sse": 183,
-      "test": 1,
+      "sse": 186,
+      "test": 3,
       "test-infra": 15,
       "tooling": 2,
       "workflow": 218
     },
     "status": {
       "accepted": 1,
-      "done": 602,
-      "open": 56,
+      "done": 604,
+      "open": 57,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 234,
-      "issue": 117,
+      "fix": 235,
+      "issue": 119,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10645,5 +10715,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 15:11"
+  "generated": "2026-08-12 16:11"
 }

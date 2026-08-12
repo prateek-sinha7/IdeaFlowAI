@@ -31,6 +31,7 @@
 | TEST-019 | FIX-235 (quick-260812-iqh) | 2026-08-12 | `frontend/src/hooks/useWorkflow.accumulators.test.ts`, `frontend/src/lib/wsReplayState.test.ts`, `frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts` | 37 | 37 | 0 | ✅ Pass |
 | TEST-020 | FIX-236 (quick-260812-jn9) | 2026-08-12 | `frontend/src/components/chat/ResultCard.test.tsx`, `frontend/e2e/tests/ts-chat-cards.spec.ts` | 3 | 3 | 0 | ✅ Pass |
 | TEST-021 | FIX-237 (quick-260812-kpb) | 2026-08-12 | `frontend/src/components/results/artifactPreview.tsx`, `frontend/src/components/results/AgentDetailPanel.tsx`, `frontend/src/components/results/AgentThinkingTab.tsx` | 7 (4 new + 3 reconciled) | 7 | 0 | ✅ Pass |
+| TEST-022 | FIX-238 (quick-260812-lfv) | 2026-08-12 | `backend/tests/unit/test_iss102_live_model_guard.py` (new), `backend/tests/conftest.py`, `backend/tests/unit/test_chat_messages_endpoint.py` | 6 | 6 | 0 | ✅ Pass |
 
 ---
 
@@ -1786,3 +1787,65 @@ every `prototype-plan` artifact version of three terminal runs was fed through t
 | `d5dbc9f2` | 6 | v1/v2/v3 all **7 planned**; DOM reads **"7 planned"** |
 | `6e38b9a7` | 11 | v1 **10 planned** (task 4 "Transaction Wizard Page (Steps 1–2)", absent from v2), v2 **11**; DOM **11** |
 | `5ecb990f` | 8 | v1 **8**, v2 **8** — counts equal, task-4 titles differ ("Intake Wizard (…)" vs "Intake Wizard Page (…)") |
+
+---
+
+### TEST-022 — FIX-238 (quick-260812-lfv): ISS-102 — no offline test may construct a live model client
+
+```
+TEST COVERAGE — FIX-238
+Unit tests:        6 in backend/tests/unit/test_iss102_live_model_guard.py   → ALL GREEN
+Integration tests: N/A — this is test INFRASTRUCTURE; its blast radius is the whole
+                   suite, so it is measured as the four-tree delta below rather than
+                   by an integration case.
+Frontend tests:    N/A — backend test-infra only; no frontend file touched.
+Goldens:           0 failed / 10 passed — IDENTICAL to the pre-change commit d31a5a7b,
+                   and all 15 golden file checksums byte-identical (shasum diff empty).
+lint-imports:      4 kept / 0 broken — IDENTICAL to d31a5a7b (run from backend/).
+Regression guards:
+  - test_guard_blocks_the_smart_planner_bypass_path: proves the chokepoint covers the
+    path build_model does NOT — SmartPlanner._build_llm builds its own client. This is
+    the case that makes "guard the factory" demonstrably insufficient.
+  - test_allow_list_entries_all_still_exist: the exemption dict FAILS CLOSED — every
+    _CONSTRUCTS_BUT_NEVER_INVOKES nodeid must still resolve to a real file + test name,
+    so a rename can never leave a stale exemption that protects nothing.
+  - test_guard_preserves_isinstance_and_object_new: the guard patches __init__ and never
+    the class object, so the two isinstance sites and the object.__new__ fixture survive.
+```
+
+**Fail-first, observed — not assumed.** The four "blocks" cases were run with the guard stood
+down through its own `RUN_LIVE_BEDROCK=1` allowance (no code change, no revert):
+
+| Guard | Result |
+|---|---|
+| stood down (`RUN_LIVE_BEDROCK=1`) | **4 failed / 2 passed** — construction succeeds, so the `pytest.raises` cases fail |
+| active (default) | **6 passed** |
+
+Both runs construct a client but **never invoke** it, so neither made a network call and
+neither could produce a charge. Confirmed by `grep -c "ExpiredTokenException\|ConverseStream"`
+= **0** on both.
+
+**Suite deltas — every number observed at least twice (executor + orchestrator re-run).**
+
+| Suite | BEFORE (d31a5a7b) | AFTER | Note |
+|---|---|---|---|
+| `tests/unit/test_chat_messages_endpoint.py` | 3 failed / 17 passed | 3 failed / 17 passed | same 3 ids; see ISS-119 for why they stay red |
+| …its `ExpiredTokenException\|ConverseStream` grep hits | **4** (= 2 real `ConverseStream` calls) | **0** | this is the money fix |
+| `tests/unit` | 62 failed / 1167 passed | 62 failed / **1173** passed | +6 = exactly the new file; FAILED **id set identical** |
+| `tests/agents` + `properties` + `integration` | 57 failed / 1723 passed / 42 skipped | 57 / 1723 / 42 | FAILED/ERROR id set identical (`diff` empty); **0 guard trips** |
+| goldens (5 characterization files) | 10 passed | 10 passed | 15 checksums unchanged |
+| `lint-imports` (from `backend/`) | 4 kept / 0 broken | 4 kept / 0 broken | |
+
+**Reach demonstration (the planted test).** A temporary 4-probe plant was run and removed:
+`build_model()` → TRIPPED; `SmartPlanner()` → TRIPPED; `isinstance` → passed; `object.__new__`
+→ passed. The guard message named the nodeid verbatim
+(`tests/unit/test_zz_iss102_plant.py::test_plant_2_smart_planner_bypass_path`), the class
+(`ChatBedrockConverse`) and three remedies. All three allowances were then exercised
+independently: `RUN_LIVE_BEDROCK=1` → 4 passed (guard stands down); `@pytest.mark.requires_api_key`
+→ that case passed while the two unmarked plants still failed in the SAME run; nodeid allow-list
+→ the 8 exempted tests stayed green across all four trees.
+
+**Coverage honesty.** These 6 cases prove the guard's mechanism, not that any particular
+production seam reaches it. That second property is proven by the suite as a whole: a trip
+anywhere fails that test by name, and the four-tree runs above recorded **0 trips**, which is
+the positive evidence that the 8-entry allow-list is complete.
