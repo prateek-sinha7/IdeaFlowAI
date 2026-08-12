@@ -593,16 +593,31 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         # cancellation) AND pipeline_complete (from the resume) in the durable tail.
         # The original logic unconditionally prioritised cancelled, leaving a
         # successfully-resumed run with status="cancelled" in history.
-        # Fix: if a clean pipeline_complete exists with a higher seq than the last
-        # pipeline_cancelled, the resume supersedes the cancellation → completed.
+        # Fix: a clean pipeline_complete belonging to a LATER ATTEMPT than the last
+        # pipeline_cancelled supersedes that cancellation → completed.
+        #
+        # FIX-229 (ISS-078): "later attempt", not merely "higher seq". A user who
+        # REJECTS at a gate on a resumed run produces both events within ONE attempt —
+        # the engine emits pipeline_cancelled and the dispatch loop then falls through
+        # to the run's single pipeline_complete emitter:
+        #     … 5:review_gate_ready | 6:pipeline_cancelled | 7:pipeline_complete
+        # On a bare seq comparison that trailing complete wins and the run the user
+        # explicitly rejected is recorded as "completed". An attempt boundary is a
+        # run_resuming / pipeline_start row, so require one BETWEEN the cancellation
+        # and the winning completion — same-attempt tails then keep the cancellation.
         cancelled_seqs = [e.seq for e in events if e.type == "pipeline_cancelled"]
         complete_seqs = [e.seq for e in completes
                          if not (isinstance(e.payload_json, dict)
                                  and e.payload_json.get("status") == "degraded")]
+        reattempt_seqs = [e.seq for e in events
+                          if e.type in ("run_resuming", "pipeline_start")]
         resume_supersedes = (
             cancelled
             and complete_seqs
             and max(complete_seqs) > max(cancelled_seqs)
+            and any(
+                max(cancelled_seqs) < s < max(complete_seqs) for s in reattempt_seqs
+            )
         )
         if cancelled and not resume_supersedes:
             new_status = "cancelled"
