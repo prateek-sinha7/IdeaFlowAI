@@ -198,6 +198,15 @@ class TestEngineGate:
         assert result.completed is True
         assert types[-1] == "pipeline_complete"
         assert result.error is None
+        # ISS-074: the harness wraps ``_run_review_gate``, so it must FORWARD the
+        # engine's kwargs, not just tolerate them. Widening only the wrapper's ``def``
+        # makes every assertion above pass while silently dropping all six extras —
+        # including ``cancel_event`` (a gate that cannot honour Stop) and the
+        # name-free SC-001 discriminators below. The inline call site passes
+        # ``redoable=True``, so a swallowing wrapper reports False here.
+        ready = next(e for e in result.events if e["type"] == "review_gate_ready")
+        assert ready["data"]["redoable"] is True
+        assert "update_specs_eligible" in ready["data"]
 
     @pytest.mark.asyncio
     async def test_gates_off_never_gates(self) -> None:
