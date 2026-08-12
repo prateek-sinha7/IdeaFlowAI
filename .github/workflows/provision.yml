@@ -1,0 +1,405 @@
+# =============================================================================
+# VelocityAI Provision — CI/CD replacement for Terraform's user_data.sh.tpl.
+# =============================================================================
+# Takes a HAND-CREATED (non-Terraform) EC2 instance from bare to fully
+# provisioned: uploads the four config artifacts to S3 (the half Terraform's
+# app layer normally does via aws_s3_object.*), then runs
+# .github/scripts/remote-bootstrap.sh over SSM RunCommand, which writes
+# /etc/velocityai/bootstrap.env, installs velocityai-firstboot.service (so a
+# future reboot/rebuild self-heals without a CI run), and finally runs
+# infra/scripts/bootstrap-ec2.sh itself — the same script a Terraform-managed
+# box's first-boot unit runs, byte-for-byte.
+#
+# NOT part of the app-deploy loop: this workflow has no `build` job and never
+# touches ECR. `.github/workflows/deploy.yml` is what starts/redeploys the
+# app stack; run THIS workflow first (once) against a box that has never been
+# bootstrapped, then run Deploy.
+#
+# ONE-TIME BY DESIGN: remote-bootstrap.sh's first gate exits 0 immediately if
+# /var/lib/velocityai/.bootstrap-done already exists, so re-running this
+# workflow against an already-provisioned box is a safe no-op unless you pass
+# force=true (which re-runs bootstrap-ec2.sh — idempotent, but the app stack
+# WILL restart).
+#
+# WHY MANUAL-ONLY (workflow_dispatch, no push trigger): provisioning is a
+# rare, deliberate, per-instance action (new box, rebuild, disaster recovery),
+# not something that should fire on every commit. The environment gate still
+# applies (prod requires its configured reviewers), and `dry_run` lets you
+# validate every precondition without writing anything to the box.
+#
+# See docs/GITHUB_CICD_SETUP.md "Provisioning a hand-created EC2" for the
+# manual prerequisites this workflow cannot create for you (instance profile,
+# attached data volume, DNS record, SSM DATABASE_PASSWORD parameter, ports
+# 80/443, IMDSv2 http_tokens=required + hop_limit=2).
+# =============================================================================
+
+name: Provision
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - stage
+          - prod
+      force:
+        description: "Re-run bootstrap-ec2.sh even if this host is already provisioned (idempotent, but RESTARTS the app stack)."
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: "Validate every precondition (SSM param, S3 upload, checksum) without writing anything to the box."
+        required: false
+        type: boolean
+        default: false
+      skip_db_password_check:
+        description: "Skip the pre-flight check for an existing DATABASE_PASSWORD SSM parameter. Only for a box whose Postgres data dir already exists (recovery mode never reads it)."
+        required: false
+        type: boolean
+        default: false
+
+# Same concurrency GROUP NAME `deploy.yml`'s `deploy` job uses
+# (deploy-<environment>), so a provision run and a deploy run against the same
+# environment's box can never race `docker compose` / `bootstrap-ec2.sh`
+# against each other. Provisioning is rare enough that queuing behind an
+# in-flight deploy (or vice versa) is the right default over cancelling either.
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+# Least-privilege default: only the one job that needs AWS declares
+# `id-token: write` (see the job-level `permissions:` below).
+permissions:
+  contents: read
+
+env:
+  # Fallback only — every environment sets its own `AWS_REGION` variable,
+  # mirroring deploy.yml's identical fallback for the identical reason.
+  AWS_REGION_DEFAULT: eu-central-1
+
+jobs:
+  provision:
+    name: Provision (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # Only the files the upload + SSM payload need.
+      - name: Checkout (provision payload only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            infra/scripts/bootstrap-ec2.sh
+            infra/scripts/reconcile-host-config.sh
+            docker-compose.yml
+            docker-compose.prod.yml
+            .github/scripts/remote-bootstrap.sh
+          sparse-checkout-cone-mode: false
+
+      # The SAME per-environment deploy role deploy.yml uses. It now also
+      # carries the ConfigObjectUpload + KMSForConfigUploadViaS3 statements
+      # (infra/terraform/bootstrap/github_oidc.tf) scoped to exactly this
+      # environment's backup bucket's config/* prefix — a dev run cannot
+      # write into stage's or prod's bucket, whatever variable value is
+      # pasted into EC2_INSTANCE_ID or BACKUP_BUCKET.
+      - name: Configure AWS credentials (OIDC — per-env deploy role)
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+
+      # ── Preflight: assert every required variable, validate shapes, no side effects ──
+      - name: Preflight — validate configuration
+        id: preflight
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          BACKUP_BUCKET: ${{ vars.VELOCITYAI_BACKUP_BUCKET }}
+          KMS_KEY_ID: ${{ vars.VELOCITYAI_KMS_KEY_ID }}
+          FQDN: ${{ vars.VELOCITYAI_FQDN }}
+          ACME_EMAIL: ${{ vars.VELOCITYAI_ACME_EMAIL }}
+          PARAM_PREFIX: ${{ vars.VELOCITYAI_PARAM_PREFIX }}
+          DATA_DEVICE: ${{ vars.VELOCITYAI_DATA_DEVICE }}
+          DEPLOY_ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+
+          : "${INSTANCE_ID:?EC2_INSTANCE_ID is not set for the '${DEPLOY_ENV}' environment}"
+          : "${ECR_REGISTRY:?ECR_REGISTRY is not set for the '${DEPLOY_ENV}' environment}"
+          : "${BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET is not set for the '${DEPLOY_ENV}' environment}"
+          : "${KMS_KEY_ID:?VELOCITYAI_KMS_KEY_ID is not set for the '${DEPLOY_ENV}' environment}"
+          : "${FQDN:?VELOCITYAI_FQDN is not set for the '${DEPLOY_ENV}' environment}"
+          : "${ACME_EMAIL:?VELOCITYAI_ACME_EMAIL is not set for the '${DEPLOY_ENV}' environment}"
+
+          if [[ ! "$INSTANCE_ID" =~ ^i-[0-9a-f]{8,17}$ ]]; then
+            echo "::error::EC2_INSTANCE_ID '${INSTANCE_ID}' does not look like an EC2 instance ID."
+            exit 1
+          fi
+
+          if [[ ! "$BACKUP_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
+            echo "::error::VELOCITYAI_BACKUP_BUCKET '${BACKUP_BUCKET}' is not a valid S3 bucket name."
+            exit 1
+          fi
+
+          if [[ ! "$KMS_KEY_ID" =~ ^arn:aws[a-zA-Z-]*:kms:.+:key/ ]]; then
+            echo "::error::VELOCITYAI_KMS_KEY_ID '${KMS_KEY_ID}' does not look like a KMS key ARN (expected arn:aws:kms:<region>:<account>:key/<id>)."
+            exit 1
+          fi
+
+          RESOLVED_PREFIX="${PARAM_PREFIX:-/velocityai/${DEPLOY_ENV}}"
+          RESOLVED_DEVICE="${DATA_DEVICE:-/dev/nvme1n1}"
+
+          echo "prefix=${RESOLVED_PREFIX}" >> "$GITHUB_OUTPUT"
+          echo "device=${RESOLVED_DEVICE}" >> "$GITHUB_OUTPUT"
+
+          echo "Resolved provisioning plan for '${DEPLOY_ENV}':"
+          echo "  instance      : ${INSTANCE_ID}"
+          echo "  region        : ${AWS_REGION}"
+          echo "  backup bucket : ${BACKUP_BUCKET}"
+          echo "  kms key       : ${KMS_KEY_ID}"
+          echo "  fqdn          : ${FQDN}"
+          echo "  ecr registry  : ${ECR_REGISTRY}"
+          echo "  param prefix  : ${RESOLVED_PREFIX}"
+          echo "  data device   : ${RESOLVED_DEVICE}"
+          echo "  force         : ${{ inputs.force }}"
+          echo "  dry_run       : ${{ inputs.dry_run }}"
+
+      # ── Upload the four config artifacts to s3://<bucket>/config/ ─────────
+      # Replaces the Terraform app layer's aws_s3_object.bootstrap_script /
+      # .reconcile_script / .compose_yaml / .compose_prod_yaml for a box that
+      # never had that apply run against it. `config/deploy.env` is
+      # deliberately NOT uploaded — bootstrap-ec2.sh §10b/§18b treat its
+      # absence as the legitimate pre-first-deploy state.
+      - name: Upload config artifacts to S3
+        id: upload
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          BACKUP_BUCKET: ${{ vars.VELOCITYAI_BACKUP_BUCKET }}
+          KMS_KEY_ID: ${{ vars.VELOCITYAI_KMS_KEY_ID }}
+        run: |
+          set -euo pipefail
+
+          # Detect the bucket's own default encryption rather than assuming
+          # SSE-KMS is enforced (it may not be, on a hand-created bucket).
+          # A bucket with no default-encryption rule at all, or one this role
+          # cannot read (GetEncryptionConfiguration is not required by the new
+          # IAM grant), degrades to a plain upload — S3 always encrypts at
+          # rest with at least SSE-S3 regardless of what this step passes.
+          ENCRYPTION_JSON="$(aws s3api get-bucket-encryption \
+            --bucket "$BACKUP_BUCKET" --region "$AWS_REGION" 2>/dev/null || echo '')"
+
+          SSE_ARGS=()
+          if [[ -n "$ENCRYPTION_JSON" ]]; then
+            SSE_ALGO="$(echo "$ENCRYPTION_JSON" | jq -r '.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm // empty')"
+            if [[ "$SSE_ALGO" == "aws:kms" ]]; then
+              SSE_ARGS=(--sse aws:kms --sse-kms-key-id "$KMS_KEY_ID")
+              echo "Bucket '${BACKUP_BUCKET}' enforces SSE-KMS — uploading with --sse aws:kms."
+            else
+              echo "Bucket '${BACKUP_BUCKET}' default encryption is '${SSE_ALGO:-unset}' — uploading without an explicit --sse flag (bucket default applies)."
+            fi
+          else
+            echo "::notice::Could not read default encryption for '${BACKUP_BUCKET}' (none configured, or this role lacks s3:GetEncryptionConfiguration) — uploading without an explicit --sse flag. S3 still encrypts at rest with at least SSE-S3."
+          fi
+
+          upload_one() {
+            local src="$1" key="$2" content_type="$3"
+            aws s3 cp "$src" "s3://${BACKUP_BUCKET}/config/${key}" \
+              --region "$AWS_REGION" \
+              --content-type "$content_type" \
+              "${SSE_ARGS[@]}"
+          }
+
+          upload_one infra/scripts/bootstrap-ec2.sh          bootstrap-ec2.sh          text/x-shellscript
+          upload_one infra/scripts/reconcile-host-config.sh  reconcile-host-config.sh  text/x-shellscript
+          upload_one docker-compose.yml                      docker-compose.yml        text/yaml
+          upload_one docker-compose.prod.yml                 docker-compose.prod.yml   text/yaml
+
+          echo "Verifying all four objects landed..."
+          for key in bootstrap-ec2.sh reconcile-host-config.sh docker-compose.yml docker-compose.prod.yml; do
+            if ! aws s3api head-object --bucket "$BACKUP_BUCKET" --key "config/${key}" --region "$AWS_REGION" >/dev/null; then
+              echo "::error::config/${key} is missing from s3://${BACKUP_BUCKET}/ immediately after upload."
+              exit 1
+            fi
+            echo "  verified: config/${key}"
+          done
+
+          # The integrity control the box actually enforces (remote-bootstrap.sh
+          # compares this against the object it downloads) is a hash of the
+          # LOCAL checkout, computed before upload — not the S3 ETag, which is
+          # an MD5 of the possibly-multipart upload and proves nothing about
+          # what this workflow run intended to ship.
+          BOOTSTRAP_SHA256="$(sha256sum infra/scripts/bootstrap-ec2.sh | awk '{print $1}')"
+          echo "bootstrap_sha256=${BOOTSTRAP_SHA256}" >> "$GITHUB_OUTPUT"
+          echo "bootstrap-ec2.sh sha256: ${BOOTSTRAP_SHA256}"
+
+      # ── Build the SSM payload + send it ────────────────────────────────────
+      - name: Provision via SSM RunCommand
+        id: ssm-provision
+        env:
+          DEPLOY_ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          BACKUP_BUCKET: ${{ vars.VELOCITYAI_BACKUP_BUCKET }}
+          KMS_KEY_ID: ${{ vars.VELOCITYAI_KMS_KEY_ID }}
+          FQDN: ${{ vars.VELOCITYAI_FQDN }}
+          ACME_EMAIL: ${{ vars.VELOCITYAI_ACME_EMAIL }}
+          PARAM_PREFIX: ${{ steps.preflight.outputs.prefix }}
+          DATA_DEVICE: ${{ steps.preflight.outputs.device }}
+          BOOTSTRAP_SHA256: ${{ steps.upload.outputs.bootstrap_sha256 }}
+          # workflow_dispatch boolean inputs render as the literal strings
+          # "true"/"false", but remote-bootstrap.sh's gates use "1"/"0"
+          # (documented in its own header). Normalised below rather than in
+          # the script, so the script's contract stays a plain boolean flag
+          # regardless of which caller (this workflow, a manual SSM
+          # RunCommand, a future CLI wrapper) is driving it.
+          FORCE_INPUT: ${{ inputs.force }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+          SKIP_DB_PASSWORD_CHECK_INPUT: ${{ inputs.skip_db_password_check }}
+        run: |
+          set -euo pipefail
+
+          to01() { [ "$1" = "true" ] && echo 1 || echo 0; }
+          FORCE="$(to01 "$FORCE_INPUT")"
+          DRY_RUN="$(to01 "$DRY_RUN_INPUT")"
+          SKIP_DB_PASSWORD_CHECK="$(to01 "$SKIP_DB_PASSWORD_CHECK_INPUT")"
+
+          {
+            echo '#!/bin/bash'
+            echo "# Generated by .github/workflows/provision.yml — do not edit on the box."
+            echo "DEPLOY_ENV='${DEPLOY_ENV}'"
+            echo "REGION='${AWS_REGION}'"
+            echo "PARAM_PREFIX='${PARAM_PREFIX}'"
+            echo "BACKUP_BUCKET='${BACKUP_BUCKET}'"
+            echo "KMS_KEY_ID='${KMS_KEY_ID}'"
+            echo "FQDN='${FQDN}'"
+            echo "ECR_REGISTRY='${ECR_REGISTRY}'"
+            echo "ACME_EMAIL='${ACME_EMAIL}'"
+            echo "DATA_DEVICE='${DATA_DEVICE}'"
+            echo "BOOTSTRAP_SHA256='${BOOTSTRAP_SHA256}'"
+            echo "FORCE='${FORCE}'"
+            echo "DRY_RUN='${DRY_RUN}'"
+            echo "SKIP_DB_PASSWORD_CHECK='${SKIP_DB_PASSWORD_CHECK}'"
+            cat .github/scripts/remote-bootstrap.sh
+          } > remote.sh
+
+          echo "SSM payload size: $(wc -c < remote.sh) bytes"
+
+          # Same guard as deploy.yml's FIX-SSM-02, same limit — this payload
+          # carries no gzipped blobs (the four config files travel via S3, not
+          # inline), so it sits far under it in practice, but the guard stays
+          # so a future change to remote-bootstrap.sh fails loudly here rather
+          # than as an opaque send-command rejection.
+          PAYLOAD_BYTES="$(wc -c < remote.sh)"
+          PAYLOAD_LIMIT_BYTES=57344  # 56 KiB — see deploy.yml FIX-SSM-02 for the full rationale.
+          if (( PAYLOAD_BYTES > PAYLOAD_LIMIT_BYTES )); then
+            echo "::error::SSM payload is ${PAYLOAD_BYTES} bytes, over the ${PAYLOAD_LIMIT_BYTES}-byte guard (SSM's own document+parameters ceiling is 64 KiB)."
+            exit 1
+          fi
+
+          jq -Rs '{commands: [.], executionTimeout: ["1800"]}' remote.sh > ssm-params.json
+
+          COMMAND_ID="$(aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "$INSTANCE_ID" \
+            --comment "velocityai provision ${DEPLOY_ENV} (force=${FORCE} dry_run=${DRY_RUN})" \
+            --timeout-seconds 600 \
+            --parameters file://ssm-params.json \
+            --region "$AWS_REGION" \
+            --query 'Command.CommandId' --output text)"
+
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command sent: $COMMAND_ID (instance $INSTANCE_ID)"
+
+      # Ported verbatim from deploy.yml's "Poll SSM command status" step — same
+      # window, same InvocationDoesNotExist handling, same both-streams output
+      # on every terminal branch (FIX-SSM-04). bootstrap-ec2.sh itself runs in
+      # ~6 minutes; the 35-minute window leaves headroom for apt-get
+      # full-upgrade on a box with a large pending patch set.
+      - name: Poll SSM command status
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          COMMAND_ID: ${{ steps.ssm-provision.outputs.command_id }}
+        run: |
+          set -euo pipefail
+          echo "Polling command $COMMAND_ID on instance $INSTANCE_ID..."
+
+          print_box_output() {
+            echo "--- box stdout ---"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" \
+              --query 'StandardOutputContent' --output text || true
+            echo "--- box stderr ---"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" \
+              --query 'StandardErrorContent' --output text || true
+          }
+
+          declare -i API_ERROR_STREAK=0
+          MAX_ATTEMPTS=140  # 140 * 15s = 2100s = 35 minutes.
+
+          for i in $(seq 1 "$MAX_ATTEMPTS"); do
+            sleep 15
+            INVOCATION_JSON="$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" 2>&1)"
+            RC=$?
+
+            if [[ "$RC" -ne 0 ]]; then
+              if [[ "$INVOCATION_JSON" == *InvocationDoesNotExist* ]]; then
+                # Normal immediately after send-command: SSM hasn't recorded
+                # the invocation yet. Not an error — keep polling.
+                STATUS="Pending"
+                API_ERROR_STREAK=0
+              else
+                API_ERROR_STREAK+=1
+                echo "  [$i/${MAX_ATTEMPTS}] get-command-invocation API error (streak=${API_ERROR_STREAK}): ${INVOCATION_JSON}" >&2
+                if (( API_ERROR_STREAK >= 5 )); then
+                  echo "::error::5 consecutive get-command-invocation API errors — aborting rather than silently waiting out the full poll window."
+                  exit 1
+                fi
+                continue
+              fi
+            else
+              API_ERROR_STREAK=0
+              STATUS="$(echo "$INVOCATION_JSON" | jq -r '.Status // "Pending"')"
+            fi
+
+            case "$STATUS" in
+              Success)
+                print_box_output
+                echo "Provision succeeded."
+                exit 0
+                ;;
+              Failed|TimedOut|Cancelled)
+                echo "::error::Provision FAILED with status: $STATUS"
+                print_box_output
+                exit 1
+                ;;
+              *)
+                echo "  [$i/${MAX_ATTEMPTS}] status=$STATUS"
+                ;;
+            esac
+          done
+
+          echo "::error::Timed out after 35 minutes waiting for SSM command $COMMAND_ID — cancelling the orphaned command."
+          aws ssm cancel-command \
+            --command-id "$COMMAND_ID" \
+            --instance-ids "$INSTANCE_ID" \
+            --region "$AWS_REGION" || echo "::warning::cancel-command itself failed — the box may continue running the provision script unsupervised; check it manually." >&2
+          print_box_output
+          exit 1

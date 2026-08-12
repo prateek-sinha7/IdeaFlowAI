@@ -64,6 +64,8 @@ while ! cloud-init status --wait > /dev/null 2>&1; do sleep 2; done
 #   VELOCITYAI_BACKUP_BUCKET  — S3 bucket for pg_dump + skills tarballs
 #   VELOCITYAI_ECR_REGISTRY   — <ACCOUNT>.dkr.ecr.<region>.amazonaws.com
 #   VELOCITYAI_ACME_EMAIL     — email for Let's Encrypt registration
+#   VELOCITYAI_DATA_DEVICE    — (optional) block device for the Postgres data
+#                               volume; defaults to /dev/nvme1n1
 #
 # Also expects VELOCITYAI_IMAGE_TAG from the calling environment (deploy.sh
 # `aws ssm send-command` injects this via `export` prepended to the script
@@ -91,9 +93,24 @@ ENVIRONMENT="${VELOCITYAI_ENVIRONMENT:-prod}"
 ENV_TITLE="${ENVIRONMENT^}"
 ACME_EMAIL="${VELOCITYAI_ACME_EMAIL:-security@example.com}"
 BACKUP_BUCKET="${VELOCITYAI_BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET missing in /etc/velocityai/bootstrap.env}"
-DATA_DEV=/dev/nvme1n1
+# VELOCITYAI_DATA_DEVICE lets a hand-provisioned box (attached data volume on
+# a device other than nvme1n1 — e.g. /dev/xvdf on some instance families, or a
+# second nvme index when more than one extra volume is attached) point this
+# script at the right block device. Terraform-provisioned boxes are
+# unaffected: modules/compute passes data_volume_device_name (default
+# /dev/nvme1n1) into user_data as this same variable, so the default below
+# only ever fires when the variable is genuinely unset.
+DATA_DEV="${VELOCITYAI_DATA_DEVICE:-/dev/nvme1n1}"
 DATA_MOUNT=/var/lib/postgresql
 APP_USER=velocityai
+
+# Fail fast, before §5 touches mkfs/fstab: a typo'd or absent device is a
+# configuration error, not something mkfs.xfs or `blkid` should discover by
+# formatting the wrong thing or hanging on a path that doesn't exist.
+if [[ ! -b "$DATA_DEV" ]]; then
+    echo "[bootstrap] ERROR: DATA_DEV '${DATA_DEV}' is not a block device. Set VELOCITYAI_DATA_DEVICE in /etc/velocityai/bootstrap.env to the actual attached data volume (check: lsblk)." >&2
+    exit 1
+fi
 
 # ── 2. Patch & baseline tools ──────────────────────────────────────────
 export DEBIAN_FRONTEND=noninteractive

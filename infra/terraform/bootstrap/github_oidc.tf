@@ -28,11 +28,13 @@
 #      reach any EC2 instance or parameter tree in any environment.
 #   3. aws_iam_role.github_deploy[<env>]        — ONE DEPLOY ROLE PER
 #      ENVIRONMENT, each trusting exactly ONE `sub` (StringEquals, no globs)
-#      and each scoped to exactly ONE SSM prefix and ONE `Environment` tag
-#      value. A dev deploy role cannot name a prod parameter or a prod
-#      instance, whatever the job asks for. Deploy roles hold NO ECR
-#      permissions at all — the EC2 instance role pulls the images (see
-#      .github/scripts/remote-deploy.sh §8), not the CI role.
+#      and each scoped to exactly ONE SSM prefix, ONE `Environment` tag value,
+#      and ONE backup bucket's config/* prefix (for provision.yml — see
+#      .github/scripts/remote-bootstrap.sh). A dev deploy role cannot name a
+#      prod parameter, a prod instance, or a prod bucket, whatever the job
+#      asks for. Deploy roles hold NO ECR permissions at all — the EC2
+#      instance role pulls the images (see .github/scripts/remote-deploy.sh
+#      §8), not the CI role.
 #
 # OIDC-only: no static AWS keys ever live in GitHub. GitHub Actions requests a
 # short-lived JWT (sub=repo:<owner>/<repo>:environment:<env>), STS validates it
@@ -82,6 +84,21 @@ locals {
   github_kms_key_arns = length(var.github_cicd_kms_key_arns) > 0 ? var.github_cicd_kms_key_arns : [
     "arn:${data.aws_partition.current.partition}:kms:${var.aws_region}:${data.aws_caller_identity.current.account_id}:key/*"
   ]
+
+  # Per-environment backup bucket name, derived the SAME deterministic way
+  # modules/backups computes it in the foundation layer
+  # (foundation/main.tf: "${local.name_prefix}-pg-dumps-${account_id}", with
+  # foundation/locals.tf's name_prefix = "velocityai" for prod, else
+  # "velocityai-<env>"). Recomputed here rather than threaded through a new
+  # variable or a cross-layer remote-state read: bootstrap applies BEFORE
+  # foundation (state key ordering, RUNBOOK.md §"Apply order"), so foundation's
+  # outputs don't exist yet when this file plans. Both derivations read only
+  # deploy-time-static inputs (env name, live account id), so they can never
+  # drift from each other.
+  github_backup_bucket_names = {
+    for env in local.github_env_set :
+    env => "velocityai${env == "prod" ? "" : "-${env}"}-pg-dumps-${data.aws_caller_identity.current.account_id}"
+  }
 }
 
 # --- OIDC identity provider -------------------------------------------------
@@ -362,6 +379,62 @@ data "aws_iam_policy_document" "github_deploy" {
       test     = "StringLike"
       variable = "kms:EncryptionContext:PARAMETER_ARN"
       values   = ["arn:${data.aws_partition.current.partition}:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/velocityai/${each.key}/*"]
+    }
+  }
+
+  # ── Config artifact upload — .github/workflows/provision.yml ────────────
+  # Lets the deploy role push bootstrap-ec2.sh, reconcile-host-config.sh and
+  # both docker-compose files to s3://<this env's backup bucket>/config/,
+  # replacing what Terraform's user_data used to do (aws_s3_object.*_script /
+  # .compose_yaml in app/main.tf) for a hand-created EC2 that never ran that
+  # apply. Scoped to config/* only — NOT config/deploy.env and NOT the
+  # postgres/ or skills/ prefixes the on-host backup scripts own — so a
+  # compromised deploy role cannot touch backup data, only redeploy config
+  # objects a human can diff against this repo.
+  #
+  # GetObject is included so provision.yml can immediately read back what it
+  # just wrote (sha256 verification) rather than trusting a 200 from PutObject
+  # alone. No s3:DeleteObject: replacing an object is enough, deleting it is
+  # not a capability this role needs.
+  statement {
+    sid       = "ConfigObjectUpload"
+    effect    = "Allow"
+    actions   = ["s3:PutObject", "s3:GetObject"]
+    resources = ["arn:${data.aws_partition.current.partition}:s3:::${local.github_backup_bucket_names[each.key]}/config/*"]
+  }
+
+  # Bucket-level (not object-level) read of the bucket's default encryption.
+  # Lets provision.yml detect whether the bucket enforces SSE-KMS and only
+  # pass --sse aws:kms when it actually does, instead of guessing. Read-only,
+  # and GetBucketEncryption returns configuration metadata, not object data,
+  # so this does not widen the role's reach into bucket contents.
+  statement {
+    sid       = "ConfigBucketEncryptionRead"
+    effect    = "Allow"
+    actions   = ["s3:GetEncryptionConfiguration"]
+    resources = ["arn:${data.aws_partition.current.partition}:s3:::${local.github_backup_bucket_names[each.key]}"]
+  }
+
+  # SSE-KMS support for the upload above. Granted unconditionally rather than
+  # gated on a variable: if the target bucket does NOT enforce SSE-KMS (e.g. a
+  # hand-created bucket using SSE-S3 only), provision.yml simply never passes
+  # `--sse aws:kms` and this grant sits unused — no harm done. If the bucket
+  # DOES enforce it, the deploy is not left broken waiting on a second apply.
+  # kms:ViaService pins usage to S3 in this region, mirroring the ViaService
+  # pattern the SSM SecureString statement above already uses; there is no
+  # encryption-context equivalent for S3 object PutObject calls, so the
+  # boundary here is ViaService + the existing github_kms_key_arns Resource
+  # scope only.
+  statement {
+    sid       = "KMSForConfigUploadViaS3"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey", "kms:Decrypt"]
+    resources = local.github_kms_key_arns
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["s3.${var.aws_region}.amazonaws.com"]
     }
   }
 }
