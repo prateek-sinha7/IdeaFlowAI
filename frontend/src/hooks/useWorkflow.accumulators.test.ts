@@ -229,20 +229,24 @@ describe("ISS-082 — a genuinely NEW frame after a re-delivery still applies", 
   it("a different run resets the cursor, so run 2's frames are not swallowed", () => {
     // Without a per-run boundary the cursor would carry run 1's high-water mark into run 2
     // and silently drop its whole trace (INV-2 — no cross-run state on shared state).
-    const runTwoStart = stamped({
-      type: "pipeline_start",
-      pipeline_type: "od_prototype",
-      pipeline_run_id: "11111111-2222-3333-4444-555555555555",
-      agent_count: ROSTER.length,
-      resume_offset: 0,
-      agents: ROSTER,
-    });
-    const runTwoBody = [
-      stamped({ type: "agent_start", agent_id: "a1" }),
-      // Deliberately LOWER seqs than run 1's tail — a fresh run restarts its own counter.
+    // Run 2's seqs start over at 1 — `engine.execute` allocates them per run — so every
+    // one of them is BELOW run 1's high-water mark. Hand-stamped rather than taken from
+    // the shared counter, because that is the whole point of the case.
+    const runTwo: ReducerFrame[] = [
+      {
+        type: "pipeline_start",
+        pipeline_type: "od_prototype",
+        pipeline_run_id: "11111111-2222-3333-4444-555555555555",
+        agent_count: ROSTER.length,
+        resume_offset: 0,
+        agents: ROSTER,
+        event_id: "r2-evt-1",
+        seq: 1,
+      },
+      { type: "agent_start", agent_id: "a1", event_id: "r2-evt-2", seq: 2 },
       { type: "agent_chunk", agent_id: "a1", chunk: "second run", event_id: "r2-evt-3", seq: 3 },
     ];
-    const state = runFrames([...HEAD, ...ACCUMULATORS[0].body, runTwoStart, ...runTwoBody]);
+    const state = runFrames([...HEAD, ...ACCUMULATORS[0].body, ...runTwo]);
     expect(state.agents[0]?.output).toBe("second run");
   });
 });

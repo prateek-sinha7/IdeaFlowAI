@@ -719,6 +719,28 @@ export interface PipelineRunState {
   // TWICE (the REST replay and the SSE replay), so anything shaped `+= 1` counts
   // deliveries instead of events and doubles. ADDITIVE optional.
   agentStartEventIds?: Record<string, string[]>;
+  // ISS-082 — this run's frame-identity cursor, the reducer's OWN protection for the
+  // fields that GROW out of their previous value (output, thinkingText, toolCalls,
+  // validationIssues, hookRuns, agentStartEventIds). Until ISS-082 their correctness was
+  // a property of the CALLERS' dedup, which is exactly what ISS-080 died of.
+  //
+  // `lastAppliedSeq` is the highest per-run `seq` already folded in. One cursor decides
+  // every persisted frame in O(1), which is the whole point: `agent_chunk` is the
+  // highest-volume frame in the system (~25k on one real run), so a per-frame id SET
+  // copied immutably would be O(n^2) on replay. Sound because `seq` comes from ONE
+  // monotonic per-run allocator (engine.execute), both transports carry it (live SSE
+  // stamps data.seq; getRunEvents merges the authoritative column), and both replay
+  // passes are seq-ordered.
+  //
+  // `appliedUnsequencedIds` is the fallback for frames the engine never stamps with a
+  // `seq` — today only `hook_run`, which is pushed straight onto the live queue and so
+  // never reaches the stamping chokepoint. Small by construction, because only unstamped
+  // types can reach it.
+  //
+  // Both are ADDITIVE optional and reset on a pipeline_start that is NOT a same-run
+  // re-announcement, so they never carry one run's high-water mark into the next (INV-2).
+  lastAppliedSeq?: number;
+  appliedUnsequencedIds?: string[];
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

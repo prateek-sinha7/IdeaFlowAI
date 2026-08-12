@@ -244,14 +244,76 @@ function frameIdentity(msg: { [key: string]: unknown }, positionKey: number): st
 }
 
 /**
+ * ISS-082 — the frame types whose handler GROWS a field out of its previous value (string
+ * `+` or `[...prev.x, y]`) instead of overwriting it. Every OTHER type is idempotent
+ * because it overwrites, recomputes from overwritten values (the token totals at
+ * `agent_complete` are the model), or keys on a stable id (`task_progress`'s Map on
+ * `t.number`), so a second delivery of one changes nothing and none of them are gated here.
+ *
+ * A new accumulating case MUST be added to this set AND to the registry in
+ * `useWorkflow.accumulators.test.ts`, whose GUARD-1 reads this file and fails until it is.
+ */
+const ACCUMULATING_FRAME_TYPES: ReadonlySet<string> = new Set([
+  "agent_start",      // agentStartEventIds
+  "agent_thinking",   // agents[].thinkingText
+  "agent_chunk",      // agents[].output
+  "tool_call",        // agents[].toolCalls
+  "hook_run",         // hookRuns
+  "validator_result", // agents[].validationIssues
+]);
+
+/** Has this accumulating frame already been folded into `prev`? */
+function isRedelivery(prev: PipelineRunState, msg: { [key: string]: unknown }): boolean {
+  if (typeof msg.seq === "number") {
+    // Strictly `<=`: seq is allocated 1,2,3,… per run, so anything at or below the cursor
+    // is a frame this run has already applied. `!== undefined` rather than a truthiness
+    // test, because seq 0 is a legitimate cursor value.
+    return prev.lastAppliedSeq !== undefined && msg.seq <= prev.lastAppliedSeq;
+  }
+  const eventId = typeof msg.event_id === "string" ? msg.event_id : "";
+  // No identity at all → always apply. Two deliveries of an anonymous frame are
+  // indistinguishable from two real ones, and dropping the second would lose data.
+  return !!eventId && (prev.appliedUnsequencedIds ?? []).includes(eventId);
+}
+
+/** The cursor advance to merge into the state a handler just produced. */
+function markApplied(
+  prev: PipelineRunState,
+  msg: { [key: string]: unknown },
+): Partial<PipelineRunState> {
+  if (typeof msg.seq === "number") return { lastAppliedSeq: msg.seq };
+  const eventId = typeof msg.event_id === "string" ? msg.event_id : "";
+  if (!eventId) return {};
+  return { appliedUnsequencedIds: [...(prev.appliedUnsequencedIds ?? []), eventId] };
+}
+
+/**
  * Process an incoming pipeline WebSocket message and update state.
  * Call this from the parent component's onMessage handler.
  */
 export function handlePipelineMessage(
   msg: { type: string; [key: string]: unknown },
-  setPipelineState: React.Dispatch<React.SetStateAction<PipelineRunState>>,
+  setPipelineStateRaw: React.Dispatch<React.SetStateAction<PipelineRunState>>,
   agentStartTimesRef: React.MutableRefObject<Record<string, number>>
 ): boolean {
+  // ISS-082 — the reducer's OWN identity gate, installed ONCE for every accumulating case
+  // rather than open-coded per field. Wrapping the dispatcher (instead of the handlers)
+  // is what makes a future accumulating case protected by adding its type to the set
+  // above and nothing else. A partial re-delivery — an SSE resume from Last-Event-ID with
+  // no intervening `agent_start` — used to append a second copy of the streamed output,
+  // thinking text, tool calls, validation issues and hook rows.
+  const setPipelineState: React.Dispatch<React.SetStateAction<PipelineRunState>> =
+    ACCUMULATING_FRAME_TYPES.has(msg.type)
+      ? (action) =>
+          setPipelineStateRaw((prev) => {
+            if (isRedelivery(prev, msg)) return prev;
+            const next = typeof action === "function" ? action(prev) : action;
+            // A handler that bailed (`return prev`, e.g. an unknown agent id) folded
+            // nothing in, so the cursor must not advance past a frame that never applied.
+            return next === prev ? prev : { ...next, ...markApplied(prev, msg) };
+          })
+      : setPipelineStateRaw;
+
   switch (msg.type) {
     case "pipeline_start": {
       const agents = (msg.agents as Array<{
@@ -367,6 +429,13 @@ export function handlePipelineMessage(
           // this the trailing resume frame lands last on every replay and zeroes the
           // revision count the user is meant to be reading.
           agentStartEventIds: isSameRunReannounce ? (prev.agentStartEventIds ?? {}) : {},
+          // ISS-082: the frame-identity cursor's per-run boundary, on the SAME predicate.
+          // A re-announcement continues this run, so its high-water mark must survive or
+          // the replay it introduces would be applied a second time; a genuinely different
+          // run must start from nothing, or run 1's cursor would swallow run 2's whole
+          // trace (its seq restarts at 1). INV-2 — no cross-run state on shared state.
+          lastAppliedSeq: isSameRunReannounce ? prev.lastAppliedSeq : undefined,
+          appliedUnsequencedIds: isSameRunReannounce ? (prev.appliedUnsequencedIds ?? []) : [],
         };
       });
 
@@ -426,19 +495,20 @@ export function handlePipelineMessage(
         // ISS-063/ISS-080: the only writer of the restart history. Lives here, inside
         // the updater, so it reads `prev` rather than a post-commit ref — that is what
         // makes it correct during the synchronous durable-replay loop, where no React
-        // commit can interleave between frames. Keyed on the event's own identity, so
-        // a SECOND delivery of one durable start adds nothing: a history reopen replays
-        // the log over REST and again over SSE, and a tally (`+= 1`) cannot tell those
-        // apart from two real starts (ISS-080 — the banner read 5 for 2 revisions).
+        // commit can interleave between frames. Still a SET of identities and never a
+        // tally (`+= 1`), because a history reopen replays the log over REST and again
+        // over SSE and a tally cannot tell that apart from two real starts (ISS-080 — the
+        // banner read 5 for 2 revisions). ISS-082 promoted FIX-225's per-field
+        // `.includes` re-delivery check to the whole reducer, so it is gone from here
+        // (INV-12 — one concept, one expression); the ARRAY stays, because it is what
+        // `deriveSpecRevisionCount` reads.
         const priorStarts = prev.agentStartEventIds?.[agentId] ?? [];
         const startIdentity = frameIdentity(msg, priorStarts.length);
         return {
           ...prev,
           agents: updated,
           currentAgentIndex: agentIdx,
-          agentStartEventIds: priorStarts.includes(startIdentity)
-            ? (prev.agentStartEventIds ?? {})
-            : { ...(prev.agentStartEventIds ?? {}), [agentId]: [...priorStarts, startIdentity] },
+          agentStartEventIds: { ...(prev.agentStartEventIds ?? {}), [agentId]: [...priorStarts, startIdentity] },
         };
       });
       return true;

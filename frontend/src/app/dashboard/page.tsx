@@ -16,7 +16,7 @@ import { useWorkflow } from "@/hooks/useWorkflow";
 import { useRunChat, type RunChatFrame } from "@/hooks/useRunChat";
 import { useTabDeepLink } from "@/hooks/useTabDeepLink";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
-import { shouldApplyEvent, resetReplayState, isForeignRunFrame, isAgentScopedFrame } from "@/lib/wsReplayState";
+import { shouldApplyEvent, resetReplayState, isForeignRunFrame, isAgentScopedFrame, resolveFrameRunId } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, WorkflowType, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
 import { deriveDeliverableMimetype, resolveReopenMimetype } from "@/types/index";
@@ -495,10 +495,13 @@ export default function DashboardPage() {
   }, [isAuthenticated]);
 
   // Handle incoming WebSocket messages.
-  // `frameRunId` is the run the frame arrived ON (stamped by the SSE transport,
+  // `sourceRunId` is the run the frame arrived ON (stamped by the SSE transport,
   // or passed explicitly by the durable-replay caller) — used to run-scope the
-  // agent-state frames below.
-  const handleWebSocketMessage = useCallback((msg: StreamMessage, frameRunId?: string) => {
+  // agent-state frames below. Named distinctly from the per-frame `frameRunId`
+  // derived inside the pipeline-frame block: ISS-082 found that block SHADOWING
+  // this parameter, which silently disabled the store routing for every per-agent
+  // frame (see the note at its declaration).
+  const handleWebSocketMessage = useCallback((msg: StreamMessage, sourceRunId?: string) => {
     // ── Run-scope the per-agent frames (foreign-run bleed) ────────────────────
     // The SSE provider attaches ONE stream per live run and fans EVERY frame out
     // to this single subscriber. The agent-scoped payloads carry no
@@ -518,7 +521,7 @@ export default function DashboardPage() {
     // own run id and drive cross-run behaviour (revision, chaining, reopen).
     if (
       isAgentScopedFrame(msg.type as string) &&
-      isForeignRunFrame(frameRunId, trackedRunIdRef.current)
+      isForeignRunFrame(sourceRunId, trackedRunIdRef.current)
     ) {
       return;
     }
@@ -852,11 +855,13 @@ export default function DashboardPage() {
       // carry pipeline_run_id in their `data`. Previously these events bypassed the
       // `isForActiveRun` guard (via the `!frameRunId` pass-through), allowing them
       // from ALL concurrent runs to reach the shared pipelineState reducer.
-      const frameRunId =
-        // Prefer _sourceRunId (injected per SSE stream — covers all event types)
-        (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-        // Fallback to pipeline_run_id in data (only events that explicitly carry it)
-        ?? (msg.data as Record<string, unknown> | undefined)?.pipeline_run_id as string | undefined;
+      // ISS-082: this was open-coded here as `_sourceRunId ?? data.pipeline_run_id`, which
+      // SHADOWED the `sourceRunId` parameter and dropped it — so every per-agent frame
+      // resolved to undefined on BOTH paths and the store-routing branch below never fired
+      // for one. `resolveFrameRunId` restores the parameter as the final fallback and, being
+      // a pure function in wsReplayState, is directly testable; the shadow cannot come back
+      // because there is no longer an inline expression to lose the argument from.
+      const frameRunId = resolveFrameRunId(msg as unknown as Record<string, unknown>, sourceRunId);
 
       // Layer 1: is this from a run this tab ever launched?
       // KAN-125 MULTI-TAB FIX: when launchedRunIdsRef is empty (brand-new tab that
@@ -1370,7 +1375,7 @@ export default function DashboardPage() {
         if (msg.data && "questions" in msg.data) {
           // Per-run map (FIX-201 / KAN-168): store questionnaire by run id, project only when viewed.
           const qSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-            ?? frameRunId;
+            ?? sourceRunId;
           const qData = msg.data as { questions: { id: string; question: string; options: string[] }[] };
           if (qSrcRunId) {
             getRunViewState(qSrcRunId).questionnaireData = qData;
@@ -1395,7 +1400,7 @@ export default function DashboardPage() {
           // Resolve which run this questionnaire belongs to (priority order).
           const qRunId = data.pipeline_run_id
             ?? (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-            ?? frameRunId;
+            ?? sourceRunId;
 
           const mapped = (data.questions || []).map((q) => ({
             id: q.question_id, question: q.question_text, options: q.options || [],
@@ -1440,7 +1445,7 @@ export default function DashboardPage() {
       case "questionnaire_complete": {
         // Per-run store: clear this run's questionnaire.
         const qcSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-          ?? frameRunId;
+          ?? sourceRunId;
         if (qcSrcRunId) {
           runStore.update(qcSrcRunId, { questionnaireData: null });
           if (qcSrcRunId === trackedRunIdRef.current) setQuestionnaireData(null);
@@ -1463,7 +1468,7 @@ export default function DashboardPage() {
           const data = msg.data as unknown as ReviewGateReadyData;
           const gateRunId = data.pipeline_run_id
             ?? (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-            ?? frameRunId;
+            ?? sourceRunId;
 
           const gateData = {
             gateKey: data.gate_key, agentId: data.agent_id, agentName: data.agent_name,
@@ -1504,7 +1509,7 @@ export default function DashboardPage() {
           retainAgentEdit(agentId, editedContent);
         }
         // Clear in the store too
-        const approvedSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? frameRunId;
+        const approvedSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? sourceRunId;
         if (approvedSrcRunId) {
           runStore.update(approvedSrcRunId, { reviewGateData: null });
         }
@@ -1522,7 +1527,7 @@ export default function DashboardPage() {
       case "pipeline_cancelled":
       case "pipeline_failed": {
         // Per-run store: clear this run's gate/questionnaire state.
-        const termSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? frameRunId;
+        const termSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? sourceRunId;
         if (termSrcRunId) {
           runStore.update(termSrcRunId, { reviewGateData: null, questionnaireData: null });
         }
@@ -2063,22 +2068,12 @@ export default function DashboardPage() {
               runId,
             );
           }
-          // FIX-201: after durable replay, directly replay all pipeline frames
-          // through the store (bypassing seenEventIdsRef dedup) so the store
-          // gets the LATEST agent state. The durable replay via handleWebSocketMessage
-          // above may have dropped agent_start/complete frames (already in
-          // seenEventIdsRef from live SSE). The final switchViewTo below projects
-          // the correct current state.
-          // Skip pipeline_start in this pass if the store already has running agents
-          // (live SSE already set them — pipeline_start would reset to idle).
-          const existingEntry = runStore.get(runId);
-          const hasLiveAgents = existingEntry?.pipelineState?.agents?.some(
-            (a) => a.status !== "idle"
-          ) ?? false;
-          for (const frame of durableFrames) {
-            if (frame.type === "pipeline_start" && hasLiveAgents) continue;
-            runStoreHandleFrameRef.current(runId, { type: frame.type, ...(frame.data as Record<string, unknown> || {}) });
-          }
+          // ISS-082: FIX-201's second, UNDEDUPED replay pass is DELETED here. It existed
+          // only because the shadowed `frameRunId` (see handleWebSocketMessage) stopped
+          // the first, deduped pass above from routing agent_* frames to the store; with
+          // the parameter restored as the fallback, that pass now does the job and a
+          // second one would just feed every accumulating field a duplicate copy —
+          // exactly the double-delivery the reducer's identity gate now refuses.
           // Seed the chat transcript from the same frames so the left panel shows
           // the correct conversation (chat_message/chat_reply frames only).
           // seedRunChatTranscript resets the seen-set + messages then folds frames.
