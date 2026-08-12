@@ -1195,9 +1195,28 @@ export default function DashboardPage() {
       // not clear THIS tab's questionnaire/reviewGate/activePipelineRunId.
       if (msg.type === "pipeline_cancelled" || msg.type === "pipeline_failed") {
         if (!isForeignFrame) {
+          // A terminal run is not awaiting clarification. laneClarifyOpen
+          // (DashboardLayout.tsx:1862) is the ONE lane branch NOT AND-ed with
+          // isRunning, so a lingering store questionnaireData outranks the
+          // terminal markers this frame already applied. The lane reads the
+          // STORE (page.tsx:2749) — the legacy setters below are invisible to
+          // it. Same write as the reopen reconciliation at :2300 (FIX-245).
+          // reviewGateData is deliberately NOT cleared in the store: that half
+          // is already masked by the gate branch's `&& isPipelineRunning`.
+          if (frameRunId) runStore.update(frameRunId, { questionnaireData: null });
           setReviewGateData(null);
           setQuestionnaireData(null);
           setActivePipelineRunId(null);
+          if (msg.type === "pipeline_cancelled") {
+            // Rescued from the unreachable switch arm this commit deletes
+            // below (ISS-139) — this is the first time these two calls ever
+            // execute on the live path.
+            const cancelledId = frameRunId ?? trackedRunIdRef.current;
+            if (cancelledId) {
+              setLastCancelledRunId(cancelledId);
+              detachRunRef.current?.(cancelledId);
+            }
+          }
         }
       }
 
@@ -1521,43 +1540,6 @@ export default function DashboardPage() {
             .then(({ runs }) => setRecentRuns(runs))
             .catch(() => { /* non-fatal */ });
         }
-        break;
-      }
-
-      case "pipeline_cancelled":
-      case "pipeline_failed": {
-        // Per-run store: clear this run's gate/questionnaire state.
-        const termSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? sourceRunId;
-        if (termSrcRunId) {
-          runStore.update(termSrcRunId, { reviewGateData: null, questionnaireData: null });
-        }
-        setReviewGateData(null);
-        // KAN-115: also clear stale questionnaire state — if the pipeline was
-        // cancelled/failed while the clarify gate was open, questionnaire_complete
-        // never fires, so questionnaireData stays populated. This keeps
-        // laneClarifyOpen=true in DashboardLayout, which forces runLaneState to
-        // "clarify" instead of "terminal" and leaves the AwaitingCard visible.
-        // Mirrors the identical pipeline_start clear (lines above).
-        setQuestionnaireData(null);
-        // KAN-120: preserve the run id so Run Again can resume it even when
-        // activePipelineRunId is about to be cleared.
-        if (msg.type === "pipeline_cancelled") {
-          const cancelledId = ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
-            ?? activePipelineRunId
-            ?? trackedRunIdRef.current;
-          if (cancelledId) setLastCancelledRunId(cancelledId);
-          // BUG-015 mirror for cancellation: release the sticky SSE focus so the
-          // RunStreamConnection unmounts when the server closes the stream after
-          // pipeline_cancelled. Without this, the stream close triggers
-          // scheduleReconnect() (sawNonLiveAttachRef = false for a live run),
-          // showing a yellow "Reconnecting…" banner after every Stop click.
-          // Mirrors the identical call in the pipeline_complete case above
-          // (~line 597). Safe: the durable run_events are already persisted and
-          // the chat transcript is already in state — unmounting the connection
-          // does not remove any rendered content.
-          if (cancelledId) detachRunRef.current?.(cancelledId);
-        }
-        setActivePipelineRunId(null);
         break;
       }
 

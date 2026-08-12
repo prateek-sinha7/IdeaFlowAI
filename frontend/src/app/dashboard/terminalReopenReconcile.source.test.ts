@@ -87,27 +87,18 @@ describe("ISS-126 reopen reconciles a terminal run (source-lock)", () => {
     expect(call).toBeGreaterThan(fetchAt);
   });
 
-  it("is NOT placed in the unreachable pipeline_cancelled/pipeline_failed switch arm", () => {
-    // `pipeline_cancelled` and `pipeline_failed` are both members of
-    // `pipelineTypes`, and that branch `return`s before the switch — so the
-    // `case "pipeline_cancelled": case "pipeline_failed":` arm is DEAD CODE and a
-    // fix applied there would silently do nothing.
-    const armStart = pageSource.indexOf('case "pipeline_cancelled":');
-    expect(armStart).toBeGreaterThan(-1);
-    const armEnd = pageSource.indexOf('case "step": {', armStart);
-    expect(armEnd).toBeGreaterThan(armStart);
-
-    // The fix must not live anywhere inside that unreachable arm.
-    const armBody = pageSource.slice(armStart, armEnd);
-    expect(armBody).not.toContain("applyTerminalStatus");
-
-    // And the arm really is unreachable: both types are members of pipelineTypes,
-    // whose branch `return`s before the switch is ever entered.
+  it("deleted the formerly-unreachable pipeline_cancelled/pipeline_failed switch arm (ISS-139)", () => {
+    expect(pageSource).not.toMatch(/case "pipeline_cancelled":\s*\n\s*case "pipeline_failed":/);
     const typesStart = pageSource.indexOf("const pipelineTypes = [");
     const typesEnd = pageSource.indexOf("];", typesStart);
     const typesBody = pageSource.slice(typesStart, typesEnd);
     expect(typesBody).toContain('"pipeline_cancelled"');
     expect(typesBody).toContain('"pipeline_failed"');
-    expect(pageSource.indexOf("if (pipelineTypes.includes(msg.type)) {")).toBeLessThan(armStart);
+    const liveBlockStart = pageSource.indexOf('if (msg.type === "pipeline_cancelled" || msg.type === "pipeline_failed") {');
+    expect(liveBlockStart).toBeGreaterThan(-1);
+    expect(pageSource.indexOf("if (pipelineTypes.includes(msg.type)) {")).toBeLessThan(liveBlockStart);
+    const liveBlockEnd = pageSource.indexOf("\n      return;\n", liveBlockStart);
+    const liveBlockBody = pageSource.slice(liveBlockStart, liveBlockEnd);
+    expect(liveBlockBody).toContain("runStore.update(frameRunId, { questionnaireData: null })");
   });
 });
