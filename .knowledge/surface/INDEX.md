@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-682 cards · rules 1 · fixes 238 · issues 127 · phases 23 · built 2026-08-12 20:46
+688 cards · rules 1 · fixes 239 · issues 132 · phases 23 · built 2026-08-12 21:15
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (238)
+## Fixes (239)
 
+FIX-242 2026-08-12 [backend,sse,resume,workflow,agents,evals,auth,artifacts,runtime] A gated fan-out step parked the run at a review gate nobody could see, discover or resolve (ISS-097). _should_gate (engine.py:4908-4925) is a per-INVOCATION predicate on spec.id
 FIX-241 2026-08-12 [backend,sse,resume,workflow,agents,auth] A human-in-the-loop gate that fails OPEN: every near-miss of a DENIAL silently APPROVED (ISS-070). resolve_gate dispatched on action with else: # approve (default) as the fallback (run_commands.py:272), an exact, case-sensitive
 FIX-240 2026-08-12 [backend,sse,resume,workflow,agents,auth] Every chat turn during a live run silently destroyed one engine event from the durable log (ISS-121). The register row's own root cause was WRONG and is corrected in place
 FIX-239 2026-08-12 [backend,frontend,sse,workflow,agents,auth] The product could not tell you whether prompt caching was saving money or costing it — and the obvious version of this feature would have printed a catastrophic wrong number on day one. ISS-034 asked for "saved $Y (Z%)"
@@ -253,14 +254,19 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (127)
+## Issues (132)
 
+ISS-132 - [workflow,agents,engine] The task-loop sibling of ISS-097: ticking a task-loop agent opens ONE GATE PER TASK. Same root cause — _should_gate is per-INVOCATION on spec.id while gate_agent_ids is a per-STEP selection
+ISS-131 - [sse,workflow,agents,evals,auth,engine] A fan-out step's DECLARED human gate is deduped against an inline gate that no longer fires. engine.py:2470 passes inline_gated=self._should_gate(spec, ectx) into _evaluate_gates at the step boundary
+ISS-130 - [workflow,agents,runtime,engine] KernelServices.run_agent mutates SHARED ExecutionContext scratch while N fan-out workers run concurrently. kernel_services.py:1254-1291 (now :1267-1304) sets and restores build_task_number, build_task_total, current_task_block
+ISS-129 - [sse,resume,workflow,agents,auth,engine] run_fanout swallows EVERY worker event, including terminal ones. fanout.py:414-429 iterates runner.run_worker(...) and forwards nothing; the loop body reads only agent_complete to accumulate worker_tokens
 ISS-128 - [sse,agents] A gate REJECTION persists an audit record that says action="approve". run_commands.py's reject branch calls store.set_review_response(gate_key, approved=False, edited_content=...) without passing action=
 ISS-127 - [workflow,agents,auth] GateCommand.analysis_report has no length cap anywhere on its path into the composed prompt. Traced end to end at e6b24ae5: run_commands.py:115 (`analysis_report: str \
 ISS-126 - [sse] FIX-240's data-repair guard only covers the CURSORED reattach; a fresh reopen of an already-corrupted run still renders an open gate
 ISS-125 - [resume,engine] _stamp_resume_marker still allocates its seq the slow, unprotected way. engine.py:6309-6311 reads the ENTIRE durable log (store.read_events(run_id, after_seq=0)) to compute max(seq)+1
 ISS-124 - [sse,backend] Two app-layer synthesised pipeline_cancelled frames never persist a durable row at all — a different cause with the same reopen symptom as ISS-121
 ISS-123 - [backend,sse,resume,workflow,agents,engine] FIX-240 stops NEW losses; it cannot recover the rows already destroyed. The pre-fix defect ran for as long as the chat lane has shared the engine's seq space, and a dropped run_events row has no provenance to reconstruct from
+ISS-122 - [sse,frontend] The cache-delta line is invisible in practice, because an unmetered-legacy window dilutes the percentage below the zero-suppression threshold — and the metered_runs signal that would explain this is fetched but never shown
 ISS-121 - [sse,workflow,agents,auth,engine] A gate-rejected run reopens from history looking ALIVE: header "Awaiting approval", a "Stop" button, and the stale clarify line "The run is paused and waiting for you to answer clarification questions"
 ISS-120 - [backend,workflow,agents] Bedrock prompt caching is a single process-wide on/off switch, and on short runs it is a MEASURED net cost INCREASE — Split out of ISS-034 item (d) so a behaviour change to the model-call path is not folded into a telemetry-only change
 ISS-119 - [sse,test] Two TestRouting tests assert a routing contract the product deliberately superseded, and they will stay red until someone decides which side is right
@@ -285,7 +291,7 @@ ISS-101 - [backend,agents,auth,perf] context_provider:conversation still materia
 ISS-100 - [backend,agents,auth,cost] The handoff pipeline's model spend is 100% invisible: there is nowhere to even put the number. Three call sites construct/call agents that ACCEPT a usage_sink and are given none
 ISS-099 - [sse,workflow,agents,engine] A retry-enabled step records a CANCELLED step as reusable. When step.retry.max_attempts > 0, _dispatch_step_with_retry (engine.py:7236-7274) runs the strategy inside an attempt loop and, on normal completion of strategy.run
 ISS-098 - [resume,workflow,auth,runtime,engine] A mid-wave CancelledError leaves its wave_runs row stuck at running forever. wave_scheduler.py:340 catches except Exception: to flip the in-flight wave's row terminal
-ISS-097 - [sse,workflow,agents,engine] Gating a fan-out step's own agent may open an inline review gate in EVERY worker. kernel_services.py:971-984 builds the per-worker step view with gates=[], which reads as "this worker has no gates"
+ISS-097 - [sse,resume,workflow,agents,evals,auth,runtime,engine] Gating a fan-out step's agent parks the run at a review gate NOBODY CAN SEE, DISCOVER OR RESOLVE. _should_gate (engine.py:4908-4925, predicate at :4922-4925) is a per-INVOCATION predicate on spec.id
 ISS-096 - [backend,sse,agents,auth,artifacts,test-infra] Stale prompt-contract pin: tests/agents/test_prompt_contracts.py::test_od_ppt_validator_deck_reemission_contract asserts a sentence that is no longer in the agent's prompt
 ISS-095 - [sse,agents] 3 reds in tests/agents/test_declared_gate_streaming.py, and the register's "environmental" label for them looks WRONG — a real defect may be hiding behind it
 ISS-094 - [sse,agents,evals,artifacts,test-infra] 3 reds in tests/agents/test_gates.py — hand-rolled context doubles drifted from the real engine contract on an ATTRIBUTE, so no signature guard can catch them

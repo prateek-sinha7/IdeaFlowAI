@@ -1,5 +1,5 @@
 {
-  "count": 682,
+  "count": 688,
   "entries": [
     {
       "area": [
@@ -5641,6 +5641,34 @@
     },
     {
       "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "evals",
+        "auth",
+        "artifacts",
+        "runtime"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/execution_engine/kernel_services.py",
+        "backend/tests/agents/test_restart_resume.py",
+        "backend/tests/agents/test_fanout.py",
+        "backend/tests/agents/test_merge_conflict.py",
+        "backend/tests/unit/test_pipeline_failure_semantics.py"
+      ],
+      "id": "FIX-242",
+      "path": ".knowledge/cards/FIX-242.md",
+      "source": ".planning/FIX-REGISTER.md#fix-242",
+      "status": "done",
+      "summary": "A gated fan-out step parked the run at a review gate nobody could see, discover or resolve (ISS-097). _should_gate (engine.py:4908-4925) is a per-INVOCATION predicate on spec.id",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -7413,8 +7441,12 @@
     {
       "area": [
         "sse",
+        "resume",
         "workflow",
         "agents",
+        "evals",
+        "auth",
+        "runtime",
         "engine"
       ],
       "date": "",
@@ -7422,11 +7454,13 @@
       "id": "ISS-097",
       "path": ".knowledge/cards/ISS-097.md",
       "relates": [
+        "FIX-242",
+        "ISS-131",
         "ISS-091"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-097",
-      "status": "open",
-      "summary": "Gating a fan-out step's own agent may open an inline review gate in EVERY worker. kernel_services.py:971-984 builds the per-worker step view with gates=[], which reads as \"this worker has no gates\"",
+      "status": "done",
+      "summary": "Gating a fan-out step's agent parks the run at a review gate NOBODY CAN SEE, DISCOVER OR RESOLVE. _should_gate (engine.py:4908-4925, predicate at :4922-4925) is a per-INVOCATION predicate on spec.id",
       "type": "issue"
     },
     {
@@ -7912,6 +7946,24 @@
     },
     {
       "area": [
+        "sse",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-122",
+      "path": ".knowledge/cards/ISS-122.md",
+      "relates": [
+        "FIX-239",
+        "ISS-034"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-122",
+      "status": "open",
+      "summary": "The cache-delta line is invisible in practice, because an unmetered-legacy window dilutes the percentage below the zero-suppression threshold \u2014 and the metered_runs signal that would explain this is fetched but never shown",
+      "type": "issue"
+    },
+    {
+      "area": [
         "backend",
         "sse",
         "resume",
@@ -8018,6 +8070,92 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-128",
       "status": "open",
       "summary": "A gate REJECTION persists an audit record that says action=\"approve\". run_commands.py's reject branch calls store.set_review_response(gate_key, approved=False, edited_content=...) without passing action=",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-129",
+      "path": ".knowledge/cards/ISS-129.md",
+      "relates": [
+        "ISS-097",
+        "ISS-091",
+        "FIX-242"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-129",
+      "status": "open",
+      "summary": "run_fanout swallows EVERY worker event, including terminal ones. fanout.py:414-429 iterates runner.run_worker(...) and forwards nothing; the loop body reads only agent_complete to accumulate worker_tokens",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "runtime",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-130",
+      "path": ".knowledge/cards/ISS-130.md",
+      "relates": [
+        "ISS-097",
+        "FIX-242"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-130",
+      "status": "open",
+      "summary": "KernelServices.run_agent mutates SHARED ExecutionContext scratch while N fan-out workers run concurrently. kernel_services.py:1254-1291 (now :1267-1304) sets and restores build_task_number, build_task_total, current_task_block",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "evals",
+        "auth",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-131",
+      "path": ".knowledge/cards/ISS-131.md",
+      "relates": [
+        "FIX-242",
+        "ISS-097"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-131",
+      "status": "open",
+      "summary": "A fan-out step's DECLARED human gate is deduped against an inline gate that no longer fires. engine.py:2470 passes inline_gated=self._should_gate(spec, ectx) into _evaluate_gates at the step boundary",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-132",
+      "path": ".knowledge/cards/ISS-132.md",
+      "relates": [
+        "ISS-097",
+        "FIX-242",
+        "ISS-090",
+        "FIX-228"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-132",
+      "status": "open",
+      "summary": "The task-loop sibling of ISS-097: ticking a task-loop agent opens ONE GATE PER TASK. Same root cause \u2014 _should_gate is per-INVOCATION on spec.id while gate_agent_ids is a per-STEP selection",
       "type": "issue"
     },
     {
@@ -10887,39 +11025,39 @@
   ],
   "facets": {
     "area": {
-      "agents": 267,
-      "artifacts": 106,
-      "auth": 108,
-      "backend": 114,
+      "agents": 272,
+      "artifacts": 107,
+      "auth": 112,
+      "backend": 115,
       "cost": 1,
       "docs": 4,
-      "engine": 8,
-      "evals": 12,
-      "frontend": 201,
+      "engine": 12,
+      "evals": 15,
+      "frontend": 202,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 72,
-      "runtime": 36,
-      "sse": 194,
+      "resume": 75,
+      "runtime": 39,
+      "sse": 198,
       "test": 3,
       "test-infra": 15,
       "tooling": 2,
-      "workflow": 225
+      "workflow": 230
     },
     "status": {
       "accepted": 1,
-      "done": 610,
-      "open": 62,
+      "done": 612,
+      "open": 66,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 238,
-      "issue": 127,
+      "fix": 239,
+      "issue": 132,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10937,5 +11075,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 20:46"
+  "generated": "2026-08-12 21:15"
 }

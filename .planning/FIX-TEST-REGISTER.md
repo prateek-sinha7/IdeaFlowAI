@@ -35,6 +35,7 @@
 | TEST-023 | FIX-239 (quick-260812-mq5) | 2026-08-12 | `backend/tests/agents/test_iss034_cost_full.py` (new), `backend/tests/unit/test_analytics_api.py`, `frontend/src/components/analytics/AnalyticsPage.test.tsx` | 17 | 17 | 0 | ✅ Pass |
 | TEST-024 | FIX-240 (quick-260812-ppu) | 2026-08-12 | `backend/tests/unit/test_run_events.py`, `backend/tests/unit/test_sse_stream.py` | 3 | 3 | 0 | ✅ Pass |
 | TEST-025 | FIX-241 (quick-260812-sgu) | 2026-08-12 | `backend/tests/unit/test_rest_gate_commands.py` | 13 | 13 | 0 | ✅ Pass |
+| TEST-026 | FIX-242 (quick-260812-syf) | 2026-08-12 | `backend/tests/agents/test_restart_resume.py`, `backend/tests/agents/test_merge_conflict.py`, `backend/tests/agents/test_fanout.py`, `backend/tests/unit/test_pipeline_failure_semantics.py` | 4 (3 new + 1 strengthened) | 4 | 0 | ✅ Pass |
 
 ---
 
@@ -2091,3 +2092,93 @@ turns it red, so only the `else` branches were touched and `:253`/`:257`/`:268` 
 `gate_agent_ids=[]`, so no golden contains any gate event at all. They are the NEUTRALITY gate
 here (proof nothing else moved), never the detection gate — the same framing FIX-232 and FIX-240
 both recorded.
+
+---
+
+### TEST-026 — FIX-242 (quick-260812-syf): ISS-097 — the fan-out gate nobody could see
+
+```
+TEST COVERAGE — FIX-242
+Unit tests:        4 backend, ALL GREEN
+                   2 new  backend/tests/agents/test_restart_resume.py       (64 -> 66)
+                     - test_fanout_workers_do_not_arm_the_inline_review_gate
+                     - test_selecting_a_non_fanout_agent_still_opens_its_inline_gate
+                   1 new  backend/tests/agents/test_merge_conflict.py       (13 -> 14)
+                     - test_kernel_services_run_merge_agent_opts_out_of_the_inline_gate
+                   1 strengthened backend/tests/agents/test_fanout.py
+                     - test_run_worker_passes_wave_width_and_single_shot_view now ASSERTS
+                       invocation_gated is False
+                   + 3 stub-arity repairs in backend/tests/unit/test_pipeline_failure_semantics.py
+                     (_run_agent doubles pinned a stale positional signature; they now absorb
+                      additive keyword-only params instead of pinning an arity)
+Integration tests: N/A - the headline test already drives the REAL public entry
+                   (engine.execute), the REAL run_fanout, the REAL _run_review_gate and a REAL
+                   in-memory-SQLite ScopedStore against a scripted model. The kernel path IS
+                   what is under test; there is no new IO boundary.
+Frontend tests:    N/A - 0 frontend files changed.
+Goldens:           0 failed / 10 passed - IDENTICAL to the pre-change commit eb12bc7e,
+                   and 0 of the 15 golden FILES moved (sha256 manifest diffed before/after)
+lint-imports:      4 kept / 0 broken - IDENTICAL to eb12bc7e (run from backend/)
+Neighbouring:      test_fanout_cancel 9 -> 9 (FIX-232 undisturbed)
+                   test_rest_gate_commands 28 -> 28
+                   7 fan-out suites (sc001/composed/sample_wave/fanout/merge_conflict/
+                     budget/isolation) 108 -> 109
+                   12 seam-adjacent suites 93 passed
+                   test_gate_stub_signature_drift 4 passed
+Pre-existing reds: 27 failed / 159 passed across the 10 briefed suites - IDENTICAL ID SET.
+                   The 5 reds in the seam-adjacent suites (test_phase6_frontend_consistency x2,
+                   test_sample_brownfield_workflow x2, test_text_only_prompt_hygiene x1) were
+                   re-measured IN A DETACHED WORKTREE AT eb12bc7e: 5 failed / 38 passed, same
+                   ids, both sides. Never a stash.
+Regression guards:
+  - test_fanout_workers_do_not_arm_the_inline_review_gate: a gated fan-out step must not arm
+    ONE inline gate per worker, must not hang, and must leave no subagent_runs row 'running'.
+  - test_selecting_a_non_fanout_agent_still_opens_its_inline_gate: the neutrality pin - a
+    single_shot step's agent named in gate_agent_ids STILL gates exactly once, so the fix can
+    never be satisfied by disabling gating everywhere.
+  - test_run_worker_passes_wave_width_and_single_shot_view: pins invocation_gated=False at the
+    run_worker seam.
+  - test_kernel_services_run_merge_agent_opts_out_of_the_inline_gate: same pin for the merge
+    sibling, whose events are consumed with a bare `pass`.
+```
+
+**RED first, and re-proven RED after the tests reached their final shape.** The first run failed
+with `the run HUNG at an invisible fan-out worker gate: 4 gate arm(s) on ['sample-wave-worker'],
+0 review_gate_ready frame(s) on the wire` after a 20 s timeout. The test was then refactored (see
+the guard note below), so the RED was **re-established by mutation**: removing the two
+`invocation_gated=False` opt-outs from `kernel_services.py` turned 3 of the 4 tests red — the hang
+test with the identical 4-arm/0-frame message, and both seam pins with `assert True is False`.
+The 4th (the neutrality pin) correctly stayed green, because it pins behaviour the fix does not
+change.
+
+**The method trap, measured — any future gate work on this harness must repeat it.**
+`_ResumeHarness.make_engine` (`test_restart_resume.py:365`) assigns an empty async generator to
+`engine._run_review_gate` as an **instance** attribute, silently shadowing the real bound method.
+With the `del engine._run_review_gate` line commented out, the *identical* test passes **GREEN in
+1.07 s** against a live 4-arm hang. That is not a hypothetical: it is why the original
+investigation nearly filed ISS-097 as "not reachable". The helper `_count_gate_entries` now owns
+the un-shadow and documents it.
+
+**Why the original row's suggested test would have proved the wrong thing.** ISS-097 proposed
+"count `review_gate_ready` events — 1 is correct, N is the bug". That measures **zero**, because
+`fanout.py:414-429` discards every worker event before it can reach the emit boundary. A zero
+reads as "no gates opened", i.e. a pass. The working assertion counts `_run_review_gate`
+**entries** and asserts the run **terminates**.
+
+**A guard caught the first attempt, which is the guard working.**
+`test_gate_stub_signature_drift.py` — the AST census that exists for exactly this defect family —
+rejected an initial `_run_review_gate` double patched at CLASS level: its leading `engine_self`
+parameter could not bind the engine's real all-keyword call, and its restore assignment
+(`= self._orig`) was unresolvable to the census. The test was rewritten to the file's dominant
+instance-patch idiom with `*a, **kw`, which both binds whatever the signature grows into and stays
+visible to the census. The guard is green.
+
+**Why the goldens cannot protect this, stated as a limitation rather than a pass:**
+`tests/agents/_scripted_model.py:649` is literally `gate_agent_ids=[],  # suppress all gates`, so
+**zero** gate events exist in any of the 15 golden files. They are the NEUTRALITY gate here (proof
+nothing else moved), never the detection gate — the same framing FIX-232, FIX-240 and FIX-241 all
+recorded. INV-3 is argued from the new flag's default-`True` dormancy, not from golden silence.
+
+**Live verification deliberately not run.** The offline harness reproduces the full defect path
+through the real kernel at zero model spend; a live fan-out would cost real money to observe the
+same hang. Deferred per the standing end-of-milestone rule.
