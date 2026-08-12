@@ -225,3 +225,115 @@ describe("AgentDetailPanel — ISS-085: the artifact cards follow the selected v
     expect(screen.getByText("Alpha Page")).toBeInTheDocument();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ISS-087 / owner decision D1 — the TASKS card follows the selected version too.
+//
+// ISS-085 moved the spec + analysis cards onto the selected version, but the tasks
+// card was not reading the artifact at all: its rows and its count came from the
+// build agent's `task_progress` stream, so no selection could move them. These two
+// cases replay the two shapes that exist in `backend/dev.db`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function tasksBody(titles: string[]): string {
+  return `<tasks>\n${titles.map((t, i) => `## Task ${i + 1}: ${t}\n**Goal**: deliver ${t}`).join("\n\n")}\n</tasks>`;
+}
+
+// Run 6e38b9a7 — the plan was re-issued with an extra task and a re-cut task 4.
+const PLAN_V1_10 = tasksBody([
+  "HTML Shell & Navigation Chrome",
+  "Accounts Register Page (`#/accounts`)",
+  "Account Detail Page (`#/account`)",
+  "Transaction Wizard Page (Steps 1-2) (`#/txn`)",
+  "Transaction Wizard Page (Steps 3-5) (`#/txn`)",
+  "Submissions Queue, Tasks, and Reports Pages",
+  "Modals, Toasts, and Final Wiring & Validation",
+  "Data Population & Content Finalization",
+  "Final Testing & Validation",
+  "Final Review & Delivery",
+]);
+const PLAN_V2_11 = tasksBody([
+  "HTML Shell & Navigation Chrome",
+  "Accounts Register Page (`#/accounts`)",
+  "Account Detail & Supporting Modals (`#/account`)",
+  "Submissions Queue & Tasks Pages",
+  "Transaction Wizard Steps 1-5 (Part A)",
+  "Transaction Wizard Steps 3-4",
+  "Transaction Wizard Step 5 (Document Preview & Finalization)",
+  "Reports Page & Data Population",
+  "Modals, Toasts, & Auto-Save Implementation",
+  "Integration Testing & Final Validation",
+  "Final QA & Deliverable",
+]);
+
+// Run 5ecb990f — SAME task count in both versions, only the titles were re-worded.
+// A count-only assertion passes here while the screen is still wrong, which is why
+// this case asserts a title.
+const CLAIMS_V1_8 = tasksBody([
+  "HTML Shell & Navigation Chrome",
+  "Claims Register (`#/register`)",
+  "Claim Detail (`#/claims/{id}`)",
+  "Intake Wizard (`#/wizard/new` and `#/wizard/{id}`)",
+  "Adjuster Task Queue (`#/tasks`)",
+  "Reports (`#/reports`)",
+  "Claim Edit / Notes Modal (`#/claims/{id}/notes`)",
+  "Final Wiring & Validation",
+]);
+const CLAIMS_V2_8 = tasksBody([
+  "HTML Shell & Navigation Chrome",
+  "Claims Register Page (`#/register`)",
+  "Claim Detail Page (`#/claims/{id}`)",
+  "Intake Wizard Page (`#/wizard/new` or `#/wizard/{id}`)",
+  "Adjuster Task Queue Page (`#/tasks`)",
+  "Reports Page (`#/reports`)",
+  "Claim Edit / Notes Modal (`#/claims/{id}/notes`)",
+  "Final Wiring & Validation",
+]);
+
+describe("AgentDetailPanel — ISS-087: the tasks card follows the selected version", () => {
+  it("selecting v1 repaints the task rows and the 'N planned' count (run 6e38b9a7)", async () => {
+    mockNodes(twoVersions("prototype-plan", "task_list", PLAN_V1_10, PLAN_V2_11));
+    const planner = doneAgent({ id: "prototype-plan", name: "Task Planner", output: PLAN_V2_11 });
+    render(
+      <AgentDetailPanel agent={planner} onBack={() => {}} runId="r1" agents={[planner]} agentIndex={0} />,
+    );
+
+    expect(await screen.findByText(/11 planned/)).toBeInTheDocument();
+
+    await selectV1();
+
+    // FAIL-BEFORE: the rows and the count came from protoCompletedTasks, so nothing
+    // here moved — and with no such prop supplied, no card rendered at all.
+    await waitFor(() => expect(screen.getByText(/10 planned/)).toBeInTheDocument());
+    expect(screen.getByText(/Transaction Wizard Page \(Steps 1-2\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/Final QA & Deliverable/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/11 planned/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Back to latest/i }));
+    await waitFor(() => expect(screen.getByText(/11 planned/)).toBeInTheDocument());
+    expect(screen.getByText(/Final QA & Deliverable/)).toBeInTheDocument();
+  });
+
+  it("repaints the task TITLES when both versions plan the same number (run 5ecb990f)", async () => {
+    mockNodes(twoVersions("prototype-plan", "task_list", CLAIMS_V1_8, CLAIMS_V2_8));
+    const planner = doneAgent({ id: "prototype-plan", name: "Task Planner", output: CLAIMS_V2_8 });
+    render(
+      <AgentDetailPanel agent={planner} onBack={() => {}} runId="r1" agents={[planner]} agentIndex={0} />,
+    );
+
+    expect(await screen.findByText(/8 planned/)).toBeInTheDocument();
+    // `getAllBy`: an early task title appears twice on this screen — once as a card row
+    // and once inside the (truncated) raw-output preview below it. Both are v2 here.
+    expect(screen.getAllByText(/Claims Register Page/).length).toBeGreaterThan(0);
+
+    await selectV1();
+
+    // The count is identical across these two versions, so only the titles prove the
+    // card actually re-read the artifact. The absence assertions are the discriminating
+    // ones: v2's wording must be gone from the whole panel.
+    await waitFor(() => expect(screen.getAllByText(/Claims Register \(/).length).toBeGreaterThan(0));
+    expect(screen.getByText(/8 planned/)).toBeInTheDocument();
+    expect(screen.queryByText(/Claims Register Page/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Intake Wizard Page/)).not.toBeInTheDocument();
+  });
+});

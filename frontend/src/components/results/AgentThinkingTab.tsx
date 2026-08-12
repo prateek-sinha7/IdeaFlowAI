@@ -204,8 +204,6 @@ export function AgentThinkingTab({
             onOpenTask={isConstructionSelected ? (i) => setSelectedTaskIndex(i) : undefined}
             agents={agents}
             agentIndex={agents.findIndex(a => a.id === selectedAgent.id)}
-            protoCompletedTasks={pipelineState?.protoCompletedTasks}
-            protoCompletedTaskCount={pipelineState?.protoCompletedTaskCount}
             dagEdges={pipelineState?.dagEdges}
           />
         ) : (

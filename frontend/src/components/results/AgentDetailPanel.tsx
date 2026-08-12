@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
-import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview } from "./artifactPreview";
+import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview, parseTasks } from "./artifactPreview";
 import { ArtifactVersionPicker } from "./ArtifactVersionPicker";
 import { ReadOnlyVersionBanner } from "@/components/preview/ReadOnlyVersionBanner";
 
@@ -68,14 +68,13 @@ export function formatContextSource(src: ContextSource): { name: string; meta: s
 // tag, never a workflow/agent-name literal — SC-001). Every branch keys on
 // GENERIC in-state data; nothing keys on the agent's id/name. Cards are
 // CONDITIONAL — an agent whose output carries no recognized artifact tag (and a
-// tasks agent with no completed tasks, e.g. single_shot) renders NO card, exactly
-// as today. All data flows on the §9-verified FRONTEND-ONLY path (protoCompletedTasks
-// / validation* / dagEdges) — zero backend/golden/transport dependency.
+// tasks agent whose body contains no `## Task N:` rows) renders NO card. All data
+// flows on the FRONTEND-ONLY path (the artifact body / validation* / dagEdges) —
+// zero backend/golden/transport dependency.
 
-/** In-state pipeline data the artifact cards + handoff consume (all §9-verified). */
+/** Run-scoped pipeline data the handoff line consumes. The artifact CARDS take no
+ *  run state: their content is the artifact on screen (ISS-087). */
 export interface ArtifactCardData {
-  protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
-  protoCompletedTaskCount?: number;
   dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
 }
 
@@ -85,13 +84,13 @@ export interface ArtifactCardModel {
   kind: "spec" | "tasks" | "analysis" | null;
   /** pages/sections card (spec output present). */
   showPages: boolean;
-  /** tasks card (tasks output AND protoCompletedTasks non-empty). */
+  /** tasks card (tasks output whose body contains at least one `## Task N:` row). */
   showTasks: boolean;
   /** checks card (analysis output). */
   showChecks: boolean;
-  /** tasks-card rows from protoCompletedTasks (empty unless showTasks). */
+  /** tasks-card rows parsed from the artifact body (empty unless showTasks). */
   tasks: Array<{ number: number; title: string }>;
-  /** "N planned" count for the tasks card. */
+  /** "N planned" count — the size of the plan on screen. */
   taskCount: number;
   /** checks-card verdict: pass/fail derived from validationPassed/validationIssues. */
   checksPassed: boolean;
@@ -132,12 +131,16 @@ export function deriveArtifactCardModel(
 ): ArtifactCardModel {
   const kind = discriminateArtifact(agent.output || "");
 
-  // tasks card — a tasks-artifact agent WITH completed tasks in state. Empty
-  // protoCompletedTasks (single_shot workflows) → NO card (correct, generic).
-  const allTasks = data.protoCompletedTasks ?? [];
-  const showTasks = kind === "tasks" && allTasks.length > 0;
-  const tasks = showTasks ? allTasks.map(t => ({ number: t.number, title: t.title })) : [];
-  const taskCount = showTasks ? (data.protoCompletedTaskCount ?? allTasks.length) : 0;
+  // tasks card — the plan's own rows, parsed from the artifact body ON SCREEN.
+  // ISS-087: this read the build agent's `task_progress` completed-task stream, so a
+  // card labelled "N planned" rendered the number COMPLETED (wrong even at the latest
+  // version) and stayed pinned to the run while the version picker moved everything
+  // around it. The plan's size is a property of the plan, so it comes from the plan.
+  // A `<tasks>` body with no `## Task N:` rows → NO card (generic degrade).
+  const plannedTasks = kind === "tasks" ? parseTasks(agent.output || "") : [];
+  const showTasks = plannedTasks.length > 0;
+  const tasks = plannedTasks.map(t => ({ number: t.number, title: t.title }));
+  const taskCount = plannedTasks.length;
 
   // checks card — an analysis-artifact agent; badge from validation* (structured).
   const showChecks = kind === "analysis";
@@ -643,7 +646,7 @@ function SettledArtifactCards({ output, model }: { output: string; model: Artifa
         </div>
       )}
 
-      {/* TASKS card — "N planned" + a row per task from protoCompletedTasks. */}
+      {/* TASKS card — "N planned" + a row per task in the plan on screen. */}
       {model.showTasks && (
         <div className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
           <div className="flex items-center gap-2 mb-2">
@@ -723,12 +726,10 @@ export interface AgentDetailPanelProps {
   };
   onOpenTask?: (taskIndex: number) => void;
   // 42-09 — the ordered agent list + this agent's index for the handoff fallback,
-  // plus the in-state artifact-card data (protoCompletedTasks / dagEdges). All
-  // optional: absent → no cards (SC-001 generic degrade).
+  // plus the run's DAG edges for the handoff label. All optional: absent → no
+  // handoff (SC-001 generic degrade). The artifact cards need no run state.
   agents?: AgentRunState[];
   agentIndex?: number;
-  protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
-  protoCompletedTaskCount?: number;
   dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
   // ISS-065 — the run whose artifact_refs back this agent's output, so an earlier
   // version can be read after an update_specs cycle overwrote it in memory.
@@ -738,7 +739,7 @@ export interface AgentDetailPanelProps {
 
 export function AgentDetailPanel({
   agent, onBack, construction, onOpenTask,
-  agents, agentIndex, protoCompletedTasks, protoCompletedTaskCount, dagEdges,
+  agents, agentIndex, dagEdges,
   runId,
 }: AgentDetailPanelProps) {
   // ISS-065 — the older artifact version currently on screen, if any.
@@ -770,7 +771,7 @@ export function AgentDetailPanel({
     displayed,
     agentIndex ?? agent.index,
     agents ?? [],
-    { protoCompletedTasks, protoCompletedTaskCount, dagEdges },
+    { dagEdges },
   );
 
   const metaBits = [
