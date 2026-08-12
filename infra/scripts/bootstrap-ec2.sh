@@ -896,7 +896,56 @@ chmod 0755 /opt/velocityai/reconcile-host-config.sh
 # Runs BEFORE the reconcile so the reconcile's `nginx -t` has a certificate to
 # validate against. The temporary bootstrap-http site below only needs the
 # webroot, not the real site file.
-if [[ ! -d /etc/letsencrypt/live/$DOMAIN ]]; then
+# Let's Encrypt validates over the public internet: $DOMAIN must resolve to a
+# globally routable address AND be reachable here on port 80. A private-IP
+# domain fails with "no valid A records found for <domain>" — LE refuses
+# RFC1918 answers outright. Detect that up front so a private-network host
+# falls back to a self-signed cert instead of aborting the entire provision
+# under `set -e` (certbot is not wrapped, so its failure strands every later
+# section and the completion sentinel).
+#
+# getent is libc, so this needs no dnsutils/bind9-host package installed.
+domain_has_public_ip() {
+    local d="$1" ip
+    while read -r ip; do
+        case "$ip" in
+            ''|0.0.0.0|10.*|127.*|169.254.*|192.168.*)   continue ;;
+            172.1[6-9].*|172.2[0-9].*|172.3[01].*)       continue ;;
+            100.6[4-9].*|100.[7-9][0-9].*|100.1[0-1][0-9].*|100.12[0-7].*) continue ;;
+            *) return 0 ;;
+        esac
+    done < <(getent ahostsv4 "$d" 2>/dev/null | awk '{print $1}' | sort -u)
+    # Global-unicast IPv6 (2000::/3) also counts; private/link-local v6 is f*.
+    while read -r ip; do
+        case "$ip" in
+            2*|3*) return 0 ;;
+        esac
+    done < <(getent ahostsv6 "$d" 2>/dev/null | awk '{print $1}' | sort -u)
+    return 1
+}
+
+if [[ ! -d /etc/letsencrypt/live/$DOMAIN ]] && ! domain_has_public_ip "$DOMAIN"; then
+    echo "[bootstrap] WARNING: ${DOMAIN} does not resolve to a public address —" >&2
+    echo "[bootstrap]          Let's Encrypt HTTP-01 cannot validate it. Installing a" >&2
+    echo "[bootstrap]          self-signed certificate so nginx can serve TLS and" >&2
+    echo "[bootstrap]          provisioning can complete. NOT valid for public use." >&2
+    install -d -m 0755 /etc/letsencrypt/live "/etc/letsencrypt/live/${DOMAIN}"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+        -keyout "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" \
+        -out    "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" \
+        -subj   "/CN=${DOMAIN}" \
+        -addext "subjectAltName=DNS:${DOMAIN}"
+    # nginx points ssl_trusted_certificate at chain.pem; a self-signed leaf is
+    # its own issuer, and an empty file there makes `nginx -t` fail.
+    cp "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "/etc/letsencrypt/live/${DOMAIN}/chain.pem"
+    cp "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "/etc/letsencrypt/live/${DOMAIN}/cert.pem"
+    chmod 0600 "/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+    chmod 0644 "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" \
+               "/etc/letsencrypt/live/${DOMAIN}/chain.pem" \
+               "/etc/letsencrypt/live/${DOMAIN}/cert.pem"
+    echo "[bootstrap] self-signed certificate installed for ${DOMAIN} (3650 days)"
+    BOOTSTRAP_DEGRADED+=("tls-self-signed")
+elif [[ ! -d /etc/letsencrypt/live/$DOMAIN ]]; then
     cat > /etc/nginx/sites-available/bootstrap-http <<EOF2
 server {
     listen 80 default_server;
