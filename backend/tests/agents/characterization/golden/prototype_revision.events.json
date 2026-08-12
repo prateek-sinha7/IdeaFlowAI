@@ -153,38 +153,5 @@
       "unresolved_edges": []
     },
     "type": "workflow_validated"
-  },
-  {
-    "data": {
-      "execution_gate": "PROCEED",
-      "planning_context": {
-        "domain_insights": [],
-        "execution_gate": "PROCEED",
-        "execution_strategy": "sequential",
-        "explicit_constraints": [],
-        "has_topic": true,
-        "implicit_constraints": [],
-        "inferred_intent": "Build me a thing for managing tasks.",
-        "inferred_nfrs": [],
-        "inferred_personas": [],
-        "missing_information": [],
-        "planner_timed_out": false,
-        "quality_targets": [],
-        "topic": null
-      }
-    },
-    "type": "planner_complete"
-  },
-  {
-    "data": {
-      "pipeline_type": "prototype_revision"
-    },
-    "type": "planner_start"
-  },
-  {
-    "data": {
-      "verdict": "PROCEED"
-    },
-    "type": "gate_status"
   }
 ]
