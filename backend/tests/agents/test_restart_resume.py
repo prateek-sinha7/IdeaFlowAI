@@ -4176,3 +4176,256 @@ async def test_rehydrate_merge_survives_monkeypatched_clarify_engine():
         "the rehydrator must use the IMPORT-TIME ClarifyEngine bind — a late binding "
         "would pick up the monkeypatched fake and silently drop every answer"
     )
+
+
+# ===========================================================================
+# ISS-091 — a review-gate REJECTION must terminate the run.
+#
+# The inline gate's ``_gate_rejected`` handler transitions the run to
+# ``cancelled``, yields ``pipeline_cancelled`` and returns — but a ``return``
+# only ends THAT step's generator. The dispatch loop (engine.py:2523) observed
+# only ``agent_error``, so the terminal event was forwarded and ignored and the
+# outer per-step loop advanced: every remaining step ran and the run terminated
+# on ``pipeline_complete``. The step-boundary check (:2381) could not catch it
+# either — it reads ``cancel_event``, which a gate rejection never sets (which
+# is why FIX-227 is orthogonal to this).
+#
+# The damage is NOT token spend: every post-rejection worker short-circuits on
+# _run_agent's terminal guard (:3329) and bills nothing. It is the DURABLE
+# RECORD. Each no-op worker is still written ``subagent_runs.status='complete'``
+# and each wave ``wave_runs.status='completed'`` — and wave_scheduler's resume
+# skip (wave_scheduler.py:251-256) trusts exactly those rows. A rejected run
+# that is later resumed therefore skips every wave and can NEVER produce its
+# deliverable (T3 — the regression test that matters).
+#
+# The fix mirrors the declared-gate handler WR-03 (engine.py:2454-2479), whose
+# own comment describes this defect verbatim.
+#
+# Two traps these tests exist to keep honest:
+#   * ``make_engine()`` installs ``_run_review_gate`` as an INSTANCE attribute,
+#     so patching the CLASS is silently shadowed;
+#   * ``gate_agent_ids=[]`` means "NO gates this run" since FIX-041 — the gated
+#     agent must be named explicitly.
+# ===========================================================================
+
+_ISS091_TERMINAL = "pipeline_cancelled"
+# Events that prove a downstream step actually executed after the terminal.
+_ISS091_POST_TERMINAL_WORK = {
+    "agent_start", "wave_started", "subagent_spawned", "merge_started",
+}
+
+
+async def _iss091_rejecting_gate(*_a, **kwargs):
+    """A ``_run_review_gate`` double that opens the gate and REJECTS.
+
+    ``*_a, **kwargs`` so it binds the engine's real keyword call whatever that
+    grows into (test_gate_stub_signature_drift.py).
+    """
+    agent_id = kwargs.get("agent_id")
+    run_id = kwargs.get("pipeline_run_id")
+    yield {
+        "type": "review_gate_ready",
+        "data": {"agent_id": agent_id, "gate_key": f"{run_id}:{agent_id}"},
+    }
+    yield {"type": "_gate_rejected", "data": {"agent_id": agent_id}}
+
+
+async def _iss091_run_to_rejection(session, db_engine, run_id, owner, call_log):
+    """Drive ``sample_wave`` to an inline-gate rejection on step 0. Returns the events."""
+    events: list[dict] = []
+    with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+        engine._run_review_gate = _iss091_rejecting_gate  # type: ignore[assignment]
+        async for event in engine.execute(
+            agents=list(h.specs),
+            user_message="Run the wave workflow.",
+            pipeline_run_id=run_id,
+            pipeline_type=_FIXTURE_ID,
+            user_id=owner,
+            # NOT [] — that means "no gates this run" (FIX-041).
+            gate_agent_ids=["sample-wave-plan"],
+        ):
+            events.append(event)
+    return events
+
+
+@pytest.mark.asyncio
+async def test_inline_gate_rejection_stops_the_pipeline():
+    """ISS-091: rejecting at the inline review gate ENDS the run.
+
+    ``pipeline_cancelled`` must be the run's terminal event, ``pipeline_complete``
+    must never be emitted, and nothing downstream may execute after it.
+    """
+    session, db_engine = _make_session()
+    run_id = f"iss091a-{uuid.uuid4().hex[:8]}"
+    owner = "iss091-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    events = await _iss091_run_to_rejection(session, db_engine, run_id, owner, {})
+    types = [e.get("type") for e in events]
+
+    assert _ISS091_TERMINAL in types, f"the rejection produced no terminal: {types}"
+    assert types[-1] == _ISS091_TERMINAL, (
+        f"a rejected run must END on {_ISS091_TERMINAL}; it ended on {types[-1]!r}. "
+        f"Tail after the cancel: {types[types.index(_ISS091_TERMINAL) + 1:]}"
+    )
+    assert "pipeline_complete" not in types, (
+        "a rejected run must NOT report completion — the dispatch loop fell through "
+        f"to the Step-5 terminal block: {types}"
+    )
+    tail = types[types.index(_ISS091_TERMINAL) + 1:]
+    ran_anyway = sorted({t for t in tail if t in _ISS091_POST_TERMINAL_WORK})
+    assert not ran_anyway, (
+        f"work executed AFTER the run was cancelled: {ran_anyway} (full tail: {tail})"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_gate_rejection_writes_no_wave_or_subagent_rows():
+    """ISS-091: a rejected run must leave NO durable fan-out rows.
+
+    Pre-fix the post-rejection waves still dispatched, and although every worker
+    no-opped on the terminal guard, each was recorded ``complete`` and each wave
+    ``completed`` — a durable record of work that never happened.
+    """
+    from app.models.subagent_run import SubagentRun
+    from app.models.wave_run import WaveRun
+
+    session, db_engine = _make_session()
+    run_id = f"iss091b-{uuid.uuid4().hex[:8]}"
+    owner = "iss091-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    call_log: dict[str, int] = {}
+    await _iss091_run_to_rejection(session, db_engine, run_id, owner, call_log)
+
+    session.expire_all()
+    waves = session.query(WaveRun).filter(WaveRun.run_id == run_id).all()
+    workers = session.query(SubagentRun).filter(
+        SubagentRun.parent_run_id == run_id
+    ).all()
+
+    assert waves == [], (
+        "a rejected run dispatched waves it must never have started: "
+        f"{[(w.wave_index, w.status) for w in waves]}"
+    )
+    assert workers == [], (
+        "a rejected run recorded workers that never did any work: "
+        f"{[(w.worker_agent, w.status, w.tokens) for w in workers]}"
+    )
+    assert not call_log, f"a rejected run spent model calls: {call_log}"
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_rejected_run_resumes_and_still_produces_its_deliverable():
+    """ISS-091 / N1 — the data-loss regression test.
+
+    Reject -> restart -> resume. Pre-fix the rejection had already flipped both
+    ``wave_runs`` rows to ``completed``, so the resume skipped both waves, wrote
+    ZERO files and recorded the run ``completed`` — permanent, silent loss of the
+    run's entire output with no error anywhere. Post-fix the rejection leaves no
+    such rows, so the resume genuinely runs the waves.
+    """
+    from pathlib import Path as _Path
+
+    from agents.execution_engine.state_machine import get_state_machine
+    from app.core.config import settings as _settings
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"iss091c-{uuid.uuid4().hex[:8]}"
+    owner = "iss091-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    call_log: dict[str, int] = {}
+    await _iss091_run_to_rejection(session, db_engine, run_id, owner, call_log)
+
+    # Simulate the backend RESTART: the in-process state machine forgets the run,
+    # and restore_non_terminal_runs sees a non-terminal workflow_runs row.
+    get_state_machine().forget_run(run_id)
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    row.status = "generating"
+    session.commit()
+
+    call_log.clear()
+    with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()  # make_engine installs the APPROVING no-op gate
+        await engine_b.resume_run(run_id)
+
+    root = _Path(_settings.RUNS_ROOT)
+    produced = sorted(
+        p.name for p in root.rglob("part_*.txt") if run_id in str(p)
+    )
+    assert produced == ["part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"], (
+        "the resumed run produced nothing — the rejection poisoned the durable "
+        f"wave record and every wave was skipped as already-done. Produced: {produced}"
+    )
+    assert call_log, (
+        "the resumed run invoked no worker model at all — the waves were skipped"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_declared_gate_rejection_still_cancels_the_run():
+    """Guard for WR-03 (engine.py:2454-2479) — the DECLARED-gate sibling.
+
+    ISS-091's fix adds the inline path's missing terminal observation to the
+    dispatch loop. This pins the pre-existing declared-gate path so that fix
+    cannot disturb it: a ``gates: [human]`` step whose review is rejected must
+    still cancel the run and never complete.
+
+    ``gate_agent_ids=None`` is load-bearing: a non-None selection makes
+    ``_should_gate`` claim the agent for the INLINE gate, and the WR-02 dedupe
+    (engine.py:5052-5066) then skips the declared gate entirely.
+    """
+    import agents.execution_engine.engine as engine_mod
+
+    session, db_engine = _make_session()
+    run_id = f"iss091d-{uuid.uuid4().hex[:8]}"
+    owner = "iss091-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    events: list[dict] = []
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+        engine._run_review_gate = _iss091_rejecting_gate  # type: ignore[assignment]
+
+        # Declare a human gate on step 0. The harness's __exit__ restores
+        # compile_for_run unconditionally, so this wrapper does not leak.
+        _harness_compile = engine_mod.compile_for_run
+
+        def _compile_with_declared_gate(pipeline_type, _inner=_harness_compile):
+            compiled = _inner(pipeline_type)
+            for _step in compiled.steps:
+                if _step.agent_id == "sample-wave-plan":
+                    _step.gates = ["human"]
+            return compiled
+
+        engine_mod.compile_for_run = _compile_with_declared_gate
+
+        async for event in engine.execute(
+            agents=list(h.specs),
+            user_message="Run the wave workflow.",
+            pipeline_run_id=run_id,
+            pipeline_type=_FIXTURE_ID,
+            user_id=owner,
+            gate_agent_ids=None,  # else the inline gate claims the agent (WR-02 dedupe)
+        ):
+            events.append(event)
+
+    types = [e.get("type") for e in events]
+    assert "review_gate_ready" in types, (
+        f"precondition failed — the declared human gate never opened: {types}"
+    )
+    assert types[-1] == _ISS091_TERMINAL, (
+        f"WR-03 regressed: a declared-gate rejection must end the run on "
+        f"{_ISS091_TERMINAL}; it ended on {types[-1]!r}"
+    )
+    assert "pipeline_complete" not in types, (
+        f"WR-03 regressed: a declared-gate rejection reported completion: {types}"
+    )
+    session.close()
