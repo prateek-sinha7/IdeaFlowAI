@@ -718,12 +718,31 @@ export async function postGate(
  * Cooperatively cancel a run over REST (mirrors WS `cancel_pipeline`). The WS
  * frame was connection-scoped and carried no id; the REST path threads the run
  * id explicitly. Owner-gated server-side; idempotent when no live run exists.
+ *
+ * ISS-084 — the response is an ACCEPTANCE, never a confirmation. `accepted: true`
+ * (`status: "stopping"`) means a live driver was signalled; the run's terminal
+ * arrives on the event stream as `pipeline_cancelled`, which is the ONLY thing that
+ * proves it stopped. Do not branch on `cancelled` — it is retained for wire
+ * compatibility and is never `true` here (it used to be `true` in exactly the case
+ * where cancelling was impossible).
  */
 export async function postCancel(
   token: string,
   runId: string,
-): Promise<{ ok: boolean; run_id: string; cancelled?: boolean }> {
-  return request<{ ok: boolean; run_id: string; cancelled?: boolean }>(
+): Promise<{
+  ok: boolean;
+  run_id: string;
+  accepted?: boolean;
+  status?: "stopping" | "not_running";
+  cancelled?: boolean;
+}> {
+  return request<{
+    ok: boolean;
+    run_id: string;
+    accepted?: boolean;
+    status?: "stopping" | "not_running";
+    cancelled?: boolean;
+  }>(
     `/api/runs/${encodeURIComponent(runId)}/cancel`,
     {
       method: "POST",

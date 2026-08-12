@@ -208,6 +208,13 @@ async def lifespan(app: FastAPI):
         engine_instance._resume_register_queue = _ws_bridge._register_resume_queue
         engine_instance._resume_register_task = _ws_bridge._register_resume_task
         engine_instance._resume_cleanup = _ws_bridge._cleanup_pipeline
+        # ── ISS-084: arm the cooperative STOP signal for every resume-family drive.
+        # The engine spawns those drivers itself (restore_non_terminal_runs), so unlike a
+        # launch there is no caller to hand it a cancel_event — without this line
+        # _drive_resumed_stream passes None and Stop / POST /cancel / SIGTERM / a restart
+        # are ALL no-ops for any run that has crossed a restart. Returns the SAME Event
+        # object the REST cancel endpoint sets (one registry, one object).
+        engine_instance._resume_cancel_event = _ws_bridge._resume_cancel_event
         # ── RESUME-10: wire the live-layer trio onto the engine so an AUTO-RESUMED run
         # (restore_non_terminal_runs branch b) is a first-class LIVE run — it registers
         # its rebuilt ectx (steering / per-turn images / Concierge resolve via

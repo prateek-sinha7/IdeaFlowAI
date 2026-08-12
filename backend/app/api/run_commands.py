@@ -315,6 +315,28 @@ async def submit_answers(
 # POST /api/runs/{run_id}/cancel — cooperative cancel
 # ---------------------------------------------------------------------------
 
+# Strong references to the detached escalation backstops, so a task started for a Stop is
+# not garbage-collected mid-flight (the asyncio contract). Mirrors _CONCIERGE_STREAM_TASKS.
+_CANCEL_ESCALATIONS: set = set()
+
+
+def _arm_cancel_escalation(run_id: str) -> None:
+    """Start the bounded fallback for a Stop, detached from the HTTP response.
+
+    The cooperative event is the mechanism; this only backstops the mid-model-call blind
+    window. Best-effort by construction: no running loop (a sync test client outside the
+    portal) simply means no escalation, never a failed Stop.
+    """
+    from app.api.run_shutdown import stop_run_driver
+
+    try:
+        task = asyncio.get_running_loop().create_task(stop_run_driver(run_id))
+    except Exception as exc:  # noqa: BLE001 — the ack must never depend on the backstop
+        logger.warning("cancel(run=%s): could not arm the escalation: %s", run_id, exc)
+        return
+    _CANCEL_ESCALATIONS.add(task)
+    task.add_done_callback(_CANCEL_ESCALATIONS.discard)
+
 
 @router.post("/{run_id}/cancel")
 async def cancel_run(
@@ -324,20 +346,44 @@ async def cancel_run(
     """Cooperatively cancel a run over HTTP (mirrors WS ``cancel_pipeline``).
 
     Owner-gated (T-29-03-3) → 404 on cross-owner. Sets the per-run cooperative
-    ``asyncio.Event`` in ``_CANCEL_EVENTS`` (ISS-007) — the engine observes it
-    (per-chunk / pre-agent) and emits ``pipeline_cancelled`` through the normal
-    persisted+drained path; suspend/persist semantics are unchanged. When no live
-    event exists the ack is idempotent (nothing to cancel).
+    ``asyncio.Event`` in ``_CANCEL_EVENTS`` (ISS-007) — the engine observes it at its next
+    boundary and emits ``pipeline_cancelled`` through the normal persisted+drained path,
+    which is what writes the terminal ``WorkflowRun.status``; suspend/persist semantics are
+    unchanged. ``stop_run_driver`` backstops the mid-model-call blind window.
+
+    ISS-084 — the response is an ACCEPTANCE, not a claim of cancellation. It used to
+    answer ``cancelled: true`` whenever an Event object existed in a dict and ``.set()``
+    did not raise, which said nothing about whether any consumer held that object. For
+    every resumed run that Event was an orphan, so the field was ``true`` in exactly the
+    case where cancelling was impossible — an unfalsifiable success that turned a visible
+    failure into a silent one while the run kept billing. Liveness (``_is_run_live``, the
+    driver TASK, which also self-heals a stale registration) is now the truth condition,
+    and the field says what actually happened:
+
+      * ``accepted: true`` + ``status: "stopping"`` — a live driver was signalled. The
+        terminal follows on the event stream; it is not asserted here.
+      * ``accepted: false`` + ``status: "not_running"`` — nothing to stop (idempotent ack,
+        so the client UI still returns to idle).
     """
     if not _review_gate_owned_by(run_id, current_user.id):
         raise _deny_unknown_gate()
 
+    # Ordering: the liveness probe self-heals (and clears _CANCEL_EVENTS for) a stale
+    # registration, so it must run BEFORE the event lookup.
+    if not _is_run_live(run_id):
+        return {
+            "ok": True, "run_id": run_id, "accepted": False, "cancelled": False,
+            "status": "not_running", "message": "No active pipeline",
+        }
+
     event: asyncio.Event | None = _CANCEL_EVENTS.get(run_id)
     if event is not None:
         event.set()
-        return {"ok": True, "run_id": run_id, "cancelled": True}
-    # Idempotent: nothing active to cancel, but ack so the client returns to idle.
-    return {"ok": True, "run_id": run_id, "cancelled": False, "message": "No active pipeline"}
+    _arm_cancel_escalation(run_id)
+    return {
+        "ok": True, "run_id": run_id, "accepted": True, "cancelled": False,
+        "status": "stopping",
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

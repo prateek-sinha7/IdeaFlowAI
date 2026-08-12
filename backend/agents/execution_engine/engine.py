@@ -62,6 +62,20 @@ LiveEctxUnregister = Callable[[str], None]
 # DORMANT — byte/event-identical resume (INV-3). Keyed on run_id ONLY (SC-001 — no workflow
 # name, no column literal in the kernel).
 ResumeOutputPersist = Callable[[str], Awaitable[None]]
+
+# ISS-084: the app-layer per-run cooperative cancel Event lookup, INJECTED into the engine
+# (never imported — the kernel must not import ``app.*``, import-linter 4/0). The launch
+# path receives its Event as an ``execute()`` argument, but a RESUMED run has no such
+# caller: ``restore_non_terminal_runs`` spawns its drivers from the kernel itself, so
+# ``_drive_resumed_stream`` passed ``_execute_impl`` no ``cancel_event`` at all and every
+# cooperative guard (``if cancel_event and cancel_event.is_set()``) bound None and
+# short-circuited — no resumed run could be stopped by anyone. This callback resolves the
+# SAME Event object the REST cancel endpoint sets (one registry, one object; an Event the
+# engine does not hold is an orphan, which is what made ``cancel`` answer ``true`` while
+# the run kept billing). Typed as a generic run_id→Event so no app symbol crosses the
+# boundary; ``None`` (the goldens + every non-app driver) keeps it DORMANT → the funnel
+# passes ``cancel_event=None``, byte/event-identical (INV-3). Keyed on run_id ONLY (SC-001).
+ResumeCancelEvent = Callable[[str], "asyncio.Event | None"]
 from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
@@ -872,6 +886,13 @@ class ExecutionEngine:
         # DORMANT, byte/event-identical resume (INV-3). Keyed on run_id (SC-001).
         #   _resume_output_persist_sink(run_id) -> awaitable
         self._resume_output_persist_sink: "ResumeOutputPersist | None" = None
+        # ── ISS-084: the per-run cooperative cancel Event lookup, injected app-side
+        # (app/main.py, the SAME wiring site as the hooks above) so a RESUMED run can be
+        # stopped at all. Resolved ONCE in _drive_resumed_stream — the single funnel every
+        # resume driver reaches the kernel through — and handed to _execute_impl, which
+        # threads it into KernelServices and thence into every cooperative boundary.
+        #   _resume_cancel_event(run_id) -> asyncio.Event | None
+        self._resume_cancel_event: "ResumeCancelEvent | None" = None
 
     async def _persist_budget_snapshot_if_active(
         self, ectx: ExecutionContext, *, force: bool = False
@@ -8076,6 +8097,23 @@ class ExecutionEngine:
                 "resume_run(%s): bridge cleanup failed: %s", run_id, _cl_exc
             )
 
+    def _resolve_resume_cancel_event(self, run_id: str) -> "asyncio.Event | None":
+        """Resolve this run's cooperative cancel Event via the injected hook (ISS-084).
+
+        Mirrors ``_fire_resume_cleanup``'s best-effort shape. ``None`` — the hook unset
+        (goldens / offline / any non-app driver) or a lookup failure — degrades to the
+        historical ``cancel_event=None``, i.e. a DORMANT signal, never a crashed resume.
+        """
+        if self._resume_cancel_event is None:
+            return None
+        try:
+            return self._resume_cancel_event(run_id)
+        except Exception as _ce_exc:  # noqa: BLE001 — a lookup failure must not abort
+            logger.warning(
+                "resume(%s): cancel-event lookup failed: %s", run_id, _ce_exc
+            )
+            return None
+
     async def resume_run(self, run_id: str) -> None:
         """Durably RESUME an interrupted in-flight run IN-PROCESS (RESUME-04 / D-06).
 
@@ -8306,12 +8344,23 @@ class ExecutionEngine:
         """
         sink = _RunEventSink(milestone_sink=self._resume_milestone_sink)
         next_seq = start_seq
+        # ── ISS-084: the cooperative STOP signal, resolved HERE because this is the ONE
+        # funnel every resume driver (resume_run branch (b), _rearm_gate_run branch (a),
+        # _replay_clarify_run, the user POST /resume wrapper) reaches _execute_impl
+        # through — so a future resume driver inherits the fix instead of re-opening the
+        # hole. Without it _execute_impl bound its None default and all twelve cooperative
+        # guards short-circuited: Stop, POST /cancel, SIGTERM and a restart were ALL no-ops
+        # for any run that had crossed a restart, and one measured run billed 7.5M tokens
+        # after the API answered `cancelled: true`. The hook returns the SAME Event object
+        # the REST endpoint sets; None (goldens / offline) ⇒ DORMANT, byte/event-identical.
+        cancel_event = self._resolve_resume_cancel_event(run_id)
         try:
             async for event in self._execute_impl(
                 agents=agents,
                 user_message=user_message,
                 pipeline_run_id=run_id,
                 pipeline_type=pipeline_type,
+                cancel_event=cancel_event,
                 user_id=user_id,
                 session_id=session_id,
                 parent_run_id=parent_run_id,

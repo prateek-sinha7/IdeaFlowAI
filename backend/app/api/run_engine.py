@@ -500,6 +500,25 @@ def _register_resume_queue(pipeline_run_id: str) -> asyncio.Queue:
     return _get_or_create_queue(pipeline_run_id)
 
 
+def _resume_cancel_event(pipeline_run_id: str) -> asyncio.Event:
+    """Return THE per-run cooperative cancel Event — the one ``POST /cancel`` sets.
+
+    ISS-084: this is the app half of the engine's ``_resume_cancel_event`` hook (wired in
+    ``app/main.py``, the single wiring site — the kernel never imports ``app.api``). It is
+    also the ONLY place a resume-path Event is minted (INV-12), which is the whole point:
+    for three years' worth of resume drivers ``_register_resume_task`` minted an Event that
+    nothing downstream ever read, so ``cancel_run`` found it, set it, and answered
+    ``cancelled: true`` while the run carried on billing. Get-or-create, so the engine
+    resolving it later gets the SAME object the endpoint already holds — and so a
+    double-register can never reset an Event a Stop has already set.
+    """
+    event = _CANCEL_EVENTS.get(pipeline_run_id)
+    if event is None:
+        event = asyncio.Event()
+        _CANCEL_EVENTS[pipeline_run_id] = event
+    return event
+
+
 def _register_resume_task(pipeline_run_id: str, task: asyncio.Task) -> None:
     """Record an auto-resumed run's driver task in _PIPELINE_TASKS.
 
@@ -507,18 +526,18 @@ def _register_resume_task(pipeline_run_id: str, task: asyncio.Task) -> None:
     _has_live_task true; a finished one naturally falls back to the durable
     replay + status branch.
 
-    KAN-88: also register a cancel_event so cancel_pipeline can cooperatively
-    stop a resumed run via the cooperative path instead of falling through to
-    the destructive task.cancel() fallback (which leaves the run in a bad state).
+    KAN-88: also arm the run's cooperative cancel_event so a Stop takes the cooperative
+    path (clean ``pipeline_cancelled`` terminal) rather than a destructive task kill.
+    ISS-084 corrected KAN-88's premise — the engine did NOT read this Event until
+    ``_resume_cancel_event`` was wired onto it in ``app/main.py``.
     """
     _PIPELINE_TASKS[pipeline_run_id] = task
-    # Register a cooperative cancel event for the resumed task so the Stop
-    # button works correctly. The engine's resume_run checks this event in
-    # its per-chunk / pre-agent cancel checks (the same mechanism as a
-    # normally-started pipeline run). Only register if no event already exists
-    # (idempotent — a double-register must not reset a set() event).
-    if pipeline_run_id not in _CANCEL_EVENTS:
-        _CANCEL_EVENTS[pipeline_run_id] = asyncio.Event()
+    # Arm the run's cooperative cancel Event BEFORE its driver starts, so a Stop that
+    # arrives during the drive's DB round-trips is not lost. Registration alone is not a
+    # stop mechanism — ISS-084 — it only works because the engine resolves THIS object
+    # through the injected ``_resume_cancel_event`` hook and threads it into every
+    # cooperative boundary.
+    _resume_cancel_event(pipeline_run_id)
 
 
 def _validate_model_overrides(

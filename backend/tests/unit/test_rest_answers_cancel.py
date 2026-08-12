@@ -56,8 +56,11 @@ def env(monkeypatch):
     store_mod._STORE = None
     store = store_mod.get_artifact_store()
 
-    # Clean cooperative-cancel registry per test (module-global on ws_module).
+    # Clean cooperative-cancel + driver-task registries per test (module-globals on
+    # ws_module). ISS-084: liveness is decided from _PIPELINE_TASKS, so a leaked entry
+    # from another test would make an orphan look live.
     ws_module._CANCEL_EVENTS.clear()
+    ws_module._PIPELINE_TASKS.clear()
 
     from app.api.run_commands import router
     from app.core.dependencies import get_current_user
@@ -74,6 +77,7 @@ def env(monkeypatch):
     db_engine.dispose()
     store_mod._STORE = None
     ws_module._CANCEL_EVENTS.clear()
+    ws_module._PIPELINE_TASKS.clear()
 
 
 def _seed_user(env, email_tag: str) -> _FakeUser:
@@ -210,17 +214,51 @@ def test_answers_unknown_run_is_denied(env):
 def test_cancel_sets_the_cooperative_event(env):
     """ISS-007: a Stop over HTTP sets the per-run cooperative ``cancel_event``
     (never a destructive task kill) — the engine observes it and emits the clean
-    ``pipeline_cancelled`` terminal through the normal drained path."""
+    ``pipeline_cancelled`` terminal through the normal drained path.
+
+    ISS-084 reconcile: this test used to seed ONLY ``_CANCEL_EVENTS`` and assert the
+    endpoint set it, which made its own docstring premise ("a live run has an armed cancel
+    event") unfalsifiable — in production that entry was an orphan for every resumed run.
+    The premise is now made TRUE by seeding the driver task as well, and the assertion is
+    on the honest ``accepted`` acknowledgement rather than the unearned ``cancelled``.
+    """
     owner = _seed_user(env, "owner")
     run_id = _seed_run(env, owner.id)
-    # A live run has an armed cancel event (minted at execution start).
+    # A live run has an armed cancel event AND a driver task that can observe it.
     env["ws"]._CANCEL_EVENTS[run_id] = asyncio.Event()
+    env["ws"]._PIPELINE_TASKS[run_id] = object()
     env["state"]["user"] = owner
 
     resp = env["client"].post(f"/api/runs/{run_id}/cancel")
     assert resp.status_code == 200, resp.text
-    assert resp.json()["cancelled"] is True
+    body = resp.json()
+    assert body["accepted"] is True
+    assert body["status"] == "stopping"
     assert env["ws"]._CANCEL_EVENTS[run_id].is_set() is True
+
+
+def test_cancel_does_not_claim_success_without_a_live_driver(env):
+    """ISS-084 — the anti-lie test. A ``_CANCEL_EVENTS`` entry with no in-process driver
+    is an ORPHAN: setting it stops nothing, because nothing holds it. The endpoint must
+    not report success for it.
+
+    This is the shape that cost the owner 7,510,082 tokens: ``POST /cancel`` answered
+    ``HTTP 200 {"cancelled": true}`` and the run went on to complete, emitting zero
+    ``pipeline_cancelled`` events. The API asserted a result it had never verified.
+    """
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id)
+    env["ws"]._CANCEL_EVENTS[run_id] = asyncio.Event()  # orphan: no driver task
+    env["state"]["user"] = owner
+
+    resp = env["client"].post(f"/api/runs/{run_id}/cancel")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["accepted"] is False, (
+        f"the endpoint claimed a cancellation nothing could perform: {body}"
+    )
+    assert body["cancelled"] is False
+    assert body["status"] == "not_running"
 
 
 def test_cancel_is_idempotent_with_no_active_event(env):
@@ -233,6 +271,7 @@ def test_cancel_is_idempotent_with_no_active_event(env):
     resp = env["client"].post(f"/api/runs/{run_id}/cancel")
     assert resp.status_code == 200, resp.text
     body = resp.json()
+    assert body["accepted"] is False
     assert body["cancelled"] is False
     assert body["message"] == "No active pipeline"
 

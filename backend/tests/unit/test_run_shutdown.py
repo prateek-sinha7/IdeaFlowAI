@@ -142,3 +142,86 @@ class TestShutdownDrainsPumpTasks:
 
         assert any("pump_drain" in e for e in summary["errors"])
         assert summary["checkpointer_closed"] is True
+
+
+class TestPerRunStopEscalation:
+    """ISS-084 — the ``POST /cancel`` fallback, sharing the shutdown sweep's ONE bounded
+    escalation policy (``_drain_then_cancel``) rather than a second, untested one.
+
+    Before KAN-88 the WS Stop handler had a destructive fallback; KAN-88 deleted it on the
+    false premise that resumed runs read the cooperative event, and Phase 44's REST port
+    kept only the cooperative branch — leaving no path at all by which a user could stop a
+    run stuck in the mid-model-call blind window (``read_timeout=600``).
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_driver_that_ignores_the_stop_is_cancelled_and_left_terminal(
+        self, monkeypatch
+    ):
+        """A driver that cannot observe the cooperative event inside the drain budget is
+        force-cancelled — and the row is then reconciled to a TERMINAL status, because a
+        non-terminal row is re-adopted by the next boot's ``restore_non_terminal_runs``
+        and driven to completion at the owner's expense."""
+        monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 0.05)
+        reconciled: list[str] = []
+
+        async def _spy_reconcile(run_id: str) -> None:
+            reconciled.append(run_id)
+
+        monkeypatch.setattr(
+            "app.api.run_commands._reconcile_terminal_status", _spy_reconcile
+        )
+
+        async def _ignores_the_signal() -> None:
+            await asyncio.Event().wait()  # e.g. parked mid-Bedrock-call
+
+        task = asyncio.create_task(_ignores_the_signal())
+        run_engine_mod._PIPELINE_TASKS["run-stuck"] = task
+        run_engine_mod._CANCEL_EVENTS["run-stuck"] = asyncio.Event()
+        run_engine_mod._CANCEL_EVENTS["run-stuck"].set()  # what POST /cancel does
+
+        await run_shutdown_mod.stop_run_driver("run-stuck")
+
+        assert task.done(), "an unresponsive driver must not survive a Stop"
+        assert reconciled == ["run-stuck"], (
+            "a force-cancelled run must be reconciled terminal, or the next boot "
+            "re-adopts it"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_cooperative_driver_is_never_force_cancelled(self, monkeypatch):
+        """ISS-007's contract is preserved: escalation is a FALLBACK, not the mechanism.
+        A driver that observes the event and unwinds cleanly (yielding its own
+        ``pipeline_cancelled``) must reach ``done()`` un-cancelled — a destructive kill
+        here would race the terminal off the wire, which is the defect Phase 16-02
+        removed."""
+        monkeypatch.setattr(run_shutdown_mod.settings, "SHUTDOWN_TASK_DRAIN_SECONDS", 1.0)
+
+        async def _spy_reconcile(run_id: str) -> None:
+            return None
+
+        monkeypatch.setattr(
+            "app.api.run_commands._reconcile_terminal_status", _spy_reconcile
+        )
+
+        event = asyncio.Event()
+
+        async def _cooperative() -> None:
+            await event.wait()  # the engine's cooperative boundary
+
+        task = asyncio.create_task(_cooperative())
+        run_engine_mod._PIPELINE_TASKS["run-coop"] = task
+        run_engine_mod._CANCEL_EVENTS["run-coop"] = event
+        event.set()  # what POST /cancel does
+
+        await run_shutdown_mod.stop_run_driver("run-coop")
+
+        assert task.done() and not task.cancelled()
+
+    @pytest.mark.asyncio
+    async def test_stop_run_driver_is_a_no_op_without_a_live_task(self):
+        """No registered driver (or an un-introspectable sentinel) → nothing to escalate
+        against, and no terminal is stamped on a run whose state is unknown."""
+        await run_shutdown_mod.stop_run_driver("run-absent")
+        run_engine_mod._PIPELINE_TASKS["run-sentinel"] = object()
+        await run_shutdown_mod.stop_run_driver("run-sentinel")

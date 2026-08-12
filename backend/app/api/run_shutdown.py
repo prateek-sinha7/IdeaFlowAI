@@ -216,6 +216,46 @@ async def shutdown_run_infrastructure() -> dict[str, Any]:
     return summary
 
 
+async def _drain_then_cancel(tasks: set[asyncio.Task], *, context: str) -> None:
+    """The ONE bounded escalation (INV-12): wait out the drain budget, then
+    ``task.cancel()`` whatever did not observe the cooperative signal in time.
+
+    Shared by the shutdown sweep (``stop_pipeline_drivers``) and the per-run Stop
+    (``stop_run_driver``) so there is exactly one escalation policy in the codebase and
+    the interactive path cannot drift from the tested one. The escalation is a FALLBACK,
+    never the mechanism: the caller must already have set the cooperative ``cancel_event``
+    so the driver takes its clean ``pipeline_cancelled`` terminal at the next boundary.
+    It exists only for the mid-model-call blind window (``model_factory`` sets
+    ``read_timeout=600``, so a per-chunk check can be up to ten minutes away).
+    """
+    if not tasks:
+        return
+    _done, pending = await asyncio.wait(
+        tasks, timeout=settings.SHUTDOWN_TASK_DRAIN_SECONDS
+    )
+    if not pending:
+        return
+    logger.warning(
+        "%s: escalating task.cancel() for %d driver(s) that did not observe "
+        "the cooperative cancel within %.1fs (mid-model-call).",
+        context,
+        len(pending),
+        settings.SHUTDOWN_TASK_DRAIN_SECONDS,
+    )
+    for t in pending:
+        t.cancel()
+    _done2, still = await asyncio.wait(
+        pending, timeout=settings.SHUTDOWN_TASK_DRAIN_SECONDS
+    )
+    if still:
+        logger.error(
+            "%s: %d driver(s) survived cancel; their runs stay non-terminal "
+            "and will be classified by restore_non_terminal_runs on the next boot.",
+            context,
+            len(still),
+        )
+
+
 async def stop_pipeline_drivers() -> int:
     """Cooperatively stop, then cancel, every live pipeline driver. Returns the count.
 
@@ -241,23 +281,50 @@ async def stop_pipeline_drivers() -> int:
         return 0
     for ev in list(_CANCEL_EVENTS.values()):
         ev.set()
-    _done, pending = await asyncio.wait(tasks, timeout=settings.SHUTDOWN_TASK_DRAIN_SECONDS)
-    if pending:
-        logger.warning(
-            "shutdown: escalating task.cancel() for %d driver(s) that did not observe "
-            "the cooperative cancel within %.1fs (mid-model-call).",
-            len(pending),
-            settings.SHUTDOWN_TASK_DRAIN_SECONDS,
-        )
-        for t in pending:
-            t.cancel()
-        _done2, still = await asyncio.wait(
-            pending, timeout=settings.SHUTDOWN_TASK_DRAIN_SECONDS
-        )
-        if still:
-            logger.error(
-                "shutdown: %d driver(s) survived cancel; their runs stay non-terminal "
-                "and will be classified by restore_non_terminal_runs on the next boot.",
-                len(still),
-            )
+    await _drain_then_cancel(tasks, context="shutdown")
     return len(tasks)
+
+
+async def stop_run_driver(run_id: str) -> None:
+    """Bounded escalation for ONE run's driver — the ``POST /cancel`` fallback (ISS-084).
+
+    The endpoint has already set the run's cooperative ``cancel_event``; this backstops
+    the case where the driver cannot observe it in bounded time. Same policy as the
+    shutdown sweep, deliberately: before KAN-88 the WS Stop handler HAD a destructive
+    fallback, KAN-88 deleted it on the false premise that resumed runs read the
+    cooperative event, and Phase 44's REST port kept only the cooperative branch — which
+    left no path at all, cooperative or destructive, by which a user could stop a resumed
+    run. Never raises: it runs detached from the HTTP response.
+
+    It then RECONCILES the terminal row. That is the half that makes a Stop real: the
+    launch driver writes ``status="cancelled"`` from its own ``CancelledError`` handler,
+    but the resume tier writes no status of its own, and ``_drive_resumed_stream`` catches
+    only ``Exception`` — so a destructive cancel landing on one of its persist awaits would
+    leave the row NON-TERMINAL, and ``restore_non_terminal_runs`` re-adopts every
+    non-terminal row on the next boot and drives it to completion. A cancel that leaves the
+    row non-terminal is not a cancel, it is a delayed re-run. ``_reconcile_terminal_status``
+    is the app layer's existing durable-tail→status decision (INV-12, the user-resume path
+    already uses it): ``pipeline_cancelled`` → ``cancelled``, no clean terminal →
+    ``failed`` — either way TERMINAL, so no boot re-adopts it.
+    """
+    from app.api.run_engine import _PIPELINE_TASKS
+
+    task = _PIPELINE_TASKS.get(run_id)
+    # A non-Task sentinel (the ``_is_run_live`` un-introspectable case) has nothing to
+    # escalate against; the cooperative signal is the whole stop mechanism there.
+    if not isinstance(task, asyncio.Task) or task.done():
+        return
+    try:
+        await _drain_then_cancel({task}, context=f"cancel(run={run_id})")
+    except Exception as exc:  # noqa: BLE001 — a detached backstop must never surface
+        logger.warning("cancel(run=%s): escalation failed: %s", run_id, exc)
+        return
+    # Only once the driver is provably gone — never stamp a terminal on a live run.
+    if not task.done():
+        return
+    try:
+        from app.api.run_commands import _reconcile_terminal_status
+
+        await _reconcile_terminal_status(run_id)
+    except Exception as exc:  # noqa: BLE001 — best-effort, mirrors _drive_user_resume
+        logger.warning("cancel(run=%s): terminal reconcile failed: %s", run_id, exc)
