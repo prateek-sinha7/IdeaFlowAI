@@ -39,7 +39,7 @@ import logging
 import time
 import uuid as _uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -108,7 +108,12 @@ class GateCommand(BaseModel):
     """
 
     gate_key: str
-    action: str = "approve"
+    # ISS-070: a CLOSED domain. The vocabulary's single authority is
+    # ``chat_router.GATE_ACTIONS``; ``Literal`` needs static values, so the two are
+    # pinned together by a set-equality test rather than a second constant (INV-12).
+    # The default is RETAINED — an ABSENT action still means approve (the published
+    # OpenAPI contract, and test_attach_replay_matrix.py:551's bare POST).
+    action: Literal["approve", "reject", "redo", "update_specs"] = "approve"
     approved: bool | None = None
     edited_content: str | None = None
     instructions: str | None = None
@@ -183,6 +188,34 @@ def _deny_update_specs_not_offered(gate_key: str) -> HTTPException:
             "error": "This review gate does not offer a spec-revision cycle",
             "code": "update_specs_not_offered",
             "recoverable": False,
+        },
+    )
+
+
+def _deny_unknown_gate_action(action: object) -> HTTPException:
+    """ISS-070: an unrecognised discriminator must never resolve a HITL gate.
+
+    The degrade is to REFUSE and leave the gate ARMED — never approve (the fail-open
+    this replaces), and never reject either: FIX-232 makes a rejection terminal, so
+    degrading an unparseable action into a denial would destroy the run on a typo.
+    Refusing the request is the only degrade that preserves every legitimate option —
+    the same choice the engine already makes for an ineligible ``update_specs``.
+
+    400 rather than 409: the request is malformed, not in conflict with the run's state,
+    so re-issuing it correctly WILL succeed — hence ``recoverable: true``.
+
+    Raised by ALL THREE ``set_review_response`` ingresses so no channel is privileged.
+    The log line is the forensic trace: the refused action is never persisted, and the
+    store's own ``action="approve"`` default would otherwise launder it into a clean-
+    looking approval record.
+    """
+    logger.warning("gate action REFUSED at ingress: unrecognised action=%r", action)
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error": "Unknown gate action",
+            "code": "unknown_gate_action",
+            "recoverable": True,
         },
     )
 
@@ -269,11 +302,19 @@ async def resolve_gate(
         await store.set_review_response(
             gate_key, approved=False, edited_content=body.edited_content
         )
-    else:  # approve (default)
+    elif action == "approve":
         approved = True if body.approved is None else bool(body.approved)
         await store.set_review_response(
-            gate_key, approved=approved, edited_content=body.edited_content
+            gate_key,
+            approved=approved,
+            action="approve",
+            edited_content=body.edited_content,
         )
+    else:
+        # ISS-070: fail CLOSED. Unreachable over HTTP now that the schema closes the
+        # domain — kept because an in-process caller (or a fifth Literal member added
+        # without a branch here) would otherwise reopen the silent approval.
+        raise _deny_unknown_gate_action(action)
 
     return {"ok": True, "action": action, "gate_key": gate_key}
 
@@ -1098,8 +1139,14 @@ async def _dispose_concierge_proposal(
             )
         elif action == "reject":
             await art_store.set_review_response(gate_key, approved=False)
-        else:  # approve (default)
+        elif action == "approve":
             await art_store.set_review_response(gate_key, approved=True)
+        else:
+            # ISS-070 hardening: currently unreachable — concierge.py:350 normalizes any
+            # action outside _GATE_ACTIONS to request_changes, and these params are
+            # server-written (H1), never client body. Fail closed so adding a member to
+            # concierge.py:80 without a branch here cannot silently approve a gate.
+            raise _deny_unknown_gate_action(action)
         return {"channel": channel, "disposed": "gate", "action": action}
 
     # ── chain → surface to FE as a chain proposal (FIX-115 / Option A). ───────────
@@ -1319,8 +1366,15 @@ async def post_message(
             )
         elif dispatch.action == "reject":
             await art_store.set_review_response(_gk, approved=False)
-        else:  # approve (default)
+        elif dispatch.action == "approve":
             await art_store.set_review_response(_gk, approved=True)
+        else:
+            # ISS-070 hardening: currently unreachable — BOTH Dispatch(channel=
+            # CHANNEL_GATE) sites (chat_router.py:244/:255) require
+            # turn.action in GATE_ACTIONS, which IS the ISS-119 routing contract and is
+            # deliberately NOT touched here. Fail closed so adding a member to
+            # GATE_ACTIONS without a branch here cannot silently approve a gate.
+            raise _deny_unknown_gate_action(dispatch.action)
     elif dispatch.channel == CHANNEL_STEERING:
         # A.3 (Phase 43): resolve the RUNNING run's live in-process ectx ONCE (the live-ectx
         # registry now populates it at run start — DEF-29-09-1 closed) and drain BOTH the
