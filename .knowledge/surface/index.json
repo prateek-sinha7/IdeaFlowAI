@@ -1,5 +1,5 @@
 {
-  "count": 659,
+  "count": 664,
   "entries": [
     {
       "area": [
@@ -5512,6 +5512,26 @@
     },
     {
       "area": [
+        "frontend",
+        "sse",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/components/chat/ResultCard.tsx",
+        "frontend/src/components/chat/ResultCard.test.tsx",
+        "frontend/e2e/tests/ts-chat-cards.spec.ts"
+      ],
+      "id": "FIX-236",
+      "path": ".knowledge/cards/FIX-236.md",
+      "source": ".planning/FIX-REGISTER.md#fix-236",
+      "status": "done",
+      "summary": "The spec_revision chat card held a SECOND, contradicting copy of the revision-cycle number \u2014 and the register row's proposed fix would have made it a THIRD",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -6982,7 +7002,7 @@
         "FIX-164"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-083",
-      "status": "open",
+      "status": "done",
       "summary": "A third, dormant counter in the spec-revision family: ResultCard.tsx:97-100,119 renders Revising spec \u2014 cycle {cycle ?? 1} for the spec_revision card kind and NOTHING passes cycle (grep -rn \"cycle={\" src",
       "type": "issue"
     },
@@ -7540,6 +7560,93 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-110",
       "status": "open",
       "summary": "hookRuns has no per-run boundary in the reducer. pipeline_start spreads ...prev and never clears it; only startPipeline / resetPipeline do",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "evals",
+        "auth",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-111",
+      "path": ".knowledge/cards/ISS-111.md",
+      "relates": [
+        "FIX-220",
+        "ISS-083",
+        "ISS-039",
+        "FIX-164",
+        "FIX-163",
+        "ISS-063",
+        "FIX-221",
+        "FIX-225"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-111",
+      "status": "open",
+      "summary": "The spec_revision narrator card kind is unreachable end-to-end, and its branch OUTRANKS every other card kind \u2014 Found by the ISS-083 deep investigation; grep + 232,023-row read-only dev.db query re-run and confirmed during quick-260812-jn9",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-112",
+      "path": ".knowledge/cards/ISS-112.md",
+      "relates": [
+        "ISS-083"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-112",
+      "status": "open",
+      "summary": "attachmentRefs is dormant on StartingPointCard, so the \"image not retained\" placeholder can NEVER render. Declared StartingPointCard.tsx:44, destructured :47, consumed :55-57 as (attachmentRefs ?? []).filter(...) \u2192 notRetainedImageCount",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-113",
+      "path": ".knowledge/cards/ISS-113.md",
+      "relates": [
+        "ISS-083",
+        "ISS-110",
+        "FIX-235"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-113",
+      "status": "open",
+      "summary": "runMeta is dormant on AuditTab, so the audit header's owner and workspace are permanently null. Declared AuditTab.tsx:59, destructured :443, consumed :649-655",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-114",
+      "path": ".knowledge/cards/ISS-114.md",
+      "relates": [
+        "ISS-076",
+        "FIX-236",
+        "ISS-083"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-114",
+      "status": "open",
+      "summary": "ResultCard.test.tsx's LOCK-F case is RED and belongs to no register row, and the underlying LOCK-F guarantee may actually be broken in the product",
       "type": "issue"
     },
     {
@@ -10409,39 +10516,39 @@
   ],
   "facets": {
     "area": {
-      "agents": 250,
-      "artifacts": 100,
-      "auth": 101,
+      "agents": 253,
+      "artifacts": 103,
+      "auth": 102,
       "backend": 104,
       "cost": 1,
       "docs": 4,
       "engine": 5,
-      "evals": 11,
-      "frontend": 194,
+      "evals": 12,
+      "frontend": 197,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 67,
+      "resume": 68,
       "runtime": 36,
-      "sse": 175,
+      "sse": 180,
       "test": 1,
-      "test-infra": 14,
+      "test-infra": 15,
       "tooling": 2,
-      "workflow": 212
+      "workflow": 214
     },
     "status": {
       "accepted": 1,
-      "done": 598,
-      "open": 51,
+      "done": 600,
+      "open": 54,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 232,
-      "issue": 110,
+      "fix": 233,
+      "issue": 114,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10459,5 +10566,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 13:59"
+  "generated": "2026-08-12 14:44"
 }

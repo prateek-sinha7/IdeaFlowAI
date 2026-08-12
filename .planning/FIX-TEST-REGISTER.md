@@ -29,6 +29,7 @@
 | TEST-017 | FIX-233 (quick-260812-gsf) | 2026-08-12 | `backend/tests/agents/test_concierge_capability.py`, `backend/tests/unit/test_chat_messages_endpoint.py` | 22 | 22 | 0 | ✅ Pass |
 | TEST-018 | FIX-234 (quick-260812-hsx) | 2026-08-12 | `backend/tests/unit/test_shutdown_reachability.py`, `backend/tests/unit/test_run_shutdown.py` | 10 | 10 | 0 | ✅ Pass |
 | TEST-019 | FIX-235 (quick-260812-iqh) | 2026-08-12 | `frontend/src/hooks/useWorkflow.accumulators.test.ts`, `frontend/src/lib/wsReplayState.test.ts`, `frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts` | 37 | 37 | 0 | ✅ Pass |
+| TEST-020 | FIX-236 (quick-260812-jn9) | 2026-08-12 | `frontend/src/components/chat/ResultCard.test.tsx`, `frontend/e2e/tests/ts-chat-cards.spec.ts` | 3 | 3 | 0 | ✅ Pass |
 
 ---
 
@@ -1611,3 +1612,92 @@ Regression guards:
 and was chased rather than waved away: run in isolation **three times on the reverted tree and
 three times on the changed tree**, the file gives the identical result both ways
 (`:65` + `:77` fail, `:38` passes). Full-suite parallelism noise, not this change.
+
+---
+
+### TEST-020 — FIX-236 (quick-260812-jn9): ISS-083 — proving a deletion, when a deletion has no naturally-occurring failing test
+
+**The problem this suite had to solve.** FIX-236 removes code. Nothing fails before the change
+and nothing newly passes after it, so the ordinary "watch it go red, then green" evidence does
+not exist for free — it has to be **constructed**, and the construction is itself the finding.
+
+**Files**
+
+| file | tests | what it holds |
+|---|---|---|
+| `frontend/src/components/chat/ResultCard.test.tsx` | 3 (1 rewritten + 2 new) | the single-render proof, the static-header lock, the source guard |
+| `frontend/e2e/tests/ts-chat-cards.spec.ts` | 1 reconciled | the stale assertion that only the deleted default could satisfy |
+
+**T1 — `renders the revision cycle exactly once, from the narrator text` (the load-bearing one).**
+Mounts the dormant renderer BY HAND with `content: "Revising spec — cycle 2"` and asserts
+`getAllByText(/Revising spec — cycle \d+/)` has length **1**.
+
+> **That the test must construct the message itself — that no fixture and no live path can
+> supply one — IS the reachability finding restated as a test.** Nothing anywhere puts
+> `spec_revision_attempt`/`revision_index` into an event payload, so the backend has never
+> emitted this card: 0 instances across 232,023 durable `run_events` over 14 runs.
+
+RED at HEAD `f12d99ae` with the exact predicted signature, and a **hard stop was pre-armed**:
+green, a throw, or a received length of 0/1 would have meant the dual-copy model was wrong and
+the fix had to be re-derived. Observed verbatim:
+
+```
+AssertionError: expected [ <p …(1)></p>, <p></p> ] to have a length of 1 but got 2
+```
+
+Two `<p>` elements — the header's FE-defaulted `cycle 1` and the body's backend `cycle 2` —
+**the duplicate caught in the act**. The em dash was codepoint-checked (U+2014 at
+`ResultCard.tsx:119`, `chat_narrator.py:157` and `ts-chat-cards.spec.ts:65`) *before* trusting
+the count, because an en dash would have matched once and gone falsely green.
+
+**T1b — `locks the spec_revision header to the static CARD_SPECS title`.** RED at HEAD with
+`Unable to find an element with the text: Revising spec` (the header then read
+`Revising spec — cycle 1`). Pins the header to `CARD_SPECS.spec_revision.title` so the chrome
+cannot silently re-acquire a cycle number.
+
+**T2 — `holds no dormant cycle prop`.** The sanctioned grep-style source assertion (same idiom
+as the SC-001 guard at `:135-143` and `deadRevisionRefs.source.test.ts`). RED at HEAD:
+`expected '"use client";…' not to match /cycle\?:\s*number/`. This is the permanent one — it
+fails any future re-introduction of `cycle?: number` or `cycle ??`.
+
+**The e2e reconciliation — landmine removal, not a regression fix.** The task brief said to
+ignore Playwright because "it cannot exercise a card that is never emitted." **That was wrong,
+and the planner caught it:** `mockSse.chatReply({ cardKind: "spec_revision", … })` fabricates
+the narrator turn **client-side**, bypassing the backend narrator, so it reaches the branch the
+backend cannot — and the `:65` assertion `toContainText("Revising spec — cycle 1")` was
+satisfiable **only by the `?? 1` default being deleted**, since the injected body carried no
+cycle string at all. The planner's counter-claim that the test was therefore green was **also**
+wrong and was corrected by measurement: all three tests in that file are red on an unrelated
+pre-existing `beforeEach` (`getByTestId('run-chat-lane')` not found, `:27`), registered under
+**ISS-076**; the harness itself is healthy (`ts-b.selection.spec.ts` → 6 passed). So leaving the
+stale assertion would have handed whoever repairs ISS-076 a **false green that silently
+re-blesses the dual copy this fix exists to remove**. Corrected, never deleted or `test.fixme`d.
+
+**The honest verdict on that gate: UNVERIFIABLE-GREEN by execution** — green is unreachable
+until ISS-076 is fixed. It was proven instead by a before/after **identity** check: same 3
+failures, same `beforeEach` error, no new failure mode (`:69`→`:75` is the 6 lines the edit
+adds). That is the strongest claim the evidence supports and it is not dressed up as more.
+
+**What this suite deliberately does NOT do.** It does not test wiring, because there is none
+left to test — that is the point of the change. The family's recurring blind spot is the
+opposite shape and is recorded on ISS-111: *a test that supplies a component's input itself
+proves nothing about wiring.* The superseded test did exactly that (`cycle={3}`, feeding the
+prop to itself), which is how a dead prop survived from Phase 29 to now.
+
+```
+TEST COVERAGE — FIX-236
+Unit tests:        3 in frontend/src/components/chat/ResultCard.test.tsx  → ALL GREEN (all 3 seen RED first)
+Integration tests: N/A — frontend-only presentation change, no seam crossed
+Frontend tests:    ResultCard.test.tsx 1 failed / 10 passed (11) → 1 failed / 12 passed (13),
+                   failing ID UNCHANGED (the pre-existing deliverable/LOCK-F red, ISS-114)
+                   reducer specs 63 passed → 63 passed (the evidence that nothing was wired)
+                   tsc --noEmit: the same 2 pre-existing errors, no third
+E2E:               ts-chat-cards 3 failed → 3 failed, identical beforeEach failure — UNVERIFIABLE-GREEN (ISS-076)
+Goldens:           10 passed / 0 failed — IDENTICAL to the pre-change commit f12d99ae
+lint-imports:      4 kept / 0 broken — IDENTICAL to f12d99ae
+Backend narrator:  36 passed — IDENTICAL to f12d99ae (proof the change never crossed the wire)
+Regression guards:
+  - holds no dormant `cycle` prop: permanently fails any re-introduction of the deleted prop
+  - locks the spec_revision header to the static CARD_SPECS title: the chrome cannot re-acquire a cycle number
+  - reducer specs held at 63: deriveSpecRevisionCount gained no new consumer (we deleted, not wired)
+```

@@ -127,12 +127,14 @@
     ],
     "FIX-163": [
       "FIX-164",
-      "ISS-063"
+      "ISS-063",
+      "ISS-111"
     ],
     "FIX-164": [
       "ISS-063",
       "ISS-080",
-      "ISS-083"
+      "ISS-083",
+      "ISS-111"
     ],
     "FIX-166": [
       "FIX-177"
@@ -223,14 +225,16 @@
     ],
     "FIX-220": [
       "ISS-072",
-      "ISS-074"
+      "ISS-074",
+      "ISS-111"
     ],
     "FIX-221": [
       "FIX-222",
       "ISS-065",
       "ISS-075",
       "ISS-076",
-      "ISS-080"
+      "ISS-080",
+      "ISS-111"
     ],
     "FIX-222": [
       "FIX-221",
@@ -246,7 +250,8 @@
       "ISS-075",
       "ISS-080",
       "ISS-081",
-      "ISS-082"
+      "ISS-082",
+      "ISS-111"
     ],
     "FIX-226": [
       "ISS-085",
@@ -288,7 +293,11 @@
       "ISS-106"
     ],
     "FIX-235": [
-      "ISS-110"
+      "ISS-110",
+      "ISS-113"
+    ],
+    "FIX-236": [
+      "ISS-114"
     ],
     "ISS-007": [
       "ISS-035"
@@ -338,7 +347,8 @@
     ],
     "ISS-039": [
       "FIX-163",
-      "ISS-083"
+      "ISS-083",
+      "ISS-111"
     ],
     "ISS-045": [
       "ISS-048"
@@ -380,7 +390,8 @@
       "FIX-222",
       "ISS-065",
       "ISS-075",
-      "ISS-080"
+      "ISS-080",
+      "ISS-111"
     ],
     "ISS-064": [
       "ISS-050",
@@ -433,7 +444,8 @@
       "ISS-081"
     ],
     "ISS-076": [
-      "FIX-221"
+      "FIX-221",
+      "ISS-114"
     ],
     "ISS-078": [
       "ISS-084",
@@ -451,6 +463,12 @@
       "ISS-108",
       "ISS-109",
       "ISS-110"
+    ],
+    "ISS-083": [
+      "ISS-111",
+      "ISS-112",
+      "ISS-113",
+      "ISS-114"
     ],
     "ISS-084": [
       "ISS-088",
@@ -491,6 +509,9 @@
     ],
     "ISS-107": [
       "ISS-110"
+    ],
+    "ISS-110": [
+      "ISS-113"
     ]
   },
   "by_area": {
@@ -617,6 +638,7 @@
       "FIX-232",
       "FIX-233",
       "FIX-235",
+      "FIX-236",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -681,6 +703,8 @@
       "ISS-102",
       "ISS-103",
       "ISS-109",
+      "ISS-111",
+      "ISS-112",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -788,6 +812,7 @@
       "FIX-228",
       "FIX-229",
       "FIX-233",
+      "FIX-236",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -812,6 +837,8 @@
       "ISS-090",
       "ISS-094",
       "ISS-096",
+      "ISS-111",
+      "ISS-114",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -915,6 +942,7 @@
       "ISS-102",
       "ISS-103",
       "ISS-106",
+      "ISS-111",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -1082,6 +1110,7 @@
       "ISS-029",
       "ISS-053",
       "ISS-094",
+      "ISS-111",
       "REQ-8",
       "TEST-2-1",
       "TEST-2-5"
@@ -1259,6 +1288,7 @@
       "FIX-225",
       "FIX-226",
       "FIX-234",
+      "FIX-236",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -1279,6 +1309,8 @@
       "ISS-108",
       "ISS-109",
       "ISS-110",
+      "ISS-112",
+      "ISS-113",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1374,6 +1406,7 @@
       "ISS-098",
       "ISS-103",
       "ISS-106",
+      "ISS-111",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1520,6 +1553,7 @@
       "FIX-233",
       "FIX-234",
       "FIX-235",
+      "FIX-236",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1569,6 +1603,10 @@
       "ISS-102",
       "ISS-105",
       "ISS-109",
+      "ISS-111",
+      "ISS-112",
+      "ISS-113",
+      "ISS-114",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1629,7 +1667,8 @@
       "ISS-079",
       "ISS-093",
       "ISS-094",
-      "ISS-096"
+      "ISS-096",
+      "ISS-114"
     ],
     "tooling": [
       "ISS-050",
@@ -1779,6 +1818,8 @@
       "ISS-108",
       "ISS-109",
       "ISS-110",
+      "ISS-113",
+      "ISS-114",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -2396,6 +2437,9 @@
     "frontend/e2e/fixtures/live.ts": [
       "ISS-088"
     ],
+    "frontend/e2e/tests/ts-chat-cards.spec.ts": [
+      "FIX-236"
+    ],
     "frontend/e2e/tests/ts-sse-resilience.spec.ts": [
       "FIX-152"
     ],
@@ -2514,14 +2558,16 @@
       "FIX-220"
     ],
     "frontend/src/components/chat/ResultCard.test.tsx": [
-      "FIX-128"
+      "FIX-128",
+      "FIX-236"
     ],
     "frontend/src/components/chat/ResultCard.tsx": [
       "FIX-083",
       "FIX-128",
       "FIX-167",
       "FIX-167b",
-      "FIX-178"
+      "FIX-178",
+      "FIX-236"
     ],
     "frontend/src/components/chat/RunChatLane.test.tsx": [
       "FIX-193"
@@ -3368,6 +3414,29 @@
       "FIX-235",
       "ISS-082",
       "ISS-107"
+    ],
+    "ISS-111": [
+      "FIX-163",
+      "FIX-164",
+      "FIX-220",
+      "FIX-221",
+      "FIX-225",
+      "ISS-039",
+      "ISS-063",
+      "ISS-083"
+    ],
+    "ISS-112": [
+      "ISS-083"
+    ],
+    "ISS-113": [
+      "FIX-235",
+      "ISS-083",
+      "ISS-110"
+    ],
+    "ISS-114": [
+      "FIX-236",
+      "ISS-076",
+      "ISS-083"
     ]
   },
   "rules_by_file": {
