@@ -16,6 +16,7 @@
 | TEST-004 | FIX-218 (quick-260811-si4) | 2026-08-11 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 8 | 8 | 0 | ✅ Pass |
 | TEST-005 | FIX-219 (quick-260812-12t) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/agents/capabilities/gates/human.py`, `backend/agents/capabilities/gates/approval.py`, `backend/app/api/run_engine.py`, `backend/app/api/run_commands.py` | 18 | 18 | 0 | ✅ Pass |
 | TEST-006 | FIX-220 (quick-260812-1nz) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/tests/agents/characterization/_normalize.py`, `frontend/src/components/chat/InlineGateActions.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx` | 8 | 8 | 0 | ✅ Pass |
+| TEST-007 | FIX-221 + FIX-222 (quick-260812-2ci) | 2026-08-12 | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useRunStateStore.ts`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/types/index.ts`, `frontend/src/components/results/ArtifactVersionPicker.tsx`, `frontend/src/components/results/AgentDetailPanel.tsx`, `frontend/src/components/results/AgentThinkingTab.tsx` | 27 | 27 | 0 | ✅ Pass |
 
 ---
 
@@ -444,3 +445,114 @@ incident it reproduces lost 8 headings, dropped "Spinnaker" 4x -> 0x and kept on
 
 #### Fix Confidence
 - [x] **High** — data contract (all metadata fields present for the Catalogue display) verified; router endpoints confirmed; TS diagnostics clean on the changed component
+
+---
+
+### TEST-007 — FIX-221 + FIX-222 (quick-260812-2ci): a revision is visible while it happens, and afterwards
+
+```
+TEST COVERAGE — FIX-221 + FIX-222
+Frontend tests:    27 NEW across 4 spec files, ALL GREEN.
+                   RED FIRST, observed and recorded as one run before any source edit:
+                     Test Files  4 failed (4)
+                     Tests      18 failed | 1 passed (19)
+                   ...and GREEN after:
+                     Test Files  4 passed (4)
+                     Tests      27 passed (27)
+                   (19 -> 27 because ArtifactVersionPicker.test.tsx could not even LOAD
+                    before the fix — the module did not exist, so vitest counted the file
+                    as "0 test" rather than counting its 8 cases as failures. The one
+                    green-at-red case is AgentDetailPanel "renders no picker without a
+                    runId", which SHOULD pass before and after: it is the no-regression
+                    guard for every existing caller.)
+
+  useWorkflow.specRevisionCount.test.ts      9 cases   9 failed -> 9 passed
+  deadRevisionRefs.source.test.ts            6 cases   6 failed -> 6 passed
+  ArtifactVersionPicker.test.tsx             8 cases   file failed to load -> 8 passed
+  AgentDetailPanel.artifactVersions.test.tsx 4 cases   3 failed -> 4 passed
+
+Unit tests:        N/A (backend) — this defect is entirely frontend. Zero backend files
+                   were opened; the durable data, the REST route and the read scope were
+                   all verified ALREADY CORRECT against the live backend on :8010 before
+                   any code was written (run d5dbc9f2: /artifacts?kind=spec&include=content
+                   -> HTTP 200, spec v1/v2/v3 at 30081/36729/40052 chars).
+Integration tests: N/A — see above.
+
+Goldens:           5 failed / 5 passed — IDENTICAL to the pre-change commit b13d5c33
+                   (measured at b13d5c33 before the change and again after).
+lint-imports:      3 kept / 1 broken — IDENTICAL to b13d5c33 (run from backend/).
+tsc --noEmit:      2 errors, BOTH pre-existing and in files this change never touched
+                   (NotificationPanel.fix195.test.tsx, useNotifications.fix202.test.tsx).
+Retired palette:   no #1B2A4A / #2563eb / #f5f5f0 in any changed file (grep, 0 hits).
+
+Full frontend vitest, before vs after, compared BY FAILING TEST ID (not by count):
+                   BEFORE  928 tests · 781 passed · 147 failed · 72 files failed
+                   AFTER   955 tests · 808 passed · 147 failed · 72 files failed
+                   NEW reds introduced: 0.   Previously-red now green: 0.
+                   The failing-id SET is byte-identical; the delta is exactly +27 new
+                   passing cases.
+
+Mocked Playwright suite, before vs after, compared BY FAILING TEST ID:
+                   BEFORE (b13d5c33)  33 failed · 43 skipped · 108 passed
+                   AFTER              31 failed · 43 skipped · 110 passed
+                   NEW failures introduced: 0. The after-set is a strict SUBSET of the
+                   baseline set; two baseline reds (TS-L-01, TS-T-01) did not recur.
+                   METHOD NOTE, because it nearly produced a false "pre-existing" claim:
+                   playwright.config.ts sets reuseExistingServer:true on :3000, so a
+                   worktree baseline run silently tests the MAIN tree's code through the
+                   already-running dev server. The baseline above was taken in a detached
+                   worktree at b13d5c33 running its OWN Next server on :3100 via a
+                   throwaway config override. A symlinked node_modules ALSO fails there
+                   (Turbopack: "Symlink [project]/node_modules is invalid, it points out
+                   of the filesystem root") — an APFS clone (cp -Rc, ~6s) is the way.
+
+Regression guards:
+  - "yields 2 for the real d5dbc9f2 frame sequence": drives the ACTUAL durable frame
+    order read from run_events, not a hand-invented one. Guards the headline number.
+  - "is identical whether frames arrive one at a time or in one synchronous burst":
+    the test that would have caught mechanism B. Locks live/replay parity, which is the
+    property the whole fix is buying.
+  - "survives the trailing same-run resume pipeline_start": guards mechanism C, i.e. the
+    seq-24791 frame that used to zero the counter at the END of every replay.
+  - "resets for a genuinely different run": stops the previous guard from over-reaching
+    into "never resets", which would leak one run's history into the next.
+  - "agrees with max(spec.version) - 1 from the run's artifact_refs": the cross-source
+    assertion. FIX-221 derives from run_events and FIX-222 reads artifact_refs; this is
+    the one line that fails if the two ever drift apart. It exists only because both
+    landed together.
+  - deadRevisionRefs.source.test.ts: mechanical INV-12 exit gate — fails if
+    revisionCycleArmedRef / setSpecRevisionCountRef / pipelineAgentsRef ever reappear in
+    page.tsx, or if the banner stops reading the per-run store. This family has already
+    produced a dead counter twice; the lock is what stops a third.
+  - "renders nothing when the API returns {}": pins the resp.artifacts ?? [] guard. Without
+    it the protected mocked suite throws a TypeError on every agent-detail open, because
+    mockApi.ts:708 answers unmatched /api/** with json({}).
+  - "does not request content until a version is chosen, then memoises it": pins the
+    2.89 MB lazy-fetch guard in both directions — not on mount, and not twice.
+  - "html_file/prototype-build subset shape": the case a (kind, version) dedupe fails.
+  - "renders no picker and behaves exactly as before without a runId": the no-regression
+    guard for every existing AgentDetailPanel caller.
+```
+
+#### Verdict
+- **Tests written:** 27
+- **Tests passed:** 27
+- **Tests failed:** 0
+- **Status:** ✅ All passing, all seen RED (or unloadable) first
+
+#### Notes
+- There was **zero** existing coverage for the revision banner before this — no vitest and
+  no Playwright spec anywhere referenced `specRevisionCount`, `revisionCycleArmedRef` or
+  the string "Spec Revision Cycle". That absence is the direct cause of the defect: FIX-164
+  silently killed the feature FIX-163 had just shipped, and nothing failed.
+- No new Playwright case was added. The mocked fixture has no `/artifacts` handler, so the
+  picker correctly renders nothing there; adding a handler plus a case is real value but is
+  scope this task did not carry, and the protected suite was verified unharmed instead.
+
+#### Fix Confidence
+- [x] **High** for FIX-221 — the derivation is exercised against the real durable frame
+  sequence and agrees with an independent durable source (artifact_refs). Live Bedrock
+  acceptance deferred under the end-of-milestone rule.
+- [x] **High** for FIX-222 — the REST contract it consumes was verified live on :8010
+  before implementation, and the component degrades to rendering nothing on every failure
+  path. Not yet seen against a real multi-version run in a browser (deferred with the above).

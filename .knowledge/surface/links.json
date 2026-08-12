@@ -119,6 +119,9 @@
       "FIX-164",
       "ISS-063"
     ],
+    "FIX-164": [
+      "ISS-063"
+    ],
     "FIX-166": [
       "FIX-177"
     ],
@@ -204,6 +207,16 @@
       "ISS-072",
       "ISS-074"
     ],
+    "FIX-221": [
+      "FIX-222",
+      "ISS-065",
+      "ISS-075",
+      "ISS-076"
+    ],
+    "FIX-222": [
+      "FIX-221",
+      "ISS-063"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -276,7 +289,11 @@
       "FIX-220"
     ],
     "ISS-063": [
-      "FIX-220"
+      "FIX-220",
+      "FIX-221",
+      "FIX-222",
+      "ISS-065",
+      "ISS-075"
     ],
     "ISS-064": [
       "ISS-050",
@@ -285,6 +302,12 @@
       "ISS-062",
       "ISS-066",
       "ISS-072"
+    ],
+    "ISS-065": [
+      "FIX-221",
+      "FIX-222",
+      "ISS-063",
+      "ISS-075"
     ],
     "ISS-066": [
       "ISS-050",
@@ -298,6 +321,9 @@
       "ISS-061",
       "ISS-069"
     ],
+    "ISS-068": [
+      "ISS-076"
+    ],
     "ISS-070": [
       "FIX-219"
     ],
@@ -306,6 +332,12 @@
     ],
     "ISS-072": [
       "FIX-220"
+    ],
+    "ISS-075": [
+      "FIX-221"
+    ],
+    "ISS-076": [
+      "FIX-221"
     ]
   },
   "by_area": {
@@ -419,6 +451,8 @@
       "FIX-218",
       "FIX-219",
       "FIX-220",
+      "FIX-221",
+      "FIX-222",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -451,12 +485,15 @@
       "ISS-056",
       "ISS-059",
       "ISS-062",
+      "ISS-063",
       "ISS-064",
       "ISS-067",
       "ISS-068",
       "ISS-071",
       "ISS-072",
       "ISS-074",
+      "ISS-075",
+      "ISS-077",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -559,6 +596,7 @@
       "FIX-167",
       "FIX-167b",
       "FIX-217",
+      "FIX-222",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -572,6 +610,7 @@
       "ISS-071",
       "ISS-072",
       "ISS-074",
+      "ISS-077",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -634,6 +673,7 @@
       "FIX-133",
       "FIX-137",
       "FIX-207",
+      "FIX-221",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -649,8 +689,11 @@
       "ISS-053",
       "ISS-055",
       "ISS-063",
+      "ISS-065",
       "ISS-070",
       "ISS-074",
+      "ISS-075",
+      "ISS-076",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -774,6 +817,7 @@
       "ISS-066",
       "ISS-067",
       "ISS-074",
+      "ISS-075",
       "TEST-46"
     ],
     "docs": [
@@ -960,6 +1004,8 @@
       "FIX-210",
       "FIX-212",
       "FIX-220",
+      "FIX-221",
+      "FIX-222",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -967,6 +1013,8 @@
       "ISS-060",
       "ISS-061",
       "ISS-073",
+      "ISS-075",
+      "ISS-077",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1029,11 +1077,14 @@
       "FIX-152",
       "FIX-217",
       "FIX-218",
+      "FIX-221",
       "ISS-048",
       "ISS-051",
+      "ISS-063",
       "ISS-068",
       "ISS-072",
       "ISS-074",
+      "ISS-075",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1164,6 +1215,7 @@
       "FIX-207",
       "FIX-210",
       "FIX-219",
+      "FIX-221",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1185,11 +1237,14 @@
       "ISS-054",
       "ISS-055",
       "ISS-060",
+      "ISS-063",
       "ISS-065",
       "ISS-067",
       "ISS-068",
       "ISS-072",
       "ISS-073",
+      "ISS-075",
+      "ISS-076",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1242,7 +1297,8 @@
       "ISS-068",
       "ISS-069",
       "ISS-073",
-      "ISS-074"
+      "ISS-074",
+      "ISS-076"
     ],
     "tooling": [
       "ISS-050",
@@ -1342,6 +1398,8 @@
       "FIX-202",
       "FIX-205",
       "FIX-212",
+      "FIX-221",
+      "FIX-222",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1367,8 +1425,11 @@
       "ISS-048",
       "ISS-049",
       "ISS-056",
+      "ISS-063",
       "ISS-065",
       "ISS-071",
+      "ISS-075",
+      "ISS-077",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -1806,7 +1867,8 @@
       "FIX-042b"
     ],
     "backend/dev.db": [
-      "ISS-067"
+      "ISS-067",
+      "ISS-075"
     ],
     "backend/requirements.txt": [
       "FIX-191"
@@ -1917,6 +1979,9 @@
     "frontend/src/.../workflowChaining.test.ts": [
       "ISS-025"
     ],
+    "frontend/src/app/dashboard/deadRevisionRefs.source.test.ts": [
+      "FIX-221"
+    ],
     "frontend/src/app/dashboard/freshLaunchTranscriptReset.source.test.ts": [
       "FIX-201"
     ],
@@ -1968,7 +2033,8 @@
       "FIX-206",
       "FIX-208",
       "FIX-210",
-      "FIX-220"
+      "FIX-220",
+      "FIX-221"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
@@ -2154,15 +2220,26 @@
     "frontend/src/components/preview/RunHeader.tsx": [
       "FIX-062"
     ],
+    "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx": [
+      "FIX-222"
+    ],
     "frontend/src/components/results/AgentDetailPanel.tsx": [
-      "FIX-049b"
+      "FIX-049b",
+      "FIX-222"
     ],
     "frontend/src/components/results/AgentThinkingTab.tsx": [
       "FIX-022",
       "FIX-029",
       "FIX-163",
       "FIX-166",
-      "FIX-177"
+      "FIX-177",
+      "FIX-222"
+    ],
+    "frontend/src/components/results/ArtifactVersionPicker.test.tsx": [
+      "FIX-222"
+    ],
+    "frontend/src/components/results/ArtifactVersionPicker.tsx": [
+      "FIX-222"
     ],
     "frontend/src/components/results/AuditTab.tsx": [
       "FIX-124"
@@ -2308,7 +2385,8 @@
     ],
     "frontend/src/hooks/useRunStateStore.ts": [
       "FIX-201",
-      "FIX-220"
+      "FIX-220",
+      "FIX-221"
     ],
     "frontend/src/hooks/useRunStream.test.ts": [
       "FIX-129"
@@ -2324,11 +2402,15 @@
     "frontend/src/hooks/useSmoothText.ts": [
       "FIX-209"
     ],
+    "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts": [
+      "FIX-221"
+    ],
     "frontend/src/hooks/useWorkflow.ts": [
       "FIX-007b",
       "FIX-107",
       "FIX-120",
-      "FIX-166"
+      "FIX-166",
+      "FIX-221"
     ],
     "frontend/src/lib/__tests__/wsRunScope.test.ts": [
       "FIX-129"
@@ -2341,7 +2423,8 @@
       "FIX-105",
       "FIX-116",
       "FIX-144",
-      "FIX-145"
+      "FIX-145",
+      "ISS-077"
     ],
     "frontend/src/lib/ppt-api.ts": [
       "FIX-039"
@@ -2370,7 +2453,8 @@
       "FIX-156",
       "FIX-166",
       "FIX-178",
-      "FIX-220"
+      "FIX-220",
+      "FIX-221"
     ],
     "scripts/knowledge/check_ids.py": [
       "ISS-050",
@@ -2512,6 +2596,18 @@
       "ISS-063",
       "ISS-072"
     ],
+    "FIX-221": [
+      "FIX-222",
+      "ISS-063",
+      "ISS-065",
+      "ISS-075",
+      "ISS-076"
+    ],
+    "FIX-222": [
+      "FIX-221",
+      "ISS-063",
+      "ISS-065"
+    ],
     "ISS-012": [
       "ISS-014"
     ],
@@ -2617,13 +2713,18 @@
     ],
     "ISS-063": [
       "FIX-163",
-      "FIX-217"
+      "FIX-164",
+      "FIX-217",
+      "FIX-222",
+      "ISS-065"
     ],
     "ISS-064": [
       "FIX-218"
     ],
     "ISS-065": [
-      "FIX-217"
+      "FIX-217",
+      "FIX-221",
+      "ISS-063"
     ],
     "ISS-066": [
       "FIX-189",
@@ -2666,6 +2767,15 @@
     "ISS-074": [
       "FIX-218",
       "FIX-220"
+    ],
+    "ISS-075": [
+      "FIX-221",
+      "ISS-063",
+      "ISS-065"
+    ],
+    "ISS-076": [
+      "FIX-221",
+      "ISS-068"
     ]
   },
   "rules_by_file": {

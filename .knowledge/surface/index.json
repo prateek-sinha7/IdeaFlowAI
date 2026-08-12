@@ -1,5 +1,5 @@
 {
-  "count": 608,
+  "count": 613,
   "entries": [
     {
       "area": [
@@ -5200,6 +5200,65 @@
     },
     {
       "area": [
+        "frontend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/types/index.ts",
+        "frontend/src/hooks/useWorkflow.ts",
+        "frontend/src/hooks/useRunStateStore.ts",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts",
+        "frontend/src/app/dashboard/deadRevisionRefs.source.test.ts"
+      ],
+      "id": "FIX-221",
+      "path": ".knowledge/cards/FIX-221.md",
+      "relates": [
+        "ISS-063",
+        "FIX-222",
+        "ISS-065",
+        "ISS-075",
+        "ISS-076"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-221",
+      "status": "done",
+      "summary": "The violet \"Spec Revision Cycle N\" banner was dead on every path for od_prototype, not merely absent on reload as ISS-063 filed it",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "workflow",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/components/results/ArtifactVersionPicker.tsx",
+        "frontend/src/components/results/AgentDetailPanel.tsx",
+        "frontend/src/components/results/AgentThinkingTab.tsx",
+        "frontend/src/components/results/ArtifactVersionPicker.test.tsx",
+        "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx"
+      ],
+      "id": "FIX-222",
+      "path": ".knowledge/cards/FIX-222.md",
+      "relates": [
+        "ISS-065",
+        "FIX-221",
+        "ISS-063"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-222",
+      "status": "done",
+      "summary": "No UI surfaced PER-ARTIFACT versions inside a run. artifact_refs durably stores every version and GET /api/runs/{id}/artifacts?kind=X&include=content already returns each one WITH its body",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -6218,6 +6277,10 @@
     },
     {
       "area": [
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
         "auth"
       ],
       "date": "",
@@ -6226,10 +6289,13 @@
       "path": ".knowledge/cards/ISS-063.md",
       "relates": [
         "FIX-163",
-        "FIX-217"
+        "FIX-217",
+        "FIX-164",
+        "ISS-065",
+        "FIX-222"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-063",
-      "status": "open",
+      "status": "done",
       "summary": "The violet \"Spec Revision Cycle N\" banner (FIX-163) is LIVE-SESSION-ONLY state and never back-fills from durable events, so reopening a run that was revised shows no sign a revision ever happened",
       "type": "issue"
     },
@@ -6253,6 +6319,7 @@
       "area": [
         "sse",
         "workflow",
+        "auth",
         "artifacts"
       ],
       "date": "",
@@ -6260,10 +6327,12 @@
       "id": "ISS-065",
       "path": ".knowledge/cards/ISS-065.md",
       "relates": [
-        "FIX-217"
+        "FIX-217",
+        "ISS-063",
+        "FIX-221"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-065",
-      "status": "open",
+      "status": "done",
       "summary": "No UI surfaces PER-ARTIFACT versions inside a run. artifact_refs durably stores every version (run d5dbc9f2 holds spec v1/v2/v3, task_list v1/v2, summary v1/v2) and GET /api/runs/{id}/artifacts already returns version per node",
       "type": "issue"
     },
@@ -6454,6 +6523,69 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-074",
       "status": "open",
       "summary": "The LIVE harness's review-gate wrapper cannot accept the gate's own arguments \u2014 every live gated drive raises TypeError",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "frontend"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-075",
+      "path": ".knowledge/cards/ISS-075.md",
+      "relates": [
+        "ISS-063",
+        "ISS-065",
+        "FIX-221"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-075",
+      "status": "open",
+      "summary": "Reopening a run resets the whole Steps trace to idle. The trailing resume pipeline_start carries resume_offset = 0 (run d5dbc9f2 seq 24791",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "auth",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-076",
+      "path": ".knowledge/cards/ISS-076.md",
+      "relates": [
+        "ISS-068",
+        "FIX-221"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-076",
+      "status": "open",
+      "summary": "The mocked Playwright suite has a 33-red baseline, not the \"132 green\" the records claim. Measured on bugfix/spec-revision-context-loss at b13d5c33: 33 failed / 43 skipped / 108 passed",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "workflow",
+        "agents",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/lib/api.ts"
+      ],
+      "id": "ISS-077",
+      "path": ".knowledge/cards/ISS-077.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-077",
+      "status": "open",
+      "summary": "ArtifactNode's TypeScript declaration disagrees with the wire shape on three fields. frontend/src/lib/api.ts:602-604 declares derived_from: string[] and children: string[], but the backend returns `derived_from: string \\",
       "type": "issue"
     },
     {
@@ -9323,35 +9455,35 @@
   ],
   "facets": {
     "area": {
-      "agents": 211,
-      "artifacts": 84,
-      "auth": 77,
-      "backend": 87,
+      "agents": 216,
+      "artifacts": 86,
+      "auth": 81,
+      "backend": 88,
       "docs": 2,
       "evals": 10,
-      "frontend": 176,
+      "frontend": 180,
       "harness": 2,
       "infra": 1,
       "product": 29,
-      "resume": 47,
+      "resume": 50,
       "runtime": 31,
-      "sse": 141,
-      "test-infra": 9,
+      "sse": 145,
+      "test-infra": 10,
       "tooling": 2,
-      "workflow": 189
+      "workflow": 194
     },
     "status": {
       "accepted": 1,
-      "done": 565,
-      "open": 33,
+      "done": 569,
+      "open": 34,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 217,
-      "issue": 74,
+      "fix": 219,
+      "issue": 77,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -9369,5 +9501,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 01:37"
+  "generated": "2026-08-12 02:11"
 }

@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-608 cards · rules 1 · fixes 217 · issues 74 · phases 23 · built 2026-08-12 01:37
+613 cards · rules 1 · fixes 219 · issues 77 · phases 23 · built 2026-08-12 02:11
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,10 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (217)
+## Fixes (219)
 
+FIX-222 2026-08-12 [frontend,workflow,agents,artifacts] No UI surfaced PER-ARTIFACT versions inside a run. artifact_refs durably stores every version and GET /api/runs/{id}/artifacts?kind=X&include=content already returns each one WITH its body
+FIX-221 2026-08-12 [frontend,sse,resume,workflow,agents,auth] The violet "Spec Revision Cycle N" banner was dead on every path for od_prototype, not merely absent on reload as ISS-063 filed it
 FIX-220 2026-08-12 [backend,frontend,agents] One "Update the Specs" click opened the analyze gate THREE times and nothing on the wire told the firings apart — A modelling gap, not a mechanism: the sub-pipeline was DESIGNED headless
 FIX-219 2026-08-12 [backend,sse,agents] update_specs_eligible was advertised but never enforced — the review gate ran the spec-revision sub-pipeline at firings that had published the affordance as unavailable
 FIX-218 2026-08-11 [backend,resume,agents] A second "Update the Specs" at the RE-OPENED analyze gate was a silent no-op — the gate closed, instantly re-opened on identical content, no revision ran, and the build proceeded from the unrevised spec (defect B)
@@ -232,8 +234,11 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (74)
+## Issues (77)
 
+ISS-077 - [frontend,workflow,agents,artifacts] ArtifactNode's TypeScript declaration disagrees with the wire shape on three fields. frontend/src/lib/api.ts:602-604 declares derived_from: string[] and children: string[], but the backend returns `derived_from: string \
+ISS-076 - [sse,auth,test-infra] The mocked Playwright suite has a 33-red baseline, not the "132 green" the records claim. Measured on bugfix/spec-revision-context-loss at b13d5c33: 33 failed / 43 skipped / 108 passed
+ISS-075 - [backend,sse,resume,workflow,agents,auth,frontend] Reopening a run resets the whole Steps trace to idle. The trailing resume pipeline_start carries resume_offset = 0 (run d5dbc9f2 seq 24791
 ISS-074 - [backend,resume,agents,auth,artifacts,test-infra] The LIVE harness's review-gate wrapper cannot accept the gate's own arguments — every live gated drive raises TypeError
 ISS-073 - [frontend,sse,test-infra] A stale frontend test asserts a layout the component deliberately abandoned. frontend/src/components/chat/InlineGateActions.test.tsx:54 ("renders exactly two primary buttons") asserts queryByTestId("chat-gate-update-specs") is null before
 ISS-072 - [sse,resume,agents,artifacts] Collapse the doubled analyze gate by suppressing the IN-PASS firing [1], not the re-opened one. One "Update the Specs" click still costs four approvals. FIX-220 made the firings identifiable but suppressed nothing
@@ -243,9 +248,9 @@ ISS-069 - [tooling,test-infra] FIX-REGISTER drift — the ISS-066 defect, in the
 ISS-068 - [sse,resume,agents,test-infra] Shared red baseline on dev blocks the goldens from serving as a CI gate: 5 of 5 characterization event-snapshot tests fail (prototype, od_prototype, od_ppt, app_builder
 ISS-067 - [backend,sse,agents,test-infra] .kiro/steering/velocity-ai-fix.md carries five facts that are wrong on this machine and will mislead any agent that follows it: (1) it prescribes uv run --no-sync pytest but backend/.venv does NOT exist, so every command in it fails
 ISS-066 - [backend] Register drift: ISS-054..ISS-061 have NO rows in ISSUES-REGISTER.md, yet those ids are live in FIX-190/192/193/194/195 rows, in cards, and in commit messages
-ISS-065 - [sse,workflow,artifacts] No UI surfaces PER-ARTIFACT versions inside a run. artifact_refs durably stores every version (run d5dbc9f2 holds spec v1/v2/v3, task_list v1/v2, summary v1/v2) and GET /api/runs/{id}/artifacts already returns version per node
+ISS-065 - [sse,workflow,auth,artifacts] No UI surfaces PER-ARTIFACT versions inside a run. artifact_refs durably stores every version (run d5dbc9f2 holds spec v1/v2/v3, task_list v1/v2, summary v1/v2) and GET /api/runs/{id}/artifacts already returns version per node
 ISS-064 - [agents] A second "Update the Specs" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline
-ISS-063 - [auth] The violet "Spec Revision Cycle N" banner (FIX-163) is LIVE-SESSION-ONLY state and never back-fills from durable events, so reopening a run that was revised shows no sign a revision ever happened
+ISS-063 - [sse,resume,workflow,agents,auth] The violet "Spec Revision Cycle N" banner (FIX-163) is LIVE-SESSION-ONLY state and never back-fills from durable events, so reopening a run that was revised shows no sign a revision ever happened
 ISS-062 - [agents] A/B measured across two live Bedrock runs: PRE-si4 run 5ecb990f reported eligible=True at every analyze gate including both re-opens (seq 9572/24652/24655)
 ISS-061 - [frontend] Header badge / notification clicks navigate to the wrong run; the Steps panel shows a two-run hybrid; the notification row tap does nothing (KAN-166)
 ISS-060 - [sse,frontend] Completion notification / toast is not run-scoped — a finishing run marks a DIFFERENT live run as "complete"; the toast shows the wrong label (KAN-166)
