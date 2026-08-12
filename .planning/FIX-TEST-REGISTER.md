@@ -26,6 +26,7 @@
 | TEST-014 | FIX-230 (quick-260812-9tq) | 2026-08-12 | `backend/tests/agents/test_iss033a_fixloop_token_fold_offline.py`, `backend/tests/unit/test_handoff_agents.py`, `backend/tests/agents/test_model_pricing.py` | 8 | 8 | 0 | ✅ Pass |
 | TEST-015 | FIX-231 (quick-260812-fbk) | 2026-08-12 | `backend/tests/agents/test_gate_stub_signature_drift.py` (new), `backend/tests/agents/test_live_harness.py` | 5 | 5 | 0 | ✅ Pass |
 | TEST-016 | FIX-232 (quick-260812-g1c) | 2026-08-12 | `backend/tests/agents/test_restart_resume.py`, `backend/tests/agents/test_fanout_cancel.py`, `backend/tests/agents/test_fanout.py` | 7 | 7 | 0 | ✅ Pass |
+| TEST-017 | FIX-233 (quick-260812-gsf) | 2026-08-12 | `backend/tests/agents/test_concierge_capability.py`, `backend/tests/unit/test_chat_messages_endpoint.py` | 22 | 22 | 0 | ✅ Pass |
 
 ---
 
@@ -1320,3 +1321,94 @@ nothing else moved. The seven tests above are the only real oracle for FIX-232.
 
 Not live-proven, deliberately: every assertion here is offline-decidable and one `od_prototype` build
 costs 5–21M Bedrock tokens. Deferred to the end-of-milestone live pass.
+
+### TEST-017 — FIX-233 (quick-260812-gsf): ISS-092 — the Concierge's unbounded pre-fed context and its uncounted tokens
+
+**22 tests, every one seen RED before the fix.** Baselines captured at `5b004e1c` BEFORE any edit:
+goldens **10 passed**, `lint-imports` **4 kept / 0 broken**, Concierge suite **2 failed / 67 passed**,
+`test_gates`+`test_declared_gate_streaming`+`test_wire_parity`+`test_prompt_contracts` **11 failed / 54 passed**,
+`test_chat_messages_endpoint.py` **3 failed / 25 passed**.
+
+**Fail-before — the test that would have caught ISS-092** (12,000 rows including a 480,000-char
+`agent_input`, invoke EVERY tool, assert each result < 25,000 chars). One test named all three
+offenders at once:
+
+```
+E   AssertionError: unbounded read tool(s) — this is ISS-092:
+E     read_events=3,607,954 chars, list_refs=400,140 chars, get_ref=400,138 chars
+```
+
+**Fail-before — the filesystem WRITE surface** (a fake `BaseChatModel` records what `bind_tools`
+is actually handed, so this observes the LIVE model's real surface, not an inference):
+
+```
+E   AssertionError: the Concierge model was handed filesystem/todo tools:
+E     ['edit_file', 'glob', 'grep', 'ls', 'read_file', 'write_file', 'write_todos']
+```
+
+**Fail-before — counting, and the prompt/tool consistency guard:**
+
+```
+E   AssertionError: converse must surface the model spend on the ctx
+E   assert False + where False = isinstance(None, dict)
+
+E   AssertionError: one answered turn must record exactly one chat_usage row
+E   assert 0 == 1
+
+E   AssertionError: the prompt names tools that do not exist: ['read_events']
+E   AssertionError: turn 7 lost from the prompt
+```
+
+**Regression guards:**
+  - `test_no_tool_returns_unbounded_event_history` — the ISS-092 oracle; any re-added unbounded tool fails CI.
+  - `test_read_tools_expose_only_the_bounded_allow_list` — exact name-set equality, mechanically enforcing
+    INV-12 (`read_events`/`list_refs`/`get_ref` deleted, not shadowed).
+  - `test_no_tool_accepts_a_run_id_argument` — pins the authorization invariant: `run_id` is a CLOSURE,
+    never a model-supplied parameter.
+  - `test_get_artifact_denies_cross_run_ref` — closes the cross-run scope escape left by
+    `ScopedStore.get_ref` (owner + visibility scoped, never run-scoped).
+  - `test_concierge_model_sees_no_filesystem_tools` + `test_excluding_builtins_does_not_flip_the_xml_sanitizer` —
+    the second asserts the side effect that made the first safe (`_sanitize_fabricated_xml` stays `False`
+    because the Concierge always has custom tools), rather than assuming it.
+  - `test_conversation_context_reaches_the_concierge_prompt_byte_verbatim` — multi-turn survives the deletion
+    of `read_events`: the last 6 turns appear BYTE-VERBATIM in the prompt the model actually receives, older
+    turns summarized, block under budget.
+  - `test_conversation_provider_stays_dormant_without_the_declared_inject` — proves the provider's self-gate
+    was NOT relaxed, which is what keeps the goldens byte-identical (INV-3).
+  - `test_system_prompt_names_only_existing_tools` — guards the exact bug this refactor invites.
+  - `test_chat_usage_never_mutates_workflow_run_token_usage` — pins the product decision (separate line, not
+    headline) so a later change must be deliberate.
+  - `test_converse_reports_zero_usage_rather_than_estimating` + `test_no_chat_usage_row_when_spend_was_not_observed`
+    — an unobserved token is reported as unmeasured, never derived from `len(chat_reply)`.
+
+**Reconciled, not deleted:** `test_read_tools_go_through_scoped_store_and_deny_cross_owner` and
+`test_read_tools_serialize_rows_to_plain_dicts` named the deleted `read_events` tool. Both were
+retargeted onto `read_recent_events`, keeping their default-deny and plain-dict assertions intact.
+
+**Data-level proof, zero model spend.** The shipped tools were driven over real `backend/dev.db`
+rows at all 15 recorded `chat_message` points:
+
+```
+run@seq                BEFORE tok  AFTER tok        x  worst tool
+0a27b397@12123          2,494,799      4,710     530x  read_recent_events (9,667 ch)
+0a27b397@12121          2,494,228      4,509     553x  read_recent_events (8,863 ch)
+0a27b397@5957           1,940,140      4,109     472x  read_recent_events (7,271 ch)
+fa66227a@2181             573,573      4,675     123x  read_recent_events (12,241 ch)
+caa5d175@10519            450,283      4,263     106x  read_recent_events (8,221 ch)
+a7dba362@7721             358,640      4,765      75x  read_recent_events (10,206 ch)
+worst-case FULLY tool-saturated turn across the whole corpus: 4,785 est. tokens
+```
+
+**Baseline comparison (all vs `5b004e1c`):** goldens **10 passed / 0 golden files moved**;
+`lint-imports` **4 kept / 0 broken**; `test_banned_patterns.py` **14 passed** and zero
+`create_deep_agent` in `concierge.py` (INV-13); the 11 / 3 pre-existing reds unmoved with
+identical ids. The one surviving Concierge red
+(`test_compose_system_prompt_injects_chain_hints_block`) was checked rather than labelled:
+the rewrite adds neither `"follow-up"` nor `"chained into"`, so its failure mode is byte-identical
+to baseline — it is stale FIX-213/FIX-115 assertion drift, not this change.
+
+**Not proven offline (deferred, not faked):** whether the live model actually PICKS the right tool
+per question. Offline proves the tools exist, are bounded, are run-scoped and are described in the
+prompt. The per-question cost is now readable from the `chat_usage` row — which is why counting
+shipped as the first of the two commits.
+

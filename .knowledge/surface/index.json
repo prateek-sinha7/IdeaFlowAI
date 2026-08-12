@@ -1,5 +1,5 @@
 {
-  "count": 645,
+  "count": 649,
   "entries": [
     {
       "area": [
@@ -5447,6 +5447,27 @@
     },
     {
       "area": [
+        "backend",
+        "sse",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/app/agents/chat/concierge.py",
+        "backend/app/api/run_commands.py",
+        "backend/agents/authz.py"
+      ],
+      "id": "FIX-233",
+      "path": ".knowledge/cards/FIX-233.md",
+      "source": ".planning/FIX-REGISTER.md#fix-233",
+      "status": "done",
+      "summary": "The Concierge was pre-fed the ENTIRE run through three unbounded read tools \u2014 one chat question re-fed 9,227,107 chars \u2248 2,306,776 tokens, on two runs 144% and 151% of everything the whole pipeline recorded",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -7108,7 +7129,7 @@
         "ISS-034"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-092",
-      "status": "open",
+      "status": "done",
       "summary": "A single Concierge chat question can feed the model up to 2.3M tokens, and not one of them is counted or capped. Two compounding facts, both verified 2026-08-12",
       "type": "issue"
     },
@@ -7258,6 +7279,65 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-099",
       "status": "open",
       "summary": "A retry-enabled step records a CANCELLED step as reusable. When step.retry.max_attempts > 0, _dispatch_step_with_retry (engine.py:7236-7274) runs the strategy inside an attempt loop and, on normal completion of strategy.run",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "agents",
+        "auth",
+        "cost"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-100",
+      "path": ".knowledge/cards/ISS-100.md",
+      "relates": [
+        "FIX-233",
+        "ISS-092"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-100",
+      "status": "open",
+      "summary": "The handoff pipeline's model spend is 100% invisible: there is nowhere to even put the number. Three call sites construct/call agents that ACCEPT a usage_sink and are given none",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "agents",
+        "auth",
+        "perf"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-101",
+      "path": ".knowledge/cards/ISS-101.md",
+      "relates": [
+        "FIX-233"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-101",
+      "status": "open",
+      "summary": "context_provider:conversation still materialises a whole run's event log server-side to keep six chat turns. agents/capabilities/context_providers/conversation.py:99 calls scoped_store.read_events(run_id",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "auth",
+        "test"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-102",
+      "path": ".knowledge/cards/ISS-102.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-102",
+      "status": "open",
+      "summary": "Three offline unit tests attempt a REAL Bedrock model call; they only 'pass as failures' because the SSO token was expired",
       "type": "issue"
     },
     {
@@ -10127,36 +10207,39 @@
   ],
   "facets": {
     "area": {
-      "agents": 242,
-      "artifacts": 98,
-      "auth": 95,
-      "backend": 99,
+      "agents": 246,
+      "artifacts": 99,
+      "auth": 99,
+      "backend": 102,
+      "cost": 1,
       "docs": 2,
       "engine": 5,
       "evals": 11,
       "frontend": 188,
       "harness": 2,
       "infra": 1,
+      "perf": 1,
       "product": 30,
       "resume": 63,
       "runtime": 34,
-      "sse": 169,
+      "sse": 171,
+      "test": 1,
       "test-infra": 14,
       "tooling": 2,
       "workflow": 209
     },
     "status": {
       "accepted": 1,
-      "done": 592,
-      "open": 43,
+      "done": 594,
+      "open": 45,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 229,
-      "issue": 99,
+      "fix": 230,
+      "issue": 102,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10174,5 +10257,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 11:53"
+  "generated": "2026-08-12 12:32"
 }

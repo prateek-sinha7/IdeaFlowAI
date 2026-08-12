@@ -276,6 +276,10 @@
     "FIX-232": [
       "ISS-099"
     ],
+    "FIX-233": [
+      "ISS-100",
+      "ISS-101"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -460,7 +464,8 @@
     ],
     "ISS-092": [
       "ISS-033",
-      "ISS-034"
+      "ISS-034",
+      "ISS-100"
     ]
   },
   "by_area": {
@@ -585,6 +590,7 @@
       "FIX-230",
       "FIX-231",
       "FIX-232",
+      "FIX-233",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -643,6 +649,9 @@
       "ISS-096",
       "ISS-097",
       "ISS-099",
+      "ISS-100",
+      "ISS-101",
+      "ISS-102",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -749,6 +758,7 @@
       "FIX-226",
       "FIX-228",
       "FIX-229",
+      "FIX-233",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -840,6 +850,7 @@
       "FIX-228",
       "FIX-230",
       "FIX-232",
+      "FIX-233",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -869,6 +880,9 @@
       "ISS-093",
       "ISS-096",
       "ISS-098",
+      "ISS-100",
+      "ISS-101",
+      "ISS-102",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -991,6 +1005,7 @@
       "FIX-224",
       "FIX-231",
       "FIX-232",
+      "FIX-233",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -1004,7 +1019,12 @@
       "ISS-092",
       "ISS-093",
       "ISS-096",
+      "ISS-100",
+      "ISS-101",
       "TEST-46"
+    ],
+    "cost": [
+      "ISS-100"
     ],
     "docs": [
       "ISS-012",
@@ -1227,6 +1247,9 @@
     "infra": [
       "ISS-018"
     ],
+    "perf": [
+      "ISS-101"
+    ],
     "product": [
       "ISS-001",
       "ISS-010",
@@ -1442,6 +1465,7 @@
       "FIX-229",
       "FIX-231",
       "FIX-232",
+      "FIX-233",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1488,6 +1512,7 @@
       "ISS-096",
       "ISS-097",
       "ISS-099",
+      "ISS-102",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1530,6 +1555,9 @@
       "TEST-49",
       "TEST-6-1",
       "TEST-6-2"
+    ],
+    "test": [
+      "ISS-102"
     ],
     "test-infra": [
       "ISS-022",
@@ -1769,6 +1797,9 @@
     ],
     "backend/agents/artifact_store/store.py": [
       "FIX-152"
+    ],
+    "backend/agents/authz.py": [
+      "FIX-233"
     ],
     "backend/agents/capabilities/context_providers/opendesign.py": [
       "FIX-002",
@@ -2029,6 +2060,7 @@
       "FIX-116",
       "FIX-210",
       "FIX-213",
+      "FIX-233",
       "ISS-054"
     ],
     "backend/app/agents/chat_narrator.py": [
@@ -2085,6 +2117,7 @@
       "FIX-212",
       "FIX-213",
       "FIX-219",
+      "FIX-233",
       "ISS-054",
       "ISS-055",
       "ISS-066"
@@ -2146,7 +2179,9 @@
       "ISS-067",
       "ISS-075",
       "ISS-080",
-      "ISS-092"
+      "ISS-092",
+      "ISS-100",
+      "ISS-101"
     ],
     "backend/requirements.txt": [
       "FIX-191"
@@ -3198,6 +3233,13 @@
     "ISS-099": [
       "FIX-232",
       "ISS-091"
+    ],
+    "ISS-100": [
+      "FIX-233",
+      "ISS-092"
+    ],
+    "ISS-101": [
+      "FIX-233"
     ]
   },
   "rules_by_file": {
