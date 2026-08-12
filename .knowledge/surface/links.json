@@ -289,6 +289,7 @@
       "ISS-101"
     ],
     "FIX-234": [
+      "ISS-103",
       "ISS-104",
       "ISS-105",
       "ISS-106"
@@ -317,7 +318,8 @@
       "ISS-123",
       "ISS-124",
       "ISS-125",
-      "ISS-126"
+      "ISS-126",
+      "ISS-133"
     ],
     "FIX-241": [
       "ISS-128"
@@ -328,6 +330,10 @@
       "ISS-130",
       "ISS-131",
       "ISS-132"
+    ],
+    "FIX-243": [
+      "ISS-133",
+      "ISS-134"
     ],
     "ISS-007": [
       "ISS-035"
@@ -485,7 +491,8 @@
     "ISS-078": [
       "ISS-084",
       "ISS-091",
-      "ISS-094"
+      "ISS-094",
+      "ISS-133"
     ],
     "ISS-080": [
       "ISS-081",
@@ -528,7 +535,8 @@
     ],
     "ISS-089": [
       "ISS-084",
-      "ISS-104"
+      "ISS-104",
+      "ISS-134"
     ],
     "ISS-090": [
       "ISS-132"
@@ -555,6 +563,9 @@
     "ISS-103": [
       "ISS-088"
     ],
+    "ISS-106": [
+      "ISS-103"
+    ],
     "ISS-107": [
       "ISS-110"
     ],
@@ -574,7 +585,8 @@
     "ISS-121": [
       "ISS-123",
       "ISS-124",
-      "ISS-125"
+      "ISS-125",
+      "ISS-133"
     ],
     "ISS-123": [
       "ISS-121",
@@ -585,6 +597,9 @@
     ],
     "ISS-131": [
       "ISS-097"
+    ],
+    "ISS-134": [
+      "ISS-089"
     ]
   },
   "by_area": {
@@ -1009,6 +1024,7 @@
       "FIX-240",
       "FIX-241",
       "FIX-242",
+      "FIX-243",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -1178,6 +1194,7 @@
       "FIX-240",
       "FIX-241",
       "FIX-242",
+      "FIX-243",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -1223,7 +1240,8 @@
       "ISS-129",
       "ISS-130",
       "ISS-131",
-      "ISS-132"
+      "ISS-132",
+      "ISS-133"
     ],
     "evals": [
       "BUG-007-sse",
@@ -1525,6 +1543,7 @@
       "FIX-240",
       "FIX-241",
       "FIX-242",
+      "FIX-243",
       "ISS-048",
       "ISS-051",
       "ISS-063",
@@ -1546,6 +1565,7 @@
       "ISS-123",
       "ISS-125",
       "ISS-129",
+      "ISS-133",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1702,6 +1722,7 @@
       "FIX-240",
       "FIX-241",
       "FIX-242",
+      "FIX-243",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1749,6 +1770,7 @@
       "ISS-097",
       "ISS-099",
       "ISS-102",
+      "ISS-103",
       "ISS-105",
       "ISS-109",
       "ISS-111",
@@ -1767,6 +1789,7 @@
       "ISS-128",
       "ISS-129",
       "ISS-131",
+      "ISS-133",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1834,7 +1857,8 @@
     ],
     "tooling": [
       "ISS-050",
-      "ISS-069"
+      "ISS-069",
+      "ISS-089"
     ],
     "workflow": [
       "BUG-002-sse",
@@ -1941,6 +1965,7 @@
       "FIX-240",
       "FIX-241",
       "FIX-242",
+      "FIX-243",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -2616,6 +2641,9 @@
     "backend/tests/unit/test_prototype_run_request.py": [
       "FIX-030"
     ],
+    "backend/tests/unit/test_rest_answers_cancel.py": [
+      "FIX-243"
+    ],
     "backend/tests/unit/test_rest_gate_commands.py": [
       "FIX-241"
     ],
@@ -3174,6 +3202,9 @@
       "FIX-221",
       "FIX-225"
     ],
+    "scripts/cutover_legacy_runs.py": [
+      "ISS-089"
+    ],
     "scripts/knowledge/check_ids.py": [
       "ISS-050",
       "ISS-069"
@@ -3560,7 +3591,8 @@
     ],
     "ISS-089": [
       "FIX-227",
-      "ISS-084"
+      "ISS-084",
+      "ISS-134"
     ],
     "ISS-090": [
       "FIX-228",
@@ -3622,6 +3654,10 @@
       "ISS-055",
       "ISS-118",
       "ISS-119"
+    ],
+    "ISS-103": [
+      "FIX-234",
+      "ISS-106"
     ],
     "ISS-104": [
       "FIX-234",
@@ -3741,6 +3777,16 @@
       "FIX-242",
       "ISS-090",
       "ISS-097"
+    ],
+    "ISS-133": [
+      "FIX-240",
+      "FIX-243",
+      "ISS-078",
+      "ISS-121"
+    ],
+    "ISS-134": [
+      "FIX-243",
+      "ISS-089"
     ]
   },
   "rules_by_file": {

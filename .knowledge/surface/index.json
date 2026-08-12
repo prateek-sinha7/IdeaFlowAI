@@ -1,5 +1,5 @@
 {
-  "count": 688,
+  "count": 691,
   "entries": [
     {
       "area": [
@@ -5669,6 +5669,25 @@
     },
     {
       "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/tests/unit/test_rest_answers_cancel.py"
+      ],
+      "id": "FIX-243",
+      "path": ".knowledge/cards/FIX-243.md",
+      "source": ".planning/FIX-REGISTER.md#fix-243",
+      "status": "done",
+      "summary": "The owner's Stop was thrown away whenever no in-process driver was live \u2014 and the next boot re-adopted the run and finished it at the owner's expense (ISS-089)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -7263,21 +7282,25 @@
     },
     {
       "area": [
+        "tooling",
         "sse",
         "resume",
         "workflow",
         "auth"
       ],
       "date": "",
-      "files": [],
+      "files": [
+        "scripts/cutover_legacy_runs.py"
+      ],
       "id": "ISS-089",
       "path": ".knowledge/cards/ISS-089.md",
       "relates": [
         "FIX-227",
-        "ISS-084"
+        "ISS-084",
+        "ISS-134"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-089",
-      "status": "open",
+      "status": "done",
       "summary": "A cancel is purely in-process, so a Stop that arrives when no driver is live is lost \u2014 and the next boot auto-resumes the run the owner just tried to stop",
       "type": "issue"
     },
@@ -7573,6 +7596,7 @@
     },
     {
       "area": [
+        "sse",
         "resume",
         "agents",
         "auth",
@@ -7583,6 +7607,10 @@
       "files": [],
       "id": "ISS-103",
       "path": ".knowledge/cards/ISS-103.md",
+      "relates": [
+        "FIX-234",
+        "ISS-106"
+      ],
       "source": ".planning/ISSUES-REGISTER.md#iss-103",
       "status": "open",
       "summary": "Ctrl-C already cancels in-flight runs \u2014 by an uncontrolled path that runs AFTER the checkpointer pool is closed \u2014 while kill/docker stop does not",
@@ -8156,6 +8184,42 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-132",
       "status": "open",
       "summary": "The task-loop sibling of ISS-097: ticking a task-loop agent opens ONE GATE PER TASK. Same root cause \u2014 _should_gate is per-INVOCATION on spec.id while gate_agent_ids is a per-STEP selection",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-133",
+      "path": ".knowledge/cards/ISS-133.md",
+      "relates": [
+        "FIX-240",
+        "ISS-121",
+        "ISS-078",
+        "FIX-243"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-133",
+      "status": "open",
+      "summary": "FIX-240 / ISS-121's collision-unsafe append idiom survives, unfixed, in the resume tier's double-drive guard. ExecutionEngine._stamp_resume_marker (engine.py:6309) allocates its seq the naive way",
+      "type": "issue"
+    },
+    {
+      "area": [],
+      "date": "",
+      "files": [],
+      "id": "ISS-134",
+      "path": ".knowledge/cards/ISS-134.md",
+      "relates": [
+        "FIX-243",
+        "ISS-089"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-134",
+      "status": "open",
+      "summary": "No cancel path in the system is multi-instance-safe, and FIX-243 makes that boundary load-bearing rather than academic \u2014 Recorded as an explicit scope note during FIX-243 rather than discovered as a failure",
       "type": "issue"
     },
     {
@@ -11027,37 +11091,37 @@
     "area": {
       "agents": 272,
       "artifacts": 107,
-      "auth": 112,
-      "backend": 115,
+      "auth": 113,
+      "backend": 116,
       "cost": 1,
       "docs": 4,
-      "engine": 12,
+      "engine": 13,
       "evals": 15,
       "frontend": 202,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 75,
+      "resume": 77,
       "runtime": 39,
-      "sse": 198,
+      "sse": 201,
       "test": 3,
       "test-infra": 15,
-      "tooling": 2,
-      "workflow": 230
+      "tooling": 3,
+      "workflow": 231
     },
     "status": {
       "accepted": 1,
-      "done": 612,
-      "open": 66,
+      "done": 614,
+      "open": 67,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 239,
-      "issue": 132,
+      "fix": 240,
+      "issue": 134,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -11075,5 +11139,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 21:15"
+  "generated": "2026-08-12 21:47"
 }

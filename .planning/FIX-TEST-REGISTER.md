@@ -3,6 +3,8 @@
 > **Purpose.** Every test suite written via `/velocity-ai-test` is logged here, linked to its Fix ID from `FIX-REGISTER.md`. Read this before writing new tests to avoid duplicating existing coverage.
 >
 > **How to use:** Each entry is keyed by Fix ID. When a fix is tested, a TEST-NNN entry is added here referencing the FIX-NNN from `FIX-REGISTER.md`.
+>
+> **Cost reference — corrected 2026-08-12 (quick-260812-tni). Older entries below say "5–21M tokens"; that figure is superseded.** Measured read-only against `backend/dev.db` using each row's own persisted `estimated_cost_usd`: the **ceiling is 37,327,891 tokens / $7.07** for one `od_prototype` build (run `6e38b9a7`); the `d5dbc9f2` incident that drives the ISS-084/ISS-089 family cost **$3.58 total, ≈$1.61 of it after the API answered `cancelled: true`**; **all 14 metered runs, all time, total $17.75**. Cache reads dominate (35.8M of 37.3M on the largest run), which is why the dollar figure is small relative to the token count. **State the dollars, not just the tokens.** On this Haiku workload these are **correctness-and-trust** defects first and cost defects second — roughly an order of magnitude worse on an Opus-tier model, which is what the cancel/stop fixes insure against. The "do not launch a live build to prove a stop-path fix" rule stands on the *variance*, not on this median. Historical entries below are left as written — they were honest statements of what was believed at the time.
 
 ---
 
@@ -36,6 +38,7 @@
 | TEST-024 | FIX-240 (quick-260812-ppu) | 2026-08-12 | `backend/tests/unit/test_run_events.py`, `backend/tests/unit/test_sse_stream.py` | 3 | 3 | 0 | ✅ Pass |
 | TEST-025 | FIX-241 (quick-260812-sgu) | 2026-08-12 | `backend/tests/unit/test_rest_gate_commands.py` | 13 | 13 | 0 | ✅ Pass |
 | TEST-026 | FIX-242 (quick-260812-syf) | 2026-08-12 | `backend/tests/agents/test_restart_resume.py`, `backend/tests/agents/test_merge_conflict.py`, `backend/tests/agents/test_fanout.py`, `backend/tests/unit/test_pipeline_failure_semantics.py` | 4 (3 new + 1 strengthened) | 4 | 0 | ✅ Pass |
+| TEST-027 | FIX-243 (quick-260812-tni) | 2026-08-12 | `backend/tests/unit/test_rest_answers_cancel.py` | 10 new + 2 reconciled (10 → 20 in file) | 20 | 0 | ✅ Pass |
 
 ---
 
@@ -2182,3 +2185,113 @@ recorded. INV-3 is argued from the new flag's default-`True` dormancy, not from 
 **Live verification deliberately not run.** The offline harness reproduces the full defect path
 through the real kernel at zero model spend; a live fan-out would cost real money to observe the
 same hang. Deferred per the standing end-of-milestone rule.
+
+---
+
+### TEST-027 — FIX-243 (quick-260812-tni): ISS-089 — a Stop that survives the process
+
+```
+TEST COVERAGE — FIX-243
+Unit tests:        20 in backend/tests/unit/test_rest_answers_cancel.py  → ALL GREEN
+                   (10 pre-existing + 10 new; 2 of the pre-existing RECONCILED)
+Integration tests: N/A — the defect is entirely decidable from a synthetic driver
+                   registry + a durable store; the money hole is proven by the boot
+                   scan's TASK COUNT, not by spending tokens.
+Frontend tests:    N/A — 0 frontend files changed. Both postCancel call sites
+                   (DashboardLayout.tsx:1654, :1788) are `void ….catch(console.error)`;
+                   the response body is never read, so the new response sub-case cannot
+                   reach the UI.
+Goldens:           0 failed / 10 passed — IDENTICAL to 2df5324b, and 0 of the 15 golden
+                   files moved (git status of the golden dir empty on both sides)
+lint-imports:      4 kept / 0 broken — IDENTICAL to 2df5324b (run from backend/)
+Regression guards:
+  - test_a_cancelled_run_creates_no_driver_task_on_the_next_boot: the money assertion.
+  - test_the_non_terminal_status_set_has_exactly_one_definition: INV-12 source guard.
+  - test_terminal_cancel_response_is_byte_identical_to_the_pre_iss089_ack: idempotence.
+  - test_cross_owner_cancel_writes_nothing: the new write path is behind the owner gate.
+```
+
+**Every new case was seen RED first**, in a **detached worktree at `2df5324b`** with the
+new test file copied in (never a stash). Verbatim failures:
+
+| test | RED message at `2df5324b` |
+|---|---|
+| `test_cancel_without_a_live_driver_is_made_durable` | `AssertionError: the owner's Stop was dropped: {'ok': True, 'run_id': '…', 'accepted': False, 'cancelled': False, 'status': 'not_running', 'message': 'No active pipeline'}` |
+| `test_a_durably_cancelled_run_is_outside_the_boot_restore_set` | `ImportError: cannot import name 'NON_TERMINAL_RUN_STATUSES' from 'agents.execution_engine.engine'` |
+| `test_durable_cancel_appends_a_pipeline_cancelled_row` | `assert [(1, 'pipeline_start')] == [(1, 'pipeline_start'), (2, 'pipeline_cancelled')]` — `Right contains one more item` |
+| `test_durable_cancel_appends_past_an_already_occupied_seq` | `AssertionError: the audit row was dropped on a seq collision instead of re-appended: [(1,'pipeline_start'),(2,'pipeline_start'),(3,'pipeline_start'),(4,'chat_message')]` |
+| `test_durable_cancel_survives_a_failed_audit_append` | `AssertionError: assert 'not_running' == 'cancelled'` |
+| `test_a_cancelled_run_creates_no_driver_task_on_the_next_boot` | `AssertionError: {'accepted': False, …} assert 'not_running' == 'cancelled'` |
+| `test_the_non_terminal_status_set_has_exactly_one_definition` | `ImportError: cannot import name 'NON_TERMINAL_RUN_STATUSES' …` |
+
+**The boot-scan case asserts ZERO DRIVER TASKS, not "no exception".** Its early
+`status == "cancelled"` assertion short-circuits at `2df5324b`, so the scan itself was
+re-run there with that assertion removed, to prove the task-count assertion is
+discriminating rather than vacuous:
+
+```
+AssertionError: the next boot re-adopted a run the owner stopped and spawned
+['ExecutionEngine.restore_non_terminal_runs.<locals>._admitted_resume'] —
+this is the token-burn hole ISS-089 exists to close
+PRE-FIX cancel response: {'ok': True, …, 'accepted': False, 'status': 'not_running'}
+```
+
+That is the defect in one line: the API said *not running*, and the next boot spawned a
+resume driver for the same run. The assertion counts `asyncio.create_task` calls made by
+`restore_non_terminal_runs` (spy installed only for the duration of the scan, coroutines
+closed so a unit test never DRIVES a resume). Non-vacuous by construction — the run is
+seeded **resumable in-flight** (compilable type + one durable `run_events` row), which is
+exactly branch (b)'s admission condition.
+
+**The source guard was mutation-tested against the surviving duplicate**, not merely
+observed green: with the `engine.py` extraction applied but `scripts/cutover_legacy_runs.py`
+left holding its own copy, it fails with
+`the non-terminal status set is defined 2 times: ['agents/execution_engine/engine.py:478', 'scripts/cutover_legacy_runs.py:28']`.
+It is an AST walk over `agents/`, `app/` and `scripts/` for any assignment whose value is a
+string collection equal to the 7-status set — so it catches a copy under **any** name, not
+just a re-used identifier.
+
+**The seq-collision case is a real mutation, not a stub.** The first tail probe reports the
+tail as it was *before* the racing chat-lane row committed at `max+1`, so the endpoint
+attempts an occupied seq. A naive `append_event` stops there and the row is lost to the
+persist degrade (FIX-240 / ISS-121's exact failure mode); `append_event_at_or_after`
+re-probes, finds the real tail, and lands past it. Asserted on the landed seq (`5`), not on
+"no exception".
+
+**Two reconciles — changed behaviour, never a loosened test.**
+`test_cancel_does_not_claim_success_without_a_live_driver` and
+`test_cancel_is_idempotent_with_no_active_event` both seeded `status="running"` and
+asserted `accepted:false`. That assertion **is** the defect ISS-089 removes. Both now seed
+a **terminal** run, which preserves their ISS-084 invariant ("never claim an outcome
+nothing achieved") in the case where it still holds; the non-terminal case is covered by
+the new tests, where `cancelled:true` is *earned* — the endpoint really does make the
+cancellation durable. Neither assertion was weakened and neither test was deleted.
+
+**Test-harness safety note, recorded because it is a live-data hazard.** The `env` fixture
+now also patches `run_commands._get_db` and `app.models.database.SessionLocal`. Before
+ISS-089 the cancel endpoint never wrote, so patching only `run_engine._get_db` was
+sufficient; `run_commands` binds `_get_db` at import (`from app.api.run_engine import
+_get_db`), and `ScopedStore` / `_recover_workspace_id` open `SessionLocal()` themselves.
+Leaving either unpatched would have pointed the new writer at the real `dev.db`. `dev.db`
+was snapshotted before the work and re-verified after: 21 runs, status sha256
+`ed90b0bb1c036eecdf544f1f2ba309635e999a68c94007291fe9aba7176fa504`, 233,574 `run_events`
+— unchanged, with run `41f77342` still `waiting_for_user`.
+
+**Pre-existing reds, re-measured after the change and unchanged by ID (32 total):**
+`test_gates.py` 3 · `test_declared_gate_streaming.py` 3 · `test_wire_parity.py` 4 ·
+`test_prompt_contracts.py` 1 · `test_model_factory.py` 6 · `test_rest_run_launch.py` 2 ·
+`test_chat_messages_endpoint.py` 3 · `test_mechanical_router.py` 3 ·
+`test_concierge_proposal_channels.py` 1 · `test_attach_replay_matrix.py` 1 ·
+`test_phase6_frontend_consistency.py` 2 · `test_sample_brownfield_workflow.py` 2 ·
+`test_text_only_prompt_hygiene.py` 1. A 12-suite blast-radius sweep (`test_rest_resume`,
+`test_resumability`, `test_runs_api*`, `test_sse_stream`, `test_run_events`,
+`test_chat_contract`, `test_approve_review_ownership`, `test_execution_engine`,
+`test_cancel_stops_resumed_run`) is **138 passed / 3 failed**; those 3 are the ISS-093
+stale clarify-round tests, **re-measured in a detached worktree at `2df5324b`** as the same
+3 failures with the same ids — pre-existing, with a SHA, not a label.
+
+**No live verification, deliberately.** Nothing here needs a live build: the defect is
+fully decidable from a synthetic registry plus a durable store, and the assertion that
+matters is a task count. One `od_prototype` build costs 5–21M tokens on the register's old
+figure — the **measured ceiling on this corpus is 37.3M tokens / $7.07**, and the incident
+that motivated the row cost **$3.58**, ≈**$1.61** of it after the cancel.

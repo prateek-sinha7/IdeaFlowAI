@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-688 cards · rules 1 · fixes 239 · issues 132 · phases 23 · built 2026-08-12 21:15
+691 cards · rules 1 · fixes 240 · issues 134 · phases 23 · built 2026-08-12 21:47
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (239)
+## Fixes (240)
 
+FIX-243 2026-08-12 [backend,sse,resume,workflow,auth] The owner's Stop was thrown away whenever no in-process driver was live — and the next boot re-adopted the run and finished it at the owner's expense (ISS-089)
 FIX-242 2026-08-12 [backend,sse,resume,workflow,agents,evals,auth,artifacts,runtime] A gated fan-out step parked the run at a review gate nobody could see, discover or resolve (ISS-097). _should_gate (engine.py:4908-4925) is a per-INVOCATION predicate on spec.id
 FIX-241 2026-08-12 [backend,sse,resume,workflow,agents,auth] A human-in-the-loop gate that fails OPEN: every near-miss of a DENIAL silently APPROVED (ISS-070). resolve_gate dispatched on action with else: # approve (default) as the fallback (run_commands.py:272), an exact, case-sensitive
 FIX-240 2026-08-12 [backend,sse,resume,workflow,agents,auth] Every chat turn during a live run silently destroyed one engine event from the durable log (ISS-121). The register row's own root cause was WRONG and is corrected in place
@@ -254,8 +255,10 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (132)
+## Issues (134)
 
+ISS-134 - [-] No cancel path in the system is multi-instance-safe, and FIX-243 makes that boundary load-bearing rather than academic — Recorded as an explicit scope note during FIX-243 rather than discovered as a failure
+ISS-133 - [sse,resume,engine] FIX-240 / ISS-121's collision-unsafe append idiom survives, unfixed, in the resume tier's double-drive guard. ExecutionEngine._stamp_resume_marker (engine.py:6309) allocates its seq the naive way
 ISS-132 - [workflow,agents,engine] The task-loop sibling of ISS-097: ticking a task-loop agent opens ONE GATE PER TASK. Same root cause — _should_gate is per-INVOCATION on spec.id while gate_agent_ids is a per-STEP selection
 ISS-131 - [sse,workflow,agents,evals,auth,engine] A fan-out step's DECLARED human gate is deduped against an inline gate that no longer fires. engine.py:2470 passes inline_gated=self._should_gate(spec, ectx) into _evaluate_gates at the step boundary
 ISS-130 - [workflow,agents,runtime,engine] KernelServices.run_agent mutates SHARED ExecutionContext scratch while N fan-out workers run concurrently. kernel_services.py:1254-1291 (now :1267-1304) sets and restores build_task_number, build_task_total, current_task_block
@@ -285,7 +288,7 @@ ISS-107 - [frontend] hook_run's payload never reaches the reducer, so the only l
 ISS-106 - [resume,auth,infra] The graceful-shutdown budget is bounded only in its drain steps; the final pool close is unbounded, so the documented worst case is not a worst case
 ISS-105 - [sse,infra] lifespan.shutdown() is entered BEFORE the SSE request generators finish unwinding, so shutdown_run_infrastructure() snapshots _PIPELINE_QUEUES / _PUMP_TASKS while stream teardown is still in flight
 ISS-104 - [backend,infra] Stale line-number citations in the shutdown-path comments — each points at code that has since moved, and a fixer following them lands in the wrong place
-ISS-103 - [resume,agents,auth,runtime,infra] Ctrl-C already cancels in-flight runs — by an uncontrolled path that runs AFTER the checkpointer pool is closed — while kill/docker stop does not
+ISS-103 - [sse,resume,agents,auth,runtime,infra] Ctrl-C already cancels in-flight runs — by an uncontrolled path that runs AFTER the checkpointer pool is closed — while kill/docker stop does not
 ISS-102 - [backend,sse,agents,auth,test] [TWO CORRECTIONS TO THIS ROW, both verified by re-running it at d31a5a7b — read these before trusting anything below.] (1) It is TWO tests, not three
 ISS-101 - [backend,agents,auth,perf] context_provider:conversation still materialises a whole run's event log server-side to keep six chat turns. agents/capabilities/context_providers/conversation.py:99 calls scoped_store.read_events(run_id
 ISS-100 - [backend,agents,auth,cost] The handoff pipeline's model spend is 100% invisible: there is nowhere to even put the number. Three call sites construct/call agents that ACCEPT a usage_sink and are given none
@@ -299,7 +302,7 @@ ISS-093 - [backend,sse,auth,test-infra] 3 stale clarify-round tests in backend/t
 ISS-092 - [backend,agents,auth,product] A single Concierge chat question can feed the model up to 2.3M tokens, and not one of them is counted or capped. Two compounding facts, both verified 2026-08-12
 ISS-091 - [sse,resume,workflow,agents,auth,runtime,engine] Rejecting at a review gate does not STOP the pipeline: every remaining step still runs and the run ends on pipeline_complete. Measured at 99fcf4a2 — i.e. WITH FIX-227 and FIX-228 already landed, so FIX-227 does NOT cover this
 ISS-090 - [resume,agents,artifacts] redoable has no eligibility fence — unlike update_specs_eligible it is an inline True literal at all three gate call sites, so ANY agent named in a per-run gate_agent_ids gets a Redo button with no server-side rule
-ISS-089 - [sse,resume,workflow,auth] A cancel is purely in-process, so a Stop that arrives when no driver is live is lost — and the next boot auto-resumes the run the owner just tried to stop
+ISS-089 - [tooling,sse,resume,workflow,auth] A cancel is purely in-process, so a Stop that arrives when no driver is live is lost — and the next boot auto-resumes the run the owner just tried to stop
 ISS-088 - [frontend,docs,sse,resume,agents,auth,artifacts,runtime] The local backend cannot be stopped by SIGTERM while any run is streaming, so shutdown_run_infrastructure() never executes locally at all — and even where it does execute it does not stop the runs
 ISS-087 - [backend,sse,workflow,agents,artifacts,frontend] The un-versioned halves of the agent-detail cards do not follow the artifact version picker. The mechanism was real: deriveArtifactCardModel took protoCompletedTasks (the "Task plan · N planned" rows)
 ISS-086 - [sse,agents,artifacts] "Request changes" (redo) at an agent's own gate re-runs that agent WITHOUT injecting its prior output, so the agent returns only the delta and the previous work is destroyed
