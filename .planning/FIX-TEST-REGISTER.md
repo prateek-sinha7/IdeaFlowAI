@@ -27,6 +27,7 @@
 | TEST-015 | FIX-231 (quick-260812-fbk) | 2026-08-12 | `backend/tests/agents/test_gate_stub_signature_drift.py` (new), `backend/tests/agents/test_live_harness.py` | 5 | 5 | 0 | ✅ Pass |
 | TEST-016 | FIX-232 (quick-260812-g1c) | 2026-08-12 | `backend/tests/agents/test_restart_resume.py`, `backend/tests/agents/test_fanout_cancel.py`, `backend/tests/agents/test_fanout.py` | 7 | 7 | 0 | ✅ Pass |
 | TEST-017 | FIX-233 (quick-260812-gsf) | 2026-08-12 | `backend/tests/agents/test_concierge_capability.py`, `backend/tests/unit/test_chat_messages_endpoint.py` | 22 | 22 | 0 | ✅ Pass |
+| TEST-018 | FIX-234 (quick-260812-hsx) | 2026-08-12 | `backend/tests/unit/test_shutdown_reachability.py`, `backend/tests/unit/test_run_shutdown.py` | 10 | 10 | 0 | ✅ Pass |
 
 ---
 
@@ -1412,3 +1413,81 @@ per question. Offline proves the tools exist, are bounded, are run-scoped and ar
 prompt. The per-question cost is now readable from the `chat_usage` row — which is why counting
 shipped as the first of the two commits.
 
+
+---
+
+### TEST-018 — FIX-234 (quick-260812-hsx): ISS-088 — shutdown reachability, the teardown budget, and both stop-runs branches
+
+```
+TEST COVERAGE — FIX-234
+Unit tests:        8 in backend/tests/unit/test_shutdown_reachability.py   → ALL GREEN (new file)
+                   2 in backend/tests/unit/test_run_shutdown.py            → ALL GREEN (7 → 9)
+Integration tests: N/A by design — the defect lives in the PROCESS SIGNAL PATH, so the
+                   reachability test spawns a real uvicorn SUBPROCESS and sends a real
+                   SIGTERM. That is the integration-level proof; an in-process
+                   uvicorn.Server (the test_run_stream_pool_leak.py:196-238 precedent)
+                   cannot reproduce it, because capture_signals() installs handlers only
+                   when it is on the main thread.
+Frontend tests:    N/A — no frontend source changed. The two frontend files touched are
+                   live-spec PREREQUISITE DOCSTRINGS (comments), not code.
+Goldens:           0 failed / 10 passed — IDENTICAL to the pre-change commit 9df9c1c8,
+                   and `git status` on backend/tests/agents/characterization/ is empty
+                   (0 golden files moved).
+lint-imports:      4 kept / 0 broken — IDENTICAL to 9df9c1c8 (run from backend/).
+Regression guards:
+  - test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live:
+      the test that would have caught ISS-088. Real uvicorn subprocess + live
+      EventSourceResponse + real SIGTERM; asserts the process exits AND the lifespan
+      shutdown body ran to completion.
+  - test_docker_entrypoint_still_passes_timeout_graceful_shutdown:
+      one line; blocks a silent regression to the pre-KAN-151 production state.
+  - test_production_teardown_budget_fits_inside_stop_grace_period:
+      PARSES stop_grace_period from docker-compose.yml and the graceful window from
+      docker-entrypoint.sh — nothing hardcoded, so drift in either file fails here.
+  - test_production_leaves_shutdown_stop_runs_off (+ the >= grace assertion):
+      pins WHY production keeps stop-runs off, in arithmetic rather than prose.
+  - test_development_defaults_shutdown_stop_runs_on / test_explicit_shutdown_stop_runs_always_wins:
+      the env-differentiated default, and that an explicit value wins in BOTH directions.
+  - test_close_checkpointer_is_awaited_exactly_once_on_the_shutdown_path:
+      pins the INV-12 deletion; two call sites made the documented ordering false.
+  - TestShutdownStopsRunsWhenEnabled (2 tests): step 3 of shutdown_run_infrastructure
+      had ZERO coverage and is now the live branch on every developer machine.
+```
+
+**Every new assertion was seen RED first — verbatim:**
+
+| Test | RED evidence |
+|---|---|
+| reachability | flag omitted → `Failed: uvicorn did not exit within 25.0s of SIGTERM while an SSE stream was live. Markers written: {"event": "startup_complete", "t": 1786532068.807335}` — only `startup_complete`, i.e. the defect itself |
+| `close_checkpointer` once | `AssertionError: main.py awaits close_checkpointer() 1 time(s).` / `assert 1 == 0` |
+| dev default on | `AssertionError: assert False is True` |
+| stop-runs ON branch | guard mutated to `if False:` → `assert 0 == 1` |
+| stop-runs OFF branch | guard mutated to `if True:` → `assert 1 == 0` |
+
+The entrypoint-flag and budget tests are guards over parsed files: they pass at HEAD by
+construction and fail on drift, so they are stated as guards rather than claimed RED-first.
+
+**Reconciled, not loosened.** The env-differentiated default made every test in
+`test_run_shutdown.py` depend on the ambient `ENV` of whoever runs pytest — the run that
+surfaced it failed `test_pump_that_finishes_promptly_is_drained_not_cancelled` with a
+`CancelledError`, because step 3 now cancelled the task the test had registered as its own
+driver. The autouse fixture now pins `SHUTDOWN_STOP_RUNS` to the branch each test asserts.
+**No assertion was changed, weakened or deleted.**
+
+**Baselines re-measured, not assumed (all vs `9df9c1c8`):** goldens 10 passed → 10 passed;
+lint-imports 4/0 → 4/0; the four known pre-existing red suites 11 failed / 54 passed → 11
+failed / 54 passed with identical ids; `test_run_shutdown.py` 7 → 9; resume/cancel/restart
+suites 73 passed.
+
+**Two red suites NOT in the known-red list were checked rather than labelled.**
+`test_model_factory.py` (6, all Mistral-fallback) and `test_rest_run_launch.py` (2) fail
+after the change. Re-run at the pre-change commit `9df9c1c8` in a throwaway `git worktree`
+(`backend/.env` is absent, so no env confound): **identical 8 failed / 47 passed, same test
+ids.** Pre-existing, with the SHA to prove it.
+
+**Not proven offline (deferred, not faked):** the flag's effect on the REAL application under
+a real run. Everything above runs against a synthetic app that mirrors only the lifespan +
+`EventSourceResponse` shape, deliberately: booting `app.main` calls `restore_non_terminal_runs()`
+(`main.py:238`), which auto-resumes non-terminal runs and would spend Bedrock budget. The
+mechanism is identical (same uvicorn, same `sse_starlette`, same signal path), and production
+has run with the flag since KAN-151 D8.

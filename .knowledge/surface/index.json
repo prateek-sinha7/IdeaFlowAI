@@ -1,5 +1,5 @@
 {
-  "count": 649,
+  "count": 653,
   "entries": [
     {
       "area": [
@@ -5468,6 +5468,32 @@
     },
     {
       "area": [
+        "backend",
+        "docs",
+        "frontend",
+        "sse",
+        "resume"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/app/main.py",
+        "backend/app/core/config.py",
+        "backend/app/api/run_shutdown.py",
+        "docs/PRODUCTION_DEPLOYMENT_GUIDE.md",
+        "docs/FLOWIN_HANDOFF.md",
+        "frontend/e2e/README.md",
+        "frontend/e2e/tests/ts-v.per-workflow.live.spec.ts",
+        "frontend/e2e/tests/ts-w.model-override.live.spec.ts"
+      ],
+      "id": "FIX-234",
+      "path": ".knowledge/cards/FIX-234.md",
+      "source": ".planning/FIX-REGISTER.md#fix-234",
+      "status": "done",
+      "summary": "The local backend could not be stopped by SIGTERM while any run was streaming, so the entire graceful-shutdown half never ran on a developer machine \u2014 and even when reached it did not stop the run",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -7029,19 +7055,32 @@
     },
     {
       "area": [
+        "frontend",
+        "docs",
         "sse",
         "resume",
-        "auth"
+        "agents",
+        "auth",
+        "artifacts",
+        "runtime"
       ],
       "date": "",
-      "files": [],
+      "files": [
+        "frontend/src/lib/env.ts",
+        "env-templates/.env.fron",
+        "frontend/e2e/fixtures/live.ts",
+        "docs/LOCALSTACK_SMOKE_REPORT.md",
+        "frontend/src/data/skills.ts",
+        "frontend/src/app/test-preview/page.tsx"
+      ],
       "id": "ISS-088",
       "path": ".knowledge/cards/ISS-088.md",
       "relates": [
-        "ISS-084"
+        "ISS-084",
+        "ISS-103"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-088",
-      "status": "open",
+      "status": "done",
       "summary": "The local backend cannot be stopped by SIGTERM while any run is streaming, so shutdown_run_infrastructure() never executes locally at all \u2014 and even where it does execute it does not stop the runs",
       "type": "issue"
     },
@@ -7338,6 +7377,62 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-102",
       "status": "open",
       "summary": "Three offline unit tests attempt a REAL Bedrock model call; they only 'pass as failures' because the SSO token was expired",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "resume",
+        "agents",
+        "auth",
+        "runtime",
+        "infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-103",
+      "path": ".knowledge/cards/ISS-103.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-103",
+      "status": "open",
+      "summary": "Ctrl-C already cancels in-flight runs \u2014 by an uncontrolled path that runs AFTER the checkpointer pool is closed \u2014 while kill/docker stop does not",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/docker-entrypoint.sh",
+        "backend/app/api/run_shutdown.py"
+      ],
+      "id": "ISS-104",
+      "path": ".knowledge/cards/ISS-104.md",
+      "relates": [
+        "ISS-089",
+        "FIX-234"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-104",
+      "status": "open",
+      "summary": "Stale line-number citations in the shutdown-path comments \u2014 each points at code that has since moved, and a fixer following them lands in the wrong place",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-105",
+      "path": ".knowledge/cards/ISS-105.md",
+      "relates": [
+        "FIX-234",
+        "ISS-088"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-105",
+      "status": "open",
+      "summary": "lifespan.shutdown() is entered BEFORE the SSE request generators finish unwinding, so shutdown_run_infrastructure() snapshots _PIPELINE_QUEUES / _PUMP_TASKS while stream teardown is still in flight",
       "type": "issue"
     },
     {
@@ -10207,22 +10302,22 @@
   ],
   "facets": {
     "area": {
-      "agents": 246,
-      "artifacts": 99,
-      "auth": 99,
-      "backend": 102,
+      "agents": 248,
+      "artifacts": 100,
+      "auth": 100,
+      "backend": 104,
       "cost": 1,
-      "docs": 2,
+      "docs": 4,
       "engine": 5,
       "evals": 11,
-      "frontend": 188,
+      "frontend": 190,
       "harness": 2,
-      "infra": 1,
+      "infra": 4,
       "perf": 1,
       "product": 30,
-      "resume": 63,
-      "runtime": 34,
-      "sse": 171,
+      "resume": 65,
+      "runtime": 36,
+      "sse": 173,
       "test": 1,
       "test-infra": 14,
       "tooling": 2,
@@ -10230,16 +10325,16 @@
     },
     "status": {
       "accepted": 1,
-      "done": 594,
-      "open": 45,
+      "done": 596,
+      "open": 47,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 230,
-      "issue": 102,
+      "fix": 231,
+      "issue": 105,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10257,5 +10352,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 12:32"
+  "generated": "2026-08-12 13:11"
 }

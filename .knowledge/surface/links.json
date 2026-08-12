@@ -280,6 +280,10 @@
       "ISS-100",
       "ISS-101"
     ],
+    "FIX-234": [
+      "ISS-104",
+      "ISS-105"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -451,10 +455,12 @@
       "ISS-085"
     ],
     "ISS-088": [
-      "ISS-084"
+      "ISS-084",
+      "ISS-105"
     ],
     "ISS-089": [
-      "ISS-084"
+      "ISS-084",
+      "ISS-104"
     ],
     "ISS-091": [
       "ISS-095",
@@ -466,6 +472,9 @@
       "ISS-033",
       "ISS-034",
       "ISS-100"
+    ],
+    "ISS-103": [
+      "ISS-088"
     ]
   },
   "by_area": {
@@ -641,6 +650,7 @@
       "ISS-085",
       "ISS-086",
       "ISS-087",
+      "ISS-088",
       "ISS-090",
       "ISS-091",
       "ISS-092",
@@ -652,6 +662,7 @@
       "ISS-100",
       "ISS-101",
       "ISS-102",
+      "ISS-103",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -779,6 +790,7 @@
       "ISS-085",
       "ISS-086",
       "ISS-087",
+      "ISS-088",
       "ISS-090",
       "ISS-094",
       "ISS-096",
@@ -883,6 +895,7 @@
       "ISS-100",
       "ISS-101",
       "ISS-102",
+      "ISS-103",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -1006,6 +1019,7 @@
       "FIX-231",
       "FIX-232",
       "FIX-233",
+      "FIX-234",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -1021,14 +1035,17 @@
       "ISS-096",
       "ISS-100",
       "ISS-101",
+      "ISS-104",
       "TEST-46"
     ],
     "cost": [
       "ISS-100"
     ],
     "docs": [
+      "FIX-234",
       "ISS-012",
-      "ISS-043"
+      "ISS-043",
+      "ISS-088"
     ],
     "engine": [
       "ISS-078",
@@ -1222,6 +1239,7 @@
       "FIX-222",
       "FIX-225",
       "FIX-226",
+      "FIX-234",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -1237,6 +1255,7 @@
       "ISS-083",
       "ISS-085",
       "ISS-087",
+      "ISS-088",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1245,7 +1264,10 @@
       "ISS-020"
     ],
     "infra": [
-      "ISS-018"
+      "ISS-018",
+      "ISS-103",
+      "ISS-104",
+      "ISS-105"
     ],
     "perf": [
       "ISS-101"
@@ -1310,6 +1332,7 @@
       "FIX-228",
       "FIX-229",
       "FIX-232",
+      "FIX-234",
       "ISS-048",
       "ISS-051",
       "ISS-063",
@@ -1324,6 +1347,7 @@
       "ISS-090",
       "ISS-091",
       "ISS-098",
+      "ISS-103",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -1361,8 +1385,10 @@
       "ISS-011",
       "ISS-018",
       "ISS-036",
+      "ISS-088",
       "ISS-091",
       "ISS-098",
+      "ISS-103",
       "PH-02-executioncontext-ownership-0b",
       "PH-08-capabilities-hardened-registry-gates-tool-per",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -1466,6 +1492,7 @@
       "FIX-231",
       "FIX-232",
       "FIX-233",
+      "FIX-234",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1513,6 +1540,7 @@
       "ISS-097",
       "ISS-099",
       "ISS-102",
+      "ISS-105",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -2126,6 +2154,10 @@
       "FIX-152",
       "FIX-219"
     ],
+    "backend/app/api/run_shutdown.py": [
+      "FIX-234",
+      "ISS-104"
+    ],
     "backend/app/api/run_stream.py": [
       "BUG-015-sse",
       "FIX-152"
@@ -2154,7 +2186,8 @@
     ],
     "backend/app/core/config.py": [
       "FIX-034",
-      "FIX-152"
+      "FIX-152",
+      "FIX-234"
     ],
     "backend/app/core/entitlements.py": [
       "FIX-058",
@@ -2165,7 +2198,8 @@
     ],
     "backend/app/main.py": [
       "FIX-144",
-      "FIX-152"
+      "FIX-152",
+      "FIX-234"
     ],
     "backend/app/models/workflow.py": [
       "FIX-106"
@@ -2182,6 +2216,9 @@
       "ISS-092",
       "ISS-100",
       "ISS-101"
+    ],
+    "backend/docker-entrypoint.sh": [
+      "ISS-104"
     ],
     "backend/requirements.txt": [
       "FIX-191"
@@ -2305,15 +2342,37 @@
     "backend/tests/unit/test_update_specs_ingress_fence.py": [
       "FIX-219"
     ],
+    "docs/FLOWIN_HANDOFF.md": [
+      "FIX-234"
+    ],
+    "docs/LOCALSTACK_SMOKE_REPORT.md": [
+      "ISS-088"
+    ],
+    "docs/PRODUCTION_DEPLOYMENT_GUIDE.md": [
+      "FIX-234"
+    ],
+    "env-templates/.env.fron": [
+      "ISS-088"
+    ],
     "frontend/e2e/FIXTURE-CONTRACT.md": [
       "TEST-45"
     ],
     "frontend/e2e/README.md": [
+      "FIX-234",
       "TEST-0-1",
       "TEST-45"
     ],
+    "frontend/e2e/fixtures/live.ts": [
+      "ISS-088"
+    ],
     "frontend/e2e/tests/ts-sse-resilience.spec.ts": [
       "FIX-152"
+    ],
+    "frontend/e2e/tests/ts-v.per-workflow.live.spec.ts": [
+      "FIX-234"
+    ],
+    "frontend/e2e/tests/ts-w.model-override.live.spec.ts": [
+      "FIX-234"
     ],
     "frontend/next.config.ts": [
       "BUG-007-sse"
@@ -2381,6 +2440,9 @@
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
+    ],
+    "frontend/src/app/test-preview/page.tsx": [
+      "ISS-088"
     ],
     "frontend/src/app/workflow/ppt/templates/page.tsx": [
       "FIX-003b",
@@ -2702,6 +2764,9 @@
     "frontend/src/components/workflow/prototype/TemplateGallery.tsx": [
       "FIX-039"
     ],
+    "frontend/src/data/skills.ts": [
+      "ISS-088"
+    ],
     "frontend/src/hooks/useNotifications.fix202.test.tsx": [
       "FIX-202"
     ],
@@ -2772,6 +2837,9 @@
       "FIX-144",
       "FIX-145",
       "ISS-077"
+    ],
+    "frontend/src/lib/env.ts": [
+      "ISS-088"
     ],
     "frontend/src/lib/ppt-api.ts": [
       "FIX-039"
@@ -3182,7 +3250,8 @@
       "ISS-085"
     ],
     "ISS-088": [
-      "ISS-084"
+      "ISS-084",
+      "ISS-103"
     ],
     "ISS-089": [
       "FIX-227",
@@ -3240,6 +3309,14 @@
     ],
     "ISS-101": [
       "FIX-233"
+    ],
+    "ISS-104": [
+      "FIX-234",
+      "ISS-089"
+    ],
+    "ISS-105": [
+      "FIX-234",
+      "ISS-088"
     ]
   },
   "rules_by_file": {

@@ -18,7 +18,7 @@ Where the project is right now, and what constrains a change to it. Every other 
 - Phase: ALL COMPLETE — 45 [R0] 4/4 · 46 [R1] 8/8 · 47 [R2] 4/4 · 48 [R3] 4/4 · 49 [R4] 5/5 (KAN-88 green) · 50 [R5] 5/5
 - Plan: 14/14 plans complete across 6 phases; register reconciliation batch appended; requirements RESUME-05..18 all Complete
 - Status: Milestone v3.0 OFFLINE-COMPLETE — remaining: the consolidated live-Bedrock pass (orchestrator-owned) + /gsd-complete-milestone (user step; v2.0 close-out also still pending)
-- Last activity: 2026-08-12 — Completed quick task 260812-gsf: **the Concierge stops being pre-fed the whole run, and starts being billed for (ISS-092).** Its `usage` events were discarded and its three read tools were unbounded — one chat question re-fed **9,227,107 chars ≈ 2,306,776 tokens**, on two runs **144% and 151% of everything the whole pipeline recorded**. **The row blamed the wrong type:** the payload is 18 `agent_input` rows (7,290,638 chars, one at 479,605), not `agent_chunk` (max **169 chars**) — a chunk filter would have fixed almost nothing. `read_events`, `list_refs` and `get_ref` are **deleted, not deprecated**, replaced by seven bounded tools closed over `(scoped_store, run_id)` so `run_id` is never a model-supplied parameter; the bound lives in SQL via one new `read_events_of_types`, leaving the 18-caller replay primitive untouched. Two security fixes ride along, both RED-first: `exclude_builtin_tools=True` removes the **filesystem WRITE surface** the model was holding (all seven built-ins observed), and `get_artifact` closes a **cross-run** artifact read. Multi-turn preserved by reusing the registered conversation provider + chat-history compaction, with its self-gate **not** relaxed. Counting shipped first as its own commit: one idempotent `chat_usage` row per turn, no migration, reported as a **separate line**, and **never estimated** when unobserved. **Driving the shipped tools over real `dev.db` rows: 2,494,799 → 4,710 est. tokens (530×); no turn in the corpus exceeds 4,785.** 22 tests all seen RED first; goldens **10 passed / 0 moved**, lint **4 kept / 0 broken**, pre-existing reds unmoved. (FIX-233 / TEST-017; closes ISS-092, files ISS-100 + ISS-101 + ISS-102).
+- Last activity: 2026-08-12 — Completed quick task 260812-hsx: **the graceful-shutdown path is now reachable on a developer machine, and a local restart stops the run (ISS-088).** Without `--timeout-graceful-shutdown` a live SSE stream made uvicorn ignore SIGTERM forever — measured **still alive at 31.25s with only `startup_complete` written**, SIGKILL the only way out; with the flag, **clean exit in 5.82s** and the shutdown body running to completion. Ten dev docs updated (`--reload` dropped: untreated it leaves **two** stuck processes and `watchfiles` is absent so it polls), port kept at 8000 with evidence, both out-of-repo memory notes updated. The double `close_checkpointer()` is deleted (INV-12) so step 4 really is last. **The open question is settled and REVERSED:** `asyncio.run`'s teardown does NOT mark runs cancelled under SIGTERM — uvicorn re-raises the signal inside `serve()` (`server.py:326-330`) so `_cancel_all_tasks` never runs; proven by SIGTERM-vs-SIGINT markers, a no-uvicorn control, and a post-`server.run()` marker that never appears. So `SHUTDOWN_STOP_RUNS` is now env-differentiated (ON in development, OFF in production) and the corrected 24s/30s budget is asserted against a PARSED `stop_grace_period`. 5 tests seen RED first; goldens **10 passed / 0 moved**, lint **4 kept / 0 broken**, pre-existing reds unmoved. **Does NOT close the money hole — a production run still resumes after a restart (ISS-089).** NOT pushed.
 
 ## Enforced boundaries
 
@@ -35,7 +35,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 
 | component | what it is | cards | on disk |
 |---|---|---:|---|
-| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 46 | 27 files |
+| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 48 | 27 files |
 | `backend/app/services` | application services | 2 | 5 files |
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
 | `backend/agents/execution_engine` | the execution kernel | 33 | 11 files |
@@ -44,7 +44,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
 | `backend/agents/artifact_store` | artifact persistence | 1 | 2 files |
 | `backend/agents/guardrails` | policy enforcement | 0 | 0 files |
-| `frontend/src/app` | Next.js routes | 55 | 23 files |
+| `frontend/src/app` | Next.js routes | 56 | 23 files |
 | `frontend/src/components` | UI components | 206 | 192 files |
 | `frontend/src/hooks` | client state + stream handling | 37 | 24 files |
 
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (246), `workflow` (209), `frontend` (188), `sse` (171), `backend` (102), `artifacts` (99), `auth` (99), `resume` (63).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (248), `workflow` (209), `frontend` (190), `sse` (173), `backend` (104), `artifacts` (100), `auth` (100), `resume` (65).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 258 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 259 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.
