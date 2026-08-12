@@ -333,15 +333,22 @@ async def test_run_fanout_threads_wave_width_into_run_worker():
 
 @pytest.mark.asyncio
 async def test_run_worker_passes_wave_width_and_single_shot_view():
-    """KernelServices.run_worker: total_tasks == wave width; view strategy single_shot."""
+    """KernelServices.run_worker: total_tasks == wave width; view strategy single_shot.
+
+    ISS-097: also pins ``invocation_gated=False`` — a worker is an INVOCATION, not a
+    step, so the per-agent ``gate_agent_ids`` selection must not reach it. The double's
+    signature is kept exact (no ``**kw``) precisely so a future drift fails loudly here.
+    """
     ks = _real_kernel_services()
     captured: dict = {}
 
     async def _capture_run_agent(step, ctx, *, task_number=None, total_tasks=None,
-                                 task_block=None, skeleton=None):
+                                 task_block=None, skeleton=None,
+                                 invocation_gated=True):
         captured.update(
             task_number=task_number, total_tasks=total_tasks,
             strategy=getattr(step, "strategy", None),
+            invocation_gated=invocation_gated,
         )
         yield {"type": "agent_chunk", "data": {}}
 
@@ -359,6 +366,8 @@ async def test_run_worker_passes_wave_width_and_single_shot_view():
     assert captured["total_tasks"] == 5
     # The fabricated worker view is a plain single agent run, not "fanout_batch".
     assert captured["strategy"] == "single_shot"
+    # ISS-097: the worker invocation opts OUT of the inline review gate.
+    assert captured["invocation_gated"] is False
 
 
 # ---------------------------------------------------------------------------

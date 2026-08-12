@@ -3379,12 +3379,19 @@ class ExecutionEngine:
         results: list[dict],
         cancel_event: asyncio.Event | None,
         ectx: ExecutionContext,
+        *,
+        invocation_gated: bool = True,
     ) -> AsyncGenerator[dict, None]:
         """Run a single domain agent, yielding WS events.
 
         ``ectx`` is the per-run ExecutionContext (D-03 explicit thread): the engine
         reads od_context / owner / completed-tasks / checkpointer from it instead of
         ``self`` (the kernel holds no per-run state — CTX-02).
+
+        ``invocation_gated`` (ISS-097) is the invocation-scope half of the inline
+        review-gate decision — see ``_should_gate``. It reaches all three inline gate
+        sites below (restart re-entry, revision re-open, live post-stream) so a
+        non-step invocation can never open one. Default ``True`` ⇒ dormant.
         """
         # Guard: if the run is already in a terminal state (e.g. user rejected
         # a review gate), stop immediately without running the agent.
@@ -3437,7 +3444,7 @@ class ExecutionEngine:
                 redo_attempt, spec_revision_attempt = (
                     await self._seed_gate_reentry_attempts(ectx, spec)
                 )
-                if self._should_gate(spec, ectx):
+                if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # Re-open the gate directly — skip the model call entirely. The five-
                     # branch consumer below is the SAME logic as the post-stream inline
                     # gate (:3842-3999) so ALL FIVE actions behave IDENTICALLY to a live
@@ -3553,7 +3560,7 @@ class ExecutionEngine:
                 if results and results[-1].get("agent_id") == spec.id:
                     results[-1] = {**results[-1], "output": output}
                 # Re-open the gate directly — skip the model call entirely.
-                if self._should_gate(spec, ectx):
+                if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
                     # artifact-kind (name-free), mirroring redoable's inline True.
                     _ek = self._artifact_kind_for(spec)
@@ -4489,7 +4496,7 @@ class ExecutionEngine:
                 # passes redoable=True (a structural path, name-free — SC-001) so the
                 # FE offers Redo on every LIVE human gate; the _gate_redo branch below
                 # re-runs THIS agent via the enclosing while-loop (flat stack, F2).
-                if self._should_gate(spec, ectx):
+                if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
                     # artifact-kind (name-free), mirroring redoable's inline True.
                     _ek = self._artifact_kind_for(spec)
@@ -4905,7 +4912,9 @@ class ExecutionEngine:
     # Gate selection — which agents pause for the inter-agent Human gate
     # ------------------------------------------------------------------
 
-    def _should_gate(self, spec, ectx: ExecutionContext) -> bool:
+    def _should_gate(
+        self, spec, ectx: ExecutionContext, *, invocation_gated: bool = True
+    ) -> bool:
         """Decide whether ``spec`` pauses for the inter-agent Human review gate.
 
         Effective set = the per-run ``gate_agent_ids`` passed to ``execute()``
@@ -4916,13 +4925,26 @@ class ExecutionEngine:
           AGENT.md frontmatter declares ``gate: Human_Gate`` — **exactly today's
           static rule**, so behavior is byte-identical unless a client opts in.
 
+        ``invocation_gated`` (ISS-097) narrows that agent-level selection to the
+        invocations it was written to describe. ``gate_agent_ids`` is a per-STEP
+        choice ("checked agents pause the pipeline after they finish"), but this
+        predicate reads ``spec.id``, which is per-INVOCATION. Those were the same
+        thing until a strategy started producing N invocations of one agent id for
+        one step, at which point a single tick armed N gates on the ONE gate_key.
+        A call site that creates an invocation which is NOT a step — a fan-out
+        worker, a bounded merge-agent attempt — passes ``False``. It defaults
+        ``True``, so every step-shaped invocation is byte-identical (INV-3).
+
         Only selects *which* agents trigger the gate; the gate itself
         (``_run_review_gate`` + its ``review_gate_*`` events) is unchanged.
         """
         gate_ids = ectx.gate_agent_ids
-        if gate_ids is not None:
-            return spec.id in set(gate_ids)
-        return getattr(spec, "gate", None) == "Human_Gate"
+        selected = (
+            spec.id in set(gate_ids)
+            if gate_ids is not None
+            else getattr(spec, "gate", None) == "Human_Gate"
+        )
+        return invocation_gated and selected
 
     # ------------------------------------------------------------------
     # Executable hook firing (08-07 / HOOK-01..04) — the D-09 lifecycle seam

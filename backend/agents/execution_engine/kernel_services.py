@@ -908,6 +908,10 @@ class KernelServices:
                     "Resolve the following fan-out merge conflict in the "
                     f"workspace (attempt {attempt}):\n{conflict_block}"
                 ),
+                # ISS-097: same shape as run_worker — a bounded merge attempt is an
+                # invocation, not a step, and its events are consumed with a bare
+                # ``pass`` below, so an inline gate here would be equally invisible.
+                invocation_gated=False,
             ):
                 pass  # consumed internally — the conflict flow re-emits its own events
             return True
@@ -1018,12 +1022,21 @@ class KernelServices:
         # WR-05: total_tasks is the WAVE WIDTH (threaded from run_fanout, which
         # knows len(selected)) — not worker_index+1, which showed every worker but
         # the last a wrong "task i of N" in its CURRENT TASK header.
+        # ISS-097: a worker is an INVOCATION, not a step. ``gate_agent_ids`` selects
+        # steps ("checked agents pause the pipeline after they finish"), so a self×N
+        # fan-out would otherwise arm one inline gate PER WORKER — all on the ONE
+        # gate_key f"{run_id}:{agent_id}" — and ``run_fanout`` forwards no worker
+        # event, so not one of those gates reaches the stream or ``run_events``: the
+        # run parks at ``waiting_for_user`` on a gate nobody can see or resolve. This
+        # is the ONLY site that suppresses it for a worker; the step's own gate
+        # (declared ``gates:``, evaluated at the step boundary) is untouched.
         async for event in self.run_agent(
             worker_step,
             ctx,
             task_number=worker_index + 1,
             total_tasks=total_workers or (worker_index + 1),
             task_block=input,
+            invocation_gated=False,
         ):
             yield event
 
@@ -1227,6 +1240,7 @@ class KernelServices:
         total_tasks: int | None = None,
         task_block: str | None = None,
         skeleton: str | None = None,
+        invocation_gated: bool = True,
     ) -> AsyncIterator[dict]:
         """Run ONE agent and re-yield its events (delegates to engine._run_agent).
 
@@ -1243,6 +1257,12 @@ class KernelServices:
         ``ectx.current_prototype_skeleton`` so the engine emits the legacy STANDALONE
         skeleton block (after the CURRENT TASK block); reset afterwards like the
         other build scratch. Task 1 passes ``None`` → no skeleton block.
+
+        ISS-097: ``invocation_gated`` is forwarded to ``_run_agent``'s inline
+        review-gate decision. It rides as an ARGUMENT rather than per-run state
+        because N fan-out workers share ONE ``ExecutionContext`` under
+        ``asyncio.gather`` — a save/restore field would race (INV-2). Default
+        ``True`` ⇒ every existing caller is byte-identical.
         """
         spec = self._spec_for(step)
         index = self._index_for(spec)
@@ -1280,6 +1300,7 @@ class KernelServices:
                 self._results,
                 self.cancel_event,
                 self._ectx,
+                invocation_gated=invocation_gated,
             ):
                 yield event
         finally:

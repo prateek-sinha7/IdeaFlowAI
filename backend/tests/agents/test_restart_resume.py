@@ -33,6 +33,7 @@ job.
 
 from __future__ import annotations
 
+import asyncio
 import json as _json
 import re
 import uuid
@@ -4427,5 +4428,175 @@ async def test_declared_gate_rejection_still_cancels_the_run():
     )
     assert "pipeline_complete" not in types, (
         f"WR-03 regressed: a declared-gate rejection reported completion: {types}"
+    )
+    session.close()
+
+
+# ===========================================================================
+# ISS-097 — a fan-out step must not arm one inline review gate PER WORKER.
+#
+# ``_should_gate`` (engine.py:4908) is a per-INVOCATION predicate on
+# ``spec.id``, but ``gate_agent_ids`` is a per-STEP selection ("checked agents
+# pause the pipeline after they finish"). Those two readings were identical
+# until fan-out made one step produce N invocations of one agent id. A
+# self×N fan-out therefore arms N inline gates, all on the ONE gate_key
+# ``f"{run_id}:{agent_id}"`` (engine.py:5705).
+#
+# The consequence is worse than N gates: ``fanout.py:414-429`` consumes every
+# worker event and forwards NOTHING (it reads only ``agent_complete`` for token
+# accounting), so ZERO ``review_gate_ready`` frames reach the emit boundary,
+# ZERO rows land in durable ``run_events``, ``derive_open_gate`` returns
+# ``(None, None)`` — and the run stops dead at a HITL pause the user cannot
+# see, discover or resolve, with ``workflow_runs.status`` reading
+# ``waiting_for_user`` indefinitely.
+#
+# METHOD TRAP — mandatory, and the reason the first investigation nearly filed
+# "not reachable": ``_ResumeHarness.make_engine`` assigns an empty async
+# generator to ``engine._run_review_gate`` as an INSTANCE attribute, silently
+# shadowing the real bound method. A gate assertion on this harness that does
+# not ``del engine._run_review_gate`` first passes green while proving nothing.
+# ===========================================================================
+
+# Long enough that a healthy scripted run (~1s) never trips it, short enough
+# that the pre-fix hang is a fast RED.
+_ISS097_TIMEOUT_S = 20.0
+
+
+def _count_gate_entries(engine, *, delegate: bool = True) -> list[str]:
+    """Un-shadow the harness's gate stub, then count REAL gate entries by agent id.
+
+    THE UN-SHADOW IS THE POINT. ``make_engine`` (:365) installs an empty async
+    generator as an INSTANCE attribute over ``ExecutionEngine._run_review_gate``.
+    ``del`` restores the real bound method; without it a gate assertion on this
+    harness passes green while proving nothing — measured: 1.07 s green against a
+    live 4-arm hang.
+
+    ``delegate=True`` wraps the REAL gate, so a gate that opens really blocks and
+    the hang stays observable. ``delegate=False`` counts the entry without opening
+    a blocking gate. Returns the (live) list of agent ids the gate was entered for.
+    """
+    del engine._run_review_gate  # ← the un-shadow
+    real = engine._run_review_gate
+    entries: list[str] = []
+
+    # ``*a, **kw`` binds whatever the engine's real keyword call grows into
+    # (test_gate_stub_signature_drift.py) and forwards it unchanged.
+    async def _counting_gate(*a, **kw):
+        entries.append(str(kw.get("agent_id") or "?"))
+        if not delegate:
+            return
+        async for ev in real(*a, **kw):
+            yield ev
+
+    engine._run_review_gate = _counting_gate  # type: ignore[assignment]
+    return entries
+
+
+@pytest.mark.asyncio
+async def test_fanout_workers_do_not_arm_the_inline_review_gate():
+    """ISS-097: gating a fan-out step's agent must not hang the run.
+
+    Drives ``sample_wave`` with a SINGLE-wave plan (4 workers in one
+    ``run_fanout`` call) and ``gate_agent_ids=["sample-wave-worker"]`` — the
+    exact selection one tick in the launch wizard's gate picker produces.
+
+    Pre-fix: ``_run_review_gate`` is entered 4 times (once per worker), every
+    frame is swallowed by ``fanout.py``, and the run never returns.
+    """
+    from app.models.subagent_run import SubagentRun
+
+    session, db_engine = _make_session()
+    run_id = f"iss097-{uuid.uuid4().hex[:8]}"
+    owner = "iss097-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    events: list[dict] = []
+    timed_out = False
+
+    with _ResumeHarness(
+        session, {}, fail_on=set(), db_engine=db_engine, plan=_SINGLE_WAVE_PLAN
+    ) as h:
+        engine = h.make_engine()
+        gate_entries = _count_gate_entries(engine)
+
+        async def _drive():
+            async for event in engine.execute(
+                agents=list(h.specs),
+                user_message="Run the wave workflow.",
+                pipeline_run_id=run_id,
+                pipeline_type=_FIXTURE_ID,
+                user_id=owner,
+                gate_agent_ids=["sample-wave-worker"],
+            ):
+                events.append(event)
+
+        try:
+            await asyncio.wait_for(_drive(), timeout=_ISS097_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            timed_out = True
+
+    types = [e.get("type") for e in events]
+    session.expire_all()
+    stuck = [
+        w for w in session.query(SubagentRun).filter(
+            SubagentRun.parent_run_id == run_id
+        ).all()
+        if w.status == "running"
+    ]
+
+    assert not timed_out, (
+        f"the run HUNG at an invisible fan-out worker gate: "
+        f"{len(gate_entries)} gate arm(s) on {sorted(set(gate_entries))}, "
+        f"{types.count('review_gate_ready')} review_gate_ready frame(s) on the wire"
+    )
+    assert gate_entries == [], (
+        f"a fan-out worker invocation armed the inline review gate: {gate_entries}"
+    )
+    assert not stuck, (
+        "workers left orphaned in subagent_runs: "
+        f"{[(w.worker_agent, w.worker_index, w.status) for w in stuck]}"
+    )
+    assert "pipeline_complete" in types, (
+        f"the gated fan-out run did not complete: {types[-6:]}"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_selecting_a_non_fanout_agent_still_opens_its_inline_gate():
+    """ISS-097 neutrality: the fix must narrow ONLY the worker invocation.
+
+    ``gate_agent_ids=["sample-wave-plan"]`` names the single_shot step's agent.
+    That invocation must still gate exactly once — proving the new
+    invocation-scope flag defaults to gating and that the fan-out fix is not
+    "turn gating off everywhere".
+    """
+    session, db_engine = _make_session()
+    run_id = f"iss097n-{uuid.uuid4().hex[:8]}"
+    owner = "iss097-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    with _ResumeHarness(
+        session, {}, fail_on=set(), db_engine=db_engine, plan=_SINGLE_WAVE_PLAN
+    ) as h:
+        engine = h.make_engine()
+        # delegate=False: count the entry without opening a real (blocking) gate.
+        gate_entries = _count_gate_entries(engine, delegate=False)
+
+        async def _drive():
+            async for _event in engine.execute(
+                agents=list(h.specs),
+                user_message="Run the wave workflow.",
+                pipeline_run_id=run_id,
+                pipeline_type=_FIXTURE_ID,
+                user_id=owner,
+                gate_agent_ids=["sample-wave-plan"],
+            ):
+                pass
+
+        await asyncio.wait_for(_drive(), timeout=_ISS097_TIMEOUT_S)
+
+    assert gate_entries == ["sample-wave-plan"], (
+        f"non-fan-out inline gating changed: {gate_entries}"
     )
     session.close()
