@@ -209,6 +209,9 @@ class Settings(BaseSettings):
     #       asserts this sum against the parsed stop_grace_period instead of trusting
     #       this comment: the previous version claimed "under 25s" while omitting both
     #       escalations and the pump drain entirely.
+    #       These are the BOUNDED waits only. Step 4's close_checkpointer() awaits
+    #       pool.close() with no timeout (checkpointer.py:142), so it sits on top of
+    #       the 24s and the true worst case is unbounded — ISS-106.
     # A Concierge turn owns the ONLY durable write of its chat_reply row
     # (run_commands.py:1356) and is explicitly never cancelled on client
     # disconnect - so it is AWAITED, not cancelled, and only cut past this bound.

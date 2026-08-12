@@ -238,6 +238,10 @@ def _teardown_budget_seconds(*, stop_runs: bool) -> float:
       pump cancel-and-wait           run_shutdown.py:174-176
       [stop-runs] driver drain       run_shutdown.py:233-235   (only when SHUTDOWN_STOP_RUNS)
       [stop-runs] driver escalation  run_shutdown.py:247-249   (only when SHUTDOWN_STOP_RUNS)
+
+    BOUNDED waits only. Step 4's close_checkpointer() awaits pool.close() with no timeout
+    (checkpointer.py:142), so the true worst case is unbounded and this guard cannot see
+    it — ISS-106. What this test does catch is a drain budget growing past the grace period.
     """
     from app.core.config import settings
 
