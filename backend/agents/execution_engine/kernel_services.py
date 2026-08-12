@@ -406,10 +406,18 @@ class KernelServices:
         if queue is None:
             return
         try:
-            queue.put_nowait({
-                "type": "hook_run",
-                "data": dict(detail) if detail else {},
-            })
+            data = dict(detail) if detail else {}
+            # ISS-082 — the frame's ONLY identity. This is the one event pushed straight
+            # onto the live queue instead of being yielded, so it never reaches execute()'s
+            # seq/event_id stamping chokepoint and carries no ``seq`` and has no run_events
+            # row. Without an id every consumer's dedup is a no-op for it by design
+            # (wsReplayState.shouldApplyEvent returns True for an unstamped frame), so a
+            # re-delivered hook row was appended twice. Keep it TRANSIENT: routing it
+            # through execute() would persist a row AND add a frame to the engine's yield
+            # stream — a golden event-multiset change (INV-3) that _VOLATILE_STRIP_KEYS
+            # strips seq/event_id from but cannot strip a whole row away.
+            data.setdefault("event_id", str(_uuid4()))
+            queue.put_nowait({"type": "hook_run", "data": data})
         except Exception:  # noqa: BLE001 — emit must never abort a hook
             pass
 
