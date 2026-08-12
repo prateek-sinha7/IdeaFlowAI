@@ -6,7 +6,7 @@ import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkf
 import type { WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
-import { useWorkflow } from "@/hooks/useWorkflow";
+import { applyTerminalStatus, useWorkflow } from "@/hooks/useWorkflow";
 // Phase 31 (CHATUI-01/02/03) — the chat-lane DATA layer + the nonce'd deep-link
 // seam + the app-level SSE connection. useRunChat folds the Phase-29 chat frames
 // into a transport-agnostic transcript; useTabDeepLink is the result-card →
@@ -1603,7 +1603,7 @@ export default function DashboardPage() {
   const effectiveReconnect = runConnection.reattach;
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow();
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit, reconcileTerminalStatus } = useWorkflow();
   // KAN-98: store pending gate edits so review_gate_approved can apply them to
   // the live agent state (planAgent.output etc.) for the Thinking tab display.
   const pendingGateEditRef = useRef<{ agentId: string; editedContent: string } | null>(null);
@@ -2244,6 +2244,60 @@ export default function DashboardPage() {
                 } as unknown as StreamMessage,
                 fullRun.id,
               );
+            }
+            // ISS-126 — reconcile the reopened run against its PERSISTED status.
+            //
+            // A terminal run never opens an SSE stream (the attachRun gate above),
+            // so this durable replay is the whole screen. When the log carries no
+            // terminal event — a run cancelled through one of the app-layer driver
+            // terminals (ISS-124), or one whose terminal row was destroyed by the
+            // pre-FIX-240 seq collision (ISS-121/ISS-123) — nothing here resolves
+            // `isRunning`, and the run renders as if it were still live: header
+            // "Awaiting approval", an armed Stop, armed gate cards.
+            //
+            // ORDER IS LOAD-BEARING: this must run AFTER the loop. Placed before
+            // it, the replayed review_gate_ready/pipeline_start would overwrite it.
+            //
+            // ONE-WAY: applyTerminalStatus no-ops on a non-terminal status, so a
+            // live run can never have a legitimately open gate cleared by this.
+            // Clearing reviewGateData instead would be WORSE than nothing —
+            // runLaneState would fall to "building" → header "Running", Stop still
+            // present. Resolving isRunning masks the stale gate row and fixes the
+            // header, the Stop button and the Steps gate cards together, because
+            // all three are AND-ed with isRunning.
+            //
+            // Writes the run STORE, not the legacy React setters: the lane reads
+            // `runStore.viewed.pipelineState` (displayedPipelineState).
+            if (REOPEN_TERMINAL_STATUSES.has(fullRun.status)) {
+              // BOTH containers, one vocabulary. The store alone is NOT enough — and
+              // this was proven in a real browser, not reasoned about. The FIX-201
+              // bridge (:1663-1672) copies the LEGACY useWorkflow.pipelineState into
+              // the store WHOLESALE once the viewport switches to this run (:2385).
+              // The legacy state accumulated the same terminal-less replay, so it
+              // still carries isRunning:true and silently clobbered a store-only
+              // patch a few hundred ms later — the screen went on showing "Awaiting
+              // approval" with a live Stop even though the store had been corrected.
+              // Reconciling the legacy state too makes that bridge idempotent
+              // instead of destructive.
+              reconcileTerminalStatus(fullRun.status);
+              runStore.updatePipelineState(fullRun.id, (prev) =>
+                applyTerminalStatus(prev, fullRun.status),
+              );
+              // A terminal run is not awaiting clarification. `laneClarifyOpen`
+              // (DashboardLayout:1862) is the ONE lane branch NOT AND-ed with
+              // isRunning — deliberately, because clarify happens BEFORE
+              // pipeline_start (on run 808612bf: questionnaire_ready @5,
+              // pipeline_start @11), so gating it on isRunning would break a LIVE
+              // clarify. That makes a lingering questionnaire outrank the terminal
+              // markers, so resolving isRunning alone left the header reading
+              // "Clarifying" with the Stop button still armed — observed in the
+              // browser, not predicted. On 808612bf the lingering panel is itself
+              // ISS-123 damage: its `questionnaire_complete` row (seq 7) is one of
+              // the 15 destroyed events, so the clear never replays.
+              // reviewGateData is deliberately NOT cleared: it is already masked by
+              // the gate branch's `&& isPipelineRunning`, and dropping it would
+              // erase the historical gate card from the reopened transcript.
+              runStore.update(fullRun.id, { questionnaireData: null });
             }
             // KAN-154 (Gap 1): family-aware chat seed — also fetch chat_reply rows
             // from the run's revision family so the transcript shows the full history

@@ -24,6 +24,10 @@ export interface UseWorkflowReturn {
   // KAN-98 — overwrite an agent's retained output with the user's gate-approved
   // edit so a later Redo forwards the edited content, not the stale original.
   retainAgentEdit: (agentId: string, editedContent: string) => void;
+  // ISS-126 — reconcile this state against a run's PERSISTED terminal status after
+  // a durable replay that contained no terminal event. One-way (see
+  // applyTerminalStatus): a non-terminal status is a no-op.
+  reconcileTerminalStatus: (status: string) => void;
 }
 
 const INITIAL_STATE: PipelineRunState = {
@@ -184,6 +188,14 @@ export function useWorkflow(): UseWorkflowReturn {
     });
   }, []);
 
+  // ISS-126: reconcile against the run's PERSISTED status after a durable replay
+  // that carried no terminal event. Routed through the SAME applyTerminalStatus
+  // the store path uses, so the two containers can never disagree about what
+  // terminal means (INV-12).
+  const reconcileTerminalStatus = useCallback((status: string) => {
+    setPipelineState((prev) => applyTerminalStatus(prev, status));
+  }, []);
+
   const isRunning = pipelineState.isRunning;
 
   return {
@@ -195,6 +207,7 @@ export function useWorkflow(): UseWorkflowReturn {
     submitQuestionnaire,
     retainClarifyRound,
     retainAgentEdit,
+    reconcileTerminalStatus,
   };
 }
 
@@ -285,6 +298,82 @@ function markApplied(
   const eventId = typeof msg.event_id === "string" ? msg.event_id : "";
   if (!eventId) return {};
   return { appliedUnsequencedIds: [...(prev.appliedUnsequencedIds ?? []), eventId] };
+}
+
+/**
+ * ISS-126 — the SINGLE definition of what a terminal run status does to the run
+ * state, and the single terminal-status vocabulary that goes with it.
+ *
+ * Before this, three event cases below each open-coded the same marker triad
+ * (`isRunning:false` + `cancelled`/`failed`/`degraded`), and NOTHING anywhere in
+ * `frontend/src` derived those markers from the server's `WorkflowRun.status`.
+ * That gap is the ISS-126 bug: a terminal run whose durable `run_events` log
+ * carries no terminal event (ISS-124's driver terminals, or a run corrupted by the
+ * pre-FIX-240 seq collision) is rebuilt on reopen purely from that log, so
+ * `isRunning` never resolves and the screen renders "Awaiting approval" + a live
+ * Stop button on a run that ended.
+ *
+ * The three event cases now route through this map, so the number of places that
+ * decide "what terminal looks like" goes from three to ONE — a fix that REDUCES
+ * truth sources rather than adding a fourth (INV-12). `workflow_runs.status` is
+ * already the lifecycle authority everywhere else (the boot restore scan, the
+ * RunState fence, the history badges, FIX-240's own SSE guard); only the run
+ * screen inverted it and treated the terminal EVENT as the source.
+ *
+ * Membership doubles as the terminal vocabulary — `null` means "terminal, but no
+ * failure marker" (a clean completion), an absent key means "not terminal at all".
+ * It is pinned equal to page.tsx's REOPEN_TERMINAL_STATUSES by
+ * `terminalStatusReconcile.test.ts`, and both match the backend's
+ * `TERMINAL_STATUSES` (chat_router.py).
+ */
+const TERMINAL_MARKER_BY_STATUS: Record<string, "cancelled" | "failed" | "degraded" | null> = {
+  completed: null,
+  cancelled: "cancelled",
+  failed: "failed",
+  degraded: "degraded",
+};
+
+/** The terminal marker patch for a terminal status. Callers pass a known member. */
+export function terminalMarkers(status: string): Partial<PipelineRunState> {
+  const marker = TERMINAL_MARKER_BY_STATUS[status];
+  return marker ? { isRunning: false, [marker]: true } : { isRunning: false };
+}
+
+/**
+ * Reconcile a run's state against the server's persisted terminal status.
+ *
+ * ONE-WAY BY CONSTRUCTION: a terminal status forces terminal UI, but a
+ * non-terminal (or unknown) status returns `prev` UNCHANGED — never "non-terminal
+ * status forces non-terminal UI". Without that asymmetry a slow `getWorkflow` on a
+ * genuinely live run could clear a legitimately open review gate.
+ */
+export function applyTerminalStatus(
+  prev: PipelineRunState,
+  status: string,
+): PipelineRunState {
+  if (!Object.prototype.hasOwnProperty.call(TERMINAL_MARKER_BY_STATUS, status)) {
+    return prev;
+  }
+  // Stand the run down: on a clean completion anything unfinished resolves to
+  // done (mirrors pipeline_complete); on any failure terminal the still-animating
+  // agents stop spinning but keep whatever status they earned (mirrors
+  // pipeline_cancelled / pipeline_failed).
+  const updated: AgentRunState[] = prev.agents.map((a) => {
+    if (status === "completed") {
+      return (a.status === "running" || a.status === "thinking" || a.status === "idle")
+        ? { ...a, status: "done" as const, thinking: "" }
+        : a;
+    }
+    return (a.status === "running" || a.status === "thinking")
+      ? { ...a, status: "idle" as const, thinking: "" }
+      : a;
+  });
+  return {
+    ...prev,
+    ...terminalMarkers(status),
+    agents: updated,
+    completedCount: updated.filter((a) => a.status === "done").length,
+  };
 }
 
 /**
@@ -656,7 +745,10 @@ export function handlePipelineMessage(
         });
         return {
           ...prev,
-          isRunning: false,
+          // ISS-126: the shared terminal vocabulary (INV-12) — this case no longer
+          // open-codes `isRunning:false`. `degraded` is re-stated below with the
+          // same value plus its agent list, so the spread order is immaterial.
+          ...terminalMarkers(isDegraded ? "degraded" : "completed"),
           totalDuration,
           agents: updated,
           degraded: isDegraded || undefined,
@@ -713,15 +805,13 @@ export function handlePipelineMessage(
         return {
           ...prev,
           agents: updated,
-          isRunning: false,
+          // ISS-017 (16-04): the additive server `failed` signal PreviewPanel keys
+          // its terminal-empty affordance on — NOT a client-side empty==failed
+          // guess. ISS-126: it and `isRunning:false` now come from the shared
+          // terminal vocabulary instead of being open-coded here (INV-12).
+          ...terminalMarkers("failed"),
           totalDuration,
           completedCount: updated.filter((a) => a.status === "done").length,
-          // ISS-017 (16-04): surface an additive server `failed` signal on the
-          // run state (mirrors the degraded/degradedFailedAgents pattern in the
-          // pipeline_complete handler). PreviewPanel keys its terminal-empty
-          // degraded/failed affordance on this server-derived flag — NOT a
-          // client-side empty==failed guess.
-          failed: true,
           failedAgents: failedIds,
         };
       });
@@ -755,16 +845,16 @@ export function handlePipelineMessage(
         return {
           ...prev,
           agents: updated,
-          isRunning: false,
+          // ISS-035 (SC-4): the terminal cancelled marker, so a downstream
+          // selector derives the LIVE-STATE-CONTRACT §1 cancelled state
+          // ("Cancelled by you") instead of falling through to idle. No chat
+          // message is pushed from the reducer — RunChatLane renders the
+          // transcript line off this marker + the generic RunLaneState (plan 06).
+          // ISS-126: it and `isRunning:false` now come from the shared terminal
+          // vocabulary instead of being open-coded here (INV-12).
+          ...terminalMarkers("cancelled"),
           totalDuration,
           completedCount: updated.filter((a) => a.status === "done").length,
-          // ISS-035 (SC-4): stamp the terminal cancelled marker (symmetric with
-          // pipeline_failed's `failed` flag above) so a downstream selector
-          // derives the LIVE-STATE-CONTRACT §1 cancelled state ("Cancelled by
-          // you") instead of falling through to idle. No chat message is pushed
-          // from the reducer — RunChatLane renders the transcript line off this
-          // marker + the generic RunLaneState (plan 06).
-          cancelled: true,
         };
       });
       return true;
