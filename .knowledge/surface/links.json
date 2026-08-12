@@ -245,6 +245,9 @@
       "ISS-084",
       "ISS-089"
     ],
+    "FIX-228": [
+      "ISS-090"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -303,7 +306,8 @@
     ],
     "ISS-053": [
       "FIX-219",
-      "ISS-071"
+      "ISS-071",
+      "ISS-090"
     ],
     "ISS-054": [
       "ISS-066"
@@ -390,6 +394,9 @@
     ],
     "ISS-085": [
       "ISS-087"
+    ],
+    "ISS-086": [
+      "ISS-090"
     ],
     "ISS-087": [
       "ISS-085"
@@ -518,6 +525,7 @@
       "FIX-224",
       "FIX-225",
       "FIX-226",
+      "FIX-228",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -567,6 +575,7 @@
       "ISS-085",
       "ISS-086",
       "ISS-087",
+      "ISS-090",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -671,6 +680,7 @@
       "FIX-217",
       "FIX-222",
       "FIX-226",
+      "FIX-228",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -691,6 +701,7 @@
       "ISS-085",
       "ISS-086",
       "ISS-087",
+      "ISS-090",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -756,6 +767,7 @@
       "FIX-221",
       "FIX-223",
       "FIX-227",
+      "FIX-228",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -1183,6 +1195,7 @@
       "FIX-223",
       "FIX-225",
       "FIX-227",
+      "FIX-228",
       "ISS-048",
       "ISS-051",
       "ISS-063",
@@ -1194,6 +1207,7 @@
       "ISS-085",
       "ISS-088",
       "ISS-089",
+      "ISS-090",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -2989,6 +3003,11 @@
     "ISS-089": [
       "FIX-227",
       "ISS-084"
+    ],
+    "ISS-090": [
+      "FIX-228",
+      "ISS-053",
+      "ISS-086"
     ]
   },
   "rules_by_file": {

@@ -21,6 +21,7 @@
 | TEST-009 | FIX-225 (quick-260812-4ss) | 2026-08-12 | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useRunStateStore.ts`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/types/index.ts` | 12 | 12 | 0 | ✅ Pass |
 | TEST-010 | FIX-226 (quick-260812-77g) | 2026-08-12 | `frontend/src/components/results/AgentDetailPanel.tsx` | 4 | 4 | 0 | ✅ Pass |
 | TEST-011 | FIX-227 (quick-260812-7sk) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/app/api/run_engine.py`, `backend/app/main.py`, `backend/app/api/run_commands.py`, `backend/app/api/run_shutdown.py` | 9 | 9 | 0 | ✅ Pass |
+| TEST-012 | FIX-228 (quick-260812-8j4) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/agents/execution_engine/context.py` | 11 | 11 | 0 | ✅ Pass |
 
 ---
 
@@ -904,3 +905,85 @@ deleted**: it now seeds the driver task too, making the premise true, and assert
 honest `accepted` acknowledgement. No test anywhere asserted that a drive OBSERVES the
 event, that `pipeline_cancelled` is emitted, or that the status flips — TEST-011 is those
 assertions.
+
+
+---
+
+### TEST-012 — FIX-228 (quick-260812-8j4): what a redo re-dispatch RECEIVES
+
+**File:** `backend/tests/agents/test_redo_prompt_contract.py` (new) — 11 tests, all green.
+Scripted-model harness only: no Bedrock, no Postgres, no Chromium.
+
+**The gap this closes.** `test_redo_gate_safety.py` is the redo suite and every one of its
+properties is an **absence** property — the internal signal never reaches the wire, the stack
+stays flat, no lineage or REVISE block leaks onto the next agent, a rejected version never
+wins. It comes within one line of catching ISS-086:
+`test_f3_empty_output_after_redo_does_not_leak_lineage` drives a full redo of agent A and then
+inspects **agent B's** prompt — agent A's redo dispatch is returned and thrown away. The suite
+asks *"did the REVISE block leak out?"* and never *"did the subject arrive in?"*.
+`test_spec_revision_context.py` (TEST-003) does assert presence, but only for the
+`update_specs` sub-pipeline; the word `redo` does not appear in it.
+
+**The goldens are structurally incapable of guarding this.** `_scripted_model.py:649` drives
+every characterization run with `gate_agent_ids=[]`, so `_should_gate` is False for every
+agent, no gate ever opens, and `_gate_redo` is unreachable. Zero `review_gate` strings exist in
+any golden artifact. 10/10 green proves the fix stayed **dormant**; it proves nothing about the
+redo path. That is why this file exists.
+
+**RED-before evidence** (at `742f0c6e`, before the fix): **8 failed / 3 passed**. Every failure
+was an assertion raised inside the test body — zero pytest errors, so none was a fixture or
+collection problem masquerading as a red. The measured `delta first->redo = 101 chars`
+independently reproduces the root-cause analysis's byte formula `79 + len(instruction)`
+(`79 + 22`): the redo added the instruction block and nothing else.
+
+| # | Test | Property | Pre-fix |
+|---|------|----------|---------|
+| 1 | `test_redo_dispatch_carries_the_agents_own_prior_output[×3]` | the re-run sees the document it is amending — parametrized over agent ids **read from the registry** across two pipelines (`user_stories` ×2, `prototype` ×1), so the SC-001 generality claim is asserted, not asserted-about | RED ×3 |
+| 2 | `test_redo_dispatch_renders_subject_before_instructions` | `index(PRIOR_BLOCK) < index(REVISE_BLOCK)` — FIX-217's "subject first, instructions second" rule, which a naive seam reuse would have inverted | RED |
+| 3 | `test_redo_injects_the_version_actually_being_rejected` | after **two** redos the third dispatch carries v2 and **not** v1 — max-version, kind-scoped | RED |
+| 4 | `test_redo_at_the_gate_reentry_site_carries_it_too` | the RESUME-17 restart-parked consumer (re-opens with zero model call) | RED |
+| 5 | `test_redo_at_the_reopened_post_revision_gate_carries_it_too` | the post-revision re-open consumer **plus** its three thin-copy defects: exactly one `results` entry, an audit row written, `derived_from` stamped | RED |
+| 6 | `test_task_loop_redo_is_skipped_but_a_whole_artifact_redo_is_not` | a per-task dispatch is skipped **while** a whole-artifact redo of the same agent is injected | RED |
+| 7 | `test_first_dispatch_carries_neither_block` | INV-3 dormancy guard | GREEN before **and** after |
+| 8 | `test_blank_redo_stays_a_regenerate` | blank ⇒ regenerate is the *retained* P23 semantics, matching the FE's own "leave blank to just regenerate" | GREEN before **and** after |
+| 9 | `test_redo_subject_does_not_leak_to_the_next_agent` | consume-once via save/restore; field empty after, next agent's prompt clean | GREEN before **and** after |
+
+**Test #6 is a discriminating pair on purpose.** Today *nothing* injects, so a bare "the
+task-loop case does not inject" would have been green from birth and proved nothing. Asserting
+both halves on the same agent — task-loop must NOT while whole-artifact MUST — makes it fail
+before the fix for the right reason.
+
+**Harness reuse (INV-12).** `_EngineHarness` / `_drive_agent` / `_make_ectx` are imported from
+`test_redo_gate_safety.py`, and `_FakeGateRunner` / `_seed_gate_reentry_ectx` from
+`test_restart_resume.py` — no forked harness.
+
+**The trap, hit again while writing this file** (already documented at
+`test_redo_gate_safety.py:230-235`): the fake gate's parameter names must match
+`_run_review_gate`'s keyword-only call **exactly**. `_run_agent` swallows a stub `TypeError`
+into an `agent_error` event, so a misnamed parameter does not error — the test silently
+observes **zero** gate firings and fails on a confusing count assertion instead.
+
+**Baselines, measured at `742f0c6e` and re-measured after:**
+
+```
+TEST COVERAGE — FIX-228
+Unit tests:        11 in backend/tests/agents/test_redo_prompt_contract.py  → ALL GREEN (8 observed RED first)
+Integration tests: N/A — the defect is in prompt composition; the scripted-model
+                   harness drives the real ExecutionEngine._run_agent redo loop end to end
+Frontend tests:    N/A — no frontend file changed (the FE already ships the instruction box)
+Goldens:           0 failed / 10 passed — IDENTICAL to 742f0c6e (never regenerated)
+lint-imports:      4 kept / 0 broken — IDENTICAL to 742f0c6e
+Regression guards:
+  - test_redo_gate_safety.py (7)      : the four absence properties still hold
+  - test_spec_revision_context.py (4) : FIX-217's path unaffected by the block move
+  - test_spec_revision_cycles.py (5)  : FIX-218's flat sibling cycles unaffected
+  - test_update_specs_enforcement.py (5) + test_update_specs_ingress_fence.py (13)
+  - test_gate_revision_discriminator.py (6), test_cancel_stops_resumed_run.py (5)
+  - test_restart_resume.py            : 7 failed / 48 passed, the SAME 7 ids as at
+                                        742f0c6e (compared id-by-id in a detached worktree)
+  - tests/unit/test_execution_engine.py: 3 failed / 11 passed, same 3 clarify-engine ids
+                                        (sqlite has no artifact_refs table offline)
+  - byte-identity: the first (non-redo) dispatch of three gated agents, dumped before and
+                   after, sha256 9f84b82e3736f045bde1c243770de255782252315e11cafceedc1a876b5bd24c
+                   — identical (INV-3, and the one thing the goldens cannot show)
+```
