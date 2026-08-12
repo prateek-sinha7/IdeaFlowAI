@@ -120,7 +120,10 @@ function deriveHandoff(
 
 /** Pure derivation (exported for the test): pick the card kind via the shared
  *  discriminator, derive its data from in-state fields, and resolve the handoff.
- *  Keys ONLY on generic state/props — never `agent.id`/`agent.name`. */
+ *  Keys ONLY on generic state/props — never `agent.id`/`agent.name`.
+ *  ISS-085: `agent.output` must be the version ON SCREEN, not necessarily the
+ *  newest — the artifact's TYPE is a property of that artifact, so an older
+ *  version of a different shape has to reach its own renderer. */
 export function deriveArtifactCardModel(
   agent: AgentRunState,
   index: number,
@@ -605,11 +608,15 @@ function ContextReceivedPanel({ sources }: { sources: ContextSource[] }) {
 //   Both are backend/additive — OUTSIDE this plan's FRONTEND-ONLY fence
 //   (SC-001/LOCK-B): a card needing them means OUT OF SCOPE → flag, never build.
 //   Recorded in 42-09-SUMMARY (deferred-items) for the 42-11 phase reconcile.
-function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: ArtifactCardModel }) {
+//
+// ISS-085 — this takes the artifact CONTENT on screen, never the agent: rendering
+// an older version while these cards re-parsed `agent.output` is what made the
+// version picker look inert. `model` carries the un-versioned agent facts.
+function SettledArtifactCards({ output, model }: { output: string; model: ArtifactCardModel }) {
   const hasCard = model.showPages || model.showTasks || model.showChecks;
   if (!hasCard) return null;
-  const pages = model.showPages ? parseSpecSections(agent.output) : [];
-  const pagesOverview = model.showPages ? parseSpecOverview(agent.output) : "";
+  const pages = model.showPages ? parseSpecSections(output) : [];
+  const pagesOverview = model.showPages ? parseSpecOverview(output) : "";
   return (
     <>
       {/* PAGES / SECTIONS card — the mock's 3-col page-thumbnail grid, built from the
@@ -684,7 +691,7 @@ function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: A
               </span>
             )}
           </div>
-          <AnalysisPreview content={agent.output} />
+          <AnalysisPreview content={output} />
         </div>
       )}
 
@@ -737,7 +744,13 @@ export function AgentDetailPanel({
   // ISS-065 — the older artifact version currently on screen, if any.
   const [viewed, setViewed] = useState<{ index: number; content: string } | null>(null);
   useEffect(() => { setViewed(null); }, [agent.id]);
-  const shownOutput = viewed?.content ?? agent.output ?? "";
+  // ISS-085 — this agent AS OF the version on screen. Every consumer of the
+  // artifact reads from here, so one selection moves the whole panel; deriving the
+  // cards from `agent.output` while the output section read the selected version
+  // is what made the picker look like it did nothing. Only `output` is swapped —
+  // validation, handoff and task state are run facts, not artifact versions.
+  const displayed = viewed ? { ...agent, output: viewed.content } : agent;
+  const shownOutput = displayed.output ?? "";
   const isRunning = agent.status === "running" || agent.status === "thinking";
   const isDone = agent.status === "done";
   const isError = agent.status === "error";
@@ -754,7 +767,7 @@ export function AgentDetailPanel({
   // the shared name-free discriminator. Renders conditionally between reasoning and
   // tool calls; the KEEP construction card (build agent) is a separate block.
   const cardModel = deriveArtifactCardModel(
-    agent,
+    displayed,
     agentIndex ?? agent.index,
     agents ?? [],
     { protoCompletedTasks, protoCompletedTaskCount, dagEdges },
@@ -830,14 +843,17 @@ export function AgentDetailPanel({
                     emits no separate reasoning/thinking stream, so agent.thinkingText is
                     always empty; surface the live output so every running agent
                     (spec-writer, plan, analyze, build…) shows its work instead of a
-                    blank cursor. The completed output is shown by OutputPreviewSection. */}
+                    blank cursor. The completed output is shown by OutputPreviewSection.
+                    ISS-085 exception: this one card reads `agent.output`, NOT the
+                    selected version — it is labelled "(live)" and pinning it to an
+                    older version would leave no way to watch the re-run it announces. */}
                 {reasoning.trim().length > 0 && <ReasoningCard text={reasoning} live={isRunning} />}
                 {reasoning.trim().length === 0 && isRunning && <ReasoningCard text={agent.output || ""} live label="Output" />}
 
                 {/* settled artifact cards (pages/sections · tasks · checks) + handoff
                     line — conditional, generically keyed (42-09). Distinct from the
                     KEEP construction card below. */}
-                <SettledArtifactCards agent={agent} model={cardModel} />
+                <SettledArtifactCards output={shownOutput} model={cardModel} />
 
                 {/* construction fan-out (build agent) */}
                 {construction && (
