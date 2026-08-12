@@ -1021,17 +1021,26 @@ fi
 # `|| return 1` is explicit rather than relying on the last command's status,
 # so adding a check later cannot silently change the function's result.
 assert_cloudwatch_agent_running() {
-    # §14's reconcile restarts the agent via fetch-config immediately before
-    # this runs, and `agent-ctl -a status` reports the last requested state from
-    # a status file written slightly AFTER the process comes up. Asserting once,
-    # seconds after a restart, therefore reports "not running" for an agent that
-    # is merely still starting. Retry over a bounded settle window instead — a
-    # genuinely dead agent still fails, it just takes 60s to say so.
-    local attempt
+    # §14's reconcile restarts the agent via fetch-config immediately before this
+    # runs, so a short settle window is genuinely useful. It is NOT, however, what
+    # made this check fail on dev.
+    #
+    # DO NOT pipe agent-ctl into grep here. `set -o pipefail` is in force for this
+    # whole script, so a pipeline inherits the exit status of the LEFT side: when
+    # agent-ctl exits non-zero while printing `"status": "running"`, the check
+    # reports failure even though the match succeeded. That is deterministic, not
+    # a race — it is why this assertion failed all 12 attempts on a host whose
+    # agent was demonstrably healthy and publishing metrics the entire time.
+    # Capture the output, then match it as a plain string.
+    local attempt status_json
     for attempt in $(seq 1 12); do
+        status_json="$(/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+                         -a status 2>/dev/null || true)"
+        # Whitespace-tolerant on purpose: agent-ctl pretty-prints today, but a
+        # compact `{"status":"running"}` must not be read as stopped. The previous
+        # fixed-string pattern `"status": "running"` missed that form entirely.
         if systemctl is-active --quiet amazon-cloudwatch-agent \
-           && /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-                -a status 2>/dev/null | grep -q '"status": "running"'; then
+           && [[ "$status_json" =~ \"status\"[[:space:]]*:[[:space:]]*\"running\" ]]; then
             echo "[bootstrap] OK: CloudWatch agent is active and reporting status=running (check ${attempt}/12)"
             return 0
         fi

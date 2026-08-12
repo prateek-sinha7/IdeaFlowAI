@@ -524,30 +524,6 @@ EOF
 
     echo "[reconcile] CloudWatch agent config written to /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
 
-    # fetch-config MERGES every config in amazon-cloudwatch-agent.d rather than
-    # replacing them, so any config left there by an earlier provisioning path
-    # (Terraform user_data, a manual `-c ssm:` fetch, a previous namespace)
-    # silently keeps contributing to what the running agent does. Observed on
-    # dev: the translator reported "delta processor required because metrics
-    # with diskio or net are set" for a config that declares neither, and the
-    # instance ended up publishing into TWO namespaces (CWAgent and
-    # VelocityAI/Dev) from two merged configs with conflicting settings.
-    #
-    # This file is the single source of truth for agent config, so drop stale
-    # siblings first and let fetch-config re-materialise exactly one. Scoped to
-    # the .d directory (generated, always rebuildable by fetch-config) — the
-    # authoritative JSON above is untouched.
-    CW_AGENT_D=/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d
-    if [[ -d "$CW_AGENT_D" ]]; then
-        _cw_stale=$(find "$CW_AGENT_D" -maxdepth 1 -type f -name '*.json' -printf '%f\n' 2>/dev/null | sort || true)
-        if [[ -n "$_cw_stale" ]]; then
-            echo "[reconcile] pruning previously merged CloudWatch agent configs before re-applying:"
-            printf '[reconcile]   %s\n' $_cw_stale
-            find "$CW_AGENT_D" -maxdepth 1 -type f -name '*.json' -delete 2>/dev/null || true
-            find "$CW_AGENT_D" -maxdepth 1 -type f -name '*.json.tmp' -delete 2>/dev/null || true
-        fi
-    fi
-
     # fetch-config translates JSON and restarts the agent; writing JSON alone
     # does not change the running agent configuration.
     if ! /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
