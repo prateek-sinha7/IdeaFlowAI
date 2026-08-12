@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-673 cards · rules 1 · fixes 236 · issues 120 · phases 23 · built 2026-08-12 16:36
+679 cards · rules 1 · fixes 237 · issues 125 · phases 23 · built 2026-08-12 18:51
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (236)
+## Fixes (237)
 
+FIX-240 2026-08-12 [backend,sse,resume,workflow,agents,auth] Every chat turn during a live run silently destroyed one engine event from the durable log (ISS-121). The register row's own root cause was WRONG and is corrected in place
 FIX-239 2026-08-12 [backend,frontend,sse,workflow,agents,auth] The product could not tell you whether prompt caching was saving money or costing it — and the obvious version of this feature would have printed a catastrophic wrong number on day one. ISS-034 asked for "saved $Y (Z%)"
 FIX-238 2026-08-12 [backend,sse,agents,auth,artifacts] The offline unit suite made REAL, billable AWS Bedrock calls, and nothing in the repo could have stopped it (ISS-102) — Nothing anywhere asserted that an offline test may not reach a live model
 FIX-237 2026-08-12 [frontend,sse,workflow,agents,artifacts] The settled "Task plan · N planned" card rendered the number COMPLETED, not the number planned — wrong at the latest version and frozen under the artifact version picker (ISS-087)
@@ -251,8 +252,13 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (120)
+## Issues (125)
 
+ISS-126 - [sse] FIX-240's data-repair guard only covers the CURSORED reattach; a fresh reopen of an already-corrupted run still renders an open gate
+ISS-125 - [resume,engine] _stamp_resume_marker still allocates its seq the slow, unprotected way. engine.py:6309-6311 reads the ENTIRE durable log (store.read_events(run_id, after_seq=0)) to compute max(seq)+1
+ISS-124 - [sse,backend] Two app-layer synthesised pipeline_cancelled frames never persist a durable row at all — a different cause with the same reopen symptom as ISS-121
+ISS-123 - [backend,sse,resume,workflow,agents,engine] FIX-240 stops NEW losses; it cannot recover the rows already destroyed. The pre-fix defect ran for as long as the chat lane has shared the engine's seq space, and a dropped run_events row has no provenance to reconstruct from
+ISS-121 - [sse,workflow,agents,auth,engine] A gate-rejected run reopens from history looking ALIVE: header "Awaiting approval", a "Stop" button, and the stale clarify line "The run is paused and waiting for you to answer clarification questions"
 ISS-120 - [backend,workflow,agents] Bedrock prompt caching is a single process-wide on/off switch, and on short runs it is a MEASURED net cost INCREASE — Split out of ISS-034 item (d) so a behaviour change to the model-call path is not folded into a telemetry-only change
 ISS-119 - [sse,test] Two TestRouting tests assert a routing contract the product deliberately superseded, and they will stay red until someone decides which side is right
 ISS-118 - [backend,sse,agents,auth,test] Eight offline tests CONSTRUCT a real LLM provider client. They cost nothing today only because none of them invokes it — one added .ainvoke/.astream in any of them is live spend

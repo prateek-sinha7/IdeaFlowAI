@@ -33,6 +33,7 @@
 | TEST-021 | FIX-237 (quick-260812-kpb) | 2026-08-12 | `frontend/src/components/results/artifactPreview.tsx`, `frontend/src/components/results/AgentDetailPanel.tsx`, `frontend/src/components/results/AgentThinkingTab.tsx` | 7 (4 new + 3 reconciled) | 7 | 0 | ✅ Pass |
 | TEST-022 | FIX-238 (quick-260812-lfv) | 2026-08-12 | `backend/tests/unit/test_iss102_live_model_guard.py` (new), `backend/tests/conftest.py`, `backend/tests/unit/test_chat_messages_endpoint.py` | 6 | 6 | 0 | ✅ Pass |
 | TEST-023 | FIX-239 (quick-260812-mq5) | 2026-08-12 | `backend/tests/agents/test_iss034_cost_full.py` (new), `backend/tests/unit/test_analytics_api.py`, `frontend/src/components/analytics/AnalyticsPage.test.tsx` | 17 | 17 | 0 | ✅ Pass |
+| TEST-024 | FIX-240 (quick-260812-ppu) | 2026-08-12 | `backend/tests/unit/test_run_events.py`, `backend/tests/unit/test_sse_stream.py` | 3 | 3 | 0 | ✅ Pass |
 
 ---
 
@@ -1911,3 +1912,87 @@ real cached run's emitted `estimated_cost_full_usd` reconciles end-to-end agains
 arithmetic itself is anchored to observed production numbers rather than invented fixtures,
 which is the strongest offline substitute available.
 
+
+
+### TEST-024 — FIX-240 (quick-260812-ppu): ISS-121 — the engine event the chat lane destroyed
+
+```
+TEST COVERAGE — FIX-240
+Unit tests:        2 in backend/tests/unit/test_run_events.py   (10 -> 12)  -> ALL GREEN
+                   1 in backend/tests/unit/test_sse_stream.py   (42 -> 43)  -> ALL GREEN
+Integration tests: N/A - no new IO boundary. Both new run_events cases already run the REAL
+                   ScopedStore + the REAL _RunEventSink against a real SQLAlchemy session on
+                   in-memory SQLite with the actual uq_run_events_scope_seq constraint doing
+                   the arbitration, and the second drives the REAL execute() wrapper.
+Frontend tests:    N/A - zero frontend files changed (`git status` confirms 4 backend files).
+                   The pre-existing ResultCard.test.tsx red and the 2 tsc errors therefore
+                   cannot have moved; this is a structural claim, not a measurement.
+Goldens:           0 failed / 10 passed - IDENTICAL to the pre-change commit 9e3dc9b0,
+                   and 0 golden FILES moved (git status clean under golden/)
+lint-imports:      4 kept / 0 broken - IDENTICAL to 9e3dc9b0
+Pre-existing reds: 22 failed / 176 passed across the 9-file sweep - IDENTICAL ID SET to
+                   9e3dc9b0, re-measured in a detached worktree (never a stash)
+Regression guards:
+  - test_engine_sink_survives_a_raced_seq_instead_of_losing_the_event: the primary proof. It
+    reconstructs the live shape of run 808612bf - parked at a review gate, rejected through
+    the chat lane - and asserts the durable ROW LIST, then that persist() reports the seq the
+    row actually landed on, then that derive_open_gate(rows) == (None, None). The ROW, not the
+    frame: the live stream is intact on every path, so any probe reading execute()'s output
+    passes on the broken code. That is precisely how ISS-091's three offline probes missed it.
+  - test_execute_restamps_seq_onto_the_frame_it_yields: drives the REAL execute() wrapper with
+    a scripted _execute_impl (the _sink kwarg is the production arming seam) and asserts row.seq
+    == data["seq"] for EVERY event. This is the Last-Event-ID contract: run_stream renders the
+    SSE id: cursor from row.seq on replay (:198) and from data["seq"] live (:264), so a retry
+    that did not re-stamp would corrupt resumption - a worse bug than the one being fixed.
+    It also pins that the allocator advances PAST the displaced seq, so the event after the
+    collision does not collide in turn.
+  - test_terminal_run_does_not_rearm_even_with_a_dangling_gate: part (b). Seeds exactly the
+    corruption shape - a log ending on an unresolved review_gate_ready after a chat_message,
+    with the pipeline_cancelled row missing - on a run whose persisted status is cancelled,
+    and asserts no re-arm frame.
+  - The two _BoomStore fakes in test_run_events.py were re-pointed from append_event to
+    append_event_at_or_after. Their ASSERTIONS are unchanged: the SQLAlchemyError case must
+    still degrade silently and the RuntimeError case must still propagate (WR-02). This is a
+    fake tracking the seam it doubles, not a loosened test.
+```
+
+**Fail-before, observed - and then observed a second time on the assertions themselves.**
+All three were run at `9e3dc9b0` before any production edit: `2 failed, 10 passed` in
+`test_run_events.py`, with the failure text naming the cause verbatim -
+`UNIQUE constraint failed: run_events.run_id, run_events.owner_id, run_events.workspace_id, run_events.seq`
+on the `pipeline_cancelled` insert.
+
+That first RED surfaces as a `PendingRollbackError` on the read-back, because the rejected flush
+poisons the shared test session - real, but it means the assertion itself had not yet been seen
+to discriminate. So each was re-run under a **mutation** of the shipped code rather than trusted:
+
+* retry disabled in `append_event_at_or_after` (`if True: raise`) ->
+  `AssertionError: the engine's terminal event was silently DROPPED by the seq collision`,
+  `Right contains one more item: 'pipeline_cancelled'`, and
+  `AssertionError: terminal row lost to the seq collision` /
+  `assert 'pipeline_cancelled' in {'agent_chunk': 3, 'chat_message': 2, 'review_gate_ready': 1}`.
+  That second dict is also the direct evidence for the blast-radius claim: the engine's counter
+  kept running and **exactly one** event died.
+* the terminal guard removed from `run_stream.py:255` ->
+  `AssertionError: a terminal run must NOT re-arm a dangling gate`,
+  `Left contains one more item: {'type': 'review_gate_ready', ...}`.
+
+Both mutations were reverted and the reverted state re-verified (`55 passed`) before the commit.
+
+**What CANNOT protect this, stated so nobody re-litigates it.** The characterization goldens
+compile `gate_agent_ids=[]` and contain zero `review_gate_ready` and zero `pipeline_cancelled`;
+they snapshot the yielded stream with `seq`/`event_id` stripped, against no database. They are
+the **neutrality** gate here, never the detection gate. `test_gates.py` and
+`test_declared_gate_streaming.py` read the yielded generator and are blind to a durable-row loss
+by construction.
+
+**The golden hazard that IS real, and how it was measured rather than argued.**
+`assert_seq_contiguous` (`characterization/_normalize.py:297-320`) pins `data["seq"]` DELTAS at
+exactly 1 on the RAW, pre-normalize stream. A retry-and-re-stamp design is safe only if no
+re-stamp can fire in the harness. The harness's persist failure was captured directly
+(`pytest -o log_cli=true --log-cli-level=WARNING`) and is a `sqlite3.IntegrityError`
+**FOREIGN KEY constraint failed** - not the `OperationalError` the degrade branch's own comment
+implies. A naive "retry on IntegrityError" would therefore have fired 8 attempts per event across
+every golden **and** re-stamped the seq. The shipped discriminator - retry only when the measured
+tail actually reaches the attempted seq - re-raises immediately in that case, which is why the
+goldens stay 10 passed with 0 files moved.

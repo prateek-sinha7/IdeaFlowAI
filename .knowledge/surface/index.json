@@ -1,5 +1,5 @@
 {
-  "count": 673,
+  "count": 679,
   "entries": [
     {
       "area": [
@@ -5596,6 +5596,30 @@
     },
     {
       "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/authz.py",
+        "backend/agents/execution_engine/engine.py",
+        "backend/app/api/run_stream.py",
+        "backend/tests/unit/test_run_events.py",
+        "backend/tests/unit/test_sse_stream.py"
+      ],
+      "id": "FIX-240",
+      "path": ".knowledge/cards/FIX-240.md",
+      "source": ".planning/FIX-REGISTER.md#fix-240",
+      "status": "done",
+      "summary": "Every chat turn during a live run silently destroyed one engine event from the durable log (ISS-121). The register row's own root cause was WRONG and is corrected in place",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -7841,6 +7865,107 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-120",
       "status": "open",
       "summary": "Bedrock prompt caching is a single process-wide on/off switch, and on short runs it is a MEASURED net cost INCREASE \u2014 Split out of ISS-034 item (d) so a behaviour change to the model-call path is not folded into a telemetry-only change",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-121",
+      "path": ".knowledge/cards/ISS-121.md",
+      "relates": [
+        "FIX-240",
+        "FIX-232",
+        "ISS-123",
+        "ISS-126",
+        "ISS-091"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-121",
+      "status": "done",
+      "summary": "A gate-rejected run reopens from history looking ALIVE: header \"Awaiting approval\", a \"Stop\" button, and the stale clarify line \"The run is paused and waiting for you to answer clarification questions\"",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "engine"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-123",
+      "path": ".knowledge/cards/ISS-123.md",
+      "relates": [
+        "FIX-240",
+        "ISS-121"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-123",
+      "status": "open",
+      "summary": "FIX-240 stops NEW losses; it cannot recover the rows already destroyed. The pre-fix defect ran for as long as the chat lane has shared the engine's seq space, and a dropped run_events row has no provenance to reconstruct from",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "backend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-124",
+      "path": ".knowledge/cards/ISS-124.md",
+      "relates": [
+        "ISS-121",
+        "FIX-240"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-124",
+      "status": "open",
+      "summary": "Two app-layer synthesised pipeline_cancelled frames never persist a durable row at all \u2014 a different cause with the same reopen symptom as ISS-121",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "resume",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-125",
+      "path": ".knowledge/cards/ISS-125.md",
+      "relates": [
+        "ISS-121",
+        "FIX-240"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-125",
+      "status": "open",
+      "summary": "_stamp_resume_marker still allocates its seq the slow, unprotected way. engine.py:6309-6311 reads the ENTIRE durable log (store.read_events(run_id, after_seq=0)) to compute max(seq)+1",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-126",
+      "path": ".knowledge/cards/ISS-126.md",
+      "relates": [
+        "FIX-240",
+        "ISS-123"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-126",
+      "status": "open",
+      "summary": "FIX-240's data-repair guard only covers the CURSORED reattach; a fresh reopen of an already-corrupted run still renders an open gate",
       "type": "issue"
     },
     {
@@ -10710,39 +10835,39 @@
   ],
   "facets": {
     "area": {
-      "agents": 261,
+      "agents": 264,
       "artifacts": 106,
-      "auth": 105,
-      "backend": 110,
+      "auth": 107,
+      "backend": 113,
       "cost": 1,
       "docs": 4,
-      "engine": 5,
+      "engine": 8,
       "evals": 12,
       "frontend": 201,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 68,
+      "resume": 71,
       "runtime": 36,
-      "sse": 187,
+      "sse": 192,
       "test": 3,
       "test-infra": 15,
       "tooling": 2,
-      "workflow": 220
+      "workflow": 223
     },
     "status": {
       "accepted": 1,
-      "done": 606,
-      "open": 57,
+      "done": 608,
+      "open": 61,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 236,
-      "issue": 120,
+      "fix": 237,
+      "issue": 125,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10760,5 +10885,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 16:36"
+  "generated": "2026-08-12 18:51"
 }
