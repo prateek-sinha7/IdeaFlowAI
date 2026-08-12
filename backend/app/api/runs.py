@@ -824,27 +824,37 @@ def get_chain_context(
             detail="Workflow run not found",
         )
 
-    # KAN-137: for *_revision pipeline types, extract context from the PARENT
-    # run (the original pipeline that the revision modifies). The revision run
-    # itself has no brief-analyst / spec-writer output, so its own context_block
-    # would be empty — leaving the downstream pipeline with no useful context.
+    # KAN-137: for *_revision pipeline types, extract context from the ROOT
+    # non-revision ancestor (the original pipeline). A revision of a revision
+    # (v1 → v2 → v3) has a parent that is itself a *_revision run — walk up
+    # the chain until we reach a non-revision base run. Each revision run in
+    # the chain has no brief-analyst / spec-writer output, so only the root
+    # has the structural context the chained pipeline needs.
     # Generic suffix check (SC-001/INV-1 — no pipeline-name literals).
     source_run = workflow_run
     revision_instruction: str | None = None
     if workflow_run.type.endswith("_revision") and workflow_run.parent_run_id:
-        parent_run = (
-            db.query(WorkflowRun)
-            .filter(
-                WorkflowRun.id == workflow_run.parent_run_id,
-                WorkflowRun.user_id == current_user.id,
+        # Walk up the revision chain to find the root non-revision ancestor.
+        # Cap at 20 hops to prevent an infinite loop on corrupted data.
+        candidate = workflow_run
+        for _ in range(20):
+            if not candidate.type.endswith("_revision") or not candidate.parent_run_id:
+                break
+            parent_run = (
+                db.query(WorkflowRun)
+                .filter(
+                    WorkflowRun.id == candidate.parent_run_id,
+                    WorkflowRun.user_id == current_user.id,
+                )
+                .first()
             )
-            .first()
-        )
-        if parent_run:
-            source_run = parent_run
-            # Extract the revision instruction from the *_revision run's input
-            # so the context_block can include "what was changed" alongside
-            # the parent's full slide-plan / spec structure.
+            if not parent_run:
+                break
+            candidate = parent_run
+        if candidate is not workflow_run:
+            source_run = candidate
+            # Extract the revision instruction from the MOST RECENT *_revision
+            # run's input so the context_block includes "what was changed".
             import re as _re_rev
             rev_match = _re_rev.search(
                 r"===\s*REVISION REQUEST\s*===\s*(.*?)\s*(?:===|$)",
@@ -854,7 +864,6 @@ def get_chain_context(
             if rev_match:
                 revision_instruction = rev_match.group(1).split("\n")[0].strip()
             else:
-                # Fallback: use the stored title (cleaned) as the instruction
                 revision_instruction = workflow_run.title or None
 
     ctx = _extract_chain_context(source_run)
