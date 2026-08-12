@@ -200,7 +200,8 @@
     "FIX-217": [
       "FIX-218",
       "ISS-063",
-      "ISS-065"
+      "ISS-065",
+      "ISS-086"
     ],
     "FIX-218": [
       "ISS-062",
@@ -538,6 +539,7 @@
       "ISS-082",
       "ISS-084",
       "ISS-085",
+      "ISS-086",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -659,6 +661,7 @@
       "ISS-080",
       "ISS-081",
       "ISS-085",
+      "ISS-086",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -1322,6 +1325,7 @@
       "ISS-083",
       "ISS-084",
       "ISS-085",
+      "ISS-086",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -2920,6 +2924,9 @@
     "ISS-085": [
       "FIX-222",
       "ISS-065"
+    ],
+    "ISS-086": [
+      "FIX-217"
     ]
   },
   "rules_by_file": {
