@@ -423,8 +423,9 @@ export default function DashboardPage() {
         agentIds?: string[];
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-      // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
-      if (!draft.designSystemId || !draft.brief) return;
+      // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
+      // FIX-216c: allow empty brief when chaining (wizard canContinue already validated it).
+      if (!draft.designSystemId) return;
       pendingOdProtoRef.current = {
         templateId: draft.templateId ?? "",  // empty string = no template
         designSystemId: draft.designSystemId,
@@ -459,7 +460,9 @@ export default function DashboardPage() {
         images?: { name: string; mime_type: string; data: string }[];
         agentIds?: string[];
       };
-      if (!draft.templateId || !draft.brief) return;
+      // FIX-216c: allow empty brief when chaining (the chain context block IS the
+      // brief; wizard canContinue guard already validated it). Only require templateId.
+      if (!draft.templateId) return;
       pendingOdPptRef.current = {
         templateId: draft.templateId,
         designSystemId: draft.designSystemId ?? null,
