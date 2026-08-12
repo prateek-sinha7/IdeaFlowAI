@@ -1021,17 +1021,39 @@ fi
 # `|| return 1` is explicit rather than relying on the last command's status,
 # so adding a check later cannot silently change the function's result.
 assert_cloudwatch_agent_running() {
-    if ! systemctl is-active --quiet amazon-cloudwatch-agent; then
-        echo "[bootstrap] ERROR: amazon-cloudwatch-agent unit is not active" >&2
-        return 1
-    fi
-    if ! /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-           -a status 2>/dev/null | grep -q '"status": "running"'; then
-        echo "[bootstrap] ERROR: amazon-cloudwatch-agent-ctl does not report status=running" >&2
-        return 1
-    fi
-    echo "[bootstrap] OK: CloudWatch agent is active and reporting status=running"
-    return 0
+    # §14's reconcile restarts the agent via fetch-config immediately before
+    # this runs, and `agent-ctl -a status` reports the last requested state from
+    # a status file written slightly AFTER the process comes up. Asserting once,
+    # seconds after a restart, therefore reports "not running" for an agent that
+    # is merely still starting. Retry over a bounded settle window instead — a
+    # genuinely dead agent still fails, it just takes 60s to say so.
+    local attempt
+    for attempt in $(seq 1 12); do
+        if systemctl is-active --quiet amazon-cloudwatch-agent \
+           && /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+                -a status 2>/dev/null | grep -q '"status": "running"'; then
+            echo "[bootstrap] OK: CloudWatch agent is active and reporting status=running (check ${attempt}/12)"
+            return 0
+        fi
+        sleep 5
+    done
+
+    echo "[bootstrap] ERROR: CloudWatch agent did not report status=running within 60s" >&2
+    # Dump the on-box evidence. Without this the failure is undiagnosable from
+    # CI: the agent log lives on the instance and the SSM command output is all
+    # a reviewer ever sees, so "does not report status=running" is a dead end.
+    # The .d listing is included because fetch-config MERGES every config in
+    # that directory, so a stale leftover config silently changes what the
+    # running agent does (e.g. a second metrics namespace).
+    echo "[bootstrap] --- systemctl status amazon-cloudwatch-agent ---" >&2
+    systemctl status amazon-cloudwatch-agent --no-pager -l 2>&1 | tail -n 20 >&2 || true
+    echo "[bootstrap] --- agent-ctl -a status ---" >&2
+    /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status 2>&1 | tail -n 20 >&2 || true
+    echo "[bootstrap] --- merged configs in amazon-cloudwatch-agent.d ---" >&2
+    ls -la /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/ 2>&1 | tail -n 20 >&2 || true
+    echo "[bootstrap] --- tail amazon-cloudwatch-agent.log ---" >&2
+    tail -n 40 /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log 2>&1 | tail -n 40 >&2 || true
+    return 1
 }
 
 assert_cloudwatch_agent_running || BOOTSTRAP_DEGRADED+=("cloudwatch-agent")
