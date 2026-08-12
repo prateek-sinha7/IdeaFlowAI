@@ -18,6 +18,7 @@
 | TEST-006 | FIX-220 (quick-260812-1nz) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/tests/agents/characterization/_normalize.py`, `frontend/src/components/chat/InlineGateActions.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/results/StepsOverviewSpine.tsx` | 8 | 8 | 0 | ✅ Pass |
 | TEST-007 | FIX-221 + FIX-222 (quick-260812-2ci) | 2026-08-12 | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useRunStateStore.ts`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/types/index.ts`, `frontend/src/components/results/ArtifactVersionPicker.tsx`, `frontend/src/components/results/AgentDetailPanel.tsx`, `frontend/src/components/results/AgentThinkingTab.tsx` | 27 | 27 | 0 | ✅ Pass |
 | TEST-008 | FIX-223 + FIX-224 (quick-260812-35u) | 2026-08-12 | `backend/tests/agents/test_loader.py`, `backend/tests/agents/test_banned_patterns.py`, `backend/tests/agents/characterization/_normalize.py`, `backend/agents/prompts/prototype-build/AGENT.md`, `backend/agents/capabilities/strategies/task_loop.py`, `backend/tests/agents/characterization/golden/prototype_revision.events.json` | 4 | 4 | 0 | ✅ Pass |
+| TEST-009 | FIX-225 (quick-260812-4ss) | 2026-08-12 | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useRunStateStore.ts`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/types/index.ts` | 12 | 12 | 0 | ✅ Pass |
 
 ---
 
@@ -336,6 +337,102 @@ incident it reproduces lost 8 headings, dropped "Spinnaker" 4x -> 0x and kept on
 ---
 
 ---
+
+### TEST-009 — FIX-225 (quick-260812-4ss): the multiplicity gap that let a 15-green-test fix over-count in a real browser
+
+```
+TEST COVERAGE — FIX-225
+Unit tests:        N/A — frontend-only change, zero backend files touched.
+Integration tests: N/A — no cross-service behaviour changed; the engine is deliberately
+                   untouched (altering `resume_offset` emission would move the goldens).
+Frontend tests:    12 NEW cases in frontend/src/hooks/useWorkflow.specRevisionCount.test.ts,
+                   ALL GREEN. Every one seen RED first against the unmodified source.
+
+  describe "ISS-080 — the count is a function of the SET of events, not of deliveries"
+    is idempotent under double delivery (a reopen replays REST *and* SSE)
+      RED BEFORE (observed): AssertionError: expected 5 to be 2
+        — 5 is EXACTLY what the live browser showed (scratchpad/live-04-steps.png).
+    is idempotent under triple delivery too (any future multiplicity)
+      RED BEFORE (observed): AssertionError: expected 8 to be 2
+    keeps the per-agent tally at the DISTINCT-event count under double delivery
+      RED BEFORE (observed): {specify: 6, plan: 4, analyze: 4} vs {3, 2, 2}
+        — the exact map measured in the live store during the investigation.
+
+  describe "ISS-081 — a per-task agent loop is not a revision cycle"
+    ignores the build loop's 11 restarts on run 6e38b9a7 (ONE revision)
+      RED BEFORE (observed): AssertionError: expected 10 to be 1
+    still ignores the build loop under double delivery
+      RED BEFORE (observed): AssertionError: expected 21 to be 1
+    reads 0 revisions on a run whose ONLY repeated agent is the task loop
+      RED BEFORE (observed): AssertionError: expected 10 to be +0
+        — the PREDICTED live symptom: a banner on a fresh build with zero revisions.
+
+  describe "ISS-075 — a same-run pipeline_start re-announces, it does not restart"
+    does not repaint a populated roster as idle (trailing resume_offset 0)
+      RED BEFORE (observed): expected [] to deeply equal
+        ['prototype-specify','prototype-plan','prototype-analyze']
+    does not zero completedCount on a same-run re-announcement
+      RED BEFORE (observed): AssertionError: expected +0 to be 3
+    keeps the roster intact when the re-announcement carries a NON-zero offset
+      RED BEFORE (observed): ['prototype-specify'] vs ['prototype-specify','prototype-plan']
+    still builds a fresh idle roster for a genuinely different run
+      Scope guard — the merge must not leak across runs.
+
+  describe "deriveSpecRevisionCount" (rewritten for the head-scoped rule)
+    ignores restarts of any agent that is NOT the pipeline head (ISS-081)
+    returns 0 when the roster is not known yet
+
+  FIXTURE CHANGE (load-bearing): REAL_FRAMES now carry `event_id` + `seq`, which every
+  persisted `run_events` row and every live SSE event actually carries. The un-stamped
+  fixtures were themselves part of why ISS-080 was invisible here — an un-stamped frame
+  cannot be recognised as a re-delivery. Also added the `agent_complete` at seq 24787
+  that the real durable log holds, so the roster assertions match the live screen.
+
+Goldens:           10 passed / 0 failed — IDENTICAL to the pre-change commit f353a1a9
+                   (frontend-only change; the engine was deliberately not touched).
+lint-imports:      4 kept / 0 broken — IDENTICAL to f353a1a9 (run from backend/).
+Frontend suite:    BEFORE 147 failed / 808 passed (955), 29 failed files, at f353a1a9
+                   AFTER  147 failed / 820 passed (967), 29 failed files
+                   `comm` over the sorted failing-id sets: ZERO new reds, ZERO
+                   coincidentally-fixed reds. The +12 are exactly the new cases.
+tsc --noEmit:      2 errors, both in files this change never touched
+                   (NotificationPanel.fix195.test.tsx, useNotifications.fix202.test.tsx)
+                   — 0 errors in any changed file. No new errors.
+token-layer gate:  9 passed / 9.
+Related suites:    79 passed across useWorkflow.specRevisionCount, useWorkflow.regenerateReset,
+                   useWorkflow.pipelineCancelled, wsReplayState, wsRunScope,
+                   liveRunSwitch.fix201, deadRevisionRefs.source (the replay/reducer
+                   blast radius, incl. the source-lock on the store's single writer).
+
+LIVE PROOF (mandatory here — unit tests are exactly what missed this):
+  Run d5dbc9f2-dbe8-480f-8b13-788794a6788e reopened from Run History on a fresh load,
+  local backend :8010 + `next dev` :3000, headless Chromium driver
+  scratchpad/verify-260812-4ss.mjs.
+    banner        "Spec Revision Cycle 2"   (pre-fix: "Spec Revision Cycle 5")
+    roster header "3 / 5 agents"            (pre-fix: "0 / 5 agents")
+    steps rows    specify/plan/analyze disabled=false, WITH durations + token counts
+                  ("Spec Writer Agent 1m 42s · 42.4K tok"); build/validate correctly
+                  disabled (they never ran).                (pre-fix: all 5 disabled)
+    page errors   none
+  Screenshots: scratchpad/verify-4ss-after-01-run.png, verify-4ss-after-02-steps.png
+  Pre-fix pair: scratchpad/live-04-steps.png (Cycle 5 / 0 / 5, hollow Spec Writer row).
+
+Regression guards:
+  - The three double-delivery cases enforce the general rule the investigation drew out:
+    ANY reducer field that accumulates must have a test that replays its input TWICE.
+    All 15 prior FIX-221 cases called runFrames(REAL_FRAMES) exactly once — they varied
+    frame ORDER but never frame MULTIPLICITY, which is the property that actually broke.
+  - The head-scoping cases pin the ISS-081 rule against a return to `max`, using the REAL
+    11-restart build-loop shape rather than a synthetic one.
+  - The roster cases make ISS-075 impossible to file again as "confirmed in code, NOT
+    observed on screen" — the reducer now proves the on-screen consequence directly.
+```
+
+**Findings deliberately NOT fixed here, filed rather than left in a transcript:**
+`ISS-082` (the sibling accumulators `agent_chunk` output concat and `hookRuns` push carry
+no identity key either — now protected only by the class-level seen-set fix) and `ISS-083`
+(`ResultCard.tsx` renders `Revising spec — cycle {cycle ?? 1}` and nothing passes `cycle`
+— a third, dormant counter in this family).
 
 ## Detailed Test Entries
 

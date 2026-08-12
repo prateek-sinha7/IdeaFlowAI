@@ -121,7 +121,8 @@
     ],
     "FIX-164": [
       "ISS-063",
-      "ISS-080"
+      "ISS-080",
+      "ISS-083"
     ],
     "FIX-166": [
       "FIX-177"
@@ -175,7 +176,8 @@
       "ISS-061"
     ],
     "FIX-201": [
-      "FIX-206"
+      "FIX-206",
+      "ISS-080"
     ],
     "FIX-202": [
       "FIX-203",
@@ -219,11 +221,18 @@
     ],
     "FIX-222": [
       "FIX-221",
-      "ISS-063"
+      "ISS-063",
+      "ISS-075"
     ],
     "FIX-223": [
       "ISS-078",
       "ISS-079"
+    ],
+    "FIX-225": [
+      "ISS-075",
+      "ISS-080",
+      "ISS-081",
+      "ISS-082"
     ],
     "ISS-007": [
       "ISS-035"
@@ -261,7 +270,8 @@
       "ISS-036"
     ],
     "ISS-039": [
-      "FIX-163"
+      "FIX-163",
+      "ISS-083"
     ],
     "ISS-045": [
       "ISS-048"
@@ -353,7 +363,8 @@
       "FIX-221"
     ],
     "ISS-080": [
-      "ISS-081"
+      "ISS-081",
+      "ISS-082"
     ],
     "ISS-081": [
       "ISS-080"
@@ -474,6 +485,7 @@
       "FIX-222",
       "FIX-223",
       "FIX-224",
+      "FIX-225",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -518,6 +530,7 @@
       "ISS-079",
       "ISS-080",
       "ISS-081",
+      "ISS-082",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -1043,6 +1056,7 @@
       "FIX-220",
       "FIX-221",
       "FIX-222",
+      "FIX-225",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -1054,6 +1068,8 @@
       "ISS-077",
       "ISS-080",
       "ISS-081",
+      "ISS-082",
+      "ISS-083",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1118,6 +1134,7 @@
       "FIX-218",
       "FIX-221",
       "FIX-223",
+      "FIX-225",
       "ISS-048",
       "ISS-051",
       "ISS-063",
@@ -1257,6 +1274,7 @@
       "FIX-219",
       "FIX-221",
       "FIX-223",
+      "FIX-225",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1289,6 +1307,7 @@
       "ISS-078",
       "ISS-079",
       "ISS-080",
+      "ISS-083",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1446,6 +1465,7 @@
       "FIX-221",
       "FIX-222",
       "FIX-223",
+      "FIX-225",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1480,6 +1500,7 @@
       "ISS-079",
       "ISS-080",
       "ISS-081",
+      "ISS-082",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -2101,7 +2122,8 @@
       "FIX-208",
       "FIX-210",
       "FIX-220",
-      "FIX-221"
+      "FIX-221",
+      "FIX-225"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
@@ -2453,7 +2475,8 @@
     "frontend/src/hooks/useRunStateStore.ts": [
       "FIX-201",
       "FIX-220",
-      "FIX-221"
+      "FIX-221",
+      "FIX-225"
     ],
     "frontend/src/hooks/useRunStream.test.ts": [
       "FIX-129"
@@ -2470,14 +2493,16 @@
       "FIX-209"
     ],
     "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts": [
-      "FIX-221"
+      "FIX-221",
+      "FIX-225"
     ],
     "frontend/src/hooks/useWorkflow.ts": [
       "FIX-007b",
       "FIX-107",
       "FIX-120",
       "FIX-166",
-      "FIX-221"
+      "FIX-221",
+      "FIX-225"
     ],
     "frontend/src/lib/__tests__/wsRunScope.test.ts": [
       "FIX-129"
@@ -2521,7 +2546,8 @@
       "FIX-166",
       "FIX-178",
       "FIX-220",
-      "FIX-221"
+      "FIX-221",
+      "FIX-225"
     ],
     "scripts/knowledge/check_ids.py": [
       "ISS-050",
@@ -2834,6 +2860,8 @@
     ],
     "ISS-075": [
       "FIX-221",
+      "FIX-222",
+      "FIX-225",
       "ISS-063",
       "ISS-065"
     ],
@@ -2852,14 +2880,25 @@
     ],
     "ISS-080": [
       "FIX-164",
+      "FIX-201",
       "FIX-221",
+      "FIX-225",
       "ISS-063",
       "ISS-075",
       "ISS-081"
     ],
     "ISS-081": [
+      "FIX-225",
       "ISS-075",
       "ISS-080"
+    ],
+    "ISS-082": [
+      "FIX-225",
+      "ISS-080"
+    ],
+    "ISS-083": [
+      "FIX-164",
+      "ISS-039"
     ]
   },
   "rules_by_file": {

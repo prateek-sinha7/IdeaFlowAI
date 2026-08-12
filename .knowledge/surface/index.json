@@ -1,5 +1,5 @@
 {
-  "count": 619,
+  "count": 622,
   "entries": [
     {
       "area": [
@@ -5299,6 +5299,29 @@
     },
     {
       "area": [
+        "frontend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/hooks/useWorkflow.ts",
+        "frontend/src/hooks/useRunStateStore.ts",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/types/index.ts",
+        "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts"
+      ],
+      "id": "FIX-225",
+      "path": ".knowledge/cards/FIX-225.md",
+      "source": ".planning/FIX-REGISTER.md#fix-225",
+      "status": "done",
+      "summary": "Three defects on one reopen-replay path, two of them in the same expression \u2014 the \"Spec Revision Cycle N\" banner read 5 for a run with 2 revisions, and the reopened run's trace repainted as \"0 / 5 agents\" with every Steps row disabled",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -6579,10 +6602,12 @@
       "relates": [
         "ISS-063",
         "ISS-065",
-        "FIX-221"
+        "FIX-221",
+        "FIX-225",
+        "FIX-222"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-075",
-      "status": "open",
+      "status": "done",
       "summary": "Reopening a run resets the whole Steps trace to idle. The trailing resume pipeline_start carries resume_offset = 0 (run d5dbc9f2 seq 24791",
       "type": "issue"
     },
@@ -6693,10 +6718,12 @@
         "ISS-063",
         "FIX-164",
         "ISS-075",
-        "ISS-081"
+        "ISS-081",
+        "FIX-225",
+        "FIX-201"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-080",
-      "status": "open",
+      "status": "done",
       "summary": "The revision banner back-fills but over-counts: it renders \"Spec Revision Cycle 5\" on a run that had 2 revision cycles \u2014 Observed by me in a live headless-browser pass on 2026-08-12 against the running stack (backend :8010 on current code",
       "type": "issue"
     },
@@ -6713,11 +6740,49 @@
       "path": ".knowledge/cards/ISS-081.md",
       "relates": [
         "ISS-080",
-        "ISS-075"
+        "ISS-075",
+        "FIX-225"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-081",
-      "status": "open",
+      "status": "done",
       "summary": "deriveSpecRevisionCount takes max over ALL agents, but prototype-build restarts once per task. Even with ISS-080's double-counting fully fixed",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-082",
+      "path": ".knowledge/cards/ISS-082.md",
+      "relates": [
+        "FIX-225",
+        "ISS-080"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-082",
+      "status": "open",
+      "summary": "The sibling reducer accumulators carry no identity key either \u2014 agent_chunk (output: prev.output + chunk) and hook_run (hookRuns: [...prev.hookRuns, entry]) in useWorkflow.ts",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-083",
+      "path": ".knowledge/cards/ISS-083.md",
+      "relates": [
+        "ISS-039",
+        "FIX-164"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-083",
+      "status": "open",
+      "summary": "A third, dormant counter in the spec-revision family: ResultCard.tsx:97-100,119 renders Revising spec \u2014 cycle {cycle ?? 1} for the spec_revision card kind and NOTHING passes cycle (grep -rn \"cycle={\" src",
       "type": "issue"
     },
     {
@@ -9587,36 +9652,36 @@
   ],
   "facets": {
     "area": {
-      "agents": 221,
+      "agents": 223,
       "artifacts": 89,
       "auth": 83,
       "backend": 93,
       "docs": 2,
       "engine": 1,
       "evals": 10,
-      "frontend": 182,
+      "frontend": 185,
       "harness": 2,
       "infra": 1,
       "product": 29,
-      "resume": 51,
+      "resume": 52,
       "runtime": 31,
-      "sse": 149,
+      "sse": 151,
       "test-infra": 11,
       "tooling": 2,
-      "workflow": 199
+      "workflow": 201
     },
     "status": {
       "accepted": 1,
-      "done": 572,
-      "open": 37,
+      "done": 576,
+      "open": 36,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 221,
-      "issue": 81,
+      "fix": 222,
+      "issue": 83,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -9634,5 +9699,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 03:26"
+  "generated": "2026-08-12 03:50"
 }
