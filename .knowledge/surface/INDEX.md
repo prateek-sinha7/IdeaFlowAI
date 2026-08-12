@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-625 cards · rules 1 · fixes 222 · issues 86 · phases 23 · built 2026-08-12 05:27
+627 cards · rules 1 · fixes 223 · issues 87 · phases 23 · built 2026-08-12 05:32
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (222)
+## Fixes (223)
 
+FIX-226 2026-08-12 [frontend,sse,agents,artifacts] The ISS-065 artifact-version picker only moved the raw output — the prominent artifact CARD kept rendering the LATEST version, so the owner selected v1, saw v3's page grid, and reported "while changing the version there
 FIX-225 2026-08-12 [frontend,sse,resume,workflow,agents] Three defects on one reopen-replay path, two of them in the same expression — the "Spec Revision Cycle N" banner read 5 for a run with 2 revisions, and the reopened run's trace repainted as "0 / 5 agents" with every Steps row disabled
 FIX-224 2026-08-12 [backend,agents] The agents.capabilities must not import the execution kernel or the web layer import-linter contract had been BROKEN since 2026-07-20, so Ports & Adapters was at 3 kept / 1 broken against a documented intended state of 4/0
 FIX-223 2026-08-12 [backend,sse,resume,workflow,agents,auth] The 5 characterization event goldens — the project's INV-3 parity oracle — had been red on dev for weeks, so INV-3 could only be checked by diffing failure counts against a hand-captured baseline
@@ -237,8 +238,9 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (86)
+## Issues (87)
 
+ISS-087 - [sse,agents,artifacts,frontend] The un-versioned halves of the agent-detail cards do not follow the artifact version picker. FIX-226 made every CONTENT-derived surface follow the selection
 ISS-086 - [sse,agents,artifacts] "Request changes" (redo) at an agent's own gate re-runs that agent WITHOUT injecting its prior output, so the agent returns only the delta and the previous work is destroyed
 ISS-085 - [sse,resume,agents,artifacts,frontend] Switching artifact versions does not change the spec cards — only the raw output below them. The owner tested the new ISS-065 picker and reported: "while changing the version there, i couldnt see the older version's content"
 ISS-084 - [sse,resume,agents,auth] Stop / cancel does not stop a building run. POST /api/runs/{id}/cancel returns HTTP 200 {"ok":true,"cancelled":true} and the run keeps generating

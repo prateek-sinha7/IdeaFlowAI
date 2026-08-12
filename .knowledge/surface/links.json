@@ -35,7 +35,8 @@
       "FIX-041b",
       "FIX-042b",
       "ISS-035",
-      "ISS-039"
+      "ISS-039",
+      "ISS-085"
     ],
     "FIX-046": [
       "FIX-177"
@@ -236,6 +237,10 @@
       "ISS-081",
       "ISS-082"
     ],
+    "FIX-226": [
+      "ISS-085",
+      "ISS-087"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -374,6 +379,12 @@
     ],
     "ISS-081": [
       "ISS-080"
+    ],
+    "ISS-085": [
+      "ISS-087"
+    ],
+    "ISS-087": [
+      "ISS-085"
     ]
   },
   "by_area": {
@@ -492,6 +503,7 @@
       "FIX-223",
       "FIX-224",
       "FIX-225",
+      "FIX-226",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -540,6 +552,7 @@
       "ISS-084",
       "ISS-085",
       "ISS-086",
+      "ISS-087",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -643,6 +656,7 @@
       "FIX-167b",
       "FIX-217",
       "FIX-222",
+      "FIX-226",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -662,6 +676,7 @@
       "ISS-081",
       "ISS-085",
       "ISS-086",
+      "ISS-087",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -1069,6 +1084,7 @@
       "FIX-221",
       "FIX-222",
       "FIX-225",
+      "FIX-226",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -1083,6 +1099,7 @@
       "ISS-082",
       "ISS-083",
       "ISS-085",
+      "ISS-087",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1290,6 +1307,7 @@
       "FIX-221",
       "FIX-223",
       "FIX-225",
+      "FIX-226",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1326,6 +1344,7 @@
       "ISS-084",
       "ISS-085",
       "ISS-086",
+      "ISS-087",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -2328,7 +2347,8 @@
       "FIX-062"
     ],
     "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx": [
-      "FIX-222"
+      "FIX-222",
+      "FIX-226"
     ],
     "frontend/src/components/results/AgentDetailPanel.tsx": [
       "FIX-049b",
@@ -2922,11 +2942,18 @@
       "ISS-078"
     ],
     "ISS-085": [
+      "FIX-039",
       "FIX-222",
-      "ISS-065"
+      "FIX-226",
+      "ISS-065",
+      "ISS-087"
     ],
     "ISS-086": [
       "FIX-217"
+    ],
+    "ISS-087": [
+      "FIX-226",
+      "ISS-085"
     ]
   },
   "rules_by_file": {

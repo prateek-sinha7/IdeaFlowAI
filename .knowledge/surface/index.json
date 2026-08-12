@@ -1,5 +1,5 @@
 {
-  "count": 625,
+  "count": 627,
   "entries": [
     {
       "area": [
@@ -5322,6 +5322,24 @@
     },
     {
       "area": [
+        "frontend",
+        "sse",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx"
+      ],
+      "id": "FIX-226",
+      "path": ".knowledge/cards/FIX-226.md",
+      "source": ".planning/FIX-REGISTER.md#fix-226",
+      "status": "done",
+      "summary": "The ISS-065 artifact-version picker only moved the raw output \u2014 the prominent artifact CARD kept rendering the LATEST version, so the owner selected v1, saw v3's page grid, and reported \"while changing the version there",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -6818,10 +6836,13 @@
       "path": ".knowledge/cards/ISS-085.md",
       "relates": [
         "ISS-065",
-        "FIX-222"
+        "FIX-222",
+        "FIX-226",
+        "FIX-039",
+        "ISS-087"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-085",
-      "status": "open",
+      "status": "done",
       "summary": "Switching artifact versions does not change the spec cards \u2014 only the raw output below them. The owner tested the new ISS-065 picker and reported: \"while changing the version there, i couldnt see the older version's content\"",
       "type": "issue"
     },
@@ -6841,6 +6862,26 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-086",
       "status": "open",
       "summary": "\"Request changes\" (redo) at an agent's own gate re-runs that agent WITHOUT injecting its prior output, so the agent returns only the delta and the previous work is destroyed",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "artifacts",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-087",
+      "path": ".knowledge/cards/ISS-087.md",
+      "relates": [
+        "FIX-226",
+        "ISS-085"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-087",
+      "status": "open",
+      "summary": "The un-versioned halves of the agent-detail cards do not follow the artifact version picker. FIX-226 made every CONTENT-derived surface follow the selection",
       "type": "issue"
     },
     {
@@ -9710,27 +9751,27 @@
   ],
   "facets": {
     "area": {
-      "agents": 226,
-      "artifacts": 91,
+      "agents": 228,
+      "artifacts": 93,
       "auth": 84,
       "backend": 93,
       "docs": 2,
       "engine": 1,
       "evals": 10,
-      "frontend": 186,
+      "frontend": 188,
       "harness": 2,
       "infra": 1,
       "product": 29,
       "resume": 54,
       "runtime": 31,
-      "sse": 154,
+      "sse": 156,
       "test-infra": 11,
       "tooling": 2,
       "workflow": 201
     },
     "status": {
       "accepted": 1,
-      "done": 578,
+      "done": 580,
       "open": 37,
       "shipped": 1
     },
@@ -9738,8 +9779,8 @@
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 222,
-      "issue": 86,
+      "fix": 223,
+      "issue": 87,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -9757,5 +9798,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 05:27"
+  "generated": "2026-08-12 05:32"
 }

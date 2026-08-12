@@ -19,6 +19,7 @@
 | TEST-007 | FIX-221 + FIX-222 (quick-260812-2ci) | 2026-08-12 | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useRunStateStore.ts`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/types/index.ts`, `frontend/src/components/results/ArtifactVersionPicker.tsx`, `frontend/src/components/results/AgentDetailPanel.tsx`, `frontend/src/components/results/AgentThinkingTab.tsx` | 27 | 27 | 0 | ✅ Pass |
 | TEST-008 | FIX-223 + FIX-224 (quick-260812-35u) | 2026-08-12 | `backend/tests/agents/test_loader.py`, `backend/tests/agents/test_banned_patterns.py`, `backend/tests/agents/characterization/_normalize.py`, `backend/agents/prompts/prototype-build/AGENT.md`, `backend/agents/capabilities/strategies/task_loop.py`, `backend/tests/agents/characterization/golden/prototype_revision.events.json` | 4 | 4 | 0 | ✅ Pass |
 | TEST-009 | FIX-225 (quick-260812-4ss) | 2026-08-12 | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useRunStateStore.ts`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/types/index.ts` | 12 | 12 | 0 | ✅ Pass |
+| TEST-010 | FIX-226 (quick-260812-77g) | 2026-08-12 | `frontend/src/components/results/AgentDetailPanel.tsx` | 4 | 4 | 0 | ✅ Pass |
 
 ---
 
@@ -747,3 +748,59 @@ Regression guards:
 `ISS-078` (the 7 `test_restart_resume.py` reds — possibly a LIVE production resume
 regression, multi-day) and `ISS-079` (2 `test_phase6_frontend_consistency.py` reds,
 re-baselined as pre-existing at `f5f2f7c6` in a detached worktree).
+
+---
+
+### TEST-010 — FIX-226 (quick-260812-77g): the version picker moves the WHOLE panel, not just the raw output
+
+```
+TEST COVERAGE — FIX-226
+Unit tests:        N/A — frontend-only change, zero backend files touched.
+Integration tests: N/A — no transport, endpoint or engine behaviour changed; the
+                   artifact-version API (FIX-222) was already correct and untouched.
+Frontend tests:    4 NEW cases in
+                   frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx,
+                   ALL GREEN. All four seen RED first against the unmodified source
+                   (observed: "Tests  4 failed | 4 passed (8)" — the 4 pre-existing
+                   ISS-065 cases passing throughout, so the RED is the new gap only).
+Goldens:           10 failed→0 / 10 passed — IDENTICAL to the pre-change commit a48965a5
+                   (the code commit touches 2 frontend files; the backend tree at
+                   a48965a5 is byte-identical to HEAD, so this is proof, not a sample).
+lint-imports:      4 kept / 0 broken — IDENTICAL to a48965a5, same argument.
+                   NB: must be run from backend/ — from the repo root it prints
+                   "Could not read any configuration" and exits, which reads as a pass.
+
+  describe "AgentDetailPanel — ISS-085: the artifact cards follow the selected version"
+    selecting v1 repaints the spec pages card, not just the raw output
+      RED BEFORE (observed): timed out waiting for /Specification · 1 page/ — the card
+        stayed on v2's "Specification · 2 pages" + "Beta Page" while the raw output
+        below it had already switched. This IS the owner's report, reproduced.
+    Back to latest returns the card to the newest version
+      RED BEFORE (observed): same wait; the card had never left v2, so "returning" to
+        it could not be observed at all.
+    selecting v1 repaints the governance-checks card body (AnalysisPreview)
+      RED BEFORE (observed): "Risk register" never appeared — <AnalysisPreview
+        content={agent.output}/> kept rendering v2's "Risk Mitigation Plan".
+    derives the artifact TYPE from the selected version, so a mid-re-run agent still
+    gets its card
+      RED BEFORE (observed): no card at all. discriminateArtifact("") returns null, and
+        FIX-039 clears agent.output on every agent_start — so during the exact
+        update_specs cycle ISS-065 exists to serve, the panel showed the version's text
+        with no card. Type-follows-selection is what closes this.
+
+Regression guards:
+  - "Back to latest returns the card to the newest version": the fix cannot strand the
+    panel on an old version — the failure mode a naive `viewed ?? agent` swap invites.
+  - The 4 pre-existing ISS-065 cases and the whole 42-09 artifactCards suite are
+    UNCHANGED and still green (50/50 across the 5 results suites), which is what proves
+    SettledArtifactCards' prop change (agent → output) broke no caller.
+  - Full frontend vitest: 147 failed / 820 passed BEFORE → 147 failed / 824 passed
+    AFTER; the failing-id sets diff to EMPTY (normalised for timings) and the 29
+    failing FILES are identical. +4 passed = exactly the new cases.
+```
+
+**Deliberate non-coverage, recorded rather than hidden:** the tasks card still lists the
+run's CURRENT `protoCompletedTasks` when an older `<tasks>` version is selected, and the
+checks badge still reflects the agent's current `validationPassed`. Both are run/agent
+state that is not versioned anywhere in the FE, so following the selection would mean
+inventing data. Filed as `ISS-087` rather than silently fixed or silently ignored.
