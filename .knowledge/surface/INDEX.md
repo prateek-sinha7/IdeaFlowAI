@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-654 cards · rules 1 · fixes 231 · issues 106 · phases 23 · built 2026-08-12 13:14
+659 cards · rules 1 · fixes 232 · issues 110 · phases 23 · built 2026-08-12 13:59
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (231)
+## Fixes (232)
 
+FIX-235 2026-08-12 [sse,resume,agents] A re-delivered frame appended a second copy to every accumulating field in handlePipelineMessage — the reducer's correctness was a property of its CALLERS' dedup, the exact arrangement ISS-080 died of behind 15 green tests
 FIX-234 2026-08-12 [backend,docs,frontend,sse,resume] The local backend could not be stopped by SIGTERM while any run was streaming, so the entire graceful-shutdown half never ran on a developer machine — and even when reached it did not stop the run
 FIX-233 2026-08-12 [backend,sse,agents,auth,artifacts] The Concierge was pre-fed the ENTIRE run through three unbounded read tools — one chat question re-fed 9,227,107 chars ≈ 2,306,776 tokens, on two runs 144% and 151% of everything the whole pipeline recorded
 FIX-232 2026-08-12 [backend,sse,resume,workflow,agents,auth,runtime] Rejecting at a review gate did not stop the run — every remaining step still ran, the run reported pipeline_complete, and the fake complete/completed rows it left behind made a later resume skip every wave and produce NOTHING
@@ -246,8 +247,12 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (106)
+## Issues (110)
 
+ISS-110 - [workflow,frontend] hookRuns has no per-run boundary in the reducer. pipeline_start spreads ...prev and never clears it; only startPipeline / resetPipeline do
+ISS-109 - [sse,workflow,agents,frontend] validator_result and gate_passed have ZERO producers in non-test backend code, so validationIssues may be dead on the wire and AgentDetailPanel's checksPassed === true may be structurally unreachable
+ISS-108 - [workflow,frontend] clarifications accumulates with no identity and no per-run reset outside startPipeline. useWorkflow.ts:168 does clarifications: [...(prev.clarifications ?? []), round] inside retainClarifyRound
+ISS-107 - [frontend] hook_run's payload never reaches the reducer, so the only live consumer of hookRuns is structurally dead. dashboard/page.tsx:915 dispatches `{ type: msg.type, ...(msg.data
 ISS-106 - [resume,auth,infra] The graceful-shutdown budget is bounded only in its drain steps; the final pool close is unbounded, so the documented worst case is not a worst case
 ISS-105 - [sse,infra] lifespan.shutdown() is entered BEFORE the SSE request generators finish unwinding, so shutdown_run_infrastructure() snapshots _PIPELINE_QUEUES / _PUMP_TASKS while stream teardown is still in flight
 ISS-104 - [backend,infra] Stale line-number citations in the shutdown-path comments — each points at code that has since moved, and a fixer following them lands in the wrong place

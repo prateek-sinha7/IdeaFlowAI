@@ -1,5 +1,5 @@
 {
-  "count": 654,
+  "count": 659,
   "entries": [
     {
       "area": [
@@ -5494,6 +5494,24 @@
     },
     {
       "area": [
+        "sse",
+        "resume",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [],
+      "id": "FIX-235",
+      "path": ".knowledge/cards/FIX-235.md",
+      "relates": [
+        "FIX-201"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-235",
+      "status": "done",
+      "summary": "A re-delivered frame appended a second copy to every accumulating field in handlePipelineMessage \u2014 the reducer's correctness was a property of its CALLERS' dedup, the exact arrangement ISS-080 died of behind 15 green tests",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -6946,7 +6964,7 @@
         "ISS-080"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-082",
-      "status": "open",
+      "status": "done",
       "summary": "The sibling reducer accumulators carry no identity key either \u2014 agent_chunk (output: prev.output + chunk) and hook_run (hookRuns: [...prev.hookRuns, entry]) in useWorkflow.ts",
       "type": "issue"
     },
@@ -7452,6 +7470,76 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-106",
       "status": "open",
       "summary": "The graceful-shutdown budget is bounded only in its drain steps; the final pool close is unbounded, so the documented worst case is not a worst case",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-107",
+      "path": ".knowledge/cards/ISS-107.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-107",
+      "status": "open",
+      "summary": "hook_run's payload never reaches the reducer, so the only live consumer of hookRuns is structurally dead. dashboard/page.tsx:915 dispatches `{ type: msg.type, ...(msg.data",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-108",
+      "path": ".knowledge/cards/ISS-108.md",
+      "relates": [
+        "ISS-082"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-108",
+      "status": "open",
+      "summary": "clarifications accumulates with no identity and no per-run reset outside startPipeline. useWorkflow.ts:168 does clarifications: [...(prev.clarifications ?? []), round] inside retainClarifyRound",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-109",
+      "path": ".knowledge/cards/ISS-109.md",
+      "relates": [
+        "ISS-082",
+        "ISS-087"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-109",
+      "status": "open",
+      "summary": "validator_result and gate_passed have ZERO producers in non-test backend code, so validationIssues may be dead on the wire and AgentDetailPanel's checksPassed === true may be structurally unreachable",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-110",
+      "path": ".knowledge/cards/ISS-110.md",
+      "relates": [
+        "FIX-201",
+        "ISS-082",
+        "FIX-235",
+        "ISS-107"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-110",
+      "status": "open",
+      "summary": "hookRuns has no per-run boundary in the reducer. pipeline_start spreads ...prev and never clears it; only startPipeline / resetPipeline do",
       "type": "issue"
     },
     {
@@ -10321,7 +10409,7 @@
   ],
   "facets": {
     "area": {
-      "agents": 248,
+      "agents": 250,
       "artifacts": 100,
       "auth": 101,
       "backend": 104,
@@ -10329,31 +10417,31 @@
       "docs": 4,
       "engine": 5,
       "evals": 11,
-      "frontend": 190,
+      "frontend": 194,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 66,
+      "resume": 67,
       "runtime": 36,
-      "sse": 173,
+      "sse": 175,
       "test": 1,
       "test-infra": 14,
       "tooling": 2,
-      "workflow": 209
+      "workflow": 212
     },
     "status": {
       "accepted": 1,
-      "done": 596,
-      "open": 48,
+      "done": 598,
+      "open": 51,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 231,
-      "issue": 106,
+      "fix": 232,
+      "issue": 110,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -10371,5 +10459,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 13:14"
+  "generated": "2026-08-12 13:59"
 }

@@ -28,6 +28,7 @@
 | TEST-016 | FIX-232 (quick-260812-g1c) | 2026-08-12 | `backend/tests/agents/test_restart_resume.py`, `backend/tests/agents/test_fanout_cancel.py`, `backend/tests/agents/test_fanout.py` | 7 | 7 | 0 | ✅ Pass |
 | TEST-017 | FIX-233 (quick-260812-gsf) | 2026-08-12 | `backend/tests/agents/test_concierge_capability.py`, `backend/tests/unit/test_chat_messages_endpoint.py` | 22 | 22 | 0 | ✅ Pass |
 | TEST-018 | FIX-234 (quick-260812-hsx) | 2026-08-12 | `backend/tests/unit/test_shutdown_reachability.py`, `backend/tests/unit/test_run_shutdown.py` | 10 | 10 | 0 | ✅ Pass |
+| TEST-019 | FIX-235 (quick-260812-iqh) | 2026-08-12 | `frontend/src/hooks/useWorkflow.accumulators.test.ts`, `frontend/src/lib/wsReplayState.test.ts`, `frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts` | 37 | 37 | 0 | ✅ Pass |
 
 ---
 
@@ -1491,3 +1492,122 @@ a real run. Everything above runs against a synthetic app that mirrors only the 
 (`main.py:238`), which auto-resumes non-terminal runs and would spend Bedrock budget. The
 mechanism is identical (same uvicorn, same `sse_starlette`, same signal path), and production
 has run with the flag since KAN-151 D8.
+
+### TEST-019 — FIX-235 (quick-260812-iqh): ISS-082 — every accumulating reducer field, fed its input twice
+
+**The rule this suite makes executable:** *a reducer field that accumulates is not done until
+a test has fed it the same input twice and it did not change.*
+
+ISS-080 is why it needs a suite rather than a case. It shipped behind **15 green tests** and
+still put a wrong number on screen, because every one of those tests varied frame ORDER and
+never frame MULTIPLICITY — and multiplicity is what a history reopen produces.
+
+**Files**
+
+| file | tests | what it holds |
+|---|---|---|
+| `frontend/src/hooks/useWorkflow.accumulators.test.ts` | 30 | the registry, the multiplicity matrix, GUARD-1 |
+| `frontend/src/lib/wsReplayState.test.ts` | +6 | `resolveFrameRunId` — the A3 measurement |
+| `frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts` | 1 reconciled | the deleted bypass, source-locked ABSENT |
+| `frontend/src/hooks/__fixtures__/reducerHarness.ts` | — | the ONE `runFrames` driver, extracted not copied |
+
+**Part 1 — a declared registry, one row per accumulating field.** All **seven**
+(`output`, `thinkingText`, `toolCalls`, `validationIssues`, `hookRuns`, `agentStartEventIds`,
+`clarifications`), each with the minimal frames that grow it, what the user ends up seeing,
+and its value after ONE logical delivery. `clarifications` is registered `driver: "ui"` — it is
+grown by a direct UI call, so there is no frame identity to gate on (ISS-108).
+
+**Part 2 — three multiplicities per row, via `describe.each`.** They fail for different reasons:
+partial redelivery (no intervening `agent_start` — an SSE resume mid-agent); full replay (the
+whole log twice); and **triple** delivery, which catches a fix correct only at n=2.
+
+**Part 3 — GUARD-1, the part that stops the family recurring.** A source assertion that a new
+accumulator cannot be added without a registry row, in the shape this repo already sanctions
+(`deadRevisionRefs.source.test.ts` calls it "the sanctioned grep-style source assertion").
+Its detector keys on the **structural invariant** — *a property whose value both READS its own
+previous value and GROWS it* — because idiom-matching is exactly what failed before: the
+ISS-082 row's own `grep -nE '\+= 1|\.push\(|\.concat\('` matches a comment (`:431`) and a
+local variable (`:954`) and **zero** real accumulators. Written against the seven known sites
+FIRST and validated to find **exactly 7 with zero false positives** before being trusted; both
+halves are asserted (nothing unregistered, and nothing registered unfound) so it can never
+silently match nothing. The one growth-only line it correctly excludes is
+`totalTokens: totalInput + totalOutput` — a recompute over overwritten values, the pattern the
+six broken fields should have imitated.
+
+**One harness, not two.** `runFrames` was EXTRACTED from `useWorkflow.specRevisionCount.test.ts`
+to `__fixtures__/reducerHarness.ts` rather than copied: two replay harnesses would be two
+different definitions of "re-delivery", which is the one thing this suite must not have. The
+extraction is proven faithful by that spec's 21 tests still passing (and it caught its own
+error first — the initial extraction missed two other users of `EMPTY_STATE` and went 5 red).
+
+**Seen RED first — 12 failures, the investigation's observed values reproduced exactly**
+
+| field | partial redelivery | full replay | triple |
+|---|---|---|---|
+| `output` | `"Hello worldHello world"` | converges | `...x3` |
+| `thinkingText` | `"step one\nstep one\n"` | converges | `...x3` |
+| `toolCalls` | 2 | converges | 3 |
+| `validationIssues` | 2 | converges | 3 |
+| `hookRuns` | 2 | **2** | 3 |
+| `agentStartEventIds` | 1 | 1 | 1 (control — FIX-225 already held) |
+
+Plus *"a genuinely NEW frame after a re-delivery still applies"* → `"Hello worldHello world!"`.
+`hookRuns` is the only field that also doubles on a FULL replay, and that asymmetry is pinned
+deliberately: `agent_start`'s FIX-039 reset is what makes the others converge, and nothing
+resets `hookRuns`. `hook_run` is fed WITHOUT a `seq` because that is what the wire delivers —
+`emit_hook_event` never reaches the engine's stamping chokepoint — so the case genuinely
+exercises the unsequenced-id path rather than the cursor.
+
+**Three mutation tests, so none of this is decoration**
+
+| mutation | expected | observed |
+|---|---|---|
+| remove the per-run cursor reset | run 2's frames get swallowed | 1 failed / 29 passed — *"a different run resets the cursor"* |
+| re-inject the deleted `runStoreHandleFrameRef` loop | the reconciled guard fires | 1 failed / 55 passed |
+| drop `resolveFrameRunId`'s `sourceRunId` fallback | the A3 claim collapses | 3 failed / 9 passed — the live frame, the replayed frame, and the empty-id case |
+
+**A3's safety is MEASURED, not reasoned.** The investigation said plainly that A3 was
+"unverified by test; must be measured", and its blast radius turned out to be LARGER than
+modelled — `page.tsx:1682` rebuilds the live message as `{ type, data }`, so the shadow was
+`undefined` on the LIVE path too, not only the replayed one. That is why the run-id decision
+was extracted into `wsReplayState` as `resolveFrameRunId`: so the claim could be tested
+directly rather than argued. Its 6 tests pin what the OLD code returned for a live and a
+REST-replayed agent frame (`undefined` in both cases) and what the new one returns.
+
+**A stale guard was RECONCILED, never relaxed.** `liveRunSwitch.fix201.test.ts` asserted
+`expect(body).toContain("runStore.get(runId)")` — whose only occurrence computed `hasLiveAgents`
+for the very bypass ISS-082 deletes. Changed-behaviour, so the lock changes with it, and it is
+now **tighter**: it forbids the mechanism instead of requiring it. The `pipeline_start` skip it
+protected is subsumed by ISS-075, which MERGES the roster on a same-run re-announcement rather
+than rebuilding it — so replaying `pipeline_start` can no longer reset live agents to idle.
+
+```
+TEST COVERAGE — FIX-235
+Unit tests:        43 in backend/tests/agents/{test_hooks,test_audit_endpoints}.py  → ALL GREEN (A1 blast radius)
+Integration tests: N/A — no integration surface; hook_run is a transient live-queue frame with no durable row
+Frontend tests:    30 in frontend/src/hooks/useWorkflow.accumulators.test.ts        → ALL GREEN (12 seen RED first)
+                    6 in frontend/src/lib/wsReplayState.test.ts (resolveFrameRunId) → ALL GREEN (3 RED under mutation)
+                    1 reconciled in frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts → GREEN (RED under mutation)
+                   107 across the 8 specs touching the reducer                      → ALL GREEN
+Goldens:           0 failed / 10 passed — IDENTICAL to the pre-change commit 07197b0e; 0 golden files modified
+lint-imports:      4 kept / 0 broken — IDENTICAL to 07197b0e (run from backend/)
+Full vitest:       147 failed / 860 passed (1007) vs 147 failed / 824 passed (971) at 07197b0e
+                   → +36 passing, ZERO newly-red, ZERO newly-green, identical failing ID set
+Mocked Playwright: 33 failed / 43 skipped / 108 passed — byte-identical to 07197b0e
+Backend reds:      11 failed / 54 passed — IDENTICAL ID set to 07197b0e
+tsc --noEmit:      2 errors, both pre-existing in test files not touched by this change
+Regression guards:
+  - GUARD-1 (accumulators): a new accumulator in useWorkflow.ts is RED until it has a registry row
+  - GUARD-1 non-vacuity: the detector must find every registered site, so it cannot silently match nothing
+  - the triple-delivery row: a fix correct only at n=2 fails
+  - "a genuinely NEW frame after a re-delivery still applies": the cursor cannot over-block
+  - "a different run resets the cursor": run 1's high-water mark cannot swallow run 2 (INV-2)
+  - resolveFrameRunId x6: the store-routing decision, incl. what the pre-fix code returned
+  - liveRunSwitch.fix201: the undeduped second replay pass stays deleted
+  - deadRevisionRefs.source.test.ts: agentStartEventIds SURVIVED (ISS-083 depends on it)
+```
+
+**One Playwright ID pair moved between full-suite runs** (`ts-l.token-usage` `:38` <-> `:65`)
+and was chased rather than waved away: run in isolation **three times on the reverted tree and
+three times on the changed tree**, the file gives the identical result both ways
+(`:65` + `:77` fail, `:38` passes). Full-suite parallelism noise, not this change.

@@ -187,7 +187,9 @@
     ],
     "FIX-201": [
       "FIX-206",
-      "ISS-080"
+      "FIX-235",
+      "ISS-080",
+      "ISS-110"
     ],
     "FIX-202": [
       "FIX-203",
@@ -284,6 +286,9 @@
       "ISS-104",
       "ISS-105",
       "ISS-106"
+    ],
+    "FIX-235": [
+      "ISS-110"
     ],
     "ISS-007": [
       "ISS-035"
@@ -442,6 +447,11 @@
     "ISS-081": [
       "ISS-080"
     ],
+    "ISS-082": [
+      "ISS-108",
+      "ISS-109",
+      "ISS-110"
+    ],
     "ISS-084": [
       "ISS-088",
       "ISS-089"
@@ -453,7 +463,8 @@
       "ISS-090"
     ],
     "ISS-087": [
-      "ISS-085"
+      "ISS-085",
+      "ISS-109"
     ],
     "ISS-088": [
       "ISS-084",
@@ -477,6 +488,9 @@
     ],
     "ISS-103": [
       "ISS-088"
+    ],
+    "ISS-107": [
+      "ISS-110"
     ]
   },
   "by_area": {
@@ -602,6 +616,7 @@
       "FIX-231",
       "FIX-232",
       "FIX-233",
+      "FIX-235",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -665,6 +680,7 @@
       "ISS-101",
       "ISS-102",
       "ISS-103",
+      "ISS-109",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -1259,6 +1275,10 @@
       "ISS-085",
       "ISS-087",
       "ISS-088",
+      "ISS-107",
+      "ISS-108",
+      "ISS-109",
+      "ISS-110",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1337,6 +1357,7 @@
       "FIX-229",
       "FIX-232",
       "FIX-234",
+      "FIX-235",
       "ISS-048",
       "ISS-051",
       "ISS-063",
@@ -1498,6 +1519,7 @@
       "FIX-232",
       "FIX-233",
       "FIX-234",
+      "FIX-235",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1546,6 +1568,7 @@
       "ISS-099",
       "ISS-102",
       "ISS-105",
+      "ISS-109",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1753,6 +1776,9 @@
       "ISS-097",
       "ISS-098",
       "ISS-099",
+      "ISS-108",
+      "ISS-109",
+      "ISS-110",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -3029,6 +3055,9 @@
       "ISS-063",
       "ISS-065"
     ],
+    "FIX-235": [
+      "FIX-201"
+    ],
     "ISS-012": [
       "ISS-014"
     ],
@@ -3326,6 +3355,19 @@
     "ISS-106": [
       "FIX-234",
       "ISS-088"
+    ],
+    "ISS-108": [
+      "ISS-082"
+    ],
+    "ISS-109": [
+      "ISS-082",
+      "ISS-087"
+    ],
+    "ISS-110": [
+      "FIX-201",
+      "FIX-235",
+      "ISS-082",
+      "ISS-107"
     ]
   },
   "rules_by_file": {
