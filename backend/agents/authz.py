@@ -377,6 +377,59 @@ class ScopedStore:
             if owned:
                 session.close()
 
+    async def read_events_of_types(
+        self, run_id: str, types: Any, *, limit: int, after_seq: int = 0
+    ) -> list[Any]:
+        """Return the LAST ``limit`` owner+workspace-scoped ``run_events`` rows whose
+        ``type`` is in ``types`` and whose ``seq > after_seq``, oldest-first.
+
+        The bounded, type-filtered counterpart to ``read_events``, generalising
+        ``last_event_of_types`` from ``LIMIT 1`` to ``LIMIT n``. It applies the SAME
+        default-deny ``_scope_owner_ws`` filter and the SAME ``after_seq`` semantics, so
+
+            read_events_of_types(run, T, limit=n, after_seq=k)
+              == the n highest-seq of [r for r in read_events(run, k) if r.type in T]
+
+        exactly, re-sorted ascending for reading.
+
+        ``read_events`` deliberately does NOT gain a LIMIT: it is the replay primitive
+        behind SSE resume, the events API, engine resume and this class's own
+        ``append_event_next_seq`` seq allocation -- capping it would silently truncate
+        replays. Bounded READERS get this sibling instead, which pushes the bound into
+        SQL rather than materialising a whole run's log to slice it in Python. On the
+        worst run in the local corpus that is 20 rows instead of 12,123 (9.2 MB).
+
+        ``types`` is materialised as ``tuple(sorted(types))`` for the same reason as
+        ``last_event_of_types``: ``frozenset`` iteration order over ``str`` varies with
+        ``PYTHONHASHSEED``, and a stable IN-list keeps the emitted SQL deterministic.
+
+        An empty ``types`` returns ``[]`` rather than degrading to "everything" -- an
+        empty allow-list must never widen into an unbounded read.
+
+        Uses the same ``_acquire`` / ``finally: if owned: session.close()`` idiom as
+        every other read here -- MANDATORY, because the SSE streaming generator is fed a
+        SESSION-LESS ``ScopedStore`` (``run_stream.py``, BUG-004), so a method that
+        skipped the ``finally`` would leak one pooled connection per live stream.
+        """
+        from app.models.run_event import RunEvent
+
+        wanted = tuple(sorted(types or ()))
+        if not wanted:
+            return []
+        session, owned = self._acquire()
+        try:
+            query = session.query(RunEvent).filter(
+                RunEvent.run_id == run_id,
+                RunEvent.seq > after_seq,
+                RunEvent.type.in_(wanted),
+            )
+            query = self._scope_owner_ws(query, RunEvent)
+            rows = query.order_by(RunEvent.seq.desc()).limit(max(0, int(limit))).all()
+            return list(reversed(rows))
+        finally:
+            if owned:
+                session.close()
+
     async def append_event_next_seq(
         self,
         run_id: str,

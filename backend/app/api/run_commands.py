@@ -905,6 +905,14 @@ class _ConciergeCtx:
         # The run's persisted status (WorkflowRun.status) — used to distinguish a
         # live-building run from a completed one so the prompt label is accurate.
         self.run_status = run_status or ""
+        # ISS-092: DECLARE the ``conversation`` inject so ``context_provider:conversation``
+        # surfaces this run's bounded chat transcript. Before this, the Concierge's only
+        # cross-turn memory was the unbounded read_events tool happening to return chat
+        # rows inside the whole event log; with that tool gone, this is what keeps
+        # multi-turn coherent. The provider self-gates on this token, so declaring it
+        # HERE — on the Concierge ctx alone — leaves every pipeline agent untouched and
+        # the characterization goldens byte-identical (INV-3).
+        self.current_spec_injects = {"conversation"}
 
 
 def _resolve_concierge():

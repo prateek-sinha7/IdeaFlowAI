@@ -150,28 +150,32 @@ def test_read_tools_go_through_scoped_store_and_deny_cross_owner() -> None:
     """
 
     class _DefaultDenyStore:
-        """Owner-scoped fake: read_events returns rows only when owner matches."""
+        """Owner-scoped fake: the bounded read returns rows only when owner matches."""
 
         def __init__(self, owner_id: str, rows_by_owner: dict[str, list]) -> None:
             self._owner_id = owner_id
             self._rows_by_owner = rows_by_owner
 
-        async def read_events(self, run_id: str, after_seq: int) -> list:
-            return list(self._rows_by_owner.get(self._owner_id, []))
+        async def read_events_of_types(self, run_id: str, types, *, limit: int,
+                                       after_seq: int = 0) -> list:
+            wanted = set(types)
+            rows = self._rows_by_owner.get(self._owner_id, [])
+            return [r for r in rows if r.type in wanted][-limit:]
 
-    victim_rows = [SimpleNamespace(type="chat_message", payload_json={"text": "secret"})]
+    victim_rows = [SimpleNamespace(seq=1, type="chat_message",
+                                   payload_json={"text": "secret"})]
 
     # Cross-owner: attacker store over the victim's data → nothing (default-deny).
     attacker_store = _DefaultDenyStore("attacker", {"victim": victim_rows})
     attacker_tools = ConciergeCapability._read_tools(attacker_store, "run-1")
-    read_events_tool = next(t for t in attacker_tools if t.name == "read_events")
-    denied = asyncio.new_event_loop().run_until_complete(read_events_tool.ainvoke({}))
+    read_tool = next(t for t in attacker_tools if t.name == "read_recent_events")
+    denied = asyncio.new_event_loop().run_until_complete(read_tool.ainvoke({}))
     assert denied == [], "cross-owner read leaked rows — IDOR scoping broken"
 
     # Same-owner: the victim's own store sees the rows (the tool DOES delegate).
     owner_store = _DefaultDenyStore("victim", {"victim": victim_rows})
     owner_tools = ConciergeCapability._read_tools(owner_store, "run-1")
-    owner_read = next(t for t in owner_tools if t.name == "read_events")
+    owner_read = next(t for t in owner_tools if t.name == "read_recent_events")
     seen = asyncio.new_event_loop().run_until_complete(owner_read.ainvoke({}))
     assert len(seen) == 1
 
@@ -197,11 +201,12 @@ def test_read_tools_serialize_rows_to_plain_dicts() -> None:
             self.created_at = datetime(2026, 7, 15, tzinfo=timezone.utc)
 
     class _Store:
-        async def read_events(self, run_id: str, after_seq: int) -> list:
+        async def read_events_of_types(self, run_id: str, types, *, limit: int,
+                                       after_seq: int = 0) -> list:
             return [_FakeRow()]
 
     tools = ConciergeCapability._read_tools(_Store(), "run-1")
-    read_events_tool = next(t for t in tools if t.name == "read_events")
+    read_events_tool = next(t for t in tools if t.name == "read_recent_events")
     out = asyncio.new_event_loop().run_until_complete(read_events_tool.ainvoke({}))
 
     assert isinstance(out, list) and len(out) == 1
@@ -538,3 +543,492 @@ def test_converse_reports_zero_usage_rather_than_estimating() -> None:
     usage = getattr(ctx, "usage", None)
     assert isinstance(usage, dict)
     assert usage["input_tokens"] == 0 and usage["output_tokens"] == 0
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ISS-092 — the READ tools must be BOUNDED and fetched on demand
+#
+# Measured at HEAD against backend/dev.db: one Concierge question re-fed the model
+# 9,227,107 chars ≈ 2,306,776 tokens, dominated by 18 ``agent_input`` rows totalling
+# 7,290,638 chars (largest single row 479,605). On two runs a single chat read was
+# 144% and 151% of everything the entire pipeline recorded. ``list_refs`` projected
+# 5,804,067 chars of artifact bodies inline; ``get_ref`` returned bodies up to 389,651.
+# ════════════════════════════════════════════════════════════════════════════
+
+# The per-tool ceiling every read tool must respect, in CHARACTERS — the same unit
+# ``compaction:chat_history`` bounds against. Deliberately far above every legitimate
+# result and far below the megabyte payloads that caused ISS-092.
+_TOOL_RESULT_CEILING = 25_000
+
+
+class _BigRunStore:
+    """A fake ScopedStore holding a PRODUCTION-SHAPED worst case (run ``0a27b397``).
+
+    12,000 rows including one 480,000-char ``agent_input`` — the row class that
+    actually caused the blowout — plus an oversized artifact body and an agent_outputs
+    blob carrying full input prompts. Models the default-deny contract: it answers only
+    for its own owner.
+    """
+
+    def __init__(self, owner_id: str = "victim", *, cross_run_ref: bool = False) -> None:
+        self._owner_id = owner_id
+        self.rows = self._build_rows()
+        self.ref = SimpleNamespace(
+            id="ref-1", run_id="other-run" if cross_run_ref else "run-1",
+            kind="deliverable", producer_agent="build", version=3,
+            content="X" * 400_000, visibility="private",
+        )
+
+    @staticmethod
+    def _build_rows() -> list:
+        rows = [
+            SimpleNamespace(seq=1, type="pipeline_start", payload_json={"total": 6}),
+            SimpleNamespace(seq=2, type="agent_start",
+                            payload_json={"agent_id": "build", "name": "Build Agent",
+                                          "role": "Prototype", "index": 0, "total": 6}),
+            # The row class that caused ISS-092 — never reachable through any tool.
+            SimpleNamespace(seq=3, type="agent_input", payload_json={"prompt": "P" * 480_000}),
+            SimpleNamespace(seq=4, type="planner_complete", payload_json={"plan": "Q" * 380_000}),
+            SimpleNamespace(seq=5, type="agent_complete",
+                            payload_json={"agent_id": "build", "name": "Build Agent",
+                                          "duration": 47.2, "output_length": 20985}),
+            SimpleNamespace(seq=6, type="chat_message", payload_json={"text": "what happened?"}),
+            SimpleNamespace(seq=7, type="chat_reply", payload_json={"text": "It built."}),
+        ]
+        rows += [SimpleNamespace(seq=8 + i, type="agent_chunk",
+                                 payload_json={"chunk": "c" * 160}) for i in range(11_993)]
+        return rows
+
+    def _mine(self, rows: list) -> list:
+        return rows if self._owner_id == "victim" else []
+
+    async def read_events(self, run_id: str, after_seq: int = 0) -> list:
+        return self._mine([r for r in self.rows if r.seq > after_seq])
+
+    async def read_events_of_types(self, run_id: str, types, *, limit: int,
+                                   after_seq: int = 0) -> list:
+        wanted = set(types)
+        hits = [r for r in self.rows if r.type in wanted and r.seq > after_seq]
+        return self._mine(hits[-limit:] if limit else hits)
+
+    async def list_refs(self, run_id: str, kind=None) -> list:
+        return self._mine([self.ref])
+
+    async def get_ref(self, ref_id: str):
+        return self.ref if self._owner_id == "victim" else None
+
+    async def read_gate_events(self, run_id: str) -> list:
+        return self._mine([SimpleNamespace(id="g1", run_id="run-1", gate_key="review",
+                                           decision="approve", detail="looks good")])
+
+    async def get_run(self, run_id: str):
+        if self._owner_id != "victim":
+            return None
+        import json as _json
+
+        return SimpleNamespace(id="run-1", status="completed", agent_outputs=_json.dumps([
+            # Each entry carries the FULL prompt as well as the output — 7.45M chars in
+            # the worst real row. Only ``output`` may ever reach the model, truncated.
+            {"agent_id": "build", "name": "Build Agent", "role": "Prototype",
+             "input_prompt": "I" * 300_000, "output": "O" * 300_000, "duration": 47.2},
+        ]))
+
+
+def _args_for(tool, *, ref_id: str = "ref-1", agent_name: str = "build") -> dict:
+    """Build a minimal valid argument dict for any read tool, old surface or new."""
+    args: dict = {}
+    for pname in (getattr(tool, "args", {}) or {}):
+        if pname == "ref_id":
+            args[pname] = ref_id
+        elif pname == "agent_name":
+            args[pname] = agent_name
+        elif pname in ("kind", "types"):
+            args[pname] = ""
+    return args
+
+
+def _invoke(tool, **over):
+    return asyncio.new_event_loop().run_until_complete(
+        tool.ainvoke(_args_for(tool) | over)
+    )
+
+
+def test_no_tool_returns_unbounded_event_history() -> None:
+    """THE ISS-092 regression test: EVERY read tool is bounded on a worst-case run.
+
+    Fails at HEAD, where ``read_events`` returns all 12,000 rows including the
+    480,000-char ``agent_input`` — megabytes shipped to the model for one question.
+    """
+    store = _BigRunStore()
+    tools = ConciergeCapability._read_tools(store, "run-1")
+    assert tools, "the read surface must not be empty"
+
+    oversized = []
+    for tool in tools:
+        size = len(str(_invoke(tool)))
+        if size >= _TOOL_RESULT_CEILING:
+            oversized.append(f"{tool.name}={size:,} chars")
+    assert not oversized, (
+        "unbounded read tool(s) — this is ISS-092: " + ", ".join(oversized)
+    )
+
+
+def test_read_tools_expose_only_the_bounded_allow_list() -> None:
+    """INV-12 enforcement: the exact tool-name set, so a re-added unbounded tool fails CI.
+
+    ``read_events`` / ``list_refs`` / ``get_ref`` are DELETED, not kept for
+    compatibility — no tool may survive alongside its replacement.
+    """
+    names = {t.name for t in ConciergeCapability._read_tools(_BigRunStore(), "run-1")}
+    assert names == {
+        "get_run_progress", "list_agents", "get_agent_output",
+        "list_artifacts", "get_artifact", "read_recent_events", "read_gate_history",
+    }, f"unexpected Concierge read surface: {sorted(names)}"
+    assert {"read_events", "list_refs", "get_ref"} & names == set(), (
+        "a superseded unbounded tool is still exposed (INV-12: replace, do not shadow)"
+    )
+
+
+def test_read_recent_events_rejects_bulk_types() -> None:
+    """The bulk row classes are not requestable — the allow-list is server-side.
+
+    ``agent_input`` (7.29M chars in the measured run), ``agent_chunk``,
+    ``planner_complete``, ``tool_call`` and ``tool_result`` can never be named into
+    the result, however the model asks.
+    """
+    tools = ConciergeCapability._read_tools(_BigRunStore(), "run-1")
+    tool = next(t for t in tools if t.name == "read_recent_events")
+
+    out = _invoke(tool, types="agent_input,agent_chunk,planner_complete,tool_result")
+    seen = {r.get("type") for r in out if isinstance(r, dict)}
+    assert not (seen & {"agent_input", "agent_chunk", "planner_complete", "tool_result"}), (
+        f"a bulk event type was reachable: {seen}"
+    )
+    # An honest empty result, not a silent fallback to everything.
+    assert len(str(out)) < _TOOL_RESULT_CEILING
+
+    # The default call still returns useful lifecycle rows (the tool is not inert).
+    default = _invoke(tool)
+    assert any(r.get("type") == "agent_complete" for r in default if isinstance(r, dict))
+
+
+def test_read_recent_events_caps_limit_and_row_size() -> None:
+    """A model-supplied ``limit`` cannot escape the cap, and each row is capped too."""
+    tools = ConciergeCapability._read_tools(_BigRunStore(), "run-1")
+    tool = next(t for t in tools if t.name == "read_recent_events")
+
+    out = _invoke(tool, limit=100_000)
+    assert len(out) <= 50, f"limit escaped its cap: {len(out)} rows"
+    assert len(str(out)) < _TOOL_RESULT_CEILING
+
+
+def test_get_artifact_truncates_and_flags() -> None:
+    """A 400,000-char body comes back truncated, flagged, and honest about its real size."""
+    tools = ConciergeCapability._read_tools(_BigRunStore(), "run-1")
+    tool = next(t for t in tools if t.name == "get_artifact")
+
+    out = _invoke(tool)
+    assert out["truncated"] is True
+    assert len(out["content"]) <= 12_000
+    assert out["total_chars"] == 400_000, "must report the REAL size, not the truncated one"
+
+    # A model-supplied max_chars cannot escape the hard cap.
+    big = _invoke(tool, max_chars=999_999)
+    assert len(big["content"]) <= 12_000
+
+
+def test_get_artifact_denies_cross_run_ref() -> None:
+    """A ref belonging to ANOTHER run of the same owner is refused.
+
+    ``ScopedStore.get_ref`` filters owner + visibility but never ``run_id``, so a
+    prompt-injected id inside untrusted run content could reach a different run's
+    artifact body. The tool asserts the ref belongs to THIS run. Fails at HEAD.
+    """
+    tools = ConciergeCapability._read_tools(_BigRunStore(cross_run_ref=True), "run-1")
+    tool = next(t for t in tools if t.name == "get_artifact")
+
+    out = _invoke(tool)
+    assert out == {} or not out.get("content"), (
+        "cross-run artifact body leaked — run scoping is missing"
+    )
+
+
+def test_list_artifacts_omits_content() -> None:
+    """Metadata only — artifact BODIES never ride the listing (5.8M chars in one run)."""
+    tools = ConciergeCapability._read_tools(_BigRunStore(), "run-1")
+    tool = next(t for t in tools if t.name == "list_artifacts")
+
+    out = _invoke(tool)
+    assert out and isinstance(out[0], dict)
+    assert "content" not in out[0], "artifact body leaked into the listing"
+    assert out[0]["content_chars"] == 400_000, "size is reported instead of the body"
+    assert len(str(out)) < _TOOL_RESULT_CEILING
+
+
+def test_get_agent_output_never_returns_the_input_prompt() -> None:
+    """``workflow_runs.agent_outputs`` embeds full input prompts (7.45M chars worst case).
+
+    Only the named agent's OUTPUT may reach the model, head-truncated and flagged.
+    """
+    tools = ConciergeCapability._read_tools(_BigRunStore(), "run-1")
+    tool = next(t for t in tools if t.name == "get_agent_output")
+
+    out = _invoke(tool)
+    assert out["truncated"] is True
+    assert len(out["text"]) <= 8_000
+    assert "I" * 100 not in str(out), "the agent's INPUT PROMPT leaked to the model"
+    assert out["total_chars"] == 300_000
+
+    unknown = _invoke(tool, agent_name="no-such-agent")
+    assert unknown.get("error"), "an unknown agent must be reported, not silently empty"
+
+
+def test_list_agents_omits_output_text() -> None:
+    """Per-agent status rows carry sizes and durations — never the output bodies."""
+    tools = ConciergeCapability._read_tools(_BigRunStore(), "run-1")
+    tool = next(t for t in tools if t.name == "list_agents")
+
+    out = _invoke(tool)
+    assert out and isinstance(out[0], dict)
+    assert "output" not in out[0] and "text" not in out[0]
+    assert out[0]["name"] == "Build Agent"
+    assert len(str(out)) < _TOOL_RESULT_CEILING
+
+
+def test_get_run_progress_returns_counts_not_rows() -> None:
+    """The cheapest tool answers the commonest question with derived counts."""
+    tools = ConciergeCapability._read_tools(_BigRunStore(), "run-1")
+    tool = next(t for t in tools if t.name == "get_run_progress")
+
+    out = _invoke(tool)
+    assert out["agents_started"] == 1 and out["agents_completed"] == 1
+    assert out["status"] == "completed"
+    assert len(str(out)) < 1_000, "progress must be a summary, not a row dump"
+
+
+def test_no_tool_accepts_a_run_id_argument() -> None:
+    """The authorization invariant: ``run_id`` is a CLOSURE, never a tool parameter.
+
+    That is precisely what leaves the model no syntax for naming another run. A tool
+    that accepted run_id would move the scoping decision into model-controlled input.
+    """
+    for tool in ConciergeCapability._read_tools(_BigRunStore(), "run-1"):
+        params = set(getattr(tool, "args", {}) or {})
+        assert "run_id" not in params, (
+            f"{tool.name} accepts a model-supplied run_id — scoping must stay a closure"
+        )
+
+
+def test_every_read_tool_denies_cross_owner() -> None:
+    """Default-deny holds for the WHOLE new surface, not just the tool it was proven on."""
+    attacker_tools = ConciergeCapability._read_tools(_BigRunStore("attacker"), "run-1")
+    for tool in attacker_tools:
+        out = _invoke(tool)
+        assert not out or out == {} or out.get("error") or out.get("agents_started") == 0, (
+            f"{tool.name} leaked data across owners: {str(out)[:200]}"
+        )
+
+
+# ── the model's ACTUAL tool surface + prompt, captured off the runner ────────────
+
+_BOUND_TOOL_NAMES: list[str] = []
+_SEEN_SYSTEM_PROMPTS: list[str] = []
+
+
+def _render_content(content) -> str:  # noqa: ANN001
+    """Flatten a message's content to its literal text.
+
+    The Bedrock cache-points middleware rewrites the system message into a list of
+    ``{"type": "text", "text": ...}`` blocks, so ``str(content)`` would yield a Python
+    repr with escaped newlines — and a byte-verbatim assertion against it would compare
+    the wrong bytes.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            b.get("text", "") if isinstance(b, dict) else str(b) for b in content
+        )
+    return str(content)
+
+
+class _CapturingModel(ScriptedFakeChatModel):
+    """Records the tool names actually bound to the model and the system prompt sent.
+
+    ``bind_tools`` is where the deepagents graph hands the model its real surface, so
+    this observes what the LIVE model would be offered — including any library built-in
+    the adapter did not exclude. Module-level buffers keep the pydantic model unmodified.
+    """
+
+    def bind_tools(self, tools, **kwargs):  # noqa: ANN001, ANN003
+        _BOUND_TOOL_NAMES.clear()
+        _BOUND_TOOL_NAMES.extend(
+            getattr(t, "name", None) or getattr(t, "__name__", str(t)) for t in (tools or [])
+        )
+        return self
+
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):  # noqa: ANN001
+        for m in messages or []:
+            if m.__class__.__name__ == "SystemMessage" or getattr(m, "type", "") == "system":
+                _SEEN_SYSTEM_PROMPTS.append(_render_content(m.content))
+        return super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+
+_FILESYSTEM_TOOLS = {
+    "write_file", "edit_file", "read_file", "ls", "glob", "grep", "write_todos", "task",
+}
+
+
+def test_concierge_model_sees_no_filesystem_tools() -> None:
+    """The Concierge's surface is read + propose only — as its own docstring claims.
+
+    ``exclude_builtin_tools`` was never passed, so the adapter excluded only ``task``
+    and the model was handed a filesystem WRITE surface (``write_file``, ``edit_file``)
+    on an app REST path. Fails at HEAD, where all seven built-ins are present.
+    """
+    _BOUND_TOOL_NAMES.clear()
+    ctx = _concierge_ctx(
+        _CapturingModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))]), "run-fs", "owner-A"
+    )
+    asyncio.new_event_loop().run_until_complete(ConciergeCapability().converse(ctx, "hi"))
+
+    assert _BOUND_TOOL_NAMES, "no tools were bound — the capture seam did not fire"
+    leaked = sorted(set(_BOUND_TOOL_NAMES) & _FILESYSTEM_TOOLS)
+    assert not leaked, f"the Concierge model was handed filesystem/todo tools: {leaked}"
+    # The proposal surface is untouched — this narrows tools, it does not remove them.
+    assert "propose_revision" in _BOUND_TOOL_NAMES
+
+
+def test_excluding_builtins_does_not_flip_the_xml_sanitizer() -> None:
+    """Side-effect guard for ``exclude_builtin_tools=True``.
+
+    ``DeepAgentRunner._sanitize_fabricated_xml`` is ``exclude_builtin_tools and not
+    self.tools``. The Concierge ALWAYS has custom tools, so the flag must stay False and
+    the output path must be unchanged. Asserted, not assumed.
+    """
+    from app.agents.deep_agent_runner import DeepAgentRunner
+
+    runner = DeepAgentRunner(
+        system_prompt="p",
+        tools=ConciergeCapability._read_tools(_BigRunStore(), "run-1"),
+        model=ScriptedFakeChatModel([_ScriptedTurn(texts=["x"], usage=(1, 1))]),
+        exclude_builtin_tools=True,
+    )
+    assert runner._sanitize_fabricated_xml is False, (
+        "excluding built-ins must not turn on the fabricated-XML sanitizer"
+    )
+
+
+# ── multi-turn coherence must survive the deletion of read_events ────────────────
+
+
+class _ChatHistoryStore(_BigRunStore):
+    """The worst-case run PLUS a long chat history, to prove multi-turn survives."""
+
+    def __init__(self, turns: int = 10) -> None:
+        super().__init__()
+        base = max(r.seq for r in self.rows)
+        # Each turn is padded so the whole transcript (~10 KB) EXCEEDS the 6,000-char
+        # budget — otherwise compaction is a no-op and the test would not exercise the
+        # keep-recent-verbatim / summarize-the-tail path it exists to prove.
+        pad = "x" * 480
+        for i in range(turns):
+            self.rows.append(SimpleNamespace(
+                seq=base + 1 + 2 * i, type="chat_message",
+                payload_json={"text": f"user question number {i} {pad}"}))
+            self.rows.append(SimpleNamespace(
+                seq=base + 2 + 2 * i, type="chat_reply",
+                payload_json={"text": f"assistant answer number {i} {pad}"}))
+
+
+def test_conversation_context_reaches_the_concierge_prompt_byte_verbatim() -> None:
+    """Deleting ``read_events`` must not kill multi-turn.
+
+    The Concierge has NO checkpointer and never set ``conversation_context``, so today's
+    cross-turn coherence comes SOLELY from ``read_events`` returning the chat rows inside
+    the flood. The replacement is the already-registered ``context_provider:conversation``
+    + ``compaction:chat_history`` (keep_recent=6 byte-verbatim, 6,000-char budget) — reused,
+    not rebuilt (INV-12). The LAST 6 turns must appear byte-verbatim in the prompt the
+    model actually receives, and the block must stay under budget.
+    """
+    _SEEN_SYSTEM_PROMPTS.clear()
+    store = _ChatHistoryStore(turns=10)
+    ctx = SimpleNamespace(
+        model=_CapturingModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))]),
+        scoped_store=store, run_id="run-1", owner_id="owner-A", workspace_id="ws-A",
+        compiled=None, current_spec_injects={"conversation"},
+    )
+    asyncio.new_event_loop().run_until_complete(
+        ConciergeCapability().converse(ctx, "and what about the last one?")
+    )
+
+    assert _SEEN_SYSTEM_PROMPTS, "no system prompt reached the model"
+    prompt = _SEEN_SYSTEM_PROMPTS[0]
+    # The 6 most recent turns, byte-verbatim, in the prompt the model was given.
+    for i in (7, 8, 9):
+        assert f"user: user question number {i}" in prompt, f"turn {i} lost from the prompt"
+        assert f"assistant: assistant answer number {i}" in prompt
+    # The older tail is summarized away rather than dropped silently or dumped whole.
+    assert "user question number 0" not in prompt
+    assert "earlier turns summarized" in prompt
+
+    # The block itself stays under the composed-context budget (the whole prompt also
+    # carries the role/rules/tool blocks, so the budget is asserted on the block).
+    block = ctx.conversation_context
+    assert block in prompt, "the composed transcript did not reach the model's prompt"
+    assert len(block) <= 6_000 + len("## Conversation\n\n"), (
+        f"conversation block exceeded its budget: {len(block)}"
+    )
+
+
+def test_conversation_provider_stays_dormant_without_the_declared_inject() -> None:
+    """The provider's self-gate is NOT relaxed — that gate is what protects the goldens.
+
+    A ctx without ``current_spec_injects`` gets no conversation block, exactly as every
+    pipeline agent does today.
+    """
+    _SEEN_SYSTEM_PROMPTS.clear()
+    ctx = SimpleNamespace(
+        model=_CapturingModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))]),
+        scoped_store=_ChatHistoryStore(turns=10), run_id="run-1",
+        owner_id="owner-A", workspace_id="ws-A", compiled=None,
+    )
+    asyncio.new_event_loop().run_until_complete(ConciergeCapability().converse(ctx, "hi"))
+    assert "## Conversation" not in _SEEN_SYSTEM_PROMPTS[0]
+
+
+# ── the prompt may only name tools that exist ────────────────────────────────────
+
+_TOOL_NAME_UNIVERSE = {
+    # superseded — must never be named again
+    "read_events", "list_refs", "get_ref", "read_gate_events",
+    # current read surface
+    "get_run_progress", "list_agents", "get_agent_output", "list_artifacts",
+    "get_artifact", "read_recent_events", "read_gate_history",
+    # proposal surface
+    "propose_steering_note", "propose_revision", "propose_chain", "propose_gate_action",
+}
+
+
+def test_system_prompt_names_only_existing_tools() -> None:
+    """Guards the exact bug this refactor invites: prompt says call X, X no longer exists.
+
+    Every tool name the prompt mentions must be in the surface actually built, and every
+    new read tool must be mentioned so the model can discover it.
+    """
+    import re
+
+    prompt = ConciergeCapability._compose_system_prompt(
+        SimpleNamespace(conversation_context=None, compiled=None,
+                        run_summary="Run title: t", run_status="running")
+    )
+    built = {t.name for t in ConciergeCapability._read_tools(_BigRunStore(), "run-1")}
+    built |= {"propose_steering_note", "propose_revision", "propose_chain",
+              "propose_gate_action"}
+
+    mentioned = {tok for tok in re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", prompt)}
+    stale = (mentioned & _TOOL_NAME_UNIVERSE) - built
+    assert not stale, f"the prompt names tools that do not exist: {sorted(stale)}"
+
+    missing = {"get_run_progress", "list_artifacts", "get_artifact"} - mentioned
+    assert not missing, f"the prompt never tells the model about: {sorted(missing)}"
