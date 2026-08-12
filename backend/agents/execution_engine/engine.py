@@ -2520,6 +2520,7 @@ class ExecutionEngine:
                 strategy = _registry.resolve("strategy", strategy_name)
                 # RESUME-02 (D-10): the SINGLE per-step retry/reuse wrapper. Dormant
                 # (byte/event-identical) unless the step declares retry.max_attempts > 0.
+                _terminated = False
                 async for event in self._dispatch_step_with_retry(step, ectx, strategy):
                     # F3 (13-06): observe agent_error events for the terminal
                     # semantics decision (no mutation — the event flows unchanged).
@@ -2527,7 +2528,32 @@ class ExecutionEngine:
                         _failed_id = event.get("data", {}).get("agent_id")
                         if _failed_id:
                             _failed_agent_ids.add(_failed_id)
+                    # ── ISS-091: a TERMINAL event arriving through the stream ends
+                    # the RUN, not just the step. The inline review gate's reject
+                    # handler (_run_agent :4458) cancels the run and returns — but a
+                    # generator ``return`` only ends THAT step, so without this the
+                    # loop advanced to step i+1 and the run terminated on
+                    # ``pipeline_complete``. The post-rejection steps bill nothing
+                    # (every _run_agent short-circuits on the :3329 terminal guard),
+                    # but fan-out still wrote ``subagent_runs='complete'`` /
+                    # ``wave_runs='completed'`` rows for work that never happened —
+                    # and wave_scheduler's resume skip trusts exactly those rows, so
+                    # a rejected run, once resumed, skipped every wave and could
+                    # never produce its deliverable again.
+                    # The sibling of the declared-gate handler at :2454-2479 (WR-03).
+                    # Keyed on the generic event type — no workflow name, no agent-id
+                    # literal, no strategy branch (SC-001/INV-1).
+                    elif event.get("type") == "pipeline_cancelled":
+                        _terminated = True
                     yield event
+                if _terminated:
+                    # Flag-then-return rather than breaking mid-generator: the
+                    # producer returns on its next statement, so the inner loop ends
+                    # on its own and every ``finally`` (notably run_agent's
+                    # build-scratch reset) still runs on its normal path. The event
+                    # is already emitted by the producer — do NOT emit a second one.
+                    await self._persist_budget_snapshot_if_active(ectx)
+                    return
 
                 # ── WR-02 (13 review fix): keep the review payload fresh ─────────
                 # Declared pre-step HITL gates source their review payload from
