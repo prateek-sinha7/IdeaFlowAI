@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-671 cards · rules 1 · fixes 235 · issues 119 · phases 23 · built 2026-08-12 16:11
+673 cards · rules 1 · fixes 236 · issues 120 · phases 23 · built 2026-08-12 16:36
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (235)
+## Fixes (236)
 
+FIX-239 2026-08-12 [backend,frontend,sse,workflow,agents,auth] The product could not tell you whether prompt caching was saving money or costing it — and the obvious version of this feature would have printed a catastrophic wrong number on day one. ISS-034 asked for "saved $Y (Z%)"
 FIX-238 2026-08-12 [backend,sse,agents,auth,artifacts] The offline unit suite made REAL, billable AWS Bedrock calls, and nothing in the repo could have stopped it (ISS-102) — Nothing anywhere asserted that an offline test may not reach a live model
 FIX-237 2026-08-12 [frontend,sse,workflow,agents,artifacts] The settled "Task plan · N planned" card rendered the number COMPLETED, not the number planned — wrong at the latest version and frozen under the artifact version picker (ISS-087)
 FIX-236 2026-08-12 [frontend,sse,agents,artifacts] The spec_revision chat card held a SECOND, contradicting copy of the revision-cycle number — and the register row's proposed fix would have made it a THIRD
@@ -250,8 +251,9 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (119)
+## Issues (120)
 
+ISS-120 - [backend,workflow,agents] Bedrock prompt caching is a single process-wide on/off switch, and on short runs it is a MEASURED net cost INCREASE — Split out of ISS-034 item (d) so a behaviour change to the model-call path is not folded into a telemetry-only change
 ISS-119 - [sse,test] Two TestRouting tests assert a routing contract the product deliberately superseded, and they will stay red until someone decides which side is right
 ISS-118 - [backend,sse,agents,auth,test] Eight offline tests CONSTRUCT a real LLM provider client. They cost nothing today only because none of them invokes it — one added .ainvoke/.astream in any of them is live spend
 ISS-117 - [sse,agents,frontend] Validation frames are dropped on replay, so no run reopened from history can ever show a gate verdict. useRunStateStore.ts:395-403 lists pipelineFrameTypes and omits validator_result, gate_passed and gate_blocked

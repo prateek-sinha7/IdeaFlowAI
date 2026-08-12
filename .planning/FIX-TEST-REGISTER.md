@@ -32,6 +32,7 @@
 | TEST-020 | FIX-236 (quick-260812-jn9) | 2026-08-12 | `frontend/src/components/chat/ResultCard.test.tsx`, `frontend/e2e/tests/ts-chat-cards.spec.ts` | 3 | 3 | 0 | ✅ Pass |
 | TEST-021 | FIX-237 (quick-260812-kpb) | 2026-08-12 | `frontend/src/components/results/artifactPreview.tsx`, `frontend/src/components/results/AgentDetailPanel.tsx`, `frontend/src/components/results/AgentThinkingTab.tsx` | 7 (4 new + 3 reconciled) | 7 | 0 | ✅ Pass |
 | TEST-022 | FIX-238 (quick-260812-lfv) | 2026-08-12 | `backend/tests/unit/test_iss102_live_model_guard.py` (new), `backend/tests/conftest.py`, `backend/tests/unit/test_chat_messages_endpoint.py` | 6 | 6 | 0 | ✅ Pass |
+| TEST-023 | FIX-239 (quick-260812-mq5) | 2026-08-12 | `backend/tests/agents/test_iss034_cost_full.py` (new), `backend/tests/unit/test_analytics_api.py`, `frontend/src/components/analytics/AnalyticsPage.test.tsx` | 17 | 17 | 0 | ✅ Pass |
 
 ---
 
@@ -1849,3 +1850,64 @@ independently: `RUN_LIVE_BEDROCK=1` → 4 passed (guard stands down); `@pytest.m
 production seam reaches it. That second property is proven by the suite as a whole: a trip
 anywhere fails that test by name, and the four-tree runs above recorded **0 trips**, which is
 the positive evidence that the 8-entry allow-list is complete.
+
+### TEST-023 — FIX-239 (quick-260812-mq5): ISS-034 — the SIGNED prompt-cache dollar delta
+
+```
+TEST COVERAGE — FIX-239
+Unit tests:        8 in backend/tests/agents/test_iss034_cost_full.py        -> ALL GREEN
+                   4 in backend/tests/unit/test_analytics_api.py (appended)  -> ALL GREEN
+Integration tests: N/A - no new IO boundary. The durable-row site is exercised through the
+                   analytics endpoint cases above (real FastAPI + real SQLAlchemy session
+                   against an in-memory SQLite), which is where the legacy-row trap lives.
+Frontend tests:    5 in frontend/src/components/analytics/AnalyticsPage.test.tsx -> ALL GREEN
+Goldens:           0 failed / 10 passed - IDENTICAL to the pre-change commit c05906c0,
+                   and all 15 golden FILES byte-identical by SHA-256 (not merely "passing")
+lint-imports:      4 kept / 0 broken - IDENTICAL to c05906c0
+Regression guards:
+  - test_engine_cost_site_emits_full_cost_key / test_run_commands_cost_site_emits_full_cost_key:
+    both cost sites keep emitting the counterfactual. Source-pins, so they survive a refactor
+    that moves the code but not the contract - and they sit beside the existing INV-12 guard
+    (test_model_pricing.py:216-233) which independently forbids a rate literal at either site.
+  - test_short_run_that_never_re_reads_its_cache_costs_MORE: the NEGATIVE direction, anchored
+    to observed run a7dba362. This is the case an unconditional "saved" gets wrong.
+  - test_long_run_that_re_reads_its_cache_SAVES: the POSITIVE direction (run 6e38b9a7).
+  - test_run_with_no_cache_activity_has_exactly_zero_delta: run 0a27b397 - the counterfactual
+    collapses onto the real price, so the renderer must show nothing.
+  - test_normalizer_strips_full_cost_key / test_normalize_drops_pipeline_complete_full_cost_key:
+    INV-3. The key stays out of the golden multiset.
+  - test_legacy_rows_contribute_zero_delta_not_a_zero_baseline: THE money guard.
+  - test_mixed_window_counts_only_the_metered_run_in_the_delta: a legacy row in the same
+    window must neither dilute nor invert the delta.
+  - AnalyticsPage "says COST MORE when caching was a net loss": pins the signed copy.
+```
+
+**Fail-before, observed - not asserted.** The new backend file was run at `c05906c0` BEFORE any
+source edit: **4 failed / 4 passed**. The 4 passes are deliberate — they are the pure sign
+arithmetic, which is already true at HEAD, so they corroborate the -7.47% / +83.25% / 0.00%
+claims independently of the feature. The 4 reds are exactly the 4 things the fix builds.
+
+**The money guard was proven by mutation, not by inspection.** With the guard reverted to the
+naive `r_cost_full = _num(usage.get("estimated_cost_full_usd"))`, the legacy-window case failed
+with `spend_full = 0.0` against `spend = 15.0` — the **-100%** figure D2 predicted — and the
+mixed-window case failed with `0.32011` against `2.32011` (the legacy row priced as if an
+uncached run were free). Both went green the moment `or r_cost` was restored.
+
+**Golden neutrality was proven in BOTH directions.** Emitted **and** stripped -> 10 passed,
+all 15 golden files byte-identical. Emitted and **NOT** stripped (the strip line commented out
+as a control) -> **5 failed / 5 passed**, every `*_event_snapshot` red; the 5 survivors are the
+deliverable BYTE snapshots, which do not read the event payload. That pair is what proves the
+green run is caused by the strip rather than by the key silently never being emitted.
+
+**The frontend cases have teeth.** They were written after the component, so `cacheSaved` was
+mutated to a constant `true`; the "says COST MORE when caching was a net loss" case went red
+and the other 8 stayed green — i.e. the suite catches precisely the unconditional-"saved"
+defect that ISS-034's original wording would have shipped.
+
+**Coverage honesty.** No live Bedrock run was launched (a prototype build is 5-21M tokens, and
+the 11 persisted rows are sufficient evidence). What is therefore NOT proven offline: that a
+real cached run's emitted `estimated_cost_full_usd` reconciles end-to-end against a fresh
+`workflow_runs` row. Deferred to the end-of-milestone live pass per the standing rule. The
+arithmetic itself is anchored to observed production numbers rather than invented fixtures,
+which is the strongest offline substitute available.
+

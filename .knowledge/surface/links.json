@@ -306,6 +306,9 @@
       "ISS-118",
       "ISS-119"
     ],
+    "FIX-239": [
+      "ISS-120"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -347,7 +350,8 @@
     ],
     "ISS-034": [
       "ISS-033",
-      "ISS-092"
+      "ISS-092",
+      "ISS-120"
     ],
     "ISS-035": [
       "ISS-036"
@@ -662,6 +666,7 @@
       "FIX-236",
       "FIX-237",
       "FIX-238",
+      "FIX-239",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -732,6 +737,7 @@
       "ISS-116",
       "ISS-117",
       "ISS-118",
+      "ISS-120",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -939,6 +945,7 @@
       "FIX-232",
       "FIX-233",
       "FIX-238",
+      "FIX-239",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -1100,6 +1107,7 @@
       "FIX-233",
       "FIX-234",
       "FIX-238",
+      "FIX-239",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -1119,6 +1127,7 @@
       "ISS-102",
       "ISS-104",
       "ISS-118",
+      "ISS-120",
       "TEST-46"
     ],
     "cost": [
@@ -1326,6 +1335,7 @@
       "FIX-234",
       "FIX-236",
       "FIX-237",
+      "FIX-239",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -1595,6 +1605,7 @@
       "FIX-236",
       "FIX-237",
       "FIX-238",
+      "FIX-239",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1822,6 +1833,7 @@
       "FIX-229",
       "FIX-232",
       "FIX-237",
+      "FIX-239",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1871,6 +1883,7 @@
       "ISS-114",
       "ISS-115",
       "ISS-116",
+      "ISS-120",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -2016,7 +2029,8 @@
       "FIX-218",
       "FIX-219",
       "FIX-220",
-      "FIX-232"
+      "FIX-232",
+      "FIX-239"
     ],
     "backend/agents/execution_engine/fanout.py": [
       "FIX-232"
@@ -2240,6 +2254,9 @@
     "backend/app/api/agents.py": [
       "FIX-001"
     ],
+    "backend/app/api/analytics.py": [
+      "FIX-239"
+    ],
     "backend/app/api/chat_router.py": [
       "FIX-211"
     ],
@@ -2269,6 +2286,7 @@
       "FIX-213",
       "FIX-219",
       "FIX-233",
+      "FIX-239",
       "ISS-054",
       "ISS-055",
       "ISS-066"
@@ -2339,7 +2357,8 @@
       "ISS-087",
       "ISS-092",
       "ISS-100",
-      "ISS-101"
+      "ISS-101",
+      "ISS-120"
     ],
     "backend/docker-entrypoint.sh": [
       "ISS-104"
@@ -2356,7 +2375,8 @@
     "backend/tests/agents/characterization/_normalize.py": [
       "FIX-036",
       "FIX-220",
-      "FIX-223"
+      "FIX-223",
+      "FIX-239"
     ],
     "backend/tests/agents/characterization/golden/od_ppt.events.json": [
       "FIX-031"
@@ -2979,6 +2999,7 @@
       "FIX-116",
       "FIX-144",
       "FIX-145",
+      "FIX-239",
       "ISS-077"
     ],
     "frontend/src/lib/env.ts": [
@@ -3526,6 +3547,10 @@
     "ISS-119": [
       "FIX-238",
       "ISS-055"
+    ],
+    "ISS-120": [
+      "FIX-239",
+      "ISS-034"
     ]
   },
   "rules_by_file": {
